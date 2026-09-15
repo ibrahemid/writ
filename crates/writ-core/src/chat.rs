@@ -25,6 +25,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::ai::providers::Wire;
+
 /// The version of the Anthropic Messages API this module is written against.
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
@@ -62,18 +64,16 @@ impl Provider {
         }
     }
 
-    /// The keychain account a key for this provider is stored under.
+    /// The wire a provider row speaks, as this module names it.
     ///
-    /// Namespaced, because the rewrite path stores its key under a bare preset
-    /// id read from `config.toml` and nothing constrains what that id says. An
-    /// unprefixed account would let one hand-edited line point both surfaces
-    /// at one credential: the rewrite key row would read `Key set` for a key
-    /// entered in the chat row, and clearing one row would destroy the other's
-    /// key. No preset id carries the prefix, so no pair can meet.
-    pub fn key_account(self) -> &'static str {
-        match self {
-            Self::Anthropic => "chat:anthropic",
-            Self::OpenAiCompatible => "chat:openai_compatible",
+    /// The connection stores a provider id from
+    /// [`crate::ai::providers::PROVIDERS`], and the table says which wire that
+    /// row answers on. This is the one conversion, so a row added to the table
+    /// reaches both features without a second match arm anywhere.
+    pub fn from_wire(wire: Wire) -> Self {
+        match wire {
+            Wire::Anthropic => Self::Anthropic,
+            Wire::OpenAi => Self::OpenAiCompatible,
         }
     }
 }
@@ -551,28 +551,15 @@ mod tests {
     }
 
     #[test]
-    fn each_provider_keeps_its_own_key() {
-        assert_ne!(
-            Provider::Anthropic.key_account(),
-            Provider::OpenAiCompatible.key_account()
-        );
-    }
+    fn every_table_row_reaches_a_wire_this_module_speaks() {
+        use crate::ai::providers::PROVIDERS;
 
-    #[test]
-    fn a_chat_key_account_is_namespaced_away_from_every_rewrite_preset() {
-        // The rewrite path's account is a preset id straight out of
-        // `config.toml`, and a preset id is a bare word. The prefix is what
-        // keeps a hand-edited `preset = "anthropic"` off the chat pane's key.
-        for provider in [Provider::Anthropic, Provider::OpenAiCompatible] {
-            // The value stays out of the message. It is a static account name
-            // and nothing secret, but `cleartext-logging` follows anything
-            // `key_account` returns into a format string, and a public check
-            // is worth more than a failure message naming the account.
-            assert!(
-                provider.key_account().starts_with("chat:"),
-                "a chat key account is not namespaced"
-            );
-            assert_ne!(provider.key_account(), provider.as_str());
+        for row in PROVIDERS {
+            let provider = Provider::from_wire(row.wire);
+            match row.id {
+                "anthropic" => assert_eq!(provider, Provider::Anthropic),
+                _ => assert_eq!(provider, Provider::OpenAiCompatible, "row {}", row.id),
+            }
         }
     }
 

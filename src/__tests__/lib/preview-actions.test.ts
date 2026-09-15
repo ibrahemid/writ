@@ -33,7 +33,7 @@ function configWith(runScripts: boolean): WritConfig {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
-  ai: { enabled: false, preset: "ollama", base_url: "http://localhost:11434/v1", model: "", consented_hosts: [], chat: { enabled: false, provider: "openai_compatible", base_url: "http://localhost:11434/v1", model: "" } },
+  ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "" } },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {

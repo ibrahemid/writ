@@ -604,6 +604,7 @@ pub fn run() {
         .register_uri_scheme_protocol("writ-preview", preview::handler::serve)
         .manage(app_state)
         .manage(commands::ai::AiState::default())
+        .manage(commands::ai_connect::ConnectState::default())
         .manage(commands::chat::ChatState::default())
         .manage(commands::materialise::MaterialiseState::default())
         .invoke_handler(tauri::generate_handler![
@@ -722,6 +723,11 @@ pub fn run() {
             commands::ai::ai_has_api_key,
             commands::ai::ai_endpoint_state,
             commands::ai::ai_consent_host,
+            commands::ai::ai_providers,
+            commands::ai::ai_list_models,
+            commands::ai::ai_probe_local,
+            commands::ai_connect::ai_openrouter_connect,
+            commands::ai_connect::ai_openrouter_cancel,
             commands::chat::chat_state,
             commands::chat::chat_attached_sizes,
             commands::chat::chat_send,

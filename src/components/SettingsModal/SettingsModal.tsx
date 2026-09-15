@@ -18,7 +18,6 @@ import {
   INTERFACE_TEXT_MIN,
   INTERFACE_TEXT_MAX,
   clampInterfaceTextSize,
-  chatKeyAccount,
 } from "../../stores/global/config";
 import { inboxStore } from "../../stores/global/inbox";
 import { themeStore } from "../../stores/global/theme";
@@ -36,13 +35,17 @@ import {
   type AiKeyState,
   type AiEndpointState,
 } from "../../stores/global/ai-rewrite";
-import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-connection";
 import {
-  modelOptions,
-  defaultModelFor,
-  defaultChatModel,
-  resolveAutoModel,
-} from "../../stores/global/ai-models";
+  aiConnectionStore,
+  connectionDisplay,
+  modelListDisplay,
+  CHOOSE_A_MODEL,
+  type LocalProbe,
+  type ModelListError,
+} from "../../stores/global/ai-connection";
+import { aiProvidersStore, type AiProviderInfo } from "../../stores/global/ai-providers";
+import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
+import { linkStore } from "../../stores/global/link";
 import { notesStore } from "../../stores/global/notes";
 import type { NotesFallbackReason } from "../../stores/global/notes";
 import { NotesSyncNote } from "./NotesSyncNote";
@@ -53,7 +56,6 @@ import type { StorageInfo } from "../../stores/global/storage";
 import type {
   AccentId,
   AppearanceConfig,
-  ChatProvider,
   DefaultLayout,
   Polarity,
   ProseFaceId,
@@ -260,7 +262,13 @@ interface SettingsRowProps {
   id: string;
   label: string;
   labelFor?: string;
+  /** What the row does, in the label's slot and a neutral tone. */
+  description?: string;
+  /** What the row warns about, in the same slot. */
   caution?: string;
+  /** A control that belongs with the label rather than with the row's own
+   * control, such as the link to a provider's key page. */
+  labelAside?: JSX.Element;
   align?: "start";
   children: JSX.Element;
 }
@@ -280,6 +288,10 @@ function SettingsRow(props: SettingsRowProps) {
           fallback={
             <span class="settings-row-label">
               {props.label}
+              {props.labelAside}
+              <Show when={props.description}>
+                <span class="settings-row-description">{props.description}</span>
+              </Show>
               <Show when={props.caution}>
                 <span class="settings-row-caution">{props.caution}</span>
               </Show>
@@ -288,6 +300,10 @@ function SettingsRow(props: SettingsRowProps) {
         >
           <label class="settings-row-label" for={props.labelFor}>
             {props.label}
+            {props.labelAside}
+            <Show when={props.description}>
+              <span class="settings-row-description">{props.description}</span>
+            </Show>
             <Show when={props.caution}>
               <span class="settings-row-caution">{props.caution}</span>
             </Show>
@@ -829,64 +845,120 @@ function UpdatesSection() {
   );
 }
 
-const AI_PRESET_BASE_URLS: Record<string, string> = {
-  ollama: "http://localhost:11434/v1",
-  groq: "https://api.groq.com/openai/v1",
-  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
-  deepseek: "https://api.deepseek.com/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-  custom: "",
+/** Where a rewrite can be started, named for the description under its row:
+ * the status-bar chip, the editor's context menu and the palette commands. */
+const REWRITE_SURFACES =
+  "Adds a Rewrite button to the status bar, and rewrite actions to the right-click menu and the command palette.";
+
+const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
+
+/** The one-line help under a local runtime that did not answer its port. The
+ * probe cannot tell "installed but stopped" from "not installed", so each line
+ * states the fact it knows and, for Ollama, the link covers the other case. */
+const LOCAL_HELP: Record<string, string> = {
+  ollama: "Writ could not reach Ollama on port 11434.",
+  lmstudio: "Writ could not reach LM Studio on port 1234. Start its server in the Developer tab.",
 };
 
+/** One connection, then the two features that use it (ADR-040 section 1).
+ *
+ * Every row reads the provider table `writ-core` owns, so the base URL, the
+ * key page, the default model and the probe port are never spelled out here. */
 function AiSection() {
-  const search = useSearch();
   const cfg = () => configStore.config().ai;
   const [keyState, setKeyState] = createSignal<AiKeyState | null>(null);
   const [keyInput, setKeyInput] = createSignal("");
   const [keyBusy, setKeyBusy] = createSignal(false);
+  const [connecting, setConnecting] = createSignal(false);
+  const [probe, setProbe] = createSignal<LocalProbe | null>(null);
+  const [liveModels, setLiveModels] = createSignal<string[]>([]);
+  const [listError, setListError] = createSignal<ModelListError | null>(null);
   // The user has picked (or typed) the current model this session; guards the
   // Ollama auto-select from replacing a deliberate choice.
   const [userSelected, setUserSelected] = createSignal(false);
   // Free-text model entry is showing (chose "Custom…", or the model is not in
   // the offered list).
   const [customMode, setCustomMode] = createSignal(false);
+  // The chat is set to a model of its own. Opening the disclosure seeds it, so
+  // the select always shows the model chat would actually use.
+  const [chatModelOpen, setChatModelOpen] = createSignal(cfg().chat.model !== "");
 
-  // Only read key state once the feature is on, so a keychain access prompt is
-  // never triggered while the feature is off.
-  createEffect(() => {
-    if (!cfg().enabled) {
-      setKeyState(null);
-      return;
+  const provider = () => aiProvidersStore.byId(cfg().provider);
+  const isLocal = () => provider()?.group === "local";
+  const isCustom = () => cfg().provider === "custom";
+  const needsKey = () => provider()?.needs_key === true || (isCustom() && !isLocal());
+  const keyPageUrl = () => provider()?.key_page_url ?? null;
+
+  void aiProvidersStore.load();
+
+  /** Whether the selected local runtime answered. Unknown until the probe
+   * lands, which is what keeps the pill off a row that was never probed. */
+  const localRunning = (): boolean | null => {
+    const p = probe();
+    if (!p || !isLocal()) return null;
+    return cfg().provider === "ollama" ? p.ollama : p.lmstudio;
+  };
+
+  async function refreshProbe(): Promise<void> {
+    try {
+      setProbe(await aiConnectionStore.probeLocal());
+    } catch {
+      setProbe(null);
     }
-    const preset = cfg().preset;
+  }
+
+  async function refreshModels(): Promise<void> {
+    const result = await aiConnectionStore.listModels();
+    if ("models" in result) {
+      setLiveModels(result.models);
+      setListError(null);
+    } else {
+      setLiveModels([]);
+      setListError(result.error);
+    }
+  }
+
+  // The table, the probe and the model list, once the section can be seen and
+  // again whenever the provider changes. The probe answers both local rows at
+  // once, so the pill on either is one request.
+  createEffect(() => {
+    void cfg().provider;
+    void aiProvidersStore.load();
+    void refreshProbe();
+    void refreshModels();
+  });
+
+  // The key belongs to the provider, so reading it follows the provider.
+  createEffect(() => {
+    const id = cfg().provider;
     void aiRewriteStore
-      .hasApiKey(preset)
+      .hasApiKey(id)
       .then(setKeyState)
       .catch(() => setKeyState(null));
   });
 
-  // Probe the endpoint when the section opens and whenever the target changes,
-  // debounced so typing a URL does not fire a request per keystroke.
+  // Check the connection when the section opens and whenever the target
+  // changes, debounced so typing a URL does not fire a request per keystroke.
   createEffect(() => {
-    const c = cfg();
-    if (!c.enabled) {
-      aiConnectionStore.reset();
-      return;
-    }
     // Track the fields that define the target. `consented_hosts` is one of
-    // them: a hosted endpoint is not probed before consent, so granting it is
-    // what makes the next probe possible.
-    void c.preset;
-    void c.base_url;
-    void c.model;
-    void c.consented_hosts;
+    // them: a hosted endpoint is not reached before consent, so granting it is
+    // what makes the next check possible.
+    void cfg().provider;
+    void cfg().base_url;
+    void cfg().model;
+    void cfg().consented_hosts;
     aiConnectionStore.scheduleCheck();
   });
 
-  const connection = () => connectionDisplay(aiConnectionStore.status(), cfg().model);
+  const connection = () => {
+    const failed = listError();
+    if (failed && !aiConnectionStore.status()) {
+      return modelListDisplay(failed, endpointHost());
+    }
+    return connectionDisplay(aiConnectionStore.status(), cfg().model);
+  };
 
-  const liveModels = () => aiConnectionStore.status()?.models ?? [];
-  const modelOptionList = () => modelOptions(cfg().preset, liveModels());
+  const modelOptionList = () => modelOptions(cfg().provider, liveModels());
   const usingCurated = () => liveModels().length === 0;
   const modelSelectValue = () => {
     if (customMode()) return "__custom__";
@@ -898,9 +970,8 @@ function AiSection() {
   // Keep a working model without a setup decision: fill an empty one, and for a
   // local server that has just listed its models, switch off a not-installed id.
   createEffect(() => {
-    if (!cfg().enabled) return;
     const auto = resolveAutoModel({
-      preset: cfg().preset,
+      provider: cfg().provider,
       model: cfg().model,
       live: liveModels(),
       userSelected: userSelected(),
@@ -916,13 +987,9 @@ function AiSection() {
   const [endpoint, setEndpoint] = createSignal<AiEndpointState | null>(null);
 
   createEffect(() => {
-    if (!cfg().enabled) {
-      setEndpoint(null);
-      return;
-    }
     // Track the fields that change the answer.
     void cfg().base_url;
-    void cfg().preset;
+    void cfg().provider;
     void cfg().consented_hosts;
     void aiRewriteStore
       .endpointState()
@@ -930,32 +997,40 @@ function AiSection() {
       .catch(() => setEndpoint(null));
   });
 
-  // Hosted (non-local) and not yet consented to — shown for a preset switch or
-  // a hand-edited base URL alike.
-  const hostedUnconsented = () => {
+  const endpointHost = () => {
     const e = endpoint();
-    return Boolean(cfg().enabled && e?.is_allowed && e.is_hosted && !e.is_consented);
+    return e?.host_port ?? e?.host ?? "";
   };
 
-  function onEnableToggle() {
-    void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, enabled: !prev.ai.enabled } }));
-  }
+  // Hosted (non-local) and not yet consented to — shown for a provider switch
+  // or a hand-edited base URL alike.
+  const hostedUnconsented = () => {
+    const e = endpoint();
+    return Boolean(e?.is_allowed && e.is_hosted && !e.is_consented);
+  };
 
-  function onPresetChange(raw: string) {
-    const base = AI_PRESET_BASE_URLS[raw];
-    // A new provider is a fresh context: reset the selection guard and seed the
-    // default model (custom keeps its free-text value).
+  const showLocalLine = () => Boolean(isLocal() && endpointHost());
+
+  function seedProvider(row: AiProviderInfo | null, id: string) {
+    // A new provider is a fresh context: reset the selection guard, and seed
+    // the model the table names so the connection works without a decision.
     setUserSelected(false);
-    setCustomMode(raw === "custom");
+    setCustomMode(id === "custom");
+    setLiveModels([]);
+    setListError(null);
+    const seeded = row?.default_model || defaultModelFor(id);
     void patchConfig((prev) => ({
       ...prev,
       ai: {
         ...prev.ai,
-        preset: raw as typeof prev.ai.preset,
-        base_url: raw === "custom" ? prev.ai.base_url : base,
-        model: raw === "custom" ? prev.ai.model : defaultModelFor(raw),
+        provider: id,
+        model: id === "custom" ? prev.ai.model : seeded,
       },
     }));
+  }
+
+  function onProviderChange(raw: string) {
+    seedProvider(aiProvidersStore.byId(raw), raw);
   }
 
   function onBaseUrlChange(raw: string) {
@@ -977,12 +1052,30 @@ function AiSection() {
     void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: value } }));
   }
 
+  function patchChat(next: Partial<{ enabled: boolean; model: string }>) {
+    void patchConfig((prev) => ({
+      ...prev,
+      ai: { ...prev.ai, chat: { ...prev.ai.chat, ...next } },
+    }));
+  }
+
+  function onChatModelDisclosure() {
+    if (chatModelOpen()) {
+      setChatModelOpen(false);
+      patchChat({ model: "" });
+      return;
+    }
+    setChatModelOpen(true);
+    patchChat({ model: cfg().model || modelOptionList()[0] || "" });
+  }
+
   // Consent is recorded host-side: the command resolves the host itself and
   // persists it, so the stored value is exactly what the guard checks.
   async function onConsent() {
     try {
       setEndpoint(await aiRewriteStore.consentHost());
       await configStore.load();
+      await refreshModels();
     } catch {
       showToast("Could not record the choice", "error");
     }
@@ -993,9 +1086,10 @@ function AiSection() {
     if (!key || keyBusy()) return;
     setKeyBusy(true);
     try {
-      const state = await aiRewriteStore.setApiKey(cfg().preset, key);
+      const state = await aiRewriteStore.setApiKey(cfg().provider, key);
       setKeyState(state);
       setKeyInput("");
+      await refreshModels();
       if (state.memory_only) {
         showToast("Writ could not save your key, so you will enter it again next time", "info");
       }
@@ -1010,7 +1104,7 @@ function AiSection() {
     if (keyBusy()) return;
     setKeyBusy(true);
     try {
-      const state = await aiRewriteStore.clearApiKey(cfg().preset);
+      const state = await aiRewriteStore.clearApiKey(cfg().provider);
       setKeyState(state);
     } catch {
       showToast("Could not clear the API key", "error");
@@ -1019,36 +1113,82 @@ function AiSection() {
     }
   }
 
+  async function onConnect() {
+    if (connecting()) {
+      void aiConnectionStore.cancelOpenrouter();
+      return;
+    }
+    setConnecting(true);
+    try {
+      setKeyState(await aiConnectionStore.connectOpenrouter());
+      await refreshModels();
+    } catch (err) {
+      showToast(typeof err === "string" ? err : "The key exchange failed.", "error");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   return (
     <div data-section="ai">
       <SectionLabel section="ai" />
-      <SettingsRow id="ai.enabled" label="Rewrite selected text">
-        <ToggleSwitch
-          setting="ai_enabled"
-          label="Rewrite selected text"
-          checked={cfg().enabled}
-          onChange={onEnableToggle}
-        />
+
+      <SettingsRow
+        id="ai.provider"
+        label="Provider"
+        description="The service that runs the model."
+        labelFor="setting-ai-provider"
+      >
+        <span class="settings-provider-control">
+          <select
+            id="setting-ai-provider"
+            class="settings-select"
+            data-setting="ai_provider"
+            value={cfg().provider}
+            onChange={(e) => onProviderChange(e.currentTarget.value)}
+          >
+            <For each={aiProvidersStore.grouped()}>
+              {(group) => (
+                <optgroup label={group.label}>
+                  <For each={group.providers}>
+                    {(row) => <option value={row.id}>{row.label}</option>}
+                  </For>
+                </optgroup>
+              )}
+            </For>
+          </select>
+          <Show when={localRunning() !== null}>
+            <span class="settings-ai-pill" data-running={localRunning() ? "yes" : "no"}>
+              {localRunning() ? "Running" : "Not running"}
+            </span>
+          </Show>
+        </span>
       </SettingsRow>
 
-      <SettingsRow id="ai.preset" label="Provider" labelFor="setting-ai-preset">
-          <select
-            id="setting-ai-preset"
-            class="settings-select"
-            data-setting="ai_preset"
-            value={cfg().preset}
-            onChange={(e) => onPresetChange(e.currentTarget.value)}
-          >
-            <option value="ollama">Ollama (local)</option>
-            <option value="groq">Groq</option>
-            <option value="gemini">Gemini</option>
-            <option value="deepseek">DeepSeek</option>
-            <option value="openrouter">OpenRouter</option>
-            <option value="custom">Custom</option>
-          </select>
-        </SettingsRow>
+      <Show when={localRunning() === false}>
+        <div class="settings-ai-note">
+          {LOCAL_HELP[cfg().provider]}
+          <Show when={cfg().provider === "ollama"}>
+            {" "}
+            <button
+              type="button"
+              class="settings-ai-link"
+              data-action="get-ollama"
+              onClick={() => void linkStore.openExternal(OLLAMA_DOWNLOAD_URL)}
+            >
+              Get Ollama
+            </button>
+          </Show>
+        </div>
+      </Show>
 
-        <SettingsRow id="ai.base_url" label="Base URL" labelFor="setting-ai-base-url">
+      <Show when={isCustom()}>
+        <SettingsRow
+          id="ai.base_url"
+          label="Base URL"
+          description="Most servers expect /v1 at the end."
+          labelFor="setting-ai-base-url"
+        >
           <input
             id="setting-ai-base-url"
             type="text"
@@ -1056,73 +1196,50 @@ function AiSection() {
             data-setting="ai_base_url"
             spellcheck={false}
             autocomplete="off"
+            placeholder="https://api.example.com/v1"
             value={cfg().base_url}
             onChange={(e) => onBaseUrlChange(e.currentTarget.value)}
           />
         </SettingsRow>
+      </Show>
 
-        <Show when={hostedUnconsented()}>
-          <div class="settings-ai-consent" role="note">
-            <p class="settings-ai-consent-text">
-              Text you rewrite is sent to {endpoint()?.host} with your API key. Writ also sends the
-              key on its own to check the host is reachable; nothing else leaves your machine.
-            </p>
-            <Button
-              data-action="ai-consent"
-              onClick={() => void onConsent()}
-            >
-              Allow
-            </Button>
-          </div>
-        </Show>
+      <Show when={hostedUnconsented()}>
+        <div class="settings-ai-consent" role="note">
+          <p class="settings-ai-consent-text">
+            The notes you attach and the text you rewrite are sent to {endpointHost()} with your API
+            key. Writ also sends the key on its own to check the host is reachable; nothing else
+            leaves your machine.
+          </p>
+          <Button data-action="ai-consent" onClick={() => void onConsent()}>
+            Allow
+          </Button>
+        </div>
+      </Show>
 
-        <SettingsRow id="ai.model" label="Model" labelFor="setting-ai-model">
-          <Show
-            when={cfg().preset !== "custom"}
-            fallback={
-              <input
-                id="setting-ai-model"
-                type="text"
-                class="settings-input"
-                data-setting="ai_model"
-                spellcheck={false}
-                autocomplete="off"
-                placeholder="Model id"
-                value={cfg().model}
-                onChange={(e) => onModelText(e.currentTarget.value)}
-              />
-            }
-          >
-            <div class="settings-model-picker">
-              <select
-                id="setting-ai-model"
-                class="settings-select"
-                data-setting="ai_model"
-                value={modelSelectValue()}
-                onChange={(e) => onSelectModel(e.currentTarget.value)}
+      <Show when={showLocalLine()}>
+        <div class="settings-ai-note" data-note="local-endpoint">
+          Requests go to {endpointHost()} on this machine. Nothing leaves it.
+        </div>
+      </Show>
+
+      <Show when={needsKey()}>
+        <SettingsRow
+          id="ai.api_key"
+          label="API key"
+          description="Kept in your system keychain."
+          labelAside={
+            <Show when={keyPageUrl()}>
+              <button
+                type="button"
+                class="settings-ai-link"
+                data-action="ai-key-page"
+                onClick={() => void linkStore.openExternal(keyPageUrl()!)}
               >
-                <For each={modelOptionList()}>
-                  {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
-                </For>
-                <option value="__custom__">Custom…</option>
-              </select>
-              <Show when={showModelInput()}>
-                <input
-                  type="text"
-                  class="settings-input"
-                  data-setting="ai_model_custom"
-                  spellcheck={false}
-                  autocomplete="off"
-                  placeholder="Model id"
-                  value={cfg().model}
-                  onChange={(e) => onModelText(e.currentTarget.value)}
-                />
-              </Show>
-            </div>
-          </Show>
-        </SettingsRow>
-
-        <SettingsRow id="ai.api_key" label="API key">
+                Get a key
+              </button>
+            </Show>
+          }
+        >
           <span class="settings-inbox-controls">
             <input
               type="password"
@@ -1150,21 +1267,70 @@ function AiSection() {
                 Clear
               </Button>
             </Show>
+            <Show when={provider()?.supports_connect}>
+              <Button data-action="ai-connect" onClick={() => void onConnect()}>
+                {connecting() ? "Cancel" : "Connect"}
+              </Button>
+            </Show>
           </span>
         </SettingsRow>
-        <Show when={keyState()?.is_set && keyState()?.memory_only}>
-          <div class="settings-ai-note">
-            Your key is not saved. You will enter it again next time you open Writ.
-          </div>
-        </Show>
+      </Show>
+      <Show when={keyState()?.is_set && keyState()?.memory_only}>
+        <div class="settings-ai-note">
+          Your key is not saved. You will enter it again next time you open Writ.
+        </div>
+      </Show>
 
-        <AiChatRows />
+      <SettingsRow
+        id="ai.model"
+        label="Model"
+        description="Used for rewriting and chat."
+        labelFor="setting-ai-model"
+      >
+        <div class="settings-model-picker">
+          <select
+            id="setting-ai-model"
+            class="settings-select"
+            data-setting="ai_model"
+            value={modelSelectValue()}
+            onChange={(e) => onSelectModel(e.currentTarget.value)}
+          >
+            <For each={modelOptionList()}>
+              {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
+            </For>
+            <option value="__custom__">Custom…</option>
+          </select>
+          <Show when={showModelInput()}>
+            <input
+              type="text"
+              class="settings-input"
+              data-setting="ai_model_custom"
+              spellcheck={false}
+              autocomplete="off"
+              placeholder="Model id"
+              value={cfg().model}
+              onChange={(e) => onModelText(e.currentTarget.value)}
+            />
+          </Show>
+        </div>
+      </SettingsRow>
+      <Show when={keyState()?.is_set && !cfg().model.trim()}>
+        <div class="settings-ai-note" data-note="choose-a-model">
+          {CHOOSE_A_MODEL}
+        </div>
+      </Show>
 
-        {/* Not a setting row, so it opts into the search filter by hand: while
-            searching it shows only when its own section does. */}
-        <Show when={search.sectionVisible("ai")}>
-        <div class="settings-ai-connection">
-          <span class="settings-ai-connection-status" data-tone={connection().tone} aria-live="polite">
+      <SettingsRow
+        id="ai.connection"
+        label="Connection"
+        description="Asks the server for its model list."
+      >
+        <span class="settings-ai-connection">
+          <span
+            class="settings-ai-connection-status"
+            data-tone={connection().tone}
+            aria-live="polite"
+          >
             {connection().text}
           </span>
           <Button
@@ -1172,165 +1338,77 @@ function AiSection() {
             disabled={aiConnectionStore.checking()}
             onClick={() => void aiConnectionStore.check()}
           >
-            {aiConnectionStore.checking() ? "Checking…" : "Re-check"}
+            {aiConnectionStore.checking() ? "Checking…" : "Check"}
           </Button>
-        </div>
-        </Show>
+        </span>
+      </SettingsRow>
 
+      <div class="settings-group">
+        <SettingsRow
+          id="ai.rewrite.enabled"
+          label="Rewrite selected text"
+          description={REWRITE_SURFACES}
+        >
+          <ToggleSwitch
+            setting="ai_rewrite_enabled"
+            label="Rewrite selected text"
+            checked={cfg().rewrite.enabled}
+            onChange={() => patchRewrite(!cfg().rewrite.enabled)}
+          />
+        </SettingsRow>
+      </div>
+
+      <div class="settings-group">
+        <SettingsRow
+          id="ai.chat.enabled"
+          label="Chat about your notes"
+          description="A pane where you attach notes and the model can offer changes you apply."
+        >
+          <ToggleSwitch
+            setting="ai_chat_enabled"
+            label="Chat about your notes"
+            checked={cfg().chat.enabled}
+            onChange={() => patchChat({ enabled: !cfg().chat.enabled })}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          id="ai.chat.model"
+          label="Use a different model for chat"
+          description="Off means chat uses the model above."
+        >
+          <span class="settings-model-picker">
+            <ToggleSwitch
+              setting="ai_chat_model_disclosure"
+              label="Use a different model for chat"
+              checked={chatModelOpen()}
+              onChange={onChatModelDisclosure}
+            />
+            <Show when={chatModelOpen()}>
+              <select
+                class="settings-select"
+                data-setting="ai_chat_model"
+                aria-label="Chat model"
+                value={cfg().chat.model}
+                onChange={(e) => patchChat({ model: e.currentTarget.value })}
+              >
+                <For each={modelOptionList()}>
+                  {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
+                </For>
+              </select>
+            </Show>
+          </span>
+        </SettingsRow>
+      </div>
     </div>
   );
 }
 
-const CHAT_PROVIDER_BASE_URLS: Record<string, string> = {
-  openai_compatible: "http://localhost:11434/v1",
-  anthropic: "https://api.anthropic.com",
-};
-
-/** The chat pane's own switch, endpoint, model and key.
- *
- * Its own endpoint because the model a person talks to is not always the one
- * that proofreads a paragraph, and its own key because the account a key is
- * stored under is the provider's. Consent is not its own: a host allowed here
- * is the same record the rewrite path reads. */
-function AiChatRows() {
-  const cfg = () => configStore.config().ai.chat;
-  const [keyState, setKeyState] = createSignal<AiKeyState | null>(null);
-  const [keyInput, setKeyInput] = createSignal("");
-  const [keyBusy, setKeyBusy] = createSignal(false);
-
-  createEffect(() => {
-    const account = chatKeyAccount(cfg().provider);
-    if (!cfg().enabled) return;
-    void aiRewriteStore
-      .hasApiKey(account)
-      .then(setKeyState)
-      .catch(() => setKeyState(null));
-  });
-
-  function patchChat(next: Partial<ReturnType<typeof cfg>>) {
-    void patchConfig((prev) => ({
-      ...prev,
-      ai: { ...prev.ai, chat: { ...prev.ai.chat, ...next } },
-    }));
-  }
-
-  function onProviderChange(raw: string) {
-    patchChat({
-      provider: raw as ChatProvider,
-      base_url: CHAT_PROVIDER_BASE_URLS[raw] ?? cfg().base_url,
-      model: defaultChatModel(raw),
-    });
-  }
-
-  async function onSetKey() {
-    const key = keyInput();
-    if (!key || keyBusy()) return;
-    setKeyBusy(true);
-    try {
-      const state = await aiRewriteStore.setApiKey(chatKeyAccount(cfg().provider), key);
-      setKeyState(state);
-      setKeyInput("");
-      if (state.memory_only) {
-        showToast("Writ could not save your key, so you will enter it again next time", "info");
-      }
-    } catch {
-      showToast("Could not save the API key", "error");
-    } finally {
-      setKeyBusy(false);
-    }
-  }
-
-  async function onClearKey() {
-    if (keyBusy()) return;
-    setKeyBusy(true);
-    try {
-      setKeyState(await aiRewriteStore.clearApiKey(chatKeyAccount(cfg().provider)));
-    } catch {
-      showToast("Could not clear the API key", "error");
-    } finally {
-      setKeyBusy(false);
-    }
-  }
-
-  return (
-    <>
-      <SettingsRow id="ai.chat_enabled" label="Chat about the notes you attach">
-        <ToggleSwitch
-          setting="ai_chat_enabled"
-          label="Chat about the notes you attach"
-          checked={cfg().enabled}
-          onChange={() => patchChat({ enabled: !cfg().enabled })}
-        />
-      </SettingsRow>
-
-      <SettingsRow id="ai.chat_provider" label="Chat provider" labelFor="setting-chat-provider">
-        <select
-          id="setting-chat-provider"
-          class="settings-select"
-          data-setting="ai_chat_provider"
-          value={cfg().provider}
-          onChange={(e) => onProviderChange(e.currentTarget.value)}
-        >
-          <option value="openai_compatible">Ollama or another OpenAI-compatible server</option>
-          <option value="anthropic">Anthropic</option>
-        </select>
-      </SettingsRow>
-
-      <SettingsRow id="ai.chat_base_url" label="Chat base URL" labelFor="setting-chat-base-url">
-        <input
-          id="setting-chat-base-url"
-          type="text"
-          class="settings-input"
-          data-setting="ai_chat_base_url"
-          spellcheck={false}
-          autocomplete="off"
-          value={cfg().base_url}
-          onChange={(e) => patchChat({ base_url: e.currentTarget.value.trim() })}
-        />
-      </SettingsRow>
-
-      <SettingsRow id="ai.chat_model" label="Chat model" labelFor="setting-chat-model">
-        <input
-          id="setting-chat-model"
-          type="text"
-          class="settings-input"
-          data-setting="ai_chat_model"
-          spellcheck={false}
-          autocomplete="off"
-          placeholder="Model id"
-          value={cfg().model}
-          onChange={(e) => patchChat({ model: e.currentTarget.value.trim() })}
-        />
-      </SettingsRow>
-
-      <SettingsRow id="ai.chat_api_key" label="Chat API key">
-        <span class="settings-inbox-controls">
-          <input
-            type="password"
-            class="settings-input"
-            data-setting="ai_chat_api_key"
-            spellcheck={false}
-            autocomplete="off"
-            placeholder={keyState()?.is_set ? "Key set" : "Not set"}
-            value={keyInput()}
-            onInput={(e) => setKeyInput(e.currentTarget.value)}
-          />
-          <Button
-            data-action="chat-set-key"
-            disabled={keyBusy() || keyInput().length === 0}
-            onClick={() => void onSetKey()}
-          >
-            Save
-          </Button>
-          <Show when={keyState()?.is_set}>
-            <Button data-action="chat-clear-key" disabled={keyBusy()} onClick={() => void onClearKey()}>
-              Clear
-            </Button>
-          </Show>
-        </span>
-      </SettingsRow>
-    </>
-  );
+function patchRewrite(enabled: boolean) {
+  void patchConfig((prev) => ({
+    ...prev,
+    ai: { ...prev.ai, rewrite: { ...prev.ai.rewrite, enabled } },
+  }));
 }
 
 const POLARITY_OPTIONS: { id: Polarity; label: string }[] = [

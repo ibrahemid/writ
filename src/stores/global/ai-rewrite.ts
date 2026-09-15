@@ -213,9 +213,9 @@ function createAiRewriteStore() {
     onDocChanged,
     apply,
     discard,
-    hasApiKey: (preset: string): Promise<AiKeyState> => aiHasApiKey(preset),
-    setApiKey: (preset: string, key: string): Promise<AiKeyState> => aiSetApiKey(preset, key),
-    clearApiKey: (preset: string): Promise<AiKeyState> => aiClearApiKey(preset),
+    hasApiKey: (provider: string): Promise<AiKeyState> => aiHasApiKey(provider),
+    setApiKey: (provider: string, key: string): Promise<AiKeyState> => aiSetApiKey(provider, key),
+    clearApiKey: (provider: string): Promise<AiKeyState> => aiClearApiKey(provider),
     /** Where the configured endpoint points and what it still needs. */
     endpointState: (): Promise<AiEndpointState> => aiEndpointState(),
     /** Records the send notice for the configured host, host-side. */

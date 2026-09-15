@@ -920,7 +920,7 @@ function AppShell() {
 
   // Rewrite commands exist in the palette only while the feature is on.
   createEffect(() => {
-    if (configStore.config().ai.enabled) registerAiCommands();
+    if (configStore.config().ai.rewrite.enabled) registerAiCommands();
     else unregisterAiCommands();
   });
 

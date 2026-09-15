@@ -10,6 +10,9 @@ makes the file on disk the only copy of the text. ADR-028's follow-on line names
 [ADR-006](./006-plugin-runtime-v1.md) is not superseded; the internal host API is recorded
 separately in ADR-032.
 
+Amended by [ADR-040](./040-one-ai-connection-and-a-chat-that-persists.md) in rules 2.1, 2.4, 2.7,
+5.2 and 7.1.
+
 The rule numbers below are the contract the units that build the harness are reviewed against.
 Each rule names either the code that already satisfies it or the unit that will. Rules 3.1, 3.6,
 4.1 and 4.2 are the premises the rest are argued from rather than work an implementer does, so they
@@ -77,7 +80,9 @@ removing a loaded preview iframe freezes the macOS webview (U7).
 user configured, reached from the rewrite stream (`src-tauri/src/commands/ai.rs:547`, sent at
 `:552`) and from the reachability probe (`:853`, sent at `:858`); and the update endpoint, reached
 from `updater.check()` (`src-tauri/src/commands/update.rs:200`) and from the install download
-(`:108`), both built by `build_updater:266`. Adding a third destination is an ADR, not a patch.
+(`:108`), both built by `build_updater:266`. Adding a third destination is an ADR, not a patch. The
+model-list request, the reachability check and the OpenRouter code exchange are requests to the AI
+host the user configured, and are not new destinations.
 
 2.2. The probe counts as a send. It carries the API key (`ai.rs:13-15`), so it is gated by consent
 exactly as a rewrite is, and the shipped dialog says so in the copy the user reads
@@ -90,8 +95,11 @@ business and that program's own consent prompt, not Writ's (U4).
 2.4. The server is a stdio process the client starts, not something the app hosts and not a
 listener. A GUI process has no client stdio to attach to, so shipping the server with the app means
 shipping the `writ` binary and showing the exact command to paste into the client's configuration
-(`crates/writ-cli/src/main.rs:138`, U4 for the subcommand, U5 for the settings row). Writ opens no
-port, and a check that it opens none is in the threat-model checklist.
+(`crates/writ-cli/src/main.rs:138`, U4 for the subcommand, U5 for the settings row). Writ listens on
+no port at rest. The one listener it ever opens is the OAuth loopback receiver of ADR-040 section
+6, bound to `127.0.0.1` on an ephemeral port for the duration of one Connect flow the user started;
+it accepts one request and closes. The threat-model check is that no port is open at rest and none
+after a completed or abandoned Connect.
 
 2.5. The chat pane assembles its request from the notes the user attached and nothing else. No
 folder sweep, no index dump, no silent inclusion of neighbouring notes. The pane shows which notes
@@ -100,6 +108,12 @@ are attached, and attaching one is a user action (U7).
 2.6. An endpoint that is not local and not `https` is refused before any bytes leave, by
 `polish::is_endpoint_allowed:223` against the parsed host, including for a hand-edited
 `config.toml`. The chat pane reuses that guard rather than adding a second one (U7).
+
+2.7. A request to a loopback address that carries no credential and no note text is not a
+destination under rule 2.1, because nothing leaves the machine. The two local runtime probes of
+ADR-040 section 4 are the only such requests: they carry no credential, no note text and no header
+beyond what the HTTP client adds to every request (host, accept, an empty user agent), and a probe
+that carried a key would be a send under rule 2.2.
 
 ### 3. A client is untrusted input
 
@@ -172,7 +186,9 @@ this rule is enforced by the type rather than by review.
 activity log, a `tracing` line, or an error string shown to the user. Lengths, hashes, paths, tool
 names, client names and status codes are the loggable set. The rewrite path already holds this line
 (`ai.rs:21-22`), and the updater already redacts URLs from its errors
-(`sanitize_update_error`, `src-tauri/src/commands/update.rs:293`).
+(`sanitize_update_error`, `src-tauri/src/commands/update.rs:293`). The conversation store of
+ADR-040 section 8, under `<writ_dir>/chats/`, is the one place prompt text and reply text persist.
+It holds no API key and no attached note text.
 
 5.3. Errors shown to the user name hosts, paths and status codes only, the way
 `sanitize_update_error` (`src-tauri/src/commands/update.rs:293`) already redacts an updater error
@@ -210,9 +226,9 @@ provider never covers another, which is the shipped behaviour the config comment
 
 ### 7. Everything is off by default
 
-7.1. `ai.enabled` is `false` (`crates/writ-core/src/config/ai.rs:12`), `mcp.enabled` is `false`
-(U4), and `ai.chat.enabled` is `false` (U7). A fresh configuration reaches no network and answers
-no client.
+7.1. `ai.rewrite.enabled` is `false` (`crates/writ-core/src/config/ai.rs:12`), `mcp.enabled` is
+`false` (U4), and `ai.chat.enabled` is `false` (U7). A fresh configuration reaches no network and
+answers no client.
 
 7.2. With `mcp.enabled` false, every tool returns `NotApproved`. Turning it on does not approve a
 client; rule 3.2 still applies to the first call from each one (U4, U5).

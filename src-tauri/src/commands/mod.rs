@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod ai;
+pub mod ai_connect;
 pub mod buffer;
 pub mod chat;
 pub mod cli;

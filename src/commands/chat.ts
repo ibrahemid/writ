@@ -55,7 +55,7 @@ export async function clearBlockersBeforeSending(
       message: "Turn it on in AI settings.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.chat_enabled");
+    if (open) openSettings("ai", "ai.chat.enabled");
     return false;
   }
 
@@ -65,17 +65,17 @@ export async function clearBlockersBeforeSending(
       message: "Use https, or http only for a server on this machine.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.chat_base_url");
+    if (open) openSettings("ai", "ai.provider");
     return false;
   }
 
   if (!endpoint.model.trim()) {
     const open = await requestConfirm({
-      title: "Choose a chat model",
+      title: "Choose a model",
       message: "No model is set.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.chat_model");
+    if (open) openSettings("ai", "ai.model");
     return false;
   }
 
@@ -87,7 +87,7 @@ export async function clearBlockersBeforeSending(
     });
     if (!confirmed) return false;
     try {
-      await aiConsentHost("chat");
+      await aiConsentHost();
       endpoint = await chatStore.endpointState();
     } catch {
       showToast("Could not record the choice.", "error");
@@ -101,7 +101,7 @@ export async function clearBlockersBeforeSending(
       message: "The key is kept in your keychain, never in config.toml.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.chat_api_key");
+    if (open) openSettings("ai", "ai.api_key");
     return false;
   }
 

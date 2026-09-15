@@ -130,7 +130,7 @@ describe("the blockers before a send", () => {
       .mockResolvedValueOnce(endpoint({ is_consented: true }));
 
     expect(await clearBlockersBeforeSending(NOTES)).toBe(true);
-    expect(mocks.consentHost).toHaveBeenCalledWith("chat");
+    expect(mocks.consentHost).toHaveBeenCalledWith();
     const asked = mocks.requestConfirm.mock.calls[0][0];
     expect(asked.title).toBe("Send notes to api.example.com?");
     expect(asked.message).toContain("2 notes");
@@ -148,19 +148,19 @@ describe("the blockers before a send", () => {
   it("stops on a switch that is off", async () => {
     mocks.endpointState.mockResolvedValue(endpoint({ enabled: false }));
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.chat_enabled");
+    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.chat.enabled");
   });
 
   it("stops on a base URL the guard refuses", async () => {
     mocks.endpointState.mockResolvedValue(endpoint({ is_allowed: false }));
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.chat_base_url");
+    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.provider");
   });
 
   it("stops when no model is set", async () => {
     mocks.endpointState.mockResolvedValue(endpoint({ model: "  " }));
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.chat_model");
+    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.model");
   });
 
   it("stops when a hosted endpoint has no key", async () => {
@@ -168,7 +168,7 @@ describe("the blockers before a send", () => {
       endpoint({ key_state: { is_set: false, memory_only: false } }),
     );
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.chat_api_key");
+    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.api_key");
   });
 
   it("asks nothing of a local endpoint", async () => {

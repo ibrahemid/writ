@@ -30,27 +30,32 @@ export interface UpdaterConfig {
   auto_check: boolean;
 }
 
-/** A rewrite preset id, which is also the keychain account its key is stored
- * under. The rewrite path speaks `chat/completions` only. */
-export type AiPreset = "ollama" | "groq" | "gemini" | "deepseek" | "openrouter" | "custom";
+/** Which wire format a provider speaks. */
+export type AiWire = "openai" | "anthropic";
 
-/** Which wire format the chat endpoint speaks. */
-export type ChatProvider = "anthropic" | "openai_compatible";
+/** The rewrite feature's switch (`[ai.rewrite]`). */
+export interface AiRewriteConfig {
+  enabled: boolean;
+}
 
-/** The chat pane's own switch, endpoint and model (`[ai.chat]`). */
+/** The chat feature's switch and its optional own model (`[ai.chat]`). An
+ * empty `model` means the connection's model. */
 export interface AiChatConfig {
   enabled: boolean;
-  provider: ChatProvider;
-  base_url: string;
   model: string;
 }
 
+/** One connection, serving rewriting and chat (ADR-040 section 1).
+ *
+ * `provider` is an id from the table `ai_providers` serialises, and also the
+ * keychain account its key is stored under. `base_url` is read only when
+ * `provider` is `custom`; every other row carries its own. */
 export interface AiConfig {
-  enabled: boolean;
-  preset: AiPreset;
+  provider: string;
   base_url: string;
   model: string;
   consented_hosts: string[];
+  rewrite: AiRewriteConfig;
   chat: AiChatConfig;
 }
 

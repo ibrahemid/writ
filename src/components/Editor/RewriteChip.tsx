@@ -14,7 +14,7 @@ import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-con
 export default function RewriteChip() {
   let ref: HTMLButtonElement | undefined;
 
-  const visible = () => configStore.config().ai.enabled;
+  const visible = () => configStore.config().ai.rewrite.enabled;
 
   function openMenu() {
     if (!ref) return;
@@ -33,7 +33,7 @@ export default function RewriteChip() {
           disabled: !hasBuffer,
         })),
         { label: conn.text, action: () => {}, disabled: true, separator: true },
-        { label: "AI settings", action: () => openSettings("ai", "ai.enabled") },
+        { label: "AI settings", action: () => openSettings("ai", "ai.rewrite.enabled") },
       ],
       ref,
     );
