@@ -66,6 +66,9 @@ const MISSING_CONVERSATION: &str = "This chat no longer exists.";
 /// (ADR-040 section 8).
 const CONVERSATION_FULL: &str = "This chat is full. Start a new chat to continue.";
 
+/// What a second send says while the reply to the first is still streaming.
+const REPLY_IN_FLIGHT: &str = "A reply is still arriving.";
+
 /// Session-scoped state for the pane: the cancel flag of each live stream,
 /// keyed by the conversation the frontend named.
 #[derive(Default)]
@@ -102,6 +105,15 @@ impl ChatState {
     pub fn finish(&self, conversation_id: &str) {
         let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::finish");
         tasks.remove(conversation_id);
+    }
+
+    /// Whether a reply is arriving for that conversation.
+    ///
+    /// True from the moment a send registers it until its task has ended,
+    /// a stop included: what a stop asks for is the end of the stream, and the
+    /// reply is still being written to the file until it comes.
+    pub fn is_live(&self, conversation_id: &str) -> bool {
+        recover_poison(self.tasks.lock(), "commands::chat::is_live").contains_key(conversation_id)
     }
 
     /// How many conversations are live.
@@ -1138,6 +1150,12 @@ pub async fn chat_send(
     if text.trim().is_empty() {
         return Err(ChatError::EmptyMessage.to_string());
     }
+    // Two streams on one conversation are two tasks appending to one file,
+    // and the second send would take the cancel flag the pane needs to stop
+    // the first. Nothing is read or written before this.
+    if app.state::<ChatState>().is_live(&conversation_id) {
+        return Err(REPLY_IN_FLIGHT.to_string());
+    }
 
     let store = chat_store(&app);
     let mut conversation = store.load(&conversation_id).map_err(missing_or)?;
@@ -1301,6 +1319,30 @@ fn announce_activity(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What `chat_send` asks before it appends a turn: a conversation whose
+    /// reply is still arriving takes no second send, because two streams on
+    /// one id are two tasks saving over each other's file and one cancel flag
+    /// the pane can no longer reach.
+    #[test]
+    fn a_conversation_is_live_from_the_send_until_the_stream_ends() {
+        let state = ChatState::default();
+        let id = "0b7d6b7a-1111-4b6a-9d5e-000000000001";
+
+        assert!(!state.is_live(id));
+        let cancel = state.begin(id);
+        assert!(state.is_live(id));
+        assert!(!state.is_live("0b7d6b7a-2222-4b6a-9d5e-000000000002"));
+
+        // A stop asks the task to end; the reply is still arriving until it
+        // has, so the conversation stays live until the task says so.
+        assert!(state.cancel(id));
+        assert!(cancel.load(Ordering::Relaxed));
+        assert!(state.is_live(id));
+
+        state.finish(id);
+        assert!(!state.is_live(id));
+    }
 
     /// A connection pointed at a hand-typed endpoint, with the pane switched
     /// on or off. `custom` is the row whose base URL is read from the file, so
