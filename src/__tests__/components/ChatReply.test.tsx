@@ -103,6 +103,19 @@ describe("a rendered reply", () => {
     expect(mocks.openExternalUrl).not.toHaveBeenCalled();
   });
 
+  it("puts a table in a box of its own so a wide one scrolls", () => {
+    const { container } = render(() => (
+      <ChatTurn
+        message={reply("<table><tbody><tr><td>a column</td></tr></tbody></table>")}
+        thinking={false}
+      />
+    ));
+
+    const table = container.querySelector("table") as HTMLElement;
+    expect(table.parentElement?.className).toBe("chat-reply-table");
+    expect(container.querySelectorAll(".chat-reply-table")).toHaveLength(1);
+  });
+
   it("shows a waiting reply as a thinking line", () => {
     const { container } = render(() => <ChatTurn message={reply("")} thinking={true} />);
     expect(container.querySelector(".chat-thinking")?.textContent).toContain("Thinking");

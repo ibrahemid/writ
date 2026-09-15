@@ -376,10 +376,15 @@
   background: var(--writ-bg-sunken);
 }
 
+.chat-reply-table {
+  margin: 0 0 var(--writ-space-2);
+  overflow-x: auto;
+}
+
 .chat-reply table {
   width: 100%;
+  margin: 0;
   border-collapse: collapse;
-  margin: 0 0 var(--writ-space-2);
   font-size: var(--writ-ui-sm);
 }
 

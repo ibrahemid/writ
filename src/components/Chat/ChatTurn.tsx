@@ -45,6 +45,14 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
       button.textContent = "Copy";
       block.append(button);
     }
+    // A table sets its own width from its content, which beats the column's,
+    // so it scrolls in a box of its own rather than widening the pane.
+    for (const table of Array.from(el.querySelectorAll("table"))) {
+      const box = document.createElement("div");
+      box.className = "chat-reply-table";
+      table.replaceWith(box);
+      box.append(table);
+    }
   });
 
   // One handler for the whole fragment, so replacing its HTML leaves no
