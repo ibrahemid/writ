@@ -451,6 +451,19 @@ describe("what the send carries", () => {
   });
 });
 
+describe("a second Send in the same breath", () => {
+  // The send reads the attached notes off disk before the status says the pane
+  // is busy, so the busy check alone leaves a window open.
+  it("sends once when two Sends land before the first is busy", async () => {
+    mocks.chatNew.mockResolvedValue(conversation("c1"));
+    chatStore.setDraft("what does it argue");
+
+    await Promise.all([chatStore.send(), chatStore.send()]);
+
+    expect(mocks.chatSend).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("the turns on screen", () => {
   it("keeps the object of a turn a frame did not change", async () => {
     mocks.chatNew.mockResolvedValue(conversation("c1"));
