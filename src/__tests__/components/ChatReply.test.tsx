@@ -90,6 +90,40 @@ describe("a rendered reply", () => {
     expect(mocks.openExternalUrl).toHaveBeenCalledWith("https://writ.md/docs");
   });
 
+  // The renderer keeps http, https and mailto and drops the rest, so the pane
+  // opens the same three and nothing else.
+  it("opens a mailto link outside as well", () => {
+    const { container } = render(() => (
+      <ChatTurn
+        message={reply('<p><a href="mailto:x@example.com">the maintainer</a></p>')}
+        thinking={false}
+      />
+    ));
+
+    const link = container.querySelector("a") as HTMLAnchorElement;
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(mocks.openExternalUrl).toHaveBeenCalledWith("mailto:x@example.com");
+  });
+
+  it("does nothing for a script link", () => {
+    const { container } = render(() => (
+      <ChatTurn
+        message={reply('<p><a href="javascript:alert(1)">a trick</a></p>')}
+        thinking={false}
+      />
+    ));
+
+    const link = container.querySelector("a") as HTMLAnchorElement;
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(mocks.openExternalUrl).not.toHaveBeenCalled();
+  });
+
   it("does nothing for a link that is not http", () => {
     const { container } = render(() => (
       <ChatTurn message={reply('<p><a href="file:///etc/passwd">a file</a></p>')} thinking={false} />

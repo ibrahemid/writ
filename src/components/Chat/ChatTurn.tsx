@@ -8,8 +8,11 @@ import { chatStore, noteName, type Message } from "../../stores/global/chat";
 /** How long a copy button reads "Copied" before going back to its label. */
 const COPIED_MS = 1200;
 
+/** The schemes the renderer keeps in an untrusted reply (`WEB_SCHEMES` in
+ * `writ-render`), which are the same three Writ's external path opens. A link
+ * of any other scheme was already dropped, and a click on one does nothing. */
 function isExternal(href: string): boolean {
-  return /^https?:\/\//i.test(href);
+  return /^(https?|mailto):/i.test(href);
 }
 
 /**
@@ -72,9 +75,9 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
 
     const link = target.closest<HTMLAnchorElement>("a[href]");
     if (!link) return;
-    // A reply is model output, so a click never navigates the window. An
-    // http(s) target opens where every other external link opens, and
-    // anything else does nothing.
+    // A reply is model output, so a click never navigates the window. A web
+    // target opens where every other external link opens, and anything else
+    // does nothing.
     event.preventDefault();
     const href = link.getAttribute("href") ?? "";
     if (isExternal(href)) void linkStore.openExternal(href);
