@@ -180,3 +180,89 @@ fn the_two_variants_agree_on_everything_but_the_untrusted_parts() {
     assert!(untrusted.html.contains("raw"));
     assert!(untrusted.html.contains("block"));
 }
+
+#[test]
+fn a_link_the_pane_cannot_open_keeps_its_text_and_loses_its_anchor() {
+    for (destination, gone) in [
+        ("javascript:alert(1)", "javascript:"),
+        ("data:text/html;base64,PHNjcmlwdD4=", "data:"),
+        ("file:///etc/passwd", "file:"),
+        ("../Launch.md", "../Launch.md"),
+    ] {
+        let fragment =
+            render_markdown_fragment_untrusted(&format!("read [the note]({destination}) now"));
+        assert!(!fragment.html.contains("<a "), "{}", fragment.html);
+        assert!(!fragment.html.contains(gone), "{}", fragment.html);
+        assert!(fragment.html.contains("the note"), "{}", fragment.html);
+        assert!(fragment.html.contains("now"), "{}", fragment.html);
+    }
+}
+
+#[test]
+fn a_web_link_and_a_mailto_are_kept() {
+    let fragment = render_markdown_fragment_untrusted(
+        "[one](https://example.com/a) [two](http://example.com/b) \
+         [three](mailto:someone@example.com) <https://example.com/c>",
+    );
+    assert!(
+        fragment.html.contains("href=\"https://example.com/a\""),
+        "{}",
+        fragment.html
+    );
+    assert!(
+        fragment.html.contains("href=\"http://example.com/b\""),
+        "{}",
+        fragment.html
+    );
+    assert!(
+        fragment
+            .html
+            .contains("href=\"mailto:someone@example.com\""),
+        "{}",
+        fragment.html
+    );
+    assert!(
+        fragment.html.contains("href=\"https://example.com/c\""),
+        "{}",
+        fragment.html
+    );
+}
+
+#[test]
+fn an_image_is_its_alt_text_and_fetches_nothing() {
+    let fragment = render_markdown_fragment_untrusted(
+        "before ![a beacon](https://evil.example/beacon.png) after\n\n\
+         ![inline](data:image/svg+xml;base64,PHN2Zz4=)\n",
+    );
+    assert!(!fragment.html.contains("<img"), "{}", fragment.html);
+    assert!(!fragment.html.contains("evil.example"), "{}", fragment.html);
+    assert!(!fragment.html.contains("data:"), "{}", fragment.html);
+    assert!(fragment.html.contains("a beacon"), "{}", fragment.html);
+    assert!(fragment.html.contains("inline"), "{}", fragment.html);
+    assert!(fragment.html.contains("before"), "{}", fragment.html);
+    assert!(fragment.html.contains("after"), "{}", fragment.html);
+}
+
+#[test]
+fn a_note_keeps_the_links_and_the_images_it_holds() {
+    let fragment = render_markdown_fragment(
+        "[one](javascript:alert(1)) [two](../Launch.md)\n\n![alt](https://example.com/a.png)\n",
+    );
+    assert!(
+        fragment.html.contains("href=\"javascript:alert(1)\""),
+        "{}",
+        fragment.html
+    );
+    assert!(
+        fragment.html.contains("href=\"../Launch.md\""),
+        "{}",
+        fragment.html
+    );
+    assert!(
+        fragment
+            .html
+            .contains("<img src=\"https://example.com/a.png\""),
+        "{}",
+        fragment.html
+    );
+}

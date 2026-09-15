@@ -166,6 +166,24 @@ fn options(source: Source) -> Options {
     }
 }
 
+/// The schemes a reply's link may carry: the ones the external opener takes.
+const WEB_SCHEMES: [&str; 3] = ["http", "https", "mailto"];
+
+/// True when a destination names one of [`WEB_SCHEMES`].
+///
+/// The scheme is everything before the first `:`, which is what a browser and
+/// the external opener both read, so `notes/2026:draft.md` names no scheme and
+/// is refused with every scheme that is not on the list. A destination with no
+/// `:` at all is relative, and a reply has nothing to be relative to.
+fn is_web_link(destination: &str) -> bool {
+    match destination.split_once(':') {
+        Some((scheme, _)) => WEB_SCHEMES
+            .iter()
+            .any(|known| scheme.eq_ignore_ascii_case(known)),
+        None => false,
+    }
+}
+
 /// True when a fenced-code info string selects the Mermaid renderer: the first
 /// whitespace-delimited token equals `mermaid`, case-insensitive. (Verbatim
 /// from `mermaid.rs:51-55` — case-insensitivity is load-bearing for parity.)
@@ -355,6 +373,9 @@ fn render_fragment(
     let mut in_mermaid = false;
     let mut in_metadata = false;
     let mut in_code_block = false;
+    // Whether the link being read had its anchor dropped, so its end is
+    // dropped with it. Links do not nest, so one flag is the whole state.
+    let mut dropped_link = false;
     let mut mermaid_src = String::new();
     // Where in `events` a rendered embed section landed. The pass that lifts a
     // section out of the paragraph it was written in reads these rather than
@@ -412,6 +433,20 @@ fn render_fragment(
                 has_math = true;
                 events.push(event);
             }
+            // A reply's image would fetch what the model named the moment the
+            // pane renders it, and the pane shows no pictures, so the alt text
+            // stays and the tag goes.
+            Event::Start(Tag::Image { .. }) | Event::End(TagEnd::Image)
+                if source == Source::Untrusted => {}
+            // A reply's link is followed only by a click the pane hands to the
+            // external opener, so a destination that opener would not take is
+            // not a link at all: the words stay, the anchor goes.
+            Event::Start(Tag::Link { ref dest_url, .. })
+                if source == Source::Untrusted && !is_web_link(dest_url) =>
+            {
+                dropped_link = true;
+            }
+            Event::End(TagEnd::Link) if dropped_link => dropped_link = false,
             Event::Start(Tag::Image {
                 link_type,
                 dest_url,
