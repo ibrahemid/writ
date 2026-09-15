@@ -7,6 +7,7 @@ import type { ActiveFormats } from "../../types/editor";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { executeCommand, useCommand } from "../../commands/registry";
 import { CHAT_TOGGLE_COMMAND_ID } from "../../commands/chat";
+import { configStore } from "../../stores/global/config";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { formatKeybinding } from "../../lib/keybinding-format";
 import { resolvePlatform } from "../../lib/platform";
@@ -166,7 +167,7 @@ export default function Toolbar() {
       {/* The chat control is here only while the pane it opens exists: the
           command is registered from `ai.chat.enabled`, so asking the registry
           asks the setting without reading it twice. */}
-      <Show when={useCommand(CHAT_TOGGLE_COMMAND_ID) !== undefined}>
+      <Show when={configStore.config().ai.chat.enabled}>
         <Tooltip label={tip("Chat", useEffectiveBinding(CHAT_TOGGLE_COMMAND_ID, undefined))}>
           <Button
             variant="ghost"
