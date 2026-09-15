@@ -13,6 +13,9 @@ const MONO_ALLOWED = new Set<string>([
   resolve(SRC, "components/Sidebar/TabItem.css"),
   resolve(SRC, "components/Editor/cm-theme.ts"),
   resolve(SRC, "components/Editor/cm-markdown-typography.css"),
+  // The chat pane renders the same two code surfaces a note does, plus the
+  // line diff a proposal shows.
+  resolve(SRC, "components/Chat/ChatPane.css"),
 ]);
 
 // The one @font-face the app ships. Its `font-family` names the face rather
