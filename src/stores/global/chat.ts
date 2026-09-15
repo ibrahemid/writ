@@ -1,4 +1,4 @@
-import { createSignal, createRoot } from "solid-js";
+import { createSignal, createMemo, createRoot } from "solid-js";
 import {
   chatState,
   chatAttachedSizes,
@@ -77,6 +77,42 @@ export function noteName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+/** Whether a rebuilt turn shows anything the last one did not. A reload hands
+ * back turns that are equal in new arrays, so this reads the fields rather
+ * than the references. */
+function sameMessage(held: Message, next: Message): boolean {
+  return (
+    held.role === next.role &&
+    held.content === next.content &&
+    held.html === next.html &&
+    sameLength(held.attachments, next.attachments) &&
+    held.attachments.every((note, index) => sameAttachment(note, next.attachments[index])) &&
+    sameLength(held.proposals, next.proposals) &&
+    held.proposals.every((offer, index) => sameProposal(offer, next.proposals[index]))
+  );
+}
+
+function sameLength(held: readonly unknown[], next: readonly unknown[]): boolean {
+  return held.length === next.length;
+}
+
+function sameAttachment(held: ChatAttachmentRef, next: ChatAttachmentRef): boolean {
+  return held.path === next.path && held.bytes === next.bytes && held.hash === next.hash;
+}
+
+/** The hunks are read off the proposal's own text, so what is compared is the
+ * text and the verdict. */
+function sameProposal(held: ChatProposal, next: ChatProposal): boolean {
+  return (
+    held.path === next.path &&
+    held.summary === next.summary &&
+    held.before_hash === next.before_hash &&
+    held.new_content === next.new_content &&
+    held.status === next.status &&
+    held.stale === next.stale
+  );
+}
+
 // Singleton state — Writ is single-window. One conversation is open at a time,
 // and the pane is the only thing that shows it.
 function createChatStore() {
@@ -119,15 +155,25 @@ function createChatStore() {
     };
   }
 
-  function messages(): Message[] {
+  /** The turns on screen, oldest first.
+   *
+   * A live reply rebuilds this list many times a second and the transcript
+   * keys its rows by reference, so a turn that says the same thing keeps its
+   * object: its element is left alone, and the copy button a person just
+   * pressed is still the element that was pressed. */
+  const messages = createMemo<Message[]>((shownBefore) => {
     const conversation = current();
     const shown = conversation ? conversation.turns.map(toMessage) : [];
     const user = pendingUser();
     const reply = pendingReply();
     if (user) shown.push(user);
     if (reply) shown.push({ ...reply, html: htmlByTurn()[reply.turn] ?? "" });
-    return shown;
-  }
+    const held = new Map((shownBefore ?? []).map((message) => [message.turn, message]));
+    return shown.map((message) => {
+      const before = held.get(message.turn);
+      return before && sameMessage(before, message) ? before : message;
+    });
+  });
 
   function isBusy(): boolean {
     return status() === "thinking" || status() === "streaming";

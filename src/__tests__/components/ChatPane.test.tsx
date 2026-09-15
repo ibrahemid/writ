@@ -55,6 +55,10 @@ vi.mock("../../commands/chat", async () => {
   };
 });
 
+vi.mock("../../services/clipboard", () => ({
+  writeClipboardText: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.spyOn(configStore, "config").mockImplementation(() => mocks.config());
 vi.spyOn(bufferRegistry, "activeTabs").mockImplementation(() => mocks.activeTabs());
 
@@ -316,6 +320,30 @@ describe("the chat column", () => {
 
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
     expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
+  });
+
+  it("keeps an earlier turn, and what was copied from it, through a later reply", async () => {
+    mocks.chatRenderReply.mockImplementation(
+      async (text: string) => `<p>${text}</p><pre><code>echo hi</code></pre>`,
+    );
+    const { container } = open();
+    await exchange("the first answer");
+    await waitFor(() => expect(container.querySelector(".chat-code-copy")).not.toBeNull());
+
+    const asked = container.querySelector(".chat-turn") as HTMLElement;
+    const copy = container.querySelector(".chat-code-copy") as HTMLElement;
+    fireEvent.click(copy);
+    await waitFor(() => expect(copy.textContent).toBe("Copied"));
+
+    chatStore.setDraft("and then");
+    await chatStore.send();
+    const calls = mocks.chatSend.mock.calls;
+    const id = calls[calls.length - 1][0] as string;
+    chatStore.handleStreamEvent({ conversation_id: id, kind: "chunk", text: "the second answer" });
+
+    expect(container.querySelector(".chat-turn")).toBe(asked);
+    expect(copy.isConnected).toBe(true);
+    expect(copy.textContent).toBe("Copied");
   });
 
   it("shows a proposal as the lines it would change", async () => {

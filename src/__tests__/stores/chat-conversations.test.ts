@@ -378,6 +378,28 @@ describe("editing a sent turn", () => {
   });
 });
 
+describe("the turns on screen", () => {
+  it("keeps the object of a turn a frame did not change", async () => {
+    mocks.chatNew.mockResolvedValue(conversation("c1"));
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "it " });
+    const asked = chatStore.messages()[0];
+
+    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "argues this" });
+
+    expect(chatStore.messages()[0]).toBe(asked);
+
+    // The reload hands back equal turns in new arrays, which is the case a
+    // reference check misses.
+    fileAfter("c1", [userTurn("what does it argue"), replyTurn("it argues this")]);
+    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    await flush();
+
+    expect(chatStore.messages()[0]).toBe(asked);
+  });
+});
+
 describe("a send that was refused", () => {
   it("keeps the turns the file still holds, and still knows it was an edit", async () => {
     mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
