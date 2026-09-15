@@ -293,11 +293,14 @@ describe("recovering from an error", () => {
 });
 
 describe("editing a sent turn", () => {
+  // The file stores an attachment by its folder-relative key, which is the
+  // shape `chat_send` takes back. The chip carries the key unchanged and shows
+  // the note's own name.
   it("puts it back in the composer with the notes it carried", async () => {
     mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
     mocks.chatOpen.mockResolvedValue(
       conversation("c1", [
-        userTurn("first question", ["/notes/Launch.md"]),
+        userTurn("first question", ["Ideas/Launch.md"]),
         replyTurn("first answer"),
         userTurn("second question"),
         replyTurn("second answer"),
@@ -310,8 +313,27 @@ describe("editing a sent turn", () => {
     expect(chatStore.draft()).toBe("first question");
     expect(chatStore.editing()).toBe(0);
     expect(chatStore.attachments()).toEqual([
-      { path: "/notes/Launch.md", name: "Launch.md", bytes: 10 },
+      { path: "Ideas/Launch.md", name: "Launch.md", bytes: 10 },
     ]);
+    expect(chatStore.isAttached("Ideas/Launch.md")).toBe(true);
+
+    // The size read joins on the path it was asked about, so the key works
+    // there too.
+    mocks.chatAttachedSizes.mockResolvedValue([
+      { path: "Ideas/Launch.md", key: "Ideas/Launch.md", bytes: 42 },
+    ]);
+    expect(await chatStore.attachedOnDisk()).toEqual([
+      { path: "Ideas/Launch.md", name: "Launch.md", bytes: 42 },
+    ]);
+
+    chatStore.setDraft("a better first question");
+    await chatStore.send();
+    expect(mocks.chatSend).toHaveBeenCalledWith(
+      "c1",
+      "a better first question",
+      ["Ideas/Launch.md"],
+      0,
+    );
   });
 
   it("replaces that turn and everything after it", async () => {
