@@ -54,7 +54,7 @@ import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerPromptCommands } from "./commands/prompt";
 import { registerAiCommands, unregisterAiCommands } from "./commands/ai";
-import { syncChatCommands } from "./commands/chat";
+import { toggleChat } from "./commands/chat";
 import { chatStore } from "./stores/global/chat";
 import { aiRewriteStore } from "./stores/global/ai-rewrite";
 import AiRewriteOverlay from "./components/AiRewrite/AiRewriteOverlay";
@@ -498,6 +498,22 @@ function AppShell() {
     });
 
     registerCommand({
+      id: "chat.toggle",
+      icon: "chat-text",
+      label: "Toggle chat",
+      description: "Ask a model about the notes you attach",
+      keywords: ["chat", "ai", "ask", "model"],
+      keybinding: "CmdOrCtrl+Shift+A",
+      scope: "app",
+      // Global, for the reason the two toggles above it are: the editor holds
+      // focus almost all the time.
+      global: true,
+      execute: () => {
+        void toggleChat();
+      },
+    });
+
+    registerCommand({
       id: "folderGraph.open",
       icon: "folder-simple",
       label: "Open graph",
@@ -924,10 +940,8 @@ function AppShell() {
     else unregisterAiCommands();
   });
 
-  // The chat pane's command exists only while the pane does, and a pane turned
-  // off while it was showing takes its column with it.
+  // A pane turned off while it was showing takes its column with it.
   createEffect(() => {
-    syncChatCommands();
     if (!configStore.config().ai.chat.enabled) win.chatPanel.hide();
   });
 

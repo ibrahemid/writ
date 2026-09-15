@@ -58,6 +58,8 @@ pub mod command;
 pub mod config;
 /// Default-app policy: UTI mapping and handler-status types.
 pub mod default_app;
+/// Line diff for what a proposal would change.
+pub mod diff;
 /// Crate-wide error and result types.
 pub mod errors;
 /// Strongly-typed domain events and an in-process event bus.

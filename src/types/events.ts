@@ -32,7 +32,7 @@ export type WritEvent =
       kind: "ai:chat";
       payload: {
         conversation_id: string;
-        kind: "chunk" | "done" | "error";
+        kind: "chunk" | "done" | "stopped" | "error";
         text?: string;
         /** Whole-note text a reply asked for, carried by the `done` frame and
          * applied by nobody until a person says so (ADR-031 rule 4.3). */

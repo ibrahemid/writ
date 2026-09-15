@@ -1,7 +1,7 @@
 /* The chat column takes the panel's construction — a clipped edge column that
    lays its content out at the settled width — and the sidebar's row pitch,
    spacing and section headings. What it does not take is the panel's width:
-   a conversation and a proposal beside the text it replaces need 320-520. */
+   a conversation and a diff of what a reply would change need 320-520. */
 
 .chat-pane {
   position: relative;
@@ -60,18 +60,42 @@
 .chat-pane-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--writ-space-2);
+  gap: 2px;
   padding: var(--writ-space-2) var(--writ-space-3);
   flex-shrink: 0;
 }
 
 .chat-pane-title {
+  flex: 1;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   font-weight: inherit;
   color: var(--writ-fg);
+}
+
+.chat-pane-rename,
+.chat-chats-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px var(--writ-space-1);
+  border: 1px solid var(--writ-accent);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-canvas);
+  color: var(--writ-fg);
+  font: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+}
+
+.chat-pane-rename:focus-visible,
+.chat-chats-rename:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
 }
 
 .chat-section-title {
@@ -84,28 +108,44 @@
   color: var(--writ-fg-muted);
 }
 
-/* What the model can read sits above the conversation and stays there: it is
-   the whole of what leaves the machine, so it is never scrolled out of sight. */
-.chat-attached {
+/* Every chat on disk. It drops in over the transcript rather than beside it,
+   because the column is too narrow to carry two lists at once. */
+.chat-chats {
   flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
   padding-bottom: var(--writ-space-2);
   border-bottom: 1px solid var(--writ-border-soft);
 }
 
-.chat-attached-list {
+.chat-chats-list {
   margin: 0;
   padding: 0 var(--writ-space-2);
   list-style: none;
 }
 
-.chat-attached-row,
-.chat-pick-row {
+.chat-chats-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--writ-r-row);
+}
+
+.chat-chats-row:hover {
+  background: var(--writ-bg-hover);
+}
+
+.chat-chats-row.is-current {
+  background: var(--writ-bg-selected, var(--writ-bg-hover));
+}
+
+.chat-chats-open {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   min-height: var(--writ-sidebar-row-fill);
-  margin: 1px 0;
   padding: 2px var(--writ-space-2);
   border: none;
   border-radius: var(--writ-r-row);
@@ -115,23 +155,15 @@
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg);
   text-align: left;
-  min-width: 0;
-}
-
-.chat-pick-row {
   cursor: pointer;
 }
 
-.chat-pick-row:hover {
-  background: var(--writ-bg-hover);
-}
-
-.chat-pick-row:focus-visible {
+.chat-chats-open:focus-visible {
   outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
   outline-offset: -2px;
 }
 
-.chat-attached-name {
+.chat-chats-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -139,16 +171,12 @@
   white-space: nowrap;
 }
 
-.chat-attached-size {
+.chat-chats-time {
   flex-shrink: 0;
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   color: var(--writ-fg-faint);
   font-variant-numeric: tabular-nums;
-}
-
-.chat-attached > .writ-btn {
-  margin: 2px var(--writ-space-3);
 }
 
 .chat-empty {
@@ -178,9 +206,16 @@
   min-width: 0;
 }
 
-.chat-turn.is-mine .chat-turn-text {
-  align-self: flex-end;
+.chat-turn-mine {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
   max-width: 90%;
+  align-self: flex-end;
+}
+
+.chat-turn.is-mine .chat-turn-text {
   padding: 6px var(--writ-space-2);
   border-radius: var(--writ-r-card);
   background: var(--writ-bg-sunken);
@@ -195,15 +230,216 @@
   overflow-wrap: anywhere;
 }
 
+.chat-turn-notes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-turn-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--writ-r-row);
+  background: var(--writ-bg-sunken);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-muted);
+}
+
+/* Editing a sent turn is a rare answer to a bad reply, so its control stays
+   out of the way until the turn is pointed at or tabbed to. */
+.chat-turn-actions {
+  opacity: 0;
+  transition: opacity var(--writ-motion);
+}
+
+.chat-turn:hover .chat-turn-actions,
+.chat-turn:focus-within .chat-turn-actions {
+  opacity: 1;
+}
+
+.chat-thinking {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+.chat-thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.chat-thinking-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--writ-fg-faint);
+  animation: chat-thinking 1.2s var(--writ-ease) infinite;
+}
+
+.chat-thinking-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.chat-thinking-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes chat-thinking {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+/* A reply, rendered. The fragment comes from the untrusted variant, so it
+   holds no raw HTML: what is styled here is the Markdown the model wrote. */
+.chat-reply {
+  min-width: 0;
+  font-size: var(--writ-ui-md);
+  line-height: 1.55;
+  color: var(--writ-fg);
+  overflow-wrap: anywhere;
+}
+
+.chat-reply > :first-child {
+  margin-top: 0;
+}
+
+.chat-reply > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-reply p,
+.chat-reply ul,
+.chat-reply ol,
+.chat-reply blockquote {
+  margin: 0 0 var(--writ-space-2);
+}
+
+.chat-reply ul,
+.chat-reply ol {
+  padding-left: var(--writ-space-4, 20px);
+}
+
+.chat-reply h1,
+.chat-reply h2,
+.chat-reply h3,
+.chat-reply h4 {
+  margin: var(--writ-space-3) 0 var(--writ-space-2);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  font-weight: 600;
+}
+
+.chat-reply blockquote {
+  padding-left: var(--writ-space-2);
+  border-left: 2px solid var(--writ-border);
+  color: var(--writ-fg-muted);
+}
+
+.chat-reply a {
+  color: var(--writ-accent);
+}
+
+.chat-reply code {
+  font-family: var(--writ-font-mono);
+  font-size: 0.92em;
+}
+
+.chat-reply :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: var(--writ-r-media);
+  background: var(--writ-bg-sunken);
+}
+
+.chat-reply pre {
+  position: relative;
+  margin: 0 0 var(--writ-space-2);
+  padding: var(--writ-space-2);
+  overflow-x: auto;
+  border-radius: var(--writ-r-media);
+  background: var(--writ-bg-sunken);
+}
+
+.chat-reply-table {
+  margin: 0 0 var(--writ-space-2);
+  overflow-x: auto;
+}
+
+.chat-reply table {
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  font-size: var(--writ-ui-sm);
+}
+
+.chat-reply th,
+.chat-reply td {
+  padding: 2px 6px;
+  border: 1px solid var(--writ-border-soft);
+  text-align: left;
+}
+
+/* The copy button sits in the block it copies, and stays out of the way until
+   the block is pointed at or something inside it takes focus. */
+.chat-code-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-raised);
+  color: var(--writ-fg-muted);
+  font: inherit;
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--writ-motion);
+}
+
+.chat-code:hover .chat-code-copy,
+.chat-code-copy:focus-visible {
+  opacity: 1;
+}
+
+.chat-code-copy:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
 .chat-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-2);
+}
+
+.chat-error-text {
   margin: 0;
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   color: var(--writ-status-error);
 }
 
-/* An offered change: the note's text as the model read it, the text it would
-   be replaced with, and the two answers. Nothing here has written anything. */
+/* An offered change: which note, what it would do, and the lines it would
+   replace. Nothing here has written anything. */
 .chat-proposal {
   display: flex;
   flex-direction: column;
@@ -225,6 +461,14 @@
   line-height: var(--writ-ui-sm-lh);
 }
 
+.chat-proposal-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-proposal-summary {
   margin: 0;
   font-size: var(--writ-ui-md);
@@ -232,41 +476,68 @@
   color: var(--writ-fg);
 }
 
-.chat-proposal-panes {
+.chat-proposal-stale {
+  margin: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-status-warning);
+}
+
+/* The one place this column raises its voice: the lines that would change,
+   read the way a diff is read anywhere else. */
+.chat-diff {
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);
-  min-width: 0;
+  max-height: 16rem;
+  overflow: auto;
+  padding: var(--writ-space-1) 0;
+  border-radius: var(--writ-r-media);
+  background: var(--writ-bg-sunken);
+  font-family: var(--writ-font-mono);
+  font-size: var(--writ-ui-sm);
+  line-height: 1.5;
 }
 
-.chat-proposal-pane {
+.chat-diff-row {
   display: flex;
-  flex-direction: column;
-  gap: var(--writ-space-1);
-  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+  padding: 0 var(--writ-space-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--writ-fg-muted);
 }
 
-.chat-proposal-label {
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
+.chat-diff-row[data-kind="added"] {
+  background: color-mix(in srgb, var(--writ-status-success) 14%, transparent);
+  color: var(--writ-fg);
+}
+
+.chat-diff-row[data-kind="removed"] {
+  background: color-mix(in srgb, var(--writ-danger) 14%, transparent);
+  color: var(--writ-fg);
+}
+
+/* Wide enough for the line numbers most notes have, and free to grow for the
+   ones that run past a thousand lines. */
+.chat-diff-num {
+  flex-shrink: 0;
+  min-width: 2.5ch;
+  text-align: right;
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-diff-mark {
+  flex-shrink: 0;
+  width: 1ch;
   color: var(--writ-fg-faint);
 }
 
-.chat-proposal-body {
-  max-height: 12rem;
-  overflow-y: auto;
-  padding: var(--writ-space-2);
-  border-radius: var(--writ-r-media);
-  background: var(--writ-bg-sunken);
-  font-size: var(--writ-ui-sm);
-  line-height: 1.5;
-  color: var(--writ-fg-muted);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.chat-proposal-new {
-  color: var(--writ-fg);
+.chat-diff-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .chat-proposal-actions {
@@ -291,7 +562,75 @@
   border-top: 1px solid var(--writ-border-soft);
 }
 
+.chat-composer-editing {
+  margin: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+/* What leaves the machine, beside the words that go with it. */
+.chat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 6px;
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-row);
+  background: var(--writ-bg-raised);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg);
+  max-width: 100%;
+}
+
+.chat-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-chip-size {
+  flex-shrink: 0;
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--writ-fg-muted);
+  cursor: pointer;
+}
+
+.chat-chip-remove:hover {
+  color: var(--writ-fg);
+}
+
+.chat-chip-remove:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: 1px;
+}
+
+.chat-composer-field {
+  position: relative;
+}
+
 .chat-composer-input {
+  display: block;
   width: 100%;
   resize: none;
   padding: var(--writ-space-2);
@@ -309,10 +648,77 @@
   outline-offset: -2px;
 }
 
+/* Above the composer, because the composer is already at the bottom of the
+   column and a list below it would have nowhere to go. */
+.chat-mention {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: var(--writ-z-popover, 40);
+  max-height: 12rem;
+  overflow-y: auto;
+  padding: var(--writ-space-1);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  box-shadow: var(--writ-shadow-popover);
+}
+
+.chat-mention-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--writ-sidebar-row-fill);
+  padding: 2px var(--writ-space-2);
+  border: none;
+  border-radius: var(--writ-r-row);
+  background: transparent;
+  font: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-mention-row.is-active,
+.chat-mention-row:hover {
+  background: var(--writ-bg-hover);
+}
+
+.chat-mention-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-composer-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: var(--writ-space-2);
+}
+
+.chat-model {
+  flex: 1;
+  min-width: 0;
+  padding: 2px var(--writ-space-1);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-canvas);
+  color: var(--writ-fg-muted);
+  font: inherit;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}
+
+.chat-model:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
 }
 
 /* Windows paints the chrome as part of the window backdrop, GNOME as a
@@ -337,11 +743,24 @@
   opacity: 0.55;
 }
 
-/* Streamed text appends with no animation of its own in any setting; what is
-   left to answer for here is the column's own open and close. */
+/* Streamed text appends with no animation of its own in any setting. What is
+   left to answer for is the column's own open and close, the wait for a first
+   delta, and the controls that fade in where a pointer is. */
 @media (prefers-reduced-motion: reduce) {
   .chat-pane,
-  .chat-pane-resizer {
+  .chat-pane-resizer,
+  .chat-turn-actions,
+  .chat-code-copy {
     transition: none;
+  }
+
+  .chat-turn-actions,
+  .chat-code-copy {
+    opacity: 1;
+  }
+
+  .chat-thinking-dots span {
+    animation: none;
+    opacity: 0.6;
   }
 }

@@ -11,6 +11,12 @@ import type { WritConfig } from "../../types/config";
 // since the offer was made comes back refused.
 
 const mocks = vi.hoisted(() => ({
+  chatList: vi.fn(),
+  chatOpen: vi.fn(),
+  chatRenderReply: vi.fn(),
+  chatAttachedSizes: vi.fn(),
+  noteNameCandidates: vi.fn(),
+  chatNew: vi.fn(),
   chatSend: vi.fn(),
   chatCancel: vi.fn().mockResolvedValue(undefined),
   chatApplyProposal: vi.fn(),
@@ -21,6 +27,14 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/tauri", () => ({
+  chatList: mocks.chatList,
+  chatOpen: mocks.chatOpen,
+  chatRenderReply: mocks.chatRenderReply,
+  chatAttachedSizes: mocks.chatAttachedSizes,
+  chatRename: vi.fn(),
+  chatDelete: vi.fn(),
+  noteNameCandidates: mocks.noteNameCandidates,
+  chatNew: mocks.chatNew,
   chatSend: mocks.chatSend,
   chatCancel: mocks.chatCancel,
   chatApplyProposal: mocks.chatApplyProposal,
@@ -40,6 +54,10 @@ vi.mock("../../commands/chat", async () => {
     sendChatMessage: () => chatStore.send(),
   };
 });
+
+vi.mock("../../services/clipboard", () => ({
+  writeClipboardText: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.spyOn(configStore, "config").mockImplementation(() => mocks.config());
 vi.spyOn(bufferRegistry, "activeTabs").mockImplementation(() => mocks.activeTabs());
@@ -145,6 +163,16 @@ const PROPOSAL = {
   before_hash: "abc",
   new_content: "the second text\n",
   summary: "Fold the intros",
+  hunks: [
+    {
+      before_start: 1,
+      after_start: 1,
+      lines: [
+        { kind: "removed" as const, text: "the first text" },
+        { kind: "added" as const, text: "the second text" },
+      ],
+    },
+  ],
 };
 
 function open() {
@@ -178,6 +206,22 @@ describe("the chat column", () => {
   beforeEach(() => {
     mocks.config.mockReturnValue(config(true));
     mocks.activeTabs.mockReturnValue([note("L1", LAUNCH), note("O1", OTHER)]);
+    mocks.chatList.mockReset().mockResolvedValue([]);
+    mocks.chatOpen.mockReset().mockRejectedValue("no such chat");
+    mocks.chatRenderReply.mockReset().mockImplementation(async (text: string) => `<p>${text}</p>`);
+    mocks.chatAttachedSizes.mockReset().mockResolvedValue([{ path: OTHER, key: "Other.md", bytes: 40 }]);
+    mocks.noteNameCandidates.mockReset().mockResolvedValue([{ path: OTHER, name: "Other" }]);
+    mocks.chatNew.mockReset().mockImplementation(() =>
+      Promise.resolve({
+        id: `c-${mocks.chatNew.mock.calls.length}`,
+        title: "New chat",
+        created_at: "",
+        updated_at: "",
+        provider: "custom",
+        model: "a-model",
+        turns: [],
+      }),
+    );
     mocks.chatSend.mockReset().mockImplementation((conversationId: string) =>
       Promise.resolve({
         conversation_id: conversationId,
@@ -209,10 +253,8 @@ describe("the chat column", () => {
 
   it("lists the note in front and sends that one and no other", async () => {
     const { container } = open();
-    await waitFor(() =>
-      expect(container.querySelectorAll(".chat-attached-row")).toHaveLength(1),
-    );
-    expect(container.querySelector(".chat-attached-name")?.textContent).toBe("Launch.md");
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
 
     chatStore.setDraft("what does it argue");
     await chatStore.send();
@@ -221,40 +263,190 @@ describe("the chat column", () => {
     expect(mocks.chatSend.mock.calls[0][2]).toEqual([LAUNCH]);
   });
 
-  it("sends the notes a person attached, and stops sending one they removed", async () => {
+  it("attaches a note an @ named, and stops sending one they removed", async () => {
     const { container, getByText } = open();
-    await waitFor(() =>
-      expect(container.querySelectorAll(".chat-attached-row")).toHaveLength(1),
-    );
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
 
-    fireEvent.click(getByText("Attach a note"));
-    fireEvent.click(await waitFor(() => getByText("Other.md")));
-    await waitFor(() =>
-      expect(container.querySelectorAll(".chat-attached-row")).toHaveLength(2),
-    );
+    const composer = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
+    composer.value = "read @Oth";
+    composer.setSelectionRange(9, 9);
+    fireEvent.input(composer);
+
+    const row = await waitFor(() => getByText("Other"));
+    fireEvent.mouseDown(row);
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(2));
+    expect(mocks.noteNameCandidates).toHaveBeenCalledWith("Oth", 8);
+    expect(chatStore.draft()).toBe("read ");
 
     chatStore.detach(LAUNCH);
-    await waitFor(() =>
-      expect(container.querySelectorAll(".chat-attached-row")).toHaveLength(1),
-    );
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
 
     chatStore.setDraft("and this one");
     await chatStore.send();
     expect(mocks.chatSend.mock.calls[0][2]).toEqual([OTHER]);
   });
 
-  it("renders a proposal beside the text the model was given", async () => {
+  it("keeps a removed note out of what the next message carries", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(0));
+    chatStore.setDraft("without the note");
+    await chatStore.send();
+    expect(mocks.chatSend.mock.calls[0][2]).toEqual([]);
+  });
+
+  it("attaches nothing when another tab comes to the front", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(0));
+
+    windowRegistry.getActive()?.tabs.setActiveTabId("O1");
+    await Promise.resolve();
+
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(0);
+  });
+
+  it("starts a new chat with the note in front and nothing else", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    chatStore.attach({ path: OTHER, name: "Other.md", bytes: 40 });
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(2));
+
+    fireEvent.click(container.querySelector('[aria-label="New chat"]') as HTMLElement);
+
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
+  });
+
+  it("keeps an earlier turn, and what was copied from it, through a later reply", async () => {
+    mocks.chatRenderReply.mockImplementation(
+      async (text: string) => `<p>${text}</p><pre><code>echo hi</code></pre>`,
+    );
+    const { container } = open();
+    await exchange("the first answer");
+    await waitFor(() => expect(container.querySelector(".chat-code-copy")).not.toBeNull());
+
+    const asked = container.querySelector(".chat-turn") as HTMLElement;
+    const copy = container.querySelector(".chat-code-copy") as HTMLElement;
+    fireEvent.click(copy);
+    await waitFor(() => expect(copy.textContent).toBe("Copied"));
+
+    chatStore.setDraft("and then");
+    await chatStore.send();
+    const calls = mocks.chatSend.mock.calls;
+    const id = calls[calls.length - 1][0] as string;
+    chatStore.handleStreamEvent({ conversation_id: id, kind: "chunk", text: "the second answer" });
+
+    expect(container.querySelector(".chat-turn")).toBe(asked);
+    expect(copy.isConnected).toBe(true);
+    expect(copy.textContent).toBe("Copied");
+  });
+
+  it("does not chip a note twice for a second spelling of its path", async () => {
+    mocks.chatAttachedSizes.mockResolvedValue([
+      { path: OTHER, key: "Other.md", bytes: 40 },
+      { path: "Other.md", key: "Other.md", bytes: 40 },
+      { path: LAUNCH, key: "Launch.md", bytes: 120 },
+    ]);
+    const { container, getByText } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    // The shape a conversation file stores, which is what an edited turn
+    // hands back to the composer.
+    chatStore.attach({ path: "Other.md", name: "Other.md", bytes: 40 });
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(2));
+
+    const composer = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
+    composer.value = "read @Oth";
+    composer.setSelectionRange(9, 9);
+    fireEvent.input(composer);
+    fireEvent.mouseDown(await waitFor(() => getByText("Other")));
+
+    await waitFor(() => expect(chatStore.draft()).toBe("read "));
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(2);
+    expect(chatStore.attachments().map((note) => note.path)).toEqual([LAUNCH, "Other.md"]);
+  });
+
+  it("does not chip the note in front a second time for the file's spelling", async () => {
+    mocks.chatAttachedSizes.mockResolvedValue([
+      { path: LAUNCH, key: "Launch.md", bytes: 120 },
+      { path: "Launch.md", key: "Launch.md", bytes: 120 },
+    ]);
+    // The shape a conversation file stores, which is what an edited turn hands
+    // back to the composer before the pane is opened again.
+    chatStore.attach({ path: "Launch.md", name: "Launch.md", bytes: 120 });
+
+    const { container } = open();
+    await waitFor(() => expect(mocks.chatAttachedSizes).toHaveBeenCalled());
+    await waitFor(() => expect(chatStore.attachments()).toHaveLength(1));
+
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(1);
+    expect(chatStore.attachments().map((note) => note.path)).toEqual(["Launch.md"]);
+  });
+
+  it("shows a chat that would not open with nothing to retry", async () => {
+    mocks.chatList.mockResolvedValue([
+      { id: "c1", title: "A chat", created_at: "", updated_at: "", turns: 2 },
+    ]);
+    mocks.chatOpen.mockRejectedValue("This chat no longer exists.");
+
+    const { container } = open();
+
+    await waitFor(() => expect(container.querySelector(".chat-error")).not.toBeNull());
+    expect(container.querySelector(".chat-error-text")?.textContent).toBe(
+      "This chat no longer exists.",
+    );
+    expect(container.querySelector(".chat-error button")).toBeNull();
+  });
+
+  it("offers Retry for a send that did not leave", async () => {
+    const { container } = open();
+    mocks.chatSend.mockRejectedValue("The model did not answer.");
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+
+    await waitFor(() => expect(container.querySelector(".chat-error")).not.toBeNull());
+    expect(container.querySelector(".chat-error button")?.textContent).toBe("Retry");
+  });
+
+  it("says what to do with an empty chat", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelector(".chat-empty")).not.toBeNull());
+    expect(container.querySelector(".chat-transcript .chat-empty")?.textContent).toBe(
+      "Ask about a note. Apply the change an answer offers, or discard it.",
+    );
+  });
+
+  it("says what the field is for whether a note is attached or not", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    const composer = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
+    expect(composer.placeholder).toBe("Ask about the attached notes. @ attaches another.");
+
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+
+    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a note."));
+  });
+
+  it("shows a proposal as the lines it would change", async () => {
     const { container } = open();
     await exchange();
 
     await waitFor(() => expect(container.querySelector(".chat-proposal")).not.toBeNull());
-    const panes = container.querySelectorAll(".chat-proposal-body");
-    expect(panes).toHaveLength(2);
-    expect(panes[0].textContent).toContain("the first text");
-    expect(panes[1].textContent).toContain("the second text");
+    const rows = container.querySelectorAll(".chat-diff-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].getAttribute("data-kind")).toBe("removed");
+    expect(rows[0].textContent).toContain("the first text");
+    expect(rows[1].getAttribute("data-kind")).toBe("added");
+    expect(rows[1].textContent).toContain("the second text");
     expect(container.querySelector(".chat-proposal-summary")?.textContent).toBe(
       "Fold the intros",
     );
+    // The whole text the note would hold is not on screen anywhere.
+    expect(container.querySelector(".chat-proposal-body")).toBeNull();
   });
 
   it("applies through one call and says so", async () => {
@@ -266,6 +458,8 @@ describe("the chat column", () => {
 
     await waitFor(() => expect(mocks.chatApplyProposal).toHaveBeenCalledTimes(1));
     expect(mocks.chatApplyProposal).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
       "Launch.md",
       "the second text\n",
       "abc",
@@ -301,7 +495,9 @@ describe("the chat column", () => {
 
     fireEvent.click(getByText("Discard"));
 
-    await waitFor(() => expect(mocks.chatDiscardProposal).toHaveBeenCalledWith("Launch.md"));
+    await waitFor(() =>
+      expect(mocks.chatDiscardProposal).toHaveBeenCalledWith(expect.any(String), 1, "Launch.md"),
+    );
     expect(mocks.chatApplyProposal).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(container.querySelector(".chat-proposal-verdict")?.textContent).toBe("Discarded."),
@@ -317,9 +513,10 @@ describe("the chat column", () => {
     await waitFor(() => expect(container.textContent).toContain("half a th"));
 
     fireEvent.click(getByText("Stop"));
+    chatStore.handleStreamEvent({ conversation_id: id, kind: "stopped" });
 
     expect(mocks.chatCancel).toHaveBeenCalledWith(id);
-    expect(container.textContent).toContain("half a th");
+    await waitFor(() => expect(container.textContent).toContain("half a th"));
     expect(container.querySelector(".chat-proposal")).toBeNull();
 
     // A frame that arrives after the stop changes nothing on screen.

@@ -137,14 +137,51 @@ pub struct MarkdownFragment {
     pub has_math: bool,
 }
 
-/// Writ's GFM + math option set. Raw-HTML passthrough stays on by default.
-fn options() -> Options {
-    Options::ENABLE_TABLES
+/// Who wrote the text being rendered.
+///
+/// A note is the user's own, and everything in it is theirs to inject: raw
+/// HTML passes through, a mermaid fence becomes a diagram and math becomes a
+/// span the bundled runtime typesets. A model's reply is untrusted input
+/// (ADR-031 rule 4.1) shown in the pane's own DOM, which loads neither
+/// runtime, so raw HTML is dropped rather than escaped, a mermaid fence stays
+/// a code block and math stays the text it was written as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    /// A note, or anything else Writ or the user authored.
+    Authored,
+    /// A model's reply.
+    Untrusted,
+}
+
+/// Writ's GFM option set, plus math for text the user authored.
+fn options(source: Source) -> Options {
+    let base = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_FOOTNOTES
-        | Options::ENABLE_MATH
-        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS;
+    match source {
+        Source::Authored => base | Options::ENABLE_MATH,
+        Source::Untrusted => base,
+    }
+}
+
+/// The schemes a reply's link may carry: the ones the external opener takes.
+const WEB_SCHEMES: [&str; 3] = ["http", "https", "mailto"];
+
+/// True when a destination names one of [`WEB_SCHEMES`].
+///
+/// The scheme is everything before the first `:`, which is what a browser and
+/// the external opener both read, so `notes/2026:draft.md` names no scheme and
+/// is refused with every scheme that is not on the list. A destination with no
+/// `:` at all is relative, and a reply has nothing to be relative to.
+fn is_web_link(destination: &str) -> bool {
+    match destination.split_once(':') {
+        Some((scheme, _)) => WEB_SCHEMES
+            .iter()
+            .any(|known| scheme.eq_ignore_ascii_case(known)),
+        None => false,
+    }
 }
 
 /// True when a fenced-code info string selects the Mermaid renderer: the first
@@ -274,12 +311,36 @@ pub fn render_markdown_fragment_with(
     wikilinks: Option<&dyn WikilinkResolver>,
     embeds: Option<&dyn NoteEmbedResolver>,
 ) -> MarkdownFragment {
-    render_fragment(text, asset_url, wikilinks, embeds, 0, &[], 0)
+    render_fragment(
+        text,
+        asset_url,
+        wikilinks,
+        embeds,
+        0,
+        &[],
+        0,
+        Source::Authored,
+    )
+}
+
+/// [`render_markdown_fragment`] for text Writ did not author.
+///
+/// Raw HTML is dropped rather than escaped, so a `<script>` leaves nothing and
+/// a `<b>` leaves its text. A mermaid fence renders as an ordinary code block
+/// and math renders as the characters it was written with, because the surface
+/// this fragment is inserted into loads neither runtime: `has_mermaid` and
+/// `has_math` are false here whatever the text holds.
+///
+/// Everything else renders as it does for a note, so a fence, a table or a
+/// task list looks the same in a reply as in the preview.
+pub fn render_markdown_fragment_untrusted(text: &str) -> MarkdownFragment {
+    render_fragment(text, None, None, None, 0, &[], 0, Source::Untrusted)
 }
 
 /// [`render_markdown_fragment_with`] plus where this render sits in a chain of
 /// note embeds: how many deep it already is, and the keys of the notes it is
-/// already inside.
+/// already inside, and who wrote the text.
+#[allow(clippy::too_many_arguments)]
 fn render_fragment(
     text: &str,
     asset_url: Option<AssetResolver<'_>>,
@@ -288,6 +349,7 @@ fn render_fragment(
     depth: u8,
     visited: &[String],
     heading_shift: u8,
+    source: Source,
 ) -> MarkdownFragment {
     let embedded;
     let text = match asset_url {
@@ -297,20 +359,23 @@ fn render_fragment(
         }
         None => text,
     };
-    let source = match split_frontmatter(text) {
+    let body = match split_frontmatter(text) {
         Frontmatter {
             raw: Some(raw),
             body,
         } if block_is_blank(raw) => body,
         _ => text,
     };
-    let parser = Parser::new_ext(source, options());
+    let parser = Parser::new_ext(body, options(source));
     let mut events: Vec<Event> = Vec::new();
     let mut has_mermaid = false;
     let mut has_math = false;
     let mut in_mermaid = false;
     let mut in_metadata = false;
     let mut in_code_block = false;
+    // Whether the link being read had its anchor dropped, so its end is
+    // dropped with it. Links do not nest, so one flag is the whole state.
+    let mut dropped_link = false;
     let mut mermaid_src = String::new();
     // Where in `events` a rendered embed section landed. The pass that lifts a
     // section out of the paragraph it was written in reads these rather than
@@ -327,6 +392,7 @@ fn render_fragment(
         depth,
         visited,
         host_heading: Cell::new(0),
+        source,
     };
     for event in parser {
         if let Event::Text(ref chunk) = event {
@@ -338,7 +404,7 @@ fn render_fragment(
         flush_inline(&mut pending, &mut events, &mut sections, &scan);
         match event {
             Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref info)))
-                if is_mermaid_info(info) =>
+                if source == Source::Authored && is_mermaid_info(info) =>
             {
                 in_mermaid = true;
                 mermaid_src.clear();
@@ -367,6 +433,20 @@ fn render_fragment(
                 has_math = true;
                 events.push(event);
             }
+            // A reply's image would fetch what the model named the moment the
+            // pane renders it, and the pane shows no pictures, so the alt text
+            // stays and the tag goes.
+            Event::Start(Tag::Image { .. }) | Event::End(TagEnd::Image)
+                if source == Source::Untrusted => {}
+            // A reply's link is followed only by a click the pane hands to the
+            // external opener, so a destination that opener would not take is
+            // not a link at all: the words stay, the anchor goes.
+            Event::Start(Tag::Link { ref dest_url, .. })
+                if source == Source::Untrusted && !is_web_link(dest_url) =>
+            {
+                dropped_link = true;
+            }
+            Event::End(TagEnd::Link) if dropped_link => dropped_link = false,
             Event::Start(Tag::Image {
                 link_type,
                 dest_url,
@@ -402,6 +482,10 @@ fn render_fragment(
             Event::End(TagEnd::Heading(level)) => events.push(Event::End(TagEnd::Heading(
                 shift_heading(level, heading_shift),
             ))),
+            // Markup the source wrote. A note's is the user's own and goes
+            // through; a reply's is dropped whole rather than escaped, so a
+            // tag leaves nothing and its text reads as it was written.
+            Event::Html(_) | Event::InlineHtml(_) if source == Source::Untrusted => {}
             Event::Html(raw) => events.push(Event::Html(rewrite_html_img_src(raw, asset_url))),
             Event::InlineHtml(raw) => {
                 events.push(Event::InlineHtml(rewrite_html_img_src(raw, asset_url)))
@@ -412,7 +496,7 @@ fn render_fragment(
     flush_inline(&mut pending, &mut events, &mut sections, &scan);
     let events = lift_sections(events, &sections);
     let events = wrap_callouts(events);
-    let mut html_out = String::with_capacity(source.len() * 3 / 2);
+    let mut html_out = String::with_capacity(body.len() * 3 / 2);
     html::push_html(&mut html_out, events.into_iter());
     MarkdownFragment {
         html: html_out,
@@ -442,6 +526,8 @@ struct Scan<'a> {
     /// first one. An embedded note's headings are moved below it, so a note
     /// shown under a `###` cannot render an `<h1>` over it.
     host_heading: Cell<u8>,
+    /// Who wrote the document being rendered, which an embedded note inherits.
+    source: Source,
 }
 
 impl Scan<'_> {
@@ -590,6 +676,7 @@ fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) 
                 scan.depth + 1,
                 &visited,
                 scan.host_heading.get(),
+                scan.source,
             )
         }
         None => render_fragment(
@@ -600,6 +687,7 @@ fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) 
             scan.depth + 1,
             &visited,
             scan.host_heading.get(),
+            scan.source,
         ),
     };
     Markup::Section(format!(

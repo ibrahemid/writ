@@ -66,8 +66,7 @@ import {
   clearBlockersBeforeSending,
   sendChatMessage,
   sendNotice,
-  syncChatCommands,
-  CHAT_TOGGLE_COMMAND_ID,
+  toggleChat,
 } from "../../commands/chat";
 
 function endpoint(overrides: Record<string, unknown> = {}) {
@@ -216,21 +215,23 @@ describe("the blockers before a send", () => {
   });
 });
 
-describe("the palette entry", () => {
-  it("exists only while the setting is on", () => {
-    mocks.config.mockReturnValue({ ai: { chat: { enabled: true } } });
-    syncChatCommands();
-    expect(mocks.registerCommand).toHaveBeenCalledTimes(1);
-    expect(mocks.registerCommand.mock.calls[0][0].id).toBe(CHAT_TOGGLE_COMMAND_ID);
-
+describe("the pane's own command", () => {
+  it("opens the settings that would give it a pane when chat is off", async () => {
     mocks.config.mockReturnValue({ ai: { chat: { enabled: false } } });
-    syncChatCommands();
-    expect(mocks.unregisterCommand).toHaveBeenCalledWith(CHAT_TOGGLE_COMMAND_ID);
+    mocks.requestConfirm.mockResolvedValue(true);
+
+    await toggleChat();
+
+    expect(mocks.requestConfirm.mock.calls[0][0].title).toBe("Chat is turned off");
+    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.chat.enabled");
   });
 
-  it("is not registered while the setting is off", () => {
-    mocks.config.mockReturnValue({ ai: { chat: { enabled: false } } });
-    syncChatCommands();
-    expect(mocks.registerCommand).not.toHaveBeenCalled();
+  it("asks nothing when chat is on", async () => {
+    mocks.config.mockReturnValue({ ai: { chat: { enabled: true } } });
+
+    await toggleChat();
+
+    expect(mocks.requestConfirm).not.toHaveBeenCalled();
+    expect(mocks.openSettings).not.toHaveBeenCalled();
   });
 });

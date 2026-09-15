@@ -1,4 +1,3 @@
-import { registerCommand, unregisterCommand } from "./registry";
 import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
 import { openSettings } from "../components/SettingsModal/SettingsModal";
@@ -131,33 +130,21 @@ export function toggleChatPane() {
   windowRegistry.getActive()?.chatPanel.toggle();
 }
 
-let registered = false;
-
-/** Puts the palette entry where the setting says it should be.
+/** Shows the pane, or says where to turn it on.
  *
- * The pane's command exists only while the pane does, so a palette that lists
- * it is a palette in a build where it can be opened. */
-export function syncChatCommands() {
-  if (configStore.config().ai.chat.enabled) registerChatCommands();
-  else unregisterChatCommands();
-}
-
-export function registerChatCommands() {
-  if (registered) return;
-  registered = true;
-  registerCommand({
-    id: CHAT_TOGGLE_COMMAND_ID,
-    icon: "chat-text",
-    label: "Chat",
-    description: "Ask a model about the notes you attach",
-    keywords: ["chat", "ai", "ask", "model"],
-    scope: "app",
-    execute: () => toggleChatPane(),
+ * The command is registered whether chat is on or not, so the shortcut editor
+ * lists its chord and the View menu item routes somewhere. With chat off there
+ * is no pane to show, and the one thing to offer is the setting that would
+ * make one. */
+export async function toggleChat() {
+  if (configStore.config().ai.chat.enabled) {
+    toggleChatPane();
+    return;
+  }
+  const open = await requestConfirm({
+    title: "Chat is turned off",
+    message: "Turn it on in AI settings.",
+    confirmLabel: "Open settings",
   });
-}
-
-export function unregisterChatCommands() {
-  if (!registered) return;
-  registered = false;
-  unregisterCommand(CHAT_TOGGLE_COMMAND_ID);
+  if (open) openSettings("ai", "ai.chat.enabled");
 }

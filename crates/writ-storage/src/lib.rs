@@ -12,6 +12,7 @@
 //! - [`database`]: raw connection management, migrations, and query
 //!   primitives.
 //! - [`buffer_store`]: high-level buffer CRUD on top of `database`.
+//! - [`chat_store`]: the conversation files the chat pane reads and writes.
 //! - [`guarded`]: the one way a note's file is written.
 //! - [`config_store`]: TOML config load and save.
 //! - [`consistency`]: startup checks that reconcile the database with the
@@ -44,6 +45,8 @@ pub mod activity_log;
 pub mod atomic;
 /// High-level buffer CRUD built on top of [`database`].
 pub mod buffer_store;
+/// Conversation files under the data directory (ADR-040 section 8).
+pub mod chat_store;
 /// TOML configuration load and save.
 pub mod config_store;
 /// Startup consistency checker reconciling the database with the files.
