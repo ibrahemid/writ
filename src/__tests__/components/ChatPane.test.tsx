@@ -11,6 +11,7 @@ import type { WritConfig } from "../../types/config";
 // since the offer was made comes back refused.
 
 const mocks = vi.hoisted(() => ({
+  chatNew: vi.fn(),
   chatSend: vi.fn(),
   chatCancel: vi.fn().mockResolvedValue(undefined),
   chatApplyProposal: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/tauri", () => ({
+  chatNew: mocks.chatNew,
   chatSend: mocks.chatSend,
   chatCancel: mocks.chatCancel,
   chatApplyProposal: mocks.chatApplyProposal,
@@ -145,6 +147,7 @@ const PROPOSAL = {
   before_hash: "abc",
   new_content: "the second text\n",
   summary: "Fold the intros",
+  hunks: [],
 };
 
 function open() {
@@ -178,6 +181,17 @@ describe("the chat column", () => {
   beforeEach(() => {
     mocks.config.mockReturnValue(config(true));
     mocks.activeTabs.mockReturnValue([note("L1", LAUNCH), note("O1", OTHER)]);
+    mocks.chatNew.mockReset().mockImplementation(() =>
+      Promise.resolve({
+        id: `c-${mocks.chatNew.mock.calls.length}`,
+        title: "New chat",
+        created_at: "",
+        updated_at: "",
+        provider: "custom",
+        model: "a-model",
+        turns: [],
+      }),
+    );
     mocks.chatSend.mockReset().mockImplementation((conversationId: string) =>
       Promise.resolve({
         conversation_id: conversationId,
@@ -266,6 +280,8 @@ describe("the chat column", () => {
 
     await waitFor(() => expect(mocks.chatApplyProposal).toHaveBeenCalledTimes(1));
     expect(mocks.chatApplyProposal).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
       "Launch.md",
       "the second text\n",
       "abc",
@@ -301,7 +317,9 @@ describe("the chat column", () => {
 
     fireEvent.click(getByText("Discard"));
 
-    await waitFor(() => expect(mocks.chatDiscardProposal).toHaveBeenCalledWith("Launch.md"));
+    await waitFor(() =>
+      expect(mocks.chatDiscardProposal).toHaveBeenCalledWith(expect.any(String), 1, "Launch.md"),
+    );
     expect(mocks.chatApplyProposal).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(container.querySelector(".chat-proposal-verdict")?.textContent).toBe("Discarded."),

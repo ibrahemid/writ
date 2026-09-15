@@ -87,9 +87,10 @@ pub enum WritFrontendEvent {
         text: Option<String>,
     },
 
-    /// One frame of a chat reply, or its terminal state. `proposals` is
-    /// carried only by the `done` frame and holds whole-note text the user has
-    /// not applied to anything (ADR-031 rule 4.3).
+    /// One frame of a chat reply, or its terminal state: `chunk`, `done`,
+    /// `stopped` or `error`. `proposals` is carried only by the `done` frame
+    /// and holds whole-note text the user has not applied to anything
+    /// (ADR-031 rule 4.3).
     #[serde(rename = "ai:chat")]
     AiChat {
         conversation_id: String,

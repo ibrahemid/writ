@@ -1379,12 +1379,6 @@ export interface ChatEndpointState {
   key_state: AiKeyState;
 }
 
-/** One turn of the conversation. */
-export interface ChatTurn {
-  role: "user" | "assistant";
-  content: string;
-}
-
 /** A note the request carried, as the model read it. */
 export interface ChatAttachedNote {
   path: string;
@@ -1399,16 +1393,80 @@ export interface ChatSendAccepted {
   attached: ChatAttachedNote[];
 }
 
-/** A change to one note a reply asked for and nobody has applied.
+/** One line of a proposal's diff. */
+export interface DiffLine {
+  kind: "context" | "removed" | "added";
+  text: string;
+}
+
+/** One run of changed lines with the lines around it. Both starts are 1-based,
+ * and 0 when that side of the diff holds no line at all. */
+export interface DiffHunk {
+  before_start: number;
+  after_start: number;
+  lines: DiffLine[];
+}
+
+/** What became of one proposal. */
+export type ChatProposalStatus = "pending" | "applied" | "discarded" | "refused";
+
+/** A change to one note a reply asked for.
  *
  * `before_hash` is what Writ read when the request was built, never something
  * the model supplied: applying carries it back as the note's last known state,
- * so a note that changed in between is refused rather than overwritten. */
+ * so a note that changed in between is refused rather than overwritten.
+ *
+ * `status` and `stale` come from a stored conversation and not from the `done`
+ * frame, which carries a proposal nobody has decided on yet and a note nothing
+ * has had time to change. */
 export interface ChatProposal {
   path: string;
   before_hash: string;
   new_content: string;
   summary: string;
+  /** The change against the note as it stands, empty for a decided proposal
+   * and for a note too large to compare. */
+  hunks: DiffHunk[];
+  status?: ChatProposalStatus;
+  /** The note moved on since the proposal was made, so applying it would be
+   * refused. */
+  stale?: boolean;
+}
+
+/** A note a turn carried, named rather than copied: the conversation file
+ * holds no note text. */
+export interface ChatAttachmentRef {
+  path: string;
+  bytes: number;
+  hash: string;
+}
+
+/** One stored turn of a conversation. */
+export interface ChatStoredTurn {
+  role: "user" | "assistant";
+  content: string;
+  attachments: ChatAttachmentRef[];
+  proposals: ChatProposal[];
+}
+
+/** One conversation, as the pane reads it. */
+export interface ChatConversation {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  provider: string;
+  model: string;
+  turns: ChatStoredTurn[];
+}
+
+/** One row of the conversation list. The turns stay on disk. */
+export interface ChatConversationSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  turns: number;
 }
 
 /** What applying a proposal did to the note. */
@@ -1435,12 +1493,41 @@ export async function chatAttachedSizes(paths: string[]): Promise<ChatAttachedSi
   return invoke("chat_attached_sizes", { paths });
 }
 
+export async function chatList(): Promise<ChatConversationSummary[]> {
+  return invoke("chat_list");
+}
+
+export async function chatOpen(id: string): Promise<ChatConversation> {
+  return invoke("chat_open", { id });
+}
+
+export async function chatNew(): Promise<ChatConversation> {
+  return invoke("chat_new");
+}
+
+export async function chatRename(id: string, title: string): Promise<ChatConversation> {
+  return invoke("chat_rename", { id, title });
+}
+
+export async function chatDelete(id: string): Promise<void> {
+  return invoke("chat_delete", { id });
+}
+
+/** One reply as the fragment the pane inserts into its own DOM. Raw HTML is
+ * dropped in Rust: a reply is untrusted input. */
+export async function chatRenderReply(markdown: string): Promise<string> {
+  return invoke("chat_render_reply", { markdown });
+}
+
+/** Sends one message. `truncateTo` cuts the conversation to that many turns
+ * first, which is what retrying a turn and editing one both are. */
 export async function chatSend(
   conversationId: string,
-  turns: ChatTurn[],
+  text: string,
   contextPaths: string[],
+  truncateTo?: number,
 ): Promise<ChatSendAccepted> {
-  return invoke("chat_send", { conversationId, turns, contextPaths });
+  return invoke("chat_send", { conversationId, text, contextPaths, truncateTo });
 }
 
 export async function chatCancel(conversationId: string): Promise<void> {
@@ -1448,15 +1535,27 @@ export async function chatCancel(conversationId: string): Promise<void> {
 }
 
 export async function chatApplyProposal(
+  conversationId: string,
+  turn: number,
   path: string,
   newContent: string,
   beforeHash: string,
 ): Promise<ChatProposalOutcome> {
-  return invoke("chat_apply_proposal", { path, newContent, beforeHash });
+  return invoke("chat_apply_proposal", {
+    conversationId,
+    turn,
+    path,
+    newContent,
+    beforeHash,
+  });
 }
 
-export async function chatDiscardProposal(path: string): Promise<void> {
-  return invoke("chat_discard_proposal", { path });
+export async function chatDiscardProposal(
+  conversationId: string,
+  turn: number,
+  path: string,
+): Promise<void> {
+  return invoke("chat_discard_proposal", { conversationId, turn, path });
 }
 
 export interface AiConnectionStatus {

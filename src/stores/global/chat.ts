@@ -2,6 +2,7 @@ import { createSignal, createRoot } from "solid-js";
 import {
   chatState,
   chatAttachedSizes,
+  chatNew,
   chatSend,
   chatCancel,
   chatApplyProposal,
@@ -10,7 +11,6 @@ import {
   type ChatAttachedNote,
   type ChatProposal,
   type ChatProposalOutcome,
-  type ChatTurn,
 } from "../../services/tauri";
 import type { WritEvent } from "../../types/events";
 
@@ -18,7 +18,7 @@ export type { ChatAttachedNote, ChatEndpointState, ChatProposal };
 
 type ChatPayload = Extract<WritEvent, { kind: "ai:chat" }>["payload"];
 
-export type ChatStatus = "idle" | "streaming" | "done" | "error";
+export type ChatStatus = "idle" | "streaming" | "done" | "stopped" | "error";
 
 /** A note the conversation carries, as the pane lists it. */
 export interface Attachment {
@@ -86,29 +86,32 @@ function createChatStore() {
   }
 
   /** Sends the draft. The caller has already cleared the blockers, so this
-   * only builds the turn list and hands it over. */
+   * only names the conversation and hands the message over.
+   *
+   * The turns live in a file Rust owns, so the send names the conversation
+   * rather than replaying it: a conversation that does not exist yet is
+   * created here, on the first send. */
   async function send() {
     const text = draft().trim();
     if (!text || status() === "streaming") return;
-    const id = newConversationId();
-    const turns: ChatTurn[] = [
-      ...messages().map((message) => ({ role: message.role, content: message.content })),
-      { role: "user" as const, content: text },
-    ];
+    let id = conversationId();
     setMessages((current) => [...current, message("user", text), message("assistant", "")]);
     setDraft("");
     setErrorMessage("");
     setStatus("streaming");
-    setConversationId(id);
     try {
+      if (!id) {
+        id = (await chatNew()).id;
+        setConversationId(id);
+      }
       const accepted = await chatSend(
         id,
-        turns,
+        text,
         attachments().map((note) => note.path),
       );
       if (conversationId() === id) setContext(accepted.attached);
     } catch (error) {
-      if (conversationId() !== id) return;
+      if (id && conversationId() !== id) return;
       setStatus("error");
       setErrorMessage(readableError(error));
     }
@@ -132,6 +135,8 @@ function createChatStore() {
       if (status() !== "streaming") return;
       setProposals(payload.proposals ?? []);
       setStatus("done");
+    } else if (payload.kind === "stopped") {
+      setStatus("stopped");
     } else if (payload.kind === "error") {
       setStatus("error");
       setErrorMessage(payload.text ?? "The reply did not arrive.");
@@ -190,6 +195,8 @@ function createChatStore() {
   async function apply(proposal: ChatProposal): Promise<ChatProposalOutcome | null> {
     try {
       const outcome = await chatApplyProposal(
+        conversationId(),
+        turnOf(proposal),
         proposal.path,
         proposal.new_content,
         proposal.before_hash,
@@ -204,7 +211,16 @@ function createChatStore() {
 
   async function discard(proposal: ChatProposal) {
     decide(proposal.path, "discarded");
-    await chatDiscardProposal(proposal.path).catch(() => undefined);
+    await chatDiscardProposal(conversationId(), turnOf(proposal), proposal.path).catch(
+      () => undefined,
+    );
+  }
+
+  /** Which turn of the stored conversation offered a proposal. */
+  function turnOf(proposal: ChatProposal): number {
+    return messages().findIndex((held) =>
+      held.proposals.some((offered) => offered.path === proposal.path),
+    );
   }
 
   return {
@@ -244,13 +260,6 @@ function createChatStore() {
 
 function message(role: Message["role"], content: string): Message {
   return { role, content, proposals: [], context: [], decided: {}, refusal: {} };
-}
-
-function newConversationId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function readableError(error: unknown): string {
