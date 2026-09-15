@@ -413,6 +413,60 @@ describe("the turns on screen", () => {
   });
 });
 
+describe("a proposal read again", () => {
+  // The diff is computed against the note as it stands, so the same stored
+  // proposal comes back with different lines once the note moves on, while its
+  // text, its hash and its verdict all say what they said before.
+  const HUNK_BEFORE = {
+    before_start: 1,
+    after_start: 1,
+    lines: [
+      { kind: "removed" as const, text: "the first intro" },
+      { kind: "added" as const, text: "one intro, folded" },
+    ],
+  };
+  const HUNK_AFTER = {
+    before_start: 1,
+    after_start: 1,
+    lines: [
+      { kind: "removed" as const, text: "an intro somebody rewrote" },
+      { kind: "added" as const, text: "one intro, folded" },
+    ],
+  };
+
+  it("shows the lines the file came back with", async () => {
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(
+      conversation("c1", [
+        userTurn("tighten it"),
+        replyTurn("here it is", [{ ...PROPOSAL, hunks: [HUNK_BEFORE], stale: true }]),
+      ]),
+    );
+    await chatStore.openPane();
+    expect(chatStore.messages()[1].proposals[0].hunks).toEqual([HUNK_BEFORE]);
+
+    chatStore.setDraft("and the ending");
+    await chatStore.send();
+    // Somebody rewrote the note while the next reply was arriving, so the
+    // reload that settles the stream brings the offer back with a new diff.
+    fileAfter("c1", [
+      userTurn("tighten it"),
+      replyTurn("here it is", [{ ...PROPOSAL, hunks: [HUNK_AFTER], stale: true }]),
+      userTurn("and the ending"),
+      replyTurn("here it is again"),
+    ]);
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      kind: "chunk",
+      text: "here it is again",
+    });
+    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    await flush();
+
+    expect(chatStore.messages()[1].proposals[0].hunks).toEqual([HUNK_AFTER]);
+  });
+});
+
 describe("a send that was refused", () => {
   it("keeps the turns the file still holds, and still knows it was an edit", async () => {
     mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);

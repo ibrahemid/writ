@@ -103,8 +103,6 @@ function sameAttachment(held: ChatAttachmentRef, next: ChatAttachmentRef): boole
   return held.path === next.path && held.bytes === next.bytes && held.hash === next.hash;
 }
 
-/** The hunks are read off the proposal's own text, so what is compared is the
- * text and the verdict. */
 function sameProposal(held: ChatProposal, next: ChatProposal): boolean {
   return (
     held.path === next.path &&
@@ -112,7 +110,23 @@ function sameProposal(held: ChatProposal, next: ChatProposal): boolean {
     held.before_hash === next.before_hash &&
     held.new_content === next.new_content &&
     held.status === next.status &&
-    held.stale === next.stale
+    held.stale === next.stale &&
+    sameLength(held.hunks, next.hunks) &&
+    held.hunks.every((hunk, index) => sameHunk(hunk, next.hunks[index]))
+  );
+}
+
+/** The lines are compared as well as the text they came from: `chat_open` reads
+ * a pending proposal against the note as it stands, so an offer can come back
+ * with the same text and a different diff. */
+function sameHunk(held: DiffHunk, next: DiffHunk): boolean {
+  return (
+    held.before_start === next.before_start &&
+    held.after_start === next.after_start &&
+    sameLength(held.lines, next.lines) &&
+    held.lines.every(
+      (line, index) => line.kind === next.lines[index].kind && line.text === next.lines[index].text,
+    )
   );
 }
 
