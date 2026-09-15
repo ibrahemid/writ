@@ -378,6 +378,61 @@ describe("editing a sent turn", () => {
   });
 });
 
+describe("a send that was refused", () => {
+  it("keeps the turns the file still holds, and still knows it was an edit", async () => {
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(
+      conversation("c1", [
+        userTurn("first question"),
+        replyTurn("first answer"),
+        userTurn("second question"),
+        replyTurn("second answer"),
+      ]),
+    );
+    await chatStore.openPane();
+
+    chatStore.beginEdit(2);
+    chatStore.setDraft("a better second question");
+    mocks.chatSend.mockRejectedValue("The model did not answer.");
+    await chatStore.send();
+
+    expect(chatStore.messages().map((turn) => turn.content)).toEqual([
+      "first question",
+      "first answer",
+      "second question",
+      "second answer",
+    ]);
+    expect(chatStore.editing()).toBe(2);
+    expect(chatStore.draft()).toBe("a better second question");
+
+    mocks.chatSend.mockReset().mockResolvedValue({ conversation_id: "c1", attached: [] });
+    await chatStore.send();
+
+    expect(mocks.chatSend).toHaveBeenCalledWith("c1", "a better second question", [], 2);
+  });
+
+  it("keeps a refused retry's words in the pane and the composer as it found it", async () => {
+    mocks.chatNew.mockResolvedValue(conversation("c1"));
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+
+    fileAfter("c1", [userTurn("what does it argue")]);
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      kind: "error",
+      text: "The model did not answer.",
+    });
+    await flush();
+
+    chatStore.setDraft("a half-typed next question");
+    mocks.chatSend.mockRejectedValue("The model did not answer.");
+    await chatStore.retry();
+
+    expect(chatStore.messages().map((turn) => turn.content)).toEqual(["what does it argue"]);
+    expect(chatStore.draft()).toBe("a half-typed next question");
+  });
+});
+
 describe("a proposal", () => {
   async function openWithProposal() {
     mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);

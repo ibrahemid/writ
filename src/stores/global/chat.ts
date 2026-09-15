@@ -313,9 +313,13 @@ function createChatStore() {
       await chatSend(conversation.id, text, paths, truncateTo ?? undefined);
     } catch (error) {
       // A send that was never accepted leaves nothing on screen and the words
-      // back in the composer, to send again or edit.
+      // back in the composer, to send again or edit. The turns an edit would
+      // have replaced are still in the file, so they are still shown and the
+      // next send still replaces them rather than being added after them.
       setPendingUser(null);
       setPendingReply(null);
+      setCurrent(conversation);
+      setEditing(truncateTo);
       setDraft(text);
       setStatus("error");
       setErrorMessage(readableError(error));
@@ -327,13 +331,19 @@ function createChatStore() {
     const again = lastSend();
     const conversation = current();
     if (!again || !conversation || isBusy()) return;
+    const typed = draft();
     setCurrent({ ...conversation, turns: conversation.turns.slice(0, again.turn) });
     beginExchange(again.turn, again.text, again.paths);
     try {
       await chatSend(conversation.id, again.text, again.paths, again.turn);
     } catch (error) {
+      // The retry was never accepted, so the turn it would have replaced is
+      // still in the file and stays on screen, and anything half-typed is
+      // still in the composer.
       setPendingUser(null);
       setPendingReply(null);
+      setCurrent(conversation);
+      setDraft(typed);
       setStatus("error");
       setErrorMessage(readableError(error));
     }
