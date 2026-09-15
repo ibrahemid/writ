@@ -519,9 +519,11 @@
   color: var(--writ-fg);
 }
 
+/* Wide enough for the line numbers most notes have, and free to grow for the
+   ones that run past a thousand lines. */
 .chat-diff-num {
   flex-shrink: 0;
-  width: 2.5ch;
+  min-width: 2.5ch;
   text-align: right;
   color: var(--writ-fg-faint);
   font-variant-numeric: tabular-nums;
