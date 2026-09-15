@@ -51,6 +51,9 @@ export interface Attachment {
   name: string;
   /** The note's size on disk. */
   bytes: number;
+  /** The note's folder-relative key, where one has been read. Two paths with
+   * the same key are the same note. */
+  key?: string;
 }
 
 /** One turn on screen, at the index the stored conversation holds it. */
@@ -212,16 +215,20 @@ function createChatStore() {
   }
 
   /** Attaches a note the pane knows only a path for, reading its size from
-   * disk so the chip and the send dialog state the same number. */
+   * disk so the chip and the send dialog state the same number.
+   *
+   * A conversation file names a note by its folder-relative key and the pane
+   * holds absolute paths, so the same note reaches this by two spellings. The
+   * sizes are read for the held notes as well, and the key they come back with
+   * is what says whether the note is a chip already. */
   async function attachByPath(path: string) {
     if (isAttached(path)) return;
-    let bytes = 0;
-    try {
-      bytes = (await chatAttachedSizes([path]))[0]?.bytes ?? 0;
-    } catch {
-      bytes = 0;
-    }
-    attach({ path, name: noteName(path), bytes });
+    const held = attachments();
+    const sizes = await chatAttachedSizes([path, ...held.map((note) => note.path)]).catch(() => []);
+    const byPath = new Map(sizes.map((note) => [note.path, note]));
+    const key = byPath.get(path)?.key;
+    if (key && held.some((note) => (byPath.get(note.path)?.key ?? note.key) === key)) return;
+    attach({ path, name: noteName(path), bytes: byPath.get(path)?.bytes ?? 0, key });
   }
 
   /** The models the endpoint itself lists, for the picker.
@@ -669,8 +676,21 @@ function createChatStore() {
       // Keyed by the path that was asked about, which is the absolute one
       // these attachments hold. The command's own folder-relative key names
       // the same note in a different shape and would miss every row.
-      const byPath = new Map(sizes.map((note) => [note.path, note.bytes]));
-      return held.map((note) => ({ ...note, bytes: byPath.get(note.path) ?? note.bytes }));
+      const byPath = new Map(sizes.map((note) => [note.path, note]));
+      // Two spellings of one note are one note to send, and one size in the
+      // sentence that asks to send it.
+      const counted = new Set<string>();
+      const shown: Attachment[] = [];
+      for (const note of held) {
+        const found = byPath.get(note.path);
+        const key = found?.key ?? note.key;
+        if (key !== undefined) {
+          if (counted.has(key)) continue;
+          counted.add(key);
+        }
+        shown.push({ ...note, bytes: found?.bytes ?? note.bytes });
+      }
+      return shown;
     },
   };
 }

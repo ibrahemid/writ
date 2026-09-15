@@ -50,6 +50,19 @@ describe("the sizes the send dialog is given", () => {
     expect(refreshed[0].bytes).toBe(999);
   });
 
+  it("states one note once when two of its spellings are attached", async () => {
+    chatStore.attach(NESTED);
+    chatStore.attach({ path: "Ideas/Later.md", name: "Later.md", bytes: 100 });
+    mocks.chatAttachedSizes.mockResolvedValue([
+      { path: "/notes/Ideas/Later.md", key: "Ideas/Later.md", bytes: 999 },
+      { path: "Ideas/Later.md", key: "Ideas/Later.md", bytes: 999 },
+    ]);
+
+    const refreshed = await chatStore.attachedOnDisk();
+
+    expect(refreshed).toEqual([{ ...NESTED, bytes: 999 }]);
+  });
+
   it("keeps the recorded size for a note the command did not answer about", async () => {
     chatStore.attach(LAUNCH);
     mocks.chatAttachedSizes.mockResolvedValue([]);

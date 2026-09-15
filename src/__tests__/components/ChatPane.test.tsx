@@ -346,6 +346,30 @@ describe("the chat column", () => {
     expect(copy.textContent).toBe("Copied");
   });
 
+  it("does not chip a note twice for a second spelling of its path", async () => {
+    mocks.chatAttachedSizes.mockResolvedValue([
+      { path: OTHER, key: "Other.md", bytes: 40 },
+      { path: "Other.md", key: "Other.md", bytes: 40 },
+      { path: LAUNCH, key: "Launch.md", bytes: 120 },
+    ]);
+    const { container, getByText } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    // The shape a conversation file stores, which is what an edited turn
+    // hands back to the composer.
+    chatStore.attach({ path: "Other.md", name: "Other.md", bytes: 40 });
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(2));
+
+    const composer = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
+    composer.value = "read @Oth";
+    composer.setSelectionRange(9, 9);
+    fireEvent.input(composer);
+    fireEvent.mouseDown(await waitFor(() => getByText("Other")));
+
+    await waitFor(() => expect(chatStore.draft()).toBe("read "));
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(2);
+    expect(chatStore.attachments().map((note) => note.path)).toEqual([LAUNCH, "Other.md"]);
+  });
+
   it("shows a proposal as the lines it would change", async () => {
     const { container } = open();
     await exchange();
