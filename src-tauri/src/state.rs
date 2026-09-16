@@ -1020,7 +1020,7 @@ fn restore_recovered_buffer(
         )?;
     }
     store
-        .restore_recovered_content(&recovered.id, &recovered.content, None, None, None)
+        .restore_recovered_content(&recovered.id, &recovered.content, None, None)
         .map(|outcome| RecoveryLanding::Written(outcome.disk_state()))
         .map_err(|e| e.to_string())
 }

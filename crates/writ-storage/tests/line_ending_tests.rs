@@ -200,7 +200,7 @@ fn a_mixed_file_the_crash_did_not_change_is_left_alone() {
     // would settle the stray line, and the file would then read as having
     // moved on while Writ was down.
     let outcome = store
-        .restore_recovered_content("ending-1", mixed, None, None, None)
+        .restore_recovered_content("ending-1", mixed, None, None)
         .expect("restore");
 
     assert!(

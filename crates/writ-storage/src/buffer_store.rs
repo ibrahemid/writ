@@ -58,12 +58,6 @@ pub enum RecoveredText {
         /// Where the recovered text went instead.
         copy: PathBuf,
     },
-    /// The file holds what Writ last read into the tab, so the snapshot is
-    /// older than what is there and nothing was written or set aside.
-    Skipped {
-        /// What the note's file holds, which is what Writ recorded reading.
-        on_disk: DiskState,
-    },
 }
 
 impl RecoveredText {
@@ -77,7 +71,6 @@ impl RecoveredText {
         match self {
             Self::Restored(state) => Some(*state),
             Self::SetAside { on_disk, .. } => *on_disk,
-            Self::Skipped { on_disk } => Some(*on_disk),
         }
     }
 }
@@ -713,7 +706,6 @@ impl BufferStore {
         content: &str,
         before_write: BeforeWrite<'_>,
         dataless: DatalessProbe<'_>,
-        recorded_disk: Option<writ_core::hash::Sha256Digest>,
     ) -> StorageResult<RecoveredText> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
@@ -755,19 +747,6 @@ impl BufferStore {
 
         let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
         let on_disk = read_disk_state(path)?;
-
-        // A file whose bytes are the ones Writ last read into the tab is a
-        // file Writ refreshed, not one that moved on while it was down. The
-        // snapshot is simply older than what is there, and writing a
-        // `(recovered)` copy beside a note the user already has would be a
-        // file they did not ask for.
-        if let Some(state) = on_disk {
-            if recorded_disk.is_some_and(|recorded| recorded == state.hash)
-                && state.hash != incoming
-            {
-                return Ok(RecoveredText::Skipped { on_disk: state });
-            }
-        }
 
         if let Some(state) = on_disk {
             if state.hash != incoming {

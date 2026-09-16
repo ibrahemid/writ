@@ -261,6 +261,25 @@ fn open_recovered_note(store: &BufferStore, dir: &TempDir, on_disk: &str) -> std
     path
 }
 
+/// The same note with its row stamped where the launch before this one left
+/// it, so a snapshot written now is newer than the row.
+fn open_note_from_an_earlier_launch(
+    store: &BufferStore,
+    dir: &TempDir,
+    on_disk: &str,
+) -> std::path::PathBuf {
+    let path = dir.path().join("notes.md");
+    std::fs::write(&path, on_disk).expect("write");
+    let then = Utc::now() - chrono::Duration::seconds(30);
+    let doc = BufferDocument {
+        created_at: then,
+        updated_at: then,
+        ..make_doc("guard-1", &path)
+    };
+    store.open_from_path(&doc, on_disk).expect("open");
+    path
+}
+
 #[test]
 fn a_file_changed_while_writ_was_down_keeps_its_text_and_the_snapshot_lands_beside_it() {
     let (_db, store) = setup();
@@ -268,7 +287,7 @@ fn a_file_changed_while_writ_was_down_keeps_its_text_and_the_snapshot_lands_besi
     let path = open_recovered_note(&store, &notes, "# What a sync client delivered");
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None, None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
         .expect("recovery never fails on a file that moved on");
 
     let RecoveredText::SetAside { on_disk, copy } = outcome else {
@@ -301,7 +320,7 @@ fn a_file_that_did_not_change_is_left_exactly_as_it_is() {
     let before = std::fs::metadata(&path).unwrap();
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None, None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
         .expect("restore");
 
     let RecoveredText::Restored(state) = outcome else {
@@ -346,7 +365,7 @@ fn a_note_that_never_reached_a_file_is_written_at_its_own_path() {
     store.insert(&doc).expect("insert");
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None, None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
         .expect("restore");
 
     match outcome {
@@ -419,7 +438,6 @@ fn an_evicted_file_is_never_read_and_the_snapshot_lands_beside_it() {
             "# What the crash was holding",
             None,
             Some(&evicted),
-            None,
         )
         .expect("an evicted file is not a failure");
 
@@ -461,7 +479,6 @@ fn a_file_the_flags_call_downloaded_takes_the_ordinary_route() {
             "# What the crash was holding",
             None,
             Some(&downloaded),
-            None,
         )
         .expect("restore");
 
@@ -542,40 +559,36 @@ fn a_note_read_back_from_disk_moves_its_row_forward() {
 }
 
 #[test]
-fn a_file_writ_itself_refreshed_is_left_alone_by_recovery() {
-    let (_db, store) = setup();
+fn a_note_writ_itself_re_read_is_ignored_by_recovery() {
+    let (_db, mut store) = setup();
     let notes = TempDir::new().unwrap();
-    let path = open_recovered_note(&store, &notes, "# What the tab opened with");
+    let path = open_note_from_an_earlier_launch(&store, &notes, "# What the tab opened with");
 
-    let applied = b"# What the applied proposal wrote";
-    std::fs::write(&path, applied).expect("write");
-    let synced = sha256_bytes(applied);
+    // The heartbeat: every open note's file, read from disk, kept as an
+    // unclean snapshot.
+    let contents = store.collect_buffer_contents().expect("collect");
     store
-        .note_synced_from_disk("guard-1", synced, applied.len() as u64)
-        .expect("the row takes the sync");
+        .write_session_snapshot_if_changed(&contents)
+        .expect("write the snapshot");
+    assert_eq!(
+        store.resolve_recovery().expect("resolve").len(),
+        1,
+        "the snapshot must be newer than the row, or this proves nothing"
+    );
 
-    let outcome = store
-        .restore_recovered_content(
-            "guard-1",
-            "# What the last snapshot was holding",
-            None,
-            None,
-            Some(synced),
-        )
-        .expect("recovery never fails on a file Writ itself refreshed");
+    // Another program writes the note and Writ reads it back into the tab.
+    let refreshed = b"# What another program wrote";
+    std::fs::write(&path, refreshed).expect("write");
+    store
+        .note_synced_from_disk("guard-1", sha256_bytes(refreshed), refreshed.len() as u64)
+        .expect("the row takes the read");
 
     assert!(
-        matches!(outcome, RecoveredText::Skipped { .. }),
-        "expected the snapshot to be left where it was, got {outcome:?}"
+        store.resolve_recovery().expect("resolve").is_empty(),
+        "the last snapshot would be written back over the text Writ just read"
     );
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
-        "# What the applied proposal wrote",
-        "the applied text survived the relaunch"
-    );
-    assert_eq!(
-        recovered_copies(notes.path()),
-        Vec::<String>::new(),
-        "a file Writ refreshed itself gained a copy nobody asked for"
+        "# What another program wrote"
     );
 }
