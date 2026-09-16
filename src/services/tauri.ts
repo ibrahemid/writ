@@ -1489,7 +1489,11 @@ export interface ChatProposal {
 export type ChatDropReason =
   | "unterminated_block"
   | "unknown_note"
-  | "ambiguous_note";
+  | "ambiguous_note"
+  | "empty_body"
+  | "placeholder"
+  | "duplicate"
+  | "truncated";
 
 /** A block a reply wrote that nobody can be offered. It carries the path the
  * model named and the reason, and no note text (ADR-031 rule 5.2). */

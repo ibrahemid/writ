@@ -706,7 +706,7 @@ pub fn prepare_chat(
     let body = chat::build_request_body(
         provider,
         cfg.chat_model(),
-        chat::SYSTEM_PROMPT,
+        &chat::system_prompt(&context),
         turns,
         &context,
     );
@@ -1497,7 +1497,7 @@ async fn stream_reply(
         ChatEvent::Done { truncated } => {
             ended = true;
             emit_tail(&mut emit, ids, &mut buffer);
-            let parsed = chat::parse_proposals(&buffer.raw, &prepared.context);
+            let parsed = chat::parse_proposals(&buffer.raw, &prepared.context, truncated);
             record(&buffer.shown, &parsed, truncated);
             emit(done_frame(
                 ids,
@@ -2170,7 +2170,7 @@ Tell me if that reads better.\n";
 
         let mut buffer = ReplyBuffer::new();
         let emitted = stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
-        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
         record_reply(
             &store,
             ID,
@@ -2305,7 +2305,7 @@ Tell me if that reads better.\n";
             &mut buffer,
             "Here you go.\n```writ-proposal path=\"Nope.md\"\nnew\n```\n",
         );
-        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
         record_reply(
             &store,
             ID,
@@ -2334,7 +2334,7 @@ Tell me if that reads better.\n";
         let (_notes, attached) = notes_with("one intro\nand another intro\n");
         let mut buffer = ReplyBuffer::new();
         stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
-        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
         record_reply(
             &store,
             ID,
@@ -2775,7 +2775,7 @@ mod stream_tests {
             "a reply reached the log: {logs}"
         );
         assert!(
-            !logs.contains(writ_core::chat::SYSTEM_PROMPT),
+            !logs.contains(writ_core::chat::SYSTEM_PROMPT_HEAD),
             "the system prompt reached the log: {logs}"
         );
         assert!(logs.contains("127.0.0.1"), "the host is loggable: {logs}");
@@ -3045,7 +3045,7 @@ mod tests_support {
             body: chat::build_request_body(
                 provider,
                 "a-model",
-                chat::SYSTEM_PROMPT,
+                &chat::system_prompt(&context),
                 &turns,
                 &context,
             ),
