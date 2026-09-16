@@ -64,6 +64,24 @@ export default function ChatTranscript() {
   // which only restates the conversation is not read as new text arriving.
   let held = 0;
 
+  // A conversation carries its own position. Opening another one starts at its
+  // newest turn, following again, rather than at the offset the reader chose in
+  // the one before it.
+  let shown: string | null = null;
+  createEffect(() => {
+    const id = chatStore.current()?.id ?? null;
+    if (id === shown) return;
+    shown = id;
+    held = 0;
+    setGrew(false);
+    setFollowing(true);
+    if (frame !== null) {
+      cancelAnimationFrame(frame);
+      frame = null;
+    }
+    toBottom();
+  });
+
   createEffect(() => {
     const messages = chatStore.messages();
     // Read so a frame that only lengthens the last message still counts.

@@ -188,6 +188,29 @@ describe("the transcript's view", () => {
     expect(view.writes).toEqual([HEIGHT]);
   });
 
+  it("opening another conversation lands at its newest text and follows again", async () => {
+    const { container, view } = await openTranscript();
+    chunk("it argues ");
+    runFrames();
+    view.readerScrollsTo(100);
+    chunk("this and that");
+    runFrames();
+    view.writes.length = 0;
+
+    mocks.chatOpen.mockResolvedValue({
+      ...conversation("c2"),
+      turns: [{ role: "user", content: "another question", attachments: [], proposals: [] }],
+    });
+    await chatStore.open("c2");
+    runFrames();
+
+    expect(view.writes).toEqual([HEIGHT]);
+    const latest = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent?.trim() === "Latest",
+    );
+    expect(latest).toBeUndefined();
+  });
+
   it("moves the view once a frame, not once a delta", async () => {
     const { view } = await openTranscript();
 

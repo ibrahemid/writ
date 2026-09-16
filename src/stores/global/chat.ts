@@ -289,8 +289,10 @@ function createChatStore() {
   // A null fragment is a render still in flight.
   const renderAsked = new Map<string, { markdown: string; html: string | null }>();
   // Proposals whose write is in flight, keyed `${turn}:${path}`. Applying is
-  // one-shot: a second press while the first write runs does nothing.
-  const applying = new Set<string>();
+  // one-shot: a second press while the first write runs does nothing. It is a
+  // signal rather than a plain set because the card's disabled state is read
+  // from it, and a card that cannot see the write end stays dead.
+  const [applying, setApplying] = createSignal<Record<string, true>>({});
   // Held for as long as a send is between the draft and the status that says
   // the pane is busy. Retry takes it too, because it is the other way in.
   let sending = false;
@@ -1189,7 +1191,11 @@ function createChatStore() {
 
   /** Whether that proposal's write is in flight. */
   function isApplying(turn: number, path: string): boolean {
-    return applying.has(`${turn}:${path}`);
+    return applying()[`${turn}:${path}`] === true;
+  }
+
+  function endApplying(key: string) {
+    setApplying(({ [key]: _done, ...rest }) => rest);
   }
 
   function setProposalStatus(turn: number, path: string, next: ChatProposal["status"]) {
@@ -1228,8 +1234,11 @@ function createChatStore() {
       return null;
     }
     // Applying is one-shot: a second press while the write runs does nothing.
-    if (applying.has(key)) return null;
-    applying.add(key);
+    if (isApplying(turn, proposal.path)) return null;
+    setApplying((held) => ({ ...held, [key]: true }));
+    // A retry answers the refusal it was pressed under, so that refusal goes
+    // before the write rather than after it.
+    setRefusals(({ [key]: _gone, ...rest }) => rest);
     try {
       const outcome = await chatApplyProposal(
         id,
@@ -1238,17 +1247,19 @@ function createChatStore() {
         proposal.new_content,
         proposal.before_hash,
       );
+      // The write is over before anything says so: the card reads both, and a
+      // status written first would leave it holding a write that has ended.
+      endApplying(key);
       setProposalStatus(turn, proposal.path, "applied");
       // The note is a different size now, and a chip for it must state the
       // size the next message will carry.
       if (outcome.changed) void refreshAttachedSizes();
       return outcome;
     } catch (error) {
+      endApplying(key);
       refuse(turn, proposal.path, readableError(error));
       setProposalStatus(turn, proposal.path, "refused");
       return null;
-    } finally {
-      applying.delete(key);
     }
   }
 

@@ -805,6 +805,25 @@ describe("a proposal", () => {
     expect(chatStore.refusalFor(1, "Launch.md")).toBe("The note changed since this was offered.");
   });
 
+  it("lets a refused apply be tried again", async () => {
+    await openWithProposal();
+    mocks.chatApplyProposal.mockRejectedValueOnce("The note changed since this was offered.");
+
+    await chatStore.apply(1, PROPOSAL);
+
+    // The write is over, whatever it answered: a card that reads this is the
+    // only way back to the offer.
+    expect(chatStore.isApplying(1, "Launch.md")).toBe(false);
+
+    mocks.chatApplyProposal.mockResolvedValue({ path: "Launch.md", bytes: 16, changed: true });
+    await chatStore.apply(1, PROPOSAL);
+
+    expect(mocks.chatApplyProposal).toHaveBeenCalledTimes(2);
+    expect(chatStore.messages()[1].proposals[0].status).toBe("applied");
+    // The refusal it answered goes with it.
+    expect(chatStore.refusalFor(1, "Launch.md")).toBeUndefined();
+  });
+
   it("is discarded at the same turn", async () => {
     await openWithProposal();
 
