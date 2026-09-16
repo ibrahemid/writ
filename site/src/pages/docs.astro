@@ -20,13 +20,14 @@ const windowKeys = [
   ['Save now', 'CmdOrCtrl+S'],
   ['Toggle sidebar', 'CmdOrCtrl+\\'],
   ['Connections panel', 'CmdOrCtrl+Shift+\\'],
+  ['Chat pane', 'CmdOrCtrl+Shift+A'],
   ['Settings', 'CmdOrCtrl+,'],
   ['Zoom in / out', 'CmdOrCtrl+='],
 ];
 ---
 <Prose title="How Writ works" description="Where notes live, the hotkey, search, links, the preview, connected programs, the command line, a folder written in Obsidian, themes and every shortcut." path="/docs/" lead="Short, in the order you will meet things. The same facts in more detail live in the repo's docs folder.">
   <nav class="toc" aria-label="On this page">
-    <a href="#install">Install</a><a href="#hotkey">Hotkey</a><a href="#notes">Where notes live</a><a href="#search">Search</a><a href="#links">Links</a><a href="#preview">Preview</a><a href="#files">Files and folders</a><a href="#obsidian">A folder written in Obsidian</a><a href="#programs">Connected programs</a><a href="#inbox">Watched folder</a><a href="#cli">Command line</a><a href="#default-app">Default app</a><a href="#spelling">Spelling</a><a href="#rewrite">Rewrite</a><a href="#appearance">Appearance</a><a href="#shortcuts">Shortcuts</a><a href="#config">Config</a>
+    <a href="#install">Install</a><a href="#hotkey">Hotkey</a><a href="#notes">Where notes live</a><a href="#search">Search</a><a href="#links">Links</a><a href="#preview">Preview</a><a href="#files">Files and folders</a><a href="#obsidian">A folder written in Obsidian</a><a href="#programs">Connected programs</a><a href="#inbox">Watched folder</a><a href="#cli">Command line</a><a href="#default-app">Default app</a><a href="#spelling">Spelling</a><a href="#ai">AI</a><a href="#appearance">Appearance</a><a href="#shortcuts">Shortcuts</a><a href="#config">Config</a>
   </nav>
 
   <h2 id="install">Install</h2>
@@ -74,7 +75,6 @@ curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</code></pr
 
   <h2 id="programs">Connected programs</h2>
   <p>Off by default. Settings, Connected programs turns on the MCP server and shows the command to paste into a client such as Claude Code or Cursor. The first call from a program waits there until you approve it; reading and writing are approved separately. An approved reader can list, search and read notes and their links, backlinks, properties and tags; an approved writer can write, create and rename a note, and nothing can delete one. A write that would overwrite a newer file is refused. Recent activity lists every call without the note's text. The <a href={`${base}/guides/agent-output/`}>guide</a> walks through the setup.</p>
-  <p>Chat, also off by default and under Settings, AI rewriting, opens a pane that sends the notes you attach and nothing else, to Anthropic, a local Ollama model, or an OpenAI-compatible endpoint with your own key. A proposed edit shows beside the note and is applied only when you click.</p>
 
   <h2 id="inbox">Watched folder</h2>
   <p>Point Settings, Advanced, Folder to watch for new files at a folder. Any file that appears there after that moment opens by itself and the window comes forward. Files that were already in the folder are left alone, and more than three arrivals in two seconds collapse into one notice instead of a pile of tabs. Turn off "Bring Writ to the front when a new file arrives" if you want arrivals to stay quiet.</p>
@@ -93,8 +93,11 @@ make test 2>&1 | writ --title tests</code></pre>
   <h2 id="spelling">Spelling</h2>
   <p>Off by default. Turn it on from the status bar or Settings, Editor. It runs on your machine. Double-click a flagged word to accept a correction, fix every occurrence, or add the word to your dictionary. Code, links and tokens like <code>API</code> are not flagged.</p>
 
-  <h2 id="rewrite">Rewrite</h2>
-  <p>Off by default. Turn it on in Settings, AI rewriting. Select text, right-click, Rewrite: proofread, rephrase, polish, improve prompt, or your own instruction. The result shows as a diff you apply or discard. It uses a local model through Ollama if you have one, or any OpenAI-compatible endpoint with your own key, which is stored in the system keychain. Writ asks before the first request to any host off your machine and sends only the selected text.</p>
+  <h2 id="ai">AI</h2>
+  <p>Both features are off by default and share one connection under Settings, AI: a provider, a key and a model. Ollama and LM Studio run on your machine and need no key. Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together and Fireworks take your own key, kept in the system keychain; OpenRouter can also connect from a button that opens your browser. Any other OpenAI-compatible endpoint works by URL. The model list comes from the provider, and Check says whether the host answers. Before anything reaches a host off your machine, Writ asks once, naming the host.</p>
+  <p>Rewrite. Select text, right-click, Rewrite: proofread, rephrase, polish, improve prompt, or your own instruction. The result shows as a diff you apply or discard. Only the selected text is sent.</p>
+  <p>Chat. <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">A</kbd> opens a pane beside the note with that note attached; type <code>@</code> to attach any other note. Only attached notes are sent, and the send dialog names the host and the size first. Replies render as Markdown, with a copy button on each code block. When the model proposes an edit, the pane shows it as a diff, and Apply writes the note through the same guarded path as everything else, so a note that changed since the proposal is refused. Conversations are saved under Writ's data folder, never in the notes folder, and the pane lists, renames and deletes them. Stop ends a reply, Retry resends after an error, and editing an earlier message resends from there.</p>
+  <Capture name="chat" alt="The chat pane beside a note: the attached notes as chips, a rendered reply, and a proposed edit shown as a diff" />
 
   <h2 id="appearance">Appearance</h2>
   <p>Light by default, with six accents to choose from in Settings, Appearance; the dark presets are still there. Interface text size is a setting of its own, and Zoom scales the editor and the rendered pane together.</p>

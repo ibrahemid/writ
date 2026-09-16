@@ -40,9 +40,9 @@ import Prose from '../layouts/Prose.astro';
 
   <h2>Rewriting text</h2>
   <p>
-    Writ can rewrite a selection through an OpenAI-compatible endpoint. It is off by default; turn it on in
-    <code>Settings &rarr; AI rewriting</code>. The default endpoint is a local Ollama server at
-    <code>http://localhost:11434/v1</code>, which keeps the request on your machine.
+    Writ can rewrite a selection through the AI connection in <code>Settings &rarr; AI</code>. It is off by
+    default. The default provider is a local Ollama server at <code>http://localhost:11434/v1</code>, which keeps
+    the request on your machine; LM Studio is the other local choice, and neither needs a key.
   </p>
   <p>
     Point it at a hosted provider and Writ asks once, naming the host, before it sends that host anything: the
@@ -53,18 +53,26 @@ import Prose from '../layouts/Prose.astro';
     before any bytes leave.
   </p>
   <p>
-    While the feature is on, Writ checks whether the endpoint is reachable by requesting its model list, from
+    While the feature is on, Writ checks whether the host is reachable by requesting its model list, from
     Settings and from the Rewrite menu in the status bar. That request carries your API key and no document
-    text, and it is not sent to a hosted endpoint you have not agreed to.
+    text, and it is not sent to a hosted host you have not agreed to. Opening the AI section also asks the two
+    local runtimes, on this machine only, whether they are running; that request carries nothing.
   </p>
 
   <h2>Chat</h2>
   <p>
-    The chat pane is off by default; turn it on in <code>Settings &rarr; AI rewriting</code>. A request carries
-    the notes you attached, the conversation so far, and the model id, to the provider you chose: Anthropic, a
-    local Ollama server, or an OpenAI-compatible endpoint. Nothing else in the folder is read for it. The pane
-    lists what is attached, and attaching a note is your action. The same per-host consent applies: Writ asks
-    once, naming the host, before the first send.
+    The chat pane is off by default; turn it on in <code>Settings &rarr; AI</code>. A request carries the notes
+    you attached, the conversation so far, and the model id, to the provider the connection names. Nothing else
+    in the folder is read for it. The pane lists what is attached, and attaching a note is your action, whether
+    the pane attached the open note when you opened it or you typed <code>@</code>. The same per-host consent
+    applies: Writ asks once, naming the host, before the first send. Conversations are saved as files under
+    Writ's data folder, one per chat, holding your messages, the replies and the names and sizes of attached
+    notes; never a note's text and never a key.
+  </p>
+  <p>
+    Connecting OpenRouter opens openrouter.ai in your browser; Writ listens on this machine for the one answer
+    that browser sends back, then exchanges it for a key and stores that in your keychain. No port is open at any
+    other time.
   </p>
   <p>
     The pane never writes a note. When it proposes an edit, you read the proposal beside the note's current text
@@ -125,7 +133,7 @@ import Prose from '../layouts/Prose.astro';
   <p>
     Delete <code>~/.writ</code> to return the app to a fresh install. The notes folder and any file you opened
     elsewhere on disk are untouched. An API key is not in that directory: clear it from
-    <code>Settings &rarr; AI rewriting</code>, or from your keychain.
+    <code>Settings &rarr; AI</code>, or from your keychain.
   </p>
 
   <h2>Source of truth</h2>
