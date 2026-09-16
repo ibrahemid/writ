@@ -149,6 +149,14 @@ export default function ChatConnectionControl() {
     }
   }
 
+  /** Focus leaving the list closes it, so Tab walks out of the column rather
+   * than through a list that is no longer being looked at. */
+  function onFocusOut(event: FocusEvent) {
+    const next = event.relatedTarget;
+    if (next instanceof Node && root?.contains(next)) return;
+    setOpen(false);
+  }
+
   function onPointerDown(event: PointerEvent) {
     if (!open()) return;
     const target = event.target;
@@ -183,7 +191,7 @@ export default function ChatConnectionControl() {
         type="button"
         class="chat-connection"
         ref={button}
-        aria-haspopup="true"
+        aria-haspopup="menu"
         aria-expanded={open()}
         onClick={() => (open() ? close(true) : setOpen(true))}
       >
@@ -200,6 +208,7 @@ export default function ChatConnectionControl() {
           aria-label="Model connection"
           ref={menu}
           onKeyDown={onMenuKeyDown}
+          onFocusOut={onFocusOut}
         >
           <div class="chat-menu-group" role="group" aria-label="Provider">
             <p class="chat-menu-label" aria-hidden="true">
@@ -210,6 +219,7 @@ export default function ChatConnectionControl() {
                 <button
                   type="button"
                   role="menuitem"
+                  tabindex={-1}
                   class="chat-menu-row"
                   classList={{ "is-current": row.id === ai().provider }}
                   aria-current={row.id === ai().provider ? "true" : undefined}
@@ -236,6 +246,7 @@ export default function ChatConnectionControl() {
                 <button
                   type="button"
                   role="menuitem"
+                  tabindex={-1}
                   class="chat-menu-row"
                   classList={{ "is-current": id === model(), "is-off": unavailable(id) }}
                   disabled={unavailable(id)}
@@ -266,6 +277,7 @@ export default function ChatConnectionControl() {
           <button
             type="button"
             role="menuitem"
+            tabindex={-1}
             class="chat-menu-row chat-menu-settings"
             onClick={() => {
               close(false);

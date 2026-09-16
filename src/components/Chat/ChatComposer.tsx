@@ -13,6 +13,9 @@ import type { NoteNameHit } from "../../stores/global/link";
 const MENTION_DEBOUNCE_MS = 120;
 const MENTION_LIMIT = 8;
 
+/** Names the line that says why the note in front cannot be attached. */
+const ADD_REASON_ID = "chat-add-open-note-reason";
+
 /** Whether the note in front can be attached, and why it cannot. */
 export type OpenNoteState = "ready" | "unsaved" | "none";
 
@@ -208,6 +211,7 @@ export default function ChatComposer(props: {
             type="button"
             class="chat-chip-add"
             disabled={props.openNote() === "unsaved"}
+            aria-describedby={props.openNote() === "unsaved" ? ADD_REASON_ID : undefined}
             onClick={() => void chatStore.addOpenNote()}
           >
             <Icon name="plus" size={12} />
@@ -217,7 +221,9 @@ export default function ChatComposer(props: {
       </Show>
 
       <Show when={props.openNote() === "unsaved"}>
-        <p class="chat-composer-note">Save this note first</p>
+        <p class="chat-composer-note" id={ADD_REASON_ID}>
+          Save this note first
+        </p>
       </Show>
 
       <For each={unreadable()}>
@@ -243,6 +249,7 @@ export default function ChatComposer(props: {
           }
           aria-label="Message"
           role="combobox"
+          aria-autocomplete="list"
           aria-expanded={isOpen()}
           aria-controls={MENTION_LIST_ID}
           aria-activedescendant={isOpen() && hits().length > 0 ? mentionRowId(active()) : undefined}
