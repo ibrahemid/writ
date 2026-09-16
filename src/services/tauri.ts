@@ -1433,6 +1433,19 @@ export interface ChatProposal {
   stale?: boolean;
 }
 
+/** Why a block a reply wrote could not become a proposal. */
+export type ChatDropReason =
+  | "unterminated_block"
+  | "unknown_note"
+  | "ambiguous_note";
+
+/** A block a reply wrote that nobody can be offered. It carries the path the
+ * model named and the reason, and no note text (ADR-031 rule 5.2). */
+export interface ChatDroppedProposal {
+  named: string;
+  reason: ChatDropReason;
+}
+
 /** A note a turn carried, named rather than copied: the conversation file
  * holds no note text. */
 export interface ChatAttachmentRef {
@@ -1447,6 +1460,12 @@ export interface ChatStoredTurn {
   content: string;
   attachments: ChatAttachmentRef[];
   proposals: ChatProposal[];
+  /** Blocks the reply wrote that could not become a proposal. Absent in a
+   * conversation written before drops were recorded. */
+  dropped?: ChatDroppedProposal[];
+  /** The reply reached the model's token ceiling, so it is the start of an
+   * answer rather than the whole of one. */
+  truncated?: boolean;
 }
 
 /** One conversation, as the pane reads it. */
@@ -1474,6 +1493,9 @@ export interface ChatProposalOutcome {
   path: string;
   hash: string;
   bytes: number;
+  /** The write moved bytes. False when the note already held the proposed
+   * text, which is what a model asked for a whole note often writes back. */
+  changed: boolean;
 }
 
 export async function chatState(): Promise<ChatEndpointState> {

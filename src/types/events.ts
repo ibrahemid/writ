@@ -1,5 +1,5 @@
 import type { UpdatePhase } from "./update";
-import type { ChatProposal } from "../services/tauri";
+import type { ChatDroppedProposal, ChatProposal } from "../services/tauri";
 
 export type WritEvent =
   | { kind: "buffer:opened"; payload: { id: string; title: string } }
@@ -37,6 +37,11 @@ export type WritEvent =
         /** Whole-note text a reply asked for, carried by the `done` frame and
          * applied by nobody until a person says so (ADR-031 rule 4.3). */
         proposals?: ChatProposal[];
+        /** Blocks the reply wrote that could not become a proposal, carried by
+         * the `done` frame with the path the model named and the reason. */
+        dropped?: ChatDroppedProposal[];
+        /** The reply stopped at the model's token ceiling. */
+        truncated?: boolean;
       };
     }
   | {

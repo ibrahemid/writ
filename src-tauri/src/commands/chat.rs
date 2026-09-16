@@ -34,8 +34,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use writ_core::activity::{ActivityRecord, Actor, Decision};
 use writ_core::chat::{
-    self, AttachedNote, AttachmentRef, ChatError, ChatTurn, Conversation, Delta, Proposal,
-    ProposalFilter, ProposalStatus, Provider, Role, StoredProposal, MAX_CONVERSATION_BYTES,
+    self, AssistantReply, AttachedNote, AttachmentRef, ChatError, ChatTurn, Conversation, Delta,
+    ParsedProposals, ProposalFilter, ProposalStatus, Provider, Role, StoredProposal,
+    MAX_CONVERSATION_BYTES,
 };
 use writ_core::config::AiConfig;
 use writ_core::diff::{line_diff, Hunk};
@@ -230,6 +231,12 @@ pub struct ProposalOutcome {
     pub hash: String,
     /// How many bytes were written.
     pub bytes: u64,
+    /// The write moved bytes.
+    ///
+    /// False when the note already held the proposed text, which is what a
+    /// model asked for a whole note often writes back. The card says so rather
+    /// than reporting a change nobody made.
+    pub changed: bool,
 }
 
 /// Builds the endpoint state for `cfg`. Pure over its key lookup, so the
@@ -760,18 +767,21 @@ pub fn apply_proposal_inner(
 
     match outcome {
         Ok(written) => {
+            // A write that moved nothing records no bytes: a line claiming a
+            // length was written is a claim about a write that did not happen.
             record_proposal(
                 writ_dir,
                 host,
                 "apply_proposal",
                 &note_key,
                 Decision::Allow,
-                Some(written.bytes),
+                written.changed.then_some(written.bytes),
             );
             Ok(ProposalOutcome {
                 path: note_key,
                 hash: written.hash,
                 bytes: written.bytes,
+                changed: written.changed,
             })
         }
         Err(error) => {
@@ -786,6 +796,31 @@ pub fn apply_proposal_inner(
             Err(refusal(&note_key, &error))
         }
     }
+}
+
+/// Tells the tab holding `file` that an applied proposal changed it.
+///
+/// The write carries no ignore stamp, because ADR-033 is right that the folder
+/// watcher is the channel a write Writ did not make reaches a tab through. That
+/// channel is slow and, on a loaded machine, late. This is the same event the
+/// watcher would build, delivered by the write itself; recording the written
+/// bytes as the tab's disk state in the same step is what makes the watcher's
+/// own delivery silent at
+/// [`writ_core::watcher::change_event::modification_is_news`], so the tab gets
+/// one event rather than two.
+///
+/// A note nobody has open is told nothing, and answers `None`.
+pub fn announce_applied_note(state: &AppState, file: &Path, bytes: &[u8]) -> Option<String> {
+    let note_id = state.open_notes().note_at(file)?;
+    state.record_disk_state_bytes(&note_id, file, bytes);
+    state
+        .event_bus
+        .emit(crate::watcher::open_files::open_note_modified(
+            &note_id,
+            file,
+            Some(bytes),
+        ));
+    Some(note_id)
 }
 
 /// What the pane shows when a write does not happen.
@@ -859,15 +894,38 @@ fn record_proposal(
 }
 
 fn emit_chat(app: &AppHandle, conversation_id: &str, kind: &str, text: Option<String>) {
-    emit_chat_with(app, conversation_id, kind, text, Vec::new());
+    emit_chat_frame(
+        app,
+        conversation_id,
+        kind,
+        text,
+        ParsedProposals::default(),
+        false,
+    );
 }
 
-fn emit_chat_with(
+/// The frame that ends a reply, carrying what it proposed, what it lost and
+/// whether it was cut off.
+///
+/// A dropped block is reported rather than swallowed: a proposal that vanishes
+/// without a word reads as a broken feature, and the path the model named with
+/// a reason is all a person needs to see which it was (ADR-031 rule 5.2).
+fn emit_chat_done(
+    app: &AppHandle,
+    conversation_id: &str,
+    parsed: ParsedProposals,
+    truncated: bool,
+) {
+    emit_chat_frame(app, conversation_id, "done", None, parsed, truncated);
+}
+
+fn emit_chat_frame(
     app: &AppHandle,
     conversation_id: &str,
     kind: &str,
     text: Option<String>,
-    proposals: Vec<Proposal>,
+    parsed: ParsedProposals,
+    truncated: bool,
 ) {
     if let Err(error) = emit_event(
         app,
@@ -875,7 +933,9 @@ fn emit_chat_with(
             conversation_id: conversation_id.to_string(),
             kind: kind.to_string(),
             text,
-            proposals,
+            proposals: parsed.proposals,
+            dropped: parsed.dropped,
+            truncated,
         },
     ) {
         tracing::warn!(error = %error, "failed to emit ai-chat event");
@@ -907,7 +967,11 @@ fn log_rejected(status: u16) {
 /// One thing that happens during a stream.
 enum ChatEvent {
     Chunk(String),
-    Done,
+    /// The stream ended. `truncated` is set when it ended at the model's token
+    /// ceiling, so what arrived is the start of a reply rather than all of it.
+    Done {
+        truncated: bool,
+    },
     Error(String),
 }
 
@@ -973,7 +1037,15 @@ async fn run_chat_stream(
             match chat::parse_delta(prepared.provider, &line) {
                 Delta::Text(text) => on_event(ChatEvent::Chunk(text)),
                 Delta::Done => {
-                    on_event(ChatEvent::Done);
+                    on_event(ChatEvent::Done { truncated: false });
+                    return;
+                }
+                // The ceiling ends the stream as surely as a stop does. The
+                // flag is what lets the pane say the reply was cut off, rather
+                // than leaving a half-written note to vanish as an
+                // unterminated block.
+                Delta::Truncated => {
+                    on_event(ChatEvent::Done { truncated: true });
                     return;
                 }
                 // Nothing the server wrote is shown or logged: an error
@@ -998,7 +1070,7 @@ async fn run_chat_stream(
     if cancel.load(Ordering::Relaxed) {
         return;
     }
-    on_event(ChatEvent::Done);
+    on_event(ChatEvent::Done { truncated: false });
 }
 
 /// What a reply has produced so far: everything the model wrote, and the part
@@ -1061,11 +1133,25 @@ fn emit_tail(app: &AppHandle, conversation_id: &str, buffer: &mut ReplyBuffer) {
 /// saves, so the stamp records that the conversation was used. A store that
 /// refuses is a warning and not an error: the reply is already on screen, and
 /// there is nothing a person could do with a second message about it.
-fn record_reply(store: &ChatStore, conversation_id: &str, shown: &str, proposals: &[Proposal]) {
-    let stored: Vec<StoredProposal> = proposals.iter().map(StoredProposal::from).collect();
+fn record_reply(
+    store: &ChatStore,
+    conversation_id: &str,
+    shown: &str,
+    parsed: &ParsedProposals,
+    truncated: bool,
+) {
+    let reply = AssistantReply {
+        proposals: parsed.proposals.iter().map(StoredProposal::from).collect(),
+        dropped: parsed.dropped.clone(),
+        truncated,
+    };
+    let empty = shown.is_empty()
+        && reply.proposals.is_empty()
+        && reply.dropped.is_empty()
+        && !reply.truncated;
     let saved = store.load(conversation_id).and_then(|mut conversation| {
-        if !shown.is_empty() || !stored.is_empty() {
-            conversation.push_assistant(shown.to_string(), stored, ChatStore::now());
+        if !empty {
+            conversation.push_assistant(shown.to_string(), reply, ChatStore::now());
         }
         store.save(&conversation)
     });
@@ -1203,17 +1289,23 @@ pub async fn chat_send(
                     emit_chat(&task_app, &task_id, "chunk", Some(visible));
                 }
             }
-            ChatEvent::Done => {
+            ChatEvent::Done { truncated } => {
                 ended = true;
                 emit_tail(&task_app, &task_id, &mut buffer);
-                let proposals = chat::parse_proposals(&buffer.raw, &prepared.context);
-                record_reply(&store, &task_id, &buffer.shown, &proposals);
-                emit_chat_with(&task_app, &task_id, "done", None, proposals);
+                let parsed = chat::parse_proposals(&buffer.raw, &prepared.context);
+                record_reply(&store, &task_id, &buffer.shown, &parsed, truncated);
+                emit_chat_done(&task_app, &task_id, parsed, truncated);
             }
             ChatEvent::Error(message) => {
                 ended = true;
                 emit_tail(&task_app, &task_id, &mut buffer);
-                record_reply(&store, &task_id, &buffer.shown, &[]);
+                record_reply(
+                    &store,
+                    &task_id,
+                    &buffer.shown,
+                    &ParsedProposals::default(),
+                    false,
+                );
                 emit_chat(&task_app, &task_id, "error", Some(message));
             }
         })
@@ -1224,7 +1316,13 @@ pub async fn chat_send(
         // pane is told to render what it has.
         if !ended {
             emit_tail(&task_app, &task_id, &mut buffer);
-            record_reply(&store, &task_id, &buffer.shown, &[]);
+            record_reply(
+                &store,
+                &task_id,
+                &buffer.shown,
+                &ParsedProposals::default(),
+                false,
+            );
             emit_chat(&task_app, &task_id, "stopped", None);
         }
 
@@ -1273,6 +1371,14 @@ pub fn chat_apply_proposal(
         &before_hash,
         Some(&app.state::<AppState>().note_history),
     );
+    // Only a write that moved bytes has something to tell a tab. An apply of
+    // the text the note already holds leaves the file exactly as the tab has
+    // it, so an event about it would be a notice about nothing.
+    if outcome.as_ref().is_ok_and(|applied| applied.changed) {
+        if let Ok(file) = note_file_in(&notes_root, &path) {
+            announce_applied_note(&app.state::<AppState>(), &file, new_content.as_bytes());
+        }
+    }
     let status = if outcome.is_ok() {
         ProposalStatus::Applied
     } else {
@@ -1671,8 +1777,8 @@ Tell me if that reads better.\n";
 
         let mut buffer = ReplyBuffer::new();
         let emitted = stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
-        let proposals = chat::parse_proposals(&buffer.raw, &attached);
-        record_reply(&store, ID, &buffer.shown, &proposals);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        record_reply(&store, ID, &buffer.shown, &parsed, false);
 
         // What the stream handed the pane is what the file holds, and neither
         // carries a fence character or a line of the proposed text.
@@ -1708,7 +1814,13 @@ Tell me if that reads better.\n";
         let mut buffer = ReplyBuffer::new();
         buffer.push("The first half of an answer");
         buffer.finish();
-        record_reply(&store, ID, &buffer.shown, &[]);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &ParsedProposals::default(),
+            false,
+        );
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 2);
@@ -1721,7 +1833,7 @@ Tell me if that reads better.\n";
         let data = tempfile::TempDir::new().expect("temp dir");
         let store = store_in(data.path());
 
-        record_reply(&store, ID, "", &[]);
+        record_reply(&store, ID, "", &ParsedProposals::default(), false);
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 1);
@@ -1759,12 +1871,44 @@ Tell me if that reads better.\n";
             &mut buffer,
             "Here you go.\n```writ-proposal path=\"Launch.md\"\nhalf a not",
         );
-        record_reply(&store, ID, &buffer.shown, &[]);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &ParsedProposals::default(),
+            false,
+        );
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 2);
         assert_eq!(saved.turns[1].content, "Here you go.\n");
         assert!(saved.turns[1].proposals.is_empty());
+    }
+
+    #[test]
+    fn a_reply_that_named_a_note_nobody_attached_records_the_drop() {
+        let data = tempfile::TempDir::new().expect("temp dir");
+        let store = store_in(data.path());
+        let (_notes, attached) = notes_with("one intro\n");
+
+        let mut buffer = ReplyBuffer::new();
+        stream_through(
+            &mut buffer,
+            "Here you go.\n```writ-proposal path=\"Nope.md\"\nnew\n```\n",
+        );
+        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        record_reply(&store, ID, &buffer.shown, &parsed, true);
+
+        let saved = store.load(ID).expect("load");
+        let reply = &saved.turns[1];
+        assert!(reply.proposals.is_empty());
+        assert_eq!(reply.dropped.len(), 1);
+        assert_eq!(reply.dropped[0].named, "Nope.md");
+        assert_eq!(
+            reply.dropped[0].reason,
+            writ_core::chat::DropReason::UnknownNote
+        );
+        assert!(reply.truncated, "the turn forgot the reply was cut off");
     }
 
     #[test]
@@ -1774,8 +1918,8 @@ Tell me if that reads better.\n";
         let (_notes, attached) = notes_with("one intro\nand another intro\n");
         let mut buffer = ReplyBuffer::new();
         stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
-        let proposals = chat::parse_proposals(&buffer.raw, &attached);
-        record_reply(&store, ID, &buffer.shown, &proposals);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        record_reply(&store, ID, &buffer.shown, &parsed, false);
 
         record_status(&store, ID, 1, "Launch.md", ProposalStatus::Applied);
         assert_eq!(
@@ -1804,13 +1948,16 @@ Tell me if that reads better.\n";
         );
         conversation.push_assistant(
             "Here is a shorter opening.".to_string(),
-            vec![StoredProposal {
-                path: "Launch.md".to_string(),
-                summary: "Fold the intros".to_string(),
-                before_hash: attached[0].before_hash.clone(),
-                new_content: "one intro, folded\n".to_string(),
-                status: ProposalStatus::Pending,
-            }],
+            AssistantReply {
+                proposals: vec![StoredProposal {
+                    path: "Launch.md".to_string(),
+                    summary: "Fold the intros".to_string(),
+                    before_hash: attached[0].before_hash.clone(),
+                    new_content: "one intro, folded\n".to_string(),
+                    status: ProposalStatus::Pending,
+                }],
+                ..AssistantReply::default()
+            },
             ChatStore::now(),
         );
 
@@ -1853,13 +2000,16 @@ Tell me if that reads better.\n";
         );
         conversation.push_assistant(
             "Done.".to_string(),
-            vec![StoredProposal {
-                path: "Launch.md".to_string(),
-                summary: "Fold the intros".to_string(),
-                before_hash: attached[0].before_hash.clone(),
-                new_content: "one intro, folded\n".to_string(),
-                status: ProposalStatus::Applied,
-            }],
+            AssistantReply {
+                proposals: vec![StoredProposal {
+                    path: "Launch.md".to_string(),
+                    summary: "Fold the intros".to_string(),
+                    before_hash: attached[0].before_hash.clone(),
+                    new_content: "one intro, folded\n".to_string(),
+                    status: ProposalStatus::Applied,
+                }],
+                ..AssistantReply::default()
+            },
             ChatStore::now(),
         );
 
@@ -1917,7 +2067,7 @@ mod stream_tests {
                 let mut seen = sink.lock().expect("events");
                 match event {
                     ChatEvent::Chunk(text) => seen.push(format!("chunk:{text}")),
-                    ChatEvent::Done => seen.push("done".to_string()),
+                    ChatEvent::Done { truncated } => seen.push(format!("done:{truncated}")),
                     ChatEvent::Error(message) => seen.push(format!("error:{message}")),
                 }
             })
@@ -1943,7 +2093,29 @@ mod stream_tests {
             .filter_map(|event| event.strip_prefix("chunk:"))
             .collect();
         assert_eq!(text, RECORDED_REPLY);
-        assert_eq!(events.last().map(String::as_str), Some("done"));
+        assert_eq!(events.last().map(String::as_str), Some("done:false"));
+    }
+
+    #[test]
+    fn a_reply_cut_off_at_the_ceiling_ends_as_done_and_says_so() {
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"half an ans\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+        );
+        let prepared = prepared_for(&base, Provider::OpenAiCompatible, None);
+        let events = run_against(&prepared, Arc::new(AtomicBool::new(false)));
+
+        assert_eq!(
+            events.first().map(String::as_str),
+            Some("chunk:half an ans")
+        );
+        assert_eq!(
+            events.last().map(String::as_str),
+            Some("done:true"),
+            "a reply that stopped at the ceiling read as a whole one"
+        );
     }
 
     #[test]
@@ -2031,7 +2203,8 @@ mod stream_tests {
                 &store,
                 "0b7d6b7a-5555-4b6a-9d5e-000000000005",
                 RECORDED_REPLY,
-                &[],
+                &ParsedProposals::default(),
+                false,
             );
             record_status(
                 &store,
