@@ -197,6 +197,46 @@
   padding: var(--writ-space-3);
 }
 
+.chat-transcript:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
+/* The state of the reply, for a reader who is listening to the column rather
+   than looking at it. */
+.chat-transcript-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Back to the newest text, for a reader who scrolled away from it while a
+   reply was still arriving. It rides the bottom of the column it belongs to. */
+.chat-latest {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  padding-top: var(--writ-space-2);
+  animation: chat-latest-in var(--writ-motion);
+}
+
+@keyframes chat-latest-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* A person's turn carries a fill; a reply sits on the pane's own ground. The
    fill is the whole of the distinction — no name label, no avatar. */
 .chat-turn {
@@ -367,9 +407,15 @@
   background: var(--writ-bg-sunken);
 }
 
-.chat-reply pre {
+/* The block scrolls sideways inside the box; the box is what the copy button
+   is placed against, so the button stays where it was put. */
+.chat-code {
   position: relative;
   margin: 0 0 var(--writ-space-2);
+}
+
+.chat-reply pre {
+  margin: 0;
   padding: var(--writ-space-2);
   overflow-x: auto;
   border-radius: var(--writ-r-media);
@@ -395,8 +441,8 @@
   text-align: left;
 }
 
-/* The copy button sits in the block it copies, and stays out of the way until
-   the block is pointed at or something inside it takes focus. */
+/* The copy button sits over the block it copies, and stays out of the way
+   until the block is pointed at or something inside it takes focus. */
 .chat-code-copy {
   position: absolute;
   top: 4px;
@@ -757,6 +803,10 @@
   .chat-turn-actions,
   .chat-code-copy {
     opacity: 1;
+  }
+
+  .chat-latest {
+    animation: none;
   }
 
   .chat-thinking-dots span {

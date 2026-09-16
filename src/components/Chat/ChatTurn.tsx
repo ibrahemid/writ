@@ -31,22 +31,33 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
     if (copiedTimer !== null) clearTimeout(copiedTimer);
   });
 
+  /** The fragment this element already holds. A stream renders the same string
+   * over and over, and writing it again would destroy and rebuild every node
+   * in the reply for nothing. */
+  let applied: string | null = null;
+
   // Scoped to this turn's own element, which is what the ref is for: nothing
   // here reaches the document.
   createEffect(() => {
     const el = reply;
     const html = props.message.html;
-    if (!el) return;
+    if (!el || html === applied) return;
+    applied = html;
     el.innerHTML = html;
     for (const block of Array.from(el.querySelectorAll("pre"))) {
       if (!block.querySelector("code")) continue;
-      block.classList.add("chat-code");
+      // The button sits beside the block rather than in it: a block wider than
+      // the column scrolls sideways, and a button inside would scroll out.
+      const box = document.createElement("div");
+      box.className = "chat-code";
+      block.replaceWith(box);
+      box.append(block);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "chat-code-copy";
       button.dataset.copy = "";
       button.textContent = "Copy";
-      block.append(button);
+      box.append(button);
     }
     // A table sets its own width from its content, which beats the column's,
     // so it scrolls in a box of its own rather than widening the pane.
@@ -66,7 +77,7 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
 
     const copy = target.closest<HTMLElement>("[data-copy]");
     if (copy) {
-      const source = copy.closest("pre")?.querySelector("code")?.textContent ?? "";
+      const source = copy.closest(".chat-code")?.querySelector("code")?.textContent ?? "";
       void chatStore.copyCode(source).then((landed) => {
         if (landed) sayCopied(copy);
       });
