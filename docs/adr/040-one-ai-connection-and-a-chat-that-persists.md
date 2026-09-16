@@ -396,6 +396,56 @@ overlay may adopt the same hunks later, and this is the implementation it would 
 - **Rule 7.1**: `ai.enabled` reads `ai.rewrite.enabled`; `ai.chat.enabled` is unchanged. Both
   default to `false`.
 
+### 11. What a connection change and a refusal do, amended 2026-09-17
+
+An operator run against a DeepSeek key answered `400` on every send. Two defects produced it,
+each on its own: a chat model picked under one provider stayed in the file after the provider
+changed, and the pane's model list was fetched once per pane open, keyed by nothing, so ids
+read from Ollama stayed on offer under DeepSeek. The status line the pane showed said only
+"The model server returned status 400", and the record's rule 5.2 is why the sentence that
+would have explained it was discarded. The following amend sections 1, 3 and 9 of this record.
+
+- **The chat model override carries the provider it was picked under.** `[ai.chat]` gains
+  `model_provider`, and `AiChatConfig::override_for(provider)` answers the override only while it
+  matches the connection. A file written before the field existed has its override qualified to
+  the provider that file names, once, in `AiConfig::from(AiConfigOnDisk)`, which stays the one
+  migration point. A chat that names no model of its own carries no qualifier.
+
+- **`AiConfig::with_provider` is the one place a provider changes.** It seeds the new row's model,
+  keeps a hand-typed row's model because that row names no default, drops an override that does
+  not belong to the new provider, and leaves consent and both feature switches alone. The
+  settings panel and the composer's own control both reach it through `ai_set_provider`, so the
+  clearing rule cannot be applied differently in two surfaces.
+
+- **A model list is stamped with the provider it was read for.** `ai_list_models` answers a
+  `ModelCatalog { provider, models, source, error }`, where `source` is `Live`, `Curated` or
+  `None`. The frontend drops an answer whose `provider` is no longer the configured one, which
+  makes an out-of-order response harmless by construction rather than by ordering. The curated
+  ids move into the provider table of section 2, so the ids, the defaults and the wire come from
+  one definition. One store holds the catalog for the settings panel and the pane.
+
+- **A send is refused against a live catalog only.** `ModelUnavailable` is raised before the
+  request is built and before a key is read, so a send that cannot work raises no keychain
+  prompt. A `Curated` catalog is the table's suggestions and refuses nothing, because it is not
+  the account's inventory. `ai_check_connection` reads the chat model as well as the connection's,
+  and names whichever of the two the provider does not list.
+
+- **A refusal names the reason, in Writ's words.** A non-2xx answer becomes
+  `ProviderRejected { provider, status, code }`, where `code` is a `RejectCode` matched against a
+  fixed allowlist parsed from `error.code` and `error.type` in the OpenAI-compatible envelope and
+  `error.type` in Anthropic's. Anything outside the allowlist leaves `code` empty and the status
+  stands alone. This narrows rule 5.2 of ADR-031: at most 8 KiB of a refusal body is read, and the
+  only value that may leave the parser is one of six variants of a closed enum, so no response
+  text can be shown, stored or logged whatever a host writes. `LocalServerOffline` and
+  `EmptyModelList` join it, and each sentence is built from the provider table's label.
+
+- **Every frame names the connection that produced it.** A request freezes
+  `identity { provider, model, host }` when it is built; the accepted reply, the `done` frame and
+  the assistant turn on disk all carry it, and an `error` frame carries
+  `{ kind, message, provider, model, status }`. A reply says which model wrote it, and a refusal
+  names the model that was refused. The turn field is optional, so conversations written before
+  it open unchanged.
+
 ## Consequences
 
 **Callers.** `AiConfig` changes shape; every reader of `ai.preset`, `ai.enabled`, `ai.chat.provider`
