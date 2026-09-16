@@ -26,6 +26,7 @@ import {
 } from "../../services/tauri";
 import { onEvent, type UnlistenFn } from "../../services/events";
 import { aiConnectionStore } from "./ai-connection";
+import { aiProvidersStore } from "./ai-providers";
 import { bufferRegistry } from "./buffer-registry";
 import { configStore } from "./config";
 import { saveStatusStore } from "./save-status";
@@ -697,7 +698,7 @@ function createChatStore() {
     if (catalog?.source === "live" && !catalog.models.includes(model)) {
       return {
         state: "model_unavailable",
-        message: `${model} is not available on ${catalog.provider}.`,
+        message: `${model} is not available on ${aiProvidersStore.byId(catalog.provider)?.label ?? catalog.provider}.`,
         action: { kind: "settings", section: "ai", setting: "ai.model" },
       };
     }

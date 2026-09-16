@@ -59,7 +59,10 @@ vi.mock("../../stores/global/config", () => ({
 }));
 
 vi.mock("../../stores/global/ai-providers", () => ({
-  aiProvidersStore: { groupOf: mocks.groupOf },
+  aiProvidersStore: {
+    groupOf: mocks.groupOf,
+    byId: (id: string) => (id === "ollama" ? { id, label: "Ollama" } : null),
+  },
 }));
 
 import { aiConnectionStore } from "../../stores/global/ai-connection";
@@ -210,7 +213,10 @@ describe("what the pane says about the connection", () => {
     aiConnectionStore.watch();
     await aiConnectionStore.refreshCatalog();
 
-    expect(chatStore.readiness()).toMatchObject({ state: "model_unavailable" });
+    expect(chatStore.readiness()).toMatchObject({
+      state: "model_unavailable",
+      message: "qwen2.5 is not available on Ollama.",
+    });
   });
 
   it("reports chat being switched off", () => {
