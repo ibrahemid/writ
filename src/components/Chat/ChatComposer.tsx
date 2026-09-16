@@ -176,7 +176,7 @@ export default function ChatComposer(props: {
         </p>
       </Show>
 
-      <Show when={props.openNote() !== "none"}>
+      <Show when={chatStore.attachments().length > 0 || props.openNote() !== "none"}>
         <div class="chat-chips-row">
           <Show when={chatStore.attachments().length > 0}>
             <ul class="chat-chips" aria-label="Notes it can read">
@@ -207,16 +207,18 @@ export default function ChatComposer(props: {
               </For>
             </ul>
           </Show>
-          <button
-            type="button"
-            class="chat-chip-add"
-            disabled={props.openNote() === "unsaved"}
-            aria-describedby={props.openNote() === "unsaved" ? ADD_REASON_ID : undefined}
-            onClick={() => void chatStore.addOpenNote()}
-          >
-            <Icon name="plus" size={12} />
-            Add open note
-          </button>
+          <Show when={props.openNote() !== "none"}>
+            <button
+              type="button"
+              class="chat-chip-add"
+              disabled={props.openNote() === "unsaved"}
+              aria-describedby={props.openNote() === "unsaved" ? ADD_REASON_ID : undefined}
+              onClick={() => void chatStore.addOpenNote()}
+            >
+              <Icon name="plus" size={12} />
+              Add open note
+            </button>
+          </Show>
         </div>
       </Show>
 
