@@ -174,6 +174,19 @@ impl RejectCode {
         }
     }
 
+    /// The word this reason is logged under. A fixed token, never the
+    /// provider's text.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ModelNotFound => "model_not_found",
+            Self::InvalidRequest => "invalid_request",
+            Self::InvalidApiKey => "invalid_api_key",
+            Self::InsufficientQuota => "insufficient_quota",
+            Self::RateLimited => "rate_limited",
+            Self::ContextLengthExceeded => "context_length_exceeded",
+        }
+    }
+
     /// The reason a token names, or `None` when it is not on the allowlist.
     fn from_token(token: &str) -> Option<Self> {
         match token {
@@ -308,6 +321,80 @@ pub enum ChatError {
         /// The reason it named, when that reason is on the allowlist.
         code: Option<RejectCode>,
     },
+}
+
+impl ChatError {
+    /// The machine word the pane routes its recovery on. The sentence is what
+    /// a person reads; this is what the code matches.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Disabled => "disabled",
+            Self::UnknownProvider(_) => "unknown_provider",
+            Self::InvalidBaseUrl => "invalid_base_url",
+            Self::EndpointNotAllowed => "endpoint_not_allowed",
+            Self::ModelRequired => "model_required",
+            Self::ConsentRequired { .. } => "consent_required",
+            Self::ApiKeyRequired { .. } => "api_key_required",
+            Self::EmptyMessage => "empty_message",
+            Self::LocalServerOffline { .. } => "local_server_offline",
+            Self::EmptyModelList { .. } => "empty_model_list",
+            Self::ModelUnavailable { .. } => "model_unavailable",
+            Self::ProviderRejected { .. } => "provider_rejected",
+        }
+    }
+
+    /// The status a provider answered, for the failure that carries one.
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            Self::ProviderRejected { status, .. } => Some(*status),
+            _ => None,
+        }
+    }
+}
+
+/// What the pane is told when a reply fails.
+///
+/// `message` is Writ's own sentence, built from the typed failure; no part of
+/// a response body reaches this struct. `provider` and `model` are the
+/// connection the request was frozen against, so a refusal names the model
+/// that was refused rather than whatever is configured by the time it lands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ChatErrorFrame {
+    /// The machine word, from [`ChatError::kind`].
+    pub kind: String,
+    /// The sentence a person reads.
+    pub message: String,
+    /// The provider the request went to.
+    pub provider: String,
+    /// The model that was sent.
+    pub model: String,
+    /// The status the provider answered, when it answered one.
+    pub status: Option<u16>,
+}
+
+impl ChatErrorFrame {
+    /// The frame a typed failure reads as.
+    pub fn from_error(error: &ChatError, identity: &RequestIdentity) -> Self {
+        Self {
+            kind: error.kind().to_string(),
+            message: error.to_string(),
+            provider: identity.provider.clone(),
+            model: identity.model.clone(),
+            status: error.status(),
+        }
+    }
+
+    /// A frame for a failure with no typed variant of its own: a transport
+    /// fault, or a stream the host ended. `message` is still Writ's sentence.
+    pub fn untyped(kind: &str, message: String, identity: &RequestIdentity) -> Self {
+        Self {
+            kind: kind.to_string(),
+            message,
+            provider: identity.provider.clone(),
+            model: identity.model.clone(),
+            status: None,
+        }
+    }
 }
 
 impl From<crate::polish::PolishError> for ChatError {

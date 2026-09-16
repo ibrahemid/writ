@@ -10,6 +10,7 @@
 use std::path::Path;
 
 use writ_core::activity::{Actor, Decision};
+use writ_core::ai::models::{ModelCatalog, ModelListError};
 use writ_core::chat::{ChatError, ChatTurn, Role};
 use writ_core::config::{AiChatConfig, AiConfig};
 use writ_tauri_lib::commands::ai::AiKeyState;
@@ -118,7 +119,109 @@ fn chat_state_reports_the_connection_and_its_model() {
     assert_eq!(state.model, "claude-sonnet-5");
 
     cfg.chat.model = "claude-haiku-5".to_string();
+    cfg.chat.model_provider = "anthropic".to_string();
     assert_eq!(endpoint_state_from(&cfg, no_key()).model, "claude-haiku-5");
+}
+
+#[test]
+fn chat_state_reports_the_override_only_for_its_own_provider() {
+    let mut cfg = config("");
+    cfg.provider = "ollama".to_string();
+    cfg.model = "qwen3:4b".to_string();
+    cfg.chat.model = "qwen2.5-coder:0.5b".to_string();
+    cfg.chat.model_provider = "ollama".to_string();
+    assert_eq!(
+        endpoint_state_from(&cfg, no_key()).model,
+        "qwen2.5-coder:0.5b"
+    );
+
+    // The same file after the connection moved. The pane reports the model it
+    // would actually send, which is the connection's.
+    cfg.provider = "deepseek".to_string();
+    cfg.model = "deepseek-chat".to_string();
+    let moved = endpoint_state_from(&cfg, no_key());
+    assert_eq!(moved.provider, "deepseek");
+    assert_eq!(moved.model, "deepseek-chat");
+}
+
+#[test]
+fn the_provider_change_the_pane_and_settings_share_is_registered() {
+    // Both surfaces change a provider through one command, so the override
+    // rule cannot be applied differently in two places.
+    assert!(
+        LIB_RS.contains("commands::ai::ai_set_provider"),
+        "ai_set_provider is not in the invoke handler"
+    );
+}
+
+// --- chat_send preflight ----------------------------------------------------
+
+#[test]
+fn chat_send_refuses_a_model_not_in_the_catalog() {
+    let mut cfg = config("https://api.example.com/v1");
+    cfg.consented_hosts = vec!["api.example.com".to_string()];
+    cfg.model = "a-model".to_string();
+
+    let live = ModelCatalog::live("custom", vec!["a-model".to_string()]);
+    assert_eq!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), Some(&live), |_| Some(
+            "k".to_string()
+        ))
+        .map(|p| p.identity.model),
+        Ok("a-model".to_string())
+    );
+
+    // A model the provider does not list is refused before a request exists,
+    // and before a key is read: a send that cannot work raises no keychain
+    // prompt.
+    cfg.model = "not-on-this-server".to_string();
+    assert_eq!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), Some(&live), |_| panic!(
+            "the key was read for a send that cannot happen"
+        )),
+        Err(ChatError::ModelUnavailable {
+            model: "not-on-this-server".to_string(),
+            provider: "custom".to_string(),
+        })
+    );
+
+    // A live list with nothing in it is its own failure.
+    let empty = ModelCatalog::live("custom", Vec::new());
+    assert_eq!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), Some(&empty), |_| None),
+        Err(ChatError::EmptyModelList {
+            provider: "custom".to_string(),
+        })
+    );
+
+    // Suggestions are not an inventory, so they refuse nothing, and neither
+    // does a list read for another provider.
+    let curated = ModelCatalog::fallback("custom", ModelListError::Unreachable);
+    assert!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), Some(&curated), |_| Some(
+            "k".to_string()
+        ))
+        .is_ok()
+    );
+    let elsewhere = ModelCatalog::live("ollama", vec!["qwen3:4b".to_string()]);
+    assert!(
+        prepare_chat(
+            &cfg,
+            &turn("hello"),
+            Vec::new(),
+            Some(&elsewhere),
+            |_| Some("k".to_string())
+        )
+        .is_ok(),
+        "a list answered for another provider decides nothing here"
+    );
+    // And with no list at all, nothing blocks.
+    assert!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), None, |_| Some(
+            "k".to_string()
+        ))
+        .is_ok()
+    );
 }
 
 // --- chat_attached_sizes ----------------------------------------------------
@@ -215,6 +318,7 @@ fn chat_send_carries_the_attached_notes_and_nothing_else() {
         &config("http://localhost:11434/v1"),
         &turn("what does it argue"),
         attached,
+        None,
         |_| None,
     )
     .expect("prepared");
@@ -250,6 +354,7 @@ fn chat_send_refuses_an_unconsented_hosted_host_before_the_body_is_built() {
         &config("https://api.example.com/v1"),
         &turn("hello"),
         Vec::new(),
+        None,
         |_| panic!("the key was read for a host with no consent"),
     )
     .expect_err("refused");
@@ -266,7 +371,7 @@ fn chat_send_refuses_when_the_switch_is_off() {
     let mut cfg = config("http://localhost:11434/v1");
     cfg.chat.enabled = false;
     assert_eq!(
-        prepare_chat(&cfg, &turn("hello"), Vec::new(), |_| None),
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), None, |_| None),
         Err(ChatError::Disabled)
     );
 }

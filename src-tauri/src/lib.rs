@@ -725,6 +725,7 @@ pub fn run() {
             commands::ai::ai_consent_host,
             commands::ai::ai_providers,
             commands::ai::ai_list_models,
+            commands::ai::ai_set_provider,
             commands::ai::ai_probe_local,
             commands::ai_connect::ai_openrouter_connect,
             commands::ai_connect::ai_openrouter_cancel,

@@ -614,6 +614,52 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
     Ok(endpoint_state_from(&config.ai, key_state))
 }
 
+/// The model a provider starts from: its own default, else the first of its
+/// suggestions, else nothing.
+///
+/// The local rows name no default because their list is whatever the runtime
+/// has pulled; the suggestion is what keeps the picker from opening empty.
+fn seed_model_for(provider: &str) -> String {
+    match providers::provider(provider) {
+        Some(row) if !row.default_model.is_empty() => row.default_model.to_string(),
+        Some(row) => row
+            .curated_models
+            .first()
+            .map(|id| id.to_string())
+            .unwrap_or_default(),
+        None => String::new(),
+    }
+}
+
+/// Points the connection at another provider and saves.
+///
+/// The one place a provider change happens. The rule that a chat model belongs
+/// to the server it was picked from lives in [`AiConfig::with_provider`], so
+/// the settings panel and the pane cannot clear an override differently.
+#[tauri::command]
+pub fn ai_set_provider(app: AppHandle, provider: String) -> Result<AiConfig, String> {
+    if providers::provider(&provider).is_none() {
+        return Err("That provider is not one this version knows.".to_string());
+    }
+    let state = app.state::<AppState>();
+    let seed = seed_model_for(&provider);
+
+    // Read, change and clone under one lock, so a settings write landing
+    // between a read and a write is not overwritten with a stale copy.
+    let (updated, previous) = {
+        let mut guard = recover_poison(state.config.lock(), "commands::ai::ai_set_provider");
+        let previous = guard.ai.clone();
+        guard.ai = previous.with_provider(&provider, &seed);
+        (guard.clone(), previous)
+    };
+    if let Err(reason) = super::config::persist_config(&state, &updated) {
+        let mut guard = recover_poison(state.config.lock(), "commands::ai::ai_set_provider");
+        guard.ai = previous;
+        return Err(reason);
+    }
+    Ok(updated.ai)
+}
+
 // --- Request preparation (pure, testable) ----------------------------------
 
 /// Everything a stream needs, resolved from config and validated. Building this

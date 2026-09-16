@@ -99,6 +99,13 @@ pub enum WritFrontendEvent {
         text: Option<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         proposals: Vec<writ_core::chat::Proposal>,
+        /// The connection the reply came from, carried by `done`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        identity: Option<writ_core::chat::RequestIdentity>,
+        /// The typed failure, carried by `error`. Its `message` is the same
+        /// sentence `text` holds.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<writ_core::chat::ChatErrorFrame>,
     },
 
     #[serde(rename = "note:download")]

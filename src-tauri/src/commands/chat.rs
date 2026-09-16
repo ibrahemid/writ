@@ -33,9 +33,11 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use writ_core::activity::{ActivityRecord, Actor, Decision};
+use writ_core::ai::models::{CatalogSource, ModelCatalog};
 use writ_core::chat::{
-    self, AttachedNote, AttachmentRef, ChatError, ChatTurn, Conversation, Delta, Proposal,
-    ProposalFilter, ProposalStatus, Provider, Role, StoredProposal, MAX_CONVERSATION_BYTES,
+    self, AttachedNote, AttachmentRef, ChatError, ChatErrorFrame, ChatTurn, Conversation, Delta,
+    Proposal, ProposalFilter, ProposalStatus, Provider, RejectCode, RequestIdentity, Role,
+    StoredProposal, MAX_CONVERSATION_BYTES,
 };
 use writ_core::config::AiConfig;
 use writ_core::diff::{line_diff, Hunk};
@@ -219,6 +221,9 @@ pub struct ChatSendAccepted {
     pub conversation_id: String,
     /// What the request carried, in the order it carried it.
     pub attached: Vec<AttachedNote>,
+    /// The connection the request was frozen against: what the reply will be
+    /// attributed to, whatever the config says by the time it lands.
+    pub identity: RequestIdentity,
 }
 
 /// What a proposal the user applied did to the note.
@@ -471,10 +476,16 @@ pub struct PreparedChat {
     pub api_key: Option<String>,
     /// The host, for the log line and the activity record.
     pub host: String,
+    /// The host with its port, for the line a local runtime's silence reads
+    /// as.
+    pub host_port: String,
     /// The endpoint is on this machine.
     pub is_localhost: bool,
     /// The notes the request carries, and nothing else.
     pub context: Vec<AttachedNote>,
+    /// The connection this request was frozen against, carried on every frame
+    /// it produces.
+    pub identity: RequestIdentity,
 }
 
 /// Validates config and inputs and resolves the request.
@@ -485,6 +496,7 @@ pub fn prepare_chat(
     cfg: &AiConfig,
     turns: &[ChatTurn],
     context: Vec<AttachedNote>,
+    catalog: Option<&ModelCatalog>,
     lookup_key: impl FnOnce(&str) -> Option<String>,
 ) -> Result<PreparedChat, ChatError> {
     if !cfg.chat.enabled {
@@ -509,6 +521,7 @@ pub fn prepare_chat(
     if cfg.chat_model().trim().is_empty() {
         return Err(ChatError::ModelRequired);
     }
+    model_is_on_offer(cfg, catalog)?;
 
     let api_key = if target.is_hosted {
         if !super::ai::is_consented(cfg, &target.host) {
@@ -541,9 +554,42 @@ pub fn prepare_chat(
         body,
         api_key,
         is_localhost: !target.is_hosted,
+        identity: RequestIdentity {
+            provider: cfg.provider.clone(),
+            model: cfg.chat_model().to_string(),
+            host: target.host.clone(),
+        },
         host: target.host,
+        host_port: target.host_port,
         context,
     })
+}
+
+/// Whether the model about to be sent is one the provider offers.
+///
+/// Only a live catalog read for this same provider can answer: the table's
+/// suggestions are guesses, and a list answered for another provider describes
+/// another server. A catalog that cannot answer blocks nothing, so a send is
+/// never refused for want of evidence.
+fn model_is_on_offer(cfg: &AiConfig, catalog: Option<&ModelCatalog>) -> Result<(), ChatError> {
+    let Some(catalog) = catalog else {
+        return Ok(());
+    };
+    if catalog.provider != cfg.provider || catalog.source != CatalogSource::Live {
+        return Ok(());
+    }
+    if catalog.models.is_empty() {
+        return Err(ChatError::EmptyModelList {
+            provider: cfg.provider.clone(),
+        });
+    }
+    if catalog.refuses(cfg.chat_model()) {
+        return Err(ChatError::ModelUnavailable {
+            model: cfg.chat_model().to_string(),
+            provider: cfg.provider.clone(),
+        });
+    }
+    Ok(())
 }
 
 /// The notes folder in the one spelling every path here is compared against.
@@ -859,7 +905,7 @@ fn record_proposal(
 }
 
 fn emit_chat(app: &AppHandle, conversation_id: &str, kind: &str, text: Option<String>) {
-    emit_chat_with(app, conversation_id, kind, text, Vec::new());
+    emit_frame(app, conversation_id, kind, text, Vec::new(), None, None);
 }
 
 fn emit_chat_with(
@@ -868,6 +914,37 @@ fn emit_chat_with(
     kind: &str,
     text: Option<String>,
     proposals: Vec<Proposal>,
+    identity: Option<RequestIdentity>,
+) {
+    emit_frame(app, conversation_id, kind, text, proposals, identity, None);
+}
+
+/// The frame a failed reply ends on.
+///
+/// `text` carries the same sentence the frame does, so a pane that renders a
+/// terminal frame's text needs no change to keep showing it; `error` is what a
+/// recovery action is chosen from.
+fn emit_chat_error(app: &AppHandle, conversation_id: &str, frame: ChatErrorFrame) {
+    let message = frame.message.clone();
+    emit_frame(
+        app,
+        conversation_id,
+        "error",
+        Some(message),
+        Vec::new(),
+        None,
+        Some(frame),
+    );
+}
+
+fn emit_frame(
+    app: &AppHandle,
+    conversation_id: &str,
+    kind: &str,
+    text: Option<String>,
+    proposals: Vec<Proposal>,
+    identity: Option<RequestIdentity>,
+    error: Option<ChatErrorFrame>,
 ) {
     if let Err(error) = emit_event(
         app,
@@ -876,6 +953,8 @@ fn emit_chat_with(
             kind: kind.to_string(),
             text,
             proposals,
+            identity,
+            error,
         },
     ) {
         tracing::warn!(error = %error, "failed to emit ai-chat event");
@@ -898,17 +977,70 @@ fn log_request(prepared: &PreparedChat, note_bytes: usize, turns: usize) {
     );
 }
 
-/// The one line a refused request writes. The status code is the whole of what
-/// the server said that may be recorded; its body is never read.
-fn log_rejected(status: u16) {
-    tracing::warn!(status, "chat request rejected");
+/// The one line a refused request writes.
+///
+/// The status and, when the envelope named one of the six reasons Writ knows,
+/// that reason's own token. Neither is the server's text: `code` can only be a
+/// [`RejectCode`], and no other part of the body is read (ADR-031 rule 5.2 as
+/// narrowed by the ADR-040 amendment of 2026-09-17).
+fn log_rejected(status: u16, code: Option<RejectCode>) {
+    tracing::warn!(
+        status,
+        code = code.map(RejectCode::as_str).unwrap_or("none"),
+        "chat request rejected"
+    );
+}
+
+/// How much of a refusal body is read before the rest is dropped.
+///
+/// An envelope is a few hundred bytes; this is the ceiling on what a host can
+/// make Writ hold while looking for one of six words.
+const MAX_REJECT_BODY_BYTES: usize = 8 * 1024;
+
+/// The reason a refusal names, when it names one on the allowlist.
+///
+/// The body is read here and nowhere else, is bounded, and leaves this
+/// function only as a [`RejectCode`].
+async fn reject_code_of(response: reqwest::Response) -> Option<RejectCode> {
+    let mut stream = response.bytes_stream();
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(Ok(bytes)) = stream.next().await {
+        body.extend_from_slice(&bytes);
+        if body.len() >= MAX_REJECT_BODY_BYTES {
+            body.truncate(MAX_REJECT_BODY_BYTES);
+            break;
+        }
+    }
+    chat::parse_reject_code(&String::from_utf8_lossy(&body))
+}
+
+/// What a request that never reached the host reads as.
+///
+/// A local runtime that refused the connection is the one case with a step
+/// behind it, so it gets a typed failure naming the runtime and the port it
+/// was expected on. Everything else keeps the sanitized transport line.
+fn transport_frame(prepared: &PreparedChat, error: &reqwest::Error) -> ChatErrorFrame {
+    if prepared.is_localhost && error.is_connect() {
+        return ChatErrorFrame::from_error(
+            &ChatError::LocalServerOffline {
+                runtime: prepared.identity.provider.clone(),
+                host_port: prepared.host_port.clone(),
+            },
+            &prepared.identity,
+        );
+    }
+    ChatErrorFrame::untyped(
+        "unreachable",
+        super::ai::connection_error_message(error, prepared.is_localhost),
+        &prepared.identity,
+    )
 }
 
 /// One thing that happens during a stream.
 enum ChatEvent {
     Chunk(String),
     Done,
-    Error(String),
+    Error(ChatErrorFrame),
 }
 
 /// Sends the request and streams the reply, invoking `on_event` for each
@@ -935,20 +1067,22 @@ async fn run_chat_stream(
     let response = match builder.send().await {
         Ok(response) => response,
         Err(error) => {
-            on_event(ChatEvent::Error(super::ai::connection_error_message(
-                &error,
-                prepared.is_localhost,
-            )));
+            on_event(ChatEvent::Error(transport_frame(prepared, &error)));
             return;
         }
     };
 
     let status = response.status();
     if !status.is_success() {
-        log_rejected(status.as_u16());
-        on_event(ChatEvent::Error(format!(
-            "The model server returned status {}.",
-            status.as_u16()
+        let code = reject_code_of(response).await;
+        log_rejected(status.as_u16(), code);
+        on_event(ChatEvent::Error(ChatErrorFrame::from_error(
+            &ChatError::ProviderRejected {
+                provider: prepared.identity.provider.clone(),
+                status: status.as_u16(),
+                code,
+            },
+            &prepared.identity,
         )));
         return;
     }
@@ -962,8 +1096,10 @@ async fn run_chat_stream(
         let bytes = match item {
             Ok(bytes) => bytes,
             Err(error) => {
-                on_event(ChatEvent::Error(super::ai::sanitize_ai_error(
-                    &error.to_string(),
+                on_event(ChatEvent::Error(ChatErrorFrame::untyped(
+                    "stream_failed",
+                    super::ai::sanitize_ai_error(&error.to_string()),
+                    &prepared.identity,
                 )));
                 return;
             }
@@ -985,9 +1121,11 @@ async fn run_chat_stream(
                         host = %prepared.host,
                         "the model server ended the stream with an error frame"
                     );
-                    on_event(ChatEvent::Error(
+                    on_event(ChatEvent::Error(ChatErrorFrame::untyped(
+                        "stream_failed",
                         "The model server ended the reply.".to_string(),
-                    ));
+                        &prepared.identity,
+                    )));
                     return;
                 }
                 Delta::Ignore => {}
@@ -1061,11 +1199,22 @@ fn emit_tail(app: &AppHandle, conversation_id: &str, buffer: &mut ReplyBuffer) {
 /// saves, so the stamp records that the conversation was used. A store that
 /// refuses is a warning and not an error: the reply is already on screen, and
 /// there is nothing a person could do with a second message about it.
-fn record_reply(store: &ChatStore, conversation_id: &str, shown: &str, proposals: &[Proposal]) {
+fn record_reply(
+    store: &ChatStore,
+    conversation_id: &str,
+    shown: &str,
+    proposals: &[Proposal],
+    identity: &RequestIdentity,
+) {
     let stored: Vec<StoredProposal> = proposals.iter().map(StoredProposal::from).collect();
     let saved = store.load(conversation_id).and_then(|mut conversation| {
         if !shown.is_empty() || !stored.is_empty() {
-            conversation.push_assistant(shown.to_string(), stored, None, ChatStore::now());
+            conversation.push_assistant(
+                shown.to_string(),
+                stored,
+                Some(identity.clone()),
+                ChatStore::now(),
+            );
         }
         store.save(&conversation)
     });
@@ -1177,7 +1326,10 @@ pub async fn chat_send(
     }
 
     let turns = conversation.request_turns();
-    let prepared = prepare_chat(&cfg, &turns, context, |account| {
+    let catalog = app
+        .state::<super::ai::AiState>()
+        .live_catalog(&cfg.provider);
+    let prepared = prepare_chat(&cfg, &turns, context, catalog.as_ref(), |account| {
         super::ai::key_for(&app, account)
     })
     .map_err(|error| error.to_string())?;
@@ -1191,6 +1343,8 @@ pub async fn chat_send(
     let cancel = app.state::<ChatState>().begin(&conversation_id);
 
     let attached = prepared.context.clone();
+    let identity = prepared.identity.clone();
+    let accepted_identity = identity.clone();
     let task_app = app.clone();
     let task_id = conversation_id.clone();
     tauri::async_runtime::spawn(async move {
@@ -1207,14 +1361,21 @@ pub async fn chat_send(
                 ended = true;
                 emit_tail(&task_app, &task_id, &mut buffer);
                 let proposals = chat::parse_proposals(&buffer.raw, &prepared.context);
-                record_reply(&store, &task_id, &buffer.shown, &proposals);
-                emit_chat_with(&task_app, &task_id, "done", None, proposals);
+                record_reply(&store, &task_id, &buffer.shown, &proposals, &identity);
+                emit_chat_with(
+                    &task_app,
+                    &task_id,
+                    "done",
+                    None,
+                    proposals,
+                    Some(identity.clone()),
+                );
             }
-            ChatEvent::Error(message) => {
+            ChatEvent::Error(frame) => {
                 ended = true;
                 emit_tail(&task_app, &task_id, &mut buffer);
-                record_reply(&store, &task_id, &buffer.shown, &[]);
-                emit_chat(&task_app, &task_id, "error", Some(message));
+                record_reply(&store, &task_id, &buffer.shown, &[], &identity);
+                emit_chat_error(&task_app, &task_id, frame);
             }
         })
         .await;
@@ -1224,7 +1385,7 @@ pub async fn chat_send(
         // pane is told to render what it has.
         if !ended {
             emit_tail(&task_app, &task_id, &mut buffer);
-            record_reply(&store, &task_id, &buffer.shown, &[]);
+            record_reply(&store, &task_id, &buffer.shown, &[], &identity);
             emit_chat(&task_app, &task_id, "stopped", None);
         }
 
@@ -1234,6 +1395,7 @@ pub async fn chat_send(
     Ok(ChatSendAccepted {
         conversation_id,
         attached,
+        identity: accepted_identity,
     })
 }
 
@@ -1415,7 +1577,7 @@ mod tests {
     fn a_switch_that_is_off_refuses_before_anything_is_read() {
         let cfg = config(false, "http://localhost:11434/v1", "llama3");
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
+            prepare_chat(&cfg, &turns(), Vec::new(), None, no_key),
             Err(ChatError::Disabled)
         );
     }
@@ -1424,7 +1586,7 @@ mod tests {
     fn an_unconsented_hosted_host_is_refused_before_a_body_is_built() {
         let cfg = config(true, "https://api.example.com/v1", "some-model");
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), |_| panic!(
+            prepare_chat(&cfg, &turns(), Vec::new(), None, |_| panic!(
                 "the key was read for a host with no consent"
             )),
             Err(ChatError::ConsentRequired {
@@ -1438,7 +1600,7 @@ mod tests {
         let mut cfg = config(true, "https://api.example.com/v1", "some-model");
         cfg.consented_hosts = vec!["api.example.com".to_string()];
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
+            prepare_chat(&cfg, &turns(), Vec::new(), None, no_key),
             Err(ChatError::ApiKeyRequired {
                 host: "api.example.com".to_string()
             })
@@ -1450,7 +1612,7 @@ mod tests {
         let mut cfg = config(true, "http://api.example.com/v1", "some-model");
         cfg.consented_hosts = vec!["api.example.com".to_string()];
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
+            prepare_chat(&cfg, &turns(), Vec::new(), None, no_key),
             Err(ChatError::EndpointNotAllowed)
         );
     }
@@ -1458,7 +1620,7 @@ mod tests {
     #[test]
     fn a_local_endpoint_needs_neither_consent_nor_a_key() {
         let cfg = config(true, "http://localhost:11434/v1", "llama3");
-        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), |_| {
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, |_| {
             panic!("a local endpoint read a key")
         })
         .expect("prepared");
@@ -1474,7 +1636,7 @@ mod tests {
     fn a_model_nobody_chose_is_refused() {
         let cfg = config(true, "http://localhost:11434/v1", "  ");
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
+            prepare_chat(&cfg, &turns(), Vec::new(), None, no_key),
             Err(ChatError::ModelRequired)
         );
     }
@@ -1487,7 +1649,7 @@ mod tests {
             content: "   ".to_string(),
         }];
         assert_eq!(
-            prepare_chat(&cfg, &blank, Vec::new(), no_key),
+            prepare_chat(&cfg, &blank, Vec::new(), None, no_key),
             Err(ChatError::EmptyMessage)
         );
     }
@@ -1497,8 +1659,8 @@ mod tests {
         let mut cfg = config(true, "", "claude-sonnet-5");
         cfg.provider = "anthropic".to_string();
         cfg.consented_hosts = vec!["api.anthropic.com".to_string()];
-        let prepared =
-            prepare_chat(&cfg, &turns(), Vec::new(), |_| Some("k".to_string())).expect("prepared");
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, |_| Some("k".to_string()))
+            .expect("prepared");
         assert_eq!(prepared.provider, Provider::Anthropic);
         assert_eq!(prepared.endpoint, "https://api.anthropic.com/v1/messages");
     }
@@ -1506,12 +1668,22 @@ mod tests {
     #[test]
     fn the_pane_sends_its_own_model_only_when_it_names_one() {
         let mut cfg = config(true, "http://localhost:11434/v1", "llama3");
-        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), no_key).expect("prepared");
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, no_key).expect("prepared");
         assert_eq!(prepared.body["model"], "llama3");
 
+        // An override travels with the provider it was picked under.
         cfg.chat.model = "mistral".to_string();
-        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), no_key).expect("prepared");
+        cfg.chat.model_provider = "custom".to_string();
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, no_key).expect("prepared");
         assert_eq!(prepared.body["model"], "mistral");
+        assert_eq!(prepared.identity.model, "mistral");
+        assert_eq!(prepared.identity.provider, "custom");
+
+        // The same override under another provider is not sent.
+        cfg.chat.model_provider = "ollama".to_string();
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, no_key).expect("prepared");
+        assert_eq!(prepared.body["model"], "llama3");
+        assert_eq!(prepared.identity.model, "llama3");
     }
 
     #[test]
@@ -1550,7 +1722,7 @@ mod tests {
         let mut cfg = config(true, "", "llama-3.3-70b-versatile");
         cfg.provider = "groq".to_string();
         cfg.consented_hosts = vec!["api.groq.com".to_string()];
-        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), |account| {
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, |account| {
             assert_eq!(account, "groq", "the chat read another provider's key");
             Some("secret".to_string())
         })
@@ -1673,7 +1845,13 @@ Tell me if that reads better.\n";
         let mut buffer = ReplyBuffer::new();
         let emitted = stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
         let proposals = chat::parse_proposals(&buffer.raw, &attached);
-        record_reply(&store, ID, &buffer.shown, &proposals);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &proposals,
+            &tests_support::test_identity(),
+        );
 
         // What the stream handed the pane is what the file holds, and neither
         // carries a fence character or a line of the proposed text.
@@ -1709,7 +1887,13 @@ Tell me if that reads better.\n";
         let mut buffer = ReplyBuffer::new();
         buffer.push("The first half of an answer");
         buffer.finish();
-        record_reply(&store, ID, &buffer.shown, &[]);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &[],
+            &tests_support::test_identity(),
+        );
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 2);
@@ -1722,7 +1906,7 @@ Tell me if that reads better.\n";
         let data = tempfile::TempDir::new().expect("temp dir");
         let store = store_in(data.path());
 
-        record_reply(&store, ID, "", &[]);
+        record_reply(&store, ID, "", &[], &tests_support::test_identity());
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 1);
@@ -1760,7 +1944,13 @@ Tell me if that reads better.\n";
             &mut buffer,
             "Here you go.\n```writ-proposal path=\"Launch.md\"\nhalf a not",
         );
-        record_reply(&store, ID, &buffer.shown, &[]);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &[],
+            &tests_support::test_identity(),
+        );
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 2);
@@ -1776,7 +1966,13 @@ Tell me if that reads better.\n";
         let mut buffer = ReplyBuffer::new();
         stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
         let proposals = chat::parse_proposals(&buffer.raw, &attached);
-        record_reply(&store, ID, &buffer.shown, &proposals);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &proposals,
+            &tests_support::test_identity(),
+        );
 
         record_status(&store, ID, 1, "Launch.md", ProposalStatus::Applied);
         assert_eq!(
@@ -1921,7 +2117,7 @@ mod stream_tests {
                 match event {
                     ChatEvent::Chunk(text) => seen.push(format!("chunk:{text}")),
                     ChatEvent::Done => seen.push("done".to_string()),
-                    ChatEvent::Error(message) => seen.push(format!("error:{message}")),
+                    ChatEvent::Error(frame) => seen.push(format!("error:{}", frame.message)),
                 }
             })
             .await;
@@ -2021,7 +2217,7 @@ mod stream_tests {
         let store = ChatStore::new(&writ_dir);
         let logs = captured_logs(|| {
             log_request(&prepared, NOTE_TEXT.len(), 1);
-            log_rejected(401);
+            log_rejected(401, Some(RejectCode::InvalidApiKey));
             record_proposal(
                 &writ_dir,
                 "127.0.0.1",
@@ -2035,6 +2231,7 @@ mod stream_tests {
                 "0b7d6b7a-5555-4b6a-9d5e-000000000005",
                 RECORDED_REPLY,
                 &[],
+                &test_identity(),
             );
             record_status(
                 &store,
@@ -2115,8 +2312,8 @@ mod stream_tests {
             tauri::async_runtime::block_on(async {
                 let client = super::super::ai::build_client().expect("client");
                 run_chat_stream(&client, &streamed, &cancel, |event| {
-                    if let ChatEvent::Error(message) = event {
-                        sink.lock().expect("events").push(message);
+                    if let ChatEvent::Error(frame) = event {
+                        sink.lock().expect("events").push(frame.message);
                     }
                 })
                 .await;
@@ -2139,6 +2336,148 @@ mod stream_tests {
             shown,
             vec!["The model server ended the reply.".to_string()],
             "the pane is shown a fixed sentence and nothing the host wrote"
+        );
+    }
+}
+
+#[cfg(test)]
+mod reject_stream_tests {
+    use super::tests_support::*;
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// The body DeepSeek answers a model it does not serve with. Its
+    /// `message` is the one string that must never reach a person or a log.
+    const DEEPSEEK_400: &str = "{\"error\":{\"message\":\"Model Not Exist\",\"type\":\"invalid_request_error\",\"code\":\"invalid_request_error\"}}";
+    const SERVER_SENTENCE: &str = "Model Not Exist";
+
+    #[test]
+    fn a_rejected_request_names_the_mapped_code_and_never_the_server_sentence() {
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 400 Bad Request",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            DEEPSEEK_400,
+        );
+        let mut prepared = prepared_for(&base, Provider::OpenAiCompatible, Some(SECRET_KEY));
+        prepared.identity.provider = "deepseek".to_string();
+        prepared.identity.model = "qwen2.5-coder:0.5b".to_string();
+
+        let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
+        let sink = seen.clone();
+        let logs = captured_logs(|| {
+            let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            tauri::async_runtime::block_on(async {
+                let client = super::super::ai::build_client().expect("client");
+                run_chat_stream(&client, &prepared, &cancel, |event| {
+                    if let ChatEvent::Error(frame) = event {
+                        sink.lock().expect("frames").push(frame);
+                    }
+                })
+                .await;
+            });
+        });
+
+        let frames = seen.lock().expect("frames").clone();
+        assert_eq!(frames.len(), 1, "one terminal failure: {frames:?}");
+        let frame = &frames[0];
+        assert_eq!(frame.kind, "provider_rejected");
+        assert_eq!(frame.status, Some(400));
+        assert_eq!(frame.provider, "deepseek");
+        assert_eq!(
+            frame.model, "qwen2.5-coder:0.5b",
+            "the refusal names the model that was refused"
+        );
+        // Writ's own sentence, built from the code the envelope named.
+        assert_eq!(
+            frame.message,
+            "DeepSeek rejected the request (400): the request was not accepted."
+        );
+        assert!(
+            !frame.message.contains(SERVER_SENTENCE),
+            "the server's words reached the pane: {}",
+            frame.message
+        );
+
+        // The positive control first: the line has to be in the capture before
+        // its lack of the server's text means anything.
+        assert!(
+            logs.contains("chat request rejected"),
+            "the rejection line did not reach the capture: {logs}"
+        );
+        assert!(logs.contains("400"), "the status is loggable: {logs}");
+        assert!(
+            logs.contains("invalid_request"),
+            "the mapped reason is loggable: {logs}"
+        );
+        assert!(
+            !logs.contains(SERVER_SENTENCE),
+            "the server's words reached the log: {logs}"
+        );
+        assert!(!logs.contains(SECRET_KEY), "a key reached the log: {logs}");
+    }
+
+    #[test]
+    fn a_status_with_no_reason_on_the_allowlist_is_the_bare_status() {
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 503 Service Unavailable",
+            "Content-Type: text/html\r\nConnection: close\r\n",
+            "<html>ZZ-gateway-text-nobody-may-see</html>",
+        );
+        let mut prepared = prepared_for(&base, Provider::OpenAiCompatible, None);
+        prepared.identity.provider = "groq".to_string();
+
+        let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
+        let sink = seen.clone();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        tauri::async_runtime::block_on(async {
+            let client = super::super::ai::build_client().expect("client");
+            run_chat_stream(&client, &prepared, &cancel, |event| {
+                if let ChatEvent::Error(frame) = event {
+                    sink.lock().expect("frames").push(frame);
+                }
+            })
+            .await;
+        });
+
+        let frames = seen.lock().expect("frames").clone();
+        assert_eq!(frames[0].message, "Groq rejected the request (503).");
+        assert_eq!(frames[0].status, Some(503));
+        assert!(!frames[0].message.contains("ZZ-gateway-text-nobody-may-see"));
+    }
+
+    #[test]
+    fn a_local_runtime_that_is_not_running_says_so_by_name() {
+        // Bind then drop to obtain a port with nothing listening.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        drop(listener);
+
+        let mut prepared = prepared_for(
+            &format!("http://127.0.0.1:{port}"),
+            Provider::OpenAiCompatible,
+            None,
+        );
+        prepared.identity.provider = "ollama".to_string();
+        prepared.host_port = format!("127.0.0.1:{port}");
+
+        let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
+        let sink = seen.clone();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        tauri::async_runtime::block_on(async {
+            let client = super::super::ai::build_client().expect("client");
+            run_chat_stream(&client, &prepared, &cancel, |event| {
+                if let ChatEvent::Error(frame) = event {
+                    sink.lock().expect("frames").push(frame);
+                }
+            })
+            .await;
+        });
+
+        let frames = seen.lock().expect("frames").clone();
+        assert_eq!(frames[0].kind, "local_server_offline");
+        assert_eq!(
+            frames[0].message,
+            format!("Ollama is not running at 127.0.0.1:{port}.")
         );
     }
 }
@@ -2167,6 +2506,15 @@ mod tests_support {
 
     /// The wording in that frame, which is response text and nothing else.
     pub const SERVER_ERROR_TEXT: &str = "ZZ-server-text-that-must-never-be-logged";
+
+    /// The connection a test's reply is attributed to.
+    pub fn test_identity() -> RequestIdentity {
+        RequestIdentity {
+            provider: "custom".to_string(),
+            model: "a-model".to_string(),
+            host: "127.0.0.1".to_string(),
+        }
+    }
 
     pub const SECRET_KEY: &str = "sk-do-not-log-me";
     pub const NOTE_TEXT: &str = "the note said this and it is nobody else's business";
@@ -2219,8 +2567,14 @@ mod tests_support {
             ),
             api_key: key.map(str::to_string),
             host: "127.0.0.1".to_string(),
+            host_port: "127.0.0.1:0".to_string(),
             is_localhost: true,
             context,
+            identity: RequestIdentity {
+                provider: "custom".to_string(),
+                model: "a-model".to_string(),
+                host: "127.0.0.1".to_string(),
+            },
         }
     }
 
