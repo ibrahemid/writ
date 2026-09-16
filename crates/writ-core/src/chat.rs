@@ -30,9 +30,12 @@ use crate::ai::providers::Wire;
 /// The version of the Anthropic Messages API this module is written against.
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 
-/// Output ceiling for one Anthropic reply. The field is required there, and a
-/// reply that carries a whole note back has to fit inside it.
-pub const ANTHROPIC_MAX_TOKENS: u32 = 16_000;
+/// Output ceiling for one reply, on either wire.
+///
+/// Anthropic requires the field. The OpenAI-compatible servers do not, and
+/// their defaults are small enough to cut a whole-note reply in half: a reply
+/// that carries a note back has to fit inside this, so both bodies carry it.
+pub const MAX_REPLY_TOKENS: u32 = 16_000;
 
 /// Which wire format the configured endpoint speaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -419,9 +422,11 @@ writ-proposal, with the note's path and a short summary:\n\n\
 ```writ-proposal path=\"Ideas/Launch.md\" summary=\"Fold the two intros together\"\n\
 The whole new text of the note.\n\
 ```\n\n\
-The block holds the note's entire text, not a fragment and not a diff. Offer a change only \
-for a note in the attached list. The user reads every offer beside the note and applies it \
-themselves; you never write a file.";
+The block holds the note's entire text, not a fragment and not a diff. Copy the path \
+exactly as the attached list spells it. Open and close the block with more backticks than any \
+fence inside the note's text, so a note that holds a code block still ends up whole. Offer a \
+change only for a note in the attached list. The user reads every offer beside the note and \
+applies it themselves; you never write a file.";
 
 /// The endpoint one request goes to.
 ///
@@ -492,13 +497,14 @@ pub fn build_request_body(
     match provider {
         Provider::Anthropic => json!({
             "model": model.trim(),
-            "max_tokens": ANTHROPIC_MAX_TOKENS,
+            "max_tokens": MAX_REPLY_TOKENS,
             "stream": true,
             "system": system,
             "messages": messages,
         }),
         Provider::OpenAiCompatible => json!({
             "model": model.trim(),
+            "max_tokens": MAX_REPLY_TOKENS,
             "stream": true,
             "messages": messages,
         }),
@@ -512,6 +518,13 @@ pub enum Delta {
     Text(String),
     /// The reply is complete.
     Done,
+    /// The reply ended because it reached the token ceiling, so what arrived
+    /// is the start of a reply rather than the whole of one.
+    ///
+    /// The caller treats it as the end of the stream and says so: a proposal
+    /// cut off mid-note is dropped as unterminated, and a reply that stops
+    /// mid-sentence with no word about it reads as a broken feature.
+    Truncated,
     /// The provider reported a failure mid-stream.
     ///
     /// Nothing the server wrote comes out with it. The frame's `type` and
@@ -559,6 +572,15 @@ fn parse_anthropic_payload(payload: &str) -> Delta {
                 _ => Delta::Ignore,
             }
         }
+        // The stop reason arrives on `message_delta`, before `message_stop`.
+        Some("message_delta") => match value
+            .get("delta")
+            .and_then(|delta| delta.get("stop_reason"))
+            .and_then(Value::as_str)
+        {
+            Some("max_tokens") => Delta::Truncated,
+            _ => Delta::Ignore,
+        },
         Some("message_stop") => Delta::Done,
         Some("error") => Delta::Failed,
         _ => Delta::Ignore,
@@ -586,6 +608,18 @@ fn parse_openai_payload(payload: &str) -> Delta {
             return Delta::Text(text.to_string());
         }
     }
+    // The ceiling was reached. Read after the text because a server that
+    // carries both in one frame has still said something; every server this
+    // is written against sends the reason in a frame of its own.
+    if value
+        .get("choices")
+        .and_then(|choices| choices.get(0))
+        .and_then(|choice| choice.get("finish_reason"))
+        .and_then(Value::as_str)
+        .is_some_and(|reason| reason == "length")
+    {
+        return Delta::Truncated;
+    }
     // A server that fails mid-stream sends one of these and closes. Without
     // this arm the reply reads as complete and empty, which is a failed
     // request the pane cannot tell from a model with nothing to say.
@@ -602,10 +636,232 @@ fn parse_openai_payload(payload: &str) -> Delta {
     Delta::Ignore
 }
 
-/// The fence that opens a proposal.
-const PROPOSAL_FENCE: &str = "```writ-proposal";
+/// The info-string word that makes a fenced block a proposal.
+const PROPOSAL_WORD: &str = "writ-proposal";
 
-/// Reads every proposal a reply carries.
+/// The shortest run of fence characters that opens a block (CommonMark).
+const MIN_FENCE: usize = 3;
+
+/// The fence a block was opened with: which character it is made of, and how
+/// many of them a closing fence has to match or beat.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Fence {
+    /// A backtick or a tilde. A block opened with one is not closed by the
+    /// other.
+    marker: char,
+    /// How long the opening run was.
+    len: usize,
+}
+
+/// Reads a line's leading fence run, and what follows it.
+///
+/// Up to three spaces of indentation are allowed before the run, which is the
+/// CommonMark rule and what a local model writes when it indents a block
+/// inside a list.
+fn fence_run(line: &str) -> Option<(Fence, &str)> {
+    let indent = line.len() - line.trim_start_matches(' ').len();
+    if indent > 3 {
+        return None;
+    }
+    let rest = &line[indent..];
+    let marker = rest.chars().next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+    let len = rest
+        .chars()
+        .take_while(|character| *character == marker)
+        .count();
+    if len < MIN_FENCE {
+        return None;
+    }
+    Some((Fence { marker, len }, &rest[len..]))
+}
+
+/// Reads the line that opens a proposal, and the info string after the word.
+fn open_proposal(line: &str) -> Option<(Fence, &str)> {
+    let (fence, info) = fence_run(line)?;
+    let info = info
+        .trim_start_matches([' ', '\t'])
+        .strip_prefix(PROPOSAL_WORD)?;
+    Some((fence, info))
+}
+
+/// True when `line` closes a block opened with `fence`.
+///
+/// The CommonMark rule: the same character, at least as long, and nothing but
+/// whitespace after it. A three-backtick line inside a four-backtick block is
+/// therefore body text, which is what keeps a proposal for a note holding a
+/// code block whole.
+fn closes_proposal(line: &str, fence: Fence) -> bool {
+    let Some((closing, rest)) = fence_run(line) else {
+        return false;
+    };
+    closing.marker == fence.marker && closing.len >= fence.len && rest.trim().is_empty()
+}
+
+/// True while `read` could still grow into a line that opens a proposal.
+///
+/// This is what [`ProposalFilter`] holds a line back on, so it and
+/// [`open_proposal`] have to agree: anything this rejects is released to the
+/// pane, and anything it accepts is withheld one character longer.
+fn could_open_proposal(read: &str) -> bool {
+    let indent = read.len() - read.trim_start_matches(' ').len();
+    if indent > 3 {
+        return false;
+    }
+    let rest = &read[indent..];
+    let Some(marker) = rest.chars().next() else {
+        return true;
+    };
+    if marker != '`' && marker != '~' {
+        return false;
+    }
+    let len = rest
+        .chars()
+        .take_while(|character| *character == marker)
+        .count();
+    let info = &rest[len..];
+    if info.is_empty() {
+        return true;
+    }
+    if len < MIN_FENCE {
+        return false;
+    }
+    let info = info.trim_start_matches([' ', '\t']);
+    info.is_empty() || PROPOSAL_WORD.starts_with(info) || info.starts_with(PROPOSAL_WORD)
+}
+
+/// A proposal a reply carried that nobody can be offered.
+///
+/// It holds the path the model named and why it was dropped. No note text and
+/// no reply text reaches it: a path the model wrote and a reason are the whole
+/// of what a person needs to see the difference between a broken feature and a
+/// model that named the wrong note (ADR-031 rule 5.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DroppedProposal {
+    /// The path as the model spelled it, empty when it named none.
+    pub named: String,
+    /// Why it was dropped.
+    pub reason: DropReason,
+}
+
+/// Why a proposal a reply carried was not offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DropReason {
+    /// The reply ended before the block closed, so the text is not a whole
+    /// note.
+    UnterminatedBlock,
+    /// The path named no attached note.
+    UnknownNote,
+    /// The path named more than one attached note, and guessing between them
+    /// would write over a note nobody chose.
+    AmbiguousNote,
+}
+
+/// Everything a reply's proposals came to: the ones a person can apply, and
+/// the ones that were dropped with the reason.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParsedProposals {
+    /// The proposals, in the order the reply wrote them.
+    pub proposals: Vec<Proposal>,
+    /// The blocks that could not become one.
+    #[serde(default)]
+    pub dropped: Vec<DroppedProposal>,
+}
+
+/// A path with its separators settled and its leading `./` or `/` removed.
+fn normalise_path(path: &str) -> String {
+    let slashed = path.replace('\\', "/");
+    let trimmed = slashed.trim_start_matches("./");
+    trimmed.trim_start_matches('/').to_string()
+}
+
+/// What follows the last separator of a path.
+fn basename_of(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// True when `haystack` ends with `needle` at a separator boundary.
+fn ends_with_path(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    match haystack.strip_suffix(needle) {
+        Some("") => true,
+        Some(prefix) => prefix.ends_with('/'),
+        None => false,
+    }
+}
+
+/// The one attached note `matches` picks out, or `None` when it picks none or
+/// more than one. An ambiguous rule sets `ambiguous` and falls through to the
+/// next one rather than choosing.
+fn one_note<'a>(
+    context: &'a [AttachedNote],
+    ambiguous: &mut bool,
+    matches: impl Fn(&AttachedNote) -> bool,
+) -> Option<&'a AttachedNote> {
+    let mut found = context.iter().filter(|note| matches(note));
+    let first = found.next()?;
+    if found.next().is_some() {
+        *ambiguous = true;
+        return None;
+    }
+    Some(first)
+}
+
+/// The attached note a proposal's path names, or why it names none.
+fn resolve_named<'a>(
+    named: &str,
+    context: &'a [AttachedNote],
+) -> Result<&'a AttachedNote, DropReason> {
+    if named.is_empty() {
+        return Err(DropReason::UnknownNote);
+    }
+    if let Some(note) = context.iter().find(|note| note.path == named) {
+        return Ok(note);
+    }
+    let wanted = normalise_path(named);
+    let mut ambiguous = false;
+    let found = one_note(context, &mut ambiguous, |note| {
+        normalise_path(&note.path) == wanted
+    })
+    .or_else(|| {
+        let base = basename_of(&wanted);
+        one_note(context, &mut ambiguous, |note| {
+            basename_of(&normalise_path(&note.path)) == base
+        })
+    })
+    .or_else(|| {
+        one_note(context, &mut ambiguous, |note| {
+            ends_with_path(&wanted, &normalise_path(&note.path))
+        })
+    });
+    match (found, ambiguous) {
+        (Some(note), _) => Ok(note),
+        (None, true) => Err(DropReason::AmbiguousNote),
+        (None, false) => Err(DropReason::UnknownNote),
+    }
+}
+
+/// The attached note a proposal's path names, resolved the way a reply spells
+/// paths rather than the way Writ stores them.
+///
+/// Exact key first, then separators settled, then a basename only one attached
+/// note ends with, then a path only one attached note is the tail of. A name
+/// that fits none of those, or more than one note, resolves to nothing: the
+/// result is always a note the user attached, which is the fence a reply can
+/// never reach past (ADR-031 rule 4.3).
+pub fn resolve_proposal_path<'a>(
+    named: &str,
+    context: &'a [AttachedNote],
+) -> Option<&'a AttachedNote> {
+    resolve_named(named, context).ok()
+}
+
+/// Reads every proposal a reply carries, and what became of the rest.
 ///
 /// A block naming a note that is not in `context` is dropped rather than
 /// carried with an empty hash: the state a refusal is judged against is what
@@ -615,19 +871,22 @@ const PROPOSAL_FENCE: &str = "```writ-proposal";
 ///
 /// An unterminated block is dropped too: a reply cut off mid-write is not a
 /// whole note, and applying it would truncate one.
-pub fn parse_proposals(reply: &str, context: &[AttachedNote]) -> Vec<Proposal> {
-    let mut proposals = Vec::new();
+///
+/// Every drop is reported, because a proposal that vanishes without a word
+/// reads as a broken feature.
+pub fn parse_proposals(reply: &str, context: &[AttachedNote]) -> ParsedProposals {
+    let mut parsed = ParsedProposals::default();
     let mut lines = reply.lines();
     while let Some(line) = lines.next() {
-        let Some(info) = line.trim_start().strip_prefix(PROPOSAL_FENCE) else {
+        let Some((fence, info)) = open_proposal(line) else {
             continue;
         };
-        let path = attribute(info, "path").unwrap_or_default();
+        let named = attribute(info, "path").unwrap_or_default();
         let summary = attribute(info, "summary").unwrap_or_default();
         let mut body = String::new();
         let mut closed = false;
         for body_line in lines.by_ref() {
-            if body_line.trim_end() == "```" {
+            if closes_proposal(body_line, fence) {
                 closed = true;
                 break;
             }
@@ -635,20 +894,24 @@ pub fn parse_proposals(reply: &str, context: &[AttachedNote]) -> Vec<Proposal> {
             body.push('\n');
         }
         if !closed {
+            parsed.dropped.push(DroppedProposal {
+                named,
+                reason: DropReason::UnterminatedBlock,
+            });
             continue;
         }
-        let Some(note) = context.iter().find(|note| note.path == path) else {
-            continue;
-        };
-        proposals.push(Proposal {
-            path: note.path.clone(),
-            before_hash: note.before_hash.clone(),
-            hunks: crate::diff::line_diff(&note.text, &body).unwrap_or_default(),
-            new_content: body,
-            summary,
-        });
+        match resolve_named(&named, context) {
+            Ok(note) => parsed.proposals.push(Proposal {
+                path: note.path.clone(),
+                before_hash: note.before_hash.clone(),
+                hunks: crate::diff::line_diff(&note.text, &body).unwrap_or_default(),
+                new_content: body,
+                summary,
+            }),
+            Err(reason) => parsed.dropped.push(DroppedProposal { named, reason }),
+        }
     }
-    proposals
+    parsed
 }
 
 /// Where the filter is in the line it is reading.
@@ -658,8 +921,8 @@ enum FilterState {
         /// True when the next character opens a line.
         at_line_start: bool,
     },
-    /// A line's leading whitespace and backticks, held back while they are
-    /// still a prefix of [`PROPOSAL_FENCE`].
+    /// A line's leading whitespace and fence characters, held back while they
+    /// are still the start of a line that could open a proposal.
     MaybeFence {
         /// What has been held back, verbatim.
         buffered: String,
@@ -668,6 +931,9 @@ enum FilterState {
     Withholding {
         /// The line being read, so the closing fence is recognised.
         line: String,
+        /// The fence the block was opened with, which is what its close has
+        /// to match.
+        fence: Fence,
     },
 }
 
@@ -676,9 +942,9 @@ enum FilterState {
 /// [`parse_proposals`] reads the whole reply once it is complete; this reads
 /// the same grammar one delta at a time, so a proposal never flashes in the
 /// pane on its way to a card. The two agree by construction: a line opens a
-/// block when [`str::trim_start`] leaves [`PROPOSAL_FENCE`] at its head, and
-/// closes it when [`str::trim_end`] leaves exactly three backticks, which is
-/// what [`parse_proposals`] asks of the same line.
+/// block when [`open_proposal`] reads one out of it, and closes it when
+/// [`closes_proposal`] says so, which is what [`parse_proposals`] asks of the
+/// same lines.
 ///
 /// Anything else is released as soon as it can no longer become a fence, so an
 /// ordinary code block arrives byte for byte, one line late at most. A block
@@ -746,32 +1012,30 @@ impl ProposalFilter {
             }
             FilterState::MaybeFence { buffered } => {
                 buffered.push(character);
-                let read = buffered.trim_start();
-                let opens = read == PROPOSAL_FENCE;
-                let still_could = read.is_empty() || PROPOSAL_FENCE.starts_with(read);
-                if opens {
-                    Some(FilterState::Withholding {
+                match open_proposal(buffered) {
+                    Some((fence, _)) => Some(FilterState::Withholding {
                         line: std::mem::take(buffered),
-                    })
-                } else if still_could {
-                    None
-                } else {
-                    out.push_str(buffered);
-                    Some(FilterState::Text {
-                        at_line_start: false,
-                    })
+                        fence,
+                    }),
+                    None if could_open_proposal(buffered) => None,
+                    None => {
+                        out.push_str(buffered);
+                        Some(FilterState::Text {
+                            at_line_start: false,
+                        })
+                    }
                 }
             }
-            FilterState::Withholding { line } if character != '\n' => {
+            FilterState::Withholding { line, .. } if character != '\n' => {
                 line.push(character);
                 None
             }
-            FilterState::Withholding { line } if line.trim_end() == "```" => {
+            FilterState::Withholding { line, fence } if closes_proposal(line, *fence) => {
                 Some(FilterState::Text {
                     at_line_start: true,
                 })
             }
-            FilterState::Withholding { line } => {
+            FilterState::Withholding { line, .. } => {
                 line.clear();
                 None
             }
@@ -788,9 +1052,9 @@ impl Default for ProposalFilter {
     }
 }
 
-/// True for a character that can stand before [`PROPOSAL_FENCE`] on its line.
+/// True for a character that can stand before a proposal's fence on its line.
 fn is_fence_lead(character: char) -> bool {
-    character == '`' || character.is_whitespace()
+    character == '`' || character == '~' || character.is_whitespace()
 }
 
 /// The schema every conversation file is written at (ADR-040 section 8).
@@ -848,6 +1112,16 @@ pub struct StoredTurn {
     /// written before the field existed, and on every user turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<RequestIdentity>,
+    /// The blocks an assistant turn wrote that could not become a proposal.
+    ///
+    /// Defaulted on load, so a file written before this existed reads as a
+    /// turn that dropped nothing.
+    #[serde(default)]
+    pub dropped: Vec<DroppedProposal>,
+    /// The reply reached the model's token ceiling, so it is the start of an
+    /// answer rather than the whole of one.
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 /// An attached note, named rather than copied.
@@ -859,6 +1133,21 @@ pub struct AttachmentRef {
     pub bytes: u64,
     /// The digest of what was read, hex-encoded.
     pub hash: String,
+}
+
+/// What a finished reply produced, beside its text.
+///
+/// Held together because a turn is written once: the proposals a person can
+/// apply, the blocks that could not become one, and whether the reply reached
+/// the token ceiling before it finished.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AssistantReply {
+    /// The offers the card shows.
+    pub proposals: Vec<StoredProposal>,
+    /// The blocks that were dropped, with the reason.
+    pub dropped: Vec<DroppedProposal>,
+    /// The reply was cut off at the token ceiling.
+    pub truncated: bool,
 }
 
 /// A proposal as the file holds it.
@@ -934,15 +1223,18 @@ impl Conversation {
             attachments,
             proposals: Vec::new(),
             identity: None,
+            dropped: Vec::new(),
+            truncated: false,
         });
         self.updated_at = now;
     }
 
-    /// Appends an assistant turn and the proposals it carried.
+    /// Appends an assistant turn, what it carried and lost, and the
+    /// connection that answered.
     pub fn push_assistant(
         &mut self,
         content: String,
-        proposals: Vec<StoredProposal>,
+        reply: AssistantReply,
         identity: Option<RequestIdentity>,
         now: String,
     ) {
@@ -950,8 +1242,10 @@ impl Conversation {
             role: Role::Assistant,
             content,
             attachments: Vec::new(),
-            proposals,
+            proposals: reply.proposals,
             identity,
+            dropped: reply.dropped,
+            truncated: reply.truncated,
         });
         self.updated_at = now;
     }
@@ -1013,13 +1307,27 @@ impl From<&Proposal> for StoredProposal {
     }
 }
 
-/// Reads `name="value"` out of a fence's info string.
+/// Reads `name=value` out of a fence's info string.
+///
+/// The value may be in double quotes, in single quotes, or bare, because all
+/// three are what models write. A bare value ends at the next space, so a
+/// summary written without quotes keeps its first word rather than swallowing
+/// the rest of the line.
 fn attribute(info: &str, name: &str) -> Option<String> {
-    let key = format!("{name}=\"");
+    let key = format!("{name}=");
     let start = info.find(&key)? + key.len();
     let rest = &info[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+    let quote = rest.chars().next()?;
+    if quote == '"' || quote == '\'' {
+        let value = &rest[quote.len_utf8()..];
+        let end = value.find(quote)?;
+        return Some(value[..end].to_string());
+    }
+    let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    match &rest[..end] {
+        "" => None,
+        value => Some(value.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -1292,7 +1600,7 @@ mod tests {
         );
         assert_eq!(body["model"], "claude-opus-5");
         assert_eq!(body["stream"], true);
-        assert_eq!(body["max_tokens"], ANTHROPIC_MAX_TOKENS);
+        assert_eq!(body["max_tokens"], MAX_REPLY_TOKENS);
         assert_eq!(body["system"], SYSTEM_PROMPT);
         let messages = body["messages"].as_array().expect("messages");
         assert_eq!(messages.len(), 2);
@@ -1308,6 +1616,43 @@ mod tests {
     }
 
     #[test]
+    fn an_openai_body_caps_its_tokens() {
+        let body = build_request_body(
+            Provider::OpenAiCompatible,
+            "llama3",
+            SYSTEM_PROMPT,
+            &turns(),
+            &[],
+        );
+        assert_eq!(
+            body["max_tokens"], MAX_REPLY_TOKENS,
+            "an uncapped body takes the server's default, which cuts a whole-note reply in half"
+        );
+    }
+
+    #[test]
+    fn a_length_finish_reason_ends_the_reply_as_truncated() {
+        let frame = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}";
+        assert_eq!(
+            parse_delta(Provider::OpenAiCompatible, frame),
+            Delta::Truncated
+        );
+        let stopped = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}";
+        assert_eq!(
+            parse_delta(Provider::OpenAiCompatible, stopped),
+            Delta::Ignore
+        );
+    }
+
+    #[test]
+    fn an_anthropic_max_tokens_stop_ends_the_reply_as_truncated() {
+        let frame = "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}";
+        assert_eq!(parse_delta(Provider::Anthropic, frame), Delta::Truncated);
+        let ended = "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}";
+        assert_eq!(parse_delta(Provider::Anthropic, ended), Delta::Ignore);
+    }
+
+    #[test]
     fn the_openai_body_keeps_the_shape_a_rewrite_already_sends() {
         let body = build_request_body(
             Provider::OpenAiCompatible,
@@ -1319,7 +1664,6 @@ mod tests {
         assert_eq!(body["model"], "llama3");
         assert_eq!(body["stream"], true);
         assert!(body.get("system").is_none());
-        assert!(body.get("max_tokens").is_none());
         let messages = body["messages"].as_array().expect("messages");
         assert_eq!(messages[0]["role"], "system");
         assert_eq!(messages[0]["content"], SYSTEM_PROMPT);
@@ -1446,7 +1790,7 @@ mod tests {
 ```writ-proposal path=\"Ideas/Launch.md\" summary=\"Fold the intros\"\n\
 the new text\n\
 ```\n";
-        let proposals = parse_proposals(reply, &context);
+        let proposals = parse_proposals(reply, &context).proposals;
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].path, "Ideas/Launch.md");
         assert_eq!(proposals[0].new_content, "the new text\n");
@@ -1462,7 +1806,7 @@ one\n\
 two changed\n\
 three\n\
 ```\n";
-        let proposals = parse_proposals(reply, &context);
+        let proposals = parse_proposals(reply, &context).proposals;
         let lines = &proposals[0].hunks[0].lines;
         assert_eq!(
             lines
@@ -1487,7 +1831,7 @@ three\n\
         let huge = "x\n".repeat(crate::diff::MAX_DIFF_BYTES);
         let context = vec![note("Big.md", &huge)];
         let reply = "```writ-proposal path=\"Big.md\" summary=\"trim it\"\nsmall\n```\n";
-        let proposals = parse_proposals(reply, &context);
+        let proposals = parse_proposals(reply, &context).proposals;
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].summary, "trim it");
         assert!(proposals[0].hunks.is_empty());
@@ -1499,16 +1843,16 @@ three\n\
         let reply = "```writ-proposal path=\"../../.ssh/config\" summary=\"nothing good\"\n\
 owned\n\
 ```\n";
-        assert!(parse_proposals(reply, &context).is_empty());
+        assert!(parse_proposals(reply, &context).proposals.is_empty());
         let unattached = "```writ-proposal path=\"Ideas/Other.md\"\ntext\n```\n";
-        assert!(parse_proposals(unattached, &context).is_empty());
+        assert!(parse_proposals(unattached, &context).proposals.is_empty());
     }
 
     #[test]
     fn a_block_the_reply_never_closed_is_dropped() {
         let context = vec![note("Ideas/Launch.md", "old text")];
         let reply = "```writ-proposal path=\"Ideas/Launch.md\"\nhalf a not";
-        assert!(parse_proposals(reply, &context).is_empty());
+        assert!(parse_proposals(reply, &context).proposals.is_empty());
     }
 
     #[test]
@@ -1517,7 +1861,7 @@ owned\n\
         let reply = "```writ-proposal path=\"A.md\"\nnew a\n```\n\
 between\n\
 ```writ-proposal path=\"B.md\" summary=\"tidy\"\nnew b\n```\n";
-        let proposals = parse_proposals(reply, &context);
+        let proposals = parse_proposals(reply, &context).proposals;
         assert_eq!(proposals.len(), 2);
         assert_eq!(proposals[0].new_content, "new a\n");
         assert_eq!(proposals[1].summary, "tidy");
@@ -1526,6 +1870,8 @@ between\n\
     #[test]
     fn a_reply_with_no_fence_proposes_nothing() {
         let context = vec![note("A.md", "a")];
-        assert!(parse_proposals("It argues two things.", &context).is_empty());
+        assert!(parse_proposals("It argues two things.", &context)
+            .proposals
+            .is_empty());
     }
 }

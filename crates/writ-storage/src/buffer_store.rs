@@ -906,6 +906,44 @@ impl BufferStore {
         maintenance::run_maintenance(&self.conn)
     }
 
+    /// Records that a note's file was read into its tab, with the bytes that
+    /// were read.
+    ///
+    /// The row's `updated_at` is what a relaunch compares the last crash
+    /// snapshot against ([`writ_core::recovery::resolve_recovery`]). A file
+    /// that changed under an open tab and was reloaded into it never moved
+    /// that stamp, so a snapshot taken before the change read as newer than
+    /// the row and was written back over the file: an applied edit reverted by
+    /// the next unclean launch. Reading a file into a tab is Writ learning
+    /// what it holds, so it moves the stamp.
+    ///
+    /// Hands back the state the file is now known to be in, which the caller
+    /// records for the write guard rather than hashing the same bytes twice.
+    /// `None` for a note with no file, which has nothing to be in sync with.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError`] when the row cannot be read or written.
+    pub fn note_synced_from_disk(
+        &self,
+        id: &str,
+        hash: writ_core::hash::Sha256Digest,
+        len: u64,
+    ) -> StorageResult<Option<DiskState>> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        queries::update_size_and_timestamp(&self.conn, id, len)?;
+        let Some(path) = doc.source_path.as_deref() else {
+            return Ok(None);
+        };
+        Ok(Some(DiskState {
+            hash,
+            size: len,
+            mtime: std::fs::metadata(path)
+                .ok()
+                .and_then(|meta| meta.modified().ok()),
+        }))
+    }
+
     /// Resolves which buffers should be restored from the latest dirty
     /// snapshot.
     ///

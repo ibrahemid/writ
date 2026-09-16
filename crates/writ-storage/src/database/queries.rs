@@ -355,6 +355,24 @@ pub fn update_filename(conn: &Connection, id: &str, filename: &str) -> StorageRe
     Ok(())
 }
 
+/// Records the length a buffer's file was last read at, and stamps
+/// `updated_at` to now.
+///
+/// The stamp is the point: it is what a relaunch compares the last crash
+/// snapshot against, so a note Writ re-read has to look newer than a snapshot
+/// taken before it.
+pub fn update_size_and_timestamp(
+    conn: &Connection,
+    id: &str,
+    size_bytes: u64,
+) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET size_bytes = ?1, updated_at = ?2 WHERE id = ?3",
+        params![size_bytes as i64, Utc::now().to_rfc3339(), id],
+    )?;
+    Ok(())
+}
+
 /// Stamps a buffer's `updated_at` to now without changing any other
 /// fields.
 pub fn update_timestamp(conn: &Connection, id: &str) -> StorageResult<()> {

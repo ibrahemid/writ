@@ -422,6 +422,10 @@ impl NoteHost for NoteHostImpl<'_> {
             path: notes_index::index_key(&file),
             bytes: outcome.disk_state.size,
             hash: digest_hex(outcome.disk_state.hash),
+            // The guard leaves a file that already holds the incoming bytes
+            // alone. Reporting that as a write is what lets a caller tell
+            // somebody their change landed when nothing happened.
+            changed: outcome.decision != writ_core::notes::guard::SaveDecision::AlreadyIdentical,
         })
     }
 
@@ -465,6 +469,8 @@ impl NoteHost for NoteHostImpl<'_> {
             path: notes_index::index_key(&minted),
             bytes: state.size,
             hash: digest_hex(state.hash),
+            // A note that did not exist a moment ago holds new bytes.
+            changed: true,
         })
     }
 

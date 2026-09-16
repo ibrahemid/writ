@@ -1,5 +1,10 @@
 import type { UpdatePhase } from "./update";
-import type { ChatErrorFrame, ChatProposal, RequestIdentity } from "../services/tauri";
+import type {
+  ChatDroppedProposal,
+  ChatErrorFrame,
+  ChatProposal,
+  RequestIdentity,
+} from "../services/tauri";
 
 export type WritEvent =
   | { kind: "buffer:opened"; payload: { id: string; title: string } }
@@ -42,6 +47,11 @@ export type WritEvent =
         /** The typed failure, carried by the `error` frame. Its `message` is
          * the same sentence `text` holds. */
         error?: ChatErrorFrame;
+        /** Blocks the reply wrote that could not become a proposal, carried by
+         * the `done` frame with the path the model named and the reason. */
+        dropped?: ChatDroppedProposal[];
+        /** The reply stopped at the model's token ceiling. */
+        truncated?: boolean;
       };
     }
   | {

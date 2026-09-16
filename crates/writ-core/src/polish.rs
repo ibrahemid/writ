@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::ai::providers::Wire;
-use crate::chat::ANTHROPIC_MAX_TOKENS;
+use crate::chat::MAX_REPLY_TOKENS;
 
 /// Sampling temperature used for every rewrite. Low, to keep edits faithful.
 pub const POLISH_TEMPERATURE: f32 = 0.3;
@@ -192,7 +192,7 @@ pub fn build_request_body(wire: Wire, model: &str, messages: &[ChatMessage]) -> 
                 .collect();
             json!({
                 "model": model.trim(),
-                "max_tokens": ANTHROPIC_MAX_TOKENS,
+                "max_tokens": MAX_REPLY_TOKENS,
                 "stream": true,
                 "temperature": POLISH_TEMPERATURE,
                 "system": system.join("\n\n"),
@@ -288,7 +288,7 @@ mod tests {
         let body = build_request_body(Wire::Anthropic, "claude-sonnet-5", &messages);
         assert_eq!(body["model"], "claude-sonnet-5");
         assert_eq!(body["stream"], true);
-        assert_eq!(body["max_tokens"], ANTHROPIC_MAX_TOKENS);
+        assert_eq!(body["max_tokens"], MAX_REPLY_TOKENS);
         assert_eq!(body["system"], messages[0].content);
         assert_eq!(body["messages"].as_array().expect("messages").len(), 1);
         assert_eq!(body["messages"][0]["role"], "user");

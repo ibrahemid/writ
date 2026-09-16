@@ -261,6 +261,25 @@ fn open_recovered_note(store: &BufferStore, dir: &TempDir, on_disk: &str) -> std
     path
 }
 
+/// The same note with its row stamped where the launch before this one left
+/// it, so a snapshot written now is newer than the row.
+fn open_note_from_an_earlier_launch(
+    store: &BufferStore,
+    dir: &TempDir,
+    on_disk: &str,
+) -> std::path::PathBuf {
+    let path = dir.path().join("notes.md");
+    std::fs::write(&path, on_disk).expect("write");
+    let then = Utc::now() - chrono::Duration::seconds(30);
+    let doc = BufferDocument {
+        created_at: then,
+        updated_at: then,
+        ..make_doc("guard-1", &path)
+    };
+    store.open_from_path(&doc, on_disk).expect("open");
+    path
+}
+
 #[test]
 fn a_file_changed_while_writ_was_down_keeps_its_text_and_the_snapshot_lands_beside_it() {
     let (_db, store) = setup();
@@ -509,5 +528,67 @@ fn keeping_mine_over_a_guard_that_refuses_still_leaves_both_texts_on_disk() {
         std::fs::read_to_string(&path).unwrap(),
         "# What another program wrote",
         "the refusal left the file alone"
+    );
+}
+
+#[test]
+fn a_note_read_back_from_disk_moves_its_row_forward() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# What the tab opened with");
+    let before = store.get("guard-1").expect("the row").updated_at;
+
+    let refreshed = b"# What another program wrote";
+    std::fs::write(&path, refreshed).expect("write");
+    let state = store
+        .note_synced_from_disk("guard-1", sha256_bytes(refreshed), refreshed.len() as u64)
+        .expect("the row takes the sync")
+        .expect("a note with a file has a disk state");
+
+    assert_eq!(state.hash, sha256_bytes(refreshed));
+    assert_eq!(state.size, refreshed.len() as u64);
+    let after = store.get("guard-1").expect("the row").updated_at;
+    assert!(
+        after > before,
+        "the stamp a relaunch compares the last snapshot against did not move"
+    );
+    assert_eq!(
+        store.get("guard-1").expect("the row").size_bytes,
+        state.size
+    );
+}
+
+#[test]
+fn a_note_writ_itself_re_read_is_ignored_by_recovery() {
+    let (_db, mut store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_note_from_an_earlier_launch(&store, &notes, "# What the tab opened with");
+
+    // The heartbeat: every open note's file, read from disk, kept as an
+    // unclean snapshot.
+    let contents = store.collect_buffer_contents().expect("collect");
+    store
+        .write_session_snapshot_if_changed(&contents)
+        .expect("write the snapshot");
+    assert_eq!(
+        store.resolve_recovery().expect("resolve").len(),
+        1,
+        "the snapshot must be newer than the row, or this proves nothing"
+    );
+
+    // Another program writes the note and Writ reads it back into the tab.
+    let refreshed = b"# What another program wrote";
+    std::fs::write(&path, refreshed).expect("write");
+    store
+        .note_synced_from_disk("guard-1", sha256_bytes(refreshed), refreshed.len() as u64)
+        .expect("the row takes the read");
+
+    assert!(
+        store.resolve_recovery().expect("resolve").is_empty(),
+        "the last snapshot would be written back over the text Writ just read"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# What another program wrote"
     );
 }
