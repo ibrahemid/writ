@@ -1,16 +1,19 @@
-import { For, Show, createSignal, onCleanup } from "solid-js";
+import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
-import MentionPopover from "./MentionPopover";
-import ModelPicker from "./ModelPicker";
+import MentionPopover, { MENTION_LIST_ID, mentionRowId } from "./MentionPopover";
+import ChatConnectionControl from "./ChatConnectionControl";
 import { linkStore } from "../../stores/global/link";
-import { chatStore } from "../../stores/global/chat";
+import { chatStore, chipLabel, noteName, type Attachment } from "../../stores/global/chat";
 import { byteLabel, sendChatMessage } from "../../commands/chat";
 import type { NoteNameHit } from "../../stores/global/link";
 
 /** How long typing settles before the note list is asked again. */
 const MENTION_DEBOUNCE_MS = 120;
 const MENTION_LIMIT = 8;
+
+/** Whether the note in front can be attached, and why it cannot. */
+export type OpenNoteState = "ready" | "unsaved" | "none";
 
 /** The `@` word the caret sits in, or null when it sits in none. */
 export function mentionQuery(text: string, caret: number): { query: string; start: number } | null {
@@ -20,15 +23,29 @@ export function mentionQuery(text: string, caret: number): { query: string; star
   return { query: match[1], start: before.length - match[1].length - 1 };
 }
 
+/** What a chip's row says when the pointer rests on it: the whole key, and
+ * for a note with unsaved text which of the two versions travels. */
+export function chipTitle(note: Attachment): string {
+  const lines = [note.key ?? note.path];
+  if (note.dirty) lines.push("Sends the saved version");
+  if (note.reason) lines.push(note.reason);
+  return lines.join("\n");
+}
+
 /**
  * What the next message carries: the words, the notes, and the model that
  * answers.
  *
  * The chips are the whole of what leaves the machine (ADR-031 rule 2.5), and
  * every one of them got here by a person's action: the note in front when the
- * pane opened, or an `@` picked by hand.
+ * pane opened, one added from here, or an `@` picked by hand.
  */
-export default function ChatComposer() {
+export default function ChatComposer(props: {
+  /** Whether the note in front can be attached, which the pane resolves. */
+  openNote: () => OpenNoteState;
+  /** Closes the column, which is what Escape does with nothing else pending. */
+  onClose: () => void;
+}) {
   let input: HTMLTextAreaElement | undefined;
   const [hits, setHits] = createSignal<NoteNameHit[]>([]);
   const [active, setActive] = createSignal(0);
@@ -42,6 +59,11 @@ export default function ChatComposer() {
   const busy = () => chatStore.status() === "thinking" || chatStore.status() === "streaming";
   const isOpen = () => mention() !== null;
 
+  /** The chips a send cannot carry, which is what holds Send back. */
+  const unreadable = createMemo(() =>
+    chatStore.attachments().filter((note) => note.state === "unreadable"),
+  );
+
   function closeMention() {
     if (debounce !== null) {
       clearTimeout(debounce);
@@ -52,9 +74,17 @@ export default function ChatComposer() {
     setActive(0);
   }
 
+  /** Fits the field to what it holds, up to the ceiling the stylesheet sets,
+   * past which it scrolls rather than pushing the conversation off the top. */
+  function fit(el: HTMLTextAreaElement) {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }
+
   function onInput(event: InputEvent & { currentTarget: HTMLTextAreaElement }) {
     const el = event.currentTarget;
     chatStore.setDraft(el.value);
+    fit(el);
     const found = mentionQuery(el.value, el.selectionStart);
     if (!found) {
       closeMention();
@@ -81,6 +111,7 @@ export default function ChatComposer() {
     chatStore.setDraft(next);
     input.value = next;
     input.setSelectionRange(found.start, found.start);
+    fit(input);
     closeMention();
     void chatStore.attachByPath(hit.path);
     input.focus();
@@ -112,9 +143,19 @@ export default function ChatComposer() {
         }
       }
     }
-    if (event.key === "Escape" && chatStore.editing() !== null) {
+    // Escape answers the nearest thing first: the edit being written, then the
+    // reply arriving, then the column itself.
+    if (event.key === "Escape") {
       event.preventDefault();
-      chatStore.cancelEdit();
+      if (chatStore.editing() !== null) {
+        chatStore.cancelEdit();
+        return;
+      }
+      if (busy()) {
+        chatStore.stop();
+        return;
+      }
+      props.onClose();
       return;
     }
     if (event.key !== "Enter" || event.shiftKey) return;
@@ -130,27 +171,59 @@ export default function ChatComposer() {
         </p>
       </Show>
 
-      <Show when={chatStore.attachments().length > 0}>
-        <ul class="chat-chips" aria-label="Notes it can read">
-          <For each={chatStore.attachments()}>
-            {(note) => (
-              <li class="chat-chip">
-                <Icon name="file-text" size={12} />
-                <span class="chat-chip-name">{note.name}</span>
-                <span class="chat-chip-size">{byteLabel(note.bytes)}</span>
-                <button
-                  type="button"
-                  class="chat-chip-remove"
-                  aria-label={`Remove ${note.name}`}
-                  onClick={() => chatStore.detach(note.path)}
-                >
-                  <Icon name="x" size={10} />
-                </button>
-              </li>
-            )}
-          </For>
-        </ul>
+      <Show when={props.openNote() !== "none"}>
+        <div class="chat-chips-row">
+          <Show when={chatStore.attachments().length > 0}>
+            <ul class="chat-chips" aria-label="Notes it can read">
+              <For each={chatStore.attachments()}>
+                {(note) => (
+                  <li
+                    class="chat-chip"
+                    classList={{
+                      "is-unreadable": note.state === "unreadable",
+                      "is-dirty": note.dirty === true,
+                    }}
+                    title={chipTitle(note)}
+                  >
+                    <Icon name="file-text" size={12} />
+                    <span class="chat-chip-name">{chipLabel(note)}</span>
+                    <span class="chat-chip-size">{byteLabel(note.bytes)}</span>
+                    <button
+                      type="button"
+                      class="chat-chip-remove"
+                      aria-label={`Remove ${noteName(note.path)}`}
+                      onClick={() => chatStore.detach(note.path)}
+                    >
+                      <Icon name="x" size={10} />
+                    </button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+          <button
+            type="button"
+            class="chat-chip-add"
+            disabled={props.openNote() === "unsaved"}
+            onClick={() => void chatStore.addOpenNote()}
+          >
+            <Icon name="plus" size={12} />
+            Add open note
+          </button>
+        </div>
       </Show>
+
+      <Show when={props.openNote() === "unsaved"}>
+        <p class="chat-composer-note">Save this note first</p>
+      </Show>
+
+      <For each={unreadable()}>
+        {(note) => (
+          <p class="chat-composer-note" role="status">
+            {noteName(note.path)}: {note.reason ?? "This note could not be read."}
+          </p>
+        )}
+      </For>
 
       <div class="chat-composer-field">
         <Show when={isOpen()}>
@@ -158,7 +231,7 @@ export default function ChatComposer() {
         </Show>
         <textarea
           class="chat-composer-input"
-          rows={3}
+          rows={2}
           spellcheck={false}
           placeholder={
             chatStore.attachments().length > 0
@@ -166,6 +239,10 @@ export default function ChatComposer() {
               : "@ attaches a note."
           }
           aria-label="Message"
+          role="combobox"
+          aria-expanded={isOpen()}
+          aria-controls={MENTION_LIST_ID}
+          aria-activedescendant={isOpen() && hits().length > 0 ? mentionRowId(active()) : undefined}
           ref={input}
           value={chatStore.draft()}
           onInput={onInput}
@@ -175,7 +252,7 @@ export default function ChatComposer() {
       </div>
 
       <div class="chat-composer-actions">
-        <ModelPicker live={chatStore.liveModels()} />
+        <ChatConnectionControl />
         <Show when={chatStore.editing() !== null}>
           <Button onClick={() => chatStore.cancelEdit()}>Cancel</Button>
         </Show>
@@ -184,7 +261,7 @@ export default function ChatComposer() {
           fallback={
             <Button
               variant="primary"
-              disabled={chatStore.draft().trim().length === 0}
+              disabled={chatStore.draft().trim().length === 0 || unreadable().length > 0}
               onClick={() => void sendChatMessage()}
             >
               Send

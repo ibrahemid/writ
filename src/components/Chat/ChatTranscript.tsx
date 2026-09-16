@@ -1,11 +1,21 @@
 import { Index, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import Button from "../Button/Button";
 import ChatTurn from "./ChatTurn";
+import { openConnectionControl } from "./ChatConnectionControl";
+import { aiProvidersStore } from "../../stores/global/ai-providers";
 import { chatStore } from "../../stores/global/chat";
 
 /** How near the end still counts as being at it, in pixels. A reader who ends
  * a gesture inside this band is reading the newest text, not an earlier turn. */
 const AT_BOTTOM = 48;
+
+/** The failures a different model can answer. */
+const CHANGEABLE = new Set(["model_unavailable", "provider_rejected"]);
+
+/** The provider's own name, which is what a person chose it by. */
+export function providerLabel(id: string): string {
+  return aiProvidersStore.byId(id)?.label ?? id;
+}
 
 /** The conversation, oldest turn first. */
 export default function ChatTranscript() {
@@ -103,9 +113,14 @@ export default function ChatTranscript() {
       <Show
         when={chatStore.messages().length > 0}
         fallback={
-          <p class="chat-empty">
-            Ask about a note. Apply the change an answer offers, or discard it.
-          </p>
+          <Show
+            when={!chatStore.loading()}
+            fallback={<p class="chat-empty">Opening this chat.</p>}
+          >
+            <p class="chat-empty">
+              Ask about a note. Apply the change an answer offers, or discard it.
+            </p>
+          </Show>
         }
       >
         <Index each={chatStore.messages()}>
@@ -122,14 +137,30 @@ export default function ChatTranscript() {
         </Index>
       </Show>
 
+      <Show when={chatStore.status() === "stopped"}>
+        <p class="chat-note">The reply stopped.</p>
+      </Show>
+
       <Show when={chatStore.status() === "error"}>
         <div class="chat-error" role="alert">
           <p class="chat-error-text">{chatStore.errorMessage()}</p>
-          <Show when={chatStore.canRetry()}>
-            <Button icon="arrow-u-down-left" iconSize={12} onClick={() => void chatStore.retry()}>
-              Retry
-            </Button>
+          <Show when={chatStore.errorIdentity()}>
+            {(identity) => (
+              <p class="chat-error-identity">
+                {identity().model} via {providerLabel(identity().provider)}
+              </p>
+            )}
           </Show>
+          <div class="chat-error-actions">
+            <Show when={chatStore.canRetry()}>
+              <Button icon="arrow-u-down-left" iconSize={12} onClick={() => void chatStore.retry()}>
+                Retry
+              </Button>
+            </Show>
+            <Show when={CHANGEABLE.has(chatStore.errorKind())}>
+              <Button onClick={() => openConnectionControl()}>Change model</Button>
+            </Show>
+          </div>
         </div>
       </Show>
 

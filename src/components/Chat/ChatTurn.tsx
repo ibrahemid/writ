@@ -1,9 +1,40 @@
-import { For, Show, createEffect, onCleanup } from "solid-js";
+import { For, Index, Show, createEffect, onCleanup } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import ProposalCard from "./ProposalCard";
+import { providerLabel } from "./ChatTranscript";
 import { linkStore } from "../../stores/global/link";
-import { chatStore, noteName, type Message } from "../../stores/global/chat";
+import {
+  chatStore,
+  noteName,
+  type ChatDroppedProposal,
+  type Message,
+} from "../../stores/global/chat";
+
+/** Why a block the reply wrote is not on offer, in the reader's words. The
+ * note it named is stated; none of its text is (ADR-031 rule 5.2). */
+export function dropLine(drop: ChatDroppedProposal): string {
+  const named = drop.named.trim();
+  const subject = named ? `An offer for ${named}` : "An offer";
+  switch (drop.reason) {
+    case "unknown_note":
+      return `${subject} was dropped: that note is not attached.`;
+    case "ambiguous_note":
+      return `${subject} was dropped: more than one attached note has that name.`;
+    case "truncated":
+      return `${subject} was dropped: the reply ended before the note did.`;
+    case "unterminated_block":
+      return `${subject} was dropped: its text was never closed.`;
+    case "empty_body":
+      return `${subject} was dropped: it held no text.`;
+    case "placeholder":
+      return `${subject} was dropped: it repeated the example instead of the note.`;
+    case "duplicate":
+      return `${subject} was dropped: the same note was offered twice.`;
+    default:
+      return `${subject} was dropped.`;
+  }
+}
 
 /** How long a copy button reads "Copied" before going back to its label. */
 const COPIED_MS = 1200;
@@ -149,9 +180,24 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
         <Show when={props.message.html.length > 0} fallback={<RawReply text={props.message.content} />}>
           <div class="chat-reply" ref={reply} onClick={onReplyClick} />
         </Show>
-        <For each={props.message.proposals}>
-          {(proposal) => <ProposalCard turn={props.message.turn} proposal={proposal} />}
+        {/* By position, so a card keeps what its own write answered when the
+            conversation is rebuilt around it. */}
+        <Index each={props.message.proposals}>
+          {(proposal) => <ProposalCard turn={props.message.turn} proposal={proposal()} />}
+        </Index>
+        <Show when={props.message.truncated}>
+          <p class="chat-note">Reply was cut off.</p>
+        </Show>
+        <For each={props.message.dropped}>
+          {(drop) => <p class="chat-note">{dropLine(drop)}</p>}
         </For>
+        <Show when={props.message.identity}>
+          {(identity) => (
+            <p class="chat-identity">
+              {identity().model} via {providerLabel(identity().provider)}
+            </p>
+          )}
+        </Show>
       </Show>
     </article>
   );

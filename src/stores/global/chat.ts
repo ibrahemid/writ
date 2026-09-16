@@ -40,6 +40,7 @@ export type {
   ChatConversationSummary,
   ChatDroppedProposal,
   ChatProposal,
+  ChatProposalOutcome,
   DiffHunk,
   DiffLine,
   RequestIdentity,
@@ -129,6 +130,9 @@ interface Exchange {
   errorIdentity: RequestIdentity | null;
   lastSend: { turn: number; text: string; paths: string[] } | null;
   htmlByTurn: Record<number, string>;
+  /** Which connection wrote each reply of this conversation. The file records
+   * no such thing, so a turn read back off disk has none. */
+  identityByTurn: Record<number, RequestIdentity>;
   renderGeneration: Map<number, number>;
   renderTimer: { handle: ReturnType<typeof setTimeout> | null };
 }
@@ -144,6 +148,7 @@ function blankExchange(): Exchange {
     errorIdentity: null,
     lastSend: null,
     htmlByTurn: {},
+    identityByTurn: {},
     renderGeneration: new Map(),
     renderTimer: { handle: null },
   };
@@ -273,6 +278,9 @@ function createChatStore() {
   // Counts the chat openings the pane has to attach the note in front for: the
   // pane latches on it, so one open attaches once however often it re-renders.
   const [attachGeneration, setAttachGeneration] = createSignal(0);
+  // True while a stored conversation is being read and rendered, so the pane
+  // shows nothing rather than the copy that belongs to a chat with no turns.
+  const [loading, setLoading] = createSignal(false);
 
   // What each turn has been asked to render and what came back, keyed by
   // conversation and turn. A settle renders the finished reply and the reload
@@ -325,7 +333,12 @@ function createChatStore() {
     }
   }
 
-  function toMessage(turn: ChatStoredTurn, index: number, html: string): Message {
+  function toMessage(
+    turn: ChatStoredTurn,
+    index: number,
+    html: string,
+    identity: RequestIdentity | null,
+  ): Message {
     return {
       turn: index,
       role: turn.role,
@@ -335,7 +348,7 @@ function createChatStore() {
       proposals: turn.proposals,
       dropped: turn.dropped ?? [],
       truncated: turn.truncated ?? false,
-      identity: null,
+      identity,
     };
   }
 
@@ -369,7 +382,10 @@ function createChatStore() {
     ) {
       return before;
     }
-    const shown = turns.map((turn, index) => toMessage(turn, index, html[index]));
+    const known = currentEntry()?.identityByTurn ?? {};
+    const shown = turns.map((turn, index) =>
+      toMessage(turn, index, html[index], known[index] ?? null),
+    );
     const held =
       lastShown.id === (conversation?.id ?? null)
         ? new Map(lastShown.list.map((message) => [message.turn, message]))
@@ -747,18 +763,24 @@ function createChatStore() {
    * the conversation being left keeps arriving, into its own entry. */
   async function open(id: string) {
     let conversation: ChatConversation;
+    setLoading(true);
     try {
       conversation = await chatOpen(id);
     } catch (error) {
+      setLoading(false);
       failWith(readableError(error));
       return;
     }
-    clearView();
-    // The notes belong to the chat they were attached in (R5 design item 7).
-    setAttachments([]);
-    ensureEntry(id);
-    setCurrent(conversation);
-    await renderStoredReplies(conversation);
+    try {
+      clearView();
+      // The notes belong to the chat they were attached in (R5 design item 7).
+      setAttachments([]);
+      ensureEntry(id);
+      setCurrent(conversation);
+      await renderStoredReplies(conversation);
+    } finally {
+      setLoading(false);
+    }
   }
 
   /** Puts the pane on a conversation that does not exist yet. The next send
@@ -1003,14 +1025,20 @@ function createChatStore() {
       patchEntry(id, { status: "streaming" });
     } else if (payload.kind === "done") {
       if (entry.reply) {
+        const identity = payload.identity ?? null;
         patchEntry(id, {
           reply: {
             ...entry.reply,
             proposals: payload.proposals ?? [],
             dropped: payload.dropped ?? [],
             truncated: payload.truncated ?? false,
-            identity: payload.identity ?? null,
+            identity,
           },
+          // Kept past the fold into the file, which records the turns and not
+          // the connection that wrote them.
+          identityByTurn: identity
+            ? { ...entry.identityByTurn, [entry.reply.turn]: identity }
+            : entry.identityByTurn,
         });
       }
       settle(id, "done");
@@ -1312,6 +1340,7 @@ function createChatStore() {
     messages,
     liveModels,
     readiness,
+    loading,
     copyCode,
     attachments,
     attachGeneration,

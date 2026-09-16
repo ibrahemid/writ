@@ -1,0 +1,244 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
+
+// The composer is what a person aims at a model: the words, the notes the
+// reply may read, and the key that gets them there. Everything here is about
+// that field and the row of chips above it.
+
+const mocks = vi.hoisted(() => ({
+  draft: "",
+  attachments: [] as unknown[],
+  status: "idle",
+  editing: null as number | null,
+  setDraft: vi.fn(),
+  detach: vi.fn(),
+  attachByPath: vi.fn(),
+  addOpenNote: vi.fn(),
+  cancelEdit: vi.fn(),
+  stop: vi.fn(),
+  send: vi.fn(),
+  candidates: vi.fn(),
+}));
+
+vi.mock("../../stores/global/chat", async () => {
+  const actual = await vi.importActual<typeof import("../../stores/global/chat")>(
+    "../../stores/global/chat",
+  );
+  return {
+    ...actual,
+    chatStore: {
+      draft: () => mocks.draft,
+      setDraft: mocks.setDraft,
+      attachments: () => mocks.attachments,
+      status: () => mocks.status,
+      editing: () => mocks.editing,
+      detach: mocks.detach,
+      attachByPath: mocks.attachByPath,
+      addOpenNote: mocks.addOpenNote,
+      cancelEdit: mocks.cancelEdit,
+      stop: mocks.stop,
+    },
+  };
+});
+
+vi.mock("../../stores/global/link", () => ({
+  linkStore: { noteNameCandidates: mocks.candidates },
+}));
+
+vi.mock("../../commands/chat", () => ({
+  byteLabel: (bytes: number) => `${bytes} bytes`,
+  sendChatMessage: mocks.send,
+}));
+
+vi.mock("../../components/Chat/ChatConnectionControl", () => ({
+  default: () => <button type="button">Connection</button>,
+  openConnectionControl: vi.fn(),
+}));
+
+import ChatComposer from "../../components/Chat/ChatComposer";
+
+function chip(path: string, extra: Record<string, unknown> = {}) {
+  return { path, name: path.split("/").pop(), bytes: 10, key: path, ...extra };
+}
+
+/** The field, which every case reaches for. */
+function field(container: HTMLElement): HTMLTextAreaElement {
+  return container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
+}
+
+function mount(props: Record<string, unknown> = {}) {
+  const onClose = vi.fn();
+  const result = render(() => (
+    <ChatComposer
+      openNote={() => (props.openNote as "ready" | "unsaved" | "none") ?? "ready"}
+      onClose={onClose}
+    />
+  ));
+  return { ...result, onClose };
+}
+
+beforeEach(() => {
+  mocks.draft = "";
+  mocks.attachments = [];
+  mocks.status = "idle";
+  mocks.editing = null;
+  mocks.setDraft.mockReset();
+  mocks.detach.mockReset();
+  mocks.attachByPath.mockReset();
+  mocks.addOpenNote.mockReset().mockResolvedValue({ ok: true, path: "Launch.md" });
+  mocks.cancelEdit.mockReset();
+  mocks.stop.mockReset();
+  mocks.send.mockReset();
+  mocks.candidates.mockReset().mockResolvedValue([]);
+});
+
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+describe("the composer field", () => {
+  it("grows with the draft and stops at its maximum", () => {
+    const { container } = mount();
+    const el = field(container);
+    Object.defineProperty(el, "scrollHeight", { value: 220, configurable: true });
+
+    el.value = "a\nb\nc\nd\ne";
+    fireEvent.input(el);
+
+    expect(el.style.height).toBe("220px");
+    // The ceiling is the stylesheet's, so the field scrolls rather than
+    // pushing the transcript off the top of the column.
+    expect(el.style.maxHeight).toBe("");
+    expect(el.getAttribute("rows")).toBe("2");
+  });
+
+  it("cancels an edit, then stops a reply, then closes the pane", () => {
+    mocks.editing = 2;
+    const editing = mount();
+    fireEvent.keyDown(field(editing.container), { key: "Escape" });
+    expect(mocks.cancelEdit).toHaveBeenCalledTimes(1);
+    expect(editing.onClose).not.toHaveBeenCalled();
+    cleanup();
+
+    mocks.editing = null;
+    mocks.status = "streaming";
+    const live = mount();
+    fireEvent.keyDown(field(live.container), { key: "Escape" });
+    expect(mocks.stop).toHaveBeenCalledTimes(1);
+    expect(live.onClose).not.toHaveBeenCalled();
+    cleanup();
+
+    mocks.status = "idle";
+    const quiet = mount();
+    fireEvent.keyDown(field(quiet.container), { key: "Escape" });
+    expect(quiet.onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the chip row", () => {
+  it("attaches the note in front, and says why it cannot", async () => {
+    const ready = mount();
+    const add = ready.getByRole("button", { name: "Add open note" }) as HTMLButtonElement;
+    expect(add.disabled).toBe(false);
+    fireEvent.click(add);
+    await waitFor(() => expect(mocks.addOpenNote).toHaveBeenCalledTimes(1));
+    cleanup();
+
+    const unsaved = mount({ openNote: "unsaved" });
+    const blocked = unsaved.getByRole("button", { name: "Add open note" }) as HTMLButtonElement;
+    expect(blocked.disabled).toBe(true);
+    expect(unsaved.getByText("Save this note first")).toBeTruthy();
+  });
+
+  it("names a chip by its folder and keeps the whole key on the row", () => {
+    mocks.attachments = [chip("Notes/Ideas/Launch.md")];
+    const { container } = mount();
+    const row = container.querySelector(".chat-chip") as HTMLElement;
+    expect(row.getAttribute("title")).toBe("Notes/Ideas/Launch.md");
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("…/Ideas/Launch.md");
+    expect(container.querySelector(".chat-chip-remove")?.getAttribute("aria-label")).toBe(
+      "Remove Launch.md",
+    );
+  });
+
+  it("says a dirty note sends its saved text", () => {
+    mocks.attachments = [chip("Launch.md", { dirty: true })];
+    const { container } = mount();
+    const row = container.querySelector(".chat-chip") as HTMLElement;
+    expect(row.getAttribute("title")).toContain("Sends the saved version");
+  });
+
+  it("blocks Send while a chip cannot be read", () => {
+    mocks.draft = "hello";
+    mocks.attachments = [chip("Gone.md", { state: "unreadable", reason: "The file is missing." })];
+    const { container, getByRole } = mount();
+    expect(container.querySelector(".chat-chip.is-unreadable")).toBeTruthy();
+    expect(getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    expect(container.textContent).toContain("The file is missing.");
+  });
+});
+
+describe("the mention list", () => {
+  async function openList(hits: { path: string; name: string }[]) {
+    mocks.candidates.mockResolvedValue(hits);
+    const view = mount();
+    const el = field(view.container);
+    el.value = "see @la";
+    fireEvent.input(el);
+    await waitFor(() => expect(view.container.querySelector(".chat-mention-row")).toBeTruthy());
+    return { ...view, el };
+  }
+
+  it("points the field at the active row", async () => {
+    const { container, el } = await openList([
+      { path: "Launch.md", name: "Launch.md" },
+      { path: "Later.md", name: "Later.md" },
+    ]);
+
+    expect(el.getAttribute("role")).toBe("combobox");
+    expect(el.getAttribute("aria-expanded")).toBe("true");
+    const list = container.querySelector(".chat-mention-list") as HTMLElement;
+    expect(el.getAttribute("aria-controls")).toBe(list.id);
+    expect(el.getAttribute("aria-activedescendant")).toBe("chat-mention-0");
+
+    fireEvent.keyDown(el, { key: "ArrowDown" });
+    expect(el.getAttribute("aria-activedescendant")).toBe("chat-mention-1");
+
+    const rows = Array.from(container.querySelectorAll(".chat-mention-row"));
+    expect(rows.every((row) => row.getAttribute("tabindex") === "-1")).toBe(true);
+  });
+
+  it("keeps the active row in view", async () => {
+    const seen: unknown[] = [];
+    const scroll = vi.fn(function (this: Element, arg: unknown) {
+      seen.push([this.textContent, arg]);
+    });
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      value: scroll,
+      configurable: true,
+      writable: true,
+    });
+
+    const { el } = await openList([
+      { path: "Launch.md", name: "Launch.md" },
+      { path: "Later.md", name: "Later.md" },
+    ]);
+    fireEvent.keyDown(el, { key: "ArrowDown" });
+
+    await waitFor(() => expect(scroll).toHaveBeenCalled());
+    expect(seen[seen.length - 1]).toEqual(["Later.md", { block: "nearest" }]);
+  });
+
+  it("keeps the empty answer out of the list", async () => {
+    mocks.candidates.mockResolvedValue([]);
+    const { container } = mount();
+    const el = field(container);
+    el.value = "see @zz";
+    fireEvent.input(el);
+
+    await waitFor(() => expect(container.textContent).toContain("No note by that name."));
+    const list = container.querySelector(".chat-mention-list") as HTMLElement;
+    expect(list.textContent).not.toContain("No note by that name.");
+  });
+});

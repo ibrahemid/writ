@@ -2,7 +2,8 @@ import { Show, createEffect, createMemo, createSignal, untrack } from "solid-js"
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import EdgeResizer from "../Resizer/EdgeResizer";
-import ChatComposer from "./ChatComposer";
+import ChatComposer, { type OpenNoteState } from "./ChatComposer";
+import ChatReadiness from "./ChatReadiness";
 import ChatTranscript from "./ChatTranscript";
 import ConversationList from "./ConversationList";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -40,6 +41,13 @@ export default function ChatPane() {
   const notesInFront = createMemo(() =>
     bufferRegistry.activeTabs().filter((doc) => doc.source_path !== null),
   );
+
+  /** Whether the note in front can be attached, and why it cannot: a tab with
+   * no file has nothing on disk for a reply to read. */
+  const openNote = (): OpenNoteState => {
+    if (!win.tabs.activeTabId()) return "none";
+    return frontNote() ? "ready" : "unsaved";
+  };
 
   /** The note in front, as an attachment. */
   function frontNote(): Attachment | null {
@@ -198,7 +206,8 @@ export default function ChatPane() {
           </Show>
 
           <ChatTranscript />
-          <ChatComposer />
+          <ChatReadiness />
+          <ChatComposer openNote={openNote} onClose={() => win.chatPanel.hide()} />
         </div>
       </aside>
     </Show>

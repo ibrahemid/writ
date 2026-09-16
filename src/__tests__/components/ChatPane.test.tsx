@@ -4,6 +4,7 @@ import { configStore } from "../../stores/global/config";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import type { BufferDocument } from "../../types/buffer";
 import type { WritConfig } from "../../types/config";
+import type { ChatConversation } from "../../services/tauri";
 
 // The chat column: what it says the model can read, what a reply may offer,
 // and what happens to the note when somebody answers the offer. Nothing here
@@ -241,7 +242,7 @@ describe("the chat column", () => {
     );
     mocks.chatApplyProposal
       .mockReset()
-      .mockResolvedValue({ path: "Launch.md", hash: "def", bytes: 16 });
+      .mockResolvedValue({ path: "Launch.md", hash: "def", bytes: 16, changed: true });
     mocks.chatDiscardProposal.mockReset().mockResolvedValue(undefined);
     mocks.chatStop.mockReset().mockResolvedValue(undefined);
     chatStore.reset();
@@ -265,7 +266,7 @@ describe("the chat column", () => {
   it("lists the note in front and sends that one and no other", async () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
-    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("notes/Launch.md");
 
     chatStore.setDraft("what does it argue");
     await chatStore.send();
@@ -330,7 +331,7 @@ describe("the chat column", () => {
     fireEvent.click(container.querySelector('[aria-label="New chat"]') as HTMLElement);
 
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
-    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("notes/Launch.md");
   });
 
   it("keeps an earlier turn, and what was copied from it, through a later reply", async () => {
@@ -481,7 +482,9 @@ describe("the chat column", () => {
       "abc",
     );
     await waitFor(() =>
-      expect(container.querySelector(".chat-proposal-verdict")?.textContent).toBe("Applied."),
+      expect(container.querySelector(".chat-proposal-verdict")?.textContent).toBe(
+        "Applied. The note is now 16 bytes.",
+      ),
     );
   });
 
@@ -548,5 +551,123 @@ describe("the chat column", () => {
       text: "ought",
     });
     expect(container.textContent).not.toContain("ought");
+  });
+  it("says the reply stopped", async () => {
+    const { container, getByText } = open();
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+    const id = mocks.chatSend.mock.calls[0][0] as string;
+    chatStore.handleStreamEvent({
+      conversation_id: id,
+      request_id: rid(id),
+      kind: "chunk",
+      text: "half a th",
+    });
+    await waitFor(() => expect(getByText("Stop")).toBeTruthy());
+
+    chatStore.handleStreamEvent({ conversation_id: id, request_id: rid(id), kind: "stopped" });
+
+    await waitFor(() => expect(container.textContent).toContain("The reply stopped."));
+  });
+
+  it("says nothing about an empty chat while one is being opened", async () => {
+    let settle: (value: ChatConversation) => void = () => undefined;
+    mocks.chatList.mockResolvedValue([
+      { id: "c-9", title: "Launch", created_at: "", updated_at: "", turns: 2 },
+    ]);
+    mocks.chatOpen.mockReturnValue(
+      new Promise<ChatConversation>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const { container } = open();
+
+    await waitFor(() => expect(container.textContent).toContain("Opening this chat."));
+    expect(container.textContent).not.toContain("Ask about a note.");
+
+    settle({
+      id: "c-9",
+      title: "Launch",
+      created_at: "",
+      updated_at: "",
+      provider: "ollama",
+      model: "llama3",
+      turns: [],
+    });
+    await waitFor(() => expect(container.textContent).toContain("Ask about a note."));
+  });
+
+  it("says what a reply could not offer, and which model wrote it", async () => {
+    const { container } = open();
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+    const id = mocks.chatSend.mock.calls[0][0] as string;
+    chatStore.handleStreamEvent({
+      conversation_id: id,
+      request_id: rid(id),
+      kind: "chunk",
+      text: "here is what it argues",
+    });
+    chatStore.handleStreamEvent({
+      conversation_id: id,
+      request_id: rid(id),
+      kind: "done",
+      proposals: [],
+      truncated: true,
+      dropped: [
+        { named: "Gone.md", reason: "unknown_note" },
+        { named: "Launch.md", reason: "duplicate" },
+      ],
+      identity: { provider: "ollama", model: "llama3", host: "localhost:11434" },
+    });
+
+    await waitFor(() => expect(container.textContent).toContain("Reply was cut off."));
+    expect(container.textContent).toContain(
+      "An offer for Gone.md was dropped: that note is not attached.",
+    );
+    expect(container.textContent).toContain(
+      "An offer for Launch.md was dropped: the same note was offered twice.",
+    );
+    expect(container.querySelector(".chat-identity")?.textContent).toBe("llama3 via ollama");
+  });
+
+  it("an error names the provider and the model that was refused", async () => {
+    const { container, getByText } = open();
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+    const id = mocks.chatSend.mock.calls[0][0] as string;
+    chatStore.handleStreamEvent({
+      conversation_id: id,
+      request_id: rid(id),
+      kind: "error",
+      error: {
+        kind: "model_unavailable",
+        message: "llama3 is not available on Ollama.",
+        provider: "ollama",
+        model: "llama3",
+        status: null,
+      },
+    });
+
+    await waitFor(() =>
+      expect(container.textContent).toContain("llama3 is not available on Ollama."),
+    );
+    expect(container.querySelector(".chat-error-identity")?.textContent).toBe("llama3 via ollama");
+    expect(getByText("Change model")).toBeTruthy();
+  });
+
+  it("says what the connection still needs, above the composer", async () => {
+    const { container } = open();
+
+    await waitFor(() => expect(container.querySelector(".chat-readiness")).not.toBeNull());
+    const banner = container.querySelector(".chat-readiness") as HTMLElement;
+    expect(banner.getAttribute("data-state")).toBe("no_model");
+    expect(banner.textContent).toContain("No model is set.");
+    expect(banner.textContent).toContain("Open settings");
+    // It sits between the conversation and the field it is about.
+    expect(
+      banner.compareDocumentPosition(container.querySelector(".chat-composer") as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });
