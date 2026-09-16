@@ -235,6 +235,38 @@ describe("the stream", () => {
     }
   });
 
+  it("a delta leaves every settled turn's object untouched", async () => {
+    // The proposal counts what reads its diff: a settled turn that is
+    // re-derived per token is what makes a long conversation cost a token.
+    const reads = { count: 0 };
+    const hunks: ChatProposal["hunks"] = [];
+    const offer = {
+      ...PROPOSAL,
+      get hunks() {
+        reads.count += 1;
+        return hunks;
+      },
+    } as ChatProposal;
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(
+      conversation("c1", [userTurn("what does it argue"), replyTurn("it argues this", [offer])]),
+    );
+    await chatStore.openPane();
+    chatStore.setDraft("and then");
+    await chatStore.send();
+
+    const before = chatStore.messages();
+    reads.count = 0;
+    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "because " });
+    const after = chatStore.messages();
+
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after[2]).toBe(before[2]);
+    expect(after[3]).not.toBe(before[3]);
+    expect(reads.count).toBe(0);
+  });
+
   it("keeps the text a stopped reply had already shown", async () => {
     await startSend();
     chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "half an ans" });
