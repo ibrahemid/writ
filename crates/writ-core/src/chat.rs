@@ -1025,32 +1025,57 @@ fn read_block(lines: &[&str], start: usize, fence: Fence) -> (Option<String>, us
     let mut inner: Option<Fence> = None;
     for (offset, line) in lines[start..].iter().enumerate() {
         let index = start + offset;
-        let Some((run, rest)) = fence_run(line) else {
-            continue;
-        };
-        let bare = rest.trim().is_empty();
-        match inner {
-            Some(open) if bare && run.marker == open.marker && run.len >= open.len => {
-                if !closes_proposal(line, fence) {
-                    inner = None;
-                    continue;
-                }
+        match line_in_block(line, fence, inner) {
+            BlockLine::Body(next) => inner = next,
+            BlockLine::Closes => return (Some(joined(&lines[start..index])), index + 1),
+            BlockLine::Ambiguous => {
                 return match last_close(lines, index + 1, fence) {
                     Some(close) => (Some(joined(&lines[start..close])), close + 1),
                     None if rest_is_blank(lines, index + 1) => {
                         (Some(joined(&lines[start..])), lines.len())
                     }
                     None => (None, index + 1),
-                };
+                }
             }
-            Some(_) => continue,
-            None if closes_proposal(line, fence) => {
-                return (Some(joined(&lines[start..index])), index + 1)
-            }
-            None => inner = Some(run),
         }
     }
     (Some(joined(&lines[start..])), lines.len())
+}
+
+/// What one line inside a proposal's body turns out to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockLine {
+    /// Body text, carrying the inner code fence left open after it.
+    Body(Option<Fence>),
+    /// The line that closes the proposal.
+    Closes,
+    /// A line that closes an open inner code fence and the proposal both, so
+    /// which of the two it is cannot be read off the line itself.
+    Ambiguous,
+}
+
+/// Reads one line of a proposal's body against the fence it was opened with
+/// and the inner code fence, if any, that is open at that line.
+///
+/// [`read_block`] and [`ProposalFilter`] both judge a body line through this,
+/// so the reply a person watches arrive and the proposals parsed out of it
+/// read the same grammar rather than two that have to be kept in step.
+fn line_in_block(line: &str, fence: Fence, inner: Option<Fence>) -> BlockLine {
+    let Some((run, rest)) = fence_run(line) else {
+        return BlockLine::Body(inner);
+    };
+    let bare = rest.trim().is_empty();
+    match inner {
+        Some(open) if bare && run.marker == open.marker && run.len >= open.len => {
+            match closes_proposal(line, fence) {
+                true => BlockLine::Ambiguous,
+                false => BlockLine::Body(None),
+            }
+        }
+        Some(_) => BlockLine::Body(inner),
+        None if closes_proposal(line, fence) => BlockLine::Closes,
+        None => BlockLine::Body(Some(run)),
+    }
 }
 
 /// The last line from `from` on that could close `fence` with nothing but
@@ -1105,6 +1130,21 @@ enum FilterState {
         /// The fence the block was opened with, which is what its close has
         /// to match.
         fence: Fence,
+        /// The inner code fence the body has left open, which a closing line
+        /// may belong to instead of the proposal.
+        inner: Option<Fence>,
+        /// True until the line that opened the block ends, because that line
+        /// is the fence itself rather than a line of the body.
+        opening: bool,
+    },
+    /// After a line that closed an open inner code fence and the proposal
+    /// both. Which of the two it was is only decided by what the rest of the
+    /// reply holds, so the rest is held back and read at the end.
+    Deciding {
+        /// The fence the proposal was opened with.
+        fence: Fence,
+        /// Everything read since the ambiguous line.
+        buffered: String,
     },
 }
 
@@ -1119,8 +1159,8 @@ enum FilterState {
 ///
 /// Anything else is released as soon as it can no longer become a fence, so an
 /// ordinary code block arrives byte for byte, one line late at most. A block
-/// the reply never closed is dropped by [`ProposalFilter::finish`], as
-/// [`parse_proposals`] drops it.
+/// the reply never closed is never released: the pane shows the prose that came
+/// before it and the card carries the rest.
 pub struct ProposalFilter {
     state: FilterState,
 }
@@ -1147,7 +1187,11 @@ impl ProposalFilter {
     /// Ends the reply, releasing a prefix that never became a fence.
     ///
     /// A proposal that was still open is dropped: a block cut off mid-write is
-    /// not a whole note.
+    /// not a whole note. A block whose end was ambiguous is read the way
+    /// [`parse_proposals`] reads it: what the block turned out to hold stays
+    /// withheld, and what fell outside it is released. When neither reading
+    /// holds and the parser drops the block, the lines after the ambiguous
+    /// fence are the reply's own prose and are shown.
     pub fn finish(&mut self) -> String {
         match std::mem::replace(
             &mut self.state,
@@ -1156,6 +1200,13 @@ impl ProposalFilter {
             },
         ) {
             FilterState::MaybeFence { buffered } => buffered,
+            FilterState::Deciding { fence, buffered } => {
+                let lines: Vec<&str> = buffered.lines().collect();
+                match last_close(&lines, 0, fence) {
+                    Some(close) => joined(&lines[close + 1..]),
+                    None => buffered,
+                }
+            }
             FilterState::Text { .. } | FilterState::Withholding { .. } => String::new(),
         }
     }
@@ -1187,6 +1238,8 @@ impl ProposalFilter {
                     Some((fence, _)) => Some(FilterState::Withholding {
                         line: std::mem::take(buffered),
                         fence,
+                        inner: None,
+                        opening: true,
                     }),
                     None if could_open_proposal(buffered) => None,
                     None => {
@@ -1201,13 +1254,34 @@ impl ProposalFilter {
                 line.push(character);
                 None
             }
-            FilterState::Withholding { line, fence } if closes_proposal(line, *fence) => {
-                Some(FilterState::Text {
-                    at_line_start: true,
-                })
+            FilterState::Withholding {
+                line,
+                fence,
+                inner,
+                opening,
+            } => {
+                if *opening {
+                    *opening = false;
+                    line.clear();
+                    return;
+                }
+                match line_in_block(line, *fence, *inner) {
+                    BlockLine::Closes => Some(FilterState::Text {
+                        at_line_start: true,
+                    }),
+                    BlockLine::Ambiguous => Some(FilterState::Deciding {
+                        fence: *fence,
+                        buffered: String::new(),
+                    }),
+                    BlockLine::Body(next) => {
+                        *inner = next;
+                        line.clear();
+                        None
+                    }
+                }
             }
-            FilterState::Withholding { line, .. } => {
-                line.clear();
+            FilterState::Deciding { buffered, .. } => {
+                buffered.push(character);
                 None
             }
         };
