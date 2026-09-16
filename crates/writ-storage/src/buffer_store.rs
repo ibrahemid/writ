@@ -58,6 +58,12 @@ pub enum RecoveredText {
         /// Where the recovered text went instead.
         copy: PathBuf,
     },
+    /// The file holds what Writ last read into the tab, so the snapshot is
+    /// older than what is there and nothing was written or set aside.
+    Skipped {
+        /// What the note's file holds, which is what Writ recorded reading.
+        on_disk: DiskState,
+    },
 }
 
 impl RecoveredText {
@@ -71,6 +77,7 @@ impl RecoveredText {
         match self {
             Self::Restored(state) => Some(*state),
             Self::SetAside { on_disk, .. } => *on_disk,
+            Self::Skipped { on_disk } => Some(*on_disk),
         }
     }
 }
@@ -706,6 +713,7 @@ impl BufferStore {
         content: &str,
         before_write: BeforeWrite<'_>,
         dataless: DatalessProbe<'_>,
+        recorded_disk: Option<writ_core::hash::Sha256Digest>,
     ) -> StorageResult<RecoveredText> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
@@ -747,6 +755,19 @@ impl BufferStore {
 
         let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
         let on_disk = read_disk_state(path)?;
+
+        // A file whose bytes are the ones Writ last read into the tab is a
+        // file Writ refreshed, not one that moved on while it was down. The
+        // snapshot is simply older than what is there, and writing a
+        // `(recovered)` copy beside a note the user already has would be a
+        // file they did not ask for.
+        if let Some(state) = on_disk {
+            if recorded_disk.is_some_and(|recorded| recorded == state.hash)
+                && state.hash != incoming
+            {
+                return Ok(RecoveredText::Skipped { on_disk: state });
+            }
+        }
 
         if let Some(state) = on_disk {
             if state.hash != incoming {
@@ -904,6 +925,44 @@ impl BufferStore {
     /// dominate the database file.
     pub fn run_maintenance(&self) -> StorageResult<MaintenanceOutcome> {
         maintenance::run_maintenance(&self.conn)
+    }
+
+    /// Records that a note's file was read into its tab, with the bytes that
+    /// were read.
+    ///
+    /// The row's `updated_at` is what a relaunch compares the last crash
+    /// snapshot against ([`writ_core::recovery::resolve_recovery`]). A file
+    /// that changed under an open tab and was reloaded into it never moved
+    /// that stamp, so a snapshot taken before the change read as newer than
+    /// the row and was written back over the file: an applied edit reverted by
+    /// the next unclean launch. Reading a file into a tab is Writ learning
+    /// what it holds, so it moves the stamp.
+    ///
+    /// Hands back the state the file is now known to be in, which the caller
+    /// records for the write guard rather than hashing the same bytes twice.
+    /// `None` for a note with no file, which has nothing to be in sync with.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError`] when the row cannot be read or written.
+    pub fn note_synced_from_disk(
+        &self,
+        id: &str,
+        hash: writ_core::hash::Sha256Digest,
+        len: u64,
+    ) -> StorageResult<Option<DiskState>> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        queries::update_size_and_timestamp(&self.conn, id, len)?;
+        let Some(path) = doc.source_path.as_deref() else {
+            return Ok(None);
+        };
+        Ok(Some(DiskState {
+            hash,
+            size: len,
+            mtime: std::fs::metadata(path)
+                .ok()
+                .and_then(|meta| meta.modified().ok()),
+        }))
     }
 
     /// Resolves which buffers should be restored from the latest dirty

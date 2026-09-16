@@ -268,7 +268,7 @@ fn a_file_changed_while_writ_was_down_keeps_its_text_and_the_snapshot_lands_besi
     let path = open_recovered_note(&store, &notes, "# What a sync client delivered");
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None, None)
         .expect("recovery never fails on a file that moved on");
 
     let RecoveredText::SetAside { on_disk, copy } = outcome else {
@@ -301,7 +301,7 @@ fn a_file_that_did_not_change_is_left_exactly_as_it_is() {
     let before = std::fs::metadata(&path).unwrap();
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None, None)
         .expect("restore");
 
     let RecoveredText::Restored(state) = outcome else {
@@ -346,7 +346,7 @@ fn a_note_that_never_reached_a_file_is_written_at_its_own_path() {
     store.insert(&doc).expect("insert");
 
     let outcome = store
-        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None, None)
         .expect("restore");
 
     match outcome {
@@ -419,6 +419,7 @@ fn an_evicted_file_is_never_read_and_the_snapshot_lands_beside_it() {
             "# What the crash was holding",
             None,
             Some(&evicted),
+            None,
         )
         .expect("an evicted file is not a failure");
 
@@ -460,6 +461,7 @@ fn a_file_the_flags_call_downloaded_takes_the_ordinary_route() {
             "# What the crash was holding",
             None,
             Some(&downloaded),
+            None,
         )
         .expect("restore");
 
@@ -509,5 +511,71 @@ fn keeping_mine_over_a_guard_that_refuses_still_leaves_both_texts_on_disk() {
         std::fs::read_to_string(&path).unwrap(),
         "# What another program wrote",
         "the refusal left the file alone"
+    );
+}
+
+#[test]
+fn a_note_read_back_from_disk_moves_its_row_forward() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# What the tab opened with");
+    let before = store.get("guard-1").expect("the row").updated_at;
+
+    let refreshed = b"# What another program wrote";
+    std::fs::write(&path, refreshed).expect("write");
+    let state = store
+        .note_synced_from_disk("guard-1", sha256_bytes(refreshed), refreshed.len() as u64)
+        .expect("the row takes the sync")
+        .expect("a note with a file has a disk state");
+
+    assert_eq!(state.hash, sha256_bytes(refreshed));
+    assert_eq!(state.size, refreshed.len() as u64);
+    let after = store.get("guard-1").expect("the row").updated_at;
+    assert!(
+        after > before,
+        "the stamp a relaunch compares the last snapshot against did not move"
+    );
+    assert_eq!(
+        store.get("guard-1").expect("the row").size_bytes,
+        state.size
+    );
+}
+
+#[test]
+fn a_file_writ_itself_refreshed_is_left_alone_by_recovery() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# What the tab opened with");
+
+    let applied = b"# What the applied proposal wrote";
+    std::fs::write(&path, applied).expect("write");
+    let synced = sha256_bytes(applied);
+    store
+        .note_synced_from_disk("guard-1", synced, applied.len() as u64)
+        .expect("the row takes the sync");
+
+    let outcome = store
+        .restore_recovered_content(
+            "guard-1",
+            "# What the last snapshot was holding",
+            None,
+            None,
+            Some(synced),
+        )
+        .expect("recovery never fails on a file Writ itself refreshed");
+
+    assert!(
+        matches!(outcome, RecoveredText::Skipped { .. }),
+        "expected the snapshot to be left where it was, got {outcome:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "# What the applied proposal wrote",
+        "the applied text survived the relaunch"
+    );
+    assert_eq!(
+        recovered_copies(notes.path()),
+        Vec::<String>::new(),
+        "a file Writ refreshed itself gained a copy nobody asked for"
     );
 }

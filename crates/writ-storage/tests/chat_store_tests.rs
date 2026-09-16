@@ -6,7 +6,8 @@ use std::path::Path;
 use serde_json::Value;
 use tempfile::TempDir;
 use writ_core::chat::{
-    AttachmentRef, Conversation, ProposalStatus, StoredProposal, MAX_CONVERSATION_BYTES,
+    AssistantReply, AttachmentRef, Conversation, ProposalStatus, StoredProposal,
+    MAX_CONVERSATION_BYTES,
 };
 use writ_storage::chat_store::{ChatStore, ChatStoreError};
 
@@ -110,13 +111,16 @@ fn a_saved_conversation_loads_back_as_it_was() {
     );
     held.push_assistant(
         "Here is a shorter opening.".to_string(),
-        vec![StoredProposal {
-            path: "Ideas/Launch.md".to_string(),
-            summary: "Shorter opening".to_string(),
-            before_hash: "abcd".to_string(),
-            new_content: "Shorter.".to_string(),
-            status: ProposalStatus::Pending,
-        }],
+        AssistantReply {
+            proposals: vec![StoredProposal {
+                path: "Ideas/Launch.md".to_string(),
+                summary: "Shorter opening".to_string(),
+                before_hash: "abcd".to_string(),
+                new_content: "Shorter.".to_string(),
+                status: ProposalStatus::Pending,
+            }],
+            ..AssistantReply::default()
+        },
         "2026-09-15T10:02:00+00:00".to_string(),
     );
     store.save(&held).unwrap();
@@ -321,13 +325,16 @@ fn the_file_holds_no_note_text_and_no_key() {
     );
     held.push_assistant(
         "Here is a shorter opening.".to_string(),
-        vec![StoredProposal {
-            path: "Ideas/Launch.md".to_string(),
-            summary: "Shorter opening".to_string(),
-            before_hash: "abcd".to_string(),
-            new_content: "Shorter.".to_string(),
-            status: ProposalStatus::Applied,
-        }],
+        AssistantReply {
+            proposals: vec![StoredProposal {
+                path: "Ideas/Launch.md".to_string(),
+                summary: "Shorter opening".to_string(),
+                before_hash: "abcd".to_string(),
+                new_content: "Shorter.".to_string(),
+                status: ProposalStatus::Applied,
+            }],
+            ..AssistantReply::default()
+        },
         "2026-09-15T10:02:00+00:00".to_string(),
     );
     store.save(&held).unwrap();
