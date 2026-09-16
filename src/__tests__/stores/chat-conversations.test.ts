@@ -202,6 +202,12 @@ describe("the stream", () => {
 
     expect(chatStore.current()?.turns).toHaveLength(2);
     expect(chatStore.messages()[1].html).toBe("<p>it argues this</p>");
+    // The settle renders the finished reply and the reload behind it walks the
+    // same turns: one ending is one render, not two.
+    const finished = mocks.chatRenderReply.mock.calls.filter(
+      ([text]) => text === "it argues this",
+    );
+    expect(finished).toHaveLength(1);
   });
 
   it("keeps a tail that arrives with nothing shown before it", async () => {

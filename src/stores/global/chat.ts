@@ -159,10 +159,13 @@ function createChatStore() {
   // A render is one round trip and a stream asks for many, so only the newest
   // result for a turn is painted: a slow one cannot overwrite a newer one.
   const renderGeneration = new Map<number, number>();
-  // What each turn has been asked to render, keyed by conversation and turn.
-  // A settle renders the finished reply and the reload behind it walks the
-  // same turns, so without this the reply is rendered twice for one ending.
-  const renderAsked = new Map<string, string>();
+  // What each turn has been asked to render and what came back, keyed by
+  // conversation and turn. A settle renders the finished reply and the reload
+  // behind it walks the same turns, so without this one ending is two renders.
+  // A null fragment is a render still in flight. What the pane shows is
+  // checked as well as what was asked for, so a turn whose fragment was
+  // replaced by another conversation's is rendered again rather than skipped.
+  const renderAsked = new Map<string, { markdown: string; html: string | null }>();
   let renderTimer: ReturnType<typeof setTimeout> | null = null;
   // Held for as long as a send is between the draft and the status that says
   // the pane is busy.
@@ -671,12 +674,22 @@ function createChatStore() {
     renderTimer = null;
   }
 
+  /** Drops a record of a render that painted nothing, and only that record: a
+   * newer render for the same turn keeps what it wrote. */
+  function forgetRender(asked: string, markdown: string) {
+    const held = renderAsked.get(asked);
+    if (held?.markdown === markdown && held.html === null) renderAsked.delete(asked);
+  }
+
   /** Renders one reply to a fragment. A result a newer render has already
    * overtaken is dropped rather than painted. */
   async function renderTurn(id: string, turn: number, markdown: string) {
     const asked = `${id}:${turn}`;
-    if (renderAsked.get(asked) === markdown) return;
-    renderAsked.set(asked, markdown);
+    const held = renderAsked.get(asked);
+    if (held?.markdown === markdown && (held.html === null || htmlByTurn()[turn] === held.html)) {
+      return;
+    }
+    renderAsked.set(asked, { markdown, html: null });
     const generation = (renderGeneration.get(turn) ?? 0) + 1;
     renderGeneration.set(turn, generation);
     let html: string;
@@ -684,11 +697,15 @@ function createChatStore() {
       html = await chatRenderReply(markdown);
     } catch {
       // Nothing was painted, so the next ask for this text is a fresh one.
-      renderAsked.delete(asked);
+      forgetRender(asked, markdown);
       return;
     }
-    if (renderGeneration.get(turn) !== generation || current()?.id !== id) return;
-    setHtmlByTurn((held) => ({ ...held, [turn]: html }));
+    if (renderGeneration.get(turn) !== generation || current()?.id !== id) {
+      forgetRender(asked, markdown);
+      return;
+    }
+    renderAsked.set(asked, { markdown, html });
+    setHtmlByTurn((shown) => ({ ...shown, [turn]: html }));
   }
 
   /** Why applying was refused, for the proposal it was refused for. */
