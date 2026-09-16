@@ -80,6 +80,10 @@ fn row_3_the_chat_alone_on_anthropic() {
     assert!(!c.ai.rewrite.enabled);
     assert!(c.ai.chat.model.is_empty());
     assert_eq!(c.ai.chat_model(), "claude-opus-5");
+    assert!(
+        c.ai.chat.model_provider.is_empty(),
+        "a chat that names no model of its own carries no qualifier"
+    );
     assert_eq!(c.ai.consented_hosts, vec!["api.anthropic.com".to_string()]);
 }
 
@@ -144,7 +148,16 @@ fn row_6_both_on_against_the_same_provider() {
     ));
     assert_eq!(differs.ai.model, "llama-3.1-8b-instant");
     assert_eq!(differs.ai.chat.model, "llama-3.3-70b-versatile");
+    assert_eq!(
+        differs.ai.chat.model_provider, "groq",
+        "the override is qualified to the connection it was read under"
+    );
     assert_eq!(differs.ai.chat_model(), "llama-3.3-70b-versatile");
+
+    // The same file after the connection moves: the override names a Groq
+    // model and is not sent to another server.
+    let moved = differs.ai.with_provider("deepseek", "deepseek-chat");
+    assert_eq!(moved.chat_model(), "deepseek-chat");
 }
 
 #[test]
@@ -209,8 +222,14 @@ fn a_migrated_file_is_written_back_without_one_old_field() {
         .split("[ai.chat]")
         .nth(1)
         .expect("the chat table is written");
-    assert!(!chat.contains("provider"), "{ai_tree}");
+    // The chat's second endpoint is gone; `model_provider`, which qualifies
+    // its own model, is written.
+    assert!(
+        !chat.lines().any(|line| line.trim().starts_with("provider")),
+        "{ai_tree}"
+    );
     assert!(!chat.contains("base_url"), "{ai_tree}");
+    assert!(chat.contains("model_provider ="), "{ai_tree}");
 
     // And it reads back as itself.
     let back: WritConfig = toml::from_str(&written).expect("the new shape re-reads");

@@ -52,6 +52,27 @@ pub struct AiChatConfig {
     /// Model id for chat requests. Empty means the connection's model.
     #[serde(default)]
     pub model: String,
+    /// The provider id `model` was chosen under. An override is read only when
+    /// this matches the connection's provider, so a model picked from one
+    /// server is never sent to another. Empty in files written before the
+    /// field existed, and in a chat that names no model of its own; the
+    /// migration qualifies the first case at load.
+    #[serde(default)]
+    pub model_provider: String,
+}
+
+impl AiChatConfig {
+    /// The chat's own model when it belongs to `provider`, `None` otherwise.
+    ///
+    /// An unqualified override answers `None`: the only place a qualifier is
+    /// written without one being chosen is the migration, so anything that
+    /// reaches here unqualified is a value of unknown origin.
+    pub fn override_for(&self, provider: &str) -> Option<&str> {
+        if self.model.is_empty() || self.model_provider.is_empty() {
+            return None;
+        }
+        (self.model_provider == provider).then_some(self.model.as_str())
+    }
 }
 
 /// The one AI connection and the two features that use it (`[ai]`).
@@ -115,13 +136,50 @@ impl AiConfig {
             .unwrap_or(Wire::OpenAi)
     }
 
-    /// The model the chat sends: its own when it names one, the connection's
-    /// otherwise.
+    /// The model the chat sends: its own when it names one for this provider,
+    /// the connection's otherwise.
     pub fn chat_model(&self) -> &str {
-        if self.chat.model.is_empty() {
-            &self.model
-        } else {
-            &self.chat.model
+        self.chat
+            .override_for(&self.provider)
+            .unwrap_or(&self.model)
+    }
+
+    /// The same connection pointed at another provider.
+    ///
+    /// The one place a provider change happens, so the rule that an override
+    /// belongs to the server it was picked from lives beside the rule that a
+    /// row seeds its own model, rather than in whichever surface made the
+    /// change. `default_model` is what the new row starts from; the hand-typed
+    /// row has none, so the model already in the file is what the person typed
+    /// and it is kept. Consent and both feature switches are untouched.
+    pub fn with_provider(&self, provider: &str, default_model: &str) -> AiConfig {
+        let keeps_model = providers::provider(provider)
+            .map(|row| row.group == providers::ProviderGroup::Custom)
+            .unwrap_or(true);
+        let chat_keeps_override = self.chat.override_for(provider).is_some();
+        AiConfig {
+            provider: provider.to_string(),
+            base_url: self.base_url.clone(),
+            model: if keeps_model {
+                self.model.clone()
+            } else {
+                default_model.to_string()
+            },
+            consented_hosts: self.consented_hosts.clone(),
+            rewrite: self.rewrite.clone(),
+            chat: AiChatConfig {
+                enabled: self.chat.enabled,
+                model: if chat_keeps_override {
+                    self.chat.model.clone()
+                } else {
+                    String::new()
+                },
+                model_provider: if chat_keeps_override {
+                    self.chat.model_provider.clone()
+                } else {
+                    String::new()
+                },
+            },
         }
     }
 }
@@ -149,6 +207,10 @@ pub struct AiChatConfigOnDisk {
     /// Model id for chat requests.
     #[serde(default)]
     pub model: String,
+    /// The provider the model id was chosen under. Absent before the field
+    /// existed, which is what the migration qualifies.
+    #[serde(default)]
+    pub model_provider: String,
 }
 
 /// Every `[ai]` field any released version has written, each defaulted.
@@ -220,6 +282,8 @@ impl From<AiConfigOnDisk> for AiConfig {
             } else {
                 provider
             };
+            let chat_model_provider =
+                qualify(&disk.chat.model, &disk.chat.model_provider, &provider);
             return Self {
                 provider,
                 base_url: disk.base_url.unwrap_or_default(),
@@ -231,6 +295,7 @@ impl From<AiConfigOnDisk> for AiConfig {
                 chat: AiChatConfig {
                     enabled: disk.chat.enabled,
                     model: disk.chat.model,
+                    model_provider: chat_model_provider,
                 },
             };
         }
@@ -250,6 +315,7 @@ impl From<AiConfigOnDisk> for AiConfig {
                 chat: AiChatConfig {
                     enabled: true,
                     model: String::new(),
+                    model_provider: String::new(),
                 },
             };
         }
@@ -277,6 +343,7 @@ impl From<AiConfigOnDisk> for AiConfig {
             String::new()
         };
 
+        let chat_model_provider = qualify(&chat_model, "", &provider);
         Self {
             provider,
             base_url,
@@ -288,9 +355,25 @@ impl From<AiConfigOnDisk> for AiConfig {
             chat: AiChatConfig {
                 enabled: chat_on,
                 model: chat_model,
+                model_provider: chat_model_provider,
             },
         }
     }
+}
+
+/// The provider an override belongs to.
+///
+/// A chat that names no model has no qualifier, and a file that carries one
+/// keeps it. Anything else is a file written before the field existed, whose
+/// override was picked under the provider that file names.
+fn qualify(model: &str, on_disk: &str, provider: &str) -> String {
+    if model.is_empty() {
+        return String::new();
+    }
+    if on_disk.is_empty() {
+        return provider.to_string();
+    }
+    on_disk.to_string()
 }
 
 #[cfg(test)]
@@ -475,7 +558,115 @@ mod tests {
         assert!(!s.contains("preset"), "{s}");
         let chat_section = s.split("[ai.chat]").nth(1).unwrap();
         assert!(!chat_section.contains("base_url"), "{s}");
-        assert!(!chat_section.contains("provider"), "{s}");
+        // `model_provider` is the chat's own field and stays; the second
+        // endpoint's `provider` key is what must be gone.
+        assert!(
+            !chat_section
+                .lines()
+                .any(|line| line.starts_with("provider")),
+            "{s}"
+        );
+        assert!(chat_section.contains("model_provider ="), "{s}");
+    }
+
+    #[test]
+    fn chat_override_is_dropped_when_the_provider_changes() {
+        let mut c = AiConfig {
+            provider: "ollama".to_string(),
+            model: "qwen3:4b".to_string(),
+            chat: AiChatConfig {
+                enabled: true,
+                model: "qwen2.5-coder:0.5b".to_string(),
+                model_provider: "ollama".to_string(),
+            },
+            ..AiConfig::default()
+        };
+        assert_eq!(c.chat.override_for("ollama"), Some("qwen2.5-coder:0.5b"));
+        assert_eq!(c.chat_model(), "qwen2.5-coder:0.5b");
+
+        // The same file, read after the connection moved to another provider:
+        // the id belongs to a server that is no longer being talked to, and
+        // sending it is the 400 this field exists to stop.
+        c.provider = "deepseek".to_string();
+        c.model = "deepseek-chat".to_string();
+        assert_eq!(c.chat.override_for("deepseek"), None);
+        assert_eq!(c.chat_model(), "deepseek-chat");
+    }
+
+    #[test]
+    fn a_file_without_model_provider_qualifies_the_override_to_its_provider() {
+        let c = parse(
+            "provider = \"ollama\"\nmodel = \"qwen3:4b\"\n\n[chat]\nenabled = true\nmodel = \"qwen2.5-coder:0.5b\"\n",
+        );
+        assert_eq!(c.chat.model_provider, "ollama");
+        assert_eq!(c.chat_model(), "qwen2.5-coder:0.5b");
+
+        // Nothing is stamped onto a chat that names no model of its own, so an
+        // empty override never becomes one the next provider change has to drop.
+        let bare = parse("provider = \"ollama\"\nmodel = \"qwen3:4b\"\n\n[chat]\nenabled = true\n");
+        assert!(bare.chat.model_provider.is_empty());
+        assert_eq!(bare.chat_model(), "qwen3:4b");
+
+        // A qualifier already on disk is read as written.
+        let qualified = parse(
+            "provider = \"deepseek\"\nmodel = \"deepseek-chat\"\n\n[chat]\nenabled = true\nmodel = \"qwen2.5-coder:0.5b\"\nmodel_provider = \"ollama\"\n",
+        );
+        assert_eq!(qualified.chat.model_provider, "ollama");
+        assert_eq!(qualified.chat_model(), "deepseek-chat");
+    }
+
+    #[test]
+    fn with_provider_seeds_the_default_model_and_clears_a_foreign_override() {
+        let ollama = AiConfig {
+            provider: "ollama".to_string(),
+            model: "qwen3:4b".to_string(),
+            consented_hosts: vec!["api.deepseek.com".to_string()],
+            rewrite: AiRewriteConfig { enabled: true },
+            chat: AiChatConfig {
+                enabled: true,
+                model: "qwen2.5-coder:0.5b".to_string(),
+                model_provider: "ollama".to_string(),
+            },
+            ..AiConfig::default()
+        };
+
+        let switched = ollama.with_provider("deepseek", "deepseek-chat");
+        assert_eq!(switched.provider, "deepseek");
+        assert_eq!(switched.model, "deepseek-chat");
+        assert!(
+            switched.chat.model.is_empty(),
+            "the foreign override is gone"
+        );
+        assert!(switched.chat.model_provider.is_empty());
+        assert_eq!(switched.chat_model(), "deepseek-chat");
+        assert!(switched.chat.enabled, "a switch is not a preference");
+        assert!(switched.rewrite.enabled);
+        assert_eq!(
+            switched.consented_hosts,
+            vec!["api.deepseek.com".to_string()],
+            "consent is not given back"
+        );
+
+        // An override that belongs to the provider being switched to is its own
+        // choice and stays.
+        let kept = AiConfig {
+            provider: "openai".to_string(),
+            chat: AiChatConfig {
+                enabled: true,
+                model: "deepseek-reasoner".to_string(),
+                model_provider: "deepseek".to_string(),
+            },
+            ..ollama.clone()
+        }
+        .with_provider("deepseek", "deepseek-chat");
+        assert_eq!(kept.chat.model, "deepseek-reasoner");
+        assert_eq!(kept.chat_model(), "deepseek-reasoner");
+
+        // The hand-typed row has no model of its own to seed, so the one in the
+        // file is what the person typed and it is left alone.
+        let custom = switched.with_provider("custom", "");
+        assert_eq!(custom.provider, "custom");
+        assert_eq!(custom.model, "deepseek-chat");
     }
 
     #[test]
@@ -489,6 +680,7 @@ mod tests {
             chat: AiChatConfig {
                 enabled: true,
                 model: "house-model-large".to_string(),
+                model_provider: "custom".to_string(),
             },
         };
         let s = toml::to_string(&c).unwrap();

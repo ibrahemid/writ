@@ -1355,6 +1355,7 @@ mod tests {
             chat: writ_core::config::AiChatConfig {
                 enabled,
                 model: String::new(),
+                model_provider: String::new(),
             },
             ..AiConfig::default()
         }

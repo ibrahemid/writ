@@ -46,6 +46,7 @@ fn config(base_url: &str) -> AiConfig {
         chat: AiChatConfig {
             enabled: true,
             model: String::new(),
+            model_provider: String::new(),
         },
         ..AiConfig::default()
     }
