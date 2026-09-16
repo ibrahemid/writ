@@ -550,7 +550,7 @@ pub fn prepare_chat(
     let body = chat::build_request_body(
         provider,
         cfg.chat_model(),
-        chat::SYSTEM_PROMPT,
+        &chat::system_prompt(&context),
         turns,
         &context,
     );
@@ -2475,7 +2475,7 @@ mod stream_tests {
             "a reply reached the log: {logs}"
         );
         assert!(
-            !logs.contains(writ_core::chat::SYSTEM_PROMPT),
+            !logs.contains(writ_core::chat::SYSTEM_PROMPT_HEAD),
             "the system prompt reached the log: {logs}"
         );
         assert!(logs.contains("127.0.0.1"), "the host is loggable: {logs}");
@@ -2745,7 +2745,7 @@ mod tests_support {
             body: chat::build_request_body(
                 provider,
                 "a-model",
-                chat::SYSTEM_PROMPT,
+                &chat::system_prompt(&context),
                 &turns,
                 &context,
             ),

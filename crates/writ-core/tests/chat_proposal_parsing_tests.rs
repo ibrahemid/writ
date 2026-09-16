@@ -183,7 +183,11 @@ fn a_note_that_was_never_attached_is_dropped_with_its_name() {
 
 #[test]
 fn an_unterminated_block_is_dropped_as_unterminated() {
-    let reply = "Here you go.\n```writ-proposal path=\"Ideas/Launch.md\"\nhalf a no";
+    let reply = "Here you go.\n```writ-proposal path=\"Ideas/Launch.md\"\n\
+```sh\n\
+cargo run\n\
+```\n\
+And that is the change.\n";
 
     let parsed = parse_proposals(reply, &launch());
     assert!(parsed.proposals.is_empty());
@@ -307,4 +311,90 @@ fn resolving_a_path_hands_back_the_attached_note() {
     );
     assert_eq!(resolve_proposal_path("Missing.md", &context), None);
     assert_eq!(resolve_proposal_path("", &context), None);
+}
+
+#[test]
+fn a_fence_the_reply_left_open_closes_at_the_end_of_the_reply() {
+    let reply = "Here you go.\n```writ-proposal path=\"Ideas/Launch.md\" summary=\"Tidy it\"\n\
+# Launch\n\
+\n\
+The whole note, to the last line.\n";
+
+    let parsed = parse_proposals(reply, &launch());
+    let proposal = only(&parsed);
+    assert_eq!(
+        proposal.new_content, "# Launch\n\nThe whole note, to the last line.\n",
+        "an open fence runs to the end of the text, as CommonMark reads one"
+    );
+    assert_eq!(proposal.summary, "Tidy it");
+}
+
+#[test]
+fn an_empty_body_is_dropped_rather_than_offered_as_an_empty_note() {
+    let reply = "```writ-proposal path=\"Ideas/Launch.md\"\n```\n\
+```writ-proposal path=\"Ideas/Launch.md\"\n   \n\t\n```\n";
+
+    let parsed = parse_proposals(reply, &launch());
+    assert!(parsed.proposals.is_empty());
+    assert_eq!(parsed.dropped.len(), 2);
+    assert!(parsed
+        .dropped
+        .iter()
+        .all(|drop| drop.reason == DropReason::EmptyBody));
+}
+
+#[test]
+fn a_body_copied_from_the_prompts_example_is_dropped() {
+    let reply = "```writ-proposal path=\"Ideas/Launch.md\"\n\
+<the note's full text, start to end>\n\
+```\n\
+```writ-proposal path=\"Ideas/Launch.md\"\n\
+The whole new text of the note.\n\
+```\n";
+
+    let parsed = parse_proposals(reply, &launch());
+    assert!(parsed.proposals.is_empty());
+    assert_eq!(parsed.dropped.len(), 2);
+    assert!(parsed
+        .dropped
+        .iter()
+        .all(|drop| drop.reason == DropReason::Placeholder));
+}
+
+#[test]
+fn a_second_block_for_the_same_note_is_dropped_as_a_repeat() {
+    let reply = "```writ-proposal path=\"Ideas/Launch.md\"\nThe first answer.\n```\n\
+```writ-proposal path=\"Launch.md\"\nThe second answer.\n```\n";
+
+    let parsed = parse_proposals(reply, &launch());
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(
+        parsed.proposals[0].new_content, "The first answer.\n",
+        "the first block for a note is the one kept"
+    );
+    assert_eq!(parsed.dropped.len(), 1);
+    assert_eq!(
+        parsed.dropped[0].reason,
+        DropReason::Duplicate,
+        "a repeat is judged on the note both blocks resolve to, not on the spelling"
+    );
+}
+
+#[test]
+fn a_body_whose_code_fence_closed_the_block_runs_to_the_fence_that_follows() {
+    let reply = "```writ-proposal path=\"Ideas/Launch.md\" summary=\"Add the commands\"\n\
+# Launch\n\
+\n\
+```sh\n\
+cargo run\n\
+```\n\
+```\n";
+
+    let parsed = parse_proposals(reply, &launch());
+    let proposal = only(&parsed);
+    assert_eq!(
+        proposal.new_content, "# Launch\n\n```sh\ncargo run\n```\n",
+        "the last fence closes the proposal, and the inner block stays whole"
+    );
+    assert_eq!(proposal.summary, "Add the commands");
 }

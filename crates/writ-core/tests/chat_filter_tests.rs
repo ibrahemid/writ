@@ -210,3 +210,28 @@ fn a_default_filter_matches_a_new_one() {
         ProposalFilter::new().push("hello")
     );
 }
+
+#[test]
+fn a_block_still_open_mid_stream_is_hidden_and_stays_hidden() {
+    let mut filter = ProposalFilter::new();
+    assert_eq!(filter.push("Here you go.\n"), "Here you go.\n");
+    assert_eq!(
+        filter.push("```writ-proposal path=\"A.md\"\nThe first half"),
+        ""
+    );
+    assert_eq!(filter.push(" of a note.\n"), "");
+    assert_eq!(
+        filter.finish(),
+        "",
+        "the end-of-text close is the parser's rule, not the pane's"
+    );
+}
+
+#[test]
+fn the_end_of_a_reply_closes_a_block_for_the_parser_and_not_for_the_pane() {
+    let reply = "Here you go.\n```writ-proposal path=\"A.md\"\nThe whole note.\n";
+    assert_eq!(every_split(reply), "Here you go.\n");
+    let parsed = parse_proposals(reply, &attached("A.md"));
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(parsed.proposals[0].new_content, "The whole note.\n");
+}

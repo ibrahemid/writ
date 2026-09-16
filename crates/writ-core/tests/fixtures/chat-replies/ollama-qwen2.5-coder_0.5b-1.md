@@ -1,0 +1,1 @@
+The launch is on Thursday. Bring the checklist to the stand-up.
