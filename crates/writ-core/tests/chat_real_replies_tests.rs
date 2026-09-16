@@ -43,7 +43,7 @@ fn only(parsed: &ParsedProposals) -> &writ_core::chat::Proposal {
 
 #[test]
 fn a_reply_that_never_closed_its_fence_still_offers_the_note_it_wrote() {
-    let parsed = parse_proposals(LLAMA_0, &attached());
+    let parsed = parse_proposals(LLAMA_0, &attached(), false);
     let proposal = only(&parsed);
     assert_eq!(
         proposal.path, "Launch.md",
@@ -60,7 +60,7 @@ fn a_reply_that_never_closed_its_fence_still_offers_the_note_it_wrote() {
 
 #[test]
 fn a_reply_that_rewrote_one_paragraph_offers_that_paragraph() {
-    let parsed = parse_proposals(LLAMA_1, &attached());
+    let parsed = parse_proposals(LLAMA_1, &attached(), false);
     let proposal = only(&parsed);
     assert_eq!(
         proposal.new_content,
@@ -71,7 +71,7 @@ fn a_reply_that_rewrote_one_paragraph_offers_that_paragraph() {
 
 #[test]
 fn a_reply_whose_note_holds_a_code_block_keeps_the_block_whole() {
-    let parsed = parse_proposals(LLAMA_2, &attached());
+    let parsed = parse_proposals(LLAMA_2, &attached(), false);
     let proposal = only(&parsed);
     assert!(
         proposal
@@ -88,7 +88,7 @@ fn a_reply_whose_note_holds_a_code_block_keeps_the_block_whole() {
 
 #[test]
 fn a_reply_that_copied_the_example_body_offers_nothing() {
-    let parsed = parse_proposals(QWEN_0, &attached());
+    let parsed = parse_proposals(QWEN_0, &attached(), false);
     assert!(parsed.proposals.is_empty());
     assert_eq!(parsed.dropped.len(), 1);
     assert_eq!(parsed.dropped[0].named, "Ideas/Launch.md");
@@ -97,13 +97,13 @@ fn a_reply_that_copied_the_example_body_offers_nothing() {
 
 #[test]
 fn a_reply_that_answered_in_prose_proposes_nothing_and_drops_nothing() {
-    let parsed = parse_proposals(QWEN_1, &attached());
+    let parsed = parse_proposals(QWEN_1, &attached(), false);
     assert_eq!(parsed, ParsedProposals::default());
 }
 
 #[test]
 fn a_reply_that_wrote_one_filled_block_and_two_empty_ones_offers_none_of_them() {
-    let parsed = parse_proposals(QWEN_2, &attached());
+    let parsed = parse_proposals(QWEN_2, &attached(), false);
     assert!(parsed.proposals.is_empty());
     let reasons: Vec<DropReason> = parsed.dropped.iter().map(|drop| drop.reason).collect();
     assert_eq!(

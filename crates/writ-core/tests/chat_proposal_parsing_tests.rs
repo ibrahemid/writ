@@ -39,7 +39,7 @@ The whole new text.\n\
 ````\n\n\
 That folds the two intros together.\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     let proposal = only(&parsed);
     assert_eq!(proposal.path, "Ideas/Launch.md");
     assert_eq!(proposal.new_content, "The whole new text.\n");
@@ -50,7 +50,7 @@ That folds the two intros together.\n";
 fn a_tilde_fence_is_a_proposal() {
     let reply = "~~~writ-proposal path=\"Ideas/Launch.md\"\nThe whole new text.\n~~~\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(only(&parsed).new_content, "The whole new text.\n");
 }
 
@@ -58,7 +58,7 @@ fn a_tilde_fence_is_a_proposal() {
 fn an_indented_fence_is_a_proposal() {
     let reply = "   ```writ-proposal path=\"Ideas/Launch.md\"\n   Indented body line.\n   ```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(only(&parsed).new_content, "   Indented body line.\n");
 }
 
@@ -66,7 +66,7 @@ fn an_indented_fence_is_a_proposal() {
 fn whitespace_before_the_info_word_still_opens_a_proposal() {
     let reply = "``` writ-proposal path=\"Ideas/Launch.md\"\nThe whole new text.\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(only(&parsed).new_content, "The whole new text.\n");
 }
 
@@ -83,7 +83,7 @@ The end.\n\
 ````\n\
 Done.\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     let proposal = only(&parsed);
     assert_eq!(
         proposal.new_content, "# Launch\n\n```sh\ncargo run\n```\n\nThe end.\n",
@@ -95,7 +95,7 @@ Done.\n";
 fn a_closing_fence_must_be_at_least_as_long_as_the_one_that_opened_it() {
     let reply = "```writ-proposal path=\"Ideas/Launch.md\"\nbody\n`````\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(only(&parsed).new_content, "body\n");
 }
 
@@ -103,7 +103,7 @@ fn a_closing_fence_must_be_at_least_as_long_as_the_one_that_opened_it() {
 fn a_path_in_single_quotes_names_a_note() {
     let reply = "```writ-proposal path='Ideas/Launch.md' summary='Tighten it'\nnew\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     let proposal = only(&parsed);
     assert_eq!(proposal.path, "Ideas/Launch.md");
     assert_eq!(proposal.summary, "Tighten it");
@@ -113,7 +113,7 @@ fn a_path_in_single_quotes_names_a_note() {
 fn a_bare_path_attribute_names_a_note() {
     let reply = "```writ-proposal path=Ideas/Launch.md\nnew\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(only(&parsed).path, "Ideas/Launch.md");
 }
 
@@ -121,7 +121,7 @@ fn a_bare_path_attribute_names_a_note() {
 fn a_bare_basename_names_the_one_note_that_ends_that_way() {
     let reply = "```writ-proposal path=\"Launch.md\"\nnew\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     let proposal = only(&parsed);
     assert_eq!(proposal.path, "Ideas/Launch.md");
     assert_eq!(proposal.before_hash, "hash-of-Ideas/Launch.md");
@@ -131,7 +131,7 @@ fn a_bare_basename_names_the_one_note_that_ends_that_way() {
 fn an_absolute_path_names_the_note_it_ends_with() {
     let reply = "```writ-proposal path=\"/Users/someone/Writ/Ideas/Launch.md\"\nnew\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(only(&parsed).path, "Ideas/Launch.md");
 }
 
@@ -139,7 +139,7 @@ fn an_absolute_path_names_the_note_it_ends_with() {
 fn a_windows_spelled_path_names_the_same_note() {
     let reply = "```writ-proposal path=\"Ideas\\Launch.md\"\nnew\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(only(&parsed).path, "Ideas/Launch.md");
 }
 
@@ -151,7 +151,7 @@ fn a_basename_two_attached_notes_share_is_dropped_as_ambiguous() {
     ];
     let reply = "```writ-proposal path=\"Launch.md\"\nnew\n```\n";
 
-    let parsed = parse_proposals(reply, &context);
+    let parsed = parse_proposals(reply, &context, false);
     assert!(parsed.proposals.is_empty());
     assert_eq!(parsed.dropped.len(), 1);
     assert_eq!(parsed.dropped[0].named, "Launch.md");
@@ -166,7 +166,7 @@ fn a_shared_basename_still_resolves_through_the_folder_it_names() {
     ];
     let reply = "```writ-proposal path=\"/Users/someone/Writ/Archive/Launch.md\"\nnew\n```\n";
 
-    let parsed = parse_proposals(reply, &context);
+    let parsed = parse_proposals(reply, &context, false);
     assert_eq!(only(&parsed).path, "Archive/Launch.md");
 }
 
@@ -174,7 +174,7 @@ fn a_shared_basename_still_resolves_through_the_folder_it_names() {
 fn a_note_that_was_never_attached_is_dropped_with_its_name() {
     let reply = "```writ-proposal path=\"Secrets/Keys.md\"\nnew\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert!(parsed.proposals.is_empty());
     assert_eq!(parsed.dropped.len(), 1);
     assert_eq!(parsed.dropped[0].named, "Secrets/Keys.md");
@@ -189,7 +189,7 @@ cargo run\n\
 ```\n\
 And that is the change.\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert!(parsed.proposals.is_empty());
     assert_eq!(parsed.dropped.len(), 1);
     assert_eq!(parsed.dropped[0].named, "Ideas/Launch.md");
@@ -203,7 +203,7 @@ fn a_drop_carries_no_note_text_and_no_reply_text() {
 The whole new text of a note.\n\
 ```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     let recorded = format!("{:?}", parsed.dropped);
     assert!(!recorded.contains("Secret prose"));
     assert!(!recorded.contains("The whole new text"));
@@ -217,7 +217,7 @@ new\n\
 ```\n\n\
 Tell me if that reads better.\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(only(&parsed).new_content, "new\n");
 }
 
@@ -225,7 +225,7 @@ Tell me if that reads better.\n";
 fn a_reply_written_with_carriage_returns_still_parses() {
     let reply = "```writ-proposal path=\"Ideas/Launch.md\"\r\nnew\r\n```\r\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(
         only(&parsed).new_content,
         "new\n",
@@ -251,7 +251,7 @@ brew install writ\n\
 ````\n\n\
 Let me know if you'd like it shorter.\n";
 
-    let parsed = parse_proposals(reply, &context);
+    let parsed = parse_proposals(reply, &context, false);
     let proposal = only(&parsed);
     assert_eq!(proposal.path, "Projects/Writ.md");
     assert!(proposal.new_content.contains("brew install writ"));
@@ -270,7 +270,7 @@ April.\n\
 ```\n\n\
 The date is the only change.\n";
 
-    let parsed = parse_proposals(reply, &context);
+    let parsed = parse_proposals(reply, &context, false);
     assert_eq!(only(&parsed).new_content, "# Launch\n\nApril.\n");
 }
 
@@ -280,7 +280,7 @@ fn two_proposals_in_one_reply_are_both_read() {
     let reply = "One.\n```writ-proposal path=\"A.md\"\nnew a\n```\n\
 Two.\n````writ-proposal path=\"B.md\"\nnew b\n````\n";
 
-    let parsed = parse_proposals(reply, &context);
+    let parsed = parse_proposals(reply, &context, false);
     assert_eq!(parsed.proposals.len(), 2);
     assert_eq!(parsed.dropped, Vec::new());
 }
@@ -289,7 +289,7 @@ Two.\n````writ-proposal path=\"B.md\"\nnew b\n````\n";
 fn an_ordinary_code_block_is_not_a_proposal() {
     let reply = "```rust\nfn main() {}\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert!(parsed.proposals.is_empty());
     assert_eq!(parsed.dropped, Vec::new());
 }
@@ -320,7 +320,7 @@ fn a_fence_the_reply_left_open_closes_at_the_end_of_the_reply() {
 \n\
 The whole note, to the last line.\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     let proposal = only(&parsed);
     assert_eq!(
         proposal.new_content, "# Launch\n\nThe whole note, to the last line.\n",
@@ -334,7 +334,7 @@ fn an_empty_body_is_dropped_rather_than_offered_as_an_empty_note() {
     let reply = "```writ-proposal path=\"Ideas/Launch.md\"\n```\n\
 ```writ-proposal path=\"Ideas/Launch.md\"\n   \n\t\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert!(parsed.proposals.is_empty());
     assert_eq!(parsed.dropped.len(), 2);
     assert!(parsed
@@ -352,7 +352,7 @@ fn a_body_copied_from_the_prompts_example_is_dropped() {
 The whole new text of the note.\n\
 ```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert!(parsed.proposals.is_empty());
     assert_eq!(parsed.dropped.len(), 2);
     assert!(parsed
@@ -366,7 +366,7 @@ fn a_second_block_for_the_same_note_is_dropped_as_a_repeat() {
     let reply = "```writ-proposal path=\"Ideas/Launch.md\"\nThe first answer.\n```\n\
 ```writ-proposal path=\"Launch.md\"\nThe second answer.\n```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     assert_eq!(parsed.proposals.len(), 1);
     assert_eq!(
         parsed.proposals[0].new_content, "The first answer.\n",
@@ -390,7 +390,7 @@ cargo run\n\
 ```\n\
 ```\n";
 
-    let parsed = parse_proposals(reply, &launch());
+    let parsed = parse_proposals(reply, &launch(), false);
     let proposal = only(&parsed);
     assert_eq!(
         proposal.new_content, "# Launch\n\n```sh\ncargo run\n```\n",
@@ -413,7 +413,7 @@ cargo run\n\
 The other note, whole.\n\
 ```\n";
 
-    let parsed = parse_proposals(reply, &context);
+    let parsed = parse_proposals(reply, &context, false);
     assert_eq!(parsed.dropped.len(), 1);
     assert_eq!(parsed.dropped[0].named, "Ideas/Launch.md");
     assert_eq!(
@@ -424,4 +424,34 @@ The other note, whole.\n\
     assert_eq!(parsed.proposals.len(), 1);
     assert_eq!(parsed.proposals[0].path, "Ideas/Other.md");
     assert_eq!(parsed.proposals[0].new_content, "The other note, whole.\n");
+}
+
+#[test]
+fn a_cut_off_proposal_is_dropped_as_truncated() {
+    let reply = "Here you go.\n```writ-proposal path=\"Ideas/Launch.md\"\n\
+# Launch\n\
+\n\
+Half a no";
+
+    let parsed = parse_proposals(reply, &launch(), true);
+    assert!(
+        parsed.proposals.is_empty(),
+        "half a note must never be offered as the whole of one"
+    );
+    assert_eq!(parsed.dropped.len(), 1);
+    assert_eq!(parsed.dropped[0].named, "Ideas/Launch.md");
+    assert_eq!(parsed.dropped[0].reason, DropReason::Truncated);
+}
+
+#[test]
+fn a_closed_proposal_survives_a_truncated_reply() {
+    let reply = "```writ-proposal path=\"Ideas/Launch.md\"\nThe whole note.\n```\n\
+And then the reply ran out of room while writing thi";
+
+    let parsed = parse_proposals(reply, &launch(), true);
+    let proposal = only(&parsed);
+    assert_eq!(
+        proposal.new_content, "The whole note.\n",
+        "a block a fence closed is whole, whatever happened after it"
+    );
 }

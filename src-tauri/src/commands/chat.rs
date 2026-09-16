@@ -1443,7 +1443,7 @@ pub async fn chat_send(
             ChatEvent::Done { truncated } => {
                 ended = true;
                 emit_tail(&task_app, &task_id, &mut buffer);
-                let parsed = chat::parse_proposals(&buffer.raw, &prepared.context);
+                let parsed = chat::parse_proposals(&buffer.raw, &prepared.context, truncated);
                 record_reply(
                     &store,
                     &task_id,
@@ -1955,7 +1955,7 @@ Tell me if that reads better.\n";
 
         let mut buffer = ReplyBuffer::new();
         let emitted = stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
-        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
         record_reply(
             &store,
             ID,
@@ -2090,7 +2090,7 @@ Tell me if that reads better.\n";
             &mut buffer,
             "Here you go.\n```writ-proposal path=\"Nope.md\"\nnew\n```\n",
         );
-        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
         record_reply(
             &store,
             ID,
@@ -2119,7 +2119,7 @@ Tell me if that reads better.\n";
         let (_notes, attached) = notes_with("one intro\nand another intro\n");
         let mut buffer = ReplyBuffer::new();
         stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
-        let parsed = chat::parse_proposals(&buffer.raw, &attached);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
         record_reply(
             &store,
             ID,

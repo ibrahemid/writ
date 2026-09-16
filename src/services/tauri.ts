@@ -1490,7 +1490,8 @@ export type ChatDropReason =
   | "ambiguous_note"
   | "empty_body"
   | "placeholder"
-  | "duplicate";
+  | "duplicate"
+  | "truncated";
 
 /** A block a reply wrote that nobody can be offered. It carries the path the
  * model named and the reason, and no note text (ADR-031 rule 5.2). */

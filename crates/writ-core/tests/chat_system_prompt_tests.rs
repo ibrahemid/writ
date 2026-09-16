@@ -41,7 +41,7 @@ fn a_reply_that_copies_the_example_path_reaches_the_attached_note() {
         .expect("the example block");
     let reply = format!("{copied}\nThe whole note, rewritten.\n```\n");
 
-    let parsed = parse_proposals(&reply, &context);
+    let parsed = parse_proposals(&reply, &context, false);
     assert_eq!(parsed.dropped, Vec::new());
     assert_eq!(parsed.proposals.len(), 1);
     assert_eq!(parsed.proposals[0].path, "Launch.md");
@@ -57,7 +57,7 @@ fn a_reply_that_copies_the_example_body_is_dropped() {
         .expect("the example body");
     let reply = format!("```writ-proposal path=\"Launch.md\"\n{body}\n```\n");
 
-    let parsed = parse_proposals(&reply, &context);
+    let parsed = parse_proposals(&reply, &context, false);
     assert!(parsed.proposals.is_empty());
     assert_eq!(parsed.dropped[0].reason, DropReason::Placeholder);
 }

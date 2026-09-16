@@ -81,7 +81,7 @@ fn nothing_parse_proposals_reads_reaches_the_pane() {
         text: "old text\n".to_string(),
         before_hash: "abc".to_string(),
     }];
-    let parsed = parse_proposals(REPLY, &context);
+    let parsed = parse_proposals(REPLY, &context, false);
     assert_eq!(parsed.proposals.len(), 1);
     let visible = feed(&[REPLY]);
     for line in parsed.proposals[0].new_content.lines() {
@@ -115,7 +115,9 @@ fn the_filter_and_the_parser_agree_on_a_four_backtick_fence() {
     let reply = "Before.\n````writ-proposal path=\"A.md\"\nnew\n````\nAfter.\n";
     assert_eq!(every_split(reply), "Before.\nAfter.\n");
     assert_eq!(
-        parse_proposals(reply, &attached("A.md")).proposals.len(),
+        parse_proposals(reply, &attached("A.md"), false)
+            .proposals
+            .len(),
         1,
         "the filter withheld a block the parser must read"
     );
@@ -125,7 +127,12 @@ fn the_filter_and_the_parser_agree_on_a_four_backtick_fence() {
 fn the_filter_and_the_parser_agree_on_a_tilde_fence() {
     let reply = "Before.\n~~~writ-proposal path=\"A.md\"\nnew\n~~~\nAfter.\n";
     assert_eq!(every_split(reply), "Before.\nAfter.\n");
-    assert_eq!(parse_proposals(reply, &attached("A.md")).proposals.len(), 1);
+    assert_eq!(
+        parse_proposals(reply, &attached("A.md"), false)
+            .proposals
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -144,7 +151,7 @@ After.\n";
         !visible.contains("cargo run"),
         "the note's code block leaked"
     );
-    let parsed = parse_proposals(reply, &attached("A.md"));
+    let parsed = parse_proposals(reply, &attached("A.md"), false);
     assert_eq!(
         parsed.proposals[0].new_content,
         "# A\n```sh\ncargo run\n```\n"
@@ -231,7 +238,7 @@ fn a_block_still_open_mid_stream_is_hidden_and_stays_hidden() {
 fn the_end_of_a_reply_closes_a_block_for_the_parser_and_not_for_the_pane() {
     let reply = "Here you go.\n```writ-proposal path=\"A.md\"\nThe whole note.\n";
     assert_eq!(every_split(reply), "Here you go.\n");
-    let parsed = parse_proposals(reply, &attached("A.md"));
+    let parsed = parse_proposals(reply, &attached("A.md"), false);
     assert_eq!(parsed.proposals.len(), 1);
     assert_eq!(parsed.proposals[0].new_content, "The whole note.\n");
 }
@@ -248,7 +255,7 @@ fn a_body_ended_by_its_own_code_fence_reaches_the_card_and_not_the_pane() {
         assert!(!shown.contains(held), "{held} reached the pane: {shown:?}");
     }
 
-    let parsed = parse_proposals(NESTED, &attached("Launch.md"));
+    let parsed = parse_proposals(NESTED, &attached("Launch.md"), false);
     assert_eq!(parsed.proposals.len(), 1, "the card is what carries it");
     assert!(parsed.proposals[0]
         .new_content
@@ -274,7 +281,7 @@ That adds the commands.\n";
         !shown.contains("cargo run"),
         "the note's text is not: {shown:?}"
     );
-    assert!(parse_proposals(reply, &attached("A.md"))
+    assert!(parse_proposals(reply, &attached("A.md"), false)
         .proposals
         .is_empty());
 }

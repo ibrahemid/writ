@@ -817,6 +817,9 @@ pub enum DropReason {
     /// An earlier block in the same reply already offered this note, and the
     /// first one is the one kept.
     Duplicate,
+    /// The reply stopped at the model's token ceiling inside the block, so
+    /// what it holds is the start of a note rather than the whole of one.
+    Truncated,
 }
 
 /// Everything a reply's proposals came to: the ones a person can apply, and
@@ -929,14 +932,16 @@ pub fn resolve_proposal_path<'a>(
 /// front of the model (ADR-031 rules 2.5 and 4.3).
 ///
 /// A block the reply left open runs to the end of the text, which is how
-/// CommonMark reads an unclosed fence and what both local models tested write.
+/// CommonMark reads an unclosed fence and what both local models tested write
+/// -- unless `truncated` says the reply stopped at the model's token ceiling,
+/// in which case that block is half a note and is dropped.
 /// A body that is empty, or that is the example out of the system prompt, is
 /// dropped rather than offered as a note nobody wrote, and a second block for a
 /// note an earlier block already offered is dropped as a repeat.
 ///
 /// Every drop is reported, because a proposal that vanishes without a word
 /// reads as a broken feature.
-pub fn parse_proposals(reply: &str, context: &[AttachedNote]) -> ParsedProposals {
+pub fn parse_proposals(reply: &str, context: &[AttachedNote], truncated: bool) -> ParsedProposals {
     let lines: Vec<&str> = reply.lines().collect();
     let mut parsed = ParsedProposals::default();
     let mut index = 0;
@@ -949,13 +954,20 @@ pub fn parse_proposals(reply: &str, context: &[AttachedNote]) -> ParsedProposals
         let summary = attribute(info, "summary").unwrap_or_default();
         let (block, next) = read_block(&lines, index + 1, fence);
         index = next;
-        let Some(body) = block else {
+        let Some(Block { body, closed }) = block else {
             parsed.dropped.push(DroppedProposal {
                 named,
                 reason: DropReason::UnterminatedBlock,
             });
             continue;
         };
+        if truncated && !closed {
+            parsed.dropped.push(DroppedProposal {
+                named,
+                reason: DropReason::Truncated,
+            });
+            continue;
+        }
         if body.trim().is_empty() {
             parsed.dropped.push(DroppedProposal {
                 named,
@@ -1021,25 +1033,56 @@ fn is_placeholder_body(body: &str) -> bool {
 /// block runs to the end of the text, inner fence included). When prose
 /// follows and no such fence does, neither reading can be trusted and the
 /// block is dropped rather than offered with a body that is wrong.
-fn read_block(lines: &[&str], start: usize, fence: Fence) -> (Option<String>, usize) {
+fn read_block(lines: &[&str], start: usize, fence: Fence) -> (Option<Block>, usize) {
     let mut inner: Option<Fence> = None;
     for (offset, line) in lines[start..].iter().enumerate() {
         let index = start + offset;
         match line_in_block(line, fence, inner) {
             BlockLine::Body(next) => inner = next,
-            BlockLine::Closes => return (Some(joined(&lines[start..index])), index + 1),
+            BlockLine::Closes => return (Some(Block::closed(&lines[start..index])), index + 1),
             BlockLine::Ambiguous => {
                 return match last_close(lines, index + 1, fence) {
-                    Some(close) => (Some(joined(&lines[start..close])), close + 1),
+                    Some(close) => (Some(Block::closed(&lines[start..close])), close + 1),
                     None if rest_is_blank(lines, index + 1) => {
-                        (Some(joined(&lines[start..])), lines.len())
+                        (Some(Block::open(&lines[start..])), lines.len())
                     }
                     None => (None, index + 1),
                 }
             }
         }
     }
-    (Some(joined(&lines[start..])), lines.len())
+    (Some(Block::open(&lines[start..])), lines.len())
+}
+
+/// A proposal's body, and whether a fence ended it.
+///
+/// A block the reply never closed is still read, because a model that forgot
+/// the close wrote a whole note; but a reply that stopped at the token ceiling
+/// wrote half of one, and only the flag tells the two apart.
+struct Block {
+    /// The text between the fences.
+    body: String,
+    /// True when a closing fence ended it, false when the end of the reply
+    /// did.
+    closed: bool,
+}
+
+impl Block {
+    /// A body a fence closed.
+    fn closed(lines: &[&str]) -> Self {
+        Self {
+            body: joined(lines),
+            closed: true,
+        }
+    }
+
+    /// A body the end of the reply closed.
+    fn open(lines: &[&str]) -> Self {
+        Self {
+            body: joined(lines),
+            closed: false,
+        }
+    }
 }
 
 /// What one line inside a proposal's body turns out to be.
@@ -2041,7 +2084,7 @@ mod tests {
 ```writ-proposal path=\"Ideas/Launch.md\" summary=\"Fold the intros\"\n\
 the new text\n\
 ```\n";
-        let proposals = parse_proposals(reply, &context).proposals;
+        let proposals = parse_proposals(reply, &context, false).proposals;
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].path, "Ideas/Launch.md");
         assert_eq!(proposals[0].new_content, "the new text\n");
@@ -2057,7 +2100,7 @@ one\n\
 two changed\n\
 three\n\
 ```\n";
-        let proposals = parse_proposals(reply, &context).proposals;
+        let proposals = parse_proposals(reply, &context, false).proposals;
         let lines = &proposals[0].hunks[0].lines;
         assert_eq!(
             lines
@@ -2082,7 +2125,7 @@ three\n\
         let huge = "x\n".repeat(crate::diff::MAX_DIFF_BYTES);
         let context = vec![note("Big.md", &huge)];
         let reply = "```writ-proposal path=\"Big.md\" summary=\"trim it\"\nsmall\n```\n";
-        let proposals = parse_proposals(reply, &context).proposals;
+        let proposals = parse_proposals(reply, &context, false).proposals;
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].summary, "trim it");
         assert!(proposals[0].hunks.is_empty());
@@ -2094,16 +2137,18 @@ three\n\
         let reply = "```writ-proposal path=\"../../.ssh/config\" summary=\"nothing good\"\n\
 owned\n\
 ```\n";
-        assert!(parse_proposals(reply, &context).proposals.is_empty());
+        assert!(parse_proposals(reply, &context, false).proposals.is_empty());
         let unattached = "```writ-proposal path=\"Ideas/Other.md\"\ntext\n```\n";
-        assert!(parse_proposals(unattached, &context).proposals.is_empty());
+        assert!(parse_proposals(unattached, &context, false)
+            .proposals
+            .is_empty());
     }
 
     #[test]
     fn a_block_the_reply_never_closed_ends_where_the_reply_does() {
         let context = vec![note("Ideas/Launch.md", "old text")];
         let reply = "```writ-proposal path=\"Ideas/Launch.md\"\nthe whole note";
-        let proposals = parse_proposals(reply, &context).proposals;
+        let proposals = parse_proposals(reply, &context, false).proposals;
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].new_content, "the whole note\n");
     }
@@ -2114,7 +2159,7 @@ owned\n\
         let reply = "```writ-proposal path=\"A.md\"\nnew a\n```\n\
 between\n\
 ```writ-proposal path=\"B.md\" summary=\"tidy\"\nnew b\n```\n";
-        let proposals = parse_proposals(reply, &context).proposals;
+        let proposals = parse_proposals(reply, &context, false).proposals;
         assert_eq!(proposals.len(), 2);
         assert_eq!(proposals[0].new_content, "new a\n");
         assert_eq!(proposals[1].summary, "tidy");
@@ -2123,7 +2168,7 @@ between\n\
     #[test]
     fn a_reply_with_no_fence_proposes_nothing() {
         let context = vec![note("A.md", "a")];
-        assert!(parse_proposals("It argues two things.", &context)
+        assert!(parse_proposals("It argues two things.", &context, false)
             .proposals
             .is_empty());
     }
