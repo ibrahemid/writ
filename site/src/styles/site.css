@@ -299,6 +299,12 @@ button {
   box-shadow: var(--writ-site-shadow-window);
 }
 
+.window video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .owed {
   aspect-ratio: 16 / 10;
 }
