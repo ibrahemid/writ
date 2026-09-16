@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -158,6 +159,57 @@ impl ChatState {
     /// How many conversations are live.
     pub fn live(&self) -> usize {
         recover_poison(self.tasks.lock(), "commands::chat::live").len()
+    }
+
+    /// Stops every live reply, and says how many it stopped.
+    ///
+    /// Shutdown's form of the stop: it names no request because it means all
+    /// of them, and each task then saves what arrived through the same
+    /// stopped path a person's Stop uses.
+    pub fn cancel_all(&self) -> usize {
+        let tasks = recover_poison(self.tasks.lock(), "commands::chat::cancel_all");
+        for live in tasks.values() {
+            live.cancel.store(true, Ordering::Relaxed);
+        }
+        tasks.len()
+    }
+}
+
+/// How long a quit waits for the replies it stopped to write what arrived.
+///
+/// The text a reply has streamed so far is held by the task streaming it, and
+/// reaches the conversation file only when that task ends. The budget is the
+/// whole wait rather than one per conversation: a quit that hangs on a stalled
+/// host is worse than a reply that lost its last few words.
+pub const CHAT_SHUTDOWN_BUDGET: Duration = Duration::from_millis(500);
+
+/// How often the wait looks again. Short enough that the usual case — a task
+/// that ends in a millisecond or two — costs the quit nothing measurable.
+const CHAT_SHUTDOWN_POLL: Duration = Duration::from_millis(5);
+
+/// Stops every live reply and waits, briefly, for their tasks to save.
+///
+/// `true` when every conversation released inside the budget. `false` is a
+/// reply whose host is still holding the connection open: its partial text is
+/// lost, which is what the pre-stop behaviour did to every interrupted reply.
+pub fn stop_live_chats(chat: &ChatState, budget: Duration) -> bool {
+    if chat.cancel_all() == 0 {
+        return true;
+    }
+    let deadline = Instant::now() + budget;
+    loop {
+        let left = chat.live();
+        if left == 0 {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            tracing::warn!(
+                conversations = left,
+                "a reply was still arriving when the quit ran out of time for it"
+            );
+            return false;
+        }
+        std::thread::sleep(CHAT_SHUTDOWN_POLL);
     }
 }
 
@@ -1388,6 +1440,36 @@ fn emit_tail<F: FnMut(WritFrontendEvent)>(
     }
 }
 
+/// One reply, from the request to the turn it leaves in the file.
+///
+/// This is the whole of what a send spawns, the guard aside, so a test that
+/// interrupts this interrupts what the app runs.
+pub async fn run_reply(
+    client: &reqwest::Client,
+    prepared: &PreparedChat,
+    cancel: &AtomicBool,
+    store: &ChatStore,
+    conversation_id: &str,
+    request_id: &str,
+    emit: impl FnMut(WritFrontendEvent),
+) {
+    let identity = prepared.identity.clone();
+    stream_reply(
+        client,
+        prepared,
+        cancel,
+        FrameIds {
+            conversation_id,
+            request_id,
+        },
+        |shown, parsed, truncated| {
+            record_reply(store, conversation_id, shown, parsed, truncated, &identity)
+        },
+        emit,
+    )
+    .await;
+}
+
 /// Streams one reply: every frame the pane sees and every write the file
 /// takes, for one send.
 ///
@@ -1601,8 +1683,7 @@ pub async fn chat_send(
     let client = super::ai::build_client()?;
 
     let attached = prepared.context.clone();
-    let identity = prepared.identity.clone();
-    let accepted_identity = identity.clone();
+    let accepted_identity = prepared.identity.clone();
     let task_app = app.clone();
     let task_id = conversation_id.clone();
     let task_request_id = request_id.clone();
@@ -1611,18 +1692,13 @@ pub async fn chat_send(
         // ends: the guard is dropped by a return, by a panic in the stream or
         // in the save, and by the end of the reply alike.
         let _live = guard;
-        let ids = FrameIds {
-            conversation_id: &task_id,
-            request_id: &task_request_id,
-        };
-        stream_reply(
+        run_reply(
             &client,
             &prepared,
             &cancel,
-            ids,
-            |shown, parsed, truncated| {
-                record_reply(&store, &task_id, shown, parsed, truncated, &identity)
-            },
+            &store,
+            &task_id,
+            &task_request_id,
             |event| emit_to_pane(&task_app, event),
         )
         .await;

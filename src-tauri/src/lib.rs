@@ -40,6 +40,9 @@ pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_se
 
 /// Writes everything the next launch needs before the process goes away.
 ///
+/// A live reply is stopped first: its partial text is the streaming task's
+/// until that task saves it (ADR-040 section 7).
+///
 /// Deferred FTS reindexes go first: a reindex still inside its debounce window
 /// would otherwise be lost, leaving search stale, because the startup
 /// consistency check only removes orphan rows and never adds missing content
@@ -51,6 +54,15 @@ pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_se
 /// with a failed save from ending with that text nowhere.
 pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
+
+    // A reply still arriving holds its text in the task streaming it, and that
+    // text reaches the conversation file only when the task ends. Stopping the
+    // replies first and waiting briefly is what turns a quit mid-reply into a
+    // stopped reply, rather than a conversation ending on a question.
+    commands::chat::stop_live_chats(
+        &app_handle.state::<commands::chat::ChatState>(),
+        commands::chat::CHAT_SHUTDOWN_BUDGET,
+    );
 
     let pending = state.fts_scheduler.drain_pending();
     if !pending.is_empty() {

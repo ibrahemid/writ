@@ -933,7 +933,7 @@ fn ensure_crypto_provider() {
 /// refused: following a 3xx would re-send the request body (the user's text) to
 /// the `Location` host, escaping the endpoint guard, so a 3xx surfaces as an
 /// error status instead.
-pub(crate) fn build_client() -> Result<reqwest::Client, String> {
+pub fn build_client() -> Result<reqwest::Client, String> {
     ensure_crypto_provider();
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)

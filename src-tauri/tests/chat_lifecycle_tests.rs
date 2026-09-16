@@ -5,13 +5,19 @@
 //! request it means, a task that fell over releases its conversation, and a
 //! finish that arrives late leaves a newer request alone.
 
-use std::sync::atomic::Ordering;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
+use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
+use writ_core::chat::{ChatTurn, Role};
+use writ_core::config::{AiChatConfig, AiConfig};
 use writ_storage::chat_store::ChatStore;
 use writ_tauri_lib::commands::chat::{
-    begin_request, chat_delete_inner, ChatState, LiveGuard, REPLY_IN_FLIGHT,
+    begin_request, chat_delete_inner, prepare_chat, run_reply, stop_live_chats, ChatState,
+    LiveGuard, CHAT_SHUTDOWN_BUDGET, REPLY_IN_FLIGHT,
 };
 
 const C1: &str = "0b7d6b7a-1111-4b6a-9d5e-000000000001";
@@ -167,4 +173,126 @@ fn a_refused_send_leaves_no_live_entry() {
         begin_request(&state, C1, "r-2").is_ok(),
         "a refused send left the conversation unusable"
     );
+}
+
+/// A host that answers with a reply it keeps writing, so a stop lands while
+/// the stream is live rather than after it ended.
+fn streaming_host(chunks: usize) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else {
+            return;
+        };
+        let mut request = [0u8; 8192];
+        let _ = stream.read(&mut request);
+        if stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            )
+            .is_err()
+        {
+            return;
+        }
+        for _ in 0..chunks {
+            if stream
+                .write_all(
+                    b"data: {\"choices\":[{\"delta\":{\"content\":\"one more word \"}}]}\n\n",
+                )
+                .is_err()
+            {
+                return;
+            }
+            let _ = stream.flush();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    });
+    format!("http://127.0.0.1:{port}/v1")
+}
+
+fn config(base_url: &str) -> AiConfig {
+    AiConfig {
+        provider: "custom".to_string(),
+        base_url: base_url.to_string(),
+        model: "a-model".to_string(),
+        chat: AiChatConfig {
+            enabled: true,
+            model: String::new(),
+            model_provider: String::new(),
+        },
+        ..AiConfig::default()
+    }
+}
+
+#[test]
+fn a_live_reply_is_recorded_as_stopped_on_shutdown() {
+    // What a reply has streamed lives in the task streaming it until that task
+    // ends. A quit that took the process down without stopping the reply left
+    // the conversation ending on the question, with every word that had
+    // arrived gone.
+    let dir = TempDir::new().expect("temp writ dir");
+    let store = ChatStore::new(dir.path());
+    let conversation = store.create("custom", "a-model").expect("a conversation");
+    let prepared = prepare_chat(
+        &config(&streaming_host(200)),
+        &[ChatTurn {
+            role: Role::User,
+            content: "what does it argue".to_string(),
+        }],
+        Vec::new(),
+        None,
+        |_| None,
+    )
+    .expect("a prepared request");
+
+    let state = ChatState::default();
+    let (cancel, guard) = begin_request(&state, &conversation.id, "r-1").expect("accepted");
+
+    let frames = Arc::new(AtomicUsize::new(0));
+    let streaming = frames.clone();
+    let writ_dir = dir.path().to_path_buf();
+    let id = conversation.id.clone();
+    let task = std::thread::spawn(move || {
+        let _live = guard;
+        let store = ChatStore::new(&writ_dir);
+        let client = writ_tauri_lib::commands::ai::build_client().expect("the shared client");
+        tauri::async_runtime::block_on(run_reply(
+            &client,
+            &prepared,
+            &cancel,
+            &store,
+            &id,
+            "r-1",
+            |_| {
+                streaming.fetch_add(1, Ordering::SeqCst);
+            },
+        ));
+    });
+
+    let waited = Instant::now();
+    while frames.load(Ordering::SeqCst) == 0 && waited.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        frames.load(Ordering::SeqCst) > 0,
+        "the reply never started, so the shutdown had nothing to interrupt"
+    );
+
+    assert!(
+        stop_live_chats(&state, CHAT_SHUTDOWN_BUDGET),
+        "the quit ran out of time before the reply saved what it had"
+    );
+    task.join().expect("the request task ended");
+
+    let saved = store.load(&conversation.id).expect("the conversation");
+    let last = saved.turns.last().expect("the reply was appended");
+    assert_eq!(last.role, Role::Assistant);
+    assert!(
+        last.content.contains("one more word"),
+        "the words that arrived were lost: {:?}",
+        last.content
+    );
+    assert!(last.proposals.is_empty(), "half a reply proposed something");
+    assert!(!last.truncated);
+    assert!(!state.is_live(&conversation.id));
 }
