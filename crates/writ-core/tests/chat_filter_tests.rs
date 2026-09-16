@@ -285,3 +285,21 @@ That adds the commands.\n";
         .proposals
         .is_empty());
 }
+
+#[test]
+fn a_block_after_an_ambiguous_fence_is_withheld_like_any_other() {
+    let reply = "```writ-proposal path=\"A.md\"\n\
+```sh\n\
+cargo run\n\
+```\n\
+```writ-proposal path=\"B.md\"\n\
+The other note, whole.\n\
+```\n";
+
+    let shown = every_split(reply);
+    for held in ["The other note, whole.", "writ-proposal", "cargo run"] {
+        assert!(!shown.contains(held), "{held} reached the pane: {shown:?}");
+    }
+    let parsed = parse_proposals(reply, &attached("B.md"), false);
+    assert_eq!(parsed.proposals.len(), 1, "the second block is a card");
+}

@@ -1234,7 +1234,8 @@ impl ProposalFilter {
     /// [`parse_proposals`] reads it: what the block turned out to hold stays
     /// withheld, and what fell outside it is released. When neither reading
     /// holds and the parser drops the block, the lines after the ambiguous
-    /// fence are the reply's own prose and are shown.
+    /// fence are the reply's own prose and are shown, up to the line that
+    /// opens the next block, which the parser is reading as one.
     pub fn finish(&mut self) -> String {
         match std::mem::replace(
             &mut self.state,
@@ -1247,7 +1248,13 @@ impl ProposalFilter {
                 let lines: Vec<&str> = buffered.lines().collect();
                 match last_close(&lines, 0, fence) {
                     Some(close) => joined(&lines[close + 1..]),
-                    None => buffered,
+                    None => {
+                        let opener = lines
+                            .iter()
+                            .position(|line| open_proposal(line).is_some())
+                            .unwrap_or(lines.len());
+                        joined(&lines[..opener])
+                    }
                 }
             }
             FilterState::Text { .. } | FilterState::Withholding { .. } => String::new(),
