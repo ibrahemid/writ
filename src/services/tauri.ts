@@ -1410,7 +1410,7 @@ export interface ChatAttachedNote {
  * beside the text the model actually read. */
 export interface ChatSendAccepted {
   conversation_id: string;
-  /** The send the frames belong to, echoed back from the request id given. */
+  /** The id the send was minted with, echoed so a caller can join on it. */
   request_id: string;
   attached: ChatAttachedNote[];
   /** The connection the request was frozen against. */
@@ -1598,8 +1598,7 @@ export async function chatRenderReply(markdown: string): Promise<string> {
 }
 
 /** Sends one message. `truncateTo` cuts the conversation to that many turns
- * first, which is what retrying a turn and editing one both are. `requestId`
- * names this send: the frames it produces carry it, and a stop names it. */
+ * first, which is what retrying a turn and editing one both are. */
 export async function chatSend(
   conversationId: string,
   text: string,
@@ -1610,12 +1609,10 @@ export async function chatSend(
   return invoke("chat_send", { conversationId, text, contextPaths, truncateTo, requestId });
 }
 
-/** Stops a live reply. A null request id stops whatever that conversation is
- * running, which is what a shutdown asks for rather than a person. */
-export async function chatStop(
-  conversationId: string,
-  requestId: string | null,
-): Promise<void> {
+/** Stops one reply. `requestId` names which: `null` stops whatever the
+ * conversation has in flight, which is what shutdown wants and what a person
+ * pressing Stop never does. */
+export async function chatStop(conversationId: string, requestId: string | null): Promise<void> {
   return invoke("chat_stop", { conversationId, requestId });
 }
 

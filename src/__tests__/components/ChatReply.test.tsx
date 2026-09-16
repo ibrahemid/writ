@@ -39,7 +39,17 @@ import { hunkRows } from "../../components/Chat/ProposalCard";
 import type { Message } from "../../stores/global/chat";
 
 function reply(html: string): Message {
-  return { turn: 1, role: "assistant", content: "", html, attachments: [], proposals: [] };
+  return {
+    turn: 1,
+    role: "assistant",
+    content: "",
+    html,
+    attachments: [],
+    proposals: [],
+    dropped: [],
+    truncated: false,
+    identity: null,
+  };
 }
 
 beforeEach(() => {

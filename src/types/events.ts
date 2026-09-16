@@ -37,8 +37,8 @@ export type WritEvent =
       kind: "ai:chat";
       payload: {
         conversation_id: string;
-        /** The send this frame belongs to, as `chat_send` was given it. A
-         * frame naming a request the pane has moved on from is stale. */
+        /** Which send of that conversation the frame belongs to. A frame whose
+         * id is not the one in flight is a leftover and is dropped. */
         request_id: string;
         kind: "chunk" | "done" | "stopped" | "error";
         text?: string;

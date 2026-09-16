@@ -37,6 +37,17 @@ vi.mock("../../services/tauri", () => ({
 import { chatStore, RENDER_THROTTLE_MS } from "../../stores/global/chat";
 import type { ChatConversation, ChatProposal } from "../../services/tauri";
 
+/** The id the last send on that conversation was minted with. Every frame of
+ * an exchange carries it, and a frame that does not is a leftover. */
+function rid(id: string): string {
+  const calls = mocks.chatSend.mock.calls as unknown[][];
+  for (let index = calls.length - 1; index >= 0; index -= 1) {
+    if (calls[index][0] === id) return calls[index][4] as string;
+  }
+  return "no-such-request";
+}
+
+
 function summary(id: string, title: string, updated: string) {
   return { id, title, created_at: updated, updated_at: updated, turns: 2 };
 }
@@ -197,13 +208,28 @@ describe("the stream", () => {
     await startSend();
     expect(chatStore.status()).toBe("thinking");
 
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text: "it " });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "it ",
+    });
     expect(chatStore.status()).toBe("streaming");
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text: "argues this" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "argues this",
+    });
     expect(chatStore.messages()[1].content).toBe("it argues this");
 
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("it argues this")]);
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     expect(chatStore.status()).toBe("done");
     await flush();
 
@@ -223,9 +249,19 @@ describe("the stream", () => {
 
     // A reply the filter withheld whole releases its tail when the stream
     // ends, one frame before the ending, so the first chunk can be the last.
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text: "```" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "```",
+    });
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("```")]);
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
 
     expect(chatStore.messages()[1].content).toBe("```");
@@ -237,7 +273,12 @@ describe("the stream", () => {
     try {
       await startSend();
       for (const text of ["a", "b", "c"]) {
-        chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text });
+        chatStore.handleStreamEvent({
+          conversation_id: "c1",
+          request_id: rid("c1"),
+          kind: "chunk",
+          text,
+        });
       }
       expect(mocks.chatRenderReply).not.toHaveBeenCalled();
       vi.advanceTimersByTime(RENDER_THROTTLE_MS);
@@ -270,7 +311,12 @@ describe("the stream", () => {
 
     const before = chatStore.messages();
     reads.count = 0;
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text: "because " });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "because ",
+    });
     const after = chatStore.messages();
 
     expect(after[0]).toBe(before[0]);
@@ -282,10 +328,15 @@ describe("the stream", () => {
 
   it("keeps the text a stopped reply had already shown", async () => {
     await startSend();
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text: "half an ans" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "half an ans",
+    });
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("half an ans")]);
 
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "stopped" });
+    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: rid("c1"), kind: "stopped" });
     await flush();
 
     expect(chatStore.status()).toBe("stopped");
@@ -300,14 +351,19 @@ describe("the stream", () => {
     await chatStore.openPane();
     expect(chatStore.status()).toBe("idle");
 
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "stopped" });
+    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: rid("c1"), kind: "stopped" });
 
     expect(chatStore.status()).toBe("idle");
   });
 
   it("ignores a frame from another conversation", async () => {
     await startSend();
-    chatStore.handleStreamEvent({ conversation_id: "other", request_id: "r-1", kind: "chunk", text: "not mine" });
+    chatStore.handleStreamEvent({
+      conversation_id: "other",
+      request_id: rid("other"),
+      kind: "chunk",
+      text: "not mine",
+    });
     expect(chatStore.messages()[1].content).toBe("");
   });
 
@@ -323,10 +379,20 @@ describe("the stream", () => {
       )
       .mockResolvedValue("<p>the whole reply</p>");
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("the whole reply")]);
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text: "the whole" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "the whole",
+    });
 
     await new Promise((resolve) => setTimeout(resolve, RENDER_THROTTLE_MS + 5));
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
     release("<p>the whole</p>");
     await flush();
@@ -344,7 +410,7 @@ describe("recovering from an error", () => {
 
     fileAfter("c1", [userTurn("what does it argue", ["Launch.md"])]);
     chatStore.handleStreamEvent({
-      conversation_id: "c1", request_id: "r-1",
+      conversation_id: "c1", request_id: rid("c1"),
       kind: "error",
       text: "The model did not answer.",
     });
@@ -397,7 +463,14 @@ describe("editing a sent turn", () => {
       { path: "Ideas/Launch.md", key: "Ideas/Launch.md", bytes: 42 },
     ]);
     expect(await chatStore.attachedOnDisk()).toEqual([
-      { path: "Ideas/Launch.md", name: "Launch.md", bytes: 42 },
+      {
+        path: "Ideas/Launch.md",
+        name: "Launch.md",
+        bytes: 42,
+        key: "Ideas/Launch.md",
+        state: "ok",
+        dirty: false,
+      },
     ]);
 
     chatStore.setDraft("a better first question");
@@ -523,17 +596,32 @@ describe("the turns on screen", () => {
     mocks.chatNew.mockResolvedValue(conversation("c1"));
     chatStore.setDraft("what does it argue");
     await chatStore.send();
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text: "it " });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "it ",
+    });
     const asked = chatStore.messages()[0];
 
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text: "argues this" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "argues this",
+    });
 
     expect(chatStore.messages()[0]).toBe(asked);
 
     // The reload hands back equal turns in new arrays, which is the case a
     // reference check misses.
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("it argues this")]);
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
 
     expect(chatStore.messages()[0]).toBe(asked);
@@ -583,11 +671,16 @@ describe("a proposal read again", () => {
       replyTurn("here it is again"),
     ]);
     chatStore.handleStreamEvent({
-      conversation_id: "c1", request_id: "r-1",
+      conversation_id: "c1", request_id: rid("c1"),
       kind: "chunk",
       text: "here it is again",
     });
-    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
 
     expect(chatStore.messages()[1].proposals[0].hunks).toEqual([HUNK_AFTER]);
@@ -645,7 +738,7 @@ describe("a send that was refused", () => {
     expect(chatStore.status()).toBe("idle");
 
     chatStore.handleStreamEvent({
-      conversation_id: "c1", request_id: "r-1",
+      conversation_id: "c1", request_id: rid("c1"),
       kind: "error",
       text: "The model did not answer.",
     });
@@ -662,7 +755,7 @@ describe("a send that was refused", () => {
 
     fileAfter("c1", [userTurn("what does it argue")]);
     chatStore.handleStreamEvent({
-      conversation_id: "c1", request_id: "r-1",
+      conversation_id: "c1", request_id: rid("c1"),
       kind: "error",
       text: "The model did not answer.",
     });

@@ -1,6 +1,7 @@
 import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
 import { openSettings } from "../components/SettingsModal/SettingsModal";
+import { aiConnectionStore } from "../stores/global/ai-connection";
 import { chatStore, totalBytes, type Attachment } from "../stores/global/chat";
 import { configStore } from "../stores/global/config";
 import { windowRegistry } from "../stores/global/window-registry";
@@ -78,6 +79,20 @@ export async function clearBlockersBeforeSending(
     return false;
   }
 
+  // A live catalog is the provider's own inventory, so a model missing from
+  // one cannot answer. A curated list is a table of suggestions and proves
+  // nothing, so it does not stop a send.
+  const catalog = aiConnectionStore.catalog();
+  if (catalog?.source === "live" && !catalog.models.includes(endpoint.model)) {
+    const open = await requestConfirm({
+      title: `${endpoint.model} is not available`,
+      message: `${endpoint.provider} does not list it. Choose one it has.`,
+      confirmLabel: "Open settings",
+    });
+    if (open) openSettings("ai", "ai.model");
+    return false;
+  }
+
   if (endpoint.is_hosted && !endpoint.is_consented) {
     const host = endpoint.host_port ?? endpoint.host;
     const confirmed = await requestConfirm({
@@ -111,18 +126,19 @@ export async function clearBlockersBeforeSending(
  *
  * The dialog is shown the sizes the files hold now, not the sizes the tabs
  * recorded when they read them, so the number a person agrees to is the number
- * that leaves the machine. */
+ * that leaves the machine. The list is read once and handed to the send, so
+ * the notes counted in the dialog are the notes the request carries. */
 export async function sendChatMessage() {
   if (!chatStore.draft().trim()) return;
-  let attachments = chatStore.attachments();
-  try {
-    attachments = await chatStore.attachedOnDisk();
-  } catch {
-    showToast("Could not read the attached notes.", "error");
+  const attachments = await chatStore.attachedOnDisk();
+  chatStore.setAttachedList(attachments);
+  const unreadable = attachments.find((note) => note.state === "unreadable");
+  if (unreadable) {
+    showToast(unreadable.reason ?? `${unreadable.name} could not be read.`, "error");
     return;
   }
   if (!(await clearBlockersBeforeSending(attachments))) return;
-  await chatStore.send();
+  await chatStore.send(attachments);
 }
 
 /** Shows the pane, or hides it when it is already showing. */
