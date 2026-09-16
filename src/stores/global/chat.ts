@@ -304,7 +304,9 @@ function createChatStore() {
       return;
     }
     const listed = await aiConnectionStore.listModels();
-    setLiveModels("models" in listed ? listed.models : []);
+    // Only the provider's own list is offered here; the table's suggestions
+    // are marked as such in Settings and are not an inventory.
+    setLiveModels(listed.source === "live" ? listed.models : []);
   }
 
   /** Copies one code block's source, which is what the model wrote rather

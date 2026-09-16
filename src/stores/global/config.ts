@@ -116,7 +116,7 @@ const DEFAULT_CONFIG: WritConfig = {
     model: "",
     consented_hosts: [],
     rewrite: { enabled: false },
-    chat: { enabled: false, model: "" },
+    chat: { enabled: false, model: "", model_provider: "" },
   },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
@@ -172,6 +172,7 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       chat: {
         enabled: incoming.ai?.chat?.enabled ?? false,
         model: incoming.ai?.chat?.model ?? "",
+        model_provider: incoming.ai?.chat?.model_provider ?? "",
       },
     },
     mcp: {

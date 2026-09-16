@@ -143,7 +143,7 @@ const DEFAULTS: WritConfig = {
     model: "",
     consented_hosts: [],
     rewrite: { enabled: false },
-    chat: { enabled: true, model: "llama3" },
+    chat: { enabled: true, model: "llama3", model_provider: "" },
   },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },

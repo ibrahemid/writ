@@ -1,5 +1,5 @@
 import type { UpdatePhase } from "./update";
-import type { ChatProposal } from "../services/tauri";
+import type { ChatErrorFrame, ChatProposal, RequestIdentity } from "../services/tauri";
 
 export type WritEvent =
   | { kind: "buffer:opened"; payload: { id: string; title: string } }
@@ -37,6 +37,11 @@ export type WritEvent =
         /** Whole-note text a reply asked for, carried by the `done` frame and
          * applied by nobody until a person says so (ADR-031 rule 4.3). */
         proposals?: ChatProposal[];
+        /** Which connection answered, carried by the `done` frame. */
+        identity?: RequestIdentity;
+        /** The typed failure, carried by the `error` frame. Its `message` is
+         * the same sentence `text` holds. */
+        error?: ChatErrorFrame;
       };
     }
   | {

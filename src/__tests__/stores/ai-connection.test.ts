@@ -1,29 +1,68 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+interface AiFixture {
+  provider: string;
+  base_url: string;
+  model: string;
+  consented_hosts: string[];
+  rewrite: { enabled: boolean };
+  chat: { enabled: boolean; model: string; model_provider: string };
+}
+
 const hoisted = vi.hoisted(() => ({
   aiCheckConnection: vi.fn(),
   aiProviders: vi.fn(),
+  aiListModels: vi.fn(),
+  aiSetProvider: vi.fn(),
+  configLoad: vi.fn(),
+  configSave: vi.fn(),
+  // Assigned once solid is imported; nothing reads it before then.
+  read: null as null | (() => { ai: AiFixture }),
   ai: {
     provider: "ollama",
     base_url: "",
     model: "llama3",
     consented_hosts: [] as string[],
     rewrite: { enabled: true },
-    chat: { enabled: false, model: "" },
-  },
+    chat: { enabled: false, model: "", model_provider: "" },
+  } as AiFixture,
 }));
 
 vi.mock("../../services/tauri", () => ({
   aiCheckConnection: (...a: unknown[]) => hoisted.aiCheckConnection(...a),
   aiProviders: (...a: unknown[]) => hoisted.aiProviders(...a),
+  aiListModels: (...a: unknown[]) => hoisted.aiListModels(...a),
+  aiSetProvider: (...a: unknown[]) => hoisted.aiSetProvider(...a),
 }));
 
 vi.mock("../../stores/global/config", () => ({
-  configStore: { config: () => ({ ai: hoisted.ai }) },
+  configStore: {
+    config: () => hoisted.read!(),
+    load: (...a: unknown[]) => hoisted.configLoad(...a),
+    save: (...a: unknown[]) => hoisted.configSave(...a),
+  },
 }));
+
+import { createRoot, createSignal } from "solid-js";
+
+// The connection follows the config, so the config a test reads has to be a
+// signal: an effect over a plain object would never re-run.
+const [configValue, setConfigValue] = createRoot(() => createSignal({ ai: hoisted.ai }));
+hoisted.read = configValue;
+
+/** Points the config at a provider and lets the effects settle. */
+async function setProvider(id: string): Promise<void> {
+  hoisted.ai = { ...hoisted.ai, provider: id };
+  setConfigValue({ ai: hoisted.ai });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 import { aiConnectionStore, connectionDisplay, modelListDisplay } from "../../stores/global/ai-connection";
 import { aiProvidersStore } from "../../stores/global/ai-providers";
+
+function catalog(provider: string, models: string[]) {
+  return { provider, models, source: "live" as const, error: null };
+}
 
 function providerRow(id: string, group: "local" | "hosted" | "custom") {
   return {
@@ -38,6 +77,7 @@ function providerRow(id: string, group: "local" | "hosted" | "custom") {
     needs_key: group === "hosted",
     supports_connect: false,
     probe_port: null,
+    curated_models: [] as string[],
   };
 }
 
@@ -54,10 +94,12 @@ async function loadTable() {
 const OK = { reachable: true, model_listed: true, kind: "ok", detail: "", models: ["llama3"] };
 
 describe("ai connection store", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     hoisted.aiCheckConnection.mockReset();
-    hoisted.ai.provider = "ollama";
+    hoisted.aiListModels.mockReset();
+    hoisted.aiSetProvider.mockReset();
     hoisted.ai.model = "llama3";
+    await setProvider("ollama");
     aiConnectionStore.reset();
   });
 
@@ -85,6 +127,38 @@ describe("ai connection store", () => {
     await aiConnectionStore.check();
     expect(aiConnectionStore.status()?.kind).toBe("error");
     expect(aiConnectionStore.checking()).toBe(false);
+  });
+
+  it("drops a catalog answered for a provider that is no longer current", async () => {
+    // The answer names the provider it was read for, so a list that arrives
+    // after the connection moved is discarded rather than offered.
+    await setProvider("deepseek");
+    hoisted.aiListModels.mockResolvedValue(catalog("ollama", ["qwen3:4b"]));
+    await aiConnectionStore.refreshCatalog();
+    expect(aiConnectionStore.catalog()).toBeNull();
+
+    hoisted.aiListModels.mockResolvedValue(catalog("deepseek", ["deepseek-chat"]));
+    await aiConnectionStore.refreshCatalog();
+    expect(aiConnectionStore.catalog()?.models).toEqual(["deepseek-chat"]);
+
+    // And a catalog held from before a change stops being current the moment
+    // the provider does.
+    await setProvider("groq");
+    expect(aiConnectionStore.catalog()).toBeNull();
+  });
+
+  it("refetches the catalog when the provider changes", async () => {
+    hoisted.aiListModels.mockImplementation(() =>
+      Promise.resolve(catalog(hoisted.ai.provider, ["a-model"])),
+    );
+    aiConnectionStore.watch();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const before = hoisted.aiListModels.mock.calls.length;
+    expect(before).toBeGreaterThan(0);
+
+    await setProvider("groq");
+    expect(hoisted.aiListModels.mock.calls.length).toBeGreaterThan(before);
+    expect(aiConnectionStore.catalog()?.provider).toBe("groq");
   });
 
   it("debounces scheduled checks into one call", async () => {

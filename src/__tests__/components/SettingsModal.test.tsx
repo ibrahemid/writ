@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => ({
   aiConsentHost: vi.fn(),
   aiProviders: vi.fn(),
   aiListModels: vi.fn(),
+  aiSetProvider: vi.fn(),
   aiProbeLocal: vi.fn(),
   aiOpenrouterConnect: vi.fn(),
   aiOpenrouterCancel: vi.fn(),
@@ -88,6 +89,22 @@ function hostedEndpoint(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** A catalog the provider itself answered. */
+function listed(provider: string, models: string[]) {
+  return { provider, models, source: "live" as const, error: null };
+}
+
+/** A catalog that fell back to the table's suggestions. */
+function suggested(provider: string) {
+  const row = TEST_PROVIDERS.find((r) => r.id === provider);
+  return {
+    provider,
+    models: (row?.curated_models ?? []) as string[],
+    source: "curated" as const,
+    error: { kind: "unreachable" as const },
+  };
+}
+
 /** Rendered text, with the line wrapping the markup adds taken back out. */
 function collapse(text: string | null): string {
   return (text ?? "").replace(/\s+/g, " ").trim();
@@ -107,6 +124,7 @@ function providerRow(overrides: Record<string, unknown> = {}) {
     needs_key: false,
     supports_connect: false,
     probe_port: 11434,
+    curated_models: [] as string[],
     ...overrides,
   };
 }
@@ -121,6 +139,7 @@ const TEST_PROVIDERS = [
     base_url: "https://api.deepseek.com",
     key_page_url: "https://platform.deepseek.com/api_keys",
     default_model: "deepseek-chat",
+    curated_models: ["deepseek-chat", "deepseek-reasoner"],
     needs_key: true,
     probe_port: null,
   }),
@@ -160,6 +179,7 @@ vi.mock("../../services/tauri", () => ({
   aiCheckConnection: mocks.aiCheckConnection,
   aiProviders: mocks.aiProviders,
   aiListModels: mocks.aiListModels,
+  aiSetProvider: mocks.aiSetProvider,
   aiProbeLocal: mocks.aiProbeLocal,
   aiOpenrouterConnect: mocks.aiOpenrouterConnect,
   aiOpenrouterCancel: mocks.aiOpenrouterCancel,
@@ -269,7 +289,7 @@ function baseConfig(): WritConfig {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
-  ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "" } },
+  ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
@@ -308,7 +328,8 @@ describe("SettingsModal", () => {
     mocks.setActiveTabId.mockReset();
     mocks.requestExternalReload.mockReset();
     mocks.aiProviders.mockReset().mockResolvedValue(TEST_PROVIDERS);
-    mocks.aiListModels.mockReset().mockResolvedValue({ models: [] });
+    mocks.aiListModels.mockReset().mockImplementation((provider: string) => suggested(provider));
+    mocks.aiSetProvider.mockReset().mockResolvedValue(undefined);
     mocks.aiProbeLocal.mockReset().mockResolvedValue({ ollama: false, lmstudio: false });
     mocks.aiOpenrouterConnect.mockReset().mockResolvedValue({ is_set: true, memory_only: false });
     mocks.aiOpenrouterCancel.mockReset().mockResolvedValue(undefined);
@@ -1078,7 +1099,7 @@ describe("AI section", () => {
       model: "deepseek-chat",
       consented_hosts: [] as string[],
       rewrite: { enabled: false },
-      chat: { enabled: false, model: "" },
+      chat: { enabled: false, model: "", model_provider: "" },
       ...overrides,
     };
   }
@@ -1098,7 +1119,8 @@ describe("AI section", () => {
     mocks.save.mockReset().mockResolvedValue(undefined);
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.aiProviders.mockReset().mockResolvedValue(TEST_PROVIDERS);
-    mocks.aiListModels.mockReset().mockResolvedValue({ models: [] });
+    mocks.aiListModels.mockReset().mockImplementation((provider: string) => suggested(provider));
+    mocks.aiSetProvider.mockReset().mockResolvedValue(undefined);
     mocks.aiProbeLocal.mockReset().mockResolvedValue({ ollama: false, lmstudio: false });
     mocks.aiConsentHost.mockReset().mockResolvedValue(hostedEndpoint({ is_consented: true }));
     mocks.aiEndpointState.mockReset().mockResolvedValue(hostedEndpoint());
@@ -1201,13 +1223,34 @@ describe("AI section", () => {
   });
 
   it("drops the suggestion marking once the provider answers with a list", async () => {
-    mocks.aiListModels.mockResolvedValue({ models: ["deepseek-chat", "deepseek-reasoner"] });
+    mocks.aiListModels.mockResolvedValue(
+      listed("deepseek", ["deepseek-chat", "deepseek-reasoner"]),
+    );
     const { container } = await openAiSection();
     await waitFor(() =>
       expect(container.querySelector('[data-setting="ai_model"] option')!.textContent).toBe(
         "deepseek-chat",
       ),
     );
+  });
+
+  // The override is qualified by the provider it was picked under, and a
+  // provider change goes through the one command that drops a foreign one. A
+  // chat still sending an Ollama id to DeepSeek is the 400 this closes.
+  it("switching provider clears a chat model that belonged to the old one", async () => {
+    const { container } = await openAiSection({
+      provider: "ollama",
+      model: "qwen3:4b",
+      chat: { enabled: true, model: "qwen2.5-coder:0.5b", model_provider: "ollama" },
+    });
+    const select = container.querySelector('[data-setting="ai_provider"]') as HTMLSelectElement;
+    select.value = "deepseek";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitFor(() => expect(mocks.aiSetProvider).toHaveBeenCalledWith("deepseek"));
+    // The panel does not write the connection itself: one command holds the
+    // rule, so the pane and this section cannot clear an override differently.
+    expect(mocks.save).not.toHaveBeenCalled();
   });
 
   it("names the host that notes and text would be sent to", async () => {
@@ -1298,7 +1341,7 @@ describe("AI section", () => {
   });
 
   it("closing the chat model disclosure hands chat back to the connection's model", async () => {
-    const { container } = await openAiSection({ chat: { enabled: true, model: "deepseek-reasoner" } });
+    const { container } = await openAiSection({ chat: { enabled: true, model: "deepseek-reasoner", model_provider: "" } });
     const row = container.querySelector('[data-setting-id="ai.chat.model"]')!;
     expect(row.querySelector('[data-setting="ai_chat_model"]')).not.toBeNull();
     fireEvent.click(row.querySelector('[data-setting="ai_chat_model_disclosure"]')!);
