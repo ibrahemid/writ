@@ -22,6 +22,7 @@ import IOKit
 //   drive move <pid> <x> <y>           -> move the pointer (hover)
 //   drive drag <pid> <x1> <y1> <x2> <y2> -> press, move, release
 //   drive place <pid> <x> <y> <w> <h>   -> move and size the app's main window (accessibility API)
+//   drive find <pid> <role> <name>     -> "<x> <y> <w> <h>" of the first element with that AX role and name
 
 // Every event the driver posts resets the system's idle clock, so it keeps
 // the time of its own last post here: an idle clock that runs from that
@@ -133,6 +134,50 @@ func mouse(_ type: CGEventType, _ point: CGPoint, _ button: CGMouseButton, _ sou
   guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button)
   else { fail("could not build mouse event") }
   return event
+}
+
+func axString(_ element: AXUIElement, _ attribute: String) -> String? {
+  var value: AnyObject?
+  guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+  return value as? String
+}
+
+func axValue(_ element: AXUIElement, _ attribute: String, _ type: AXValueType, _ out: UnsafeMutableRawPointer) -> Bool {
+  var value: AnyObject?
+  guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success,
+    let raw = value, CFGetTypeID(raw) == AXValueGetTypeID()
+  else { return false }
+  return AXValueGetValue(raw as! AXValue, type, out)
+}
+
+func axChildren(_ element: AXUIElement) -> [AXUIElement] {
+  var value: AnyObject?
+  guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success,
+    let children = value as? [AXUIElement]
+  else { return [] }
+  return children
+}
+
+// Depth-first for the first element carrying both the role and the name. The
+// caps keep a tree that reports itself in a cycle from running forever.
+func findElement(_ root: AXUIElement, _ role: String, _ name: String) -> AXUIElement? {
+  let names = [
+    kAXTitleAttribute as String, kAXDescriptionAttribute as String,
+    kAXValueAttribute as String, kAXPlaceholderValueAttribute as String,
+  ]
+  var seen = 0
+  func walk(_ element: AXUIElement, _ depth: Int) -> AXUIElement? {
+    if depth > 80 || seen >= 20000 { return nil }
+    seen += 1
+    if axString(element, kAXRoleAttribute as String) == role {
+      for attribute in names where axString(element, attribute) == name { return element }
+    }
+    for child in axChildren(element) {
+      if let hit = walk(child, depth + 1) { return hit }
+    }
+    return nil
+  }
+  return walk(root, 0)
 }
 
 let args = CommandLine.arguments.dropFirst()
@@ -265,6 +310,24 @@ case "place":
   if AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue) != .success { fail("could not size the window") }
   stamp()
   usleep(300_000)
+
+case "find":
+  guard rest.count >= 3, let pid = pid_t(rest[0]) else { fail("find <pid> <role> <name>") }
+  if !AXIsProcessTrusted() { fail("this terminal has no accessibility access (System Settings > Privacy & Security > Accessibility)") }
+  let app = AXUIElementCreateApplication(pid)
+  // A WKWebView publishes its web tree only to a client that asks for it.
+  _ = AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+  let wanted = rest[2...].joined(separator: " ")
+  var origin = CGPoint.zero
+  var size = CGSize.zero
+  guard let hit = findElement(app, rest[1], wanted),
+    axValue(hit, kAXPositionAttribute as String, .cgPoint, &origin),
+    axValue(hit, kAXSizeAttribute as String, .cgSize, &size)
+  else {
+    FileHandle.standardError.write("no \(rest[1]) named \(wanted) in pid \(pid)\n".data(using: .utf8)!)
+    exit(1)
+  }
+  print("\(Int(origin.x)) \(Int(origin.y)) \(Int(size.width)) \(Int(size.height))")
 
 default:
   fail("unknown command \(command)")
