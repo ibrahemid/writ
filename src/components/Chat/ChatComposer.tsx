@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
@@ -85,6 +85,13 @@ export default function ChatComposer(props: {
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }
+
+  // The draft is also written from outside this component: a send clears it
+  // and an edit fills it with a turn. The field follows it either way.
+  createEffect(() => {
+    chatStore.draft();
+    if (input) fit(input);
+  });
 
   function onInput(event: InputEvent & { currentTarget: HTMLTextAreaElement }) {
     const el = event.currentTarget;
@@ -253,7 +260,7 @@ export default function ChatComposer(props: {
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={isOpen()}
-          aria-controls={MENTION_LIST_ID}
+          aria-controls={isOpen() ? MENTION_LIST_ID : undefined}
           aria-activedescendant={isOpen() && hits().length > 0 ? mentionRowId(active()) : undefined}
           ref={input}
           value={chatStore.draft()}

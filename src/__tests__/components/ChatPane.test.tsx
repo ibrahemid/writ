@@ -623,10 +623,10 @@ describe("the chat column", () => {
 
     await waitFor(() => expect(container.textContent).toContain("Reply was cut off."));
     expect(container.textContent).toContain(
-      "An offer for Gone.md was dropped: that note is not attached.",
+      "An offer for Gone.md was not shown: that note is not attached.",
     );
     expect(container.textContent).toContain(
-      "An offer for Launch.md was dropped: the same note was offered twice.",
+      "An offer for Launch.md was not shown: the same note was offered twice.",
     );
     expect(container.querySelector(".chat-identity")?.textContent).toBe("llama3 via ollama");
   });

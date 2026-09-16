@@ -146,5 +146,5 @@ function verdict(
   if (status === "applied") return "Applied.";
   if (status === "discarded") return "Discarded.";
   if (refusal) return refusal;
-  return stale ? "The note changed since this was offered, so nothing was written." : "Not applied.";
+  return stale ? "Nothing was written." : "Not applied.";
 }

@@ -120,6 +120,22 @@ describe("the composer field", () => {
     expect(el.getAttribute("rows")).toBe("2");
   });
 
+  it("fits a draft it did not type", () => {
+    // A send clears the field and an edit fills it; neither goes through an
+    // input event, and the field still has to end up the right height.
+    const held = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      value: 180,
+      configurable: true,
+    });
+    mocks.draft = "a\nb\nc\nd\ne\nf";
+
+    const { container } = mount();
+
+    expect(field(container).style.height).toBe("180px");
+    if (held) Object.defineProperty(HTMLElement.prototype, "scrollHeight", held);
+  });
+
   it("cancels an edit, then stops a reply, then closes the pane", () => {
     mocks.editing = 2;
     const editing = mount();
