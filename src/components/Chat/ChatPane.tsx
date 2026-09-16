@@ -62,8 +62,9 @@ export default function ChatPane() {
     const opening = chatStore.attachGeneration();
     if (attachedFor === opening) return;
     attachedFor = opening;
-    const front = untrack(frontNote);
-    if (front) void chatStore.attachAll([front]);
+    // One opening is one automatic chip, replaced rather than added to: a pane
+    // toggle must not grow what the next message carries.
+    void chatStore.attachAuto(untrack(frontNote));
   });
 
   // One load per open, not one per reactive read: the effect tracks the open

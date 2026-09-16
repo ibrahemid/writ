@@ -1410,6 +1410,8 @@ export interface ChatAttachedNote {
  * beside the text the model actually read. */
 export interface ChatSendAccepted {
   conversation_id: string;
+  /** The id the send was minted with, echoed so a caller can join on it. */
+  request_id: string;
   attached: ChatAttachedNote[];
   /** The connection the request was frozen against. */
   identity: RequestIdentity;
@@ -1597,13 +1599,17 @@ export async function chatSend(
   conversationId: string,
   text: string,
   contextPaths: string[],
-  truncateTo?: number,
+  truncateTo: number | undefined,
+  requestId: string,
 ): Promise<ChatSendAccepted> {
-  return invoke("chat_send", { conversationId, text, contextPaths, truncateTo });
+  return invoke("chat_send", { conversationId, text, contextPaths, truncateTo, requestId });
 }
 
-export async function chatCancel(conversationId: string): Promise<void> {
-  return invoke("chat_cancel", { conversationId });
+/** Stops one reply. `requestId` names which: `null` stops whatever the
+ * conversation has in flight, which is what shutdown wants and what a person
+ * pressing Stop never does. */
+export async function chatStop(conversationId: string, requestId: string | null): Promise<void> {
+  return invoke("chat_stop", { conversationId, requestId });
 }
 
 export async function chatApplyProposal(

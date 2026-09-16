@@ -149,9 +149,12 @@ function createAiConnectionStore() {
    * of a chat model that belonged to the old one happen in one place for every
    * surface that offers the choice. */
   async function selectProvider(id: string): Promise<void> {
-    await aiSetProvider(id);
+    const saved = await aiSetProvider(id);
     setHeld(null);
-    await configStore.load();
+    // The command wrote the file and answered what it wrote, so that answer is
+    // what the running config takes; reading the file back would race whatever
+    // else is writing it and could land on the connection this one replaced.
+    configStore.applyAi(saved);
   }
 
   /** Saves the chat's own model, qualified to the provider it was picked
@@ -206,6 +209,10 @@ function createAiConnectionStore() {
     status,
     checking,
     check,
+    /** Whether the connection points at a runtime on this machine, which is
+     * what makes a refused port an offline local server rather than an
+     * unreachable host. */
+    isLocal: providerIsLocal,
     scheduleCheck,
     reset,
     catalog,

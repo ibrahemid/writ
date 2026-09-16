@@ -1,5 +1,6 @@
 import { createSignal, createRoot } from "solid-js";
 import type {
+  AiConfig,
   AppearanceConfig,
   CommandUsage,
   SidebarSectionId,
@@ -238,6 +239,15 @@ function createConfigStore() {
     setConfig(normalized);
   }
 
+  /** Puts a connection Rust has already written into the running config.
+   *
+   * `ai_set_provider` saves the file itself and answers what it saved, so the
+   * surface that asked for the change applies that answer rather than reading
+   * the file back and racing whatever else is writing it. */
+  function applyAi(ai: AiConfig) {
+    setConfig((held) => ({ ...held, ai }));
+  }
+
   function recordCommandUse(id: string, nowMs: number = Date.now()) {
     const current = config();
     const prev = current.commands.usage[id];
@@ -396,6 +406,7 @@ function createConfigStore() {
     config,
     load,
     save,
+    applyAi,
     recordCommandUse,
     setEditorFontSize,
     setSidebarWidth,

@@ -34,7 +34,7 @@ vi.mock("../../services/tauri", () => ({
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
   chatSend: vi.fn(),
-  chatCancel: vi.fn(),
+  chatStop: vi.fn(),
   chatState: vi.fn(),
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn(),

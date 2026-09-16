@@ -12,7 +12,14 @@ const mocks = vi.hoisted(() => ({
   endpointState: vi.fn(),
   send: vi.fn(),
   attachments: vi.fn<() => { path: string; name: string; bytes: number }[]>(() => []),
-  attachedOnDisk: vi.fn<() => Promise<{ path: string; name: string; bytes: number }[]>>(),
+  attachedOnDisk:
+    vi.fn<
+      () => Promise<
+        { path: string; name: string; bytes: number; state?: string; reason?: string }[]
+      >
+    >(),
+  setAttachedList: vi.fn(),
+  catalog: vi.fn<() => { provider: string; models: string[]; source: string } | null>(() => null),
   draft: vi.fn(() => "what does it argue"),
   consentHost: vi.fn(),
   config: vi.fn(),
@@ -40,12 +47,17 @@ vi.mock("../../stores/global/chat", () => ({
     attachedOnDisk: mocks.attachedOnDisk,
     draft: mocks.draft,
     send: mocks.send,
+    setAttachedList: mocks.setAttachedList,
   },
   totalBytes: (notes: { bytes: number }[]) => notes.reduce((sum, n) => sum + n.bytes, 0),
 }));
 
 vi.mock("../../stores/global/config", () => ({
   configStore: { config: mocks.config },
+}));
+
+vi.mock("../../stores/global/ai-connection", () => ({
+  aiConnectionStore: { catalog: mocks.catalog },
 }));
 
 vi.mock("../../services/tauri", () => ({
@@ -98,6 +110,8 @@ beforeEach(() => {
   mocks.send.mockReset().mockResolvedValue(undefined);
   mocks.attachments.mockReturnValue(NOTES);
   mocks.attachedOnDisk.mockReset().mockResolvedValue(NOTES);
+  mocks.setAttachedList.mockReset();
+  mocks.catalog.mockReset().mockReturnValue(null);
   mocks.registerCommand.mockReset();
   mocks.unregisterCommand.mockReset();
 });
@@ -197,11 +211,53 @@ describe("the blockers before a send", () => {
   });
 
   it("sends nothing when the attached notes cannot be read", async () => {
-    mocks.attachedOnDisk.mockRejectedValue("gone");
+    // A note that cannot be read comes back as one marked chip carrying the
+    // reason, so the pane can name the note rather than failing the whole list.
+    mocks.attachedOnDisk.mockResolvedValue([
+      {
+        path: "/elsewhere/Launch.md",
+        name: "Launch.md",
+        bytes: 0,
+        state: "unreadable",
+        reason: "Launch.md is outside your notes folder.",
+      },
+    ]);
     await sendChatMessage();
     expect(mocks.requestConfirm).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
-    expect(mocks.showToast).toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(
+      "Launch.md is outside your notes folder.",
+      "error",
+    );
+  });
+
+  it("stops when the chosen model is not in the catalog", async () => {
+    // A live catalog is the provider's own inventory, so a model missing from
+    // one cannot answer and the send is stopped before anything is asked.
+    mocks.catalog.mockReturnValue({
+      provider: "anthropic",
+      models: ["another-model"],
+      source: "live",
+    });
+    mocks.endpointState.mockResolvedValue(endpoint());
+
+    const cleared = await clearBlockersBeforeSending([]);
+
+    expect(cleared).toBe(false);
+    const asked = mocks.requestConfirm.mock.calls[0][0];
+    expect(asked.title).toContain("a-model");
+    expect(asked.message).toContain("anthropic");
+  });
+
+  it("lets a curated list through, because it is not an inventory", async () => {
+    mocks.catalog.mockReturnValue({
+      provider: "anthropic",
+      models: ["another-model"],
+      source: "curated",
+    });
+    mocks.endpointState.mockResolvedValue(endpoint());
+
+    expect(await clearBlockersBeforeSending([])).toBe(true);
   });
 
   it("sends only after the blockers are cleared", async () => {

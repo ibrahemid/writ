@@ -13,7 +13,7 @@ vi.mock("../../services/tauri", () => ({
   chatState: vi.fn(),
   chatAttachedSizes: mocks.chatAttachedSizes,
   chatSend: vi.fn(),
-  chatCancel: vi.fn(),
+  chatStop: vi.fn(),
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn(),
 }));
@@ -37,7 +37,9 @@ describe("the sizes the send dialog is given", () => {
 
     const refreshed = await chatStore.attachedOnDisk();
     expect(mocks.chatAttachedSizes).toHaveBeenCalledWith(["/notes/Launch.md"]);
-    expect(refreshed).toEqual([{ ...LAUNCH, bytes: 16 * 1024 }]);
+    expect(refreshed).toEqual([
+      { ...LAUNCH, bytes: 16 * 1024, key: "Launch.md", state: "ok", dirty: false },
+    ]);
   });
 
   it("takes it for a note in a subfolder too", async () => {
@@ -60,7 +62,9 @@ describe("the sizes the send dialog is given", () => {
 
     const refreshed = await chatStore.attachedOnDisk();
 
-    expect(refreshed).toEqual([{ ...NESTED, bytes: 999 }]);
+    expect(refreshed).toEqual([
+      { ...NESTED, bytes: 999, key: "Ideas/Later.md", state: "ok", dirty: false },
+    ]);
   });
 
   it("keeps the recorded size for a note the command did not answer about", async () => {

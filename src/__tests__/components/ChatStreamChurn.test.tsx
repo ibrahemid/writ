@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   chatNew: vi.fn(),
   chatRenderReply: vi.fn(),
   chatSend: vi.fn(),
-  chatCancel: vi.fn(),
+  chatStop: vi.fn(),
   chatAttachedSizes: vi.fn(),
   writeClipboardText: vi.fn(),
 }));
@@ -29,7 +29,7 @@ vi.mock("../../services/tauri", () => ({
   chatDelete: vi.fn(),
   chatRenderReply: mocks.chatRenderReply,
   chatSend: mocks.chatSend,
-  chatCancel: mocks.chatCancel,
+  chatStop: mocks.chatStop,
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn(),
 }));
@@ -41,6 +41,17 @@ vi.mock("../../services/clipboard", () => ({
 import ChatTranscript from "../../components/Chat/ChatTranscript";
 import { chatStore } from "../../stores/global/chat";
 import type { ChatConversation } from "../../services/tauri";
+
+/** The id the last send on that conversation was minted with. Every frame of
+ * an exchange carries it, and a frame that does not is a leftover. */
+function rid(id: string): string {
+  const calls = mocks.chatSend.mock.calls as unknown[][];
+  for (let index = calls.length - 1; index >= 0; index -= 1) {
+    if (calls[index][0] === id) return calls[index][4] as string;
+  }
+  return "no-such-request";
+}
+
 
 function conversation(id: string): ChatConversation {
   return {
@@ -70,7 +81,12 @@ afterEach(() => {
 });
 
 function chunk(text: string) {
-  chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text });
+  chatStore.handleStreamEvent({
+    conversation_id: "c1",
+    request_id: rid("c1"),
+    kind: "chunk",
+    text,
+  });
 }
 
 async function flush() {
@@ -163,7 +179,12 @@ describe("a streaming reply", () => {
         },
       ],
     });
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
     chatStore.setDraft("and then");
     await chatStore.send();
