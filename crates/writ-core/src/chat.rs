@@ -1015,8 +1015,9 @@ fn is_placeholder_body(body: &str) -> bool {
 /// ambiguous: it is either the note's own code block ending or the proposal
 /// ending. It is read as the inner one when the rest of the reply allows it,
 /// meaning either a later bare fence long enough to close the proposal with
-/// nothing but whitespace after it to the end of the reply (that fence is the
-/// close), or nothing but whitespace after the ambiguous line itself (the
+/// nothing but whitespace after it to the end of the reply, and no block
+/// opened in between (that fence is the close), or nothing but whitespace
+/// after the ambiguous line itself (the
 /// block runs to the end of the text, inner fence included). When prose
 /// follows and no such fence does, neither reading can be trusted and the
 /// block is dropped rather than offered with a body that is wrong.
@@ -1054,8 +1055,15 @@ fn read_block(lines: &[&str], start: usize, fence: Fence) -> (Option<String>, us
 
 /// The last line from `from` on that could close `fence` with nothing but
 /// whitespace after it to the end of the reply.
+///
+/// The search stops at the next line that opens a proposal, so one block's
+/// recovery never reaches past a block that follows it and swallows both the
+/// next note's text and the proposal it was written as.
 fn last_close(lines: &[&str], from: usize, fence: Fence) -> Option<usize> {
-    (from..lines.len())
+    let limit = (from..lines.len())
+        .find(|index| open_proposal(lines[*index]).is_some())
+        .unwrap_or(lines.len());
+    (from..limit)
         .rev()
         .find(|index| closes_proposal(lines[*index], fence) && rest_is_blank(lines, index + 1))
 }

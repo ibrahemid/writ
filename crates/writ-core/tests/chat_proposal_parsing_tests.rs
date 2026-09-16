@@ -398,3 +398,30 @@ cargo run\n\
     );
     assert_eq!(proposal.summary, "Add the commands");
 }
+
+#[test]
+fn an_ambiguous_fence_never_reaches_past_the_block_that_follows_it() {
+    let context = vec![
+        note("Ideas/Launch.md", "The old text.\n"),
+        note("Ideas/Other.md", "The other old text.\n"),
+    ];
+    let reply = "```writ-proposal path=\"Ideas/Launch.md\"\n\
+```sh\n\
+cargo run\n\
+```\n\
+```writ-proposal path=\"Ideas/Other.md\"\n\
+The other note, whole.\n\
+```\n";
+
+    let parsed = parse_proposals(reply, &context);
+    assert_eq!(parsed.dropped.len(), 1);
+    assert_eq!(parsed.dropped[0].named, "Ideas/Launch.md");
+    assert_eq!(
+        parsed.dropped[0].reason,
+        DropReason::UnterminatedBlock,
+        "the recovery must not swallow the block that follows"
+    );
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(parsed.proposals[0].path, "Ideas/Other.md");
+    assert_eq!(parsed.proposals[0].new_content, "The other note, whole.\n");
+}
