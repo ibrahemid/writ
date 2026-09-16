@@ -698,7 +698,9 @@ const STREAM_FAILED: &str = "The model server ended the reply.";
 fn parse_sse_line(provider: Provider, line: &str) -> SseLine {
     match chat::parse_delta(provider, line) {
         writ_core::chat::Delta::Text(content) => SseLine::Chunk(content),
-        writ_core::chat::Delta::Done => SseLine::Done,
+        // A reply cut off at the token ceiling still ends the stream. The
+        // rewrite surface has nowhere to say so, so it takes what arrived.
+        writ_core::chat::Delta::Done | writ_core::chat::Delta::Truncated => SseLine::Done,
         writ_core::chat::Delta::Failed => SseLine::Failed,
         writ_core::chat::Delta::Ignore => SseLine::Ignore,
     }
@@ -1788,7 +1790,7 @@ mod tests {
         assert_eq!(prepared.endpoint, "https://api.anthropic.com/v1/messages");
         assert_eq!(prepared.provider, Provider::Anthropic);
         assert!(prepared.body["system"].as_str().is_some());
-        assert_eq!(prepared.body["max_tokens"], chat::ANTHROPIC_MAX_TOKENS);
+        assert_eq!(prepared.body["max_tokens"], chat::MAX_REPLY_TOKENS);
         assert_eq!(prepared.body["messages"][0]["role"], "user");
     }
 

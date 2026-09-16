@@ -20,6 +20,15 @@ const PROPOSED: [&str; 3] = [
     "The third proposed line.",
 ];
 
+/// One attached note by that path, which is all these assertions need.
+fn attached(path: &str) -> Vec<AttachedNote> {
+    vec![AttachedNote {
+        path: path.to_string(),
+        text: "old text\n".to_string(),
+        before_hash: "abc".to_string(),
+    }]
+}
+
 /// Feeds a fresh filter the given pieces in order and returns all it released.
 fn feed(pieces: &[&str]) -> String {
     let mut filter = ProposalFilter::new();
@@ -72,10 +81,10 @@ fn nothing_parse_proposals_reads_reaches_the_pane() {
         text: "old text\n".to_string(),
         before_hash: "abc".to_string(),
     }];
-    let proposals = parse_proposals(REPLY, &context);
-    assert_eq!(proposals.len(), 1);
+    let parsed = parse_proposals(REPLY, &context);
+    assert_eq!(parsed.proposals.len(), 1);
     let visible = feed(&[REPLY]);
-    for line in proposals[0].new_content.lines() {
+    for line in parsed.proposals[0].new_content.lines() {
         assert!(!visible.contains(line), "{line:?} reached the pane");
     }
 }
@@ -97,8 +106,49 @@ fn an_indented_proposal_is_withheld_and_an_indented_code_block_is_not() {
 
 #[test]
 fn a_backtick_run_that_is_not_a_fence_is_released() {
-    let reply = "Call `x` and read ``a`` then:\n\n```json\n{\"a\": 1}\n```\n\n````writ-proposal\nnot a fence\n````\n";
+    let reply = "Call `x` and read ``a`` then:\n\n```json\n{\"a\": 1}\n```\n\n``not a fence``\n";
     assert_eq!(every_split(reply), reply);
+}
+
+#[test]
+fn the_filter_and_the_parser_agree_on_a_four_backtick_fence() {
+    let reply = "Before.\n````writ-proposal path=\"A.md\"\nnew\n````\nAfter.\n";
+    assert_eq!(every_split(reply), "Before.\nAfter.\n");
+    assert_eq!(
+        parse_proposals(reply, &attached("A.md")).proposals.len(),
+        1,
+        "the filter withheld a block the parser must read"
+    );
+}
+
+#[test]
+fn the_filter_and_the_parser_agree_on_a_tilde_fence() {
+    let reply = "Before.\n~~~writ-proposal path=\"A.md\"\nnew\n~~~\nAfter.\n";
+    assert_eq!(every_split(reply), "Before.\nAfter.\n");
+    assert_eq!(parse_proposals(reply, &attached("A.md")).proposals.len(), 1);
+}
+
+#[test]
+fn the_filter_withholds_a_body_that_contains_a_fence() {
+    let reply = "Before.\n\
+````writ-proposal path=\"A.md\"\n\
+# A\n\
+```sh\n\
+cargo run\n\
+```\n\
+````\n\
+After.\n";
+    let visible = every_split(reply);
+    assert_eq!(visible, "Before.\nAfter.\n");
+    assert!(
+        !visible.contains("cargo run"),
+        "the note's code block leaked"
+    );
+    let parsed = parse_proposals(reply, &attached("A.md"));
+    assert_eq!(
+        parsed.proposals[0].new_content,
+        "# A\n```sh\ncargo run\n```\n"
+    );
 }
 
 #[test]
