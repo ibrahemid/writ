@@ -446,6 +446,18 @@ would have explained it was discarded. The following amend sections 1, 3 and 9 o
   names the model that was refused. The turn field is optional, so conversations written before
   it open unchanged.
 
+- **A request is identified by (conversation, request id).** The frontend mints the id, as it
+  already does for `ai_rewrite`, and every `writ://ai-chat` frame carries it. A frame whose pair
+  does not match what the pane is showing is dropped, so switching conversations mid-reply never
+  crosses two streams, and Stop cancels one request rather than whatever is live under an id.
+
+- **Applying a proposal reports what it did.** The parser widens to the fences models actually
+  write and resolves the path it was given against the notes the request attached; proposals it
+  could not place are named on the `done` frame with the reason, instead of disappearing. A write
+  whose bytes match what the note already holds reports `changed: false` and the card says so,
+  and the apply itself records the new disk state and tells an open note it changed, so the
+  editor does not read the write back as an external edit.
+
 ## Consequences
 
 **Callers.** `AiConfig` changes shape; every reader of `ai.preset`, `ai.enabled`, `ai.chat.provider`
