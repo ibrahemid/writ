@@ -58,8 +58,8 @@ const p = release.platforms;
       <p>Nearby notes draws the ones linked around the note you have open. Graph view draws the whole folder, and tags sit in the sidebar.</p>
     </Feature>
 
-    <Feature id="programs" title="Programs" capture="chat" alt="The chat pane beside a note, the attached notes listed at the top and a proposed edit shown next to the text" flip>
-      <p>Writ ships an MCP server, off by default: approve each program by name, reading and writing separately, and every call is listed in the Activity panel without the note's text. The chat pane, also off by default, sends only the notes you attach and returns edits as proposals you apply or discard.</p>
+    <Feature id="programs" title="Programs" capture="chat" loop="chat" alt="The chat pane beside a note: the attached notes as chips, a rendered reply, and a proposed edit shown as a diff" flip>
+      <p>Writ ships an MCP server, off by default: approve each program by name, reading and writing separately, and every call is listed in the Activity panel without the note's text. The chat pane, also off by default, runs on a local model or your own key, sends only the notes you attach, and shows each edit it proposes as a diff you apply or discard.</p>
     </Feature>
 
     <Feature id="versions" title="Earlier versions" capture="versions" alt="The earlier versions of a note listed beside it, with Revert To on one of them">

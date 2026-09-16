@@ -22,6 +22,10 @@
 # Every key and click waits until this instance is the frontmost app and the
 # machine has been idle for 45 s; the run refuses to start while any other
 # Writ process exists.
+#
+# The chat scene also records its window while the pane is driven and encodes
+# the take to site/public/media/chat-<theme>.mp4 and .webm, the pair
+# Loop.astro plays with the still as the poster.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -71,7 +75,7 @@ while [ $# -gt 0 ]; do
       case "$2" in 1280x800|1440x900) SIZE="$2"; SIZE_GIVEN=1 ;; *) echo "--size takes 1280x800 or 1440x900" >&2; exit 2 ;; esac
       shift 2 ;;
     --no-build) NO_BUILD=1; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
     *) echo "unknown flag $1" >&2; exit 2 ;;
   esac
 done
@@ -93,6 +97,10 @@ log() { printf '%s  %s\n' "$(date +%H:%M:%S)" "$*"; }
 APP_PID=""
 DEV_PID=""
 STUB_PID=""
+REC_PID=""
+REC_T_STOP=0
+REC_T_OPEN=0
+REC_T_END=0
 FINDER_WINDOW=""
 PATH_BAR_HIDDEN=0
 SYSTEM_DARK_BEFORE=""
@@ -100,6 +108,7 @@ CAPTURED=()
 
 cleanup() {
   local status=$?
+  record_stop || true
   quit_app || true
   stop_stub || true
   close_finder || true
@@ -111,7 +120,7 @@ cleanup() {
 trap cleanup EXIT
 
 preflight() {
-  for tool in cargo node sqlite3 swiftc screencapture osascript shasum; do
+  for tool in cargo node sqlite3 swiftc screencapture ffmpeg ffprobe osascript shasum; do
     command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 1; }
   done
   case "$WORK" in
@@ -320,6 +329,13 @@ begin() {
 
 quit_app() {
   if [ -n "$APP_PID" ]; then
+    # A signal leaves the session unfinished, and the next launch reopens the
+    # tab marked recovered; the menu quit closes it.
+    CAPTURE_WAIT_LIMIT=20 "$DRIVE" key "$APP_PID" q cmd || true
+    for _ in $(seq 1 20); do
+      kill -0 "$APP_PID" 2>/dev/null || break
+      sleep 0.5
+    done
     kill "$APP_PID" 2>/dev/null || true
     wait "$APP_PID" 2>/dev/null || true
     APP_PID=""
@@ -336,6 +352,27 @@ quit_app() {
 key() { "$DRIVE" key "$APP_PID" "$@"; }
 typetext() { "$DRIVE" type "$APP_PID" "$1"; }
 window_bounds() { "$DRIVE" windows "$APP_PID" | head -1 | cut -f2; }
+
+# wait_for_element <role> <name> <seconds>: the element's "x y w h", once it
+# is on screen.
+wait_for_element() {
+  local role=$1 name=$2 limit=$3 rect
+  for _ in $(seq 1 $(( limit * 2 ))); do
+    if rect=$("$DRIVE" find "$APP_PID" "$role" "$name" 2>/dev/null); then
+      printf '%s\n' "$rect"
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+click_element() {
+  local rect=$1 x y w h
+  [ -n "$rect" ] || { echo "click_element: no rect" >&2; exit 1; }
+  read -r x y w h <<<"$rect"
+  "$DRIVE" click "$APP_PID" $(( x + w / 2 )) $(( y + h / 2 ))
+}
 
 open_note() {
   key o cmd,shift; sleep 0.5
@@ -420,6 +457,79 @@ start_stub() {
 }
 stop_stub() {
   if [ -n "$STUB_PID" ]; then kill "$STUB_PID" 2>/dev/null || true; STUB_PID=""; fi
+}
+
+# ------------------------------------------------------------- recording ----
+
+now() { python3 -c 'import time; print(time.time())'; }
+
+# record_start <file>: the window, until record_stop. The file is written
+# when screencapture exits; -V 90 is the ceiling for a stop it does not take.
+record_start() {
+  local file=$1 bounds x y w h
+  bounds=$(window_bounds)
+  [ -n "$bounds" ] || { echo "record_start: no window" >&2; exit 1; }
+  read -r x y w h <<<"$bounds"
+  screencapture -v -x -R "$x,$y,$w,$h" -V 90 "$file" &
+  REC_PID=$!
+  sleep 1.5
+}
+
+# The take's clock runs backwards from the moment the recording stopped, so
+# the markers do not depend on how long screencapture took to start.
+record_stop() {
+  [ -n "$REC_PID" ] || return 0
+  kill -INT "$REC_PID" 2>/dev/null || true
+  wait "$REC_PID" 2>/dev/null || true
+  REC_PID=""
+  REC_T_STOP=$(now)
+}
+
+MP4_LIMIT=1258291
+WEBM_LIMIT=838860
+
+seconds_of() { ffprobe -v error -show_entries format=duration -of csv=p=0 "$1"; }
+
+# encode_loop <mov> <name>: the take cut to the markers, as the mp4 and webm
+# pair the site plays.
+encode_loop() {
+  local mov=$1 name=$2 dir logfile point length taken crf size try
+  dir="$ROOT/site/public/media"
+  logfile="$WORK/encode-$name.log"
+  mkdir -p "$dir"
+  : >"$logfile"
+  taken=$(seconds_of "$mov")
+  if [ "$(python3 -c "print(1 if $REC_T_END > $REC_T_STOP + 0.2 else 0)")" = 1 ]; then
+    echo "$name: the recording ended before the take did (${taken}s on disk)" >&2
+    exit 1
+  fi
+  read -r point length <<<"$(python3 -c "s = $REC_T_STOP - $taken; i = max(0.0, $REC_T_OPEN - s - 0.6); o = $REC_T_END - s; print('%.3f %.3f' % (i, max(0.1, o - i)))")"
+
+  crf=24
+  for try in 1 2 3; do
+    ffmpeg -y -ss "$point" -i "$mov" -t "$length" -an \
+      -vf "scale=1320:-2:flags=lanczos,fps=30" \
+      -c:v libx264 -preset slow -crf "$crf" -pix_fmt yuv420p -movflags +faststart \
+      "$dir/$name.mp4" >>"$logfile" 2>&1
+    size=$(stat -f%z "$dir/$name.mp4")
+    [ "$size" -le "$MP4_LIMIT" ] && break
+    [ "$try" -eq 3 ] && { echo "$name.mp4 is $size bytes at crf $crf, over $MP4_LIMIT; see $logfile" >&2; exit 1; }
+    crf=$(( crf + 4 ))
+  done
+  log "$name: mp4 $(( size / 1024 )) KB at crf $crf, $(seconds_of "$dir/$name.mp4")s of ${length}s"
+
+  crf=36
+  for try in 1 2 3; do
+    ffmpeg -y -ss "$point" -i "$mov" -t "$length" -an \
+      -vf "scale=1320:-2:flags=lanczos,fps=30" \
+      -c:v libvpx-vp9 -b:v 0 -crf "$crf" -row-mt 1 \
+      "$dir/$name.webm" >>"$logfile" 2>&1
+    size=$(stat -f%z "$dir/$name.webm")
+    [ "$size" -le "$WEBM_LIMIT" ] && break
+    [ "$try" -eq 3 ] && { echo "$name.webm is $size bytes at crf $crf, over $WEBM_LIMIT; see $logfile" >&2; exit 1; }
+    crf=$(( crf + 4 ))
+  done
+  log "$name: webm $(( size / 1024 )) KB at crf $crf, $(seconds_of "$dir/$name.webm")s of ${length}s"
 }
 
 # ---------------------------------------------------------------- finder ----
@@ -549,34 +659,59 @@ scene_preview_rich() {
 }
 
 scene_chat() {
+  local config theme bounds x y w h composer apply
   reset_state
-  EXTRA_CONFIG="
+  config="
 [ai]
-enabled = true
-preset = \"custom\"
+provider = \"custom\"
 base_url = \"http://127.0.0.1:$STUB_PORT/v1\"
 model = \"local-model\"
+consented_hosts = []
+
+[ai.rewrite]
+enabled = false
 
 [ai.chat]
 enabled = true
-provider = \"openai_compatible\"
-base_url = \"http://127.0.0.1:$STUB_PORT/v1\"
-model = \"local-model\"
+model = \"\"
 "
   start_stub
-  begin chat
-  open_note "Birthday ideas"
-  run_command "Chat"
-  sleep 1
-  local bounds x y w h
-  bounds=$(window_bounds); read -r x y w h <<<"$bounds"
-  "$DRIVE" click "$APP_PID" $(( x + w - 190 )) $(( y + h - 64 ))
-  sleep 0.4
-  typetext "Can you sort these so the cheap ones come first?"
-  key return
-  sleep 3
-  shoot chat
-  quit_app
+  for theme in $THEMES; do
+    reset_state
+    EXTRA_CONFIG="$config"
+    POLARITY="$theme"
+    begin chat
+    open_note "Birthday ideas"
+    bounds=$(window_bounds); read -r x y w h <<<"$bounds"
+    "$DRIVE" click "$APP_PID" $(( x + w / 2 )) $(( y + h / 2 ))
+    sleep 0.5
+    record_start "$WORK/chat-$theme.mov"
+    REC_T_OPEN=$(now)
+    key a cmd,shift
+    if ! composer=$(wait_for_element AXTextArea Message 10); then
+      key a cmd,shift
+      composer=$(wait_for_element AXTextArea Message 10) \
+        || { echo "the chat pane did not open" >&2; exit 1; }
+    fi
+    click_element "$composer"
+    typetext "@Sour"
+    sleep 0.8
+    key return
+    sleep 0.6
+    typetext "Can you sort these so the cheap ones come first?"
+    sleep 0.5
+    key return
+    apply=$(wait_for_element AXButton Apply 30) \
+      || { echo "no proposal arrived, see $WORK/stub.log" >&2; exit 1; }
+    sleep 1.2
+    capture_window "$OUT/chat-$theme.png"
+    click_element "$apply"
+    sleep 2.5
+    REC_T_END=$(now)
+    record_stop
+    quit_app
+    encode_loop "$WORK/chat-$theme.mov" "chat-$theme"
+  done
   stop_stub
 }
 

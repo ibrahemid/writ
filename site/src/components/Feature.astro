@@ -1,16 +1,19 @@
 ---
 import Capture from './Capture.astro';
+import Loop from './Loop.astro';
 
 interface Props {
   id: string;
   title: string;
   capture: string;
   alt: string;
+  /** Media stem under public/media; the capture is its poster. */
+  loop?: string;
   /** Media on the left, text on the right. */
   flip?: boolean;
 }
 
-const { id, title, capture, alt, flip = false } = Astro.props;
+const { id, title, capture, alt, loop, flip = false } = Astro.props;
 ---
 <section class:list={['feature', { 'is-flip': flip }]} id={id}>
   <div class="wrap feature-grid">
@@ -18,6 +21,8 @@ const { id, title, capture, alt, flip = false } = Astro.props;
       <h2>{title}</h2>
       <slot />
     </div>
-    <Capture name={capture} alt={alt} sizes="(max-width: 880px) 100vw, 660px" />
+    {loop
+      ? <Loop name={loop} poster={capture} alt={alt} />
+      : <Capture name={capture} alt={alt} sizes="(max-width: 880px) 100vw, 660px" />}
   </div>
 </section>

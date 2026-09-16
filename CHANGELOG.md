@@ -24,7 +24,10 @@ Notes link to each other, and Writ reads the folder to show what connects them. 
 - Save state per note: the status bar says saved only while the text matches the file, and a save that fails shows a bar under the note with the cause in a plain sentence.
 - An MCP server, `writ mcp`, that another program starts over stdio. Reads: list, search, read, links, backlinks, properties, tags. Writes, under a separate permission: write, create and rename. It is off until enabled, and every client is refused until it is approved in Settings. It refuses a write that would overwrite a newer file when the client passes the hash it read. Nothing in it deletes a note. It opens no port and makes no request of its own.
 - Connected programs in Settings, with read and write switches per client and a Forget control, and an Activity panel listing every call: time, client, tool, note, decision and byte count. The log holds no note text, prompts, replies or keys.
-- A chat pane, off by default, that talks to a local model or a hosted endpoint with an API key. Only attached notes are sent; the send dialog names the host and the bytes first. Every edit the model suggests arrives as a proposal beside the current text with Apply and Discard, and a note that changed since the proposal refuses the apply and leaves a conflict copy.
+- A chat pane, off by default, on Cmd+Shift+A and in the View menu. It opens beside the note with that note attached, and `@` in the message attaches any other note. Only attached notes are sent; the send dialog names the host and the bytes first. Replies render as Markdown with a copy button on each code block, and a thinking state shows before the first word. A proposed edit shows as a line diff with Apply and Discard, never as two full texts; a note that changed since the proposal refuses the apply and leaves a conflict copy.
+- Conversations are kept. Each chat is a file under the data folder, saved after every message, and the pane lists them by recency, reopens the last one, and can rename or delete one. The file holds no key and no note text. Stop ends a reply and keeps what arrived, Retry resends after an error, editing an earlier message resends from there, and the message box has a model picker for chat alone.
+- One AI connection. Settings, AI holds one provider, one key and one model, and rewriting and chat both use it. On this machine: Ollama and LM Studio, found when they are running, no key needed. With a key: Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together and Fireworks, each with a link to where its key is issued. Any other OpenAI-compatible endpoint by URL. The model list is fetched from the provider, and Check reports whether the host answers without showing its error text.
+- OpenRouter can connect from a button. The browser opens, you approve, and the key lands in the keychain. Writ listens on this machine for that one answer and on nothing at any other time.
 
 ### Changed
 
@@ -38,6 +41,8 @@ Notes link to each other, and Writ reads the folder to show what connects them. 
 - Settings rows are named in plain words and grouped by what people look for: Notes folder first, the data folder, watched folder and preview limits under Advanced. The sidebar search field says what it searches, and the history section is Recently closed.
 - Delete Line moves to Cmd+Shift+K and Replace to Cmd+Option+F, freeing the chords macOS claims. Cmd+Option+S joins Cmd+\ for the sidebar. The preview split swap is Cmd+Shift+H.
 - Choosing a light or dark preset pins that side; the System option in Settings is the way back to following the OS.
+- The settings section "AI rewriting" is now "AI": one connection block, then the switches "Rewrite selected text" and "Chat about your notes", each row with a line saying what it does. An existing rewrite or chat setup carries over, and a key that either feature stored now serves both.
+- Rewriting speaks to Anthropic as well as to OpenAI-compatible hosts, so every provider serves both features.
 
 ### Fixed
 

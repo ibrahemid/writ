@@ -28,7 +28,7 @@ Output: `site/src/assets/captures/<scene>-<theme>.png`, at most 2880 px wide and
 | `graph-local` | Nearby notes in the Connections panel | 1280x800 |
 | `search` | Search everywhere with matches across several notes | 1280x800 |
 | `preview-rich` | Source beside the rendered note: a callout, a table, a Mermaid diagram, display math | 1280x800 |
-| `chat` | The chat pane beside a note with a proposed change shown next to the text; the host is a stub on localhost | 1280x800 |
+| `chat` | The chat pane beside Birthday ideas with the note attached, Sourdough notes attached by `@`, the rendered reply and the proposed edit as a diff; the host is a stub on localhost | 1280x800 |
 | `versions` | Earlier versions of a note, the Revert To… panel | 1280x800 |
 | `activity` | The Activity panel: what an approved program did with the notes, no note text | 1280x800 |
 | `settings-appearance` | Settings, Appearance: light and dark, the six accents, interface text size | 1280x800 |
@@ -42,4 +42,6 @@ Sixteen notes a person might keep: a trip, a reading list, two recipes, three we
 
 ## Recordings
 
-Deferred to the announcement week: the hero loop (`summon`), the find band, the inbox and themes loops, and the Obsidian side-by-side. `Loop.astro` already plays `site/public/media/<name>-{light,dark}.{webm,mp4}` on scroll with the still as the poster, so a loop lands by dropping the files in. Encode targets from the design standard: hero mp4 under 1.2 MB, webm under 0.8 MB, poster under 60 KB. They come from the same harness with a recording step, not from a hand-held take.
+`scripts/capture/run.sh --scene chat` records its window while the pane is driven, once per theme, and writes `site/public/media/chat-{light,dark}.{mp4,webm}`. `Loop.astro` plays the pair on scroll with the scene's own still as the poster (`<Loop name="chat" poster="chat" />`). The take is cut to the pane's life, scaled to 1320 px wide at 30 fps, and encoded to mp4 under 1.2 MB and webm under 0.8 MB; over that the run re-encodes at a higher crf, three tries, then stops. Waiting for the pane and for the Apply button goes through the driver's accessibility lookup, `drive find <pid> <role> <name>`, rather than a fixed sleep.
+
+Still deferred to the announcement week: the hero loop (`summon`), the find band, the inbox and themes loops, and the Obsidian side-by-side. They come from the same harness, not from a hand-held take, and land by dropping the files in.

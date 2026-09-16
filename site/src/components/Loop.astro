@@ -1,0 +1,65 @@
+---
+import { getImage } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+  /** File stem under public/media, without the `-light.mp4` / `-light.webm` suffix. */
+  name: string;
+  /** File stem under src/assets/captures, without the `-light.png` suffix. */
+  poster: string;
+  alt: string;
+  class?: string;
+}
+
+const { name, poster, alt, class: cls = 'window' } = Astro.props;
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const all = import.meta.glob<ImageMetadata>('/src/assets/captures/*-light.png', { eager: true, import: 'default' });
+const src = Object.entries(all).find(([p]) => p.endsWith(`/${poster}-light.png`))?.[1];
+const still = src ? await getImage({ src, format: 'webp', width: 1320 }) : undefined;
+---
+{still ? (
+  <figure class={cls}>
+    <video muted loop playsinline preload="none" poster={still.src} aria-label={alt} tabindex="0" data-loop>
+      <source src={`${base}/media/${name}-light.webm`} type="video/webm" />
+      <source src={`${base}/media/${name}-light.mp4`} type="video/mp4" />
+      <p>{alt}</p>
+    </video>
+  </figure>
+) : (
+  <figure class:list={[cls, 'owed']} role="img" aria-label={alt} data-capture={poster}></figure>
+)}
+
+<script>
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduced) {
+    const seen = new WeakSet<HTMLVideoElement>();
+    const watcher = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const video = entry.target as HTMLVideoElement;
+        if (!entry.isIntersecting) {
+          video.pause();
+          continue;
+        }
+        if (!seen.has(video)) {
+          seen.add(video);
+          video.load();
+        }
+        void video.play().catch(() => {});
+      }
+    });
+    const toggle = (video: HTMLVideoElement) => {
+      if (video.paused) void video.play().catch(() => {});
+      else video.pause();
+    };
+    for (const video of document.querySelectorAll<HTMLVideoElement>('video[data-loop]')) {
+      watcher.observe(video);
+      video.addEventListener('click', () => toggle(video));
+      video.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        toggle(video);
+      });
+    }
+  }
+</script>
