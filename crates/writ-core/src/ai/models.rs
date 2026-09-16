@@ -93,6 +93,79 @@ impl std::fmt::Display for ModelListError {
 
 impl std::error::Error for ModelListError {}
 
+/// Where the ids in a [`ModelCatalog`] came from.
+///
+/// The distinction is what a send may be judged against: only `Live` is the
+/// account's own inventory, so only `Live` can say a model does not exist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogSource {
+    /// Read from the provider, for this key.
+    Live,
+    /// The provider table's suggestions, because the list could not be read.
+    Curated,
+    /// Neither: the row carries no suggestions and nothing answered.
+    None,
+}
+
+/// The models on offer for one provider, stamped with the provider they were
+/// read for.
+///
+/// The stamp is the point: a list answered for one provider must not survive a
+/// change of provider, and an answer that arrives after the change is dropped
+/// by comparing this field rather than by hoping the requests stay in order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ModelCatalog {
+    /// The provider id this list describes.
+    pub provider: String,
+    /// The ids on offer, in the order the picker shows them.
+    pub models: Vec<String>,
+    /// Whether the ids are the provider's own or the table's suggestions.
+    pub source: CatalogSource,
+    /// Why the provider's own list could not be read, when it could not.
+    pub error: Option<ModelListError>,
+}
+
+impl ModelCatalog {
+    /// What the provider itself listed.
+    pub fn live(provider: &str, models: Vec<String>) -> Self {
+        Self {
+            provider: provider.to_string(),
+            models,
+            source: CatalogSource::Live,
+            error: None,
+        }
+    }
+
+    /// The table's suggestions, and the failure that made them the answer.
+    ///
+    /// A row with no suggestions answers `None` rather than an empty `Curated`
+    /// list, so "nothing to offer" and "offering guesses" stay apart.
+    pub fn fallback(provider: &str, error: ModelListError) -> Self {
+        let curated: Vec<String> = super::providers::provider(provider)
+            .map(|row| row.curated_models.iter().map(|id| id.to_string()).collect())
+            .unwrap_or_default();
+        let source = if curated.is_empty() {
+            CatalogSource::None
+        } else {
+            CatalogSource::Curated
+        };
+        Self {
+            provider: provider.to_string(),
+            models: curated,
+            source,
+            error: Some(error),
+        }
+    }
+
+    /// Whether `model` can be judged against this catalog and is absent from
+    /// it. Only a live list is the account's inventory; suggestions decide
+    /// nothing.
+    pub fn refuses(&self, model: &str) -> bool {
+        self.source == CatalogSource::Live && !self.models.iter().any(|id| id == model)
+    }
+}
+
 /// One page of Anthropic's model list, with the cursor for the next one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnthropicPage {
@@ -468,6 +541,53 @@ mod tests {
                 "a".to_string(),
                 "b".to_string()
             ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+
+    #[test]
+    fn a_failed_list_falls_back_to_the_table_and_keeps_the_reason() {
+        let catalog = ModelCatalog::fallback("deepseek", ModelListError::Unauthorized);
+        assert_eq!(catalog.provider, "deepseek");
+        assert_eq!(catalog.source, CatalogSource::Curated);
+        assert_eq!(catalog.models, ["deepseek-chat", "deepseek-reasoner"]);
+        assert_eq!(catalog.error, Some(ModelListError::Unauthorized));
+
+        // A row with nothing to suggest says so rather than offering an empty
+        // list of guesses.
+        let nothing = ModelCatalog::fallback("custom", ModelListError::Unreachable);
+        assert_eq!(nothing.source, CatalogSource::None);
+        assert!(nothing.models.is_empty());
+    }
+
+    #[test]
+    fn only_a_live_list_can_refuse_a_model() {
+        let live = ModelCatalog::live("ollama", vec!["qwen3:4b".to_string()]);
+        assert!(live.refuses("deepseek-chat"));
+        assert!(!live.refuses("qwen3:4b"));
+
+        // Suggestions are not the account's inventory, so they decide nothing.
+        let curated = ModelCatalog::fallback("deepseek", ModelListError::Timeout);
+        assert!(!curated.refuses("a-model-nobody-listed"));
+    }
+
+    #[test]
+    fn the_source_serialises_as_the_ipc_strings() {
+        assert_eq!(
+            serde_json::to_string(&CatalogSource::Live).unwrap(),
+            "\"live\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CatalogSource::Curated).unwrap(),
+            "\"curated\""
+        );
+        assert_eq!(
+            serde_json::to_string(&CatalogSource::None).unwrap(),
+            "\"none\""
         );
     }
 }

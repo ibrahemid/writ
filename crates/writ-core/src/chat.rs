@@ -137,6 +137,107 @@ pub struct Proposal {
     pub hunks: Vec<crate::diff::Hunk>,
 }
 
+/// A reason a provider gave for refusing a request, when it is one of the six
+/// Writ has a sentence for.
+///
+/// The enum is the whole of what may be taken out of a refusal body. Nothing
+/// carries the provider's own words, so "no response text is shown, stored or
+/// logged" is a property of the type rather than a habit of its callers
+/// (ADR-031 rule 5.2, narrowed by the ADR-040 amendment of 2026-09-17).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RejectCode {
+    /// The model id is not one the provider serves.
+    ModelNotFound,
+    /// The request was not accepted as written.
+    InvalidRequest,
+    /// The key was refused.
+    InvalidApiKey,
+    /// The account has no credit left.
+    InsufficientQuota,
+    /// Too many requests, too quickly.
+    RateLimited,
+    /// The conversation is longer than the model takes.
+    ContextLengthExceeded,
+}
+
+impl RejectCode {
+    /// The clause Writ writes for this reason, in Writ's words.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::ModelNotFound => "the model does not exist",
+            Self::InvalidRequest => "the request was not accepted",
+            Self::InvalidApiKey => "the API key was not accepted",
+            Self::InsufficientQuota => "the account is out of credit",
+            Self::RateLimited => "too many requests were sent",
+            Self::ContextLengthExceeded => "the conversation is too long",
+        }
+    }
+
+    /// The reason a token names, or `None` when it is not on the allowlist.
+    fn from_token(token: &str) -> Option<Self> {
+        match token {
+            "model_not_found" | "not_found_error" => Some(Self::ModelNotFound),
+            "invalid_request_error" | "invalid_request" => Some(Self::InvalidRequest),
+            "invalid_api_key" | "authentication_error" => Some(Self::InvalidApiKey),
+            "insufficient_quota" => Some(Self::InsufficientQuota),
+            "rate_limit_exceeded" | "rate_limit_error" => Some(Self::RateLimited),
+            "context_length_exceeded" => Some(Self::ContextLengthExceeded),
+            _ => None,
+        }
+    }
+}
+
+/// Reads the reason out of a refusal envelope.
+///
+/// Both shapes carry it under `error`: OpenAI-compatible hosts in `code` with
+/// the family in `type`, Anthropic in `type` alone. The narrower field is read
+/// first. Everything else in the body, the provider's own sentence included,
+/// is never looked at.
+pub fn parse_reject_code(body: &str) -> Option<RejectCode> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let error = value.get("error")?;
+    ["code", "type"]
+        .into_iter()
+        .filter_map(|field| error.get(field)?.as_str())
+        .find_map(RejectCode::from_token)
+}
+
+/// The label the provider table gives an id, or the id when it is not ours.
+fn provider_label(id: &str) -> &str {
+    crate::ai::providers::provider(id)
+        .map(|row| row.label)
+        .unwrap_or(id)
+}
+
+/// The sentence a refusal reads as. Writ's words around a status and, when the
+/// allowlist matched, one clause naming the reason.
+fn reject_sentence(provider: &str, status: u16, code: Option<RejectCode>) -> String {
+    let label = provider_label(provider);
+    match code {
+        Some(code) => format!(
+            "{label} rejected the request ({status}): {}.",
+            code.reason()
+        ),
+        None => format!("{label} rejected the request ({status})."),
+    }
+}
+
+/// Who a request was sent as: the connection it was frozen from.
+///
+/// Captured once when the request is built and carried on every frame it
+/// produces, so a reply and a refusal both name the model that answered rather
+/// than whatever the config says by the time they land.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestIdentity {
+    /// The provider id the request went to.
+    pub provider: String,
+    /// The model id that was sent.
+    pub model: String,
+    /// The host it was sent to.
+    pub host: String,
+}
+
 /// Reasons a chat request is refused before any network call.
 ///
 /// Every variant carries the text the user reads, so the wording lives beside
@@ -174,6 +275,39 @@ pub enum ChatError {
     /// The message had no text in it.
     #[error("there is nothing to send")]
     EmptyMessage,
+    /// The local runtime the connection points at is not answering.
+    #[error("{} is not running at {host_port}.", provider_label(runtime))]
+    LocalServerOffline {
+        /// The provider id whose label names the runtime.
+        runtime: String,
+        /// Where it was expected to answer.
+        host_port: String,
+    },
+    /// The provider's own list came back empty, so there is nothing to send.
+    #[error("{} listed no models.", provider_label(provider))]
+    EmptyModelList {
+        /// The provider id that listed nothing.
+        provider: String,
+    },
+    /// The chosen model is not in the list the provider answered for this
+    /// account.
+    #[error("{model} is not available on {}.", provider_label(provider))]
+    ModelUnavailable {
+        /// The model id that would have been sent.
+        model: String,
+        /// The provider id that does not list it.
+        provider: String,
+    },
+    /// The provider answered a non-2xx status.
+    #[error("{}", reject_sentence(provider, *status, *code))]
+    ProviderRejected {
+        /// The provider id that refused.
+        provider: String,
+        /// The HTTP status it answered.
+        status: u16,
+        /// The reason it named, when that reason is on the allowlist.
+        code: Option<RejectCode>,
+    },
 }
 
 impl From<crate::polish::PolishError> for ChatError {
@@ -623,6 +757,10 @@ pub struct StoredTurn {
     /// The changes an assistant turn asked for.
     #[serde(default)]
     pub proposals: Vec<StoredProposal>,
+    /// Which connection answered, for an assistant turn. Absent in files
+    /// written before the field existed, and on every user turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<RequestIdentity>,
 }
 
 /// An attached note, named rather than copied.
@@ -708,17 +846,25 @@ impl Conversation {
             content,
             attachments,
             proposals: Vec::new(),
+            identity: None,
         });
         self.updated_at = now;
     }
 
     /// Appends an assistant turn and the proposals it carried.
-    pub fn push_assistant(&mut self, content: String, proposals: Vec<StoredProposal>, now: String) {
+    pub fn push_assistant(
+        &mut self,
+        content: String,
+        proposals: Vec<StoredProposal>,
+        identity: Option<RequestIdentity>,
+        now: String,
+    ) {
         self.turns.push(StoredTurn {
             role: Role::Assistant,
             content,
             attachments: Vec::new(),
             proposals,
+            identity,
         });
         self.updated_at = now;
     }
@@ -787,6 +933,120 @@ fn attribute(info: &str, name: &str) -> Option<String> {
     let rest = &info[start..];
     let end = rest.find('"')?;
     Some(rest[..end].to_string())
+}
+
+#[cfg(test)]
+mod reject_tests {
+    use super::*;
+
+    #[test]
+    fn the_openai_envelope_is_read_from_its_code_then_its_type() {
+        // OpenAI names the model failure in `code` and the family in `type`;
+        // the narrower field wins.
+        assert_eq!(
+            parse_reject_code(
+                r#"{"error":{"message":"The model does not exist","type":"invalid_request_error","code":"model_not_found"}}"#
+            ),
+            Some(RejectCode::ModelNotFound)
+        );
+        // DeepSeek answers the same shape with the family in both fields.
+        assert_eq!(
+            parse_reject_code(
+                r#"{"error":{"message":"Model Not Exist","type":"invalid_request_error","code":"invalid_request_error"}}"#
+            ),
+            Some(RejectCode::InvalidRequest)
+        );
+        assert_eq!(
+            parse_reject_code(r#"{"error":{"code":"insufficient_quota"}}"#),
+            Some(RejectCode::InsufficientQuota)
+        );
+        assert_eq!(
+            parse_reject_code(r#"{"error":{"code":"context_length_exceeded"}}"#),
+            Some(RejectCode::ContextLengthExceeded)
+        );
+    }
+
+    #[test]
+    fn the_anthropic_envelope_is_read_from_its_type() {
+        assert_eq!(
+            parse_reject_code(
+                r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#
+            ),
+            Some(RejectCode::InvalidApiKey)
+        );
+        assert_eq!(
+            parse_reject_code(
+                r#"{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}"#
+            ),
+            Some(RejectCode::RateLimited)
+        );
+        assert_eq!(
+            parse_reject_code(
+                r#"{"type":"error","error":{"type":"not_found_error","message":"model: nope"}}"#
+            ),
+            Some(RejectCode::ModelNotFound)
+        );
+    }
+
+    #[test]
+    fn anything_else_is_no_code_at_all() {
+        // A word nobody allowed, a body that is not JSON, an envelope without
+        // an error, and an empty body all answer the same: the status is the
+        // whole of what may be said.
+        for body in [
+            r#"{"error":{"code":"teapot","message":"ZZ-server-text"}}"#,
+            "not json at all",
+            r#"{"ok":true}"#,
+            "",
+        ] {
+            assert_eq!(parse_reject_code(body), None, "{body}");
+        }
+    }
+
+    #[test]
+    fn a_rejection_reads_as_writs_own_sentence() {
+        let refused = ChatError::ProviderRejected {
+            provider: "deepseek".to_string(),
+            status: 400,
+            code: Some(RejectCode::ModelNotFound),
+        };
+        assert_eq!(
+            refused.to_string(),
+            "DeepSeek rejected the request (400): the model does not exist."
+        );
+
+        // With no code in the allowlist the status stands alone.
+        let bare = ChatError::ProviderRejected {
+            provider: "deepseek".to_string(),
+            status: 503,
+            code: None,
+        };
+        assert_eq!(bare.to_string(), "DeepSeek rejected the request (503).");
+
+        assert_eq!(
+            ChatError::ModelUnavailable {
+                model: "qwen2.5-coder:0.5b".to_string(),
+                provider: "deepseek".to_string(),
+            }
+            .to_string(),
+            "qwen2.5-coder:0.5b is not available on DeepSeek."
+        );
+        assert_eq!(
+            ChatError::EmptyModelList {
+                provider: "lmstudio".to_string(),
+            }
+            .to_string(),
+            "LM Studio listed no models."
+        );
+        assert_eq!(
+            ChatError::LocalServerOffline {
+                runtime: "ollama".to_string(),
+                host_port: "localhost:11434".to_string(),
+            }
+            .to_string(),
+            "Ollama is not running at localhost:11434."
+        );
+    }
 }
 
 #[cfg(test)]

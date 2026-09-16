@@ -1065,7 +1065,7 @@ fn record_reply(store: &ChatStore, conversation_id: &str, shown: &str, proposals
     let stored: Vec<StoredProposal> = proposals.iter().map(StoredProposal::from).collect();
     let saved = store.load(conversation_id).and_then(|mut conversation| {
         if !shown.is_empty() || !stored.is_empty() {
-            conversation.push_assistant(shown.to_string(), stored, ChatStore::now());
+            conversation.push_assistant(shown.to_string(), stored, None, ChatStore::now());
         }
         store.save(&conversation)
     });
@@ -1812,6 +1812,7 @@ Tell me if that reads better.\n";
                 new_content: "one intro, folded\n".to_string(),
                 status: ProposalStatus::Pending,
             }],
+            None,
             ChatStore::now(),
         );
 
@@ -1861,6 +1862,7 @@ Tell me if that reads better.\n";
                 new_content: "one intro, folded\n".to_string(),
                 status: ProposalStatus::Applied,
             }],
+            None,
             ChatStore::now(),
         );
 

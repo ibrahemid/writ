@@ -117,6 +117,7 @@ fn a_saved_conversation_loads_back_as_it_was() {
             new_content: "Shorter.".to_string(),
             status: ProposalStatus::Pending,
         }],
+        None,
         "2026-09-15T10:02:00+00:00".to_string(),
     );
     store.save(&held).unwrap();
@@ -328,6 +329,7 @@ fn the_file_holds_no_note_text_and_no_key() {
             new_content: "Shorter.".to_string(),
             status: ProposalStatus::Applied,
         }],
+        None,
         "2026-09-15T10:02:00+00:00".to_string(),
     );
     store.save(&held).unwrap();

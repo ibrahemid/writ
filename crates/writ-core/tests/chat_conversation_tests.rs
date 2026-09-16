@@ -1,8 +1,8 @@
 //! The conversation document: what a chat file holds and how a turn changes it.
 
 use writ_core::chat::{
-    AttachmentRef, Conversation, Proposal, ProposalStatus, Role, StoredProposal, StoredTurn,
-    CONVERSATION_SCHEMA_VERSION, TITLE_MAX_CHARS,
+    AttachmentRef, Conversation, Proposal, ProposalStatus, RequestIdentity, Role, StoredProposal,
+    StoredTurn, CONVERSATION_SCHEMA_VERSION, TITLE_MAX_CHARS,
 };
 
 /// A conversation with nothing in it.
@@ -94,6 +94,7 @@ fn an_assistant_turn_carries_its_proposals_and_no_attachments() {
             new_content: "new text\n".to_string(),
             status: ProposalStatus::Pending,
         }],
+        None,
         "2026-09-15T10:03:00Z".to_string(),
     );
     assert_eq!(conversation.turns[0].role, Role::Assistant);
@@ -133,6 +134,7 @@ fn the_request_carries_roles_and_text_and_nothing_else() {
             new_content: "new\n".to_string(),
             status: ProposalStatus::Pending,
         }],
+        None,
         "t".to_string(),
     );
     let turns = conversation.request_turns();
@@ -156,6 +158,7 @@ fn a_proposal_status_is_set_by_turn_and_path() {
             new_content: "new\n".to_string(),
             status: ProposalStatus::Pending,
         }],
+        None,
         "t".to_string(),
     );
     assert!(conversation.set_proposal_status(
@@ -256,6 +259,7 @@ fn a_turn_holds_no_note_text() {
         content: "q".to_string(),
         attachments: vec![attachment("A.md")],
         proposals: Vec::new(),
+        identity: None,
     };
     let value: serde_json::Value = serde_json::to_value(&turn).expect("a turn serialises");
     let mut keys: Vec<&str> = value["attachments"][0]
@@ -266,4 +270,45 @@ fn a_turn_holds_no_note_text() {
         .collect();
     keys.sort_unstable();
     assert_eq!(keys, vec!["bytes", "hash", "path"]);
+}
+
+#[test]
+fn a_turn_written_before_the_identity_field_still_opens() {
+    // Every conversation on disk was written without it, and a file that
+    // stops opening is a conversation the person has lost.
+    let old = r#"{
+      "version": 1,
+      "id": "0b7d6b7a-1111-4b6a-9d5e-000000000001",
+      "title": "A chat",
+      "created_at": "2026-09-15T10:00:00Z",
+      "updated_at": "2026-09-15T10:01:00Z",
+      "provider": "ollama",
+      "model": "qwen3:4b",
+      "turns": [
+        { "role": "user", "content": "q" },
+        { "role": "assistant", "content": "a" }
+      ]
+    }"#;
+    let conversation: Conversation = serde_json::from_str(old).expect("an older file opens");
+    assert_eq!(conversation.turns.len(), 2);
+    assert!(conversation.turns[1].identity.is_none());
+
+    // And a turn that carries one round-trips.
+    let mut fresh = conversation.clone();
+    fresh.push_assistant(
+        "a".to_string(),
+        Vec::new(),
+        Some(RequestIdentity {
+            provider: "deepseek".to_string(),
+            model: "deepseek-chat".to_string(),
+            host: "api.deepseek.com".to_string(),
+        }),
+        "2026-09-15T10:02:00Z".to_string(),
+    );
+    let written = serde_json::to_string(&fresh).expect("write");
+    let back: Conversation = serde_json::from_str(&written).expect("read");
+    assert_eq!(
+        back.turns[2].identity.as_ref().unwrap().model,
+        "deepseek-chat"
+    );
 }
