@@ -43,8 +43,8 @@ import {
   type LocalProbe,
   type ModelListError,
 } from "../../stores/global/ai-connection";
-import { aiProvidersStore, type AiProviderInfo } from "../../stores/global/ai-providers";
-import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
+import { aiProvidersStore } from "../../stores/global/ai-providers";
+import { modelOptions, resolveAutoModel } from "../../stores/global/ai-models";
 import { linkStore } from "../../stores/global/link";
 import { notesStore } from "../../stores/global/notes";
 import type { NotesFallbackReason } from "../../stores/global/notes";
