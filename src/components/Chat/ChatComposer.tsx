@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
+import Tooltip from "../Tooltip/Tooltip";
 import MentionPopover, { MENTION_LIST_ID, mentionRowId } from "./MentionPopover";
 import ChatConnectionControl from "./ChatConnectionControl";
 import { linkStore } from "../../stores/global/link";
@@ -23,13 +24,14 @@ export function mentionQuery(text: string, caret: number): { query: string; star
   return { query: match[1], start: before.length - match[1].length - 1 };
 }
 
-/** What a chip's row says when the pointer rests on it: the whole key, and
- * for a note with unsaved text which of the two versions travels. */
+/** What a chip says when the pointer rests on it: the whole key, and for a
+ * note with unsaved text which of the two versions travels. */
 export function chipTitle(note: Attachment): string {
-  const lines = [note.key ?? note.path];
-  if (note.dirty) lines.push("Sends the saved version");
-  if (note.reason) lines.push(note.reason);
-  return lines.join("\n");
+  const key = note.key ?? note.path;
+  if (note.state === "unreadable") {
+    return note.reason ? `${key}: ${note.reason}` : `${key} could not be read.`;
+  }
+  return note.dirty ? `Sends the saved version of ${key}` : key;
 }
 
 /**
@@ -183,10 +185,11 @@ export default function ChatComposer(props: {
                       "is-unreadable": note.state === "unreadable",
                       "is-dirty": note.dirty === true,
                     }}
-                    title={chipTitle(note)}
                   >
                     <Icon name="file-text" size={12} />
-                    <span class="chat-chip-name">{chipLabel(note)}</span>
+                    <Tooltip label={chipTitle(note)}>
+                      <span class="chat-chip-name">{chipLabel(note)}</span>
+                    </Tooltip>
                     <span class="chat-chip-size">{byteLabel(note.bytes)}</span>
                     <button
                       type="button"

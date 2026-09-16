@@ -4,6 +4,11 @@
    a conversation and a diff of what a reply would change need 320-520. */
 
 .chat-pane {
+  /* The column's own spacing. `--writ-space-*` is a fixed pixel scale, so at a
+     larger interface size the type grows and the gutters do not; these follow
+     the text they sit around. */
+  --writ-chat-gap: calc(var(--writ-ui-md-lh) * 0.5);
+  --writ-chat-inset: calc(var(--writ-ui-md-lh) * 0.75);
   position: relative;
   flex-shrink: 0;
   width: 0;
@@ -193,8 +198,8 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-3);
-  padding: var(--writ-space-3);
+  gap: calc(var(--writ-chat-gap, var(--writ-space-3)) * 2);
+  padding: var(--writ-chat-gap, var(--writ-space-3)) var(--writ-chat-inset, var(--writ-space-4));
 }
 
 .chat-transcript:focus-visible {
@@ -256,7 +261,7 @@
 }
 
 .chat-turn.is-mine .chat-turn-text {
-  padding: 6px var(--writ-space-2);
+  padding: calc(var(--writ-chat-gap, var(--writ-space-3)) * 0.5) var(--writ-chat-gap, var(--writ-space-3));
   border-radius: var(--writ-r-card);
   background: var(--writ-bg-sunken);
 }
@@ -472,8 +477,8 @@
 
 .chat-error {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: var(--writ-space-2);
 }
 
@@ -535,7 +540,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);
-  max-height: 16rem;
+  max-height: calc(var(--writ-ui-sm-lh) * 12);
   overflow: auto;
   padding: var(--writ-space-1) 0;
   border-radius: var(--writ-r-media);
@@ -556,12 +561,12 @@
 }
 
 .chat-diff-row[data-kind="added"] {
-  background: color-mix(in srgb, var(--writ-status-success) 14%, transparent);
+  background: color-mix(in srgb, var(--writ-status-success) 20%, transparent);
   color: var(--writ-fg);
 }
 
 .chat-diff-row[data-kind="removed"] {
-  background: color-mix(in srgb, var(--writ-danger) 14%, transparent);
+  background: color-mix(in srgb, var(--writ-status-error) 20%, transparent);
   color: var(--writ-fg);
 }
 
@@ -604,7 +609,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);
-  padding: var(--writ-space-3);
+  padding: var(--writ-chat-gap, var(--writ-space-3)) var(--writ-chat-inset, var(--writ-space-4));
   border-top: 1px solid var(--writ-border-soft);
 }
 
@@ -629,7 +634,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 1px 4px 1px 6px;
+  min-height: calc(var(--writ-ui-xs-lh) + var(--writ-space-3));
+  padding: var(--writ-space-1) var(--writ-space-2);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-r-row);
   background: var(--writ-bg-raised);
@@ -637,6 +643,18 @@
   line-height: var(--writ-ui-xs-lh);
   color: var(--writ-fg);
   max-width: 100%;
+}
+
+.chat-chip:hover {
+  background: var(--writ-bg-hover);
+}
+
+.chat-chip.is-unreadable {
+  border-color: var(--writ-status-error);
+}
+
+.chat-chip > .writ-tooltip-anchor {
+  min-width: 0;
 }
 
 .chat-chip-name {
@@ -679,6 +697,9 @@
   display: block;
   width: 100%;
   resize: none;
+  min-height: calc(var(--writ-ui-md-lh) * 2 + var(--writ-space-3));
+  max-height: calc(var(--writ-ui-md-lh) * 10 + var(--writ-space-3));
+  overflow-y: auto;
   padding: var(--writ-space-2);
   border: 1px solid var(--writ-border);
   border-radius: var(--writ-r-control);
@@ -702,7 +723,7 @@
   right: 0;
   bottom: calc(100% + 4px);
   z-index: var(--writ-z-popover, 40);
-  max-height: 12rem;
+  max-height: calc(var(--writ-ui-md-lh) * 8);
   overflow-y: auto;
   padding: var(--writ-space-1);
   border: 1px solid var(--writ-border);
@@ -749,22 +770,249 @@
   gap: var(--writ-space-2);
 }
 
-.chat-model {
-  flex: 1;
+/* Which connection answers, in the room a name needs and no more: the row's
+   own justification gives the rest to Send. */
+.chat-connection-wrap {
+  position: relative;
+  flex: 0 1 auto;
   min-width: 0;
-  padding: 2px var(--writ-space-1);
-  border: 1px solid var(--writ-border);
+  margin-right: auto;
+}
+
+.chat-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--writ-space-1);
+  max-width: 18ch;
+  padding: 2px var(--writ-space-2);
+  border: 1px solid transparent;
   border-radius: var(--writ-r-control);
-  background: var(--writ-bg-canvas);
+  background: transparent;
   color: var(--writ-fg-muted);
   font: inherit;
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
+  cursor: pointer;
 }
 
-.chat-model:focus-visible {
+.chat-connection:hover {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
+}
+
+.chat-connection:focus-visible {
   outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
   outline-offset: -2px;
+}
+
+.chat-connection-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Above the button, for the same reason the mention list is: the composer is
+   already at the bottom of the column. */
+.chat-connection-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  z-index: var(--writ-z-popover, 40);
+  min-width: 15rem;
+  max-width: 22rem;
+  max-height: calc(var(--writ-ui-md-lh) * 14);
+  overflow-y: auto;
+  padding: var(--writ-space-1);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  box-shadow: var(--writ-shadow-popover);
+}
+
+.chat-menu-group + .chat-menu-group,
+.chat-menu-group + .chat-menu-settings {
+  border-top: 1px solid var(--writ-border-soft);
+  margin-top: var(--writ-space-1);
+  padding-top: var(--writ-space-1);
+}
+
+.chat-menu-label {
+  margin: 0;
+  padding: var(--writ-space-1) var(--writ-space-2);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-faint);
+}
+
+.chat-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--writ-sidebar-row-fill);
+  padding: 2px var(--writ-space-2);
+  border: none;
+  border-radius: var(--writ-r-row);
+  background: transparent;
+  font: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-menu-row:hover:not([disabled]),
+.chat-menu-row:focus-visible {
+  background: var(--writ-bg-hover);
+}
+
+.chat-menu-row:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -2px;
+}
+
+.chat-menu-row[disabled] {
+  color: var(--writ-fg-faint);
+  cursor: default;
+}
+
+.chat-menu-mark {
+  flex-shrink: 0;
+  display: inline-flex;
+  width: 11px;
+  color: var(--writ-accent);
+}
+
+.chat-menu-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-menu-note {
+  flex-shrink: 0;
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-faint);
+}
+
+.chat-menu-empty {
+  margin: 0;
+  padding: var(--writ-space-1) var(--writ-space-2);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+
+/* The chip row and the one control that adds to it. Adding the note in front
+   sits with the chips because it makes one, not with Send. */
+.chat-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chat-chip-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: calc(var(--writ-ui-xs-lh) + var(--writ-space-3));
+  padding: var(--writ-space-1) var(--writ-space-2);
+  border: 1px dashed var(--writ-border);
+  border-radius: var(--writ-r-row);
+  background: transparent;
+  color: var(--writ-fg-muted);
+  font: inherit;
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  cursor: pointer;
+}
+
+.chat-chip-add:hover:not([disabled]) {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
+}
+
+.chat-chip-add[disabled] {
+  color: var(--writ-fg-faint);
+  cursor: default;
+}
+
+.chat-chip-add:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: 1px;
+}
+
+/* Why a note cannot be attached, or cannot be read, under the row it is
+   about. */
+.chat-composer-note {
+  margin: 0;
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-muted);
+}
+
+/* What the connection still needs, between the conversation and the field. */
+.chat-readiness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-2) var(--writ-chat-inset, var(--writ-space-4));
+  border-top: 1px solid var(--writ-border-soft);
+  background: var(--writ-bg-sunken);
+}
+
+.chat-readiness-text {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+/* What happened to a reply, beside what it said: stopped, cut off, or an
+   offer that could not be made. */
+.chat-note {
+  margin: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+.chat-identity {
+  margin: 0;
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-faint);
+}
+
+.chat-error-identity {
+  margin: 0;
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-faint);
+}
+
+.chat-error-actions {
+  display: flex;
+  gap: var(--writ-space-2);
+}
+
+/* A reply still arriving in a chat nobody is reading. */
+.chat-chats-live {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--writ-accent);
 }
 
 /* Windows paints the chrome as part of the window backdrop, GNOME as a

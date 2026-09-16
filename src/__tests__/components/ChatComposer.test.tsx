@@ -61,6 +61,13 @@ function chip(path: string, extra: Record<string, unknown> = {}) {
   return { path, name: path.split("/").pop(), bytes: 10, key: path, ...extra };
 }
 
+/** What the chip says under a settled pointer. */
+function tipOver(container: HTMLElement): string {
+  fireEvent.pointerEnter(container.querySelector(".chat-chip .writ-tooltip-anchor") as Element);
+  vi.advanceTimersByTime(500);
+  return document.querySelector('[role="tooltip"]')?.textContent ?? "";
+}
+
 /** The field, which every case reaches for. */
 function field(container: HTMLElement): HTMLTextAreaElement {
   return container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
@@ -151,22 +158,22 @@ describe("the chip row", () => {
     expect(unsaved.getByText("Save this note first")).toBeTruthy();
   });
 
-  it("names a chip by its folder and keeps the whole key on the row", () => {
+  it("names a chip by its folder and keeps the whole key within reach", () => {
+    vi.useFakeTimers();
     mocks.attachments = [chip("Notes/Ideas/Launch.md")];
     const { container } = mount();
-    const row = container.querySelector(".chat-chip") as HTMLElement;
-    expect(row.getAttribute("title")).toBe("Notes/Ideas/Launch.md");
     expect(container.querySelector(".chat-chip-name")?.textContent).toBe("…/Ideas/Launch.md");
     expect(container.querySelector(".chat-chip-remove")?.getAttribute("aria-label")).toBe(
       "Remove Launch.md",
     );
+    expect(tipOver(container)).toBe("Notes/Ideas/Launch.md");
   });
 
   it("says a dirty note sends its saved text", () => {
+    vi.useFakeTimers();
     mocks.attachments = [chip("Launch.md", { dirty: true })];
     const { container } = mount();
-    const row = container.querySelector(".chat-chip") as HTMLElement;
-    expect(row.getAttribute("title")).toContain("Sends the saved version");
+    expect(tipOver(container)).toBe("Sends the saved version of Launch.md");
   });
 
   it("blocks Send while a chip cannot be read", () => {
