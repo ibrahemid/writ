@@ -15,8 +15,8 @@ use writ_core::chat::{ChatError, ChatTurn, Role};
 use writ_core::config::{AiChatConfig, AiConfig};
 use writ_tauri_lib::commands::ai::AiKeyState;
 use writ_tauri_lib::commands::chat::{
-    apply_proposal_inner, attached_sizes_in, discard_proposal_inner, endpoint_state_from,
-    note_file_in, prepare_chat, read_attached_in, ChatState,
+    apply_proposal_inner, attached_sizes_in, begin_request, discard_proposal_inner,
+    endpoint_state_from, note_file_in, prepare_chat, read_attached_in, ChatState,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -25,7 +25,7 @@ const COMMANDS: &[&str] = &[
     "commands::chat::chat_state",
     "commands::chat::chat_attached_sizes",
     "commands::chat::chat_send",
-    "commands::chat::chat_cancel",
+    "commands::chat::chat_stop",
     "commands::chat::chat_apply_proposal",
     "commands::chat::chat_discard_proposal",
 ];
@@ -391,20 +391,20 @@ fn chat_send_reads_one_note_once_however_often_it_was_named() {
     assert_eq!(attached.len(), 1);
 }
 
-// --- chat_cancel ------------------------------------------------------------
+// --- chat_stop --------------------------------------------------------------
 
 #[test]
-fn chat_cancel_raises_the_flag_of_a_live_conversation_and_no_other() {
+fn chat_stop_raises_the_flag_of_a_live_conversation_and_no_other() {
     let state = ChatState::default();
-    let cancel = state.begin("c1");
-    state.begin("c2");
-    assert!(state.cancel("c1"));
+    let (cancel, first) = begin_request(&state, "c1", "r-1").expect("accepted");
+    let (_other, _second) = begin_request(&state, "c2", "r-2").expect("accepted");
+    assert!(state.cancel("c1", Some("r-1")));
     assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
     assert_eq!(state.live(), 2);
 
-    state.finish("c1");
+    drop(first);
     assert!(
-        !state.cancel("c1"),
+        !state.cancel("c1", Some("r-1")),
         "a conversation that ended cancels nothing"
     );
     assert_eq!(state.live(), 1);

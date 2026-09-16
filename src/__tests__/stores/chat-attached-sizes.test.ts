@@ -13,7 +13,7 @@ vi.mock("../../services/tauri", () => ({
   chatState: vi.fn(),
   chatAttachedSizes: mocks.chatAttachedSizes,
   chatSend: vi.fn(),
-  chatCancel: vi.fn(),
+  chatStop: vi.fn(),
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn(),
 }));

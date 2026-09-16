@@ -738,7 +738,7 @@ pub fn run() {
             commands::chat::chat_delete,
             commands::chat::chat_render_reply,
             commands::chat::chat_send,
-            commands::chat::chat_cancel,
+            commands::chat::chat_stop,
             commands::chat::chat_apply_proposal,
             commands::chat::chat_discard_proposal,
             commands::activity::activity_recent,

@@ -97,6 +97,10 @@ pub enum WritFrontendEvent {
     #[serde(rename = "ai:chat")]
     AiChat {
         conversation_id: String,
+        /// The send this frame belongs to. Always present: a frame from a
+        /// request its conversation has moved on from is recognisable only by
+        /// this.
+        request_id: String,
         kind: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         text: Option<String>,
@@ -108,7 +112,7 @@ pub enum WritFrontendEvent {
         /// The typed failure, carried by `error`. Its `message` is the same
         /// sentence `text` holds.
         #[serde(skip_serializing_if = "Option::is_none")]
-        error: Option<writ_core::chat::ChatErrorFrame>,
+        error: Option<Box<writ_core::chat::ChatErrorFrame>>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         dropped: Vec<writ_core::chat::DroppedProposal>,
         #[serde(skip_serializing_if = "std::ops::Not::not")]

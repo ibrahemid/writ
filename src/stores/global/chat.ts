@@ -9,7 +9,7 @@ import {
   chatDelete,
   chatRenderReply,
   chatSend,
-  chatCancel,
+  chatStop,
   chatApplyProposal,
   chatDiscardProposal,
   type ChatEndpointState,
@@ -477,7 +477,7 @@ function createChatStore() {
     beginExchange(kept.length, text, paths);
 
     try {
-      await chatSend(conversation.id, text, paths, truncateTo ?? undefined);
+      await chatSend(conversation.id, text, paths, truncateTo ?? undefined, newRequestId());
     } catch (error) {
       // A send that was never accepted leaves nothing on screen and the words
       // back in the composer, to send again or edit. The turns an edit would
@@ -502,7 +502,7 @@ function createChatStore() {
     setCurrent({ ...conversation, turns: conversation.turns.slice(0, again.turn) });
     beginExchange(again.turn, again.text, again.paths);
     try {
-      await chatSend(conversation.id, again.text, again.paths, again.turn);
+      await chatSend(conversation.id, again.text, again.paths, again.turn, newRequestId());
     } catch (error) {
       // The retry was never accepted, so the turn it would have replaced is
       // still in the file and stays on screen, and anything half-typed is
@@ -576,7 +576,16 @@ function createChatStore() {
   function stop() {
     const id = current()?.id;
     if (!id || !isBusy()) return;
-    void chatCancel(id);
+    void chatStop(id, null);
+  }
+
+  /** Names one send. The frames it produces carry it, so a frame from a send
+   * the conversation has moved on from is recognisable. */
+  function newRequestId(): string {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
   function handleStreamEvent(payload: ChatPayload) {

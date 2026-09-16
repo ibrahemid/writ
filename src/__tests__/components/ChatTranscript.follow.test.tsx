@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   chatNew: vi.fn(),
   chatRenderReply: vi.fn(),
   chatSend: vi.fn(),
-  chatCancel: vi.fn(),
+  chatStop: vi.fn(),
   chatAttachedSizes: vi.fn(),
 }));
 
@@ -25,7 +25,7 @@ vi.mock("../../services/tauri", () => ({
   chatDelete: vi.fn(),
   chatRenderReply: mocks.chatRenderReply,
   chatSend: mocks.chatSend,
-  chatCancel: mocks.chatCancel,
+  chatStop: mocks.chatStop,
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn(),
 }));
@@ -115,7 +115,7 @@ async function startSend() {
 }
 
 function chunk(text: string) {
-  chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text });
+  chatStore.handleStreamEvent({ conversation_id: "c1", request_id: "r-1", kind: "chunk", text });
 }
 
 async function openTranscript() {

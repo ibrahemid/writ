@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   noteNameCandidates: vi.fn(),
   chatNew: vi.fn(),
   chatSend: vi.fn(),
-  chatCancel: vi.fn().mockResolvedValue(undefined),
+  chatStop: vi.fn().mockResolvedValue(undefined),
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn().mockResolvedValue(undefined),
   chatState: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock("../../services/tauri", () => ({
   noteNameCandidates: mocks.noteNameCandidates,
   chatNew: mocks.chatNew,
   chatSend: mocks.chatSend,
-  chatCancel: mocks.chatCancel,
+  chatStop: mocks.chatStop,
   chatApplyProposal: mocks.chatApplyProposal,
   chatDiscardProposal: mocks.chatDiscardProposal,
   chatState: mocks.chatState,
@@ -193,9 +193,9 @@ async function exchange(text = "the reply text") {
   await chatStore.send();
   const calls = mocks.chatSend.mock.calls;
   const id = calls[calls.length - 1][0] as string;
-  chatStore.handleStreamEvent({ conversation_id: id, kind: "chunk", text });
+  chatStore.handleStreamEvent({ conversation_id: id, request_id: "r-1", kind: "chunk", text });
   chatStore.handleStreamEvent({
-    conversation_id: id,
+    conversation_id: id, request_id: "r-1",
     kind: "done",
     proposals: [PROPOSAL],
   });
@@ -232,7 +232,7 @@ describe("the chat column", () => {
       .mockReset()
       .mockResolvedValue({ path: "Launch.md", hash: "def", bytes: 16 });
     mocks.chatDiscardProposal.mockReset().mockResolvedValue(undefined);
-    mocks.chatCancel.mockReset().mockResolvedValue(undefined);
+    mocks.chatStop.mockReset().mockResolvedValue(undefined);
     chatStore.reset();
     for (const held of chatStore.attachments()) chatStore.detach(held.path);
   });
@@ -339,7 +339,7 @@ describe("the chat column", () => {
     await chatStore.send();
     const calls = mocks.chatSend.mock.calls;
     const id = calls[calls.length - 1][0] as string;
-    chatStore.handleStreamEvent({ conversation_id: id, kind: "chunk", text: "the second answer" });
+    chatStore.handleStreamEvent({ conversation_id: id, request_id: "r-1", kind: "chunk", text: "the second answer" });
 
     expect(container.querySelector(".chat-turn")).toBe(asked);
     expect(copy.isConnected).toBe(true);
@@ -509,18 +509,18 @@ describe("the chat column", () => {
     chatStore.setDraft("what does it argue");
     await chatStore.send();
     const id = mocks.chatSend.mock.calls[0][0] as string;
-    chatStore.handleStreamEvent({ conversation_id: id, kind: "chunk", text: "half a th" });
+    chatStore.handleStreamEvent({ conversation_id: id, request_id: "r-1", kind: "chunk", text: "half a th" });
     await waitFor(() => expect(container.textContent).toContain("half a th"));
 
     fireEvent.click(getByText("Stop"));
-    chatStore.handleStreamEvent({ conversation_id: id, kind: "stopped" });
+    chatStore.handleStreamEvent({ conversation_id: id, request_id: "r-1", kind: "stopped" });
 
-    expect(mocks.chatCancel).toHaveBeenCalledWith(id);
+    expect(mocks.chatStop).toHaveBeenCalledWith(id, null);
     await waitFor(() => expect(container.textContent).toContain("half a th"));
     expect(container.querySelector(".chat-proposal")).toBeNull();
 
     // A frame that arrives after the stop changes nothing on screen.
-    chatStore.handleStreamEvent({ conversation_id: id, kind: "chunk", text: "ought" });
+    chatStore.handleStreamEvent({ conversation_id: id, request_id: "r-1", kind: "chunk", text: "ought" });
     expect(container.textContent).not.toContain("ought");
   });
 });

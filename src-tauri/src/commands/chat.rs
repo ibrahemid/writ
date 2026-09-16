@@ -69,44 +69,81 @@ const MISSING_CONVERSATION: &str = "This chat no longer exists.";
 const CONVERSATION_FULL: &str = "This chat is full. Start a new chat to continue.";
 
 /// What a second send says while the reply to the first is still streaming.
-const REPLY_IN_FLIGHT: &str = "A reply is still arriving.";
+pub const REPLY_IN_FLIGHT: &str = "A reply is still arriving.";
 
-/// Session-scoped state for the pane: the cancel flag of each live stream,
+/// The request a conversation is running: the id the pane minted for it and
+/// the flag that stops it.
+///
+/// The id is what makes a stop and a finish nameable. Without it a stop sent
+/// while one reply was ending and the next beginning reaches whichever request
+/// happened to be in the map.
+struct LiveRequest {
+    request_id: String,
+    cancel: Arc<AtomicBool>,
+}
+
+/// Session-scoped state for the pane: the live request of each conversation,
 /// keyed by the conversation the frontend named.
-#[derive(Default)]
+///
+/// Cloning shares one registry, so a task can hold its own handle rather than
+/// borrowing the managed state for as long as it streams.
+#[derive(Default, Clone)]
 pub struct ChatState {
-    tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    tasks: Arc<Mutex<HashMap<String, LiveRequest>>>,
 }
 
 impl ChatState {
-    /// Registers a conversation and hands back its cancel flag.
+    /// Claims a conversation for one request and hands back its cancel flag,
+    /// or `None` when a reply is already arriving for it.
     ///
-    /// Called before the request task is spawned, so a cancel that races it
-    /// cannot miss the flag and the task's own cleanup has an entry to remove.
-    pub fn begin(&self, conversation_id: &str) -> Arc<AtomicBool> {
-        let cancel = Arc::new(AtomicBool::new(false));
-        let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::begin");
-        tasks.insert(conversation_id.to_string(), cancel.clone());
-        cancel
-    }
-
-    /// Raises a conversation's cancel flag. `false` when nothing is live under
-    /// that id, which is what a cancel arriving after a reply finished is.
-    pub fn cancel(&self, conversation_id: &str) -> bool {
-        let tasks = recover_poison(self.tasks.lock(), "commands::chat::cancel");
-        match tasks.get(conversation_id) {
-            Some(cancel) => {
-                cancel.store(true, Ordering::Relaxed);
-                true
+    /// The check and the claim are one lock. Two sends racing on one
+    /// conversation are two tasks appending to one file, and the loser must
+    /// learn it lost before it reads a note or a key, not after.
+    pub fn try_begin(&self, conversation_id: &str, request_id: &str) -> Option<Arc<AtomicBool>> {
+        let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::try_begin");
+        match tasks.entry(conversation_id.to_string()) {
+            std::collections::hash_map::Entry::Occupied(_) => None,
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                let cancel = Arc::new(AtomicBool::new(false));
+                slot.insert(LiveRequest {
+                    request_id: request_id.to_string(),
+                    cancel: cancel.clone(),
+                });
+                Some(cancel)
             }
-            None => false,
         }
     }
 
-    /// Forgets a conversation whose request has ended.
-    pub fn finish(&self, conversation_id: &str) {
-        let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::finish");
-        tasks.remove(conversation_id);
+    /// Raises the cancel flag of the named request, or of whatever is live
+    /// when no request is named.
+    ///
+    /// `false` when nothing matches: a stop that arrives after its reply
+    /// finished, or one naming a request the conversation has already moved
+    /// on from. Shutdown is the caller with no id, because it stops every
+    /// reply rather than one it chose.
+    pub fn cancel(&self, conversation_id: &str, request_id: Option<&str>) -> bool {
+        let tasks = recover_poison(self.tasks.lock(), "commands::chat::cancel");
+        match tasks.get(conversation_id) {
+            Some(live) if request_id.is_none_or(|named| named == live.request_id) => {
+                live.cancel.store(true, Ordering::Relaxed);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Forgets a conversation's request, and only that request.
+    ///
+    /// A finish that arrives after the conversation moved on removes nothing:
+    /// the entry it would take belongs to a send that is still streaming.
+    fn release(&self, conversation_id: &str, request_id: &str) {
+        let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::release");
+        if tasks
+            .get(conversation_id)
+            .is_some_and(|live| live.request_id == request_id)
+        {
+            tasks.remove(conversation_id);
+        }
     }
 
     /// Whether a reply is arriving for that conversation.
@@ -121,6 +158,60 @@ impl ChatState {
     /// How many conversations are live.
     pub fn live(&self) -> usize {
         recover_poison(self.tasks.lock(), "commands::chat::live").len()
+    }
+}
+
+/// Holds a conversation for one request and releases it however the request
+/// ends.
+///
+/// A plain call at the end of the task released the conversation only on the
+/// paths that reached it: a panic in the stream, in the parse or in the save
+/// left the conversation live for the life of the process, with every later
+/// send refused and no stop able to clear it. A refusal between the claim and
+/// the spawn had the same shape. Dropping is the one release, so there is no
+/// path that forgets it.
+pub struct LiveGuard {
+    state: ChatState,
+    conversation_id: String,
+    request_id: String,
+}
+
+impl LiveGuard {
+    pub fn new(state: ChatState, conversation_id: String, request_id: String) -> Self {
+        Self {
+            state,
+            conversation_id,
+            request_id,
+        }
+    }
+}
+
+impl Drop for LiveGuard {
+    fn drop(&mut self) {
+        self.state.release(&self.conversation_id, &self.request_id);
+    }
+}
+
+/// Claims a conversation for one send, or refuses it.
+///
+/// The claim and the guard come together: every path out of a send, accepted
+/// or refused, carries the guard, so the entry is the task's for exactly as
+/// long as the task exists.
+pub fn begin_request(
+    chat: &ChatState,
+    conversation_id: &str,
+    request_id: &str,
+) -> Result<(Arc<AtomicBool>, LiveGuard), String> {
+    match chat.try_begin(conversation_id, request_id) {
+        Some(cancel) => Ok((
+            cancel,
+            LiveGuard::new(
+                chat.clone(),
+                conversation_id.to_string(),
+                request_id.to_string(),
+            ),
+        )),
+        None => Err(REPLY_IN_FLIGHT.to_string()),
     }
 }
 
@@ -219,6 +310,9 @@ pub struct ProposalDto {
 pub struct ChatSendAccepted {
     /// The conversation the frames are keyed by.
     pub conversation_id: String,
+    /// The send the frames belong to, echoed back so the pane can pin the
+    /// exchange it is showing to the request that will fill it.
+    pub request_id: String,
     /// What the request carried, in the order it carried it.
     pub attached: Vec<AttachedNote>,
     /// The connection the request was frozen against: what the reply will be
@@ -355,7 +449,17 @@ pub fn chat_rename(app: AppHandle, id: String, title: String) -> Result<Conversa
 /// Unlinks a conversation. There is no trash for one, because it is not a note.
 #[tauri::command]
 pub fn chat_delete(app: AppHandle, id: String) -> Result<(), String> {
-    chat_store(&app).delete(&id).map_err(missing_or)
+    chat_delete_inner(&chat_store(&app), &app.state::<ChatState>(), &id)
+}
+
+/// Stops the conversation's reply, then unlinks it.
+///
+/// The stop comes first because a reply outliving its file has nowhere to go:
+/// its chunks reach a pane with no conversation to put them in, and the save
+/// that ends it fails on a file nothing can recreate.
+pub fn chat_delete_inner(store: &ChatStore, chat: &ChatState, id: &str) -> Result<(), String> {
+    chat.cancel(id, None);
+    store.delete(id).map_err(missing_or)
 }
 
 /// Renders one reply to the fragment the pane inserts into its own DOM.
@@ -938,16 +1042,27 @@ fn record_proposal(
     }
 }
 
-fn emit_chat(app: &AppHandle, conversation_id: &str, kind: &str, text: Option<String>) {
-    emit_frame(
-        app,
-        conversation_id,
+/// Which reply a frame belongs to: the conversation it is keyed by, and the
+/// send that produced it.
+///
+/// Both travel on every frame. The pane holds one entry per conversation and
+/// replaces it on each send, so a frame from a request the conversation has
+/// moved on from has to be recognisable as one.
+#[derive(Clone, Copy)]
+struct FrameIds<'a> {
+    conversation_id: &'a str,
+    request_id: &'a str,
+}
+
+fn text_frame(ids: FrameIds<'_>, kind: &str, text: Option<String>) -> WritFrontendEvent {
+    chat_frame(
+        ids,
         kind,
         ChatFrame {
             text,
             ..ChatFrame::default()
         },
-    );
+    )
 }
 
 /// The frame that ends a reply, carrying what it proposed, what it lost,
@@ -956,16 +1071,14 @@ fn emit_chat(app: &AppHandle, conversation_id: &str, kind: &str, text: Option<St
 /// A dropped block is reported rather than swallowed: a proposal that vanishes
 /// without a word reads as a broken feature, and the path the model named with
 /// a reason is all a person needs to see which it was (ADR-031 rule 5.2).
-fn emit_chat_done(
-    app: &AppHandle,
-    conversation_id: &str,
+fn done_frame(
+    ids: FrameIds<'_>,
     parsed: ParsedProposals,
     identity: Option<RequestIdentity>,
     truncated: bool,
-) {
-    emit_frame(
-        app,
-        conversation_id,
+) -> WritFrontendEvent {
+    chat_frame(
+        ids,
         "done",
         ChatFrame {
             parsed,
@@ -973,7 +1086,7 @@ fn emit_chat_done(
             truncated,
             ..ChatFrame::default()
         },
-    );
+    )
 }
 
 /// The frame a failed reply ends on.
@@ -981,18 +1094,17 @@ fn emit_chat_done(
 /// `text` carries the same sentence the frame does, so a pane that renders a
 /// terminal frame's text needs no change to keep showing it; `error` is what a
 /// recovery action is chosen from.
-fn emit_chat_error(app: &AppHandle, conversation_id: &str, frame: ChatErrorFrame) {
+fn error_frame(ids: FrameIds<'_>, frame: ChatErrorFrame) -> WritFrontendEvent {
     let message = frame.message.clone();
-    emit_frame(
-        app,
-        conversation_id,
+    chat_frame(
+        ids,
         "error",
         ChatFrame {
             text: Some(message),
             error: Some(frame),
             ..ChatFrame::default()
         },
-    );
+    )
 }
 
 /// What a frame carries beyond its kind.
@@ -1005,21 +1117,26 @@ struct ChatFrame {
     truncated: bool,
 }
 
-fn emit_frame(app: &AppHandle, conversation_id: &str, kind: &str, frame: ChatFrame) {
-    if let Err(error) = emit_event(
-        app,
-        WritFrontendEvent::AiChat {
-            conversation_id: conversation_id.to_string(),
-            kind: kind.to_string(),
-            text: frame.text,
-            proposals: frame.parsed.proposals,
-            identity: frame.identity,
-            error: frame.error,
-            dropped: frame.parsed.dropped,
-            truncated: frame.truncated,
-        },
-    ) {
-        tracing::warn!(error = %error, "failed to emit ai-chat event");
+fn chat_frame(ids: FrameIds<'_>, kind: &str, frame: ChatFrame) -> WritFrontendEvent {
+    WritFrontendEvent::AiChat {
+        conversation_id: ids.conversation_id.to_string(),
+        request_id: ids.request_id.to_string(),
+        kind: kind.to_string(),
+        text: frame.text,
+        proposals: frame.parsed.proposals,
+        identity: frame.identity,
+        error: frame.error.map(Box::new),
+        dropped: frame.parsed.dropped,
+        truncated: frame.truncated,
+    }
+}
+
+/// Sends one frame to the pane. A frame that cannot be delivered is a warning:
+/// the reply is already in the file, and there is nothing a second attempt
+/// would reach.
+fn emit_to_pane(app: &AppHandle, event: WritFrontendEvent) {
+    if let Err(error) = emit_event(app, event) {
+        tracing::warn!(error = %error, "failed to emit chat frame");
     }
 }
 
@@ -1260,10 +1377,69 @@ impl ReplyBuffer {
 /// those backticks in the filter until the stream ends. They are part of the
 /// saved reply, so the pane has to be handed them too; without this the pane
 /// renders an unterminated fence until the conversation is reopened.
-fn emit_tail(app: &AppHandle, conversation_id: &str, buffer: &mut ReplyBuffer) {
+fn emit_tail<F: FnMut(WritFrontendEvent)>(
+    emit: &mut F,
+    ids: FrameIds<'_>,
+    buffer: &mut ReplyBuffer,
+) {
     let tail = buffer.finish();
     if !tail.is_empty() {
-        emit_chat(app, conversation_id, "chunk", Some(tail));
+        emit(text_frame(ids, "chunk", Some(tail)));
+    }
+}
+
+/// Streams one reply: every frame the pane sees and every write the file
+/// takes, for one send.
+///
+/// The frames and the save are handed in rather than reached for, so the
+/// sequence a reply produces — the chunks, the tail, the terminal frame, and
+/// the save that comes before it — is the same code a test drives against a
+/// stub host as the one a send runs.
+async fn stream_reply(
+    client: &reqwest::Client,
+    prepared: &PreparedChat,
+    cancel: &AtomicBool,
+    ids: FrameIds<'_>,
+    mut record: impl FnMut(&str, &ParsedProposals, bool),
+    mut emit: impl FnMut(WritFrontendEvent),
+) {
+    let mut buffer = ReplyBuffer::new();
+    let mut ended = false;
+    run_chat_stream(client, prepared, cancel, |event| match event {
+        ChatEvent::Chunk(text) => {
+            let visible = buffer.push(&text);
+            if !visible.is_empty() {
+                emit(text_frame(ids, "chunk", Some(visible)));
+            }
+        }
+        ChatEvent::Done { truncated } => {
+            ended = true;
+            emit_tail(&mut emit, ids, &mut buffer);
+            let parsed = chat::parse_proposals(&buffer.raw, &prepared.context);
+            record(&buffer.shown, &parsed, truncated);
+            emit(done_frame(
+                ids,
+                parsed,
+                Some(prepared.identity.clone()),
+                truncated,
+            ));
+        }
+        ChatEvent::Error(frame) => {
+            ended = true;
+            emit_tail(&mut emit, ids, &mut buffer);
+            record(&buffer.shown, &ParsedProposals::default(), false);
+            emit(error_frame(ids, frame));
+        }
+    })
+    .await;
+
+    // A stopped reply ends the stream with no terminal event of its own.
+    // What arrived before the stop is the reply, so it is saved and the pane
+    // is told to render what it has.
+    if !ended {
+        emit_tail(&mut emit, ids, &mut buffer);
+        record(&buffer.shown, &ParsedProposals::default(), false);
+        emit(text_frame(ids, "stopped", None));
     }
 }
 
@@ -1361,10 +1537,10 @@ fn attachment_refs(context: &[AttachedNote]) -> Vec<AttachmentRef> {
 /// first.
 ///
 /// `conversation_id` names the file the turns live in and keys the
-/// `writ://ai-chat` frames and the cancel, so there is no window in which an
-/// early event could arrive unmatched. `truncate_to` cuts the conversation to
-/// that many turns before the new one is appended, which is what retrying a
-/// turn and editing one both are.
+/// `writ://ai-chat` frames; `request_id` names this send among the sends that
+/// conversation has had, so a stop and a frame both say which reply they mean.
+/// `truncate_to` cuts the conversation to that many turns before the new one is
+/// appended, which is what retrying a turn and editing one both are.
 ///
 /// The user's turn is saved after the request is resolved rather than before:
 /// a send a switch, a consent or a missing key refuses never happened, and a
@@ -1377,17 +1553,17 @@ pub async fn chat_send(
     text: String,
     context_paths: Vec<String>,
     truncate_to: Option<usize>,
+    request_id: String,
 ) -> Result<ChatSendAccepted, String> {
     let cfg = chat_config(&app);
     if text.trim().is_empty() {
         return Err(ChatError::EmptyMessage.to_string());
     }
-    // Two streams on one conversation are two tasks appending to one file,
-    // and the second send would take the cancel flag the pane needs to stop
-    // the first. Nothing is read or written before this.
-    if app.state::<ChatState>().is_live(&conversation_id) {
-        return Err(REPLY_IN_FLIGHT.to_string());
-    }
+    // Two streams on one conversation are two tasks appending to one file, so
+    // the conversation is claimed before anything is read, in one lock, and
+    // the guard hands it back on every path out of here — a refusal below as
+    // surely as the end of the stream.
+    let (cancel, guard) = begin_request(&app.state::<ChatState>(), &conversation_id, &request_id)?;
 
     let store = chat_store(&app);
     let mut conversation = store.load(&conversation_id).map_err(missing_or)?;
@@ -1423,91 +1599,54 @@ pub async fn chat_send(
     log_request(&prepared, attached_bytes, turns.len());
 
     let client = super::ai::build_client()?;
-    let cancel = app.state::<ChatState>().begin(&conversation_id);
 
     let attached = prepared.context.clone();
     let identity = prepared.identity.clone();
     let accepted_identity = identity.clone();
     let task_app = app.clone();
     let task_id = conversation_id.clone();
+    let task_request_id = request_id.clone();
     tauri::async_runtime::spawn(async move {
-        let mut buffer = ReplyBuffer::new();
-        let mut ended = false;
-        run_chat_stream(&client, &prepared, &cancel, |event| match event {
-            ChatEvent::Chunk(text) => {
-                let visible = buffer.push(&text);
-                if !visible.is_empty() {
-                    emit_chat(&task_app, &task_id, "chunk", Some(visible));
-                }
-            }
-            ChatEvent::Done { truncated } => {
-                ended = true;
-                emit_tail(&task_app, &task_id, &mut buffer);
-                let parsed = chat::parse_proposals(&buffer.raw, &prepared.context);
-                record_reply(
-                    &store,
-                    &task_id,
-                    &buffer.shown,
-                    &parsed,
-                    truncated,
-                    &identity,
-                );
-                emit_chat_done(
-                    &task_app,
-                    &task_id,
-                    parsed,
-                    Some(identity.clone()),
-                    truncated,
-                );
-            }
-            ChatEvent::Error(frame) => {
-                ended = true;
-                emit_tail(&task_app, &task_id, &mut buffer);
-                record_reply(
-                    &store,
-                    &task_id,
-                    &buffer.shown,
-                    &ParsedProposals::default(),
-                    false,
-                    &identity,
-                );
-                emit_chat_error(&task_app, &task_id, frame);
-            }
-        })
+        // The conversation is this request's until the task ends, however it
+        // ends: the guard is dropped by a return, by a panic in the stream or
+        // in the save, and by the end of the reply alike.
+        let _live = guard;
+        let ids = FrameIds {
+            conversation_id: &task_id,
+            request_id: &task_request_id,
+        };
+        stream_reply(
+            &client,
+            &prepared,
+            &cancel,
+            ids,
+            |shown, parsed, truncated| {
+                record_reply(&store, &task_id, shown, parsed, truncated, &identity)
+            },
+            |event| emit_to_pane(&task_app, event),
+        )
         .await;
-
-        // A stopped reply ends the stream with no terminal event of its own.
-        // What arrived before the stop is the reply, so it is saved and the
-        // pane is told to render what it has.
-        if !ended {
-            emit_tail(&task_app, &task_id, &mut buffer);
-            record_reply(
-                &store,
-                &task_id,
-                &buffer.shown,
-                &ParsedProposals::default(),
-                false,
-                &identity,
-            );
-            emit_chat(&task_app, &task_id, "stopped", None);
-        }
-
-        task_app.state::<ChatState>().finish(&task_id);
     });
 
     Ok(ChatSendAccepted {
         conversation_id,
         attached,
         identity: accepted_identity,
+        request_id,
     })
 }
 
 /// Signals a live reply to stop. Further deltas are dropped and no proposal is
 /// read out of half a reply: the text already on screen is the reply, and the
 /// task saves it and emits `stopped` so the pane can render it.
+///
+/// The stop names the request it means. A pane that sent, was answered and
+/// sent again would otherwise stop the second reply with the first one's
+/// button; `None` is the blunt form shutdown uses, which stops whatever that
+/// conversation is running.
 #[tauri::command]
-pub fn chat_cancel(chat: State<'_, ChatState>, conversation_id: String) {
-    chat.cancel(&conversation_id);
+pub fn chat_stop(chat: State<'_, ChatState>, conversation_id: String, request_id: Option<String>) {
+    chat.cancel(&conversation_id, request_id.as_deref());
 }
 
 /// Writes a proposal the user applied, and records what became of it.
@@ -1603,17 +1742,17 @@ mod tests {
         let id = "0b7d6b7a-1111-4b6a-9d5e-000000000001";
 
         assert!(!state.is_live(id));
-        let cancel = state.begin(id);
+        let (cancel, guard) = begin_request(&state, id, "r-1").expect("the send was accepted");
         assert!(state.is_live(id));
         assert!(!state.is_live("0b7d6b7a-2222-4b6a-9d5e-000000000002"));
 
         // A stop asks the task to end; the reply is still arriving until it
         // has, so the conversation stays live until the task says so.
-        assert!(state.cancel(id));
+        assert!(state.cancel(id, Some("r-1")));
         assert!(cancel.load(Ordering::Relaxed));
         assert!(state.is_live(id));
 
-        state.finish(id);
+        drop(guard);
         assert!(!state.is_live(id));
     }
 
@@ -2347,6 +2486,91 @@ mod stream_tests {
             !request.to_lowercase().contains("authorization:"),
             "got: {request}"
         );
+    }
+
+    /// Every frame of a reply says which send it came from, chunks and the
+    /// terminal frame alike. The pane keeps one exchange per conversation and
+    /// replaces it on each send, so a frame with no request id on it cannot be
+    /// told apart from one belonging to the send before.
+    #[test]
+    fn every_frame_carries_the_request_id() {
+        fn frames_of(prepared: &PreparedChat, cancel: bool) -> Vec<(String, String)> {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = seen.clone();
+            tauri::async_runtime::block_on(async move {
+                let client = super::super::ai::build_client().expect("client");
+                stream_reply(
+                    &client,
+                    prepared,
+                    &AtomicBool::new(cancel),
+                    FrameIds {
+                        conversation_id: CONVERSATION,
+                        request_id: REQUEST,
+                    },
+                    |_, _, _| {},
+                    |event| {
+                        let WritFrontendEvent::AiChat {
+                            conversation_id,
+                            request_id,
+                            kind,
+                            ..
+                        } = event
+                        else {
+                            panic!("a chat frame reached the pane as another event");
+                        };
+                        assert_eq!(conversation_id, CONVERSATION);
+                        sink.lock().expect("frames").push((kind, request_id));
+                    },
+                )
+                .await;
+            });
+            Arc::try_unwrap(seen)
+                .expect("one reference")
+                .into_inner()
+                .expect("frames")
+        }
+
+        const CONVERSATION: &str = "0b7d6b7a-1111-4b6a-9d5e-000000000001";
+        const REQUEST: &str = "1f2e3d4c-5b6a-4790-8123-456789abcdef";
+
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            ANTHROPIC_STREAM,
+        );
+        let answered = frames_of(&prepared_for(&base, Provider::Anthropic, None), false);
+
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            ANTHROPIC_STREAM,
+        );
+        let stopped = frames_of(&prepared_for(&base, Provider::Anthropic, None), true);
+
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 429 Too Many Requests",
+            "Content-Length: 21\r\nConnection: close\r\n",
+            "{\"error\":\"slow down\"}",
+        );
+        let refused = frames_of(&prepared_for(&base, Provider::Anthropic, None), false);
+
+        let kinds: Vec<&str> = answered
+            .iter()
+            .chain(stopped.iter())
+            .chain(refused.iter())
+            .map(|(kind, _)| kind.as_str())
+            .collect();
+        assert!(kinds.contains(&"chunk"), "got: {kinds:?}");
+        assert_eq!(answered.last().map(|(kind, _)| kind.as_str()), Some("done"));
+        assert_eq!(
+            stopped.last().map(|(kind, _)| kind.as_str()),
+            Some("stopped")
+        );
+        assert_eq!(refused.last().map(|(kind, _)| kind.as_str()), Some("error"));
+
+        for (kind, request_id) in answered.iter().chain(&stopped).chain(&refused) {
+            assert_eq!(request_id, REQUEST, "a {kind} frame named no request");
+        }
     }
 
     #[test]
