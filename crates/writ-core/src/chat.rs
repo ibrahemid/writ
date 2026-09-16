@@ -1143,6 +1143,29 @@ fn rest_is_blank(lines: &[&str], from: usize) -> bool {
         .all(|line| line.trim().is_empty())
 }
 
+/// The lines of `lines` that [`parse_proposals`] does not read as part of a
+/// proposal, in order.
+///
+/// It walks the same two functions the parser walks, so a line is shown
+/// exactly when no block holds it. [`ProposalFilter`] reads the tail of an
+/// ambiguous block through this, which is the one place the filter cannot
+/// decide a line as it arrives.
+fn prose_in(lines: &[&str]) -> String {
+    let mut out = String::new();
+    let mut index = 0;
+    while index < lines.len() {
+        match open_proposal(lines[index]) {
+            Some((fence, _)) => index = read_block(lines, index + 1, fence).1,
+            None => {
+                out.push_str(lines[index]);
+                out.push('\n');
+                index += 1;
+            }
+        }
+    }
+    out
+}
+
 /// The lines of a body, each with the newline a reply's lines lost.
 fn joined(lines: &[&str]) -> String {
     let mut out = String::new();
@@ -1233,9 +1256,10 @@ impl ProposalFilter {
     /// not a whole note. A block whose end was ambiguous is read the way
     /// [`parse_proposals`] reads it: what the block turned out to hold stays
     /// withheld, and what fell outside it is released. When neither reading
-    /// holds and the parser drops the block, the lines after the ambiguous
-    /// fence are the reply's own prose and are shown, up to the line that
-    /// opens the next block, which the parser is reading as one.
+    /// holds and the parser drops the block, what follows the ambiguous fence
+    /// is read the way [`parse_proposals`] reads it: the blocks in it are
+    /// withheld and everything between and after them is shown, so the pane
+    /// and the cards account for the whole reply between them.
     pub fn finish(&mut self) -> String {
         match std::mem::replace(
             &mut self.state,
@@ -1247,14 +1271,8 @@ impl ProposalFilter {
             FilterState::Deciding { fence, buffered } => {
                 let lines: Vec<&str> = buffered.lines().collect();
                 match last_close(&lines, 0, fence) {
-                    Some(close) => joined(&lines[close + 1..]),
-                    None => {
-                        let opener = lines
-                            .iter()
-                            .position(|line| open_proposal(line).is_some())
-                            .unwrap_or(lines.len());
-                        joined(&lines[..opener])
-                    }
+                    Some(close) => prose_in(&lines[close + 1..]),
+                    None => prose_in(&lines),
                 }
             }
             FilterState::Text { .. } | FilterState::Withholding { .. } => String::new(),

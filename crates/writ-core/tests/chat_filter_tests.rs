@@ -303,3 +303,32 @@ The other note, whole.\n\
     let parsed = parse_proposals(reply, &attached("B.md"), false);
     assert_eq!(parsed.proposals.len(), 1, "the second block is a card");
 }
+
+#[test]
+fn prose_after_a_second_proposal_reaches_the_pane() {
+    let reply = "intro\n\
+```writ-proposal path=\"A.md\"\n\
+```rust\n\
+fn main() {}\n\
+```\n\
+MIDDLE-PROSE\n\
+```writ-proposal path=\"B.md\"\n\
+The whole of B.\n\
+```\n\
+TRAILING-PROSE\n";
+
+    let shown = every_split(reply);
+    assert_eq!(
+        shown, "intro\nMIDDLE-PROSE\nTRAILING-PROSE\n",
+        "the pane shows every line the parser reads as prose"
+    );
+    for held in ["fn main() {}", "The whole of B.", "writ-proposal"] {
+        assert!(!shown.contains(held), "{held} reached the pane: {shown:?}");
+    }
+
+    let parsed = parse_proposals(reply, &attached("B.md"), false);
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(parsed.proposals[0].path, "B.md");
+    assert_eq!(parsed.proposals[0].new_content, "The whole of B.\n");
+    assert_eq!(parsed.dropped.len(), 1, "the ambiguous block is dropped");
+}
