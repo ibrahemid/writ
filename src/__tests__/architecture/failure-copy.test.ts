@@ -21,12 +21,9 @@ const SKIP = [
   "src/stores/global/ai-rewrite.ts",
 ];
 
-// Two strings wait on a decision rather than a rewrite, and the files around
-// them stay covered. The key exchange belongs to the AI connection section. The
-// command label is written by whoever registered the command, in its own
-// casing ("Copy as Prompt", "Rewrite: Polish"), so it cannot be dropped into
-// the middle of a sentence until the labels read as verb phrases.
-const KNOWN: readonly string[] = ["The key exchange failed.", "${cmd.label} failed"];
+// The key exchange belongs to the AI connection section and waits on that pass;
+// the rest of the file it sits in stays covered.
+const KNOWN: readonly string[] = ["The key exchange failed."];
 
 const FAILED = /failed|Failed to/;
 
