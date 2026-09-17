@@ -265,6 +265,36 @@ describe("generated token outputs", () => {
   });
 });
 
+describe("platform dark layers", () => {
+  const PLATFORMS = ["win", "linux"];
+  // --writ-bg-hover and --writ-bg-selected are currentColor alphas: the same
+  // declaration paints both polarities, so a platform re-declares them once.
+  const POLARITY_FREE = new Set(["--writ-bg-hover", "--writ-bg-selected"]);
+
+  it("re-declare every token whose base value the dark scheme moves", () => {
+    for (const platform of PLATFORMS) {
+      const light = declarationsIn(blockBody(THEME_CSS, `:root[data-platform="${platform}"]`));
+      const dark = declarationsIn(
+        blockBody(THEME_CSS, `:root[data-platform="${platform}"][data-theme="dark"]`),
+      );
+      const missing = [...light.keys()].filter(
+        (name) => DARK_DECLS.has(name) && !POLARITY_FREE.has(name) && !dark.has(name),
+      );
+      expect(missing, `${platform} dark is missing: ${missing.join(", ")}`).toEqual([]);
+    }
+  });
+
+  it("carry a dark client-side-decoration shadow, which no other layer declares", () => {
+    // App.css paints the GNOME window shadow itself, so --writ-shadow-csd has
+    // no base value to fall back on and needs its own dark stack.
+    const dark = declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"][data-theme="dark"]'));
+    expect(dark.has("--writ-shadow-csd")).toBe(true);
+    expect(dark.get("--writ-shadow-csd")).not.toBe(
+      declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"]')).get("--writ-shadow-csd"),
+    );
+  });
+});
+
 describe("DTCG preset sources", () => {
   // Every preset src/styles/themes ships. A runtime preset with no DTCG source
   // is a palette outside the token pipeline, which is the thing ADR-030 exists

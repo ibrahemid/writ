@@ -437,6 +437,85 @@
           "entry-bg": {
             "$value": "rgb(255 255 255 / 8%)"
           }
+        },
+        "shadow": {
+          "$type": "shadow",
+          "modal": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "14px",
+                "spread": "5px",
+                "color": "rgb(0 0 0 / 45%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "5px",
+                "spread": "2px",
+                "color": "rgb(0 0 0 / 30%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "0",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 15%)"
+              }
+            ]
+          },
+          "popover": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "0",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 15%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "1px",
+                "blur": "5px",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 27%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "2px",
+                "blur": "14px",
+                "spread": "3px",
+                "color": "rgb(0 0 0 / 15%)"
+              }
+            ]
+          },
+          "csd": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "14px",
+                "spread": "5px",
+                "color": "rgb(0 0 0 / 45%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "5px",
+                "spread": "2px",
+                "color": "rgb(0 0 0 / 30%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "0",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 15%)"
+              }
+            ],
+            "$description": "The dark client-side-decoration stack. libadwaita's light alphas at the 3x step the base layer takes from light to dark."
+          }
         }
       }
     }

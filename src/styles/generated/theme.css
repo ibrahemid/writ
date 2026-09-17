@@ -306,6 +306,9 @@
   --writ-fg-faint: rgba(246,242,236,.34);
   --writ-lin-headerbar-bg: #2E2B28;
   --writ-lin-entry-bg: rgb(255 255 255 / 8%);
+  --writ-shadow-modal: 0 0 14px 5px rgb(0 0 0 / 45%), 0 0 5px 2px rgb(0 0 0 / 30%), 0 0 0 1px rgb(0 0 0 / 15%);
+  --writ-shadow-popover: 0 0 0 1px rgb(0 0 0 / 15%), 0 1px 5px 1px rgb(0 0 0 / 27%), 0 2px 14px 3px rgb(0 0 0 / 15%);
+  --writ-shadow-csd: 0 0 14px 5px rgb(0 0 0 / 45%), 0 0 5px 2px rgb(0 0 0 / 30%), 0 0 0 1px rgb(0 0 0 / 15%);
 }
 
 :root[data-accent="pine"] {
