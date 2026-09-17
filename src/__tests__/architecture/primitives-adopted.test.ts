@@ -46,6 +46,7 @@ const MIGRATED = [
   "src/components/Editor/FirstRunHint.tsx",
   "src/components/Editor/NoteDownloading.tsx",
   "src/components/Editor/SpellingPreview.tsx",
+  "src/components/Find/FindOverlay.tsx",
   ...componentsIn(SIDEBAR_DIR),
   ...componentsIn(RIGHT_PANEL_DIR),
   ...componentsIn(RESIZER_DIR),
@@ -120,14 +121,21 @@ describe("migrated surfaces use the primitives", () => {
     expect(shared).not.toMatch(/--editor-bar-rail:\s*var\(--writ-accent\)/);
   });
 
-  // The find bar is not on the MIGRATED list: its controls name their key in a
-  // title, which is the one thing a migrated surface may not do. Its glyphs
-  // still come from the sprite.
-  it("draws the find bar's glyphs from the sprite", () => {
+  // Every control in the find bar names its key. That key belongs in a tip, not
+  // in a title, and the glyph beside it comes from the sprite.
+  it("puts the find bar's keys in tips and its glyphs on the shared button", () => {
     const source = read("src/components/Find/FindOverlay.tsx");
-    expect(source).not.toContain("<svg");
     for (const name of ["caret-up", "caret-down", "caret-right", "x"]) {
-      expect(source, name).toContain(`<Icon name="${name}"`);
+      expect(source, name).toContain(`icon="${name}"`);
+    }
+    for (const label of [
+      "Previous match (Shift+Enter)",
+      "Next match (Enter)",
+      "Close (Esc)",
+      "Replace (Enter)",
+      "Replace all (Shift+Enter)",
+    ]) {
+      expect(source, label).toContain(`<Tooltip label="${label}">`);
     }
   });
 

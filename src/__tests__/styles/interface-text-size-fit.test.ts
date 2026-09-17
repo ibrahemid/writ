@@ -120,10 +120,14 @@ describe("a button at the top of the interface text range", () => {
 
 describe("the find bar and the palette at the top of the interface text range", () => {
   it("treats the find bar's box sizes as floors", () => {
-    for (const selector of [".find-input", ".find-toggle", ".find-icon-btn", ".find-text-btn"]) {
-      isNotFixedHeight(FIND, selector);
-      declares(FIND, selector, "min-height", /\d+px/);
-    }
+    isNotFixedHeight(FIND, ".find-input");
+    declares(FIND, ".find-input", "min-height", /\d+px/);
+    // The buttons are the shared control; their find-bar metrics are written at
+    // a weight that beats Button.css, and they stay floors there too.
+    const controls =
+      ":root .find-overlay .find-row .find-toggle,\n:root .find-overlay .find-row .find-icon-btn";
+    isNotFixedHeight(FIND, controls);
+    declares(FIND, controls, "min-height", /\d+px/);
   });
 
   it("treats the palette's input and row heights as floors", () => {

@@ -92,24 +92,27 @@ describe("the editor chrome's focus rings", () => {
 // WCAG 2.2 Target Size (Minimum) is 24px, and nine controls in one row at
 // exactly 24px with 2px between them leaves no margin for a mis-aimed click.
 describe("the find bar's targets", () => {
-  const CONTROLS = [".find-toggle", ".find-icon-btn", ".find-text-btn"];
+  // The controls are the shared button now, so their own metrics are written at
+  // a weight that beats Button.css's per-platform rules.
+  const SIZED = ":root .find-overlay .find-row .find-toggle,\n:root .find-overlay .find-row .find-icon-btn";
 
   it("stands every control on at least 28px", () => {
-    for (const selector of CONTROLS) {
-      const declarations = rule(CSS.find, selector);
-      const height = declarations.match(/min-height:\s*(\d+)px/)?.[1];
-      expect(Number(height), `${selector} min-height`).toBeGreaterThanOrEqual(28);
+    const declarations = rule(CSS.find, SIZED);
+    expect(Number(declarations.match(/min-height:\s*(\d+)px/)?.[1])).toBeGreaterThanOrEqual(28);
+    expect(Number(declarations.match(/min-width:\s*(\d+)px/)?.[1])).toBeGreaterThanOrEqual(28);
+  });
+
+  it("outweighs the shared button's own platform metrics", () => {
+    for (const [, selector] of CSS.find.matchAll(/^(:root [^{]*\.find-(?:toggle|icon-btn)[^{]*)\{/gm)) {
+      expect(selector, selector).toMatch(/^:root \.find-overlay \.find-row /m);
     }
-    const toggle = rule(CSS.find, ".find-toggle").match(/min-width:\s*(\d+)px/)?.[1];
-    expect(Number(toggle)).toBeGreaterThanOrEqual(28);
-    const icon = rule(CSS.find, ".find-icon-btn").match(/min-width:\s*(\d+)px/)?.[1];
-    expect(Number(icon)).toBeGreaterThanOrEqual(28);
   });
 
   it("keeps a step of the spacing ramp between neighbours", () => {
-    for (const selector of [".find-row", ".find-toggles", ".find-nav"]) {
-      expect(rule(CSS.find, selector), selector).toMatch(/gap:\s*var\(--writ-space-2\)/);
-    }
+    expect(rule(CSS.find, ".find-row")).toMatch(/gap:\s*var\(--writ-space-2\)/);
+    expect(rule(CSS.find, ".find-toggles,\n.find-nav")).toMatch(
+      /gap:\s*var\(--writ-space-2\)/,
+    );
   });
 });
 

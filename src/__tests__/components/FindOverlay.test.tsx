@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { createRoot } from "solid-js";
 import { render, fireEvent, cleanup } from "@solidjs/testing-library";
 import { EditorView } from "@codemirror/view";
@@ -69,9 +69,9 @@ describe("FindOverlay", () => {
 
   it("reflects toggle state via aria-pressed", () => {
     const find = makeStore(makeView("Foo foo"));
-    const { getByTitle } = render(() => <FindOverlay store={find} />);
+    const { getByLabelText } = render(() => <FindOverlay store={find} />);
     find.open();
-    const caseBtn = getByTitle("Match case");
+    const caseBtn = getByLabelText("Match case");
     expect(caseBtn.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(caseBtn);
     expect(caseBtn.getAttribute("aria-pressed")).toBe("true");
@@ -99,6 +99,21 @@ describe("FindOverlay", () => {
 // A button with content is named by its content, so "Aa", "ab", ".*" and "All"
 // are what a screen reader and voice control get; a title never wins the
 // accessible name once there is text inside.
+/** The label of the tip wrapping a control, which is where its key now lives. */
+function tipFor(container: HTMLElement, control: Element): string | undefined {
+  const anchor = control.closest(".writ-tooltip-anchor");
+  if (!anchor) return undefined;
+  vi.useFakeTimers();
+  try {
+    fireEvent.pointerEnter(anchor);
+    vi.advanceTimersByTime(600);
+    return container.ownerDocument.querySelector('[role="tooltip"]')?.textContent ?? undefined;
+  } finally {
+    fireEvent.pointerLeave(anchor);
+    vi.useRealTimers();
+  }
+}
+
 describe("the find bar's names", () => {
   const openBar = () => {
     const find = makeStore(makeView("foo foo"));
@@ -124,30 +139,53 @@ describe("the find bar's names", () => {
       execute: () => undefined,
     });
     try {
-      const { getByLabelText } = openBar();
-      expect(getByLabelText("Replace").getAttribute("title")).toMatch(/^Replace \(.+\)$/);
+      const { getByLabelText, container } = openBar();
+      const toggle = getByLabelText("Replace");
+      expect(tipFor(container, toggle)).toMatch(/^Replace \(.+\)$/);
     } finally {
       unregisterCommand("editor.replace");
     }
   });
 
-  it("gives every control in the first row a title", () => {
-    const { container } = openBar();
-    const titles = [...container.querySelectorAll(".find-row button")].map((b) =>
-      b.getAttribute("title"),
-    );
-    expect(titles.length).toBeGreaterThan(0);
-    for (const title of titles) expect(title).toBeTruthy();
+  it("gives every control a name and a tip carrying its key", () => {
+    const { container, find } = openBar();
+    find.toggleReplace();
+    const controls = [...container.querySelectorAll<HTMLButtonElement>(".find-row button")];
+    expect(controls.length).toBeGreaterThan(0);
+    for (const control of controls) {
+      const name = control.getAttribute("aria-label") ?? control.textContent ?? "";
+      expect(name.trim(), control.outerHTML).not.toBe("");
+      expect(tipFor(container, control), name).toBeTruthy();
+    }
   });
 
-  it("names the replace-all button in full", () => {
-    const { getByLabelText, find } = openBar();
+  it("carries no title attribute, which would be a second tooltip", () => {
+    const { container } = openBar();
+    expect(container.querySelector("[title]")).toBeNull();
+  });
+
+  it("keeps the option toggles pressed through the shared button", () => {
+    const { container, getByLabelText, find } = openBar();
+    const toggle = getByLabelText("Match case");
+    expect(toggle.classList.contains("writ-btn")).toBe(true);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(find.caseSensitive()).toBe(true);
+    expect(getByLabelText("Match case").getAttribute("aria-pressed")).toBe("true");
+    expect(getByLabelText("Match case").classList.contains("is-on")).toBe(true);
+  });
+
+  it("stands the replace row's actions on the shared button", () => {
+    const { container, find } = openBar();
     find.toggleReplace();
-    expect(getByLabelText("Replace all")).toBeTruthy();
+    const actions = [...container.querySelectorAll(".find-row-replace button")];
+    expect(actions).toHaveLength(2);
+    for (const action of actions) expect(action.classList.contains("writ-btn")).toBe(true);
   });
 
   it("closes under one name", () => {
-    const { getByLabelText } = openBar();
-    expect(getByLabelText("Close").getAttribute("title")).toContain("Close");
+    const { getByLabelText, container } = openBar();
+    expect(tipFor(container, getByLabelText("Close"))).toContain("Close");
   });
 });
