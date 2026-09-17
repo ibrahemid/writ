@@ -124,6 +124,14 @@
   color: var(--writ-fg);
 }
 
+/* The strip scrolls, so a tab's ring is drawn inside it, as a sidebar row's is. */
+.tab-label:focus-visible,
+.tab-close:focus-visible,
+.tab-add:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset-inset, -2px);
+}
+
 .tab-rename-input {
   flex: 1;
   min-width: 0;

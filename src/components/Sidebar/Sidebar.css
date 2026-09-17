@@ -111,6 +111,13 @@
   background: var(--writ-accent);
 }
 
+/* Drawn inside the row: every list in the sidebar scrolls, so a ring outside
+   the box is cut flat at the scroller's edge and laps the next row's fill. */
+.sidebar-row:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset-inset, -2px);
+}
+
 .sidebar-section {
   display: flex;
   flex-direction: column;

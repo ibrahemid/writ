@@ -37,6 +37,21 @@ function ruleBody(css: string, selector: string): string | null {
   return css.match(new RegExp(`^${escaped}\\s*\\{([^}]*)\\}`, "m"))?.[1] ?? null;
 }
 
+/** The body of the one rule whose selector list is exactly `selectors`. */
+function groupedRuleBody(css: string, selectors: readonly string[]): string | null {
+  for (const [, list, body] of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+    const named = list
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split(",")
+      .map((one) => one.trim())
+      .filter(Boolean);
+    if (named.length === selectors.length && named.every((one, i) => one === selectors[i])) {
+      return body;
+    }
+  }
+  return null;
+}
+
 describe("the focus ring in the chrome", () => {
   // `.winctrl` is the one exception focus.css names: Fluent's second ring
   // cannot be a token, because it is drawn inside a control that runs to the
@@ -77,6 +92,35 @@ describe("the focus ring in the chrome", () => {
       expect(body, `${selector} is declared`).toBeTruthy();
       expect(body!).toMatch(/outline:\s*var\(--writ-focus-outline[,)]/);
       expect(body!).toMatch(new RegExp(`outline-offset:\\s*${offset}`));
+    }
+  });
+
+  // A row lives in a scroller that clips: an outward ring is cut flat on the
+  // first and last visible rows and laps the neighbour's fill in between. One
+  // token says how far inward, and it is the same on all three shells.
+  it("draws a row's ring inside the row, from one token", () => {
+    const FOCUS = read("src/styles/focus.css");
+    expect(ruleBody(FOCUS, ":root")).toMatch(/--writ-focus-offset-inset:\s*-2px/);
+    for (const root of [':root[data-platform="win"]', ':root[data-platform="linux"]']) {
+      expect(ruleBody(FOCUS, root), root).not.toMatch(/--writ-focus-offset-inset/);
+    }
+
+    const TABBAR = read("src/components/Editor/TabBar.css");
+    for (const [css, selectors] of [
+      [read("src/components/Sidebar/Sidebar.css"), [".sidebar-row:focus-visible"]],
+      [TABBAR, [".tab-label:focus-visible", ".tab-close:focus-visible", ".tab-add:focus-visible"]],
+    ] as const) {
+      const body = groupedRuleBody(css, selectors);
+      expect(body, `${selectors.join(", ")} is declared`).toBeTruthy();
+      expect(body!).toMatch(/outline:\s*var\(--writ-focus-outline[,)]/);
+      expect(body!).toMatch(/outline-offset:\s*var\(--writ-focus-offset-inset[,)]/);
+    }
+
+    // The rows are not left on the outward offset by the shared list either.
+    for (const name of [".tab-label", ".tab-close", ".tab-add", ".tab-item"]) {
+      expect(FOCUS, `${name} still takes the outward offset`).not.toMatch(
+        new RegExp(`\\${name}:focus-visible`),
+      );
     }
   });
 
