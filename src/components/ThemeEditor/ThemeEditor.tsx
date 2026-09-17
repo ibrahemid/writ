@@ -62,7 +62,7 @@ export default function ThemeEditor() {
     }
     const outcome = await requestChoice({
       title: "Discard your changes?",
-      message: "Writ will put the colours back the way they were.",
+      message: "Writ will put the colors back the way they were.",
       confirmLabel: "Discard",
       defaultAction: "cancel",
     });
@@ -87,8 +87,8 @@ export default function ThemeEditor() {
       return;
     }
     const confirmed = await requestConfirm({
-      title: "Reset every colour?",
-      message: "The colours you picked go back to the preset's own.",
+      title: "Reset every color?",
+      message: "The colors you picked go back to the preset's own.",
       confirmLabel: "Reset all",
       defaultAction: "cancel",
     });
