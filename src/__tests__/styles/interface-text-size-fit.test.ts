@@ -21,6 +21,8 @@ const TITLEBAR = read("src/components/TitleBar/TitleBar.css");
 const CONTEXTMENU = read("src/components/ContextMenu/ContextMenu.css");
 const SEARCHBAR = read("src/components/Sidebar/SearchBar.css");
 const TOOLBAR = read("src/components/Toolbar/Toolbar.css");
+const FIND = read("src/components/Find/FindOverlay.css");
+const PALETTE = read("src/components/Palette/Palette.css");
 
 /** The declaration body of one rule, matched on its own selector line. */
 function rule(css: string, selector: string): string {
@@ -136,6 +138,26 @@ describe("a button at the top of the interface text range", () => {
     ]) {
       isNotFixedHeight(BUTTON, selector);
       declares(BUTTON, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("the find bar and the palette at the top of the interface text range", () => {
+  it("treats the find bar's box sizes as floors", () => {
+    isNotFixedHeight(FIND, ".find-input");
+    declares(FIND, ".find-input", "min-height", /\d+px/);
+    // The buttons are the shared control; their find-bar metrics are written at
+    // a weight that beats Button.css, and they stay floors there too.
+    const controls =
+      ":root .find-overlay .find-row .find-toggle,\n:root .find-overlay .find-row .find-icon-btn";
+    isNotFixedHeight(FIND, controls);
+    declares(FIND, controls, "min-height", /\d+px/);
+  });
+
+  it("treats the palette's input and row heights as floors", () => {
+    for (const selector of [".palette-search", ".palette-item"]) {
+      isNotFixedHeight(PALETTE, selector);
+      declares(PALETTE, selector, "min-height", /\d+px/);
     }
   });
 });

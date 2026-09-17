@@ -111,7 +111,6 @@
 .preview-split-handle:hover,
 .preview-split-handle:focus-visible {
   background: var(--writ-accent);
-  outline: none;
 }
 
 .preview-split-vertical {

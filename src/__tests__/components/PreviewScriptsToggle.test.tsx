@@ -133,7 +133,10 @@ describe("PreviewScriptsToggle", () => {
       const btn = container.querySelector(".scripts-toggle");
       expect(btn).not.toBeNull();
       expect(btn!.getAttribute("aria-pressed")).toBe("true");
-      expect(btn!.textContent).toContain("scripts");
+      expect(btn!.textContent).toContain("Scripts");
+      // The pill and aria-pressed already say it is on and that a click flips
+      // it; what is left to say is the thing the switch does not cover.
+      expect(btn!.getAttribute("title")).toBe("Scripts on. Network is always off.");
     });
   });
 
@@ -144,7 +147,8 @@ describe("PreviewScriptsToggle", () => {
       const btn = container.querySelector<HTMLButtonElement>(".scripts-toggle")!;
       expect(btn.classList.contains("is-off")).toBe(true);
       expect(btn.getAttribute("aria-pressed")).toBe("false");
-      expect(btn.textContent).toContain("scripts off");
+      expect(btn.textContent).toContain("Scripts off");
+      expect(btn.getAttribute("title")).toBe("Scripts off.");
     });
   });
 

@@ -1,6 +1,7 @@
-import { createSignal, Show, For, createMemo, onCleanup } from "solid-js";
+import { createSignal, Show, For, createEffect, createMemo, onCleanup } from "solid-js";
 import { spellingStore, entryKey } from "../../stores/global/spelling";
 import type { SpellingEntry } from "../../editor/spelling";
+import Button from "../Button/Button";
 import "./SpellingPreview.css";
 
 // Non-modal overlay listing every flagged range as `wrong → fix`, with
@@ -32,6 +33,9 @@ function isFixable(entry: SpellingEntry): boolean {
 
 export default function SpellingPreview() {
   let panelRef: HTMLDivElement | undefined;
+  let applyRef: HTMLButtonElement | undefined;
+  let closeRef: HTMLButtonElement | undefined;
+  let restoreFocusTo: HTMLElement | null = null;
 
   const fixableRows = createMemo(() => rows().filter(isFixable));
   const allChecked = createMemo(() => {
@@ -74,6 +78,37 @@ export default function SpellingPreview() {
     }
   }
 
+  // The chip's menu item runs without leaving the focus anywhere, so the panel
+  // takes it on open and hands it back on close. The document listener is the
+  // other half of that: an Escape pressed while nothing holds the focus never
+  // reaches the panel's own handler, which stops the ones that do.
+  createEffect(() => {
+    if (!isOpen()) return;
+    restoreFocusTo = document.activeElement as HTMLElement | null;
+    const first = applyRef && !applyRef.disabled ? applyRef : closeRef;
+    first?.focus();
+
+    function onDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      // Escape belongs to the top layer. Only a key pressed inside the panel or
+      // with nothing focused at all is this panel's to answer; one aimed at a
+      // layer opened over it is not.
+      const target = event.target;
+      const unowned = target === document.body || target === document.documentElement;
+      if (!unowned && !(target instanceof Node && panelRef?.contains(target))) return;
+      event.preventDefault();
+      closeSpellingPreview();
+    }
+    document.addEventListener("keydown", onDocumentKeyDown);
+
+    onCleanup(() => {
+      document.removeEventListener("keydown", onDocumentKeyDown);
+      const target = restoreFocusTo;
+      restoreFocusTo = null;
+      if (target?.isConnected) target.focus();
+    });
+  });
+
   onCleanup(() => closeSpellingPreview());
 
   return (
@@ -96,22 +131,21 @@ export default function SpellingPreview() {
             <span>{fixableRows().length} to fix</span>
           </label>
           <div class="spelling-preview-actions">
-            <button
-              type="button"
-              class="spelling-preview-btn spelling-preview-apply"
+            <Button
+              ref={applyRef}
+              variant="primary"
               disabled={selected().size === 0}
               onClick={apply}
             >
               Apply
-            </button>
-            <button
-              type="button"
-              class="spelling-preview-btn"
+            </Button>
+            <Button
+              ref={closeRef}
               onClick={closeSpellingPreview}
               aria-label="Close spelling preview"
             >
               Close
-            </button>
+            </Button>
           </div>
         </div>
 

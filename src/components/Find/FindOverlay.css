@@ -18,13 +18,13 @@
 .find-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--writ-space-2);
 }
 
 .find-input {
   flex: 1;
   min-width: 0;
-  height: 28px;
+  min-height: 28px;
   padding: 0 8px;
   background: var(--writ-bg-sunken);
   border: 1px solid var(--writ-border);
@@ -34,7 +34,6 @@
 }
 
 .find-input:focus {
-  outline: none;
   border-color: var(--writ-accent);
 }
 
@@ -48,7 +47,7 @@
   padding: 0 4px;
   text-align: right;
   font-size: var(--writ-ui-xs);
-  color: var(--writ-fg-faint);
+  color: var(--writ-fg-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -57,38 +56,45 @@
   color: var(--writ-status-error);
 }
 
-.find-toggles {
+/* The bar's controls are the shared button, sized for a 28px row. The `:root`
+   prefix and the row in the chain are load-bearing: Button.css sizes .writ-btn
+   per platform at three class weights, and these have to win those. */
+.find-toggles,
+.find-nav {
   display: flex;
-  gap: 2px;
+  gap: var(--writ-space-2);
   flex-shrink: 0;
 }
 
-.find-toggle {
-  display: flex;
-  align-items: center;
+:root .find-overlay .find-row .find-toggle,
+:root .find-overlay .find-row .find-icon-btn {
+  min-width: 28px;
+  min-height: 28px;
   justify-content: center;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 4px;
-  background: transparent;
-  border: 1px solid transparent;
   border-radius: var(--writ-r-action);
-  color: var(--writ-fg-faint);
+}
+
+:root .find-overlay .find-row .find-toggle {
+  padding: 0 var(--writ-space-2);
+  border: 1px solid transparent;
   font-size: var(--writ-ui-xs);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  cursor: pointer;
-  transition: background var(--writ-motion), color var(--writ-motion), border-color var(--writ-motion);
 }
 
-.find-toggle:hover {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
+:root .find-overlay .find-row .find-icon-btn {
+  padding: 0;
 }
 
-.find-toggle.is-on {
+/* The checked box of ADR-030 §6: the fill, the stroke and the glyph are the
+   one state in this bar that is worth the accent. */
+:root .find-overlay .find-row .find-toggle.is-on {
   background: color-mix(in srgb, var(--writ-accent) 18%, transparent);
   border-color: color-mix(in srgb, var(--writ-accent) 50%, transparent);
+  color: var(--writ-accent);
+}
+
+:root .find-overlay .find-row .find-replace-toggle.is-on {
   color: var(--writ-accent);
 }
 
@@ -97,66 +103,13 @@
   text-underline-offset: 2px;
 }
 
-.find-nav {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.find-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: transparent;
-  border: none;
-  border-radius: var(--writ-r-action);
-  color: var(--writ-fg-muted);
-  cursor: pointer;
-  transition: background var(--writ-motion), color var(--writ-motion);
-}
-
-.find-icon-btn:hover:not(:disabled) {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
-}
-
-.find-icon-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.find-replace-toggle.is-on {
-  color: var(--writ-accent);
-}
-
 .find-row-replace {
   padding-right: 52px;
 }
 
-.find-text-btn {
+/* The tip wraps each control, so the row's flex items are its anchors. */
+.find-row .writ-tooltip-anchor {
   flex-shrink: 0;
-  height: 24px;
-  padding: 0 8px;
-  background: transparent;
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-action);
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-xs);
-  cursor: pointer;
-  transition: background var(--writ-motion), color var(--writ-motion), border-color var(--writ-motion);
-}
-
-.find-text-btn:hover:not(:disabled) {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
-  border-color: var(--writ-accent);
-}
-
-.find-text-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .find-tickmap {

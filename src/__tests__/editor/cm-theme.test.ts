@@ -52,6 +52,24 @@ describe("the editor theme", () => {
     expect(literal, JSON.stringify(literal)).toEqual([]);
   });
 
+  // The app paints ::selection with --writ-selection; the editor mixing its own
+  // alpha means selecting text in the note and in the find field is two colours.
+  it("takes the selection and its match from the app's own properties", () => {
+    const spec = writThemeSpec as Record<string, Record<string, string>>;
+    expect(
+      spec["&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground"]
+        .backgroundColor,
+    ).toBe("var(--writ-selection)");
+    expect(spec[".cm-selectionMatch"].backgroundColor).toBe("var(--writ-selection-match)");
+  });
+
+  it("mixes no alpha of its own against the accent", () => {
+    const mixes = declarations().filter(
+      ({ value }) => value.includes("color-mix") && value.includes("--writ-accent"),
+    );
+    expect(mixes, JSON.stringify(mixes)).toEqual([]);
+  });
+
   it("caps the content at the prose measure and centres it", () => {
     const content = writThemeSpec[".cm-content"];
     expect(content.maxWidth).toContain("var(--writ-prose-measure)");

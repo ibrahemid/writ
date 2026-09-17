@@ -20,6 +20,14 @@ function componentsIn(dir: string): string[] {
     .sort();
 }
 
+/** The bars the editor puts over the note, and the panes that answer for one. */
+const EDITOR_BARS = [
+  "src/components/Editor/FileChangedBar.tsx",
+  "src/components/Editor/RemovedOnDiskBar.tsx",
+  "src/components/Editor/SaveFailureBar.tsx",
+  "src/components/Editor/RenameSkippedBar.tsx",
+];
+
 const MIGRATED = [
   "src/components/Button/Button.tsx",
   "src/components/Kbd/Kbd.tsx",
@@ -34,6 +42,11 @@ const MIGRATED = [
   "src/components/PromptFill/PromptFillModal.tsx",
   "src/components/SettingsModal/SettingsModal.tsx",
   "src/components/ShortcutEditor/ShortcutEditor.tsx",
+  ...EDITOR_BARS,
+  "src/components/Editor/FirstRunHint.tsx",
+  "src/components/Editor/NoteDownloading.tsx",
+  "src/components/Editor/SpellingPreview.tsx",
+  "src/components/Find/FindOverlay.tsx",
   ...componentsIn(SIDEBAR_DIR),
   ...componentsIn(RIGHT_PANEL_DIR),
   ...componentsIn(RESIZER_DIR),
@@ -73,6 +86,57 @@ describe("migrated surfaces use the primitives", () => {
   it("no title attribute stands in for a tooltip", () => {
     const offenders = [...MIGRATED, ...ICON_OWNERS].filter((rel) => /\btitle=/.test(read(rel)));
     expect(offenders, `title= found in: ${offenders.join(", ")}`).toEqual([]);
+  });
+
+  // The four bars were one stylesheet copied four times, each with its own
+  // button. The same answer has to look and hover the same wherever it is asked.
+  it("puts the editor's bars on the shared button and the shared bar", () => {
+    for (const rel of EDITOR_BARS) {
+      const source = read(rel);
+      expect(source, rel).toContain('import Button from "../Button/Button"');
+      expect(source, rel).toContain('class="editor-bar');
+      expect(source, rel).not.toMatch(/<button/);
+      expect(source, rel).not.toMatch(/(file-changed|removed-on-disk|save-failure|rename-skipped)-bar-action/);
+    }
+    expect(read("src/components/Editor/NoteDownloading.tsx")).not.toMatch(
+      /note-downloading-action/,
+    );
+    expect(read("src/components/Editor/FirstRunHint.tsx")).not.toMatch(
+      /first-run-offer-action/,
+    );
+    expect(read("src/components/Editor/SpellingPreview.tsx")).not.toMatch(
+      /spelling-preview-btn/,
+    );
+  });
+
+  it("keeps one stylesheet for the four bars", () => {
+    for (const rel of EDITOR_BARS) {
+      expect(read(rel), rel).toContain('import "./EditorBar.css"');
+    }
+    const shared = read("src/components/Editor/EditorBar.css");
+    expect(shared).toContain("--editor-bar-rail");
+    // ADR-030 §6 spends the accent on links, the caret, a checked box, focus
+    // and one primary button. The question bar's rail was none of those.
+    expect(shared).not.toMatch(/border-left[^;]*var\(--writ-accent\)/);
+    expect(shared).not.toMatch(/--editor-bar-rail:\s*var\(--writ-accent\)/);
+  });
+
+  // Every control in the find bar names its key. That key belongs in a tip, not
+  // in a title, and the glyph beside it comes from the sprite.
+  it("puts the find bar's keys in tips and its glyphs on the shared button", () => {
+    const source = read("src/components/Find/FindOverlay.tsx");
+    for (const name of ["caret-up", "caret-down", "caret-right", "x"]) {
+      expect(source, name).toContain(`icon="${name}"`);
+    }
+    for (const label of [
+      "Previous match (Shift+Enter)",
+      "Next match (Enter)",
+      "Close (Esc)",
+      "Replace (Enter)",
+      "Replace all (Shift+Enter)",
+    ]) {
+      expect(source, label).toContain(`<Tooltip label="${label}">`);
+    }
   });
 
   it("the sprite is the only place svg markup is authored", () => {

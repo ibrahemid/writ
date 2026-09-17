@@ -41,11 +41,11 @@ describe("the notes a rename left alone", () => {
     ]);
     const { container } = render(() => <RenameSkippedBar />);
 
-    expect(container.querySelector(".rename-skipped-bar-heading")?.textContent).toBe(
+    expect(container.querySelector(".editor-bar-heading")?.textContent).toBe(
       "Left 2 notes unchanged:",
     );
     const lines = Array.from(
-      container.querySelectorAll(".rename-skipped-bar-list li"),
+      container.querySelectorAll(".editor-bar-list li"),
     ).map((line) => line.textContent);
     expect(lines).toEqual([
       "Second.md: has not finished downloading.",
@@ -57,7 +57,7 @@ describe("the notes a rename left alone", () => {
     setNotes([{ name: "Second.md", reason: "is read-only." }]);
     const { container } = render(() => <RenameSkippedBar />);
 
-    expect(container.querySelector(".rename-skipped-bar-heading")?.textContent).toBe(
+    expect(container.querySelector(".editor-bar-heading")?.textContent).toBe(
       "Left 1 note unchanged:",
     );
   });

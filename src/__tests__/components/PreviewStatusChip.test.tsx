@@ -21,7 +21,7 @@ describe("PreviewStatusChip — transient status indicator", () => {
     ));
     const chip = container.querySelector(".preview-chip");
     expect(chip).not.toBeNull();
-    expect(chip!.textContent).toContain("rendering");
+    expect(chip!.textContent).toContain("Rendering");
   });
 
   it("shows the error state and message", () => {
@@ -30,7 +30,7 @@ describe("PreviewStatusChip — transient status indicator", () => {
     ));
     const chip = container.querySelector(".preview-chip")!;
     expect(chip.classList.contains("is-error")).toBe(true);
-    expect(chip.textContent).toContain("render error");
+    expect(chip.textContent).toContain("Couldn't render");
     expect(chip.textContent).toContain("boom");
   });
 
@@ -50,5 +50,25 @@ describe("PreviewStatusChip — transient status indicator", () => {
       <PreviewStatusChip state="rendering" warnings={[]} message="" />
     ));
     expect(container.querySelector(".preview-chip-flag")).toBeNull();
+  });
+
+  // The key is the one thing the state does not already say, and it is the key
+  // the app binds rather than one written into the label.
+  it("states the key that renders a document held back for its size", () => {
+    const { container } = render(() => (
+      <PreviewStatusChip state="manual" warnings={[]} message="" />
+    ));
+    const chip = container.querySelector(".preview-chip")!;
+    expect(chip.textContent).toContain("Too large to render live");
+    expect(chip.textContent).not.toContain("—");
+  });
+
+  it("says a document past the cap cannot be rendered at all", () => {
+    const { container } = render(() => (
+      <PreviewStatusChip state="too_large" warnings={[]} message="" />
+    ));
+    expect(container.querySelector(".preview-chip")!.textContent).toContain(
+      "Too large to render",
+    );
   });
 });

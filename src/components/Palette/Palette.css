@@ -29,7 +29,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
+  min-height: 40px;
   padding: 0 14px;
   border-bottom: 1px solid var(--writ-border-soft);
 }
@@ -37,7 +37,10 @@
 .palette-input {
   flex: 1;
   min-width: 0;
-  height: 100%;
+  /* The row is a floor now, not a fixed height, so a percentage has nothing to
+     resolve against: the field fills the line instead, and a click anywhere in
+     the row lands in it. */
+  align-self: stretch;
   padding: 0;
   border: 0;
   background: transparent;
@@ -63,7 +66,7 @@
   align-items: center;
   gap: 10px;
   width: calc(100% - 12px);
-  height: 32px;
+  min-height: 32px;
   margin: 0 6px;
   padding: 0 10px;
   text-align: left;
@@ -102,7 +105,7 @@
   flex: 0 1 auto;
   min-width: 0;
   font-size: var(--writ-ui-sm);
-  color: var(--writ-fg-faint);
+  color: var(--writ-fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -1,7 +1,8 @@
 import { For, Show } from "solid-js";
 import { renameLinksStore } from "../../stores/global/rename-links";
 import { unchangedHeading } from "../../lib/rename-copy";
-import "./RenameSkippedBar.css";
+import Button from "../Button/Button";
+import "./EditorBar.css";
 
 /**
  * The bar naming the notes a rename could not rewrite.
@@ -16,10 +17,10 @@ export default function RenameSkippedBar() {
   const notes = () => renameLinksStore.skippedNotes();
   return (
     <Show when={notes().length > 0}>
-      <div class="rename-skipped-bar" role="status">
-        <div class="rename-skipped-bar-text">
-          <p class="rename-skipped-bar-heading">{unchangedHeading(notes().length)}</p>
-          <ul class="rename-skipped-bar-list">
+      <div class="editor-bar rename-skipped-bar" role="status">
+        <div class="editor-bar-text">
+          <p class="editor-bar-heading">{unchangedHeading(notes().length)}</p>
+          <ul class="editor-bar-list">
             <For each={notes()}>
               {(note) => (
                 <li>
@@ -29,13 +30,7 @@ export default function RenameSkippedBar() {
             </For>
           </ul>
         </div>
-        <button
-          type="button"
-          class="rename-skipped-bar-action"
-          onClick={() => renameLinksStore.clearSkipped()}
-        >
-          Dismiss
-        </button>
+        <Button onClick={() => renameLinksStore.clearSkipped()}>Dismiss</Button>
       </div>
     </Show>
   );

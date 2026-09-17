@@ -141,15 +141,19 @@ describe("EditorArea", () => {
   it("gives the toast stack its clearance from the root, since it is not a child", () => {
     const root = document.documentElement;
     const { unmount } = render(() => <EditorArea />);
-    expect(root.style.getPropertyValue("--writ-toast-bottom")).toBe("16px");
+    expect(root.style.getPropertyValue("--writ-toast-bottom")).toBe("var(--writ-space-5)");
     unmount();
     expect(root.style.getPropertyValue("--writ-toast-bottom")).toBe("");
   });
 
+  // The bar's height is a floor: a larger interface text makes it taller than
+  // any number written here, and a toast would then sit over it.
   it("raises the toast clearance over the status bar when the bar is on", () => {
     mocks.config.mockReturnValue(configWith(true));
     render(() => <EditorArea />);
-    expect(document.documentElement.style.getPropertyValue("--writ-toast-bottom")).toBe("40px");
+    expect(document.documentElement.style.getPropertyValue("--writ-toast-bottom")).toBe(
+      "calc(var(--writ-statusbar-height) + var(--writ-space-4))",
+    );
   });
 
   it("keeps the preview pane mounted in both states", () => {

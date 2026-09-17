@@ -73,6 +73,15 @@ export function hideContextMenu() {
   setMenu(null);
 }
 
+/**
+ * Whether the open menu is the one `trigger` opened, so a trigger can say
+ * `aria-expanded` from the menu's own state. Read in a component, it tracks:
+ * every open and every dismiss goes through the same signal.
+ */
+export function isMenuOpenFor(trigger: HTMLElement | undefined): boolean {
+  return trigger !== undefined && menu()?.trigger === trigger;
+}
+
 /** Keeps the menu off the very edge of its allowed region. */
 const EDGE_GAP = 4;
 /** Space between the menu and the thing it is anchored to. */
@@ -115,12 +124,16 @@ export default function ContextMenu() {
     setFocused(order[next]);
   }
 
+  // The menu closes before the row runs, never after. Closing restores the
+  // focus to the trigger, so a row that opens a layer of its own would have the
+  // focus pulled straight back out of it and the new layer would be left with
+  // no keyboard exit. `Palette.tsx`'s handleSelect takes the same order.
   function activate(index: number) {
     const m = menu();
     const item = m?.items[index];
     if (!item || item.disabled) return;
-    item.action();
     close();
+    item.action();
   }
 
   function onKeyDown(event: KeyboardEvent) {

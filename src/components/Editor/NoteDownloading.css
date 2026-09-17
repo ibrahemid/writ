@@ -23,17 +23,3 @@
   font-size: var(--writ-ui-sm);
   color: var(--writ-status-error);
 }
-
-.note-downloading-action {
-  padding: var(--writ-space-2) var(--writ-space-3);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-control);
-  background: var(--writ-bg-raised);
-  color: var(--writ-fg);
-  font: inherit;
-  cursor: pointer;
-}
-
-.note-downloading-action:hover {
-  border-color: var(--writ-accent);
-}

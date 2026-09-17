@@ -3,6 +3,7 @@ import { firstRunStore, hintText, offerText } from "../../stores/global/first-ru
 import { configStore, clampSidebarWidth, clampPanelWidth } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { logFailure } from "../../lib/log";
+import Button from "../Button/Button";
 import "./FirstRunHint.css";
 
 /**
@@ -53,9 +54,8 @@ export default function FirstRunHint() {
         {(offer) => (
           <div class="first-run-offer" role="status">
             <p class="first-run-offer-text">{offerText(offer().title)}</p>
-            <button
-              type="button"
-              class="first-run-offer-action is-primary"
+            <Button
+              variant="primary"
               onClick={() =>
                 void firstRunStore
                   .acceptOffer()
@@ -63,14 +63,8 @@ export default function FirstRunHint() {
               }
             >
               Rename
-            </button>
-            <button
-              type="button"
-              class="first-run-offer-action"
-              onClick={() => firstRunStore.dismissOffer()}
-            >
-              Keep the date
-            </button>
+            </Button>
+            <Button onClick={() => firstRunStore.dismissOffer()}>Keep the date</Button>
           </div>
         )}
       </Show>

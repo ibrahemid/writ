@@ -62,6 +62,20 @@ describe("Button", () => {
     expect(onClick).not.toHaveBeenCalled();
   });
 
+  // A control that opens a layer says so, and says whether the layer is up. The
+  // find bar's replace disclosure is the one that needs it.
+  it("forwards the disclosure state", () => {
+    const { container } = render(() => (
+      <Button aria-expanded={false} aria-label="Replace" />
+    ));
+    expect(buttonIn(container).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("leaves the disclosure state off a button that is not one", () => {
+    const { container } = render(() => <Button>Save</Button>);
+    expect(buttonIn(container).hasAttribute("aria-expanded")).toBe(false);
+  });
+
   it("renders the icon slot before the label", () => {
     const { container } = render(() => (
       <Button icon="note-pencil" variant="primary">
