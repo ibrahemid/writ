@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import { configStore } from "../../stores/global/config";
 import { windowRegistry } from "../../stores/global/window-registry";
 import { showAnchoredMenu } from "../ContextMenu/ContextMenu";
@@ -13,11 +13,15 @@ import { aiConnectionStore, connectionDisplay } from "../../stores/global/ai-con
 
 export default function RewriteChip() {
   let ref: HTMLButtonElement | undefined;
+  // The menu hands the focus back to the chip when it closes, which is the one
+  // signal the chip gets that the layer it opened is gone.
+  const [menuOpen, setMenuOpen] = createSignal(false);
 
   const visible = () => configStore.config().ai.rewrite.enabled;
 
   function openMenu() {
     if (!ref) return;
+    setMenuOpen(true);
     // Refresh the probe so the next open reflects the current state.
     void aiConnectionStore.check();
 
@@ -41,7 +45,16 @@ export default function RewriteChip() {
 
   return (
     <Show when={visible()}>
-      <button ref={ref} type="button" class="statusbar-chip" onClick={openMenu} title="Rewrite">
+      <button
+        ref={ref}
+        type="button"
+        class="statusbar-chip"
+        onClick={openMenu}
+        onFocus={() => setMenuOpen(false)}
+        title="Rewrite"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen()}
+      >
         Rewrite
       </button>
     </Show>

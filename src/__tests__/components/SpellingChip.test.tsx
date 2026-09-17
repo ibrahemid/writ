@@ -83,6 +83,31 @@ describe("SpellingChip visibility and states", () => {
   });
 });
 
+// A plain button gives no warning that pressing it opens a layer; the chip has
+// to say that it does, and whether the layer is up.
+describe("SpellingChip announces its menu", () => {
+  it("says it opens a menu, and says when that menu is up", async () => {
+    spellingStore.setEligible(true);
+    const { container } = render(() => (
+      <>
+        <SpellingChip />
+        <ContextMenu />
+      </>
+    ));
+
+    const chip = container.querySelector<HTMLButtonElement>(".spelling-chip")!;
+    expect(chip.getAttribute("aria-haspopup")).toBe("menu");
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(chip);
+    await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("true"));
+
+    hideContextMenu();
+    fireEvent.focus(chip);
+    await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("false"));
+  });
+});
+
 describe("SpellingChip menu-driven toggle", () => {
   it("opens a menu with Turn on spelling when off, and enabling persists", async () => {
     spellingStore.setEligible(true);
