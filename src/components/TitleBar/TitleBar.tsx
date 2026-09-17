@@ -3,6 +3,7 @@ import CaptionButtons from "./CaptionButtons";
 import AppMenu from "./AppMenu";
 import Button from "../Button/Button";
 import Kbd from "../Kbd/Kbd";
+import Tooltip from "../Tooltip/Tooltip";
 import { resolvePlatform } from "../../lib/platform";
 import { resolveChromeLayout } from "../../lib/window-chrome";
 import { executeCommand } from "../../commands/registry";
@@ -75,9 +76,11 @@ export default function TitleBar() {
         </Show>
 
         <div class="titlebar-end">
-          <div class="titlebar-right" data-no-drag>
-            <Kbd binding={configStore.config().hotkey.toggle} />
-          </div>
+          <Tooltip label="Toggle Writ from anywhere">
+            <div class="titlebar-right" data-no-drag>
+              <Kbd binding={configStore.config().hotkey.toggle} />
+            </div>
+          </Tooltip>
           <CaptionButtons kind={layout.caption} maximized={osWindowStore.maximized()} />
         </div>
       </div>

@@ -277,6 +277,27 @@ describe("Windows window controls", () => {
     expect(button.getAttribute("aria-label")).toBe("Hide");
   });
 
+  // The chip is a key combination and nothing else; what it toggles has to be
+  // said somewhere, and the house tip is where every other control says it.
+  it("explains the hotkey chip through the tooltip, not a native title", () => {
+    const { container } = renderOn("win");
+    const chip = container.querySelector(".titlebar-right")!;
+    const anchor = chip.closest(".writ-tooltip-anchor");
+    expect(anchor, "the chip is wrapped in the house tooltip").not.toBeNull();
+    expect(chip.getAttribute("title")).toBeNull();
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerEnter(anchor!);
+      vi.advanceTimersByTime(1000);
+      expect(container.querySelector('[role="tooltip"]')!.textContent).toBe(
+        "Toggle Writ from anywhere",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // One name per control: a native tip that disagrees with the accessible name
   // gives the same button two names, one of which nobody can hear.
   it("names each caption control once", () => {
