@@ -101,6 +101,7 @@ describe("sidebar resize handle", () => {
     expect(handle.getAttribute("aria-valuemin")).toBe("200");
     expect(handle.getAttribute("aria-valuemax")).toBe("320");
     expect(handle.getAttribute("aria-valuenow")).toBe("240");
+    expect(handle.getAttribute("aria-valuetext")).toBe("240 pixels");
     expect(handle.tabIndex).toBe(0);
   });
 
@@ -179,6 +180,14 @@ describe("sidebar resize handle", () => {
     expect(h.setSidebarWidth).toHaveBeenLastCalledWith(248);
     fireEvent.keyDown(handle, { key: "ArrowLeft" });
     expect(h.setSidebarWidth).toHaveBeenLastCalledWith(232);
+  });
+
+  it("jumps to the narrowest and the widest on Home and End", () => {
+    const { handle } = mount();
+    fireEvent.keyDown(handle, { key: "Home" });
+    expect(h.setSidebarWidth).toHaveBeenLastCalledWith(200);
+    fireEvent.keyDown(handle, { key: "End" });
+    expect(h.setSidebarWidth).toHaveBeenLastCalledWith(320);
   });
 
   it("leaves other keys alone", () => {

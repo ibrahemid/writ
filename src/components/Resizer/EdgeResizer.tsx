@@ -93,6 +93,11 @@ export default function EdgeResizer(props: Props) {
   }
 
   function stepWidth(e: KeyboardEvent) {
+    if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      props.onCommit(e.key === "Home" ? props.min : props.max);
+      return;
+    }
     const towardsRight = e.key === "ArrowRight" ? KEYBOARD_STEP : e.key === "ArrowLeft" ? -KEYBOARD_STEP : 0;
     if (towardsRight === 0) return;
     e.preventDefault();
@@ -108,6 +113,7 @@ export default function EdgeResizer(props: Props) {
       aria-valuemin={props.min}
       aria-valuemax={props.max}
       aria-valuenow={live()}
+      aria-valuetext={`${live()} pixels`}
       tabIndex={0}
       onPointerDown={startDrag}
       onPointerMove={moveDrag}
