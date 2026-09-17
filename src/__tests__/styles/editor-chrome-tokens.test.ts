@@ -19,6 +19,8 @@ const SHEETS = {
   layoutToggle: "src/components/Preview/preview-layout-toggle.css",
   previewChrome: "src/components/Preview/preview-chrome.css",
   linkConfirm: "src/components/Preview/LinkConfirm.css",
+  editorArea: "src/components/Editor/EditorArea.css",
+  markdown: "src/components/Editor/cm-markdown-typography.css",
 } as const;
 
 const CSS = Object.fromEntries(
@@ -108,5 +110,35 @@ describe("the find bar's targets", () => {
     for (const selector of [".find-row", ".find-toggles", ".find-nav"]) {
       expect(rule(CSS.find, selector), selector).toMatch(/gap:\s*var\(--writ-space-2\)/);
     }
+  });
+});
+
+// One inline --writ-ui-size on the root drives every interface step, and the
+// note's own measure and code slab scale with the editor's font size. A pixel
+// written into a rule opts that one line out of both.
+describe("the editor's own measures", () => {
+  it("sizes the empty state off the interface step", () => {
+    const empty = rule(CSS.editorArea, ".editor-empty");
+    expect(empty).toMatch(/font-size:\s*var\(--writ-ui-md\)/);
+    expect(empty).toMatch(/line-height:\s*var\(--writ-ui-md-lh\)/);
+  });
+
+  it("declares no pixel font size anywhere in the area", () => {
+    for (const [name, css] of Object.entries(CSS)) {
+      expect(css, name).not.toMatch(/font-size:\s*[\d.]+px/);
+    }
+  });
+
+  it("gives the first-run row the note's measure by name", () => {
+    expect(rule(CSS.firstRun, ".first-run-offer")).toMatch(
+      /max-width:\s*var\(--writ-prose-measure\)/,
+    );
+  });
+
+  it("pads the code slab in em, so its inset holds as the editor zooms", () => {
+    const slab = CSS.markdown.slice(CSS.markdown.indexOf(".cm-editor .cm-md-codeblock"));
+    const paddings = [...slab.matchAll(/padding-[a-z]+:\s*([^;]+);/g)].map((m) => m[1].trim());
+    expect(paddings.length).toBeGreaterThan(0);
+    for (const padding of paddings) expect(padding).not.toMatch(/\d+px/);
   });
 });

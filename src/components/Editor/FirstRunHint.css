@@ -29,7 +29,7 @@
   pointer-events: auto;
   /* The note's measure. A row that runs the width of a wide window puts its
      two controls a screen away from the question they answer. */
-  max-width: 704px;
+  max-width: var(--writ-prose-measure);
   display: flex;
   align-items: center;
   gap: var(--writ-space-3);
