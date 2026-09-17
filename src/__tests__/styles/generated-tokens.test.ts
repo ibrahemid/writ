@@ -348,7 +348,6 @@ describe("every emitted token is spent", () => {
     "--writ-sidebar-max-width":
       "read as SIDEBAR.maxWidth in stores/global/config.ts, not as a custom property",
     "--writ-z-banner": "owed to the update banner and the migration report (styles-8)",
-    "--writ-selection-match": "owed to the editor's search-match highlight (editor-20)",
   };
 
   const SEARCH_ROOTS = ["src", "site/src", "src-tauri/src", "crates", "design"];
