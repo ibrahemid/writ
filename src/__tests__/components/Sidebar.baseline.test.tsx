@@ -174,10 +174,12 @@ describe("sidebar rows", () => {
     expect(ruleFor(SIDEBAR_EMPTY_CSS, ".sidebar-empty-line").get("flex-wrap")).toBe("wrap");
   });
 
-  it("sits on the row pitch and radius tokens", () => {
-    expect(TAB_ITEM_CSS).toMatch(/height:\s*var\(--writ-sidebar-row-fill\)/);
-    expect(TAB_ITEM_CSS).toMatch(/border-radius:\s*var\(--writ-r-row\)/);
-    expect(TAB_ITEM_CSS).toMatch(/margin:\s*1px 6px/);
+  it("sits on the row pitch and radius tokens the whole sidebar shares", () => {
+    expect(TAB_ITEM_CSS).not.toMatch(/height:\s*var\(--writ-sidebar-row-fill\)/);
+    const row = ruleFor(SIDEBAR_CSS, ".sidebar-row");
+    expect(row.get("min-height")).toBe("var(--writ-sidebar-row-fill)");
+    expect(row.get("border-radius")).toBe("var(--writ-r-row)");
+    expect(row.get("margin")).toBe("1px 6px");
   });
 
   it("gives every row a note icon", () => {

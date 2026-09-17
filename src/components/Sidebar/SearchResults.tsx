@@ -87,8 +87,8 @@ export default function SearchResults() {
               <Tooltip label={rowTip(row)}>
                 <button
                   type="button"
-                  class="search-result"
-                  classList={{ "is-active": win.tabs.activeTabId() === row.id }}
+                  class="sidebar-row search-result"
+                  classList={{ "is-selected": win.tabs.activeTabId() === row.id }}
                   onClick={() => openRow(row)}
                   onContextMenu={(e) => contextMenu(e, row)}
                 >

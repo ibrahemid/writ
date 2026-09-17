@@ -2,15 +2,10 @@
   padding: 2px 0 8px;
 }
 
-/* 26px of fill inside 1px margins is the 28px row pitch the sidebar keeps. */
 .tags-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: var(--writ-sidebar-row-fill);
-  margin: 1px 6px;
   padding-right: 10px;
-  border-radius: var(--writ-r-pill);
   cursor: pointer;
   color: var(--writ-fg);
   font-size: var(--writ-ui-md);

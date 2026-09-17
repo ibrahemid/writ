@@ -13,11 +13,7 @@
 .file-tree-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: var(--writ-sidebar-row-fill);
-  margin: 1px 6px;
   padding-right: 10px;
-  border-radius: var(--writ-r-row);
   cursor: pointer;
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);

@@ -51,7 +51,7 @@
 /* Sized to its label and inset from the bar, the way a Fluent button sits in a
    caption row — not stretched to the caption-button grid opposite it. */
 .titlebar-appmenu {
-  height: 24px;
+  min-height: 24px;
   align-self: center;
   padding: 0 var(--writ-space-3);
   display: flex;

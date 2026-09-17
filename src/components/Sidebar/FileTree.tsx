@@ -156,7 +156,7 @@ function TreeNode(props: TreeNodeProps) {
         aria-level={props.level}
         aria-selected={isOpenNote()}
         tabIndex={0}
-        class="file-tree-item"
+        class="sidebar-row file-tree-item"
         classList={{ "is-selected": isOpenNote() }}
         style={{ "padding-left": paddingLeft() }}
         onClick={activate}

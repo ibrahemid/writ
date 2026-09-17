@@ -74,6 +74,41 @@
   padding-bottom: var(--writ-space-3);
 }
 
+/* One box for every row the sidebar lists — the tree, tags, tabs, the inbox
+   and search results — so a platform moves all five together. The pitch is a
+   floor: the rows read --writ-ui-md and grow with it. Column gap rather than
+   the shorthand, so a row that stacks two lines keeps its own row gap. */
+.sidebar-row {
+  position: relative;
+  min-height: var(--writ-sidebar-row-fill);
+  margin: 1px 6px;
+  column-gap: 8px;
+  border-radius: var(--writ-r-row);
+}
+
+:root[data-platform="win"] .sidebar-row {
+  margin: 2px 4px;
+}
+
+:root[data-platform="linux"] .sidebar-row {
+  margin: 0 6px 2px;
+  column-gap: 10px;
+}
+
+/* Fluent marks the selected row with a bar on its leading edge; macOS and
+   GNOME mark it with the fill alone. */
+:root[data-platform="win"] .sidebar-row.is-selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: var(--writ-r-indicator);
+  background: var(--writ-accent);
+}
+
 .sidebar-section {
   display: flex;
   flex-direction: column;
