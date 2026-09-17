@@ -278,6 +278,20 @@ fn note_name_candidates_rank_on_the_path_inside_the_notes_folder() {
         hits[0].path,
         notes_index::index_key(&root.join("projects").join("beta.md"))
     );
+    assert_eq!(hits[0].folder, "projects");
+}
+
+#[test]
+fn note_name_candidates_name_the_folder_that_tells_two_notes_apart() {
+    let (_dir, root, index) =
+        indexed(&[("Launch.md", "one\n"), ("Archive/2025/Launch.md", "two\n")]);
+
+    let mut hits = note_name_candidates_inner(&index, "launch", &root, None).expect("candidates");
+    hits.sort_by(|a, b| a.folder.cmp(&b.folder));
+    assert_eq!(hits.len(), 2);
+    assert_eq!(hits[0].folder, "");
+    assert_eq!(hits[1].folder, "Archive/2025");
+    assert!(hits.iter().all(|hit| hit.name == "Launch.md"));
 }
 
 #[test]

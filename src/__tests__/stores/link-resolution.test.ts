@@ -149,7 +149,7 @@ describe("linkStore createNote", () => {
 describe("linkStore noteNameCandidates", () => {
   it("answers with the hits the index ranked", async () => {
     mockedApi.noteNameCandidates.mockResolvedValue([
-      { path: "/notes/Grocery list.md", name: "Grocery list" },
+      { path: "/notes/Grocery list.md", name: "Grocery list", folder: "" },
     ]);
     expect(await linkStore.noteNameCandidates("Gro")).toEqual([
       { path: "/notes/Grocery list.md", name: "Grocery list" },

@@ -229,7 +229,7 @@ describe("the chip row", () => {
 });
 
 describe("the mention list", () => {
-  async function openList(hits: { path: string; name: string }[]) {
+  async function openList(hits: { path: string; name: string; folder?: string }[]) {
     mocks.candidates.mockResolvedValue(hits);
     const view = mount();
     const el = field(view.container);
@@ -260,8 +260,8 @@ describe("the mention list", () => {
 
   it("names the folder of a note that shares its name with another", async () => {
     const { container } = await openList([
-      { path: "Launch.md", name: "Launch.md" },
-      { path: "Archive/Launch.md", name: "Launch.md" },
+      { path: "/n/Launch.md", name: "Launch.md", folder: "" },
+      { path: "/n/Archive/Launch.md", name: "Launch.md", folder: "Archive" },
     ]);
 
     const rows = Array.from(container.querySelectorAll(".chat-mention-row"));

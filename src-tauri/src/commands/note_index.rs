@@ -135,6 +135,25 @@ pub struct NoteGraphDto {
 pub struct NoteNameHit {
     pub path: String,
     pub name: String,
+    /// The folder inside the notes folder the note sits in, with `/` between
+    /// its parts, and empty for a note at the root. Two notes of one name are
+    /// told apart by this and by nothing else the row shows.
+    pub folder: String,
+}
+
+/// The folder part of `path` inside `notes_root`, as [`NoteNameHit::folder`]
+/// carries it. A path outside the root, which the index does not hand out,
+/// reads as the root.
+fn folder_inside(notes_root: &Path, path: &str) -> String {
+    let key_root = notes_index::index_key(notes_root);
+    let Some(relative) = path.strip_prefix(key_root.as_str()) else {
+        return String::new();
+    };
+    let relative = relative.trim_start_matches(['/', '\\']);
+    match relative.rsplit_once(['/', '\\']) {
+        Some((folder, _)) => folder.replace('\\', "/"),
+        None => String::new(),
+    }
 }
 
 /// Resolves the inside of a `[[…]]` written in the note at `from_path`.
@@ -328,6 +347,7 @@ pub fn note_name_candidates_inner(
         .map_err(|e| e.to_string())?
         .into_iter()
         .map(|hit| NoteNameHit {
+            folder: folder_inside(notes_root, &hit.path),
             path: hit.path,
             name: hit.name,
         })

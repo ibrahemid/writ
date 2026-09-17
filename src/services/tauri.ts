@@ -314,6 +314,8 @@ export interface NoteNameHit {
   path: string;
   /** The note's file name without the extension. */
   name: string;
+  /** The folder inside the notes folder, `/`-joined, empty at the root. */
+  folder: string;
 }
 
 export async function noteNameCandidates(

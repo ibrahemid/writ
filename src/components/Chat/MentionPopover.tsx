@@ -10,13 +10,6 @@ export function mentionRowId(index: number): string {
   return `chat-mention-${index}`;
 }
 
-/** The folder a hit sits in, or nothing for a note at the root. Two notes of
- * one name in two folders are otherwise two identical rows. */
-export function mentionFolder(path: string): string {
-  const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
-  return parts.slice(0, -1).join("/");
-}
-
 /** The notes an `@` can reach, as the composer offers them. */
 export default function MentionPopover(props: {
   hits: NoteNameHit[];
@@ -57,7 +50,7 @@ export default function MentionPopover(props: {
             >
               <Icon name="file-text" size={14} />
               <span class="chat-mention-name">{hit.name}</span>
-              <Show when={mentionFolder(hit.path)}>
+              <Show when={hit.folder}>
                 {(folder) => <span class="chat-mention-folder">{folder()}</span>}
               </Show>
             </div>
