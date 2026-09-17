@@ -37,6 +37,17 @@
   opacity: var(--writ-icon-opacity-hover);
 }
 
+.file-tree-item.is-selected {
+  background: var(--writ-bg-selected);
+  font-weight: 500;
+}
+
+/* The row's own glyph, not the caret's: a disclosure keeps its faint ink. */
+.file-tree-item.is-selected > .writ-icon {
+  color: var(--writ-accent);
+  opacity: 1;
+}
+
 .file-tree-item:focus-visible {
   outline: 2px solid var(--writ-accent);
   outline-offset: -1px;
