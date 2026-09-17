@@ -35,6 +35,10 @@ let readToken = 0;
  * is the ordinary case rather than a fault.
  */
 async function load(notePath: string): Promise<void> {
+  // Before anything else: a restore re-reads the list, and the read the old row
+  // started is still open across that window. Without this it keeps the winning
+  // token and draws the pre-restore text into a pane with no row selected.
+  readToken += 1;
   setPath(notePath);
   setSelected(null);
   setText("");
@@ -60,8 +64,13 @@ async function select(id: number): Promise<void> {
     const content = await noteVersionContent(id);
     if (token === readToken) setText(content);
   } catch {
-    if (token === readToken) setText("");
-    logFailure("this version could not be read");
+    // Silent unless this is still the read the panel waits for: a failure on a
+    // row the user has already arrowed past names a version that is no longer
+    // on screen, so the line could not say which one it meant.
+    if (token === readToken) {
+      setText("");
+      logFailure("this version could not be read");
+    }
   } finally {
     if (token === readToken) setReading(false);
   }
