@@ -251,10 +251,8 @@ describe("the tags section", () => {
 const TAGS_CSS = readFileSync(resolve(process.cwd(), "src/components/Sidebar/TagsSection.css"), "utf8");
 
 describe("the tag row on the design baseline", () => {
-  it("is a pill on the row fill, with the count muted and small", () => {
-    expect(TAGS_CSS).toMatch(/\.tags-row\s*\{[^}]*height:\s*var\(--writ-sidebar-row-fill\)/);
-    expect(TAGS_CSS).toMatch(/\.tags-row\s*\{[^}]*border-radius:\s*var\(--writ-r-pill\)/);
-    expect(TAGS_CSS).toMatch(/\.tags-row\s*\{[^}]*margin:\s*1px 6px/);
+  it("takes the shared row box, with the count muted and small", () => {
+    expect(TAGS_CSS).not.toMatch(/\.tags-row\s*\{[^}]*[\s;](height|margin|border-radius):/);
     expect(TAGS_CSS).toMatch(/\.tags-row\s*\{[^}]*padding-right:\s*10px/);
     expect(TAGS_CSS).toMatch(
       /\.tags-row-count\s*\{[^}]*color:\s*var\(--writ-fg-muted\)[^}]*font-size:\s*var\(--writ-ui-sm\)/,
@@ -268,9 +266,7 @@ describe("the tag row on the design baseline", () => {
     expect(TAGS_CSS).toMatch(
       /\.tags-row\.is-selected \.tags-row-hash\s*\{\s*color:\s*var\(--writ-accent\)/,
     );
-    expect(TAGS_CSS).toMatch(
-      /\.tags-row:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--writ-accent\)[^}]*outline-offset:\s*-2px/,
-    );
+    expect(TAGS_CSS).not.toMatch(/\.tags-row:focus-visible/);
     const rowRule = /\.tags-row\s*\{[^}]*\}/.exec(TAGS_CSS)![0];
     expect(rowRule).not.toContain("--writ-accent");
   });

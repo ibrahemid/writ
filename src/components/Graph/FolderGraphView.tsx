@@ -190,9 +190,12 @@ export default function FolderGraphView() {
     event.preventDefault();
   }
 
+  // The layer takes focus when it opens so Escape closes it; that focus is a
+  // place to type from, not a control, so it draws no ring.
   return (
     <div
       class="folder-graph"
+      data-writ-focus-silent
       role="region"
       aria-labelledby={titleId}
       tabindex={-1}

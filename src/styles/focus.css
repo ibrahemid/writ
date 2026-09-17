@@ -12,6 +12,9 @@
 :root {
   --writ-focus-outline: 2px solid var(--writ-accent);
   --writ-focus-offset: 2px;
+  /* How far inward a control inside a clipping scroller draws its ring. The
+     same on all three shells: it is the scroller that decides, not the host. */
+  --writ-focus-offset-inset: -2px;
 }
 
 :root[data-platform="win"] {
@@ -35,12 +38,8 @@
   outline: none;
 }
 
-.tab-label:focus-visible,
-.tab-close:focus-visible,
-.tab-item:focus-visible,
 .palette-item:focus-visible,
 .statusbar-hint:focus-visible,
-.tab-add:focus-visible,
 .theme-editor-btn:focus-visible,
 .theme-editor-close:focus-visible {
   outline-offset: 2px;

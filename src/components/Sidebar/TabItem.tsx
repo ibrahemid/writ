@@ -25,7 +25,7 @@ export default function TabItem(props: Props) {
 
   return (
     <div
-      class="tab-item"
+      class="sidebar-row tab-item"
       role="button"
       tabIndex={0}
       onClick={props.onClick}

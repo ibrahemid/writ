@@ -22,14 +22,12 @@
   grid-template-areas:
     "file line"
     "hit  hit";
-  gap: 1px 8px;
+  row-gap: 1px;
   /* A block-level grid fills its anchor minus the margins, the way .tab-item
      does. A width here would add to them and push the row past the scroller. */
   width: auto;
-  margin: 1px 6px;
   padding: 5px 10px;
   border: none;
-  border-radius: var(--writ-r-row);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -41,14 +39,9 @@
   background: var(--writ-bg-hover);
 }
 
-.search-result.is-active {
+.search-result.is-selected {
   background: var(--writ-bg-selected);
   font-weight: 500;
-}
-
-.search-result:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -2px;
 }
 
 .search-result-file {

@@ -51,7 +51,7 @@
 /* Sized to its label and inset from the bar, the way a Fluent button sits in a
    caption row — not stretched to the caption-button grid opposite it. */
 .titlebar-appmenu {
-  height: 24px;
+  min-height: 24px;
   align-self: center;
   padding: 0 var(--writ-space-3);
   display: flex;
@@ -153,6 +153,14 @@
   border-radius: 0;
 }
 
+/* TitleBarDeactivatedOpacity: an unfocused window holds its caption row at
+   half strength. */
+:root[data-platform="win"] .titlebar.is-blurred .titlebar-appmenu,
+:root[data-platform="win"] .titlebar.is-blurred .winctrl,
+:root[data-platform="win"] .titlebar.is-blurred .titlebar-right {
+  opacity: 0.5;
+}
+
 /* ---------- GNOME ---------- */
 
 /* One AdwHeaderBar: New note and the window title move up here, and the
@@ -177,8 +185,8 @@
 }
 
 .headerbar-title {
-  font-size: 14.67px;
-  line-height: 20.5px;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
   font-weight: 700;
   color: var(--writ-fg);
   white-space: nowrap;

@@ -16,6 +16,11 @@ const TABBAR = read("src/components/Editor/TabBar.css");
 const STATUSBAR = read("src/components/Editor/StatusBar.css");
 const SETTINGS = read("src/components/SettingsModal/SettingsModal.css");
 const BUTTON = read("src/components/Button/Button.css");
+const SIDEBAR = read("src/components/Sidebar/Sidebar.css");
+const TITLEBAR = read("src/components/TitleBar/TitleBar.css");
+const CONTEXTMENU = read("src/components/ContextMenu/ContextMenu.css");
+const SEARCHBAR = read("src/components/Sidebar/SearchBar.css");
+const TOOLBAR = read("src/components/Toolbar/Toolbar.css");
 
 /** The declaration body of one rule, matched on its own selector line. */
 function rule(css: string, selector: string): string {
@@ -34,7 +39,7 @@ function declares(css: string, selector: string, property: string, value: RegExp
 /** A box whose text comes from a --writ-ui-* step must not be a fixed height. */
 function isNotFixedHeight(css: string, selector: string): void {
   expect(rule(css, selector), `${selector} sets a fixed height`).not.toMatch(
-    /(^|[\s;])height:\s*\d/,
+    /(^|[\s;])height:\s*(\d|var\()/,
   );
 }
 
@@ -99,6 +104,25 @@ describe("a settings row at the top of the interface text range", () => {
     for (const selector of [".settings-input", ".settings-select", ".settings-seg-option"]) {
       isNotFixedHeight(SETTINGS, selector);
       declares(SETTINGS, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("the sidebar and the chrome menus at the top of the interface text range", () => {
+  it("treats the row pitch as a floor, so a descender is not clipped", () => {
+    isNotFixedHeight(SIDEBAR, ".sidebar-row");
+    declares(SIDEBAR, ".sidebar-row", "min-height", /var\(--writ-sidebar-row-fill\)/);
+  });
+
+  it("treats the app menu, a menu item and the search field as floors too", () => {
+    for (const [css, selector] of [
+      [TITLEBAR, ".titlebar-appmenu"],
+      [CONTEXTMENU, ".context-menu-item"],
+      [SEARCHBAR, ".search-field"],
+      [TOOLBAR, '.writ-toolbar[data-platform="win"] .search-field'],
+    ] as const) {
+      isNotFixedHeight(css, selector);
+      declares(css, selector, "min-height", /\d+px/);
     }
   });
 });

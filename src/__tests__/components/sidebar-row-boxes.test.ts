@@ -20,9 +20,10 @@ function rule(text: string, selector: string): string {
 describe("sidebar row boxes", () => {
   it("gives a watched-folder row the same margin as every other row", () => {
     const inbox = rule(css("src/components/Sidebar/InboxSection.css"), ".inbox-item");
-    const tab = rule(css("src/components/Sidebar/TabItem.css"), ".tab-item");
-    expect(inbox).toMatch(/margin:\s*1px 6px/);
-    expect(tab).toMatch(/margin:\s*1px 6px/);
+    expect(rule(css("src/components/Sidebar/Sidebar.css"), ".sidebar-row")).toMatch(
+      /margin:\s*1px 6px/,
+    );
+    expect(inbox).not.toMatch(/margin:/);
     expect(inbox).not.toMatch(/width:\s*100%/);
   });
 

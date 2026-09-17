@@ -16,7 +16,7 @@ vi.mock("../../stores/global/workspace", () => ({
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    tabs: { openFile: vi.fn(async () => undefined) },
+    tabs: { openFile: vi.fn(async () => undefined), activeTabId: () => null },
     sidebar: { selectedTag: () => null },
   }),
 }));

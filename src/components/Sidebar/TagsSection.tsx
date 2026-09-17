@@ -77,7 +77,7 @@ function TagRow(props: TagRowProps) {
         aria-level={props.level}
         aria-selected={selected()}
         tabIndex={0}
-        class="tags-row"
+        class="sidebar-row tags-row"
         classList={{ "is-selected": selected() }}
         style={{ "padding-left": paddingLeft() }}
         onClick={select}

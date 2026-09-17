@@ -75,6 +75,56 @@ describe("noteFactsStore", () => {
     mockedEvents.onEvent.mockResolvedValue(() => {});
   });
 
+  // An empty list and an unread one look identical from outside, and a surface
+  // that says "nothing here" on the second one states a falsehood for the
+  // length of the read.
+  it("says whether a note's facts have landed, not just what they hold", async () => {
+    const held = deferred<NoteFacts>();
+    mockedApi.noteFacts.mockReturnValue(held.promise);
+
+    noteFactsStore.factsFor(NOTE);
+    const settled = noteFactsStore.settledFor(NOTE);
+    await settle();
+    expect(settled()).toBe(false);
+
+    held.resolve(facts({ headings: [{ level: 1, text: "Top", line: 1, slug: "top" }] }));
+    await settle();
+    expect(settled()).toBe(true);
+  });
+
+  it("counts a failed read as landed, and says why, so the surface can tell", async () => {
+    mockedApi.noteFacts.mockRejectedValue(new Error("no"));
+    noteFactsStore.factsFor(NOTE);
+    await settle();
+    expect(noteFactsStore.settledFor(NOTE)()).toBe(true);
+    // Landed and empty is indistinguishable from landed and nothing there
+    // without this: the caller reads the error to tell them apart.
+    expect(noteFactsStore.errorFor(NOTE)()).not.toBeNull();
+  });
+
+  it("goes back to unread when the note is handed back", async () => {
+    noteFactsStore.factsFor(NOTE);
+    await settle();
+    expect(noteFactsStore.settledFor(NOTE)()).toBe(true);
+
+    noteFactsStore.release(NOTE);
+    expect(noteFactsStore.settledFor(NOTE)()).toBe(false);
+  });
+
+  it("stays landed while a change on disk is being read again", async () => {
+    noteFactsStore.factsFor(NOTE);
+    await settle();
+
+    const held = deferred<NoteFacts>();
+    mockedApi.noteFacts.mockReturnValue(held.promise);
+    notesChangedHandler()({ path: NOTE, removed: false });
+    await settle();
+    expect(noteFactsStore.settledFor(NOTE)()).toBe(true);
+
+    held.resolve(facts());
+    await settle();
+  });
+
   it("reads a note's facts once and serves every later ask from the cache", async () => {
     mockedApi.noteFacts.mockResolvedValue(
       facts({ headings: [{ level: 1, text: "Top", line: 1, slug: "top" }] }),

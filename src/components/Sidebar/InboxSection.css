@@ -8,18 +8,14 @@
   display: block;
 }
 
-/* The same box as every other row: 26px of fill inside 1px margins, 6px in
-   from the sidebar edge, so a hover fill lines up with the tree above it. */
+/* A block-level flex box fills its anchor minus the row's own margins, so the
+   hover fill lines up with the tree above it on every platform. */
 .inbox-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: calc(100% - 12px);
-  height: var(--writ-sidebar-row-fill);
-  margin: 1px 6px;
+  width: auto;
   padding: 0 10px 0 30px;
   border: none;
-  border-radius: var(--writ-r-row);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -32,11 +28,6 @@
 
 .inbox-item:hover {
   background: var(--writ-bg-hover);
-}
-
-.inbox-item:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -1px;
 }
 
 .inbox-item-name {

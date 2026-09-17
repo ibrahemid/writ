@@ -1,12 +1,7 @@
 .tab-item {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: var(--writ-sidebar-row-fill);
-  margin: 1px 6px;
   padding: 0 10px;
-  border-radius: var(--writ-r-row);
   cursor: pointer;
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
@@ -54,7 +49,8 @@
   font-weight: 400;
 }
 
-.tab-item:hover .tab-item-trailing {
+.tab-item:hover .tab-item-trailing,
+.tab-item:focus-within .tab-item-trailing {
   visibility: hidden;
 }
 
@@ -105,11 +101,6 @@
   opacity: 1;
 }
 
-.tab-item-action:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: 1px;
-}
-
 .tab-item-action:hover {
   color: var(--writ-fg);
   background: var(--writ-bg-hover);
@@ -119,9 +110,9 @@
   color: var(--writ-status-error);
 }
 
+/* The icon carries the inset on Windows, so the row's own gap goes. */
 :root[data-platform="win"] .tab-item {
-  gap: 0;
-  margin: 2px 4px;
+  column-gap: 0;
   padding: 0 12px 0 0;
 }
 
@@ -134,7 +125,5 @@
 }
 
 :root[data-platform="linux"] .tab-item {
-  gap: 10px;
-  margin: 0 6px 2px;
   padding: 0 8px;
 }

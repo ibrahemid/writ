@@ -11,12 +11,6 @@
   animation: folder-graph-in var(--writ-motion-fast);
 }
 
-/* The layer takes focus when it opens so Escape closes it; that focus is a
-   place to type from, not a control, so it is not ringed. */
-.folder-graph:focus {
-  outline: none;
-}
-
 @keyframes folder-graph-in {
   from {
     opacity: 0;

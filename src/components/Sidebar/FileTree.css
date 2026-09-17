@@ -13,11 +13,7 @@
 .file-tree-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: var(--writ-sidebar-row-fill);
-  margin: 1px 6px;
   padding-right: 10px;
-  border-radius: var(--writ-r-row);
   cursor: pointer;
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
@@ -25,7 +21,6 @@
   white-space: nowrap;
   overflow: hidden;
   user-select: none;
-  outline: none;
   transition: background var(--writ-motion);
 }
 
@@ -37,9 +32,18 @@
   opacity: var(--writ-icon-opacity-hover);
 }
 
+.file-tree-item.is-selected {
+  background: var(--writ-bg-selected);
+  font-weight: 500;
+}
+
+/* The row's own glyph, not the caret's: a disclosure keeps its faint ink. */
+.file-tree-item.is-selected > .writ-icon {
+  color: var(--writ-accent);
+  opacity: 1;
+}
+
 .file-tree-item:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -1px;
   background: var(--writ-bg-hover);
 }
 

@@ -160,10 +160,18 @@ describe("sidebar rows", () => {
     // the line number: both rows fill their parent minus 6px a side.
     const row = ruleFor(TAB_ITEM_CSS, ".tab-item");
     const result = ruleFor(SEARCH_RESULTS_CSS, ".search-result");
-    expect(result.get("margin")).toBe(row.get("margin"));
     expect(result.get("width") ?? "auto").toBe("auto");
     expect(row.get("width") ?? "auto").toBe("auto");
-    expect(result.get("border-radius")).toBe(row.get("border-radius"));
+    // The margin and the radius are the shared row's, so neither states one.
+    for (const box of [row, result]) {
+      expect(box.get("margin")).toBeUndefined();
+      expect(box.get("border-radius")).toBeUndefined();
+    }
+    for (const file of ["TabItem.tsx", "SearchResults.tsx"]) {
+      expect(
+        readFileSync(resolve(process.cwd(), `src/components/Sidebar/${file}`), "utf8"),
+      ).toMatch(/class="sidebar-row /);
+    }
   });
 
   it("lets the empty card follow a narrowed sidebar", () => {
@@ -174,10 +182,20 @@ describe("sidebar rows", () => {
     expect(ruleFor(SIDEBAR_EMPTY_CSS, ".sidebar-empty-line").get("flex-wrap")).toBe("wrap");
   });
 
-  it("sits on the row pitch and radius tokens", () => {
-    expect(TAB_ITEM_CSS).toMatch(/height:\s*var\(--writ-sidebar-row-fill\)/);
-    expect(TAB_ITEM_CSS).toMatch(/border-radius:\s*var\(--writ-r-row\)/);
-    expect(TAB_ITEM_CSS).toMatch(/margin:\s*1px 6px/);
+  it("sits on the row pitch and radius tokens the whole sidebar shares", () => {
+    expect(TAB_ITEM_CSS).not.toMatch(/height:\s*var\(--writ-sidebar-row-fill\)/);
+    const row = ruleFor(SIDEBAR_CSS, ".sidebar-row");
+    expect(row.get("min-height")).toBe("var(--writ-sidebar-row-fill)");
+    expect(row.get("border-radius")).toBe("var(--writ-r-row)");
+    expect(row.get("margin")).toBe("1px 6px");
+  });
+
+  // Tabbing to a closed note reveals Restore and Close, which sit over the
+  // timestamp when one is there.
+  it("hides the trailing time under keyboard focus as well as hover", () => {
+    expect(TAB_ITEM_CSS).toMatch(
+      /\.tab-item:focus-within \.tab-item-trailing[^{]*\{[^}]*visibility:\s*hidden/,
+    );
   });
 
   it("gives every row a note icon", () => {

@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { workspaceStore } from "../../stores/global/workspace";
+import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { noteFactsStore } from "../../stores/global/note-facts";
 import Icon from "../Icon/Icon";
 import { notesStore } from "../../stores/global/notes";
@@ -52,11 +53,14 @@ interface TreeNodeProps {
   tree: () => HTMLDivElement | undefined;
   /** The notes the selected tag names, or `null` when no tag is selected. */
   tagged: () => ReadonlySet<string> | null;
+  /** The file the editor is showing, or `null` when it is showing none. */
+  openPath: () => string | null;
 }
 
 function TreeNode(props: TreeNodeProps) {
   const win = useWindow();
   const [open, setOpen] = createSignal(false);
+  const isOpenNote = () => !props.entry.is_dir && props.openPath() === props.entry.path;
 
   // Under a tag filter a folder is in the list only because a note under it
   // carries the tag, so it opens itself rather than leaving that note behind a
@@ -150,9 +154,10 @@ function TreeNode(props: TreeNodeProps) {
         role="treeitem"
         aria-expanded={props.entry.is_dir ? expanded() : undefined}
         aria-level={props.level}
-        aria-selected="false"
+        aria-selected={isOpenNote()}
         tabIndex={0}
-        class="file-tree-item"
+        class="sidebar-row file-tree-item"
+        classList={{ "is-selected": isOpenNote() }}
         style={{ "padding-left": paddingLeft() }}
         onClick={activate}
         onContextMenu={handleContextMenu}
@@ -183,6 +188,7 @@ function TreeNode(props: TreeNodeProps) {
                 level={props.level + 1}
                 tree={props.tree}
                 tagged={props.tagged}
+                openPath={props.openPath}
               />
             )}
           </For>
@@ -225,6 +231,14 @@ export default function FileTree() {
     if (heldTag !== null) noteFactsStore.releaseTag(heldTag);
   });
 
+  // The file behind the active tab, read once for the whole tree. A buffer
+  // that has never been written has no file, so it marks no row.
+  const openPath = createMemo<string | null>(() => {
+    const id = win.tabs.activeTabId();
+    if (!id) return null;
+    return bufferRegistry.activeTabs().find((tab) => tab.id === id)?.source_path ?? null;
+  });
+
   const rootEntries = () => {
     const root = workspaceStore.root();
     const rows = root ? (workspaceStore.entriesFor(root) ?? []) : [];
@@ -241,7 +255,15 @@ export default function FileTree() {
           </div>
         }
       >
-        {(entry) => <TreeNode entry={entry} level={1} tree={() => treeRef} tagged={tagged} />}
+        {(entry) => (
+          <TreeNode
+            entry={entry}
+            level={1}
+            tree={() => treeRef}
+            tagged={tagged}
+            openPath={openPath}
+          />
+        )}
       </For>
     </div>
   );

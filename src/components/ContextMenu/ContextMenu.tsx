@@ -36,13 +36,20 @@ interface ContextMenuState {
 // Singleton state — Writ is single-window, single-instance per component
 const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
 
+/**
+ * Opens the menu at the cursor. The element the user was on is captured here
+ * rather than passed in, so every right-click — a tree row, a closed note, a
+ * word in the editor — lands back where it started on Escape.
+ */
 export function showContextMenu(
   x: number,
   y: number,
   items: MenuItem[],
   bounds?: DOMRect,
 ) {
-  setMenu({ items, cursor: { x, y }, bounds });
+  const active = document.activeElement;
+  const trigger = active instanceof HTMLElement && active !== document.body ? active : null;
+  setMenu({ items, cursor: { x, y }, trigger, bounds });
 }
 
 /**
@@ -287,6 +294,7 @@ export default function ContextMenu() {
                   type="button"
                   role="menuitem"
                   tabindex={-1}
+                  data-writ-focus-silent
                   disabled={item.disabled}
                   class={`context-menu-item ${item.danger ? "context-menu-danger" : ""}`}
                   onClick={() => activate(index())}

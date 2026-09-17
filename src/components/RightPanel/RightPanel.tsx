@@ -29,11 +29,33 @@ import "./RightPanel.css";
  * that rather than each asking again.
  *
  * A section with nothing in it renders nothing at all — no heading, no line
- * saying it is empty. A note with none of them leaves the panel showing its
- * ground and its edge, which is the honest answer.
+ * saying it is empty. A note with none of them gets one line instead of a
+ * blank column, and so does a panel opened with no note in front of it.
  */
 export default function RightPanel() {
   const win = useWindow();
+
+  /**
+   * The one line the panel shows instead of sections. A note the index knows
+   * nothing about and a note with no file behind it are both open notes with
+   * nothing around them yet; only a window showing no note at all is none.
+   *
+   * A read that failed leaves the same empty lists as a note with nothing in
+   * it, so the line says which of the two it is rather than stating the
+   * cheerier one for good.
+   */
+  function PanelEmptyLine() {
+    return (
+      <p class="right-panel-empty">
+        {win.tabs.activeTabId() === null
+          ? "No note open."
+          : readFailed()
+            ? "Couldn't read this note's connections."
+            : "Nothing links to this note yet."}
+      </p>
+    );
+  }
+
 
   // Non-null only while a drag is in flight: the edge follows the pointer
   // without a disk write per frame, and release commits the settled width.
@@ -66,6 +88,41 @@ export default function RightPanel() {
   const facts = createMemo(() => {
     const path = openPath();
     return path === null ? null : noteFactsStore.factsFor(path);
+  });
+
+  // Whether either read behind the sections failed. Both leave their lists
+  // where they were on a failure, which for a first read is empty.
+  const readFailed = createMemo(() => {
+    const note = openNote();
+    if (note === null) return false;
+    return (
+      noteFactsStore.errorFor(note.path)() !== null ||
+      backlinksStore.errorFor(note.path)() !== null
+    );
+  });
+
+  // Whether both reads behind the sections have landed. Each starts at an
+  // empty value, so a line about what the note holds is a falsehood until
+  // they do, and saying nothing is the honest answer meanwhile.
+  const isRead = createMemo(() => {
+    const note = openNote();
+    if (note === null) return false;
+    return noteFactsStore.settledFor(note.path)() && backlinksStore.settledFor(note.path)();
+  });
+
+  // Whether any section has something to draw. The drawing is not asked about:
+  // a neighbour is a resolved link in one direction or the other, so a note
+  // with neither list has nothing around it either.
+  const hasConnections = createMemo(() => {
+    const note = openNote();
+    if (note === null) return false;
+    const read = facts()!();
+    return (
+      read.headings.length > 0 ||
+      read.properties.length > 0 ||
+      read.links.length > 0 ||
+      backlinksStore.backlinksFor(note.path)().length > 0
+    );
   });
 
   // A note the panel has stopped showing stops being followed. Without this
@@ -113,9 +170,12 @@ export default function RightPanel() {
       />
       <div class="right-panel-inner">
         <div class="right-panel-scroll">
-          <Show when={openNote()}>
+          <Show when={openNote()} fallback={<PanelEmptyLine />}>
             {(note) => (
               <>
+                <Show when={isRead() && !hasConnections()}>
+                  <PanelEmptyLine />
+                </Show>
                 <Show when={facts()}>
                   {(read) => <OutlineSection facts={read()} bufferId={note().id} />}
                 </Show>
