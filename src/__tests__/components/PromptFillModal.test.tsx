@@ -122,13 +122,45 @@ describe("PromptFillModal", () => {
     await flush();
 
     expect(document.querySelector(".placeholders-empty")?.textContent).toBe(
-      "No placeholders found",
+      "No placeholders found.",
     );
     expect(document.querySelectorAll(".placeholders-input")).toHaveLength(0);
 
     const close = document.querySelector<HTMLButtonElement>(".placeholders-confirm")!;
     expect(close.textContent).toBe("Close");
     close.click();
+    await expect(promise).resolves.toBeNull();
+  });
+
+  // The count moves on every debounced keystroke, so a live region here reads
+  // the running total back over the field the user is typing into.
+  it("describes the fields with the count rather than announcing it", async () => {
+    const container = mountShell();
+    render(() => <PromptFillModal />, { container });
+
+    const promise = requestPlaceholderFill(["name"]);
+    await flush();
+
+    const meta = document.querySelector(".placeholders-meta")!;
+    expect(meta.getAttribute("aria-live")).toBe("off");
+    expect(document.querySelector(".placeholders-input")!.getAttribute("aria-describedby")).toBe(
+      meta.id,
+    );
+
+    document.querySelector<HTMLButtonElement>(".placeholders-cancel")!.click();
+    await expect(promise).resolves.toBeNull();
+  });
+
+  it("names itself in sentence case", async () => {
+    const container = mountShell();
+    render(() => <PromptFillModal />, { container });
+
+    const promise = requestPlaceholderFill(["name"]);
+    await flush();
+
+    expect(document.querySelector("#placeholders-title")!.textContent).toBe("Fill placeholders");
+
+    document.querySelector<HTMLButtonElement>(".placeholders-cancel")!.click();
     await expect(promise).resolves.toBeNull();
   });
 });

@@ -81,9 +81,12 @@ export default function PromptFillModal() {
             aria-labelledby="placeholders-title"
           >
             <div id="placeholders-title" class="placeholders-title">
-              Fill Placeholders
+              Fill placeholders
             </div>
-            <div class="placeholders-meta" aria-live="polite">
+            {/* The count moves on every debounced keystroke. A live region
+                here would read it back over the field being typed into, so
+                the fields point at it with aria-describedby instead. */}
+            <div id="placeholders-meta" class="placeholders-meta" aria-live="off">
               <span class="placeholders-meta-count">
                 {varCount()} {varCount() === 1 ? "variable" : "variables"}
               </span>
@@ -98,7 +101,7 @@ export default function PromptFillModal() {
             </div>
             <Show
               when={req().names.length > 0}
-              fallback={<div class="placeholders-empty">No placeholders found</div>}
+              fallback={<div class="placeholders-empty">No placeholders found.</div>}
             >
               <form
                 class="placeholders-fields"
@@ -118,6 +121,7 @@ export default function PromptFillModal() {
                         class="placeholders-input"
                         type="text"
                         autocomplete="off"
+                        aria-describedby="placeholders-meta"
                         value={values()[name] ?? ""}
                         onInput={(e) =>
                           setValues((prev) => ({ ...prev, [name]: e.currentTarget.value }))

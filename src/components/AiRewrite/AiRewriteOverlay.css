@@ -47,7 +47,7 @@
 .ai-overlay-input {
   flex: 1;
   min-width: 0;
-  height: 28px;
+  min-height: 28px;
   padding: 0 10px;
   background: var(--writ-bg-sunken);
   border: 0;
@@ -55,12 +55,11 @@
   color: var(--writ-fg);
   font-family: inherit;
   font-size: var(--writ-ui-md);
-  outline: none;
 }
 
 .ai-overlay-input:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: 2px;
+  outline: var(--writ-focus-outline);
+  outline-offset: var(--writ-focus-offset);
 }
 
 .ai-overlay-input::placeholder {
