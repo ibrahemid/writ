@@ -129,6 +129,6 @@
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
   font-family: var(--writ-font-ui);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--writ-ui-tracking);
 }
 

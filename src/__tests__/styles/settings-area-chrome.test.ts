@@ -51,6 +51,24 @@ describe("the settings area follows the interface text size", () => {
     expect(offenders, `literal font sizes: ${offenders.join(", ")}`).toEqual([]);
   });
 
+  it("letter-spaces no label, and shouts at none", () => {
+    // The baseline's token table is explicit: --writ-ui-tracking is 0 and UI
+    // labels are never tracked or upper-cased.
+    const tracked = sheets
+      .filter(([, css]) =>
+        [...css.matchAll(/letter-spacing:\s*([^;]+);/g)].some(
+          ([, value]) => !value.trim().startsWith("var("),
+        ),
+      )
+      .map(([rel]) => rel);
+    expect(tracked, `literal letter-spacing: ${tracked.join(", ")}`).toEqual([]);
+
+    const shouted = sheets
+      .filter(([, css]) => /text-transform:\s*uppercase/.test(css))
+      .map(([rel]) => rel);
+    expect(shouted, `uppercase labels: ${shouted.join(", ")}`).toEqual([]);
+  });
+
   it("treats a text-bearing box's height as a floor", () => {
     for (const [rel, selector] of [
       ["src/components/SettingsModal/SettingsModal.css", ".settings-nav-item"],

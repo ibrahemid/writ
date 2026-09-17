@@ -84,8 +84,7 @@
 .ai-overlay-pane-label {
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--writ-ui-tracking);
 }
 
 .ai-overlay-pane-body {
