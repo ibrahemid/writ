@@ -87,6 +87,7 @@ describe("the focus ring in the chrome", () => {
       [SIDEBAR, ".sidebar-section-toggle:focus-visible", "-2px"],
       [SIDEBAR, ".sidebar-section-action:focus-visible", "-1px"],
       [PANEL, ".right-panel-resizer:focus-visible", "-2px"],
+      [PANEL, ".right-panel-row:focus-visible", "var\\(--writ-focus-offset-inset[,)]"],
     ] as const) {
       const body = ruleBody(css, selector);
       expect(body, `${selector} is declared`).toBeTruthy();
