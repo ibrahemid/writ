@@ -35,6 +35,10 @@ let readToken = 0;
  * is the ordinary case rather than a fault.
  */
 async function load(notePath: string): Promise<void> {
+  // Before anything else: a restore re-reads the list, and the read the old row
+  // started is still open across that window. Without this it keeps the winning
+  // token and draws the pre-restore text into a pane with no row selected.
+  readToken += 1;
   setPath(notePath);
   setSelected(null);
   setText("");
