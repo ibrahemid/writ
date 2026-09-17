@@ -142,7 +142,9 @@ describe("the palette sheet", () => {
 
   it("puts a 40px input on the baseline face without tracking", () => {
     const search = ruleFor(".palette-search");
-    expect(search.declarations.get("height")).toBe("40px");
+    // A floor, not a fixed height: the row reads --writ-ui-lg, so at the top of
+    // the interface text range the line box is taller than the baseline metric.
+    expect(search.declarations.get("min-height")).toBe("40px");
     expect(search.declarations.get("gap")).toBe("10px");
     expect(search.declarations.get("padding")).toBe("0 14px");
     const input = ruleFor(".palette-input");
@@ -153,7 +155,7 @@ describe("the palette sheet", () => {
 
   it("rows are 32px with a 6px radius", () => {
     const item = ruleFor(".palette-item");
-    expect(item.declarations.get("height")).toBe("32px");
+    expect(item.declarations.get("min-height")).toBe("32px");
     expect(item.declarations.get("margin")).toBe("0 6px");
     expect(item.declarations.get("padding")).toBe("0 10px");
     expect(item.declarations.get("gap")).toBe("10px");

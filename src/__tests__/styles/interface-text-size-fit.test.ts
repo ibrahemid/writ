@@ -16,6 +16,8 @@ const TABBAR = read("src/components/Editor/TabBar.css");
 const STATUSBAR = read("src/components/Editor/StatusBar.css");
 const SETTINGS = read("src/components/SettingsModal/SettingsModal.css");
 const BUTTON = read("src/components/Button/Button.css");
+const FIND = read("src/components/Find/FindOverlay.css");
+const PALETTE = read("src/components/Palette/Palette.css");
 
 /** The declaration body of one rule, matched on its own selector line. */
 function rule(css: string, selector: string): string {
@@ -112,6 +114,22 @@ describe("a button at the top of the interface text range", () => {
     ]) {
       isNotFixedHeight(BUTTON, selector);
       declares(BUTTON, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("the find bar and the palette at the top of the interface text range", () => {
+  it("treats the find bar's box sizes as floors", () => {
+    for (const selector of [".find-input", ".find-toggle", ".find-icon-btn", ".find-text-btn"]) {
+      isNotFixedHeight(FIND, selector);
+      declares(FIND, selector, "min-height", /\d+px/);
+    }
+  });
+
+  it("treats the palette's input and row heights as floors", () => {
+    for (const selector of [".palette-search", ".palette-item"]) {
+      isNotFixedHeight(PALETTE, selector);
+      declares(PALETTE, selector, "min-height", /\d+px/);
     }
   });
 });
