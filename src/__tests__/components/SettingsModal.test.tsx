@@ -1712,6 +1712,29 @@ describe("Settings as a keyboard and a screen reader take it", () => {
     });
   });
 
+  // Roving tabindex sets the unselected tabs to -1, so a selection the focus
+  // did not follow leaves focus on a tab Tab can no longer reach.
+  it("takes focus to the section Home and End open", async () => {
+    const container = await openPanel();
+    const rail = container.querySelector(".settings-nav")!;
+
+    fireEvent.keyDown(rail, { key: "End" });
+    await waitFor(() => {
+      const selected = container.querySelector("[role='tab'][aria-selected='true']")!;
+      expect(selected.getAttribute("data-section-tab")).toBe(
+        SECTION_ORDER[SECTION_ORDER.length - 1],
+      );
+      expect(document.activeElement).toBe(selected);
+    });
+
+    fireEvent.keyDown(rail, { key: "Home" });
+    await waitFor(() => {
+      const selected = container.querySelector("[role='tab'][aria-selected='true']")!;
+      expect(selected.getAttribute("data-section-tab")).toBe(SECTION_ORDER[0]);
+      expect(document.activeElement).toBe(selected);
+    });
+  });
+
   it("keeps the description out of a labelled control's name", async () => {
     const container = await openPanel();
     await openSection(container, "advanced");

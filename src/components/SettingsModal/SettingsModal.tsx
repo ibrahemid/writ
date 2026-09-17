@@ -2134,14 +2134,20 @@ export default function SettingsModal() {
     highlighted: (id) => highlightId() === id,
   };
 
-  function moveSection(delta: number) {
-    const ids = NAV_ITEMS.map((item) => item.id);
-    const current = ids.indexOf(activeSection());
-    const next = ids[(current + delta + ids.length) % ids.length];
+  // Focus follows the selection: roving tabindex has just set every other tab
+  // to -1, so a tab that keeps focus without keeping the selection is one Tab
+  // can no longer come back to.
+  function selectSection(next: SettingsSection) {
     setActiveSection(next);
     requestAnimationFrame(() =>
       navRef?.querySelector<HTMLButtonElement>(`[data-section-tab="${next}"]`)?.focus(),
     );
+  }
+
+  function moveSection(delta: number) {
+    const ids = NAV_ITEMS.map((item) => item.id);
+    const current = ids.indexOf(activeSection());
+    selectSection(ids[(current + delta + ids.length) % ids.length]);
   }
 
   function onNavKeyDown(event: KeyboardEvent) {
@@ -2158,11 +2164,11 @@ export default function SettingsModal() {
         break;
       case "Home":
         event.preventDefault();
-        setActiveSection(NAV_ITEMS[0].id);
+        selectSection(NAV_ITEMS[0].id);
         break;
       case "End":
         event.preventDefault();
-        setActiveSection(NAV_ITEMS[NAV_ITEMS.length - 1].id);
+        selectSection(NAV_ITEMS[NAV_ITEMS.length - 1].id);
         break;
     }
   }
