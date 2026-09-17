@@ -36,10 +36,6 @@
   box-shadow: var(--writ-shadow-chip);
 }
 
-.layout-toggle-seg:focus-visible {
-  outline: 1px solid var(--writ-accent);
-  outline-offset: 1px;
-}
 
 .layout-toggle-seg svg {
   display: block;
@@ -72,10 +68,6 @@
   background: var(--writ-bg-hover);
 }
 
-.scripts-toggle:focus-visible {
-  outline: 1px solid var(--writ-accent);
-  outline-offset: 1px;
-}
 
 .scripts-toggle-dot {
   width: 6px;

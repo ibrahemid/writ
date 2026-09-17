@@ -195,7 +195,7 @@
 }
 
 .statusbar-folder:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -2px;
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset, 2px);
   border-radius: var(--writ-r-control);
 }

@@ -130,6 +130,16 @@ describe("preview link confirmation", () => {
     rendererRegistry.setFromIpc([]);
   });
 
+  // The popover takes focus itself so Escape and Tab reach it; the ring is the
+  // one thing it does not want, and the silent attribute is where that is said.
+  it("is silent about the focus it takes on itself", async () => {
+    const { container, frame } = await mountPreview();
+    sendLinkOpen(frame, "https://example.com/docs");
+
+    await waitFor(() => expect(popovers(container)).toHaveLength(1));
+    expect(popovers(container)[0].hasAttribute("data-writ-focus-silent")).toBe(true);
+  });
+
   it("shows the destination and opens nothing on the message alone", async () => {
     const { container, frame } = await mountPreview();
     sendLinkOpen(frame, "https://example.com/docs");

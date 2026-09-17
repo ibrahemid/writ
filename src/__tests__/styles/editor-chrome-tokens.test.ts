@@ -11,17 +11,19 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 
 const SHEETS = {
   statusbar: "src/components/Editor/StatusBar.css",
+  firstRun: "src/components/Editor/FirstRunHint.css",
+  linkPicker: "src/components/Editor/LinkAmbiguityPicker.css",
+  spellingPreview: "src/components/Editor/SpellingPreview.css",
   find: "src/components/Find/FindOverlay.css",
   palette: "src/components/Palette/Palette.css",
   layoutToggle: "src/components/Preview/preview-layout-toggle.css",
+  previewChrome: "src/components/Preview/preview-chrome.css",
+  linkConfirm: "src/components/Preview/LinkConfirm.css",
 } as const;
 
-const CSS: Record<keyof typeof SHEETS, string> = {
-  statusbar: read(SHEETS.statusbar),
-  find: read(SHEETS.find),
-  palette: read(SHEETS.palette),
-  layoutToggle: read(SHEETS.layoutToggle),
-};
+const CSS = Object.fromEntries(
+  Object.entries(SHEETS).map(([key, path]) => [key, read(path)]),
+) as Record<keyof typeof SHEETS, string>;
 
 /** The declaration body of one rule, matched on its own selector line. */
 function rule(css: string, selector: string): string {
@@ -57,5 +59,30 @@ describe("the chrome's informational fields", () => {
     expect(rule(CSS.palette, ".palette-input::placeholder")).toMatch(
       /color:\s*var\(--writ-fg-faint\)/,
     );
+  });
+});
+
+// focus.css moves the ring per shell: Windows gets an inverted outer ring at
+// offset 1, GNOME a half-strength accent inside the control. A hand-written
+// ring applies the macOS geometry everywhere, and a control that cancels the
+// ring in CSS has no way back — the silent attribute is the one opt-out, and it
+// is on the element, where the reason for the silence is visible.
+describe("the editor chrome's focus rings", () => {
+  it("draws every ring from the focus properties", () => {
+    for (const [name, css] of Object.entries(CSS)) {
+      const rings = [...css.matchAll(/outline:\s*([^;]+);/g)].map((m) => m[1].trim());
+      for (const ring of rings) {
+        expect(ring, `${name} draws ${ring}`).toMatch(/^var\(--writ-focus-outline[,)]/);
+      }
+    }
+  });
+
+  it("offsets every ring from the focus property", () => {
+    for (const [name, css] of Object.entries(CSS)) {
+      const offsets = [...css.matchAll(/outline-offset:\s*([^;]+);/g)].map((m) => m[1].trim());
+      for (const offset of offsets) {
+        expect(offset, `${name} offsets by ${offset}`).toMatch(/^var\(--writ-focus-offset[,)]/);
+      }
+    }
   });
 });

@@ -34,7 +34,6 @@
 }
 
 .find-input:focus {
-  outline: none;
   border-color: var(--writ-accent);
 }
 
