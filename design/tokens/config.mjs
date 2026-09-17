@@ -295,9 +295,7 @@ function typeTokens(get, platform) {
     `      measure: ${quote(get("base.prose.measure"))},`,
     `      padX: ${quote(get("base.prose.pad-x"))},`,
     `      padY: ${quote(get("base.prose.pad-y"))},`,
-    `      pSpacing: ${quote(get("base.prose.p-spacing"))},`,
     `    },`,
-    `    headingSpacing: ${quote(get("base.heading.spacing"))},`,
     `    headings: {`,
     ...["h1", "h2", "h3", "h4", "h5", "h6"].map((h) => `      ${h}: ${heading(h)},`),
     `    },`,
@@ -396,9 +394,7 @@ export interface TypeTokens {
     measure: string;
     padX: string;
     padY: string;
-    pSpacing: string;
   };
-  headingSpacing: string;
   headings: {
     h1: HeadingStep;
     h2: HeadingStep;
@@ -431,7 +427,6 @@ export interface MotionTokens {
 }
 
 export interface ZTokens {
-  base: number;
   chrome: number;
   popover: number;
   palette: number;
@@ -490,7 +485,6 @@ export const MOTION: Readonly<MotionTokens> = {
 };
 
 export const Z: Readonly<ZTokens> = {
-  base: ${Number(get("base.z.base"))},
   chrome: ${Number(get("base.z.chrome"))},
   popover: ${Number(get("base.z.popover"))},
   palette: ${Number(get("base.z.palette"))},

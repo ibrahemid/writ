@@ -347,9 +347,6 @@
           "stroke": {
             "$value": "rgba(0,0,0,.059)"
           },
-          "stroke-strong": {
-            "$value": "rgba(0,0,0,.447)"
-          },
           "input": {
             "$value": "rgba(255,255,255,.702)"
           },
@@ -446,9 +443,6 @@
         "win": {
           "stroke": {
             "$value": "rgba(255,255,255,.071)"
-          },
-          "stroke-strong": {
-            "$value": "rgba(255,255,255,.545)"
           },
           "input": {
             "$value": "rgba(255,255,255,.059)"

@@ -20,8 +20,6 @@
   --writ-prose-measure: 704px;
   --writ-prose-pad-x: 32px;
   --writ-prose-pad-y: 32px;
-  --writ-prose-p-spacing: 1.25rem;
-  --writ-heading-spacing: 2em;
   --writ-heading-color: inherit;
   --writ-heading-formatting: var(--writ-fg-faint);
   --writ-h1-size: 1.75em;
@@ -82,7 +80,6 @@
   --writ-motion-slow: 180ms;
   --writ-motion-ambient: 700ms;
   --writ-motion: var(--writ-motion-duration) var(--writ-ease);
-  --writ-z-base: 0;
   --writ-z-chrome: 100;
   --writ-z-window-lights: 150;
   --writ-z-popover: 200;

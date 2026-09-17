@@ -20,8 +20,6 @@
   --writ-prose-measure: 704px;
   --writ-prose-pad-x: 32px;
   --writ-prose-pad-y: 32px;
-  --writ-prose-p-spacing: 1.25rem;
-  --writ-heading-spacing: 2em;
   --writ-heading-color: inherit;
   --writ-heading-formatting: var(--writ-fg-faint);
   --writ-h1-size: 1.75em;
@@ -82,7 +80,6 @@
   --writ-motion-slow: 180ms;
   --writ-motion-ambient: 700ms;
   --writ-motion: var(--writ-motion-duration) var(--writ-ease);
-  --writ-z-base: 0;
   --writ-z-chrome: 100;
   --writ-z-window-lights: 150;
   --writ-z-popover: 200;
@@ -217,7 +214,6 @@
   --writ-fg-faint: rgba(0,0,0,.447);
   --writ-shadow-modal: 0 0 8px rgba(0,0,0,.20), 0 32px 64px rgba(0,0,0,.24);
   --writ-win-stroke: rgba(0,0,0,.059);
-  --writ-win-stroke-strong: rgba(0,0,0,.447);
   --writ-win-input: rgba(255,255,255,.702);
   --writ-win-input-active: #FFFFFF;
   --writ-win-focus-outer: rgba(0,0,0,.894);
@@ -241,7 +237,6 @@
   --writ-fg-faint: rgba(255,255,255,.529);
   --writ-shadow-modal: 0 0 8px rgba(0,0,0,.40), 0 32px 64px rgba(0,0,0,.48);
   --writ-win-stroke: rgba(255,255,255,.071);
-  --writ-win-stroke-strong: rgba(255,255,255,.545);
   --writ-win-input: rgba(255,255,255,.059);
   --writ-win-input-active: rgba(30,30,30,.702);
   --writ-win-focus-outer: #FFFFFF;
@@ -309,7 +304,6 @@
   --writ-shadow-modal: 0 0 14px 5px rgb(0 0 0 / 15%), 0 0 5px 2px rgb(0 0 0 / 10%), 0 0 0 1px rgb(0 0 0 / 5%);
   --writ-shadow-popover: 0 0 0 1px rgb(0 0 0 / 5%), 0 1px 5px 1px rgb(0 0 0 / 9%), 0 2px 14px 3px rgb(0 0 0 / 5%);
   --writ-lin-headerbar-bg: #FAF9F6;
-  --writ-lin-entry-bg: rgb(28 24 16 / 5%);
 }
 
 :root[data-platform="linux"][data-theme="dark"] {
@@ -323,7 +317,6 @@
   --writ-fg-muted: rgba(246,242,236,.55);
   --writ-fg-faint: rgba(246,242,236,.34);
   --writ-lin-headerbar-bg: #2E2B28;
-  --writ-lin-entry-bg: rgb(255 255 255 / 8%);
   --writ-shadow-modal: 0 0 14px 5px rgb(0 0 0 / 45%), 0 0 5px 2px rgb(0 0 0 / 30%), 0 0 0 1px rgb(0 0 0 / 15%);
   --writ-shadow-popover: 0 0 0 1px rgb(0 0 0 / 15%), 0 1px 5px 1px rgb(0 0 0 / 27%), 0 2px 14px 3px rgb(0 0 0 / 15%);
   --writ-shadow-csd: 0 0 14px 5px rgb(0 0 0 / 45%), 0 0 5px 2px rgb(0 0 0 / 30%), 0 0 0 1px rgb(0 0 0 / 15%);

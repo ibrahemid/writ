@@ -37,8 +37,6 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-prose-measure",
   "--writ-prose-pad-x",
   "--writ-prose-pad-y",
-  "--writ-prose-p-spacing",
-  "--writ-heading-spacing",
   "--writ-heading-color",
   "--writ-heading-formatting",
   "--writ-h1-size",
@@ -111,7 +109,6 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-motion-duration",
   "--writ-motion-slow",
   "--writ-motion",
-  "--writ-z-base",
   "--writ-z-chrome",
   "--writ-z-window-lights",
   "--writ-z-popover",
@@ -292,6 +289,52 @@ describe("platform dark layers", () => {
     expect(dark.get("--writ-shadow-csd")).not.toBe(
       declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"]')).get("--writ-shadow-csd"),
     );
+  });
+});
+
+describe("every emitted token is spent", () => {
+  // A name nothing reads is a contract that is not enforced: it reads as a
+  // promise the app keeps somewhere else, and editing it changes nothing.
+  const UNSPENT: Record<string, string> = {
+    "--writ-sidebar-min-width":
+      "read as SIDEBAR.minWidth in stores/global/config.ts, not as a custom property",
+    "--writ-sidebar-max-width":
+      "read as SIDEBAR.maxWidth in stores/global/config.ts, not as a custom property",
+  };
+
+  const SEARCH_ROOTS = ["src", "site/src", "src-tauri/src", "crates", "design"];
+  const SEARCH_EXTENSIONS = [".css", ".ts", ".tsx", ".rs", ".astro", ".json", ".mjs"];
+
+  function sources(dir: string, found: string[] = []): string[] {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const rel = relative(ROOT, full);
+      if (statSync(full).isDirectory()) {
+        if (entry === "node_modules" || entry === "target" || rel.includes("__tests__")) continue;
+        sources(full, found);
+      } else if (SEARCH_EXTENSIONS.some((ext) => entry.endsWith(ext)) && !GENERATED.includes(rel)) {
+        found.push(full);
+      }
+    }
+    return found;
+  }
+
+  it("is referenced by something that is not a generated file", () => {
+    const corpus = SEARCH_ROOTS.flatMap((root) => sources(resolve(ROOT, root))).map((file) =>
+      readFileSync(file, "utf8"),
+    );
+    const declared = [...new Set([...THEME_CSS.matchAll(/(--writ-[a-z0-9-]+)\s*:/g)].map((m) => m[1]))];
+    const orphans = declared.filter(
+      (name) => !(name in UNSPENT) && !corpus.some((text) => text.includes(name)),
+    );
+    expect(orphans, `nothing reads:\n${orphans.join("\n")}`).toEqual([]);
+  });
+
+  it("or is listed as owed, with the reason", () => {
+    for (const [name, reason] of Object.entries(UNSPENT)) {
+      expect(THEME_CSS, `${name} is listed as unspent but not declared`).toContain(`${name}:`);
+      expect(reason.length).toBeGreaterThan(0);
+    }
   });
 });
 

@@ -109,22 +109,9 @@
           "value": 32,
           "unit": "px"
         }
-      },
-      "p-spacing": {
-        "$value": {
-          "value": 1.25,
-          "unit": "rem"
-        }
       }
     },
     "heading": {
-      "spacing": {
-        "$type": "dimension",
-        "$value": {
-          "value": 2,
-          "unit": "em"
-        }
-      },
       "color": {
         "$type": "other",
         "$value": "inherit",
@@ -501,9 +488,6 @@
     "z": {
       "$type": "number",
       "$description": "[derived] Eight named layers (ADR-030). A component picks a layer, never a number.",
-      "base": {
-        "$value": 0
-      },
       "chrome": {
         "$value": 100
       },

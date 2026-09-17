@@ -413,9 +413,6 @@
         "lin": {
           "headerbar-bg": {
             "$value": "#FAF9F6"
-          },
-          "entry-bg": {
-            "$value": "rgb(28 24 16 / 5%)"
           }
         }
       },
@@ -467,9 +464,6 @@
         "lin": {
           "headerbar-bg": {
             "$value": "#2E2B28"
-          },
-          "entry-bg": {
-            "$value": "rgb(255 255 255 / 8%)"
           }
         },
         "shadow": {
