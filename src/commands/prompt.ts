@@ -25,7 +25,7 @@ export function registerPromptCommands(): void {
 
   registerCommand({
     id: "prompt.fillPlaceholders",
-    label: "Fill Placeholders…",
+    label: "Fill placeholders…",
     description: "Fill {{placeholders}} and copy the result to the clipboard",
     scope: "app",
     execute: () => {

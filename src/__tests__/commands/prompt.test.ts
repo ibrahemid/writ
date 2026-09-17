@@ -56,6 +56,12 @@ describe("registerPromptCommands", () => {
     expect(getCommand("prompt.fillPlaceholders")).toBeDefined();
   });
 
+  // One name through the flow: the context menu item, the palette command and
+  // the modal's own title all name the same action.
+  it("names the fill command the way the menu and the modal name it", () => {
+    expect(getCommand("prompt.fillPlaceholders")!.label).toBe("Fill placeholders…");
+  });
+
   describe("prompt.copyAsPrompt", () => {
     it("strips via the prepare_prompt transform and copies without mutating the buffer", async () => {
       editorMock.getActiveText.mockReturnValue({ text: "raw text", usedSelection: false });
