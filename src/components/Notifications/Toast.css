@@ -47,9 +47,22 @@
 .toast-warning::before { background: var(--writ-status-warning); }
 .toast-success::before { background: var(--writ-status-success); }
 
-.toast-text { flex: 1; }
+.toast-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast-count {
+  flex-shrink: 0;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  font-variant-numeric: tabular-nums;
+}
 
 .toast-dismiss {
-  height: 20px;
-  padding: 0 2px;
+  flex-shrink: 0;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0;
 }
