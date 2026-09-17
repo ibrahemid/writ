@@ -13,7 +13,6 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
 } from "../../stores/global/config";
-import { SIDEBAR } from "../../styles/generated/tokens";
 import { getConfig, updateConfig } from "../../services/tauri";
 import type { WritConfig } from "../../types/config";
 
@@ -269,9 +268,23 @@ describe("configStore", () => {
     // One source of truth: the drag handle clamps to the same numbers the
     // stylesheet lays the panel out with.
     it("are the token values, not a second copy of them", () => {
-      expect(SIDEBAR_WIDTH_MIN).toBe(Number.parseFloat(SIDEBAR.minWidth));
-      expect(SIDEBAR_WIDTH_MAX).toBe(Number.parseFloat(SIDEBAR.maxWidth));
-      expect(SIDEBAR_WIDTH_DEFAULT).toBe(Number.parseFloat(SIDEBAR.width));
+      // Read out of the generated file as text: comparing the constants to the
+      // same import they are computed from asserts nothing. The three numbers
+      // are the baseline's Sidebar width row, 240 resizable 200 to 320.
+      const generated = readFileSync(
+        resolve(process.cwd(), "src/styles/generated/tokens.ts"),
+        "utf8",
+      );
+      const block = generated.slice(generated.indexOf("export const SIDEBAR"));
+      const px = (key: string): number => {
+        const found = new RegExp(`^\\s*${key}:\\s*"(\\d+(?:\\.\\d+)?)px"`, "m").exec(block);
+        expect(found, `SIDEBAR.${key} is stated in px`).not.toBeNull();
+        return Number(found![1]);
+      };
+      expect([px("minWidth"), px("maxWidth"), px("width")]).toEqual([200, 320, 240]);
+      expect(SIDEBAR_WIDTH_MIN).toBe(px("minWidth"));
+      expect(SIDEBAR_WIDTH_MAX).toBe(px("maxWidth"));
+      expect(SIDEBAR_WIDTH_DEFAULT).toBe(px("width"));
     });
 
     it("are read from the token module rather than written out", () => {
