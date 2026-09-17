@@ -32,6 +32,7 @@ const APP = sheet("src/App.css");
 const SIDEBAR = sheet("src/components/Sidebar/Sidebar.css");
 const TOOLBAR = sheet("src/components/Toolbar/Toolbar.css");
 const THEME = sheet("src/styles/generated/theme.css");
+const GLOBAL = sheet("src/styles/global.css");
 
 describe("the platform layer keys off one selector root", () => {
   it("scopes every platform-specific rule to the root attribute", () => {
@@ -281,5 +282,17 @@ describe("window frame", () => {
       "1px solid var(--writ-border-soft)",
     );
     expect(declarations(APP, ".app-container").has("border")).toBe(false);
+  });
+});
+
+describe("font smoothing", () => {
+  it("thins the face on macOS only, where the host draws it that way", () => {
+    // The baseline gives antialiased/grayscale to macOS, DirectWrite to Windows
+    // and slight hinting to GNOME: on those two the host draws its own weight.
+    const carriers = [...GLOBAL.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, , body]) =>
+      body.includes("-webkit-font-smoothing"),
+    );
+    expect(carriers.length).toBe(1);
+    expect(carriers[0][1].trim()).toBe(':root[data-platform="mac"] body');
   });
 });

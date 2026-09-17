@@ -16,6 +16,9 @@ html, body {
   font-family: var(--writ-font-ui);
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
+}
+
+:root[data-platform="mac"] body {
   -webkit-font-smoothing: antialiased;
 }
 
