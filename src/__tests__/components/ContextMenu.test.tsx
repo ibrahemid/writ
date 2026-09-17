@@ -6,6 +6,7 @@ import ContextMenu, {
   showAnchoredMenu,
   showContextMenu,
   hideContextMenu,
+  isMenuOpenFor,
 } from "../../components/ContextMenu/ContextMenu";
 
 afterEach(() => {
@@ -186,6 +187,37 @@ describe("ContextMenu separator items stay clickable", () => {
     fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Escape" });
     expect(document.activeElement).toBe(row);
     row.remove();
+  });
+
+  // Where the focus goes back to and which control owns the menu are two
+  // different things. A right-click anywhere captures the focused element for
+  // the restore; that element did not open the menu and must not be told it did.
+  it("never calls a cursor menu the focused control's own", () => {
+    const chip = document.createElement("button");
+    document.body.append(chip);
+    chip.focus();
+
+    render(() => <ContextMenu />);
+    showContextMenu(0, 0, [{ label: "Rename", action: () => {} }]);
+
+    expect(isMenuOpenFor(chip)).toBe(false);
+
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Escape" });
+    expect(document.activeElement).toBe(chip);
+    chip.remove();
+  });
+
+  it("calls an anchored menu the control that opened it", () => {
+    const chip = document.createElement("button");
+    document.body.append(chip);
+
+    render(() => <ContextMenu />);
+    showAnchoredMenu(chip.getBoundingClientRect(), [{ label: "Rename", action: () => {} }], chip);
+
+    expect(isMenuOpenFor(chip)).toBe(true);
+    hideContextMenu();
+    expect(isMenuOpenFor(chip)).toBe(false);
+    chip.remove();
   });
 
   it("hands focus nowhere when the menu was opened from the page itself", () => {

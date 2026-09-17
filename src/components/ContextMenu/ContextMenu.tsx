@@ -28,7 +28,14 @@ interface ContextMenuState {
   items: MenuItem[];
   cursor?: { x: number; y: number };
   anchor?: DOMRect;
+  /**
+   * The control that owns this menu, which is only ever the one an anchored
+   * menu was opened from. A cursor menu has none: the element under the focus
+   * when the user right-clicked did not open it.
+   */
   trigger?: HTMLElement | null;
+  /** Where the focus goes when the menu closes, in either mode. */
+  restoreTo?: HTMLElement | null;
   /** Region the menu must stay inside. Defaults to the viewport. */
   bounds?: DOMRect;
 }
@@ -48,8 +55,8 @@ export function showContextMenu(
   bounds?: DOMRect,
 ) {
   const active = document.activeElement;
-  const trigger = active instanceof HTMLElement && active !== document.body ? active : null;
-  setMenu({ items, cursor: { x, y }, trigger, bounds });
+  const restoreTo = active instanceof HTMLElement && active !== document.body ? active : null;
+  setMenu({ items, cursor: { x, y }, restoreTo, bounds });
 }
 
 /**
@@ -66,7 +73,7 @@ export function showAnchoredMenu(
   trigger?: HTMLElement,
   bounds?: DOMRect,
 ) {
-  setMenu({ items, anchor, trigger: trigger ?? null, bounds });
+  setMenu({ items, anchor, trigger: trigger ?? null, restoreTo: trigger ?? null, bounds });
 }
 
 export function hideContextMenu() {
@@ -103,11 +110,11 @@ export default function ContextMenu() {
   }
 
   function close() {
-    const trigger = menu()?.trigger;
+    const restoreTo = menu()?.restoreTo;
     setMenu(null);
     setFocused(-1);
     buttons = [];
-    trigger?.focus();
+    restoreTo?.focus();
   }
 
   function focusableIndices(items: MenuItem[]): number[] {

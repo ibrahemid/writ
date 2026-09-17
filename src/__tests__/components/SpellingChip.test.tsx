@@ -16,7 +16,10 @@ vi.mock("../../components/SettingsModal/SettingsModal", () => ({
 }));
 
 import SpellingChip from "../../components/Editor/SpellingChip";
-import ContextMenu, { hideContextMenu } from "../../components/ContextMenu/ContextMenu";
+import ContextMenu, {
+  hideContextMenu,
+  showContextMenu,
+} from "../../components/ContextMenu/ContextMenu";
 import SpellingPreview, { closeSpellingPreview } from "../../components/Editor/SpellingPreview";
 import { spellingStore } from "../../stores/global/spelling";
 import { configStore } from "../../stores/global/config";
@@ -106,6 +109,28 @@ describe("SpellingChip announces its menu", () => {
 
     hideContextMenu();
     await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("false"));
+  });
+
+  // A right-click elsewhere captures whatever held the focus so it can hand it
+  // back. The chip holding the focus at that moment did not open that menu.
+  it("says nothing about a menu the chip did not open", async () => {
+    spellingStore.setEligible(true);
+    const { container } = render(() => (
+      <>
+        <SpellingChip />
+        <ContextMenu />
+      </>
+    ));
+
+    const chip = container.querySelector<HTMLButtonElement>(".spelling-chip")!;
+    chip.focus();
+    showContextMenu(0, 0, [{ label: "Rename", action: () => {} }]);
+
+    await waitFor(() => expect(document.querySelector(".context-menu")).not.toBeNull());
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Escape" });
+    expect(document.activeElement).toBe(chip);
   });
 
   // A keyboard user is already on the chip when the menu opens, and the menu
