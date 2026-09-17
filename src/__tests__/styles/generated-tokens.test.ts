@@ -369,8 +369,10 @@ describe("every emitted token is spent", () => {
   }
 
   it("is referenced by something that is not a generated file", () => {
+    // A token's own `cssName` extension states its CSS name, so it would
+    // count as a reference to itself; strip those before searching.
     const corpus = SEARCH_ROOTS.flatMap((root) => sources(resolve(ROOT, root))).map((file) =>
-      readFileSync(file, "utf8"),
+      readFileSync(file, "utf8").replace(/"cssName"\s*:\s*"[^"]*"/g, ""),
     );
     const declared = [...new Set([...THEME_CSS.matchAll(/(--writ-[a-z0-9-]+)\s*:/g)].map((m) => m[1]))];
     const orphans = declared.filter(
