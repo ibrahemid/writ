@@ -186,7 +186,14 @@ function VersionsDialog() {
         <Show
           when={noteVersionsStore.versions().length > 0}
           fallback={
-            <Show when={!noteVersionsStore.loading()}>
+            <Show
+              when={!noteVersionsStore.loading()}
+              fallback={
+                <div class="note-versions-empty note-versions-loading">
+                  <p class="note-versions-empty-line">Loading versions…</p>
+                </div>
+              }
+            >
               <div class="note-versions-empty">
                 <p class="note-versions-empty-line">No versions of this note yet.</p>
                 <p class="note-versions-empty-hint">Writ keeps one each time the note is saved.</p>

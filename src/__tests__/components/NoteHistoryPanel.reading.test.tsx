@@ -72,11 +72,13 @@ describe("NoteHistoryPanel while it reads", () => {
     openNoteVersions(NOTE);
 
     await Promise.resolve();
-    expect(screen.container.querySelector(".note-versions-empty")).toBeNull();
+    expect(screen.queryByText("No versions of this note yet.")).toBeNull();
+    expect(screen.getByText("Loading versions…")).toBeTruthy();
 
     list.settle([version(4, at(0, 14, 32))]);
     await waitFor(() => expect(screen.container.querySelector(".note-versions-row")).toBeTruthy());
-    expect(screen.container.querySelector(".note-versions-empty")).toBeNull();
+    expect(screen.queryByText("No versions of this note yet.")).toBeNull();
+    expect(screen.queryByText("Loading versions…")).toBeNull();
   });
 
   it("keeps the empty state for a note that really has nothing kept", async () => {
