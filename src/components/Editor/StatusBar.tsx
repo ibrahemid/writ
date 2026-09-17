@@ -3,6 +3,8 @@ import { useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { saveStatusStore } from "../../stores/global/save-status";
 import { notesStore } from "../../stores/global/notes";
+import { basename } from "../../lib/path";
+import { FILE_MANAGER_NAME } from "../../lib/platform";
 import { logFailure } from "../../lib/log";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
@@ -57,6 +59,13 @@ export default function StatusBar() {
     return id !== null && win.editor.isUpdatedFromDisk(id);
   });
 
+  // The folder is movable from Settings, so the word on the button is the
+  // folder's own name, the way the sidebar heads a folder with its basename.
+  const folderName = createMemo(() => {
+    const path = notesStore.folder()?.path ?? notesStore.root();
+    return (path ? basename(path) : "") || "Notes";
+  });
+
   const language = createMemo(() => languageLabel(win.editor.language()));
   const cursorPosition = createMemo(
     () => `Ln ${win.editor.cursorLine()}, Col ${win.editor.cursorCol()}`,
@@ -106,18 +115,19 @@ export default function StatusBar() {
       <div class="statusbar-spacer" />
       <div class="statusbar-right">
         {/* Where the notes are, and the way to them. The word names the
-            folder; the click opens it. */}
+            folder; the label names what the click does with it. */}
         <button
           type="button"
           class="statusbar-field statusbar-folder"
-          title="Open the notes folder"
+          title={`Open ${folderName()} in ${FILE_MANAGER_NAME}`}
+          aria-label={`Open ${folderName()} in ${FILE_MANAGER_NAME}`}
           onClick={() =>
             void notesStore
               .showInFileManager()
               .catch(() => logFailure("the notes folder could not be opened"))
           }
         >
-          Notes
+          {folderName()}
         </button>
         <span class="statusbar-field statusbar-field--cursor">{cursorPosition()}</span>
         <span class="statusbar-field">{language()}</span>
