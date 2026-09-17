@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 
 // The window chrome is the one surface a Mac cannot exercise by running the
 // app, so the platform layer is asserted from the stylesheets themselves. It is
@@ -296,3 +296,68 @@ describe("font smoothing", () => {
     expect(carriers[0][1].trim()).toBe(':root[data-platform="mac"] body');
   });
 });
+
+describe("scrollbars", () => {
+  const RAILS: [string, string, string][] = [
+    // The base root is the macOS layer: mac.json overrides nothing.
+    [":root", "12px", "3px"],
+    [':root[data-platform="win"]', "12px", "3px"],
+    [':root[data-platform="linux"]', "8px", "99px"],
+  ];
+
+  it("size their own rail and thumb radius per platform", () => {
+    for (const [selector, rail, radius] of RAILS) {
+      const decls = declarations(THEME, selector);
+      expect(decls.get("--writ-scrollbar-rail"), selector).toBe(rail);
+      expect(decls.get("--writ-scrollbar-thumb-radius"), selector).toBe(radius);
+    }
+  });
+
+  it("grow the thumb on hover where the host does, at the host's rate", () => {
+    for (const platform of ["win", "linux"]) {
+      const decls = declarations(THEME, `:root[data-platform="${platform}"]`);
+      expect(
+        Number.parseFloat(decls.get("--writ-scrollbar-thumb-hover")!),
+        platform,
+      ).toBeGreaterThan(Number.parseFloat(decls.get("--writ-scrollbar-thumb")!));
+      expect(decls.get("--writ-scrollbar-motion"), platform).toMatch(/^\d+ms$/);
+    }
+  });
+
+  it("are drawn once per platform root in the global sheet", () => {
+    for (const platform of ["mac", "win", "linux"]) {
+      const rail = declarations(GLOBAL, `:root[data-platform="${platform}"] ::-webkit-scrollbar`);
+      expect(rail.get("width"), platform).toBe("var(--writ-scrollbar-rail)");
+      const thumb = declarations(
+        GLOBAL,
+        `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb`,
+      );
+      expect(thumb.get("border-radius"), platform).toBe("var(--writ-scrollbar-thumb-radius)");
+    }
+  });
+
+  it("are never repainted by a component", () => {
+    // A component may hide a bar it scrolls itself (the tab strip does), but
+    // the rail and the thumb belong to the platform layer: a second set of
+    // numbers is how one list ends up scrolling unlike every other.
+    const offenders: string[] = [];
+    for (const file of componentSheets()) {
+      const css = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+      for (const [, selectorList, body] of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+        if (!selectorList.includes("::-webkit-scrollbar")) continue;
+        const hides = /-(?:thumb|track)\b/.test(selectorList) === false && /:\s*0\s*;/.test(body);
+        if (!hides) offenders.push(`${relative(ROOT, file)} -> ${selectorList.trim()}`);
+      }
+    }
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+});
+
+function componentSheets(dir = resolve(ROOT, "src/components"), found: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) componentSheets(full, found);
+    else if (entry.endsWith(".css")) found.push(full);
+  }
+  return found;
+}

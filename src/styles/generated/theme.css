@@ -63,6 +63,10 @@
   --writ-sidebar-max-width: 320px;
   --writ-sidebar-row-pitch: 28px;
   --writ-sidebar-row-fill: 26px;
+  --writ-scrollbar-rail: 12px;
+  --writ-scrollbar-thumb: 6px;
+  --writ-scrollbar-thumb-radius: 3px;
+  --writ-scrollbar-thumb-min: 30px;
   --writ-space-1: 2px;
   --writ-space-2: 4px;
   --writ-space-3: 8px;
@@ -191,6 +195,11 @@
   --writ-icon-opacity: 1;
   --writ-sidebar-row-pitch: 40px;
   --writ-sidebar-row-fill: 36px;
+  --writ-scrollbar-rail: 12px;
+  --writ-scrollbar-thumb: 2px;
+  --writ-scrollbar-thumb-hover: 6px;
+  --writ-scrollbar-thumb-radius: 3px;
+  --writ-scrollbar-motion: 83ms;
   --writ-bg-canvas: #FFFFFF;
   --writ-bg-sidebar: #F4F2EF;
   --writ-bg-raised: #FBFAF8;
@@ -277,6 +286,11 @@
   --writ-sidebar-row-fill: 36px;
   --writ-shadow-csd: 0 0 14px 5px rgb(0 0 0 / 15%), 0 0 5px 2px rgb(0 0 0 / 10%), 0 0 0 1px rgb(0 0 0 / 5%);
   --writ-frame-shadow-inset: 19px;
+  --writ-scrollbar-rail: 8px;
+  --writ-scrollbar-thumb: 3px;
+  --writ-scrollbar-thumb-hover: 8px;
+  --writ-scrollbar-thumb-radius: 99px;
+  --writ-scrollbar-motion: 200ms;
   --writ-bg-canvas: #FFFFFF;
   --writ-bg-sidebar: #EEECE6;
   --writ-bg-raised: #FFFDF9;

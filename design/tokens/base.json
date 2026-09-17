@@ -372,6 +372,34 @@
         }
       }
     },
+    "scrollbar": {
+      "$type": "dimension",
+      "rail": {
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        },
+        "$description": "The macOS overlay rail. Windows and GNOME override the set; mac takes it unchanged."
+      },
+      "thumb": {
+        "$value": {
+          "value": 6,
+          "unit": "px"
+        }
+      },
+      "thumb-radius": {
+        "$value": {
+          "value": 3,
+          "unit": "px"
+        }
+      },
+      "thumb-min": {
+        "$value": {
+          "value": 30,
+          "unit": "px"
+        }
+      }
+    },
     "space": {
       "1": {
         "$value": {

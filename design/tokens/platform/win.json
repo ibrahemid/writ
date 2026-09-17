@@ -237,6 +237,40 @@
               "unit": "px"
             }
           }
+        },
+        "scrollbar": {
+          "$type": "dimension",
+          "rail": {
+            "$value": {
+              "value": 12,
+              "unit": "px"
+            }
+          },
+          "thumb": {
+            "$value": {
+              "value": 2,
+              "unit": "px"
+            }
+          },
+          "thumb-hover": {
+            "$value": {
+              "value": 6,
+              "unit": "px"
+            }
+          },
+          "thumb-radius": {
+            "$value": {
+              "value": 3,
+              "unit": "px"
+            }
+          },
+          "motion": {
+            "$type": "duration",
+            "$value": {
+              "value": 83,
+              "unit": "ms"
+            }
+          }
         }
       },
       "light": {

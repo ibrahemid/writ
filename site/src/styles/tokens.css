@@ -63,6 +63,10 @@
   --writ-sidebar-max-width: 320px;
   --writ-sidebar-row-pitch: 28px;
   --writ-sidebar-row-fill: 26px;
+  --writ-scrollbar-rail: 12px;
+  --writ-scrollbar-thumb: 6px;
+  --writ-scrollbar-thumb-radius: 3px;
+  --writ-scrollbar-thumb-min: 30px;
   --writ-space-1: 2px;
   --writ-space-2: 4px;
   --writ-space-3: 8px;

@@ -83,16 +83,3 @@
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg-faint);
 }
-
-.file-tree::-webkit-scrollbar {
-  width: 4px;
-}
-
-.file-tree::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.file-tree::-webkit-scrollbar-thumb {
-  background: var(--writ-border-soft);
-  border-radius: var(--writ-r-pill);
-}

@@ -270,6 +270,40 @@
             },
             "$description": "Room around the frame for the client-side-decoration shadow to land: its widest layer reaches spread 5px plus blur 14px, and the window is transparent, so anything narrower is clipped at the webview edge."
           }
+        },
+        "scrollbar": {
+          "$type": "dimension",
+          "rail": {
+            "$value": {
+              "value": 8,
+              "unit": "px"
+            }
+          },
+          "thumb": {
+            "$value": {
+              "value": 3,
+              "unit": "px"
+            }
+          },
+          "thumb-hover": {
+            "$value": {
+              "value": 8,
+              "unit": "px"
+            }
+          },
+          "thumb-radius": {
+            "$value": {
+              "value": 99,
+              "unit": "px"
+            }
+          },
+          "motion": {
+            "$type": "duration",
+            "$value": {
+              "value": 200,
+              "unit": "ms"
+            }
+          }
         }
       },
       "light": {
