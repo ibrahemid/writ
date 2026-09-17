@@ -1,5 +1,8 @@
 import { Show, For, createMemo, createEffect, onCleanup } from "solid-js";
 import { findStore, type FindController } from "../../stores/global/find-store";
+import { useCommand } from "../../commands/registry";
+import { useEffectiveBinding } from "../../commands/keybindings";
+import { formatKeybinding } from "../../lib/keybinding-format";
 import "./FindOverlay.css";
 
 const MAX_TICK = 200;
@@ -32,6 +35,15 @@ export default function FindOverlay(props: Props) {
     const suffix = capped ? "+" : "";
     if (current > 0) return `${current} of ${total}${suffix}`;
     return `${total}${suffix} match${total === 1 ? "" : "es"}`;
+  });
+
+  // The row's own control for the command the app registers as Replace, so it
+  // carries that name and that key rather than a second name for one action.
+  const replaceTitle = createMemo(() => {
+    const key = formatKeybinding(
+      useEffectiveBinding("editor.replace", useCommand("editor.replace")?.keybinding),
+    );
+    return key ? `Replace (${key})` : "Replace";
   });
 
   const noResults = createMemo(() => hasQuery() && find.matches().total === 0);
@@ -107,6 +119,7 @@ export default function FindOverlay(props: Props) {
               classList={{ "is-on": find.caseSensitive() }}
               aria-pressed={find.caseSensitive()}
               title="Match case"
+              aria-label="Match case"
               onClick={() => find.toggleCaseSensitive()}
             >
               Aa
@@ -117,6 +130,7 @@ export default function FindOverlay(props: Props) {
               classList={{ "is-on": find.wholeWord() }}
               aria-pressed={find.wholeWord()}
               title="Whole word"
+              aria-label="Whole word"
               onClick={() => find.toggleWholeWord()}
             >
               <span class="find-toggle-word">ab</span>
@@ -127,6 +141,7 @@ export default function FindOverlay(props: Props) {
               classList={{ "is-on": find.regexp() }}
               aria-pressed={find.regexp()}
               title="Regular expression"
+              aria-label="Regular expression"
               onClick={() => find.toggleRegexp()}
             >
               .*
@@ -161,8 +176,8 @@ export default function FindOverlay(props: Props) {
               type="button"
               class="find-icon-btn find-replace-toggle"
               classList={{ "is-on": find.replaceOpen() }}
-              title="Toggle replace"
-              aria-label="Toggle replace"
+              title={replaceTitle()}
+              aria-label="Replace"
               aria-expanded={find.replaceOpen()}
               onClick={() => find.toggleReplace()}
             >
@@ -173,7 +188,7 @@ export default function FindOverlay(props: Props) {
             type="button"
             class="find-icon-btn"
             title="Close (Esc)"
-            aria-label="Close find"
+            aria-label="Close"
             onClick={() => find.close()}
           >
             <CloseIcon />
@@ -189,7 +204,7 @@ export default function FindOverlay(props: Props) {
               spellcheck={false}
               autocomplete="off"
               placeholder="Replace"
-              aria-label="Replace"
+              aria-label="Replace with"
               value={find.replaceText()}
               onInput={(e) => find.setReplaceText(e.currentTarget.value)}
               onKeyDown={onReplaceKeyDown}
@@ -207,6 +222,7 @@ export default function FindOverlay(props: Props) {
               type="button"
               class="find-text-btn"
               title="Replace all (Shift+Enter)"
+              aria-label="Replace all"
               disabled={!hasQuery()}
               onClick={() => find.replaceAll()}
             >
