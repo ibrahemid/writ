@@ -39,13 +39,19 @@ export default function RightPanel() {
    * The one line the panel shows instead of sections. A note the index knows
    * nothing about and a note with no file behind it are both open notes with
    * nothing around them yet; only a window showing no note at all is none.
+   *
+   * A read that failed leaves the same empty lists as a note with nothing in
+   * it, so the line says which of the two it is rather than stating the
+   * cheerier one for good.
    */
   function PanelEmptyLine() {
     return (
       <p class="right-panel-empty">
         {win.tabs.activeTabId() === null
           ? "No note open."
-          : "Nothing links to this note yet."}
+          : readFailed()
+            ? "Couldn't read this note's connections."
+            : "Nothing links to this note yet."}
       </p>
     );
   }
@@ -82,6 +88,17 @@ export default function RightPanel() {
   const facts = createMemo(() => {
     const path = openPath();
     return path === null ? null : noteFactsStore.factsFor(path);
+  });
+
+  // Whether either read behind the sections failed. Both leave their lists
+  // where they were on a failure, which for a first read is empty.
+  const readFailed = createMemo(() => {
+    const note = openNote();
+    if (note === null) return false;
+    return (
+      noteFactsStore.errorFor(note.path)() !== null ||
+      backlinksStore.errorFor(note.path)() !== null
+    );
   });
 
   // Whether both reads behind the sections have landed. Each starts at an

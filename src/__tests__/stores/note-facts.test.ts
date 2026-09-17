@@ -92,11 +92,14 @@ describe("noteFactsStore", () => {
     expect(settled()).toBe(true);
   });
 
-  it("counts a failed read as landed, so the surface stops waiting", async () => {
+  it("counts a failed read as landed, and says why, so the surface can tell", async () => {
     mockedApi.noteFacts.mockRejectedValue(new Error("no"));
     noteFactsStore.factsFor(NOTE);
     await settle();
     expect(noteFactsStore.settledFor(NOTE)()).toBe(true);
+    // Landed and empty is indistinguishable from landed and nothing there
+    // without this: the caller reads the error to tell them apart.
+    expect(noteFactsStore.errorFor(NOTE)()).not.toBeNull();
   });
 
   it("goes back to unread when the note is handed back", async () => {

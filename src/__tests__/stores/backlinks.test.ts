@@ -90,6 +90,14 @@ describe("backlinksStore", () => {
     expect(settled()).toBe(false);
   });
 
+  it("counts a failed read as landed, and says why, so the surface can tell", async () => {
+    mockedApi.noteBacklinks.mockRejectedValue(new Error("no"));
+    backlinksStore.backlinksFor(NOTE);
+    await settle();
+    expect(backlinksStore.settledFor(NOTE)()).toBe(true);
+    expect(backlinksStore.errorFor(NOTE)()).not.toBeNull();
+  });
+
   it("reads the list for a note the first time it is asked for", async () => {
     const rows = [backlink()];
     mockedApi.noteBacklinks.mockResolvedValueOnce(rows);

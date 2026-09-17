@@ -29,6 +29,8 @@ const h = vi.hoisted(() => ({
   backlinks: [] as unknown[],
   factsSettled: true,
   backlinksSettled: true,
+  factsError: null as string | null,
+  backlinksError: null as string | null,
   graph: { nodes: [], edges: [] } as {
     nodes: { path: string; name: string; folder: string }[];
     edges: { from_path: string; to_path: string; count: number }[];
@@ -77,6 +79,7 @@ vi.mock("../../stores/global/backlinks", () => ({
   backlinksStore: {
     backlinksFor: () => () => h.backlinks,
     settledFor: () => () => h.backlinksSettled,
+    errorFor: () => () => h.backlinksError,
     release: vi.fn(),
   },
 }));
@@ -100,6 +103,7 @@ vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
     factsFor: () => () => h.facts,
     settledFor: () => () => h.factsSettled,
+    errorFor: () => () => h.factsError,
     graph: () => {
       h.graphHolds += 1;
       return () => h.graph;
@@ -138,6 +142,8 @@ beforeEach(() => {
   h.backlinks = [];
   h.factsSettled = true;
   h.backlinksSettled = true;
+  h.factsError = null;
+  h.backlinksError = null;
   h.graph = { nodes: [], edges: [] };
   h.facts = { links: [], properties: [], tags: [], headings: [] };
   h.toggleSection.mockClear();
@@ -190,6 +196,24 @@ describe("a note with nothing to show", () => {
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
       "Nothing links to this note yet.",
+    );
+  });
+
+  // A read that failed leaves the same empty lists as a note with nothing in
+  // it, so the line has to say which of the two it is.
+  it("says the read failed rather than that nothing links here", () => {
+    h.factsError = "Could not read what the notes folder holds.";
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Couldn't read this note's connections.",
+    );
+  });
+
+  it("says it for a failed backlinks read too", () => {
+    h.backlinksError = "Could not read what the notes folder holds.";
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Couldn't read this note's connections.",
     );
   });
 
