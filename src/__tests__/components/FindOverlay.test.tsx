@@ -176,6 +176,13 @@ describe("the find bar's names", () => {
     expect(getByLabelText("Match case").classList.contains("is-on")).toBe(true);
   });
 
+  it("says whether the replace row it discloses is up", () => {
+    const { getByLabelText, find } = openBar();
+    expect(getByLabelText("Replace").getAttribute("aria-expanded")).toBe("false");
+    find.toggleReplace();
+    expect(getByLabelText("Replace").getAttribute("aria-expanded")).toBe("true");
+  });
+
   it("stands the replace row's actions on the shared button", () => {
     const { container, find } = openBar();
     find.toggleReplace();

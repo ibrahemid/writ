@@ -1,4 +1,4 @@
-import { Show, For, createMemo, createEffect, createSignal, onCleanup } from "solid-js";
+import { Show, For, createMemo, createEffect, onCleanup } from "solid-js";
 import { findStore, type FindController } from "../../stores/global/find-store";
 import { useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
@@ -49,13 +49,6 @@ export default function FindOverlay(props: Props) {
       useEffectiveBinding("editor.replace", useCommand("editor.replace")?.keybinding),
     );
     return key ? `Replace (${key})` : "Replace";
-  });
-
-  // `Button` carries no aria-expanded of its own, and the disclosure state is
-  // the one thing this control has to say beyond its name.
-  const [replaceToggle, setReplaceToggle] = createSignal<HTMLButtonElement | undefined>();
-  createEffect(() => {
-    replaceToggle()?.setAttribute("aria-expanded", String(find.replaceOpen()));
   });
 
   const noResults = createMemo(() => hasQuery() && find.matches().total === 0);
@@ -188,12 +181,12 @@ export default function FindOverlay(props: Props) {
           <Show when={find.canReplace()}>
             <Tooltip label={replaceTitle()}>
               <Button
-                ref={setReplaceToggle}
                 variant="ghost"
                 class={`find-icon-btn find-replace-toggle${find.replaceOpen() ? " is-on" : ""}`}
                 icon="caret-right"
                 iconSize={12}
                 aria-label="Replace"
+                aria-expanded={find.replaceOpen()}
                 onClick={() => find.toggleReplace()}
               />
             </Tooltip>
