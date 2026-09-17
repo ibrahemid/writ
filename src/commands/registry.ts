@@ -59,6 +59,12 @@ export function setExecuteListener(listener: ((id: string) => void) | null) {
  * a command that returned `false`. The execute listener is notified only when
  * the command actually ran.
  */
+/** A command label as the tail of a sentence: "Fill placeholders…" -> "fill placeholders". */
+function asAction(label: string): string {
+  const named = label.replace(/…$/, "");
+  return named.charAt(0).toLowerCase() + named.slice(1);
+}
+
 export function executeCommand(id: string): boolean {
   const cmd = commands.get(id);
   if (!cmd) return false;
@@ -67,7 +73,7 @@ export function executeCommand(id: string): boolean {
     result = cmd.execute();
   } catch {
     logFailure(`the "${id}" command threw`);
-    showToast(`${cmd.label} failed`, "error");
+    showToast(`Could not ${asAction(cmd.label)}`, "error");
     return true;
   }
   if (result === false) return false;

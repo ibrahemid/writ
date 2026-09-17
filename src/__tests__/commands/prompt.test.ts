@@ -95,7 +95,7 @@ describe("registerPromptCommands", () => {
       await flush();
 
       expect(mockedClipboard.writeClipboardText).not.toHaveBeenCalled();
-      expect(mockedToast).toHaveBeenCalledWith("Copy as prompt failed", "error");
+      expect(mockedToast).toHaveBeenCalledWith("Could not copy as prompt", "error");
     });
 
     it("does nothing when there is no active view", async () => {
@@ -149,7 +149,7 @@ describe("registerPromptCommands", () => {
       await flush();
 
       expect(mockedClipboard.writeClipboardText).not.toHaveBeenCalled();
-      expect(mockedToast).toHaveBeenCalledWith("Fill placeholders failed", "error");
+      expect(mockedToast).toHaveBeenCalledWith("Could not fill the placeholders", "error");
     });
   });
 });
