@@ -15,6 +15,7 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 const TABBAR = read("src/components/Editor/TabBar.css");
 const STATUSBAR = read("src/components/Editor/StatusBar.css");
 const SETTINGS = read("src/components/SettingsModal/SettingsModal.css");
+const BUTTON = read("src/components/Button/Button.css");
 
 /** The declaration body of one rule, matched on its own selector line. */
 function rule(css: string, selector: string): string {
@@ -98,6 +99,19 @@ describe("a settings row at the top of the interface text range", () => {
     for (const selector of [".settings-input", ".settings-select", ".settings-seg-option"]) {
       isNotFixedHeight(SETTINGS, selector);
       declares(SETTINGS, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("a button at the top of the interface text range", () => {
+  it("treats its platform height as a floor on all three shells", () => {
+    for (const selector of [
+      ".writ-btn",
+      ':root[data-platform="win"] .writ-btn',
+      ':root[data-platform="linux"] .writ-btn',
+    ]) {
+      isNotFixedHeight(BUTTON, selector);
+      declares(BUTTON, selector, "min-height", /\d+px/);
     }
   });
 });

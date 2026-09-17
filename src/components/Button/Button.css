@@ -1,5 +1,5 @@
 .writ-btn {
-  height: 28px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -72,11 +72,11 @@
 }
 
 :root[data-platform="win"] .writ-btn {
-  height: 32px;
+  min-height: 32px;
 }
 
 :root[data-platform="linux"] .writ-btn {
-  height: 34px;
+  min-height: 34px;
   padding: 0 17px;
   font-weight: 700;
 }
