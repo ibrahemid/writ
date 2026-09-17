@@ -17,8 +17,13 @@ const h = await vi.hoisted(async () => {
     refresh: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
     setPermission: vi.fn().mockResolvedValue(undefined),
+    focusEditor: vi.fn(),
   };
 });
+
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({ editor: { focusEditor: h.focusEditor } }),
+}));
 
 vi.mock("../../stores/global/activity", () => ({
   ACTIVITY_POLL_MS: 5_000,
@@ -36,6 +41,21 @@ import ActivityPanel, {
   openActivity,
   closeActivity,
 } from "../../components/Activity/ActivityPanel";
+import ConfirmDialog from "../../components/ConfirmDialog/ConfirmDialog";
+
+function panelWithDialogs() {
+  return (
+    <>
+      <ActivityPanel />
+      <ConfirmDialog />
+    </>
+  );
+}
+
+/** Lets the confirm promise settle under fake timers. */
+async function settle() {
+  for (let i = 0; i < 4; i += 1) await Promise.resolve();
+}
 
 function record(over: Partial<ActivityRecord> = {}): ActivityRecord {
   return {
@@ -205,14 +225,34 @@ describe("ActivityPanel", () => {
     expect(container.querySelector('[data-action="approve-read"]')).toBeNull();
   });
 
-  it("clearing asks the store", () => {
+  it("clearing asks the user before it asks the store", async () => {
     h.setRecords([record()]);
     openActivity();
-    const { container } = render(() => <ActivityPanel />);
+    const { container } = render(panelWithDialogs);
 
     fireEvent.click(container.querySelector('[data-action="activity-clear"]')!);
+    await settle();
 
+    expect(container.querySelector(".confirm-dialog")).not.toBeNull();
+    expect(h.clear).not.toHaveBeenCalled();
+
+    fireEvent.click(container.querySelector(".confirm-accept")!);
+    await settle();
     expect(h.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the list when the clear is called off", async () => {
+    h.setRecords([record()]);
+    openActivity();
+    const { container } = render(panelWithDialogs);
+
+    fireEvent.click(container.querySelector('[data-action="activity-clear"]')!);
+    await settle();
+    fireEvent.click(container.querySelector(".confirm-cancel")!);
+    await settle();
+
+    expect(h.clear).not.toHaveBeenCalled();
+    expect(container.querySelector(".confirm-dialog")).toBeNull();
   });
 
   it("offers no clear control with nothing to clear", () => {

@@ -103,10 +103,40 @@ describe("a settings row at the top of the interface text range", () => {
   });
 
   it("treats control heights as floors, so a taller label is not clipped", () => {
-    for (const selector of [".settings-input", ".settings-select", ".settings-seg-option"]) {
+    for (const selector of [
+      ".settings-input",
+      ".settings-select",
+      ".settings-seg-option",
+      ".settings-nav-item",
+      ".settings-search-bar",
+    ]) {
       isNotFixedHeight(SETTINGS, selector);
       declares(SETTINGS, selector, "min-height", /\d+px/);
     }
+  });
+
+  it("sizes the columns that hold scaling text against the text", () => {
+    // Eleven nav labels at interface text 22 do not fit 156px, and a pixel
+    // width has nowhere to go but a wrap inside a fixed row.
+    declares(SETTINGS, ".settings-nav", "width", /\d+ch/);
+    declares(SETTINGS, ".settings-nav", "min-width", /\d+px/);
+    declares(SETTINGS, ".settings-input-number", "width", /\d+ch/);
+    declares(SETTINGS, ".settings-input-number", "min-width", /\d+px/);
+    declares(SETTINGS, ".settings-select", "min-width", /\d+px/);
+  });
+
+  it("gives every hit box in the panel at least 24px", () => {
+    for (const selector of [".settings-seg-option", ".settings-switch"]) {
+      const body = rule(SETTINGS, selector);
+      const floor = body.match(/(?:min-)?height:\s*(\d+)px/);
+      expect(floor, `${selector} states a height`).toBeTruthy();
+      expect(Number(floor![1]), selector).toBeGreaterThanOrEqual(24);
+    }
+    // The accent swatch takes its box from the row, which sets it against the
+    // pitch the row has to keep (settings-area-chrome.test.ts).
+    const box = rule(SETTINGS, ".settings-accents").match(/--writ-accent-box:\s*(\d+)px/);
+    expect(box, "the accent row states its box").toBeTruthy();
+    expect(Number(box![1]), ".settings-accent").toBeGreaterThanOrEqual(24);
   });
 });
 

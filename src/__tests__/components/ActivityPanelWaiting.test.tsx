@@ -21,6 +21,10 @@ const h = vi.hoisted(() => {
   };
 });
 
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({ editor: { focusEditor: vi.fn() } }),
+}));
+
 vi.mock("../../services/tauri", () => ({
   activityRecent: h.activityRecent,
   activityClear: h.activityClear,

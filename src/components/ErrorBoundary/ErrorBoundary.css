@@ -13,7 +13,7 @@
   font-size: var(--writ-ui-lg);
   line-height: var(--writ-ui-lg-lh);
   font-weight: 600;
-  color: var(--writ-danger);
+  color: var(--writ-fg);
 }
 
 .error-boundary-message {
@@ -24,6 +24,13 @@
   color: var(--writ-fg-muted);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
-  max-width: 600px;
+  max-width: 72ch;
   overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.error-boundary-actions {
+  display: flex;
+  gap: var(--writ-space-3);
 }

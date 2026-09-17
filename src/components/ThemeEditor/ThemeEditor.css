@@ -10,7 +10,7 @@
 }
 
 .theme-editor {
-  width: 620px;
+  width: min(620px, calc(100vw - 48px));
   max-height: calc(100vh - 128px);
   background: var(--writ-bg-raised);
   border: 0;
@@ -32,8 +32,9 @@
 
 .theme-editor-title {
   font-size: var(--writ-ui-lg);
+  line-height: var(--writ-ui-lg-lh);
   color: var(--writ-fg);
-  letter-spacing: 0.01em;
+  letter-spacing: var(--writ-ui-tracking);
 }
 
 .theme-editor-actions {
@@ -50,7 +51,6 @@
   font-size: var(--writ-ui-md);
   font-family: var(--writ-font-ui);
   padding: var(--writ-space-2) var(--writ-space-3);
-  outline: none;
   cursor: pointer;
 }
 
@@ -65,8 +65,7 @@
 .theme-editor-group-title {
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: var(--writ-ui-tracking);
   margin-bottom: var(--writ-space-3);
   font-weight: 500;
 }
@@ -130,6 +129,6 @@
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
   font-family: var(--writ-font-ui);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--writ-ui-tracking);
 }
 

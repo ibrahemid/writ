@@ -2,7 +2,9 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show, createUnique
 
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
+import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { requestConfirm } from "../ConfirmDialog/ConfirmDialog";
 import { showToast } from "../Notifications/Toast";
 import {
   activityStore,
@@ -139,6 +141,7 @@ function Waiting(props: { client: PendingClient }) {
 
 function ActivityDialog() {
   const titleId = createUniqueId();
+  const win = useWindow();
   let dialogRef: HTMLDivElement | undefined;
 
   onMount(() => {
@@ -155,11 +158,25 @@ function ActivityDialog() {
 
   createEffect(() => {
     if (!dialogRef) return;
-    const teardown = installFocusTrap(dialogRef, { onEscape: () => closeActivity() });
+    const teardown = installFocusTrap(dialogRef, {
+      onEscape: () => closeActivity(),
+      fallbackRestore: () => {
+        win.editor.focusEditor();
+        return null;
+      },
+    });
     onCleanup(teardown);
   });
 
   async function onClear() {
+    const confirmed = await requestConfirm({
+      title: "Clear the activity list?",
+      message: "Writ will not have a record of what programs did before now.",
+      confirmLabel: "Clear",
+      danger: true,
+      defaultAction: "cancel",
+    });
+    if (!confirmed) return;
     try {
       await activityStore.clear();
     } catch {

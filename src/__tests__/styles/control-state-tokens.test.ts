@@ -50,14 +50,15 @@ describe("hover and disabled states resolve through tokens", () => {
   });
 
   it("a disabled control dims by the one token", () => {
-    // Button and the settings select are retokenised here. The other five
-    // carriers (.settings-accent, .settings-switch, the two find buttons and
-    // the spelling apply) belong to areas with their own passes and still
-    // carry a literal; they join this rule when those land.
+    // The settings controls are retokenised here. The remaining carriers (the
+    // two find buttons and the spelling apply) belong to the editor's own pass
+    // and still carry a literal; they join this rule when it lands.
     expect(declarations(THEME, ":root").get("--writ-disabled-opacity")).toBe("0.5");
     for (const [rel, selector] of [
       ["src/components/Button/Button.css", ".writ-btn:disabled"],
       ["src/components/SettingsModal/SettingsModal.css", ".settings-select:disabled"],
+      ["src/components/SettingsModal/SettingsModal.css", ".settings-accent:disabled"],
+      ["src/components/SettingsModal/SettingsModal.css", ".settings-switch:disabled"],
     ] as const) {
       expect(declarations(sheet(rel), selector).get("opacity"), selector).toBe(
         "var(--writ-disabled-opacity)",

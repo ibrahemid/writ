@@ -20,6 +20,12 @@ const [versions, setVersions] = createSignal<NoteVersion[]>([]);
 const [selected, setSelected] = createSignal<number | null>(null);
 const [text, setText] = createSignal("");
 const [reading, setReading] = createSignal(false);
+const [loading, setLoading] = createSignal(false);
+
+// Every read carries a token. Arrowing down a long list opens one read per
+// row, and an earlier one settling must not write the pane or un-blank it
+// under a row it no longer belongs to: only the newest token may do either.
+let readToken = 0;
 
 /**
  * Reads what is kept for one note and shows its newest text.
@@ -32,6 +38,7 @@ async function load(notePath: string): Promise<void> {
   setPath(notePath);
   setSelected(null);
   setText("");
+  setLoading(true);
   try {
     const kept = await noteVersions(notePath);
     setVersions(kept);
@@ -39,21 +46,24 @@ async function load(notePath: string): Promise<void> {
   } catch {
     setVersions([]);
     logFailure("the versions of this note could not be read");
+  } finally {
+    setLoading(false);
   }
 }
 
 /** Reads one version's text into the panel. */
 async function select(id: number): Promise<void> {
+  const token = ++readToken;
   setSelected(id);
   setReading(true);
   try {
     const content = await noteVersionContent(id);
-    if (selected() === id) setText(content);
+    if (token === readToken) setText(content);
   } catch {
-    if (selected() === id) setText("");
+    if (token === readToken) setText("");
     logFailure("this version could not be read");
   } finally {
-    setReading(false);
+    if (token === readToken) setReading(false);
   }
 }
 
@@ -77,10 +87,13 @@ async function copy(id: number): Promise<VersionCopy> {
 
 /** Drops what the panel was showing, for a panel that closed. */
 function clear(): void {
+  readToken += 1;
+  setReading(false);
   setPath(null);
   setVersions([]);
   setSelected(null);
   setText("");
+  setLoading(false);
 }
 
 export const noteVersionsStore = {
@@ -89,6 +102,7 @@ export const noteVersionsStore = {
   selected,
   text,
   reading,
+  loading,
   load,
   select,
   restore,
