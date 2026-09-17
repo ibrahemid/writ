@@ -623,9 +623,10 @@ fn every_chat_command_is_in_the_invoke_handler() {
 }
 
 #[test]
-fn a_note_the_folder_does_not_hold_is_not_a_note() {
+fn a_note_the_folder_does_not_hold_is_refused_without_naming_it_again() {
+    // The sentence lands under a chip or a card that already names the note.
     let (notes, _writ) = folders();
     let root = root(&notes);
     let error = note_file_in(&root, "Nowhere.md").expect_err("refused");
-    assert!(error.contains("Nowhere.md"), "got: {error}");
+    assert_eq!(error, "This note is no longer there.");
 }
