@@ -105,8 +105,29 @@ describe("SpellingChip announces its menu", () => {
     await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("true"));
 
     hideContextMenu();
-    fireEvent.focus(chip);
     await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("false"));
+  });
+
+  // A keyboard user is already on the chip when the menu opens, and the menu
+  // does not take the focus until an arrow key moves into it. The dismiss then
+  // refocuses an element that never lost the focus, so no focus event fires.
+  it("clears the state when the menu is dismissed with Escape from the keyboard", async () => {
+    spellingStore.setEligible(true);
+    const { container } = render(() => (
+      <>
+        <SpellingChip />
+        <ContextMenu />
+      </>
+    ));
+
+    const chip = container.querySelector<HTMLButtonElement>(".spelling-chip")!;
+    chip.focus();
+    fireEvent.click(chip);
+    await waitFor(() => expect(chip.getAttribute("aria-expanded")).toBe("true"));
+
+    fireEvent.keyDown(chip, { key: "Escape" });
+    await waitFor(() => expect(document.querySelector(".context-menu")).toBeNull());
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
   });
 });
 

@@ -1,7 +1,7 @@
-import { Show, createMemo, createSignal } from "solid-js";
+import { Show, createMemo } from "solid-js";
 import { spellingStore } from "../../stores/global/spelling";
 import { configStore } from "../../stores/global/config";
-import { showAnchoredMenu } from "../ContextMenu/ContextMenu";
+import { showAnchoredMenu, isMenuOpenFor } from "../ContextMenu/ContextMenu";
 import { openSettings } from "../SettingsModal/SettingsModal";
 import { openSpellingPreview } from "./SpellingPreview";
 
@@ -18,9 +18,6 @@ interface MenuEntry {
 
 export default function SpellingChip() {
   let ref: HTMLButtonElement | undefined;
-  // The menu hands the focus back to the chip when it closes, which is the one
-  // signal the chip gets that the layer it opened is gone.
-  const [menuOpen, setMenuOpen] = createSignal(false);
 
   const eligible = () => spellingStore.eligible();
   const enabled = () => configStore.config().spelling.enabled;
@@ -60,7 +57,6 @@ export default function SpellingChip() {
 
   function openMenu() {
     if (!ref) return;
-    setMenuOpen(true);
     showAnchoredMenu(ref.getBoundingClientRect(), menuItems(), ref);
   }
 
@@ -72,10 +68,9 @@ export default function SpellingChip() {
         class="statusbar-chip spelling-chip"
         classList={{ "spelling-chip--off": !enabled() }}
         onClick={openMenu}
-        onFocus={() => setMenuOpen(false)}
         title="Spelling"
         aria-haspopup="menu"
-        aria-expanded={menuOpen()}
+        aria-expanded={isMenuOpenFor(ref)}
         aria-label={label()}
       >
         {label()}

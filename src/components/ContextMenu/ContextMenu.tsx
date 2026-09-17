@@ -66,6 +66,15 @@ export function hideContextMenu() {
   setMenu(null);
 }
 
+/**
+ * Whether the open menu is the one `trigger` opened, so a trigger can say
+ * `aria-expanded` from the menu's own state. Read in a component, it tracks:
+ * every open and every dismiss goes through the same signal.
+ */
+export function isMenuOpenFor(trigger: HTMLElement | undefined): boolean {
+  return trigger !== undefined && menu()?.trigger === trigger;
+}
+
 /** Keeps the menu off the very edge of its allowed region. */
 const EDGE_GAP = 4;
 /** Space between the menu and the thing it is anchored to. */
