@@ -31,6 +31,12 @@ function stylesheets(): string[] {
   return files;
 }
 
+/** The declaration body of one rule, matched on its own selector line. */
+function ruleBody(css: string, selector: string): string | null {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return css.match(new RegExp(`^${escaped}\\s*\\{([^}]*)\\}`, "m"))?.[1] ?? null;
+}
+
 describe("the focus ring in the chrome", () => {
   // `.winctrl` is the one exception focus.css names: Fluent's second ring
   // cannot be a token, because it is drawn inside a control that runs to the
@@ -53,6 +59,25 @@ describe("the focus ring in the chrome", () => {
     expect(read("src/components/ContextMenu/ContextMenu.tsx")).toMatch(/data-writ-focus-silent/);
     expect(read("src/components/Graph/FolderGraphView.tsx")).toMatch(/data-writ-focus-silent/);
     expect(read("src/components/Sidebar/SearchBar.tsx")).toMatch(/data-writ-focus-silent/);
+  });
+
+  // A ring drawn outside a full-height separator brackets the pane beside it,
+  // and one outside a heading that fills the sidebar is clipped by it. Both
+  // edges of the window say the same thing.
+  it("draws inside the controls that cannot hold an outward ring", () => {
+    const SIDEBAR = read("src/components/Sidebar/Sidebar.css");
+    const PANEL = read("src/components/RightPanel/RightPanel.css");
+    for (const [css, selector, offset] of [
+      [SIDEBAR, ".sidebar-resizer:focus-visible", "-2px"],
+      [SIDEBAR, ".sidebar-section-toggle:focus-visible", "-2px"],
+      [SIDEBAR, ".sidebar-section-action:focus-visible", "-1px"],
+      [PANEL, ".right-panel-resizer:focus-visible", "-2px"],
+    ] as const) {
+      const body = ruleBody(css, selector);
+      expect(body, `${selector} is declared`).toBeTruthy();
+      expect(body!).toMatch(/outline:\s*var\(--writ-focus-outline[,)]/);
+      expect(body!).toMatch(new RegExp(`outline-offset:\\s*${offset}`));
+    }
   });
 
   it("keeps the background that stands in for the ring on a menu item", () => {
