@@ -1,6 +1,7 @@
 import {
   createSignal,
   createEffect,
+  createUniqueId,
   onCleanup,
   createMemo,
   untrack,
@@ -21,6 +22,8 @@ import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { joinAnd } from "../../lib/join-and";
+import { requestChoice } from "../ConfirmDialog/ConfirmDialog";
 import { showToast } from "../Notifications/Toast";
 import type { Command } from "../../types/commands";
 import "./ShortcutEditor.css";
@@ -56,6 +59,7 @@ const GLOBAL_TOGGLE_ROW = "hotkey.toggle";
 
 export default function ShortcutEditor() {
   const win = useWindow();
+  const titleId = createUniqueId();
   const recorder = new ShortcutRecorder();
   const [drafts, setDrafts] = createSignal<Record<string, DraftEntry>>({});
   const [globalDraft, setGlobalDraft] = createSignal("");
@@ -178,7 +182,7 @@ export default function ShortcutEditor() {
     if (!isOpen() || !modalRef) return;
     const teardown = installFocusTrap(modalRef, {
       isActive: () => listeningId() === null,
-      onEscape: () => closeShortcutEditor(),
+      onEscape: () => void requestClose(),
       fallbackRestore: () => {
         win.editor.focusEditor();
         return null;
@@ -201,18 +205,48 @@ export default function ShortcutEditor() {
     setDrafts(next);
   }
 
+  /** What a save would write: the rows that differ from the shipped chord. */
+  function pendingOverrides(): Record<string, string> {
+    const next: Record<string, string> = {};
+    for (const cmd of commands()) {
+      const draft = drafts()[cmd.id];
+      if (!draft) continue;
+      if (draft.binding && draft.binding !== cmd.keybinding) {
+        next[cmd.id] = draft.binding;
+      }
+    }
+    return next;
+  }
+
+  function isDirty(): boolean {
+    const saved = configStore.config().keybindings;
+    const next = pendingOverrides();
+    for (const id of new Set([...Object.keys(saved), ...Object.keys(next)])) {
+      if (saved[id] !== next[id]) return true;
+    }
+    const toggle = globalDraft().trim();
+    return toggle !== "" && toggle !== configStore.config().hotkey.toggle;
+  }
+
+  async function requestClose() {
+    if (!isDirty()) {
+      closeShortcutEditor();
+      return;
+    }
+    const outcome = await requestChoice({
+      title: "Discard your changes?",
+      message: "Writ will put the shortcuts back the way they were.",
+      confirmLabel: "Discard",
+      defaultAction: "cancel",
+    });
+    if (outcome === "confirm") closeShortcutEditor();
+  }
+
   async function handleSave() {
     try {
       const nextToggle = globalDraft().trim();
       const toggleChanged = nextToggle !== "" && nextToggle !== configStore.config().hotkey.toggle;
-      const nextKeybindings: Record<string, string> = {};
-      for (const cmd of commands()) {
-        const draft = drafts()[cmd.id];
-        if (!draft) continue;
-        if (draft.binding && draft.binding !== cmd.keybinding) {
-          nextKeybindings[cmd.id] = draft.binding;
-        }
-      }
+      const nextKeybindings = pendingOverrides();
       // The OS holds this one, so it is asked before anything is written and
       // the config records what it gave back. The ask has a `try` of its own:
       // `set_global_hotkey` rejects a chord the hotkey parser cannot read, and
@@ -241,7 +275,7 @@ export default function ShortcutEditor() {
       if (toggleRefused) showToast("Shortcuts saved. The window shortcut is unchanged.", "error");
       else showToast("Shortcuts saved", "success");
     } catch {
-      showToast("Failed to save shortcuts", "error");
+      showToast("Could not save the shortcuts", "error");
     }
   }
 
@@ -273,7 +307,7 @@ export default function ShortcutEditor() {
             fallback={
               <Show
                 when={segments().length > 0}
-                fallback={<span class="shortcut-row-empty">unset</span>}
+                fallback={<span class="shortcut-row-empty">Not set</span>}
               >
                 <span class="kbd-chord">
                   <For each={segments()}>{(seg) => <span class="kbd-key">{seg}</span>}</For>
@@ -310,6 +344,11 @@ export default function ShortcutEditor() {
     );
   }
 
+  /** A conflicting row is named the way its command is named on screen. */
+  function labelFor(commandId: string): string {
+    return commands().find((c) => c.id === commandId)?.label ?? commandId;
+  }
+
   function renderRow(cmd: Command) {
     const binding = () => drafts()[cmd.id]?.binding ?? "";
     const aliases = () => cmd.keybindingAliases ?? [];
@@ -332,7 +371,7 @@ export default function ShortcutEditor() {
           </Show>
           <Show when={conflictWith().length > 0}>
             <div class="shortcut-row-conflict">
-              Conflicts with {conflictWith().join(", ")}
+              Conflicts with {joinAnd(conflictWith().map(labelFor))}
             </div>
           </Show>
         </div>
@@ -342,7 +381,7 @@ export default function ShortcutEditor() {
             fallback={
               <Show
                 when={segments().length > 0}
-                fallback={<span class="shortcut-row-empty">unset</span>}
+                fallback={<span class="shortcut-row-empty">Not set</span>}
               >
                 <span class="kbd-chord">
                   <For each={segments()}>
@@ -378,22 +417,32 @@ export default function ShortcutEditor() {
 
   return (
     <Show when={isOpen()}>
-      <div class="shortcut-editor-overlay" onClick={() => closeShortcutEditor()}>
+      <div class="shortcut-editor-overlay" onClick={() => void requestClose()}>
         <div
           ref={modalRef}
           class="shortcut-editor"
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"
-          aria-label="Customize shortcuts"
+          aria-labelledby={titleId}
         >
           <div class="shortcut-editor-header">
-            <div class="shortcut-editor-title">Customize shortcuts</div>
+            <div id={titleId} class="shortcut-editor-title">
+              Customize shortcuts
+            </div>
             <div class="shortcut-editor-actions">
+              <Show when={conflicts().size > 0}>
+                <span class="shortcut-editor-blocked">Two commands share a shortcut.</span>
+              </Show>
               <Button data-action="reset-all-shortcuts" onClick={handleResetAll}>
                 Reset all
               </Button>
-              <Button data-action="save-shortcuts" variant="primary" onClick={handleSave}>
+              <Button
+                data-action="save-shortcuts"
+                variant="primary"
+                disabled={conflicts().size > 0}
+                onClick={handleSave}
+              >
                 Save
               </Button>
               <Tooltip label="Close shortcut editor">
@@ -401,7 +450,7 @@ export default function ShortcutEditor() {
                   variant="ghost"
                   icon="x"
                   iconSize={16}
-                  onClick={closeShortcutEditor}
+                  onClick={() => void requestClose()}
                   aria-label="Close shortcut editor"
                 />
               </Tooltip>

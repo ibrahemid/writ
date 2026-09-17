@@ -26,6 +26,7 @@ import { PRESETS } from "../../styles/themes";
 import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
 import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { joinAnd } from "../../lib/join-and";
 import { FILE_MANAGER_NAME, IS_MAC, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
@@ -1806,11 +1807,6 @@ export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
   create_note: { group: "write", phrase: "make a new note" },
   rename_note: { group: "write", phrase: "rename a note" },
 };
-
-function joinAnd(parts: readonly string[]): string {
-  if (parts.length < 2) return parts[0] ?? "";
-  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-}
 
 export function describeReadTools(ids: readonly string[]): string {
   const verbs: string[] = [];
