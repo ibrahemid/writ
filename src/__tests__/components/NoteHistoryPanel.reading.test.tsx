@@ -106,7 +106,13 @@ describe("NoteHistoryPanel while it reads", () => {
     );
 
     older.settle("the older text\n");
-    await waitFor(() => expect(screen.getByText("the older text")).toBeTruthy());
+    await waitFor(() =>
+      // Exact, not normalised: the pane is a <pre>, so a stray leading newline
+      // from the JSX would be a blank first line on every version.
+      expect(screen.container.querySelector(".note-versions-text")?.textContent).toBe(
+        "the older text\n",
+      ),
+    );
   });
 
   it("says once that a restore keeps what the note holds now", async () => {

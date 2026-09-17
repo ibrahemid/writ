@@ -1728,6 +1728,19 @@ describe("Settings as a keyboard and a screen reader take it", () => {
     );
   });
 
+  // A row may put a control in the label column (labelAside, the "Get a key"
+  // link), and that one comes first in document order.
+  it("never hangs a row's description on a control in the label column", async () => {
+    const container = await openPanel();
+    for (const section of ["editor", "advanced", "notes"]) {
+      await openSection(container, section);
+      const described = container.querySelectorAll<HTMLElement>("[aria-describedby]");
+      for (const control of described) {
+        expect(control.closest(".settings-row-label"), control.outerHTML.slice(0, 80)).toBeNull();
+      }
+    }
+  });
+
   it("describes a switch row as well as naming it", async () => {
     const container = await openPanel();
     await openSection(container, "editor");

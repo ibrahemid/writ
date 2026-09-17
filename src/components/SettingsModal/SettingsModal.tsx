@@ -297,9 +297,13 @@ function SettingsRow(props: SettingsRowProps) {
   createEffect(() => {
     const ids = describedBy();
     if (!rowRef) return;
+    // Not simply the first match: `labelAside` puts a control inside the label
+    // column, ahead of the row's own in document order.
     const control = props.labelFor
       ? rowRef.querySelector<HTMLElement>(`[id="${props.labelFor}"]`)
-      : rowRef.querySelector<HTMLElement>(ROW_CONTROL);
+      : (Array.from(rowRef.querySelectorAll<HTMLElement>(ROW_CONTROL)).find(
+          (el) => !el.closest(".settings-row-label"),
+        ) ?? null);
     if (!control) return;
     if (ids) control.setAttribute("aria-describedby", ids);
     else control.removeAttribute("aria-describedby");
