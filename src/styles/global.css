@@ -28,37 +28,10 @@ html, body {
   flex-direction: column;
 }
 
-/* A thumb thinner than its rail is drawn by insetting the paint box: the
-   transparent border holds the rail's width and background-clip keeps the fill
-   off it. -webkit-scrollbar has no width of its own to animate. */
-:root[data-platform="mac"] ::-webkit-scrollbar {
-  width: var(--writ-scrollbar-rail);
-  height: var(--writ-scrollbar-rail);
-}
-
-:root[data-platform="mac"] ::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-:root[data-platform="mac"] ::-webkit-scrollbar-thumb {
-  background-color: var(--writ-border);
-  background-clip: content-box;
-  border: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2) solid transparent;
-  border-radius: var(--writ-scrollbar-thumb-radius);
-}
-
-:root[data-platform="mac"] ::-webkit-scrollbar-thumb:hover {
-  background-color: var(--writ-fg-faint);
-}
-
-:root[data-platform="mac"] ::-webkit-scrollbar-thumb:vertical {
-  min-height: var(--writ-scrollbar-thumb-min);
-}
-
-:root[data-platform="mac"] ::-webkit-scrollbar-thumb:horizontal {
-  min-width: var(--writ-scrollbar-thumb-min);
-}
-
+/* macOS keeps its host overlay bar: any ::-webkit-scrollbar rule replaces it
+   with a reserved-width rail. On the two shells that draw a rail, a thumb
+   thinner than it is drawn by insetting the paint box, and the radius adds the
+   inset back because the fill is clipped to the content box. */
 :root[data-platform="win"] ::-webkit-scrollbar {
   width: var(--writ-scrollbar-rail);
   height: var(--writ-scrollbar-rail);
@@ -72,7 +45,7 @@ html, body {
   background-color: var(--writ-border);
   background-clip: content-box;
   border: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2) solid transparent;
-  border-radius: var(--writ-scrollbar-thumb-radius);
+  border-radius: calc(var(--writ-scrollbar-thumb-radius) + (var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2);
   transition: border-width var(--writ-scrollbar-motion) var(--writ-ease),
     background-color var(--writ-scrollbar-motion) var(--writ-ease);
 }
@@ -80,6 +53,7 @@ html, body {
 :root[data-platform="win"] ::-webkit-scrollbar-thumb:hover {
   background-color: var(--writ-fg-faint);
   border-width: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
+  border-radius: calc(var(--writ-scrollbar-thumb-radius) + (var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
 }
 
 :root[data-platform="win"] ::-webkit-scrollbar-thumb:vertical {
@@ -103,7 +77,7 @@ html, body {
   background-color: var(--writ-border);
   background-clip: content-box;
   border: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2) solid transparent;
-  border-radius: var(--writ-scrollbar-thumb-radius);
+  border-radius: calc(var(--writ-scrollbar-thumb-radius) + (var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2);
   transition: border-width var(--writ-scrollbar-motion) var(--writ-ease-linear),
     background-color var(--writ-scrollbar-motion) var(--writ-ease-linear);
 }
@@ -111,6 +85,7 @@ html, body {
 :root[data-platform="linux"] ::-webkit-scrollbar-thumb:hover {
   background-color: var(--writ-fg-faint);
   border-width: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
+  border-radius: calc(var(--writ-scrollbar-thumb-radius) + (var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
 }
 
 :root[data-platform="linux"] ::-webkit-scrollbar-thumb:vertical {
