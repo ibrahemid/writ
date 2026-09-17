@@ -23,6 +23,8 @@ const SEARCHBAR = read("src/components/Sidebar/SearchBar.css");
 const TOOLBAR = read("src/components/Toolbar/Toolbar.css");
 const FIND = read("src/components/Find/FindOverlay.css");
 const PALETTE = read("src/components/Palette/Palette.css");
+const REWRITE = read("src/components/AiRewrite/AiRewriteOverlay.css");
+const PROMPTFILL = read("src/components/PromptFill/PromptFillModal.css");
 
 /** The declaration body of one rule, matched on its own selector line. */
 function rule(css: string, selector: string): string {
@@ -188,6 +190,63 @@ describe("the find bar and the palette at the top of the interface text range", 
     for (const selector of [".palette-search", ".palette-item"]) {
       isNotFixedHeight(PALETTE, selector);
       declares(PALETTE, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("the overlays that take typed text at the top of the interface text range", () => {
+  it("treats the rewrite and placeholder inputs as floors", () => {
+    for (const [css, selector] of [
+      [REWRITE, ".ai-overlay-input"],
+      [PROMPTFILL, ".placeholders-input"],
+    ] as const) {
+      isNotFixedHeight(css, selector);
+      declares(css, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("the rows and controls that borrow their box", () => {
+  // A row states no height of its own: .sidebar-row carries the floor for all
+  // five, and the find bar's word buttons are the shared control. A height
+  // written back into one of these sheets takes that row out of the setting.
+  it("state no height in their own sheet", () => {
+    for (const [file, selector] of [
+      ["src/components/Sidebar/FileTree.css", ".file-tree-item"],
+      ["src/components/Sidebar/TagsSection.css", ".tags-row"],
+      ["src/components/Sidebar/TabItem.css", ".tab-item"],
+      ["src/components/Sidebar/InboxSection.css", ".inbox-item"],
+      ["src/components/Sidebar/SearchResults.css", ".search-result"],
+    ] as const) {
+      const css = read(file);
+      const names = new RegExp(`\\${selector}(?![\\w-])`);
+      const named = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, list]) =>
+        names.test(list),
+      );
+      expect(named.length, `${file} names ${selector}`).toBeGreaterThan(0);
+      for (const [, list, body] of named) {
+        expect(body, `${list.trim()} sets a height`).not.toMatch(/(^|[\s;])height:/);
+      }
+    }
+  });
+
+  it("draw the find bar's word buttons as the shared control", () => {
+    // .find-text-btn has no rule of its own: the box is Button.css's floor.
+    expect(FIND).not.toMatch(/\.find-text-btn/);
+    expect(read("src/components/Find/FindOverlay.tsx")).toMatch(
+      /<Button\s+class="find-text-btn"/,
+    );
+  });
+
+  it("compose the shared row in the markup", () => {
+    for (const file of [
+      "src/components/Sidebar/FileTree.tsx",
+      "src/components/Sidebar/TagsSection.tsx",
+      "src/components/Sidebar/TabItem.tsx",
+      "src/components/Sidebar/InboxSection.tsx",
+      "src/components/Sidebar/SearchResults.tsx",
+    ]) {
+      expect(read(file), `${file} composes sidebar-row`).toMatch(/"sidebar-row /);
     }
   });
 });

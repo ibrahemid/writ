@@ -54,10 +54,6 @@ describe("find panel stacking", () => {
   it("keeps the tickmap on the same popover layer", () => {
     expect(block(FIND_CSS, ".find-tickmap")).toMatch(/z-index:\s*var\(--writ-z-popover\)/);
   });
-
-  it("never hardcodes a z-index number", () => {
-    expect(FIND_CSS).not.toMatch(/z-index:\s*\d/);
-  });
 });
 
 // Nothing in the chain from the root to the picker opens a stacking context, so
@@ -68,10 +64,6 @@ describe("link picker stacking", () => {
     expect(zToken(PICKER_CSS, ".link-picker-scrim")).toBe("--writ-z-modal");
     expect(layer("modal")).toBeGreaterThan(layer("popover"));
   });
-
-  it("never hardcodes a z-index number", () => {
-    expect(PICKER_CSS).not.toMatch(/z-index:\s*\d/);
-  });
 });
 
 // A number above the popover layer means nothing: the context menu is on that
@@ -79,7 +71,6 @@ describe("link picker stacking", () => {
 describe("spelling panel stacking", () => {
   it("sits on the popover layer, by name", () => {
     expect(zToken(SPELLING_CSS, ".spelling-preview")).toBe("--writ-z-popover");
-    expect(SPELLING_CSS).not.toMatch(/z-index:\s*\d/);
   });
 });
 

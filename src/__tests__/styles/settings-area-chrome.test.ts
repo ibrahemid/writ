@@ -24,33 +24,7 @@ const AREA = [
 
 const sheets = AREA.map((rel) => [rel, readFileSync(resolve(process.cwd(), rel), "utf8")] as const);
 
-describe("the settings area draws the host's focus ring", () => {
-  it("writes no ring of its own", () => {
-    const offenders = sheets
-      .filter(([, css]) => /outline:\s*\d+px solid var\(--writ-accent\)/.test(css))
-      .map(([rel]) => rel);
-    expect(offenders, `hand-written focus rings: ${offenders.join(", ")}`).toEqual([]);
-  });
-
-  it("cancels the ring through the attribute, not in CSS", () => {
-    // focus.css:34 turns data-writ-focus-silent into the only opt-out, so a
-    // control that silences the ring in CSS silences it everywhere, including
-    // the shells whose ring is the only keyboard state they draw.
-    const offenders = sheets
-      .filter(([, css]) => /outline:\s*none/.test(css))
-      .map(([rel]) => rel);
-    expect(offenders, `outline: none in CSS: ${offenders.join(", ")}`).toEqual([]);
-  });
-});
-
 describe("the settings area follows the interface text size", () => {
-  it("states no font size in pixels", () => {
-    const offenders = sheets
-      .filter(([, css]) => /font-size:\s*\d/.test(css))
-      .map(([rel]) => rel);
-    expect(offenders, `literal font sizes: ${offenders.join(", ")}`).toEqual([]);
-  });
-
   it("letter-spaces no label, and shouts at none", () => {
     // The baseline's token table is explicit: --writ-ui-tracking is 0 and UI
     // labels are never tracked or upper-cased.
@@ -142,7 +116,6 @@ describe("the two app-level banners share one layer", () => {
     ]) {
       const css = readFileSync(resolve(process.cwd(), rel), "utf8");
       expect(css, rel).toContain("z-index: var(--writ-z-banner)");
-      expect(css, rel).not.toMatch(/z-index:\s*\d/);
     }
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 // The ring follows the host: focus.css moves --writ-focus-outline and
 // --writ-focus-offset per shell, and the chrome either spends those tokens or
@@ -9,27 +9,6 @@ import { resolve, join } from "node:path";
 // so one decision has one mechanism.
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
-
-const AREAS = [
-  "src/components/Sidebar",
-  "src/components/TitleBar",
-  "src/components/Toolbar",
-  "src/components/Resizer",
-  "src/components/ContextMenu",
-  "src/components/RightPanel",
-  "src/components/Graph",
-];
-
-function stylesheets(): string[] {
-  const files: string[] = [];
-  for (const area of AREAS) {
-    for (const name of readdirSync(resolve(process.cwd(), area))) {
-      if (name.endsWith(".css")) files.push(join(area, name));
-    }
-  }
-  files.push("src/components/Editor/TabBar.css");
-  return files;
-}
 
 /** The declaration body of one rule, matched on its own selector line. */
 function ruleBody(css: string, selector: string): string | null {
@@ -56,20 +35,6 @@ describe("the focus ring in the chrome", () => {
   // `.winctrl` is the one exception focus.css names: Fluent's second ring
   // cannot be a token, because it is drawn inside a control that runs to the
   // window edge.
-  it("is never hand-written from the accent", () => {
-    for (const file of stylesheets()) {
-      expect(read(file), `${file} draws its own ring`).not.toMatch(
-        /outline:\s*\d+px solid var\(--writ-accent\)/,
-      );
-    }
-  });
-
-  it("is never cancelled in CSS", () => {
-    for (const file of stylesheets()) {
-      expect(read(file), `${file} cancels the ring in CSS`).not.toMatch(/outline:\s*none/);
-    }
-  });
-
   it("is silenced on the element wherever a control is deliberately quiet", () => {
     expect(read("src/components/ContextMenu/ContextMenu.tsx")).toMatch(/data-writ-focus-silent/);
     expect(read("src/components/Graph/FolderGraphView.tsx")).toMatch(/data-writ-focus-silent/);

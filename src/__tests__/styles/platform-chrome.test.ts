@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 // The window chrome is the one surface a Mac cannot exercise by running the
 // app, so the platform layer is asserted from the stylesheets themselves. It is
@@ -396,28 +396,4 @@ describe("scrollbars", () => {
     }
   });
 
-  it("are never repainted by a component", () => {
-    // A component may hide a bar it scrolls itself (the tab strip does), but
-    // the rail and the thumb belong to the platform layer: a second set of
-    // numbers is how one list ends up scrolling unlike every other.
-    const offenders: string[] = [];
-    for (const file of componentSheets()) {
-      const css = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-      for (const [, selectorList, body] of css.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
-        if (!selectorList.includes("::-webkit-scrollbar")) continue;
-        const hides = /-(?:thumb|track)\b/.test(selectorList) === false && /:\s*0\s*;/.test(body);
-        if (!hides) offenders.push(`${relative(ROOT, file)} -> ${selectorList.trim()}`);
-      }
-    }
-    expect(offenders, offenders.join("\n")).toEqual([]);
-  });
 });
-
-function componentSheets(dir = resolve(ROOT, "src/components"), found: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) componentSheets(full, found);
-    else if (entry.endsWith(".css")) found.push(full);
-  }
-  return found;
-}

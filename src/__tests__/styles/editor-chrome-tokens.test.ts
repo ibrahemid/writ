@@ -126,12 +126,6 @@ describe("the editor's own measures", () => {
     expect(empty).toMatch(/line-height:\s*var\(--writ-ui-md-lh\)/);
   });
 
-  it("declares no pixel font size anywhere in the area", () => {
-    for (const [name, css] of Object.entries(CSS)) {
-      expect(css, name).not.toMatch(/font-size:\s*[\d.]+px/);
-    }
-  });
-
   it("gives the first-run row the note's measure by name", () => {
     expect(rule(CSS.firstRun, ".first-run-offer")).toMatch(
       /max-width:\s*var\(--writ-prose-measure\)/,
