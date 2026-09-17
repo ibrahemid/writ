@@ -245,17 +245,7 @@
   border-left: 0;
 }
 
-:root[data-platform="win"] /* The one line a panel with nothing to list shows, in the sidebar's empty
-   shape: a note with no connections yet, or no note at all. */
-.right-panel-empty {
-  margin: 0;
-  padding: var(--writ-space-3);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg-muted);
-}
-
-.right-panel-scroll {
+:root[data-platform="win"] .right-panel-scroll {
   padding-top: 4px;
 }
 
@@ -268,17 +258,7 @@
   box-shadow: inset 1px 0 var(--writ-border-soft);
 }
 
-:root[data-platform="linux"] /* The one line a panel with nothing to list shows, in the sidebar's empty
-   shape: a note with no connections yet, or no note at all. */
-.right-panel-empty {
-  margin: 0;
-  padding: var(--writ-space-3);
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
-  color: var(--writ-fg-muted);
-}
-
-.right-panel-scroll {
+:root[data-platform="linux"] .right-panel-scroll {
   padding-top: 6px;
 }
 
