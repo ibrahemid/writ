@@ -984,8 +984,10 @@ function createChatStore() {
   async function beginEdit(turn: number) {
     const stored = current()?.turns[turn];
     if (!stored || stored.role !== "user" || isBusy()) return;
-    setEditing(turn);
+    // The draft first: the composer moves its caret to the end of the field
+    // when the turn is named, and the field has to hold the turn by then.
     setDraft(stored.content);
+    setEditing(turn);
     setAttachments([]);
     await attachAll(
       stored.attachments.map((note) => ({

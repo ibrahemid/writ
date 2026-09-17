@@ -93,6 +93,17 @@ export default function ChatComposer(props: {
     if (input) fit(input);
   });
 
+  // Edit is pressed on a turn, so the field takes the focus the press did
+  // not give it, with the caret after the words the turn filled it with. The
+  // store writes the draft before it names the turn, which is what puts the
+  // caret after the whole of it rather than after the previous draft.
+  createEffect(() => {
+    if (chatStore.editing() === null || !input) return;
+    const end = input.value.length;
+    input.focus();
+    input.setSelectionRange(end, end);
+  });
+
   function onInput(event: InputEvent & { currentTarget: HTMLTextAreaElement }) {
     const el = event.currentTarget;
     chatStore.setDraft(el.value);

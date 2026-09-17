@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   attachments: [] as unknown[],
   status: "idle",
   editing: null as number | null,
+  /** A reactive read of `editing`, for the case that flips it after mount. */
+  editingRead: null as null | (() => number | null),
   setDraft: vi.fn(),
   detach: vi.fn(),
   attachByPath: vi.fn(),
@@ -31,7 +33,7 @@ vi.mock("../../stores/global/chat", async () => {
       setDraft: mocks.setDraft,
       attachments: () => mocks.attachments,
       status: () => mocks.status,
-      editing: () => mocks.editing,
+      editing: () => (mocks.editingRead ? mocks.editingRead() : mocks.editing),
       detach: mocks.detach,
       attachByPath: mocks.attachByPath,
       addOpenNote: mocks.addOpenNote,
@@ -55,6 +57,7 @@ vi.mock("../../components/Chat/ChatConnectionControl", () => ({
   openConnectionControl: vi.fn(),
 }));
 
+import { createSignal } from "solid-js";
 import ChatComposer from "../../components/Chat/ChatComposer";
 
 function chip(path: string, extra: Record<string, unknown> = {}) {
@@ -89,6 +92,7 @@ beforeEach(() => {
   mocks.attachments = [];
   mocks.status = "idle";
   mocks.editing = null;
+  mocks.editingRead = null;
   mocks.setDraft.mockReset();
   mocks.detach.mockReset();
   mocks.attachByPath.mockReset();
@@ -134,6 +138,24 @@ describe("the composer field", () => {
 
     expect(field(container).style.height).toBe("180px");
     if (held) Object.defineProperty(HTMLElement.prototype, "scrollHeight", held);
+  });
+
+  it("takes focus when an edit begins, with the caret after the turn", () => {
+    // Edit is pressed on a turn, not in the field. Whoever pressed it is
+    // about to type, so the field is where the next key goes and the caret
+    // sits after the words it was filled with.
+    const [editing, setEditing] = createSignal<number | null>(null);
+    mocks.editingRead = editing;
+    mocks.draft = "what the note argues";
+    const { container } = mount();
+    const el = field(container);
+    expect(document.activeElement).not.toBe(el);
+
+    setEditing(1);
+
+    expect(document.activeElement).toBe(el);
+    expect(el.selectionStart).toBe(el.value.length);
+    expect(el.selectionEnd).toBe(el.value.length);
   });
 
   it("cancels an edit, then stops a reply, then closes the pane", () => {
