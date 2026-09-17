@@ -82,6 +82,7 @@
   --writ-motion: var(--writ-motion-duration) var(--writ-ease);
   --writ-z-chrome: 100;
   --writ-z-window-lights: 150;
+  --writ-z-banner: 160;
   --writ-z-popover: 200;
   --writ-z-palette: 300;
   --writ-z-modal: 400;
@@ -91,6 +92,7 @@
   --writ-switch-knob: #FFFFFF;
   --writ-overlay-scrim: rgba(0, 0, 0, 0.5);
   --writ-selection: color-mix(in srgb, var(--writ-accent) 30%, transparent);
+  --writ-selection-match: color-mix(in srgb, var(--writ-accent) 18%, transparent);
   --writ-status-success: #178035;
   --writ-status-warning: #9a6b00;
   --writ-status-error: var(--writ-danger);

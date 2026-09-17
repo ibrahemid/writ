@@ -292,6 +292,26 @@ describe("platform dark layers", () => {
   });
 });
 
+describe("layers and selection", () => {
+  it("seats the banner between the window lights and the popovers", () => {
+    const lights = Number(ROOT_DECLS.get("--writ-z-window-lights"));
+    const popover = Number(ROOT_DECLS.get("--writ-z-popover"));
+    const banner = Number(ROOT_DECLS.get("--writ-z-banner"));
+    expect(banner).toBe(160);
+    expect(banner).toBeGreaterThan(lights);
+    expect(banner).toBeLessThan(popover);
+  });
+
+  it("mixes the match highlight the way the selection is mixed, one step weaker", () => {
+    expect(ROOT_DECLS.get("--writ-selection")).toBe(
+      "color-mix(in srgb, var(--writ-accent) 30%, transparent)",
+    );
+    expect(ROOT_DECLS.get("--writ-selection-match")).toBe(
+      "color-mix(in srgb, var(--writ-accent) 18%, transparent)",
+    );
+  });
+});
+
 describe("platform radii", () => {
   // The general rule is narrowed to the radii that actually move: requiring
   // every --writ-r-* in every layer would mint a GNOME selection-bar radius for
@@ -327,6 +347,8 @@ describe("every emitted token is spent", () => {
       "read as SIDEBAR.minWidth in stores/global/config.ts, not as a custom property",
     "--writ-sidebar-max-width":
       "read as SIDEBAR.maxWidth in stores/global/config.ts, not as a custom property",
+    "--writ-z-banner": "owed to the update banner and the migration report (styles-8)",
+    "--writ-selection-match": "owed to the editor's search-match highlight (editor-20)",
   };
 
   const SEARCH_ROOTS = ["src", "site/src", "src-tauri/src", "crates", "design"];

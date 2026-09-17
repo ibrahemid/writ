@@ -495,6 +495,10 @@
         "$value": 150,
         "$description": "The window's own controls, above the app chrome they overlap and below every overlay."
       },
+      "banner": {
+        "$value": 160,
+        "$description": "A bottom-anchored strip the app raises over its own chrome: the update banner and the migration report."
+      },
       "popover": {
         "$value": 200
       },
@@ -536,6 +540,11 @@
       "$type": "other",
       "$value": "color-mix(in srgb, var(--writ-accent) 30%, transparent)",
       "$description": "Host text selection in chrome surfaces."
+    },
+    "selection-match": {
+      "$type": "other",
+      "$value": "color-mix(in srgb, var(--writ-accent) 18%, transparent)",
+      "$description": "The other occurrences of what is selected. Weaker than --writ-selection so the active one still reads as the active one."
     }
   }
 }
