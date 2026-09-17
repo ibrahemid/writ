@@ -184,6 +184,15 @@ describe("a note with nothing to show", () => {
     expect(container.querySelector(".right-panel-empty")).toBeNull();
   });
 
+  // A note typed into but never saved is open, whatever the index knows.
+  it("treats an unsaved note as a note, not as no note", () => {
+    h.tabs = [{ id: "buf-1", source_path: null }];
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Nothing links to this note yet.",
+    );
+  });
+
   it("says neither once a section has something in it", () => {
     h.facts = {
       links: [],

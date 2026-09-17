@@ -35,6 +35,21 @@ import "./RightPanel.css";
 export default function RightPanel() {
   const win = useWindow();
 
+  /**
+   * The one line the panel shows instead of sections. A note the index knows
+   * nothing about and a note with no file behind it are both open notes with
+   * nothing around them yet; only a window showing no note at all is none.
+   */
+  function PanelEmptyLine() {
+    return (
+      <p class="right-panel-empty">
+        {win.tabs.activeTabId() === null
+          ? "No note open."
+          : "Nothing links to this note yet."}
+      </p>
+    );
+  }
+
 
   // Non-null only while a drag is in flight: the edge follows the pointer
   // without a disk write per frame, and release commits the settled width.
@@ -138,14 +153,11 @@ export default function RightPanel() {
       />
       <div class="right-panel-inner">
         <div class="right-panel-scroll">
-          <Show
-            when={openNote()}
-            fallback={<p class="right-panel-empty">No note open.</p>}
-          >
+          <Show when={openNote()} fallback={<PanelEmptyLine />}>
             {(note) => (
               <>
                 <Show when={isRead() && !hasConnections()}>
-                  <p class="right-panel-empty">Nothing links to this note yet.</p>
+                  <PanelEmptyLine />
                 </Show>
                 <Show when={facts()}>
                   {(read) => <OutlineSection facts={read()} bufferId={note().id} />}
