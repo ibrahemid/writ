@@ -17,6 +17,7 @@ vi.mock("../../components/SettingsModal/SettingsModal", () => ({
 
 import SpellingChip from "../../components/Editor/SpellingChip";
 import ContextMenu, { hideContextMenu } from "../../components/ContextMenu/ContextMenu";
+import SpellingPreview, { closeSpellingPreview } from "../../components/Editor/SpellingPreview";
 import { spellingStore } from "../../stores/global/spelling";
 import { configStore } from "../../stores/global/config";
 
@@ -33,6 +34,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   hideContextMenu();
+  closeSpellingPreview();
   cleanup();
 });
 
@@ -141,6 +143,35 @@ describe("SpellingChip menu-driven toggle", () => {
     expect(getByText("Turn off spelling")).not.toBeNull();
     expect(getByText("Fix all (2)")).not.toBeNull();
     expect(queryByText("Review fixes…")).not.toBeNull();
+  });
+
+  // The way a user actually opens the panel. The menu used to run the row and
+  // then restore the focus to the chip, which left an aria-modal dialog with
+  // the ring behind it and no keyboard way out.
+  it("hands the focus to the spelling panel, which Escape then closes", async () => {
+    spellingStore.setEligible(true);
+    await setEnabled(true);
+    spellingStore.publishCount(2);
+    const { container, getByText } = render(() => (
+      <>
+        <SpellingChip />
+        <ContextMenu />
+        <SpellingPreview />
+      </>
+    ));
+
+    fireEvent.click(container.querySelector(".spelling-chip")!);
+    fireEvent.click(getByText("Review fixes…"));
+
+    const panel = await waitFor(() => {
+      const el = document.querySelector(".spelling-preview");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(panel.contains(document.activeElement)).toBe(true);
+
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    expect(document.querySelector(".spelling-preview")).toBeNull();
   });
 
   // Reported: "spelling settings does not open from status bar when clicked".

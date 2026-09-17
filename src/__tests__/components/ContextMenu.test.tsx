@@ -100,6 +100,65 @@ describe("ContextMenu separator items stay clickable", () => {
     expect(container.querySelector(".context-menu")).toBeNull();
   });
 
+  // The menu goes before the row it ran: a row that opens a layer of its own
+  // takes the focus, and a restore that happens afterwards steals it back and
+  // leaves the new layer with no keyboard exit.
+  it("hands the focus to a row that opens a layer, by click", () => {
+    const opened = document.createElement("button");
+    document.body.appendChild(opened);
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    const { getByText } = render(() => <ContextMenu />);
+    showAnchoredMenu(
+      trigger.getBoundingClientRect(),
+      [{ label: "Review fixes…", action: () => opened.focus() }],
+      trigger,
+    );
+    fireEvent.click(getByText("Review fixes…"));
+
+    expect(document.activeElement).toBe(opened);
+    opened.remove();
+    trigger.remove();
+  });
+
+  it("hands the focus to a row that opens a layer, by keyboard", () => {
+    const opened = document.createElement("button");
+    document.body.appendChild(opened);
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    render(() => <ContextMenu />);
+    showAnchoredMenu(
+      trigger.getBoundingClientRect(),
+      [{ label: "Review fixes…", action: () => opened.focus() }],
+      trigger,
+    );
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Enter" });
+
+    expect(document.activeElement).toBe(opened);
+    opened.remove();
+    trigger.remove();
+  });
+
+  it("still hands the focus back when the row opens nothing", () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+
+    const { getByText } = render(() => <ContextMenu />);
+    showAnchoredMenu(
+      trigger.getBoundingClientRect(),
+      [{ label: "Turn off spelling", action: () => {} }],
+      trigger,
+    );
+    fireEvent.click(getByText("Turn off spelling"));
+
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+
   it("still draws the divider and still skips disabled items", () => {
     const action = vi.fn();
     const { container, getByText } = render(() => <ContextMenu />);
