@@ -181,4 +181,35 @@ describe("PreviewLayoutToggle", () => {
     fireEvent.keyDown(group, { key: "ArrowLeft" });
     await waitFor(() => expect(win.layout.get("T1").kind).toBe("preview"));
   });
+
+  // WCAG 2.5.3: "click Split" has to reach the segment that reads Split, so the
+  // accessible name has to carry the visible one.
+  it("names each segment by the word on it", async () => {
+    const { container } = await mountWithActive(HTML_BUFFER);
+    await waitFor(() => expect(container.querySelector(".layout-toggle")).not.toBeNull());
+
+    for (const seg of container.querySelectorAll('[role="radio"]')) {
+      expect(seg.getAttribute("aria-label")).toContain(seg.textContent);
+    }
+  });
+
+  // A radiogroup moves focus with the selection; leaving the ring on a segment
+  // that is now unchecked and untabbable strands the keyboard.
+  it("moves focus onto the segment the arrow key selects", async () => {
+    const { container } = await mountWithActive(HTML_BUFFER);
+    await waitFor(() => expect(container.querySelector(".layout-toggle")).not.toBeNull());
+
+    const win = windowRegistry.getActive()!;
+    win.layout.setLocal("T1", { kind: "source" });
+    const group = container.querySelector('[role="radiogroup"]')!;
+    const segs = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+    segs[0].focus();
+
+    fireEvent.keyDown(group, { key: "ArrowRight" });
+    await waitFor(() => expect(win.layout.get("T1").kind).toBe("split"));
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-checked")).toBe("true"),
+    );
+    expect(document.activeElement).toBe(segs[1]);
+  });
 });
