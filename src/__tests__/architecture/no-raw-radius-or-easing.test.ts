@@ -82,6 +82,18 @@ describe("no raw radius or easing outside the allowlist", () => {
     expect(offenders, `raw durations found:\n${offenders.join("\n")}`).toEqual([]);
   });
 
+  it("still needs the one directory it skips", () => {
+    // The exemption has to expire by itself: once the AI pane carries no
+    // literal, this fails and the skip goes with the fix that emptied it.
+    const literals = componentSheets(DURATION_SKIP).flatMap(
+      (file) => withoutComments(readFileSync(file, "utf8")).match(RAW_DURATION) ?? [],
+    );
+    expect(
+      literals.length,
+      `${relative(REPO_ROOT, DURATION_SKIP)} has no raw duration left: delete DURATION_SKIP`,
+    ).toBeGreaterThan(0);
+  });
+
   it("border-radius resolves through a --writ-r-* token", () => {
     const offenders = offendersFor(RAW_RADIUS);
     expect(offenders, `raw radii found:\n${offenders.join("\n")}`).toEqual([]);
