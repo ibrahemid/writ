@@ -233,6 +233,26 @@ describe("what the drawing tells a reader", () => {
     expect(getByRole("img").getAttribute("aria-label")).toBe("Alpha and 2 notes it links with");
   });
 
+  // A focusable widget that opens a note on Enter is not a graphic: a reader
+  // told "image" is offered nothing to do with it.
+  it("is a widget, not a graphic, once it can be operated", () => {
+    const { container } = render(() => (
+      <GraphCanvas nodes={NODES} edges={EDGES} focusPath="Alpha.md" onOpen={() => {}} focusable />
+    ));
+    const canvas = container.querySelector("canvas")!;
+    expect(canvas.getAttribute("tabindex")).toBe("0");
+    expect(canvas.getAttribute("role")).toBe("application");
+    expect(canvas.getAttribute("aria-roledescription")).toBe("graph");
+    expect(canvas.getAttribute("aria-label")).toBe("Alpha and 2 notes it links with");
+  });
+
+  it("stays a graphic where it is only drawn", () => {
+    const { container } = mount();
+    const canvas = container.querySelector("canvas")!;
+    expect(canvas.getAttribute("tabindex")).toBeNull();
+    expect(canvas.getAttribute("role")).toBe("img");
+  });
+
   it("says one note, not one notes", () => {
     const { getByRole } = render(() => (
       <GraphCanvas
