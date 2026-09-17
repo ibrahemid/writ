@@ -1,4 +1,4 @@
-import { createSignal, Show, For, createMemo, onCleanup } from "solid-js";
+import { createSignal, Show, For, createEffect, createMemo, onCleanup } from "solid-js";
 import { spellingStore, entryKey } from "../../stores/global/spelling";
 import type { SpellingEntry } from "../../editor/spelling";
 import "./SpellingPreview.css";
@@ -32,6 +32,9 @@ function isFixable(entry: SpellingEntry): boolean {
 
 export default function SpellingPreview() {
   let panelRef: HTMLDivElement | undefined;
+  let applyRef: HTMLButtonElement | undefined;
+  let closeRef: HTMLButtonElement | undefined;
+  let restoreFocusTo: HTMLElement | null = null;
 
   const fixableRows = createMemo(() => rows().filter(isFixable));
   const allChecked = createMemo(() => {
@@ -74,6 +77,31 @@ export default function SpellingPreview() {
     }
   }
 
+  // The chip's menu item runs without leaving the focus anywhere, so the panel
+  // takes it on open and hands it back on close. The document listener is the
+  // other half of that: an Escape pressed while nothing holds the focus never
+  // reaches the panel's own handler, which stops the ones that do.
+  createEffect(() => {
+    if (!isOpen()) return;
+    restoreFocusTo = document.activeElement as HTMLElement | null;
+    const first = applyRef && !applyRef.disabled ? applyRef : closeRef;
+    first?.focus();
+
+    function onDocumentKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeSpellingPreview();
+    }
+    document.addEventListener("keydown", onDocumentKeyDown);
+
+    onCleanup(() => {
+      document.removeEventListener("keydown", onDocumentKeyDown);
+      const target = restoreFocusTo;
+      restoreFocusTo = null;
+      if (target?.isConnected) target.focus();
+    });
+  });
+
   onCleanup(() => closeSpellingPreview());
 
   return (
@@ -82,6 +110,7 @@ export default function SpellingPreview() {
         ref={panelRef}
         class="spelling-preview"
         role="dialog"
+        aria-modal="true"
         aria-label="Spelling preview"
         onKeyDown={onKeyDown}
       >
@@ -98,6 +127,7 @@ export default function SpellingPreview() {
           <div class="spelling-preview-actions">
             <button
               type="button"
+              ref={applyRef}
               class="spelling-preview-btn spelling-preview-apply"
               disabled={selected().size === 0}
               onClick={apply}
@@ -106,6 +136,7 @@ export default function SpellingPreview() {
             </button>
             <button
               type="button"
+              ref={closeRef}
               class="spelling-preview-btn"
               onClick={closeSpellingPreview}
               aria-label="Close spelling preview"
