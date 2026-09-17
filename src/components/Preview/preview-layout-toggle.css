@@ -18,7 +18,7 @@
   border: none;
   border-radius: var(--writ-r-action);
   background: transparent;
-  color: var(--writ-fg-faint);
+  color: var(--writ-fg-muted);
   font-family: var(--writ-font-ui);
   font-size: var(--writ-ui-xs);
   line-height: 1.4;
@@ -87,7 +87,7 @@
 }
 
 .scripts-toggle.is-off {
-  color: var(--writ-fg-faint);
+  color: var(--writ-fg-muted);
 }
 
 .scripts-toggle.is-off .scripts-toggle-dot {

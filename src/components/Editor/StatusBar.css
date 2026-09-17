@@ -132,7 +132,7 @@
 
 .statusbar-tokens {
   white-space: nowrap;
-  color: var(--writ-fg-faint);
+  color: var(--writ-fg-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -172,7 +172,7 @@
 
 .statusbar-field {
   white-space: nowrap;
-  color: var(--writ-fg-faint);
+  color: var(--writ-fg-muted);
 }
 
 .statusbar-field--cursor,
