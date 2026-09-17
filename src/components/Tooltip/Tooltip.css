@@ -18,6 +18,6 @@
   z-index: var(--writ-z-popover);
 }
 
-:root[data-scheme="dark"] .writ-tooltip {
+:root[data-theme="dark"] .writ-tooltip {
   background: var(--writ-bg-raised);
 }

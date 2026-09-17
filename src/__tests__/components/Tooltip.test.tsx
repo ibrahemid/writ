@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import Tooltip from "../../components/Tooltip/Tooltip";
+import { themeStore } from "../../stores/global/theme";
 
 const HOVER_DELAY_MS = 500;
 
@@ -202,5 +205,35 @@ describe("Tooltip", () => {
     unmount();
 
     expect(remove).toHaveBeenCalledWith("keydown", expect.any(Function), true);
+  });
+});
+
+describe("Tooltip dark surface", () => {
+  const TOOLTIP_CSS = readFileSync(
+    resolve(process.cwd(), "src/components/Tooltip/Tooltip.css"),
+    "utf8",
+  );
+
+  afterEach(() => {
+    themeStore.setAppearance({
+      polarity: "light",
+      accent: "pine",
+      prose_face: "system",
+      interface_text_size: null,
+    });
+  });
+
+  it("selects the dark tip through the attribute the theme store writes", () => {
+    const selector = /(:root\[[a-z-]+="dark"\])\s+\.writ-tooltip\b/.exec(TOOLTIP_CSS)?.[1];
+    expect(selector, "Tooltip.css declares no dark rule").toBeDefined();
+
+    themeStore.setAppearance({
+      polarity: "dark",
+      accent: "pine",
+      prose_face: "system",
+      interface_text_size: null,
+    });
+
+    expect(document.documentElement.matches(selector as string)).toBe(true);
   });
 });
