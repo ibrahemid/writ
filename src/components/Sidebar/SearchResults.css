@@ -44,11 +44,6 @@
   font-weight: 500;
 }
 
-.search-result:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -2px;
-}
-
 .search-result-file {
   grid-area: file;
   font-size: var(--writ-ui-sm);

@@ -266,9 +266,7 @@ describe("the tag row on the design baseline", () => {
     expect(TAGS_CSS).toMatch(
       /\.tags-row\.is-selected \.tags-row-hash\s*\{\s*color:\s*var\(--writ-accent\)/,
     );
-    expect(TAGS_CSS).toMatch(
-      /\.tags-row:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--writ-accent\)[^}]*outline-offset:\s*-2px/,
-    );
+    expect(TAGS_CSS).not.toMatch(/\.tags-row:focus-visible/);
     const rowRule = /\.tags-row\s*\{[^}]*\}/.exec(TAGS_CSS)![0];
     expect(rowRule).not.toContain("--writ-accent");
   });

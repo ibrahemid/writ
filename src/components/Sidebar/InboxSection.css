@@ -30,11 +30,6 @@
   background: var(--writ-bg-hover);
 }
 
-.inbox-item:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -1px;
-}
-
 .inbox-item-name {
   flex: 1;
   min-width: 0;

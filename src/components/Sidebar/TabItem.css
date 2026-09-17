@@ -100,11 +100,6 @@
   opacity: 1;
 }
 
-.tab-item-action:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: 1px;
-}
-
 .tab-item-action:hover {
   color: var(--writ-fg);
   background: var(--writ-bg-hover);

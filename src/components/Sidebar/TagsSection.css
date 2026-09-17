@@ -13,7 +13,6 @@
   white-space: nowrap;
   overflow: hidden;
   user-select: none;
-  outline: none;
   transition: background var(--writ-motion);
 }
 
@@ -24,11 +23,6 @@
 .tags-row.is-selected {
   background: var(--writ-bg-selected);
   font-weight: 500;
-}
-
-.tags-row:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -2px;
 }
 
 .tags-row-caret {

@@ -61,11 +61,6 @@
   background: var(--writ-border);
 }
 
-.sidebar-resizer:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -2px;
-}
-
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;
@@ -175,11 +170,6 @@
   color: var(--writ-fg);
 }
 
-.sidebar-section-toggle:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -2px;
-}
-
 .sidebar-section-caret {
   display: inline-flex;
   flex: none;
@@ -223,11 +213,6 @@
 .sidebar-section-action:hover {
   background: var(--writ-bg-hover);
   color: var(--writ-fg);
-}
-
-.sidebar-section-action:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: -1px;
 }
 
 .tab-list {

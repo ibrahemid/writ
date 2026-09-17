@@ -132,7 +132,6 @@
   background: transparent;
   color: var(--writ-fg);
   font: inherit;
-  outline: none;
 }
 
 .tab-download-marker {

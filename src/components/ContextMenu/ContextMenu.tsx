@@ -287,6 +287,7 @@ export default function ContextMenu() {
                   type="button"
                   role="menuitem"
                   tabindex={-1}
+                  data-writ-focus-silent
                   disabled={item.disabled}
                   class={`context-menu-item ${item.danger ? "context-menu-danger" : ""}`}
                   onClick={() => activate(index())}
