@@ -117,7 +117,6 @@ export default function SpellingPreview() {
         ref={panelRef}
         class="spelling-preview"
         role="dialog"
-        aria-modal="true"
         aria-label="Spelling preview"
         onKeyDown={onKeyDown}
       >

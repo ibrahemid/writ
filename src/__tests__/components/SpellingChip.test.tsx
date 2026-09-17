@@ -167,8 +167,8 @@ describe("SpellingChip menu-driven toggle", () => {
   });
 
   // The way a user actually opens the panel. The menu used to run the row and
-  // then restore the focus to the chip, which left an aria-modal dialog with
-  // the ring behind it and no keyboard way out.
+  // then restore the focus to the chip, which left the panel with the ring
+  // behind it and no keyboard way out.
   it("hands the focus to the spelling panel, which Escape then closes", async () => {
     spellingStore.setEligible(true);
     await setEnabled(true);

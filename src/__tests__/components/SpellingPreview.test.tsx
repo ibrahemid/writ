@@ -79,12 +79,17 @@ describe("SpellingPreview focus", () => {
     opener.remove();
   });
 
-  it("declares itself modal", async () => {
+  // A dialog, but not a modal one: the note under it stays clickable, and a row
+  // in the panel reveals the word it names in that note. Telling a screen
+  // reader the rest of the app is hidden would be a claim the panel does not
+  // keep.
+  it("is a dialog that never claims the app behind it is hidden", async () => {
     render(() => <SpellingPreview />);
     openSpellingPreview();
     await screen.findByText("Apply");
-    expect(
-      document.querySelector(".spelling-preview")?.getAttribute("aria-modal"),
-    ).toBe("true");
+    const panel = document.querySelector(".spelling-preview")!;
+    expect(panel.getAttribute("role")).toBe("dialog");
+    expect(panel.hasAttribute("aria-modal")).toBe(false);
+    expect(panel.getAttribute("aria-label")).toBe("Spelling preview");
   });
 });
