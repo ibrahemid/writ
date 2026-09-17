@@ -785,8 +785,13 @@ pub fn note_file_in(notes_root: &Path, path: &str) -> Result<PathBuf, String> {
         return Err(outside_notes(path));
     }
     let file = PathBuf::from(resolved);
+    // The sentence goes under a chip or a card that already names the note,
+    // so it says what is wrong and not, a second time, which note.
+    if !file.exists() {
+        return Err("This note is no longer there.".to_string());
+    }
     if !file.is_file() {
-        return Err(format!("{} is not a note.", file_name_only(path)));
+        return Err("This is not a note.".to_string());
     }
     Ok(file)
 }
@@ -1887,6 +1892,20 @@ mod tests {
                 Path::new(r"C:\notes\Ideas\Launch.md")
             ),
             Ok("Ideas/Launch.md".to_string())
+        );
+    }
+
+    #[test]
+    fn a_note_that_vanished_and_a_folder_are_refused_in_their_own_words() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        std::fs::create_dir(dir.path().join("Archive")).expect("folder");
+        assert_eq!(
+            note_file_in(dir.path(), "Launch.md"),
+            Err("This note is no longer there.".to_string())
+        );
+        assert_eq!(
+            note_file_in(dir.path(), "Archive"),
+            Err("This is not a note.".to_string())
         );
     }
 

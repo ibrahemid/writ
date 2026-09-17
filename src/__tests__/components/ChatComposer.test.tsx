@@ -216,11 +216,15 @@ describe("the chip row", () => {
 
   it("blocks Send while a chip cannot be read", () => {
     mocks.draft = "hello";
-    mocks.attachments = [chip("Gone.md", { state: "unreadable", reason: "The file is missing." })];
+    mocks.attachments = [
+      chip("Archive/Gone.md", { state: "unreadable", reason: "This note is no longer there." }),
+    ];
     const { container, getByRole } = mount();
     expect(container.querySelector(".chat-chip.is-unreadable")).toBeTruthy();
     expect(getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
-    expect(container.textContent).toContain("The file is missing.");
+    // The line names the note by its whole key, since a bare name can belong
+    // to a note in another folder, and the reason says only what is wrong.
+    expect(container.textContent).toContain("Archive/Gone.md: This note is no longer there.");
   });
 });
 
@@ -252,6 +256,17 @@ describe("the mention list", () => {
 
     const rows = Array.from(container.querySelectorAll(".chat-mention-row"));
     expect(rows.every((row) => row.getAttribute("tabindex") === "-1")).toBe(true);
+  });
+
+  it("names the folder of a note that shares its name with another", async () => {
+    const { container } = await openList([
+      { path: "Launch.md", name: "Launch.md" },
+      { path: "Archive/Launch.md", name: "Launch.md" },
+    ]);
+
+    const rows = Array.from(container.querySelectorAll(".chat-mention-row"));
+    expect(rows[0].querySelector(".chat-mention-folder")).toBeNull();
+    expect(rows[1].querySelector(".chat-mention-folder")?.textContent).toBe("Archive");
   });
 
   it("keeps the active row in view", async () => {

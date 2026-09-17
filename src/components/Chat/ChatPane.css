@@ -763,6 +763,15 @@
   white-space: nowrap;
 }
 
+.chat-mention-folder {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--writ-fg-faint);
+}
+
 .chat-composer-actions {
   display: flex;
   align-items: center;

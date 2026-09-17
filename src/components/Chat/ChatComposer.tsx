@@ -249,7 +249,7 @@ export default function ChatComposer(props: {
       <For each={unreadable()}>
         {(note) => (
           <p class="chat-composer-note" role="status">
-            {noteName(note.path)}: {note.reason ?? "This note could not be read."}
+            {chipLabel(note)}: {note.reason ?? "This note could not be read."}
           </p>
         )}
       </For>
