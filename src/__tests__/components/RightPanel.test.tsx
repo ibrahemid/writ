@@ -27,6 +27,8 @@ const h = vi.hoisted(() => ({
     source_path: string | null;
   }[],
   backlinks: [] as unknown[],
+  factsSettled: true,
+  backlinksSettled: true,
   graph: { nodes: [], edges: [] } as {
     nodes: { path: string; name: string; folder: string }[];
     edges: { from_path: string; to_path: string; count: number }[];
@@ -72,7 +74,11 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 }));
 
 vi.mock("../../stores/global/backlinks", () => ({
-  backlinksStore: { backlinksFor: () => () => h.backlinks, release: vi.fn() },
+  backlinksStore: {
+    backlinksFor: () => () => h.backlinks,
+    settledFor: () => () => h.backlinksSettled,
+    release: vi.fn(),
+  },
 }));
 
 vi.mock("../../stores/global/link", () => ({
@@ -93,6 +99,7 @@ vi.mock("../../components/Graph/GraphCanvas", () => ({
 vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
     factsFor: () => () => h.facts,
+    settledFor: () => () => h.factsSettled,
     graph: () => {
       h.graphHolds += 1;
       return () => h.graph;
@@ -129,6 +136,8 @@ beforeEach(() => {
   h.graphReleases = 0;
   h.tabs = [{ id: "buf-1", source_path: "/notes/Open.md" }];
   h.backlinks = [];
+  h.factsSettled = true;
+  h.backlinksSettled = true;
   h.graph = { nodes: [], edges: [] };
   h.facts = { links: [], properties: [], tags: [], headings: [] };
   h.toggleSection.mockClear();
@@ -159,6 +168,20 @@ describe("a note with nothing to show", () => {
     const { container } = mount();
     expect(headings(container)).toEqual([]);
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe("No note open.");
+  });
+
+  // Both reads start empty and fill asynchronously, so a line about what the
+  // note holds is a falsehood until they land.
+  it("says nothing at all while the reads are still in flight", () => {
+    h.factsSettled = false;
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")).toBeNull();
+  });
+
+  it("waits for the backlinks read too, not the facts alone", () => {
+    h.backlinksSettled = false;
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")).toBeNull();
   });
 
   it("says neither once a section has something in it", () => {

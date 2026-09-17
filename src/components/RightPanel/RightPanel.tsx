@@ -35,6 +35,7 @@ import "./RightPanel.css";
 export default function RightPanel() {
   const win = useWindow();
 
+
   // Non-null only while a drag is in flight: the edge follows the pointer
   // without a disk write per frame, and release commits the settled width.
   const [dragWidth, setDragWidth] = createSignal<number | null>(null);
@@ -66,6 +67,15 @@ export default function RightPanel() {
   const facts = createMemo(() => {
     const path = openPath();
     return path === null ? null : noteFactsStore.factsFor(path);
+  });
+
+  // Whether both reads behind the sections have landed. Each starts at an
+  // empty value, so a line about what the note holds is a falsehood until
+  // they do, and saying nothing is the honest answer meanwhile.
+  const isRead = createMemo(() => {
+    const note = openNote();
+    if (note === null) return false;
+    return noteFactsStore.settledFor(note.path)() && backlinksStore.settledFor(note.path)();
   });
 
   // Whether any section has something to draw. The drawing is not asked about:
@@ -134,7 +144,7 @@ export default function RightPanel() {
           >
             {(note) => (
               <>
-                <Show when={!hasConnections()}>
+                <Show when={isRead() && !hasConnections()}>
                   <p class="right-panel-empty">Nothing links to this note yet.</p>
                 </Show>
                 <Show when={facts()}>

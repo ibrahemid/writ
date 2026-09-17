@@ -55,6 +55,13 @@ interface Cache<T> {
   generation: number;
   /** Whether something is showing this. A released note stops refreshing. */
   held: boolean;
+  /**
+   * Whether a read of this has landed. An empty value and an unread one are
+   * the same value, so a surface that says "there is nothing here" has to ask
+   * this first.
+   */
+  settled: Accessor<boolean>;
+  setSettled: (settled: boolean) => void;
   /** The read in flight, so two callers wait on one call rather than two. */
   inFlight: Promise<void> | null;
 }
@@ -62,11 +69,14 @@ interface Cache<T> {
 function createCache<T>(empty: T): Cache<T> {
   const [value, setValue] = createSignal<T>(empty);
   const [error, setError] = createSignal<string | null>(null);
+  const [settled, setSettled] = createSignal(false);
   return {
     value,
     setValue: (next: T) => setValue(() => next),
     error,
     setError,
+    settled,
+    setSettled,
     generation: 0,
     held: false,
     inFlight: null,
@@ -126,9 +136,13 @@ function createNoteFactsStore() {
         if (ticket !== cache.generation) return;
         cache.setValue(value);
         cache.setError(null);
+        cache.setSettled(true);
       } catch {
         if (ticket !== cache.generation) return;
         cache.setError(READ_FAILED_MESSAGE);
+        // A read that failed has landed: the surface has its answer, poor as
+        // it is, and must stop waiting for a better one.
+        cache.setSettled(true);
       } finally {
         // Only the newest read clears the slot: an invalidation that started a
         // later one must not have its read cancelled by an older one landing.
@@ -167,6 +181,16 @@ function createNoteFactsStore() {
   /** Why the last read of `path` failed, or `null` when it did not. */
   function errorFor(path: string): Accessor<string | null> {
     return factsCache(path).error;
+  }
+
+  /**
+   * Whether a read of `path` has landed, so a caller can tell a note with
+   * nothing in it from one nothing has been read for yet. A change on disk
+   * re-reads without unsettling: the facts on screen stay true until the new
+   * ones land.
+   */
+  function settledFor(path: string): Accessor<boolean> {
+    return factsCache(path).settled;
   }
 
   /** Every tag in the folder, most-used first. No tags reads as `[]`. */
@@ -240,6 +264,7 @@ function createNoteFactsStore() {
     graph.inFlight = null;
     graph.setValue(NO_GRAPH);
     graph.setError(null);
+    graph.setSettled(false);
   }
 
   /** Why the last read of the graph failed, or `null`. */
@@ -276,6 +301,7 @@ function createNoteFactsStore() {
     cache.inFlight = null;
     cache.setValue(noRows<string>());
     cache.setError(null);
+    cache.setSettled(false);
   }
 
   /**
@@ -291,6 +317,7 @@ function createNoteFactsStore() {
     cache.inFlight = null;
     cache.setValue(NO_FACTS);
     cache.setError(null);
+    cache.setSettled(false);
   }
 
   /** Drops the caches and the listener. */
@@ -303,6 +330,7 @@ function createNoteFactsStore() {
       cache.generation += 1;
       cache.inFlight = null;
       cache.setError(null);
+      cache.setSettled(false);
     }
     tags.setValue(noRows<TagCount>());
     graph.setValue(NO_GRAPH);
@@ -314,6 +342,7 @@ function createNoteFactsStore() {
   return {
     factsFor,
     errorFor,
+    settledFor,
     allTags,
     tagsError,
     pathsForTag,

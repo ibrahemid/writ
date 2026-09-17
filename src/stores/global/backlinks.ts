@@ -21,6 +21,12 @@ interface Entry {
   generation: number;
   /** Whether something is showing this list. A released note stops refreshing. */
   held: boolean;
+  /**
+   * Whether a read of this list has landed. A note nothing links to and a note
+   * nothing has been read for both read as `[]`.
+   */
+  settled: Accessor<boolean>;
+  setSettled: (settled: boolean) => void;
 }
 
 function createBacklinksStore() {
@@ -32,7 +38,17 @@ function createBacklinksStore() {
     if (held) return held;
     const [rows, setRows] = createSignal<Backlink[]>([]);
     const [error, setError] = createSignal<string | null>(null);
-    const created: Entry = { rows, setRows, error, setError, generation: 0, held: false };
+    const [settled, setSettled] = createSignal(false);
+    const created: Entry = {
+      rows,
+      setRows,
+      error,
+      setError,
+      settled,
+      setSettled,
+      generation: 0,
+      held: false,
+    };
     entries.set(path, created);
     return created;
   }
@@ -74,6 +90,14 @@ function createBacklinksStore() {
   }
 
   /**
+   * Whether a read of `path`'s list has landed, so a caller can tell a note
+   * nothing links to from one nothing has been read for yet.
+   */
+  function settledFor(path: string): Accessor<boolean> {
+    return entry(path).settled;
+  }
+
+  /**
    * Reads the list for `path` again.
    *
    * A failed read leaves the rows where they were: a list that empties itself
@@ -92,9 +116,12 @@ function createBacklinksStore() {
       if (ticket !== found.generation) return;
       found.setRows(rows);
       found.setError(null);
+      found.setSettled(true);
     } catch {
       if (ticket !== found.generation) return;
       found.setError(READ_FAILED_MESSAGE);
+      // A read that failed has landed: the surface stops waiting for better.
+      found.setSettled(true);
     }
   }
 
@@ -122,6 +149,7 @@ function createBacklinksStore() {
     found.generation += 1;
     found.setRows([]);
     found.setError(null);
+    found.setSettled(false);
   }
 
   /** Drops the cache and the listener. */
@@ -132,7 +160,7 @@ function createBacklinksStore() {
     if (held) (await held)();
   }
 
-  return { backlinksFor, errorFor, refresh, refreshAll, release, reset };
+  return { backlinksFor, errorFor, settledFor, refresh, refreshAll, release, reset };
 }
 
 export const backlinksStore = createBacklinksStore();
