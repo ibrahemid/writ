@@ -190,6 +190,7 @@
   --writ-r-modal: 8px;
   --writ-r-card: 8px;
   --writ-r-media: 4px;
+  --writ-r-action: 4px;
   --writ-r-window: 8px;
   --writ-r-tooltip: 4px;
   --writ-icon-size: 16px;
@@ -278,6 +279,7 @@
   --writ-r-modal: 15px;
   --writ-r-card: 12px;
   --writ-r-media: 9px;
+  --writ-r-action: 9px;
   --writ-r-window: 15px;
   --writ-icon-size: 16px;
   --writ-icon-opacity: 1;

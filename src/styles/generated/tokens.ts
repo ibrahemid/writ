@@ -283,7 +283,7 @@ export const RADII: Readonly<Record<PlatformId, RadiusTokens>> = {
     card: "12px",
     media: "9px",
     pill: "999px",
-    action: "4px",
+    action: "9px",
     indicator: "2px",
     window: "15px",
   },

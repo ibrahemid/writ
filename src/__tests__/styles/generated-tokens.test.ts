@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { COLORS, TYPE } from "../../styles/generated/tokens";
+import { COLORS, RADII, TYPE } from "../../styles/generated/tokens";
 
 const ROOT = process.cwd();
 
@@ -289,6 +289,33 @@ describe("platform dark layers", () => {
     expect(dark.get("--writ-shadow-csd")).not.toBe(
       declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"]')).get("--writ-shadow-csd"),
     );
+  });
+});
+
+describe("platform radii", () => {
+  // The general rule is narrowed to the radii that actually move: requiring
+  // every --writ-r-* in every layer would mint a GNOME selection-bar radius for
+  // a selection bar only Windows draws.
+  it("state every radius their platform moves off the base value", () => {
+    for (const platform of ["win", "linux"] as const) {
+      const declared = declarationsIn(blockBody(THEME_CSS, `:root[data-platform="${platform}"]`));
+      const moved = Object.entries(RADII[platform])
+        .filter(([key, value]) => value !== RADII.mac[key as keyof typeof RADII.mac])
+        .map(([key]) => `--writ-r-${key}`);
+      const missing = moved.filter((name) => !declared.has(name));
+      expect(missing, `${platform} does not declare: ${missing.join(", ")}`).toEqual([]);
+    }
+  });
+
+  it("state the action radius, which a section header spends on every shell", () => {
+    for (const [platform, radius] of [
+      ["win", "4px"],
+      ["linux", "9px"],
+    ] as const) {
+      const declared = declarationsIn(blockBody(THEME_CSS, `:root[data-platform="${platform}"]`));
+      expect(declared.get("--writ-r-action"), platform).toBe(radius);
+      expect(RADII[platform].action, platform).toBe(radius);
+    }
   });
 });
 

@@ -276,7 +276,7 @@
         }
       },
       "action": {
-        "$description": "The 18px icon button in a section header (baseline .sb-add), 4px on every platform.",
+        "$description": "The 18px icon button in a section header (baseline .sb-add). Each platform layer states its own; GNOME takes the control radius.",
         "$value": {
           "value": 4,
           "unit": "px"

@@ -197,6 +197,12 @@
               "unit": "px"
             }
           },
+          "action": {
+            "$value": {
+              "value": 4,
+              "unit": "px"
+            }
+          },
           "window": {
             "$value": {
               "value": 8,
