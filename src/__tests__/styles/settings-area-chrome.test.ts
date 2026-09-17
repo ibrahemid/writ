@@ -91,6 +91,27 @@ describe("the two app-level banners share one layer", () => {
   });
 });
 
+describe("the download bar under reduced motion", () => {
+  const css = readFileSync(
+    resolve(process.cwd(), "src/components/UpdateBanner/UpdateBanner.css"),
+    "utf8",
+  );
+
+  it("reads as unknown rather than as a transfer stuck at 40%", () => {
+    // The 40% belongs to the sliding animation. Outside the motion query the
+    // track fills, so a reduced-motion reader sees an unknown size, not a
+    // stall.
+    const resting = css.match(
+      /^\.update-banner-track\.indeterminate \.update-banner-fill\s*\{([^}]*)\}/m,
+    );
+    expect(resting, "the resting fill is declared").toBeTruthy();
+    expect(resting![1]).toMatch(/width:\s*100%/);
+
+    const motion = css.slice(css.indexOf("@media (prefers-reduced-motion: no-preference)"));
+    expect(motion).toMatch(/width:\s*40%/);
+  });
+});
+
 describe("the area's buttons are the app's button", () => {
   it("leaves no bespoke button in the two banners", () => {
     for (const rel of [
