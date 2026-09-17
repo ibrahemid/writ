@@ -68,7 +68,18 @@ describe("SpellingChip visibility and states", () => {
     spellingStore.publishCount(3);
     const { container } = render(() => <SpellingChip />);
     const chip = container.querySelector(".spelling-chip")!;
-    await waitFor(() => expect(chip.textContent).toBe("3 spelling"));
+    await waitFor(() => expect(chip.textContent).toBe("3 misspelled"));
+  });
+
+  it("reads as English at one and at three", async () => {
+    spellingStore.setEligible(true);
+    await setEnabled(true);
+    spellingStore.publishCount(1);
+    const { container } = render(() => <SpellingChip />);
+    const chip = container.querySelector(".spelling-chip")!;
+    await waitFor(() => expect(chip.textContent).toBe("1 misspelled"));
+    spellingStore.publishCount(3);
+    await waitFor(() => expect(chip.textContent).toBe("3 misspelled"));
   });
 });
 
@@ -104,7 +115,7 @@ describe("SpellingChip menu-driven toggle", () => {
     fireEvent.click(container.querySelector(".spelling-chip")!);
     expect(getByText("Turn off spelling")).not.toBeNull();
     expect(getByText("Fix all (2)")).not.toBeNull();
-    expect(queryByText("Preview…")).not.toBeNull();
+    expect(queryByText("Review fixes…")).not.toBeNull();
   });
 
   // Reported: "spelling settings does not open from status bar when clicked".
@@ -153,6 +164,6 @@ describe("SpellingChip menu-driven toggle", () => {
     fireEvent.click(container.querySelector(".spelling-chip")!);
     expect(getByText("Turn off spelling")).not.toBeNull();
     expect(queryByText(/^Fix all/)).toBeNull();
-    expect(queryByText("Preview…")).toBeNull();
+    expect(queryByText("Review fixes…")).toBeNull();
   });
 });

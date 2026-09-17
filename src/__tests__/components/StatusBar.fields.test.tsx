@@ -62,4 +62,18 @@ describe("StatusBar document fields", () => {
     setCursorCol(7);
     expect(container.querySelector(".statusbar-right")!.textContent).toContain("Ln 99, Col 7");
   });
+
+  // The bar's own vocabulary: sentence case, and no em dash, which UI copy
+  // never carries.
+  it("writes every label in sentence case", () => {
+    const { container } = render(() => <StatusBar />);
+    const labels = [...container.querySelectorAll(".statusbar-label")].map(
+      (el) => el.textContent ?? "",
+    );
+    expect(labels.length).toBeGreaterThan(0);
+    for (const label of labels) {
+      expect(label[0], label).toBe(label[0].toUpperCase());
+      expect(label, label).not.toContain("—");
+    }
+  });
 });

@@ -26,7 +26,7 @@ export default function SpellingChip() {
   const label = createMemo(() => {
     if (!enabled()) return "Spelling off";
     const n = count();
-    return n > 0 ? `${n} spelling` : "Spelling";
+    return n > 0 ? `${n} misspelled` : "Spelling";
   });
 
   function setEnabled(next: boolean) {
@@ -49,7 +49,7 @@ export default function SpellingChip() {
     const items: MenuEntry[] = [{ label: "Turn off spelling", action: () => setEnabled(false) }];
     if (count() > 0) {
       items.push({ label: `Fix all (${count()})`, action: () => spellingStore.fixAll() });
-      items.push({ label: "Preview…", action: () => openSpellingPreview() });
+      items.push({ label: "Review fixes…", action: () => openSpellingPreview() });
     }
     items.push(settings);
     return items;

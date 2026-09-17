@@ -139,7 +139,7 @@ export default function StatusBar() {
         <PreviewLayoutToggle />
         <PreviewScriptsToggle />
         <Kbd binding={paletteBinding()} />
-        <span class="statusbar-label">command palette</span>
+        <span class="statusbar-label">Command palette</span>
       </div>
     </div>
   );
