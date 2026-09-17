@@ -19,6 +19,8 @@ const BUTTON = read("src/components/Button/Button.css");
 const SIDEBAR = read("src/components/Sidebar/Sidebar.css");
 const TITLEBAR = read("src/components/TitleBar/TitleBar.css");
 const CONTEXTMENU = read("src/components/ContextMenu/ContextMenu.css");
+const SEARCHBAR = read("src/components/Sidebar/SearchBar.css");
+const TOOLBAR = read("src/components/Toolbar/Toolbar.css");
 
 /** The declaration body of one rule, matched on its own selector line. */
 function rule(css: string, selector: string): string {
@@ -112,10 +114,12 @@ describe("the sidebar and the chrome menus at the top of the interface text rang
     declares(SIDEBAR, ".sidebar-row", "min-height", /var\(--writ-sidebar-row-fill\)/);
   });
 
-  it("treats the app menu and a menu item as floors too", () => {
+  it("treats the app menu, a menu item and the search field as floors too", () => {
     for (const [css, selector] of [
       [TITLEBAR, ".titlebar-appmenu"],
       [CONTEXTMENU, ".context-menu-item"],
+      [SEARCHBAR, ".search-field"],
+      [TOOLBAR, '.writ-toolbar[data-platform="win"] .search-field'],
     ] as const) {
       isNotFixedHeight(css, selector);
       declares(css, selector, "min-height", /\d+px/);

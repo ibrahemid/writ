@@ -125,7 +125,7 @@
 }
 
 .writ-toolbar[data-platform="win"] .search-field {
-  height: 32px;
+  min-height: 32px;
   gap: var(--writ-space-3);
   border-radius: var(--writ-r-control);
   background: var(--writ-win-input-active);
