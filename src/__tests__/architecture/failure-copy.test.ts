@@ -11,8 +11,7 @@ const REPO_ROOT = process.cwd();
 
 const ROOTS = ["src/commands", "src/stores/global", "src/components"];
 
-// Out of this pass: the chat pane, the AI stores and the AI section of the
-// settings panel ship with the connection work.
+// Out of this pass: the chat pane and the AI stores ship with the connection work.
 const SKIP = [
   "src/components/Chat",
   "src/stores/global/chat.ts",
@@ -20,8 +19,14 @@ const SKIP = [
   "src/stores/global/ai-models.ts",
   "src/stores/global/ai-providers.ts",
   "src/stores/global/ai-rewrite.ts",
-  "src/components/SettingsModal/SettingsModal.tsx",
 ];
+
+// Two strings wait on a decision rather than a rewrite, and the files around
+// them stay covered. The key exchange belongs to the AI connection section. The
+// command label is written by whoever registered the command, in its own
+// casing ("Copy as Prompt", "Rewrite: Polish"), so it cannot be dropped into
+// the middle of a sentence until the labels read as verb phrases.
+const KNOWN: readonly string[] = ["The key exchange failed.", "${cmd.label} failed"];
 
 const FAILED = /failed|Failed to/;
 
@@ -50,7 +55,7 @@ export function failureStrings(source: string): string[] {
   const found: string[] = [];
   for (const sink of SINKS) {
     for (const [, , literal] of source.matchAll(sink)) {
-      if (FAILED.test(literal)) found.push(literal);
+      if (FAILED.test(literal) && !KNOWN.includes(literal)) found.push(literal);
     }
   }
   return found;
