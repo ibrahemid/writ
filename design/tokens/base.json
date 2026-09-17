@@ -474,6 +474,13 @@
           "unit": "ms"
         }
       },
+      "ambient": {
+        "$description": "The looping and lingering tier: a spinner, an indeterminate sweep, a state that fades out on its own. Long enough that the three interaction steps stay short.",
+        "$value": {
+          "value": 700,
+          "unit": "ms"
+        }
+      },
       "shorthand": {
         "$type": "other",
         "$value": "var(--writ-motion-duration) var(--writ-ease)",

@@ -118,7 +118,7 @@
   margin-left: 1px;
   vertical-align: text-bottom;
   background: var(--writ-accent);
-  animation: ai-overlay-caret 1s steps(2, start) infinite;
+  animation: ai-overlay-caret calc(var(--writ-motion-ambient) * 10 / 7) steps(2, start) infinite;
 }
 
 @keyframes ai-overlay-caret {

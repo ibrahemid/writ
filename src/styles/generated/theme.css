@@ -79,6 +79,7 @@
   --writ-motion-fast: 120ms;
   --writ-motion-duration: 150ms;
   --writ-motion-slow: 180ms;
+  --writ-motion-ambient: 700ms;
   --writ-motion: var(--writ-motion-duration) var(--writ-ease);
   --writ-z-base: 0;
   --writ-z-chrome: 100;

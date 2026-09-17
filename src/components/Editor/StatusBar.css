@@ -72,7 +72,8 @@
 }
 
 .statusbar-save.is-saved {
-  animation: statusbar-save-fade 1200ms var(--writ-ease) forwards;
+  animation: statusbar-save-fade calc(var(--writ-motion-ambient) * 12 / 7) var(--writ-ease)
+    forwards;
 }
 
 .statusbar-save.is-failed {

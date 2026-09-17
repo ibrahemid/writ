@@ -17,6 +17,8 @@ const SKIP_DIRS = [
 export const RETOKENISE_ALLOWLIST: readonly string[] = [];
 
 const RAW_RADIUS = /border-radius\s*:[^;}]*\b\d+(?:\.\d+)?px/g;
+const RAW_DURATION =
+  /(?:^|[;{])\s*(?:animation|transition)(?:-duration|-delay)?\s*:[^;}]*?\b\d+(?:\.\d+)?m?s\b/g;
 const BARE_EASING = /(?:^|[\s,:(])(ease|ease-in|ease-out|ease-in-out|linear)(?=[\s,;)]|$)/gm;
 
 function walk(dir: string, files: string[] = []): string[] {
@@ -51,7 +53,35 @@ function offendersFor(pattern: RegExp): string[] {
   return offenders;
 }
 
+// The AI pane is owned elsewhere and is off limits to this sweep; its two
+// literals are recorded with that area rather than fixed here.
+const DURATION_SKIP = resolve(SRC, "components/Chat");
+
+function componentSheets(dir: string, files: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      if (full === DURATION_SKIP) continue;
+      componentSheets(full, files);
+    } else if (entry.endsWith(".css")) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
 describe("no raw radius or easing outside the allowlist", () => {
+  it("durations resolve through var(--writ-motion*)", () => {
+    const offenders: string[] = [];
+    for (const file of componentSheets(resolve(SRC, "components"))) {
+      const matches = withoutComments(readFileSync(file, "utf8")).match(RAW_DURATION);
+      if (matches) {
+        offenders.push(`${relative(REPO_ROOT, file)} -> ${matches.map((m) => m.trim()).join(", ")}`);
+      }
+    }
+    expect(offenders, `raw durations found:\n${offenders.join("\n")}`).toEqual([]);
+  });
+
   it("border-radius resolves through a --writ-r-* token", () => {
     const offenders = offendersFor(RAW_RADIUS);
     expect(offenders, `raw radii found:\n${offenders.join("\n")}`).toEqual([]);

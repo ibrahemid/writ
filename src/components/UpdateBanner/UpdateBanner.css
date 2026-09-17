@@ -130,11 +130,12 @@
   }
 
   .update-banner-spinner {
-    animation: update-banner-spin 700ms var(--writ-ease-linear) infinite;
+    animation: update-banner-spin var(--writ-motion-ambient) var(--writ-ease-linear) infinite;
   }
 
   .update-banner-track.indeterminate .update-banner-fill {
-    animation: update-banner-indeterminate 1100ms var(--writ-ease) infinite;
+    animation: update-banner-indeterminate calc(var(--writ-motion-ambient) * 11 / 7)
+      var(--writ-ease) infinite;
   }
 
   @keyframes update-banner-in {
