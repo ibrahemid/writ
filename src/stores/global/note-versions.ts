@@ -60,8 +60,13 @@ async function select(id: number): Promise<void> {
     const content = await noteVersionContent(id);
     if (token === readToken) setText(content);
   } catch {
-    if (token === readToken) setText("");
-    logFailure("this version could not be read");
+    // Silent unless this is still the read the panel waits for: a failure on a
+    // row the user has already arrowed past names a version that is no longer
+    // on screen, so the line could not say which one it meant.
+    if (token === readToken) {
+      setText("");
+      logFailure("this version could not be read");
+    }
   } finally {
     if (token === readToken) setReading(false);
   }
