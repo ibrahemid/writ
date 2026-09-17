@@ -3,6 +3,7 @@ import { findStore, type FindController } from "../../stores/global/find-store";
 import { useCommand } from "../../commands/registry";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { formatKeybinding } from "../../lib/keybinding-format";
+import Icon from "../Icon/Icon";
 import "./FindOverlay.css";
 
 const MAX_TICK = 200;
@@ -157,7 +158,7 @@ export default function FindOverlay(props: Props) {
               disabled={!hasQuery()}
               onClick={() => find.previous()}
             >
-              <ChevronUp />
+              <Icon name="caret-up" size={12} />
             </button>
             <button
               type="button"
@@ -167,7 +168,7 @@ export default function FindOverlay(props: Props) {
               disabled={!hasQuery()}
               onClick={() => find.next()}
             >
-              <ChevronDown />
+              <Icon name="caret-down" size={12} />
             </button>
           </div>
 
@@ -181,7 +182,7 @@ export default function FindOverlay(props: Props) {
               aria-expanded={find.replaceOpen()}
               onClick={() => find.toggleReplace()}
             >
-              <ChevronRight />
+              <Icon name="caret-right" size={12} />
             </button>
           </Show>
           <button
@@ -191,7 +192,7 @@ export default function FindOverlay(props: Props) {
             aria-label="Close"
             onClick={() => find.close()}
           >
-            <CloseIcon />
+            <Icon name="x" size={14} />
           </button>
         </div>
 
@@ -232,37 +233,5 @@ export default function FindOverlay(props: Props) {
         </Show>
       </div>
     </Show>
-  );
-}
-
-function ChevronUp() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M3 7.5L6 4.5L9 7.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronDown() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronRight() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" />
-    </svg>
   );
 }

@@ -120,6 +120,17 @@ describe("migrated surfaces use the primitives", () => {
     expect(shared).not.toMatch(/--editor-bar-rail:\s*var\(--writ-accent\)/);
   });
 
+  // The find bar is not on the MIGRATED list: its controls name their key in a
+  // title, which is the one thing a migrated surface may not do. Its glyphs
+  // still come from the sprite.
+  it("draws the find bar's glyphs from the sprite", () => {
+    const source = read("src/components/Find/FindOverlay.tsx");
+    expect(source).not.toContain("<svg");
+    for (const name of ["caret-up", "caret-down", "caret-right", "x"]) {
+      expect(source, name).toContain(`<Icon name="${name}"`);
+    }
+  });
+
   it("the sprite is the only place svg markup is authored", () => {
     expect(read("src/components/Icon/Icon.tsx")).toContain("<use href=");
     expect(read("src/components/Sidebar/SearchBar.tsx")).toContain('<Icon name="magnifying-glass"');
