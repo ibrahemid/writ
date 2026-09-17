@@ -84,8 +84,8 @@
 }
 
 .placeholders-input:focus-visible {
-  outline: var(--writ-focus-outline);
-  outline-offset: var(--writ-focus-offset);
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset, 2px);
 }
 
 .placeholders-empty {

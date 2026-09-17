@@ -1467,6 +1467,36 @@ function AppearanceSection() {
     patchAppearance({ interface_text_size: value });
   }
 
+  // One of six, so the arrows move the choice and Tab leaves the set — the
+  // pattern Segmented already implements two rows above.
+  let accentsRef: HTMLDivElement | undefined;
+
+  function moveAccent(delta: number) {
+    if (!themeStore.accentApplies()) return;
+    const ids = ACCENT_OPTIONS.map((option) => option.id);
+    const current = ids.indexOf(appearance().accent);
+    const next = ids[(current + delta + ids.length) % ids.length];
+    patchAppearance({ accent: next });
+    requestAnimationFrame(() =>
+      accentsRef?.querySelector<HTMLButtonElement>(`[data-accent="${next}"]`)?.focus(),
+    );
+  }
+
+  function onAccentKeyDown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        event.preventDefault();
+        moveAccent(1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        event.preventDefault();
+        moveAccent(-1);
+        break;
+    }
+  }
+
   return (
     <div data-section="appearance">
       <SectionLabel section="appearance" />
@@ -1484,15 +1514,24 @@ function AppearanceSection() {
         label="Accent color"
         caution={themeStore.accentApplies() ? undefined : "The current theme sets its own accent."}
       >
-        <div class="settings-accents" role="group" aria-label="Accent color" data-setting="appearance_accent">
+        <div
+          ref={accentsRef}
+          class="settings-accents"
+          role="radiogroup"
+          aria-label="Accent color"
+          data-setting="appearance_accent"
+          onKeyDown={onAccentKeyDown}
+        >
           <For each={ACCENT_OPTIONS}>
             {(option) => (
               <button
                 type="button"
                 class="settings-accent"
                 data-accent={option.id}
+                role="radio"
                 disabled={!themeStore.accentApplies()}
-                aria-pressed={appearance().accent === option.id}
+                aria-checked={appearance().accent === option.id}
+                tabindex={appearance().accent === option.id ? 0 : -1}
                 aria-label={option.label}
                 onClick={() => patchAppearance({ accent: option.id })}
               >
@@ -2028,7 +2067,10 @@ export default function SettingsModal() {
   let modalRef: HTMLDivElement | undefined;
   let contentRef: HTMLDivElement | undefined;
   let searchRef: HTMLInputElement | undefined;
+  let navRef: HTMLDivElement | undefined;
   const titleId = "settings-modal-title";
+  const tabId = "settings-section-tab";
+  const panelId = "settings-section-panel";
 
   const matched = () => matchedSettingIds(query());
 
@@ -2047,6 +2089,39 @@ export default function SettingsModal() {
     sectionVisible: (section) => !isSearching() || matchedSections().has(section),
     highlighted: (id) => highlightId() === id,
   };
+
+  function moveSection(delta: number) {
+    const ids = NAV_ITEMS.map((item) => item.id);
+    const current = ids.indexOf(activeSection());
+    const next = ids[(current + delta + ids.length) % ids.length];
+    setActiveSection(next);
+    requestAnimationFrame(() =>
+      navRef?.querySelector<HTMLButtonElement>(`[data-section-tab="${next}"]`)?.focus(),
+    );
+  }
+
+  function onNavKeyDown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowDown":
+      case "ArrowRight":
+        event.preventDefault();
+        moveSection(1);
+        break;
+      case "ArrowUp":
+      case "ArrowLeft":
+        event.preventDefault();
+        moveSection(-1);
+        break;
+      case "Home":
+        event.preventDefault();
+        setActiveSection(NAV_ITEMS[0].id);
+        break;
+      case "End":
+        event.preventDefault();
+        setActiveSection(NAV_ITEMS[NAV_ITEMS.length - 1].id);
+        break;
+    }
+  }
 
   const noMatches = () =>
     isSearching() && rankSettings(query()).every((entry) => !isSettingAvailable(entry.id));
@@ -2137,26 +2212,45 @@ export default function SettingsModal() {
             </div>
 
             <div class="settings-body">
-              <Show when={!isSearching()}>
-                <nav class="settings-nav" aria-label="Settings sections">
-                  {NAV_ITEMS.map((item) => (
-                    <button
-                      type="button"
-                      class="settings-nav-item"
-                      classList={{ "settings-nav-item-active": activeSection() === item.id }}
-                      onClick={() => setActiveSection(item.id)}
-                      aria-current={activeSection() === item.id ? "page" : undefined}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </nav>
-              </Show>
+              {/* The rail stays mounted while searching, dimmed: unmounting it
+                  moved the content column 156px mid-keystroke and back on
+                  clear. */}
+              <div
+                ref={navRef}
+                class="settings-nav"
+                classList={{ "settings-nav-dimmed": isSearching() }}
+                role="tablist"
+                aria-orientation="vertical"
+                aria-label="Settings sections"
+                aria-disabled={isSearching() ? "true" : undefined}
+                onKeyDown={onNavKeyDown}
+              >
+                {NAV_ITEMS.map((item) => (
+                  <button
+                    type="button"
+                    id={`${tabId}-${item.id}`}
+                    class="settings-nav-item"
+                    classList={{ "settings-nav-item-active": activeSection() === item.id }}
+                    role="tab"
+                    data-section-tab={item.id}
+                    aria-selected={activeSection() === item.id}
+                    aria-controls={panelId}
+                    tabindex={activeSection() === item.id ? 0 : -1}
+                    disabled={isSearching()}
+                    onClick={() => setActiveSection(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
 
               <div
                 ref={contentRef}
+                id={panelId}
                 class="settings-content"
                 classList={{ "settings-content-search": isSearching() }}
+                role="tabpanel"
+                aria-labelledby={`${tabId}-${activeSection()}`}
               >
                 <Show
                   when={isSearching()}

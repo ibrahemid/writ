@@ -585,15 +585,40 @@ describe("SettingsModal", () => {
     expect(saved.appearance.accent).toBe("plum");
   });
 
-  it("marks the active accent with aria-pressed and leaves the rest unpressed", async () => {
+  // One of six, so it is a radiogroup: aria-checked says which, and only the
+  // checked swatch is tabbable.
+  it("checks the active accent and leaves the rest unchecked", async () => {
     mocks.accentApplies.mockReturnValue(true);
     const { container } = render(() => <SettingsModal />);
     await openAppearance(container);
+    const group = container.querySelector("[data-setting='appearance_accent']")!;
+    expect(group.getAttribute("role")).toBe("radiogroup");
+
     const swatches = accentSwatches(container);
-    const pressed = swatches.filter((s) => s.getAttribute("aria-pressed") === "true");
-    expect(pressed).toHaveLength(1);
-    expect(pressed[0].dataset.accent).toBe("pine");
-    expect(pressed[0].getAttribute("aria-label")).toBe("Pine");
+    const checked = swatches.filter((s) => s.getAttribute("aria-checked") === "true");
+    expect(checked).toHaveLength(1);
+    expect(checked[0].dataset.accent).toBe("pine");
+    expect(checked[0].getAttribute("aria-label")).toBe("Pine");
+    expect(checked[0].tabIndex).toBe(0);
+    expect(swatches.filter((s) => s.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it("moves the accent on an arrow key", async () => {
+    mocks.accentApplies.mockReturnValue(true);
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+
+    fireEvent.keyDown(container.querySelector("[data-setting='appearance_accent']")!, {
+      key: "ArrowRight",
+    });
+
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({ accent: "writ-blue" }),
+        }),
+      ),
+    );
   });
 
   it("disables the accent and says why while the theme sets its own", async () => {
@@ -925,10 +950,19 @@ describe("SettingsModal", () => {
       return input;
     }
 
-    it("hides the section nav while searching", async () => {
+    // The rail stays in the tree: unmounting it moved the content column by
+    // its own width, mid-keystroke, and back again on clear.
+    it("dims the section rail while searching rather than removing it", async () => {
       const { container } = render(() => <SettingsModal />);
       await openAndSearch(container, "font");
-      await waitFor(() => expect(container.querySelector(".settings-nav")).toBeNull());
+      await waitFor(() => {
+        const nav = container.querySelector<HTMLElement>(".settings-nav")!;
+        expect(nav.classList.contains("settings-nav-dimmed")).toBe(true);
+        expect(nav.getAttribute("aria-disabled")).toBe("true");
+      });
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-nav-item")!.disabled,
+      ).toBe(true);
     });
 
     it("shows only rows matching the query across sections", async () => {
@@ -998,12 +1032,24 @@ describe("SettingsModal", () => {
       await waitFor(() => expect(container.querySelector(".settings-empty")).not.toBeNull());
     });
 
-    it("restores the nav when the query is cleared", async () => {
+    it("wakes the rail when the query is cleared", async () => {
       const { container } = render(() => <SettingsModal />);
       const input = await openAndSearch(container, "font");
-      await waitFor(() => expect(container.querySelector(".settings-nav")).toBeNull());
+      await waitFor(() =>
+        expect(
+          container.querySelector<HTMLElement>(".settings-nav")!.classList.contains(
+            "settings-nav-dimmed",
+          ),
+        ).toBe(true),
+      );
       fireEvent.input(input, { target: { value: "" } });
-      await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+      await waitFor(() =>
+        expect(
+          container.querySelector<HTMLElement>(".settings-nav")!.classList.contains(
+            "settings-nav-dimmed",
+          ),
+        ).toBe(false),
+      );
     });
   });
 
