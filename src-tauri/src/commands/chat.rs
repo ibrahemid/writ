@@ -2966,6 +2966,90 @@ mod reject_stream_tests {
     }
 }
 
+#[cfg(test)]
+mod stream_budget_tests {
+    use super::tests_support::*;
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    const CONNECT: Duration = Duration::from_secs(2);
+
+    fn frame(text: &str) -> String {
+        format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{text}\"}}}}]}}\n\n")
+    }
+
+    fn run(base: &str, read: Duration) -> Vec<String> {
+        let prepared = prepared_for(base, Provider::OpenAiCompatible, None);
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = seen.clone();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        tauri::async_runtime::block_on(async {
+            let client = super::super::ai::build_client_with(CONNECT, read).expect("client");
+            run_chat_stream(&client, &prepared, &cancel, |event| {
+                sink.lock().expect("events").push(match event {
+                    ChatEvent::Chunk(text) => format!("chunk:{text}"),
+                    ChatEvent::Done { truncated } => format!("done:{truncated}"),
+                    ChatEvent::Error(frame) => format!("error:{}", frame.kind),
+                })
+            })
+            .await;
+        });
+        let events = seen.lock().expect("events").clone();
+        events
+    }
+
+    /// Eight pieces, each after a pause: the whole reply takes well over the
+    /// read budget, and no pause comes near it. Every piece arrives and the
+    /// reply ends as the server said it did.
+    #[test]
+    fn a_reply_that_keeps_arriving_is_never_cut_off_by_the_clock() {
+        let pause = Duration::from_millis(120);
+        let read = Duration::from_millis(400);
+        let pieces: Vec<(&'static str, Duration)> = [
+            "one ", "two ", "three ", "four ", "five ", "six ", "seven ", "eight",
+        ]
+        .into_iter()
+        .map(|word| {
+            (
+                Box::leak(frame(word).into_boxed_str()) as &'static str,
+                pause,
+            )
+        })
+        .chain(std::iter::once(("data: [DONE]\n\n", Duration::ZERO)))
+        .collect();
+        let base = spawn_trickle(pieces);
+
+        let events = run(&base, read);
+
+        let text: String = events
+            .iter()
+            .filter_map(|event| event.strip_prefix("chunk:"))
+            .collect();
+        assert_eq!(text, "one two three four five six seven eight");
+        assert_eq!(events.last().map(String::as_str), Some("done:false"));
+    }
+
+    /// One piece, then silence past the budget: the stream ends with an error
+    /// frame and what arrived before the silence was delivered first.
+    #[test]
+    fn a_reply_that_goes_silent_past_the_budget_is_given_up() {
+        let read = Duration::from_millis(300);
+        let first: &'static str = Box::leak(frame("first").into_boxed_str());
+        let base = spawn_trickle(vec![
+            (first, Duration::from_millis(900)),
+            ("data: [DONE]\n\n", Duration::ZERO),
+        ]);
+
+        let events = run(&base, read);
+
+        assert_eq!(
+            events,
+            vec!["chunk:first".to_string(), "error:stream_failed".to_string()]
+        );
+    }
+}
+
 /// Fixtures the streaming tests share.
 #[cfg(test)]
 mod tests_support {
@@ -3026,6 +3110,32 @@ mod tests_support {
             }
         });
         (format!("http://127.0.0.1:{port}"), seen)
+    }
+
+    /// A server that writes its reply in pieces, pausing after each one.
+    ///
+    /// The pauses are the point: a client whose budget covers the whole
+    /// request gives up on a reply that is still arriving, and one whose
+    /// budget is silence gives up only on the pause that outlasts it.
+    pub fn spawn_trickle(pieces: Vec<(&'static str, std::time::Duration)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n",
+                );
+                let _ = stream.flush();
+                for (piece, pause) in pieces {
+                    let _ = stream.write_all(piece.as_bytes());
+                    let _ = stream.flush();
+                    std::thread::sleep(pause);
+                }
+            }
+        });
+        format!("http://127.0.0.1:{port}")
     }
 
     /// A request aimed at a local mock, carrying a note, a turn and a key.

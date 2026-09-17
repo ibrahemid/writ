@@ -44,8 +44,14 @@ use crate::state::AppState;
 
 /// Connect timeout: a local Ollama that is not running should fail fast.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-/// Overall request budget for a single rewrite.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long a stream may go silent before it is given up.
+///
+/// The budget is silence between bytes, not the whole reply. A reply that
+/// keeps arriving has no ceiling here: a small local model writing a long
+/// answer is bounded by its token ceiling and by Stop, not by the clock. A
+/// whole-request timeout ended exactly those replies at two minutes with
+/// nothing to show for them (2026-09-17).
+const READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The key stored for one account, from the keychain or from this session's
 /// memory. The account is the provider id, so the surface asking for it never
@@ -934,10 +940,18 @@ fn ensure_crypto_provider() {
 /// the `Location` host, escaping the endpoint guard, so a 3xx surfaces as an
 /// error status instead.
 pub fn build_client() -> Result<reqwest::Client, String> {
+    build_client_with(CONNECT_TIMEOUT, READ_TIMEOUT)
+}
+
+/// [`build_client`] with its two budgets chosen by the caller.
+///
+/// There is no whole-request timeout: `read` is the longest the stream may
+/// go quiet, and each byte that arrives starts it again.
+pub fn build_client_with(connect: Duration, read: Duration) -> Result<reqwest::Client, String> {
     ensure_crypto_provider();
     reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(connect)
+        .read_timeout(read)
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| sanitize_ai_error(&e.to_string()))
