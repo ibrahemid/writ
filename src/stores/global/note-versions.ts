@@ -20,6 +20,7 @@ const [versions, setVersions] = createSignal<NoteVersion[]>([]);
 const [selected, setSelected] = createSignal<number | null>(null);
 const [text, setText] = createSignal("");
 const [reading, setReading] = createSignal(false);
+const [loading, setLoading] = createSignal(false);
 
 /**
  * Reads what is kept for one note and shows its newest text.
@@ -32,6 +33,7 @@ async function load(notePath: string): Promise<void> {
   setPath(notePath);
   setSelected(null);
   setText("");
+  setLoading(true);
   try {
     const kept = await noteVersions(notePath);
     setVersions(kept);
@@ -39,6 +41,8 @@ async function load(notePath: string): Promise<void> {
   } catch {
     setVersions([]);
     logFailure("the versions of this note could not be read");
+  } finally {
+    setLoading(false);
   }
 }
 
@@ -81,6 +85,7 @@ function clear(): void {
   setVersions([]);
   setSelected(null);
   setText("");
+  setLoading(false);
 }
 
 export const noteVersionsStore = {
@@ -89,6 +94,7 @@ export const noteVersionsStore = {
   selected,
   text,
   reading,
+  loading,
   load,
   select,
   restore,
