@@ -142,7 +142,7 @@
 }
 
 .palette-section-label {
-  padding: 10px 14px 4px;
+  padding: 10px 14px var(--writ-space-2);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   letter-spacing: var(--writ-ui-tracking);
@@ -152,7 +152,7 @@
 }
 
 .palette-section-more {
-  padding: var(--writ-space-1) 16px var(--writ-space-2);
+  padding: var(--writ-space-1) var(--writ-space-5) var(--writ-space-2);
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
 }

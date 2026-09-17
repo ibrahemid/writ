@@ -454,6 +454,6 @@ describe("ContextMenu platform chrome", () => {
   it("keeps GNOME rows at the 32px minimum", () => {
     const row = declarations(':root[data-platform="linux"] .context-menu-item');
     expect(row.get("min-height")).toBe("32px");
-    expect(row.get("padding")).toBe("0 12px");
+    expect(row.get("padding")).toBe("0 var(--writ-space-4)");
   });
 });

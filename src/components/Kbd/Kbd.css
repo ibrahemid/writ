@@ -13,7 +13,7 @@
   background: var(--writ-bg-sunken);
   border: 0;
   border-radius: var(--writ-r-control);
-  padding: 2px 6px;
+  padding: var(--writ-space-1) 6px;
   white-space: nowrap;
 }
 

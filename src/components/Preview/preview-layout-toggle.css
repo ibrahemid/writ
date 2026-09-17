@@ -4,8 +4,8 @@
 .layout-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--writ-space-1);
+  padding: var(--writ-space-1);
   border-radius: var(--writ-r-control);
   background: var(--writ-bg-sidebar);
 }
@@ -14,7 +14,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 8px;
+  padding: var(--writ-space-1) var(--writ-space-3);
   border: none;
   border-radius: var(--writ-r-action);
   background: transparent;

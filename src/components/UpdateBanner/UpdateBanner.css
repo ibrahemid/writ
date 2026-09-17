@@ -1,7 +1,7 @@
 .update-banner-live {
   position: fixed;
   bottom: calc(var(--writ-statusbar-height) + 12px);
-  left: 16px;
+  left: var(--writ-space-5);
   z-index: var(--writ-z-banner);
   pointer-events: none;
 }
@@ -28,8 +28,8 @@
 .update-banner::before {
   content: '';
   position: absolute;
-  top: 8px;
-  bottom: 8px;
+  top: var(--writ-space-3);
+  bottom: var(--writ-space-3);
   left: 6px;
   width: 3px;
   border-radius: var(--writ-r-pill);
@@ -51,7 +51,7 @@
 
 .update-banner-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--writ-space-3);
   flex-shrink: 0;
 }
 

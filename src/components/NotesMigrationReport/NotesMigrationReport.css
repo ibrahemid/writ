@@ -4,7 +4,7 @@
    the update banner, which shares this left edge (UpdateBanner.css). */
 .notes-report {
   position: fixed;
-  left: 16px;
+  left: var(--writ-space-5);
   bottom: calc(var(--writ-statusbar-height) + 12px + 64px);
   z-index: var(--writ-z-banner);
   display: flex;
@@ -23,8 +23,8 @@
 .notes-report::before {
   content: '';
   position: absolute;
-  top: 8px;
-  bottom: 8px;
+  top: var(--writ-space-3);
+  bottom: var(--writ-space-3);
   left: 6px;
   width: 3px;
   border-radius: var(--writ-r-pill);

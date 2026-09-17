@@ -8,13 +8,13 @@
   width: auto;
   max-width: 212px;
   margin: var(--writ-space-3);
-  padding: 20px 16px;
+  padding: 20px var(--writ-space-5);
   background: var(--writ-bg-sidebar);
   border-radius: var(--writ-r-media);
 }
 
 .sidebar-empty-title {
-  margin: 0 0 2px;
+  margin: 0 0 var(--writ-space-1);
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg-muted);
@@ -24,5 +24,5 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--writ-space-3);
 }

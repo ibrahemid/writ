@@ -1,5 +1,5 @@
 .tags-tree {
-  padding: 2px 0 8px;
+  padding: var(--writ-space-1) 0 var(--writ-space-3);
 }
 
 .tags-row {
@@ -71,7 +71,7 @@
   position: absolute;
   left: var(--tree-connector-left, 14px);
   top: 0;
-  bottom: 4px;
+  bottom: var(--writ-space-2);
   width: 1px;
   background: var(--writ-border-soft);
   pointer-events: none;

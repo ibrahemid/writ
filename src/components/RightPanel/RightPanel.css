@@ -95,7 +95,7 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  padding: 12px 12px 4px;
+  padding: var(--writ-space-4) var(--writ-space-4) var(--writ-space-2);
   border: none;
   background: transparent;
   font: inherit;
@@ -118,7 +118,7 @@
 
 .right-panel-list {
   margin: 0;
-  padding: 2px 0;
+  padding: var(--writ-space-1) 0;
   list-style: none;
 }
 
@@ -127,11 +127,11 @@
 .right-panel-row {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--writ-space-1);
   width: 100%;
   min-height: var(--writ-sidebar-row-fill);
   margin: 1px 0;
-  padding: 4px var(--writ-space-3);
+  padding: var(--writ-space-2) var(--writ-space-3);
   border: none;
   border-radius: var(--writ-r-row);
   background: transparent;
@@ -189,7 +189,7 @@
 /* Set off from the quoted sentence above it: that line is the note's words,
    this one is the app naming what else the link could mean. */
 .right-panel-row-marker {
-  margin-top: 2px;
+  margin-top: var(--writ-space-1);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   color: var(--writ-fg-muted);
@@ -197,7 +197,7 @@
 
 .right-panel-properties {
   margin: 0;
-  padding: 2px var(--writ-space-3);
+  padding: var(--writ-space-1) var(--writ-space-3);
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);
@@ -206,7 +206,7 @@
 .right-panel-property {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--writ-space-1);
 }
 
 .right-panel-property-key {
@@ -219,7 +219,7 @@
   margin: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--writ-space-2);
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg);
@@ -230,7 +230,7 @@
 }
 
 .right-panel-pill {
-  padding: 1px 8px;
+  padding: 1px var(--writ-space-3);
   border-radius: var(--writ-r-pill);
   background: var(--writ-bg-sunken);
   font-size: var(--writ-ui-sm);
@@ -246,11 +246,11 @@
 }
 
 :root[data-platform="win"] .right-panel-scroll {
-  padding-top: 4px;
+  padding-top: var(--writ-space-2);
 }
 
 :root[data-platform="win"] .right-panel-section-toggle {
-  padding: 14px 16px 6px;
+  padding: 14px var(--writ-space-5) 6px;
 }
 
 :root[data-platform="linux"] .right-panel {
@@ -263,7 +263,7 @@
 }
 
 :root[data-platform="linux"] .right-panel-section-toggle {
-  padding: 10px 14px 4px;
+  padding: 10px 14px var(--writ-space-2);
   font-weight: 700;
   color: var(--writ-fg);
   opacity: 0.55;

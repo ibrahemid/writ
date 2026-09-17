@@ -1,11 +1,11 @@
 .history-list {
-  padding: 2px 0;
+  padding: var(--writ-space-1) 0;
 }
 
 /* Lines up with the section name, which sits past the disclosure's 16px inset,
    12px caret and 6px gap. */
 .history-group-title {
-  padding: 12px 12px 4px 34px;
+  padding: var(--writ-space-4) var(--writ-space-4) var(--writ-space-2) 34px;
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   letter-spacing: var(--writ-ui-tracking);
@@ -13,11 +13,11 @@
 }
 
 :root[data-platform="win"] .history-group-title {
-  padding: 14px 16px 6px 34px;
+  padding: 14px var(--writ-space-5) 6px 34px;
 }
 
 :root[data-platform="linux"] .history-group-title {
-  padding: 10px 14px 4px 34px;
+  padding: 10px 14px var(--writ-space-2) 34px;
 }
 
 /* A closed note has no caret, but its icon and name keep the tree's columns:

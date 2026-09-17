@@ -29,23 +29,27 @@ describe("sidebar row boxes", () => {
 
   it("puts the section caret on the tree's caret column, 16px in, on every shell", () => {
     const sidebar = css("src/components/Sidebar/Sidebar.css");
-    expect(rule(sidebar, ".sidebar-section-toggle")).toMatch(/padding:\s*12px 12px 4px 16px/);
-    expect(sidebar).toMatch(
-      /:root\[data-platform="win"\] \.sidebar-section-title,\s*:root\[data-platform="win"\] \.sidebar-section-toggle\s*\{\s*padding:\s*14px 16px 6px;/,
+    expect(rule(sidebar, ".sidebar-section-toggle")).toMatch(
+      /padding:\s*var\(--writ-space-4\) var\(--writ-space-4\) var\(--writ-space-2\) var\(--writ-space-5\)/,
     );
     expect(sidebar).toMatch(
-      /:root\[data-platform="linux"\] \.sidebar-section-title,\s*:root\[data-platform="linux"\] \.sidebar-section-toggle\s*\{\s*padding:\s*10px 14px 4px 16px;/,
+      /:root\[data-platform="win"\] \.sidebar-section-title,\s*:root\[data-platform="win"\] \.sidebar-section-toggle\s*\{\s*padding:\s*14px var\(--writ-space-5\) 6px;/,
+    );
+    expect(sidebar).toMatch(
+      /:root\[data-platform="linux"\] \.sidebar-section-title,\s*:root\[data-platform="linux"\] \.sidebar-section-toggle\s*\{\s*padding:\s*10px 14px var\(--writ-space-2\) var\(--writ-space-5\);/,
     );
   });
 
   it("lines the day headings up with the section name past the caret", () => {
     const history = css("src/components/Sidebar/HistorySection.css");
-    expect(rule(history, ".history-group-title")).toMatch(/padding:\s*12px 12px 4px 34px/);
+    expect(rule(history, ".history-group-title")).toMatch(
+      /padding:\s*var\(--writ-space-4\) var\(--writ-space-4\) var\(--writ-space-2\) 34px/,
+    );
     expect(rule(history, ':root[data-platform="win"] .history-group-title')).toMatch(
-      /padding:\s*14px 16px 6px 34px/,
+      /padding:\s*14px var\(--writ-space-5\) 6px 34px/,
     );
     expect(rule(history, ':root[data-platform="linux"] .history-group-title')).toMatch(
-      /padding:\s*10px 14px 4px 34px/,
+      /padding:\s*10px 14px var\(--writ-space-2\) 34px/,
     );
   });
 

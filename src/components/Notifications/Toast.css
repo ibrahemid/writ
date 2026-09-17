@@ -1,18 +1,18 @@
 .toast-container {
   position: fixed;
   /* EditorArea sets this: 16px with no status bar, 40px when the bar is on. */
-  bottom: var(--writ-toast-bottom, 16px);
-  right: 16px;
+  bottom: var(--writ-toast-bottom, var(--writ-space-5));
+  right: var(--writ-space-5);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--writ-space-3);
   z-index: var(--writ-z-toast);
   pointer-events: none;
 }
 
 .toast {
   position: relative;
-  padding: 10px 16px;
+  padding: 10px var(--writ-space-5);
   background: var(--writ-bg-raised);
   border: 0;
   border-radius: var(--writ-r-media);
@@ -22,7 +22,7 @@
   line-height: var(--writ-ui-md-lh);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--writ-space-4);
   box-shadow: var(--writ-shadow-popover);
   pointer-events: all;
   max-width: 400px;
@@ -35,8 +35,8 @@
 .toast-success::before {
   content: '';
   position: absolute;
-  top: 8px;
-  bottom: 8px;
+  top: var(--writ-space-3);
+  bottom: var(--writ-space-3);
   left: 6px;
   width: 3px;
   border-radius: var(--writ-r-pill);

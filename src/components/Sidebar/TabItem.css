@@ -56,7 +56,7 @@
 
 .tab-item-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--writ-space-2);
   opacity: 0;
 }
 
@@ -72,7 +72,7 @@
 
 .tab-item-trailing ~ .tab-item-actions {
   position: absolute;
-  right: 8px;
+  right: var(--writ-space-3);
 }
 
 .tab-item:hover .tab-item-actions,
@@ -113,17 +113,17 @@
 /* The icon carries the inset on Windows, so the row's own gap goes. */
 :root[data-platform="win"] .tab-item {
   column-gap: 0;
-  padding: 0 12px 0 0;
+  padding: 0 var(--writ-space-4) 0 0;
 }
 
 :root[data-platform="win"] .tab-item > .writ-icon {
-  margin: 0 12px;
+  margin: 0 var(--writ-space-4);
 }
 
 :root[data-platform="win"] .tab-item-title {
-  margin-left: 4px;
+  margin-left: var(--writ-space-2);
 }
 
 :root[data-platform="linux"] .tab-item {
-  padding: 0 8px;
+  padding: 0 var(--writ-space-3);
 }

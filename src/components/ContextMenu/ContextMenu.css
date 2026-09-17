@@ -7,14 +7,14 @@
   background: var(--writ-bg-raised);
   border: 0;
   border-radius: var(--writ-r-popover);
-  padding: 4px;
+  padding: var(--writ-space-2);
   box-shadow: var(--writ-shadow-popover);
 }
 
 .context-menu-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--writ-space-3);
   width: 100%;
   min-height: 28px;
   padding: 0 10px;
@@ -47,7 +47,7 @@
 
 .context-menu-kbd {
   flex: none;
-  margin-left: 16px;
+  margin-left: var(--writ-space-5);
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
   font-variant-numeric: tabular-nums;
@@ -77,7 +77,7 @@
 .context-menu-separator {
   height: 1px;
   background: var(--writ-border-soft);
-  margin: 4px 8px;
+  margin: var(--writ-space-2) var(--writ-space-3);
 }
 
 /* Windows: a MenuFlyout is a 1px-stroked layer, and its rows carry Fluent's
@@ -88,14 +88,14 @@
 
 :root[data-platform="win"] .context-menu-item {
   height: auto;
-  padding: 11px 8px 11px 9px;
+  padding: 11px var(--writ-space-3) 11px 9px;
 }
 
 /* GNOME: 32px minimum row, 12px inset, and a selection at 10% of the ink. */
 :root[data-platform="linux"] .context-menu-item {
   height: auto;
   min-height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--writ-space-4);
 }
 
 :root[data-platform="linux"] .context-menu-item:hover,

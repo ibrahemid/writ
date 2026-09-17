@@ -5,7 +5,7 @@
   z-index: var(--writ-z-popover);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--writ-space-2);
   padding: 6px;
   min-width: 340px;
   max-width: min(520px, calc(100% - 36px));
@@ -25,7 +25,7 @@
   flex: 1;
   min-width: 0;
   min-height: 28px;
-  padding: 0 8px;
+  padding: 0 var(--writ-space-3);
   background: var(--writ-bg-sunken);
   border: 1px solid var(--writ-border);
   border-radius: var(--writ-r-control);
@@ -44,7 +44,7 @@
 .find-count {
   flex-shrink: 0;
   min-width: 64px;
-  padding: 0 4px;
+  padding: 0 var(--writ-space-2);
   text-align: right;
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-muted);

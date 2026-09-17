@@ -1,7 +1,7 @@
 .inbox-list {
   display: flex;
   flex-direction: column;
-  padding: 2px 0 8px;
+  padding: var(--writ-space-1) 0 var(--writ-space-3);
 }
 
 .inbox-list .writ-tooltip-anchor {

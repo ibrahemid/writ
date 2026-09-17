@@ -15,7 +15,7 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 64px 24px;
+  padding: 64px var(--writ-space-6);
   z-index: var(--writ-z-modal);
 }
 

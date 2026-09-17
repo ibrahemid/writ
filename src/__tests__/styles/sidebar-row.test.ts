@@ -37,10 +37,10 @@ describe("the shared sidebar row", () => {
 
   it("moves every row with one block per platform", () => {
     expect(rule(SIDEBAR, ':root[data-platform="win"] .sidebar-row')).toMatch(
-      /margin:\s*2px 4px/,
+      /margin:\s*var\(--writ-space-1\) var\(--writ-space-2\)/,
     );
     const linux = rule(SIDEBAR, ':root[data-platform="linux"] .sidebar-row');
-    expect(linux).toMatch(/margin:\s*0 6px 2px/);
+    expect(linux).toMatch(/margin:\s*0 6px var\(--writ-space-1\)/);
     expect(linux).toMatch(/column-gap:\s*10px/);
   });
 

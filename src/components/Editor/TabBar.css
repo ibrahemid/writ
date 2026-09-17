@@ -175,7 +175,7 @@
   height: auto;
   min-height: 32px;
   max-width: 240px;
-  padding: 8px 3px 4px 3px;
+  padding: var(--writ-space-3) 3px var(--writ-space-2) 3px;
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
 }

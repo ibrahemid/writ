@@ -398,7 +398,9 @@ describe("platform layers", () => {
     const tab = ruleFor('.tabbar[data-platform="win"] .tab');
     expect(tab.declarations.get("min-height")).toBe("32px");
     expect(tab.declarations.get("max-width")).toBe("240px");
-    expect(tab.declarations.get("padding")).toBe("8px 3px 4px 3px");
+    expect(tab.declarations.get("padding")).toBe(
+      "var(--writ-space-3) 3px var(--writ-space-2) 3px",
+    );
     expect(tab.declarations.get("font-size")).toBe("var(--writ-ui-sm)");
     const close = ruleFor('.tabbar[data-platform="win"] .tab-close');
     expect(close.declarations.get("width")).toBe("32px");

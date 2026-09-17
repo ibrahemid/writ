@@ -8,7 +8,7 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 2px 0;
+  padding: var(--writ-space-1) 0;
   min-height: 0;
 }
 
@@ -83,7 +83,7 @@
 
 .search-footer {
   flex-shrink: 0;
-  padding: 6px 12px;
+  padding: 6px var(--writ-space-4);
   border-top: 1px solid var(--writ-border-soft);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
