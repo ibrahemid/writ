@@ -45,11 +45,18 @@ html, body {
   background-clip: content-box;
   border: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2) solid transparent;
   border-radius: var(--writ-scrollbar-thumb-radius);
-  min-height: var(--writ-scrollbar-thumb-min);
 }
 
 :root[data-platform="mac"] ::-webkit-scrollbar-thumb:hover {
   background-color: var(--writ-fg-faint);
+}
+
+:root[data-platform="mac"] ::-webkit-scrollbar-thumb:vertical {
+  min-height: var(--writ-scrollbar-thumb-min);
+}
+
+:root[data-platform="mac"] ::-webkit-scrollbar-thumb:horizontal {
+  min-width: var(--writ-scrollbar-thumb-min);
 }
 
 :root[data-platform="win"] ::-webkit-scrollbar {
@@ -66,7 +73,6 @@ html, body {
   background-clip: content-box;
   border: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2) solid transparent;
   border-radius: var(--writ-scrollbar-thumb-radius);
-  min-height: var(--writ-scrollbar-thumb-min);
   transition: border-width var(--writ-scrollbar-motion) var(--writ-ease),
     background-color var(--writ-scrollbar-motion) var(--writ-ease);
 }
@@ -74,6 +80,14 @@ html, body {
 :root[data-platform="win"] ::-webkit-scrollbar-thumb:hover {
   background-color: var(--writ-fg-faint);
   border-width: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
+}
+
+:root[data-platform="win"] ::-webkit-scrollbar-thumb:vertical {
+  min-height: var(--writ-scrollbar-thumb-min);
+}
+
+:root[data-platform="win"] ::-webkit-scrollbar-thumb:horizontal {
+  min-width: var(--writ-scrollbar-thumb-min);
 }
 
 :root[data-platform="linux"] ::-webkit-scrollbar {
@@ -90,7 +104,6 @@ html, body {
   background-clip: content-box;
   border: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2) solid transparent;
   border-radius: var(--writ-scrollbar-thumb-radius);
-  min-height: var(--writ-scrollbar-thumb-min);
   transition: border-width var(--writ-scrollbar-motion) var(--writ-ease-linear),
     background-color var(--writ-scrollbar-motion) var(--writ-ease-linear);
 }
@@ -98,6 +111,14 @@ html, body {
 :root[data-platform="linux"] ::-webkit-scrollbar-thumb:hover {
   background-color: var(--writ-fg-faint);
   border-width: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
+}
+
+:root[data-platform="linux"] ::-webkit-scrollbar-thumb:vertical {
+  min-height: var(--writ-scrollbar-thumb-min);
+}
+
+:root[data-platform="linux"] ::-webkit-scrollbar-thumb:horizontal {
+  min-width: var(--writ-scrollbar-thumb-min);
 }
 
 ::selection {

@@ -333,6 +333,23 @@ describe("scrollbars", () => {
         `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb`,
       );
       expect(thumb.get("border-radius"), platform).toBe("var(--writ-scrollbar-thumb-radius)");
+      // The minimum is a length, so it constrains a different axis on each
+      // orientation: min-height on a horizontal thumb is its thickness.
+      expect(thumb.has("min-height"), `${platform} constrains both orientations`).toBe(false);
+      expect(
+        declarations(
+          GLOBAL,
+          `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb:vertical`,
+        ).get("min-height"),
+        platform,
+      ).toBe("var(--writ-scrollbar-thumb-min)");
+      expect(
+        declarations(
+          GLOBAL,
+          `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb:horizontal`,
+        ).get("min-width"),
+        platform,
+      ).toBe("var(--writ-scrollbar-thumb-min)");
     }
   });
 
