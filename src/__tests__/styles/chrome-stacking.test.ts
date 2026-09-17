@@ -22,6 +22,10 @@ const PICKER_CSS = readFileSync(
   resolve(process.cwd(), "src/components/Editor/LinkAmbiguityPicker.css"),
   "utf8",
 );
+const SPELLING_CSS = readFileSync(
+  resolve(process.cwd(), "src/components/Editor/SpellingPreview.css"),
+  "utf8",
+);
 const THEME_CSS = readFileSync(resolve(process.cwd(), "src/styles/generated/theme.css"), "utf8");
 
 const layer = (name: string): number => {
@@ -67,6 +71,15 @@ describe("link picker stacking", () => {
 
   it("never hardcodes a z-index number", () => {
     expect(PICKER_CSS).not.toMatch(/z-index:\s*\d/);
+  });
+});
+
+// A number above the popover layer means nothing: the context menu is on that
+// layer and mounts after the editor, so it still paints over the panel.
+describe("spelling panel stacking", () => {
+  it("sits on the popover layer, by name", () => {
+    expect(zToken(SPELLING_CSS, ".spelling-preview")).toBe("--writ-z-popover");
+    expect(SPELLING_CSS).not.toMatch(/z-index:\s*\d/);
   });
 });
 

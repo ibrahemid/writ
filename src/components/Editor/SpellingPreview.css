@@ -2,7 +2,7 @@
   position: fixed;
   top: var(--writ-space-4);
   right: var(--writ-space-4);
-  z-index: 210;
+  z-index: var(--writ-z-popover);
   width: 320px;
   max-width: calc(100vw - 2 * var(--writ-space-4));
   max-height: 60vh;
