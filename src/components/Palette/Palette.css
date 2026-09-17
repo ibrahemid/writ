@@ -37,7 +37,10 @@
 .palette-input {
   flex: 1;
   min-width: 0;
-  height: 100%;
+  /* The row is a floor now, not a fixed height, so a percentage has nothing to
+     resolve against: the field fills the line instead, and a click anywhere in
+     the row lands in it. */
+  align-self: stretch;
   padding: 0;
   border: 0;
   background: transparent;

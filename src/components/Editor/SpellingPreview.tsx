@@ -90,6 +90,12 @@ export default function SpellingPreview() {
 
     function onDocumentKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      // Escape belongs to the top layer. Only a key pressed inside the panel or
+      // with nothing focused at all is this panel's to answer; one aimed at a
+      // layer opened over it is not.
+      const target = event.target;
+      const unowned = target === document.body || target === document.documentElement;
+      if (!unowned && !(target instanceof Node && panelRef?.contains(target))) return;
       event.preventDefault();
       closeSpellingPreview();
     }

@@ -41,6 +41,21 @@ describe("SpellingPreview focus", () => {
     expect(document.querySelector(".spelling-preview")).toBeNull();
   });
 
+  // Escape belongs to the top layer. A panel that claims every Escape on the
+  // document closes itself under the palette that was opened over it.
+  it("leaves an Escape aimed at another layer alone", async () => {
+    const elsewhere = document.createElement("button");
+    document.body.appendChild(elsewhere);
+    render(() => <SpellingPreview />);
+    openSpellingPreview();
+    await screen.findByText("Apply");
+
+    elsewhere.focus();
+    fireEvent.keyDown(elsewhere, { key: "Escape" });
+    expect(document.querySelector(".spelling-preview")).not.toBeNull();
+    elsewhere.remove();
+  });
+
   it("closes on Escape pressed inside it", async () => {
     render(() => <SpellingPreview />);
     openSpellingPreview();
