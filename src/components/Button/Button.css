@@ -63,12 +63,11 @@
 }
 
 .writ-btn-primary.writ-btn-danger:hover:not(:disabled) {
-  background: var(--writ-danger);
-  filter: brightness(1.08);
+  background: var(--writ-danger-hover);
 }
 
 .writ-btn:disabled {
-  opacity: 0.5;
+  opacity: var(--writ-disabled-opacity);
   cursor: default;
 }
 

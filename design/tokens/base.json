@@ -330,6 +330,13 @@
         "$value": 1
       }
     },
+    "disabled": {
+      "$type": "number",
+      "opacity": {
+        "$value": 0.5,
+        "$description": "One dim for every disabled control, whatever draws it."
+      }
+    },
     "statusbar": {
       "$type": "dimension",
       "height": {
