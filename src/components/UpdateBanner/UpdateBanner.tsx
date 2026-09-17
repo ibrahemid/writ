@@ -1,4 +1,5 @@
 import { Show, Switch, Match, createEffect, onCleanup } from "solid-js";
+import Button from "../Button/Button";
 import { updateStore } from "../../stores/global/update";
 import { formatBytes } from "../../lib/format-bytes";
 import "./UpdateBanner.css";
@@ -16,6 +17,10 @@ export default function UpdateBanner() {
   const downloading = () => {
     const p = phase();
     return p.status === "downloading" ? p : undefined;
+  };
+  const failure = () => {
+    const p = phase();
+    return p.status === "failed" ? p.message.trim() || UNREACHABLE_COPY : undefined;
   };
 
   createEffect(() => {
@@ -42,15 +47,15 @@ export default function UpdateBanner() {
             {(p) => (
               <>
                 <span class="update-banner-text">
-                  Update available — <strong>v{p().version}</strong>
+                  Update available: <strong>v{p().version}</strong>
                 </span>
                 <div class="update-banner-actions">
-                  <button class="update-banner-btn ghost" onClick={() => void updateStore.dismiss()}>
+                  <Button variant="ghost" onClick={() => void updateStore.dismiss()}>
                     Later
-                  </button>
-                  <button class="update-banner-btn primary" onClick={() => void updateStore.install()}>
+                  </Button>
+                  <Button variant="primary" onClick={() => void updateStore.install()}>
                     Install
-                  </button>
+                  </Button>
                 </div>
               </>
             )}
@@ -66,9 +71,20 @@ export default function UpdateBanner() {
                 <div class="update-banner-progress">
                   <span class="update-banner-text">
                     Downloading update…{" "}
-                    {pct() !== null ? `${pct()}%` : formatBytes(p().downloaded)}
+                    <span class="update-banner-amount" aria-live="off">
+                      {pct() !== null ? `${pct()}%` : formatBytes(p().downloaded)}
+                    </span>
                   </span>
-                  <div class={`update-banner-track${pct() === null ? " indeterminate" : ""}`}>
+                  <div
+                    class={`update-banner-track${pct() === null ? " indeterminate" : ""}`}
+                    role="progressbar"
+                    aria-live="off"
+                    aria-label="Downloading update"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={pct() ?? undefined}
+                    aria-valuetext={pct() === null ? "Downloading" : undefined}
+                  >
                     <div
                       class="update-banner-fill"
                       style={pct() !== null ? { width: `${pct()}%` } : undefined}
@@ -87,25 +103,29 @@ export default function UpdateBanner() {
           <Match when={phase().status === "ready"}>
             <span class="update-banner-text">Update installed.</span>
             <div class="update-banner-actions">
-              <button class="update-banner-btn ghost" onClick={() => void updateStore.dismiss()}>
+              <Button variant="ghost" onClick={() => void updateStore.dismiss()}>
                 Later
-              </button>
-              <button class="update-banner-btn primary" onClick={() => void updateStore.restart()}>
+              </Button>
+              <Button variant="primary" onClick={() => void updateStore.restart()}>
                 Restart now
-              </button>
+              </Button>
             </div>
           </Match>
 
-          <Match when={phase().status === "failed"}>
-            <span class="update-banner-text update-banner-error">{UNREACHABLE_COPY}</span>
-            <div class="update-banner-actions">
-              <button class="update-banner-btn ghost" onClick={() => void updateStore.dismiss()}>
-                Dismiss
-              </button>
-              <button class="update-banner-btn primary" onClick={() => void updateStore.checkForUpdate()}>
-                Retry
-              </button>
-            </div>
+          <Match when={failure()}>
+            {(message) => (
+              <>
+                <span class="update-banner-text update-banner-error">{message()}</span>
+                <div class="update-banner-actions">
+                  <Button variant="ghost" onClick={() => void updateStore.dismiss()}>
+                    Later
+                  </Button>
+                  <Button variant="primary" onClick={() => void updateStore.checkForUpdate()}>
+                    Retry
+                  </Button>
+                </div>
+              </>
+            )}
           </Match>
           </Switch>
         </div>

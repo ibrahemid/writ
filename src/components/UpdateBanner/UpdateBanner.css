@@ -2,7 +2,7 @@
   position: fixed;
   bottom: calc(var(--writ-statusbar-height) + 12px);
   left: 16px;
-  z-index: 150;
+  z-index: var(--writ-z-banner);
   pointer-events: none;
 }
 
@@ -55,40 +55,6 @@
   flex-shrink: 0;
 }
 
-.update-banner-btn {
-  font-size: var(--writ-ui-sm);
-  padding: 5px 12px;
-  border-radius: var(--writ-r-control);
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-
-.update-banner-btn.ghost {
-  background: transparent;
-  border-color: var(--writ-border-soft);
-  color: var(--writ-fg-muted);
-}
-
-.update-banner-btn.ghost:hover {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
-}
-
-.update-banner-btn.primary {
-  background: var(--writ-accent);
-  color: var(--writ-accent-fg);
-  font-weight: 600;
-}
-
-.update-banner-btn.primary:hover {
-  background: var(--writ-accent-hover);
-}
-
-.update-banner-btn:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: 1px;
-}
-
 .update-banner-progress {
   flex: 1;
   display: flex;
@@ -111,8 +77,10 @@
   transition: width var(--writ-motion-fast) var(--writ-ease-linear);
 }
 
+/* A track with no share to show fills, so reduced motion reads as unknown
+   rather than as a transfer stalled at 40%. The animation below narrows it. */
 .update-banner-track.indeterminate .update-banner-fill {
-  width: 40%;
+  width: 100%;
 }
 
 .update-banner-spinner {
@@ -134,6 +102,7 @@
   }
 
   .update-banner-track.indeterminate .update-banner-fill {
+    width: 40%;
     animation: update-banner-indeterminate calc(var(--writ-motion-ambient) * 11 / 7)
       var(--writ-ease) infinite;
   }
