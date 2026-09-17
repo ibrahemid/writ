@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import type { Platform } from "../../lib/platform";
 
@@ -297,5 +297,31 @@ describe("the platform layer", () => {
     expect(ruleFor('.palette[data-platform="win"]').declarations.get("border")).toBe(
       "1px solid var(--writ-win-layer-stroke)",
     );
+  });
+
+  // One app, one way of quoting a name: the link picker sets a target in curly
+  // quotes and this sentence is the same sentence about the same thing.
+  it("quotes the query the way the rest of the app quotes a name", async () => {
+    const { container } = harness([]);
+    fireEvent.input(container.querySelector(".palette-input")!, { target: { value: "zzz" } });
+    const title = await waitFor(() => {
+      const el = container.querySelector(".palette-empty-title");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(title.textContent).toContain("\u201C");
+    expect(title.textContent).toContain("\u201D");
+    expect(title.textContent).not.toContain('"');
+  });
+
+  it("does not spend a line saying Esc dismisses a layer just opened", async () => {
+    const { container } = harness([]);
+    fireEvent.input(container.querySelector(".palette-input")!, { target: { value: "zzz" } });
+    const hint = await waitFor(() => {
+      const el = container.querySelector(".palette-empty-hint");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(hint.textContent).toBe("Try a different word.");
   });
 });
