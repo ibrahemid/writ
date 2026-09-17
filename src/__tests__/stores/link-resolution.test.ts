@@ -152,7 +152,7 @@ describe("linkStore noteNameCandidates", () => {
       { path: "/notes/Grocery list.md", name: "Grocery list", folder: "" },
     ]);
     expect(await linkStore.noteNameCandidates("Gro")).toEqual([
-      { path: "/notes/Grocery list.md", name: "Grocery list" },
+      { path: "/notes/Grocery list.md", name: "Grocery list", folder: "" },
     ]);
   });
 
