@@ -1647,16 +1647,16 @@ describe("Connected programs section, programs you approved", () => {
     expect(mocks.mcpSetClientPermission).toHaveBeenCalledWith("Desk helper", false, false);
   });
 
-  it("says what forgetting a program does, on every program", async () => {
+  // Once under the list, not once per row: three programs used to carry three
+  // copies of the same sentence.
+  it("says what forgetting a program does, once under the list", async () => {
     const { container } = await openProgramList([WRITING_CLIENT, READING_CLIENT]);
 
     const notes = container.querySelectorAll("[data-program-note='forget']");
-    expect(notes.length).toBe(2);
-    for (const note of notes) {
-      expect(note.textContent).toBe(
-        "Removes this program. It can ask again next time it connects.",
-      );
-    }
+    expect(notes.length).toBe(1);
+    expect(notes[0].textContent?.trim()).toBe(
+      "Forget removes a program. It can ask again next time it connects.",
+    );
   });
 
   it("carries no caution on the row, now that the rule is at the switch", async () => {
@@ -1665,5 +1665,112 @@ describe("Connected programs section, programs you approved", () => {
     expect(
       container.querySelector("[data-setting-id='mcp.clients'] .settings-row-caution"),
     ).toBeNull();
+  });
+});
+
+// The rail, the rows and the words the panel uses. Reaching the first control
+// of a section used to cost eleven Tab presses, and a labelled control's name
+// carried the whole description sentence with it.
+describe("Settings as a keyboard and a screen reader take it", () => {
+  async function openPanel() {
+    const screen = render(() => <SettingsModal />);
+    openSettings();
+    await waitFor(() => expect(screen.container.querySelector(".settings-nav")).not.toBeNull());
+    return screen.container;
+  }
+
+  async function openSection(container: HTMLElement, word: string) {
+    const items = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+    const item = Array.from(items).find((n) => n.textContent?.toLowerCase().includes(word));
+    fireEvent.click(item!);
+    await waitFor(() => expect(container.querySelector(`[data-section='${word}']`)).not.toBeNull());
+  }
+
+  it("drives the sections from a tablist", async () => {
+    const container = await openPanel();
+    const rail = container.querySelector<HTMLElement>(".settings-nav")!;
+    expect(rail.getAttribute("role")).toBe("tablist");
+
+    const tabs = container.querySelectorAll<HTMLButtonElement>("[role='tab']");
+    expect(tabs.length).toBe(SECTION_ORDER.length);
+    expect(Array.from(tabs).filter((t) => t.tabIndex === 0)).toHaveLength(1);
+
+    const panel = container.querySelector<HTMLElement>("[role='tabpanel']")!;
+    const selected = Array.from(tabs).find((t) => t.getAttribute("aria-selected") === "true")!;
+    expect(selected.getAttribute("aria-controls")).toBe(panel.id);
+    expect(panel.getAttribute("aria-labelledby")).toBe(selected.id);
+  });
+
+  it("moves the section on Down", async () => {
+    const container = await openPanel();
+    const first = SECTION_ORDER[0];
+    fireEvent.keyDown(container.querySelector(".settings-nav")!, { key: "ArrowDown" });
+
+    await waitFor(() => {
+      const selected = container.querySelector("[role='tab'][aria-selected='true']")!;
+      expect(selected.getAttribute("data-section-tab")).not.toBe(first);
+    });
+  });
+
+  it("keeps the description out of a labelled control's name", async () => {
+    const container = await openPanel();
+    await openSection(container, "advanced");
+
+    const row = container.querySelector<HTMLElement>("[data-setting-id='preview.live_threshold']")!;
+    const label = row.querySelector<HTMLLabelElement>("label.settings-row-label-text")!;
+    expect(label.textContent).toBe("Stop live preview above");
+
+    const control = row.querySelector<HTMLElement>("#setting-live-limit")!;
+    const described = control.getAttribute("aria-describedby")!;
+    expect(described).toBeTruthy();
+    expect(container.querySelector(`#${described.split(" ")[0]}`)!.textContent).toContain(
+      "Writ keeps this",
+    );
+  });
+
+  it("describes a switch row as well as naming it", async () => {
+    const container = await openPanel();
+    await openSection(container, "editor");
+
+    const row = container.querySelector<HTMLElement>("[data-setting-id='editor.spelling_dialect']")!;
+    const select = row.querySelector<HTMLSelectElement>("#setting-spelling-dialect")!;
+    expect(select.disabled).toBe(true);
+    const described = select.getAttribute("aria-describedby")!;
+    expect(container.querySelector(`#${described.split(" ")[0]}`)!.textContent).toBe(
+      "Turn on Spell check to pick a dictionary.",
+    );
+  });
+});
+
+describe("the words the panel uses", () => {
+  async function openPanel() {
+    const screen = render(() => <SettingsModal />);
+    openSettings();
+    await waitFor(() => expect(screen.container.querySelector(".settings-nav")).not.toBeNull());
+    return screen.container;
+  }
+
+  it("ends no row label in a colon and names the dictionary row for what it sets", async () => {
+    const container = await openPanel();
+    const items = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+    fireEvent.click(Array.from(items).find((n) => n.textContent?.toLowerCase().includes("editor"))!);
+    await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
+
+    const labels = Array.from(
+      container.querySelectorAll(".settings-row-label-text"),
+    ).map((n) => n.textContent ?? "");
+    expect(labels).toContain("Dictionary");
+    for (const label of labels) expect(label.endsWith(":")).toBe(false);
+  });
+
+  it("sets the query in typographic quotes when nothing matches", async () => {
+    const container = await openPanel();
+    const input = container.querySelector<HTMLInputElement>(".settings-search-input")!;
+    fireEvent.input(input, { target: { value: "zzzzz" } });
+
+    await waitFor(() => expect(container.querySelector(".settings-empty-title")).not.toBeNull());
+    const title = container.querySelector(".settings-empty-title")!.textContent!;
+    expect(title).toBe("No settings match “zzzzz”");
+    expect(title).not.toContain('"');
   });
 });

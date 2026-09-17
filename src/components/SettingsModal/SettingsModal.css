@@ -212,6 +212,10 @@
   color: var(--writ-fg-faint);
 }
 
+.settings-row-label-text {
+  display: block;
+}
+
 .settings-row-label {
   flex: 1;
   /* Without this the label refuses to shrink and pushes its own control out of
@@ -417,7 +421,7 @@
 }
 
 .settings-default-app-status-active {
-  color: var(--writ-accent);
+  color: var(--writ-fg);
 }
 
 .settings-file-types {

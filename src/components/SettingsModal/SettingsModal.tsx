@@ -2,6 +2,7 @@ import {
   createSignal,
   createEffect,
   createContext,
+  createUniqueId,
   useContext,
   onCleanup,
   onMount,
@@ -27,6 +28,7 @@ import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
 import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { joinAnd } from "../../lib/join-and";
+import { logFailure } from "../../lib/log";
 import { FILE_MANAGER_NAME, IS_MAC, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
@@ -274,42 +276,65 @@ interface SettingsRowProps {
   children: JSX.Element;
 }
 
+/** What a row's description can be attached to, in the order a row holds one. */
+const ROW_CONTROL = '[role="switch"], [role="radiogroup"], input, select, textarea, button';
+
 function SettingsRow(props: SettingsRowProps) {
   const search = useSearch();
+  const descriptionId = createUniqueId();
+  const cautionId = createUniqueId();
+  let rowRef: HTMLDivElement | undefined;
+
+  const describedBy = () =>
+    [props.description ? descriptionId : "", props.caution ? cautionId : ""]
+      .filter(Boolean)
+      .join(" ");
+
+  // The control is `children`, so the row cannot hand it a prop. It finds the
+  // control inside its own element instead: the description belongs on the
+  // control as a description, not inside the label, where it became part of the
+  // control's accessible name.
+  createEffect(() => {
+    const ids = describedBy();
+    if (!rowRef) return;
+    const control = props.labelFor
+      ? rowRef.querySelector<HTMLElement>(`[id="${props.labelFor}"]`)
+      : rowRef.querySelector<HTMLElement>(ROW_CONTROL);
+    if (!control) return;
+    if (ids) control.setAttribute("aria-describedby", ids);
+    else control.removeAttribute("aria-describedby");
+  });
+
   return (
     <Show when={search.rowVisible(props.id)}>
       <div
+        ref={rowRef}
         class="settings-row"
         classList={{ "settings-row-highlight": search.highlighted(props.id) }}
         data-setting-id={props.id}
         data-align={props.align}
       >
-        <Show
-          when={props.labelFor}
-          fallback={
-            <span class="settings-row-label">
+        <span class="settings-row-label">
+          <Show
+            when={props.labelFor}
+            fallback={<span class="settings-row-label-text">{props.label}</span>}
+          >
+            <label class="settings-row-label-text" for={props.labelFor}>
               {props.label}
-              {props.labelAside}
-              <Show when={props.description}>
-                <span class="settings-row-description">{props.description}</span>
-              </Show>
-              <Show when={props.caution}>
-                <span class="settings-row-caution">{props.caution}</span>
-              </Show>
+            </label>
+          </Show>
+          {props.labelAside}
+          <Show when={props.description}>
+            <span id={descriptionId} class="settings-row-description">
+              {props.description}
             </span>
-          }
-        >
-          <label class="settings-row-label" for={props.labelFor}>
-            {props.label}
-            {props.labelAside}
-            <Show when={props.description}>
-              <span class="settings-row-description">{props.description}</span>
-            </Show>
-            <Show when={props.caution}>
-              <span class="settings-row-caution">{props.caution}</span>
-            </Show>
-          </label>
-        </Show>
+          </Show>
+          <Show when={props.caution}>
+            <span id={cautionId} class="settings-row-caution">
+              {props.caution}
+            </span>
+          </Show>
+        </span>
         {props.children}
       </div>
     </Show>
@@ -446,11 +471,17 @@ function EditorSection() {
           onChange={onSpellingToggle}
         />
       </SettingsRow>
-      <SettingsRow id="editor.spelling_dialect" label="Spelling" labelFor="setting-spelling-dialect">
+      <SettingsRow
+        id="editor.spelling_dialect"
+        label="Dictionary"
+        labelFor="setting-spelling-dialect"
+        caution={spelling().enabled ? undefined : "Turn on Spell check to pick a dictionary."}
+      >
         <select
           id="setting-spelling-dialect"
           class="settings-select"
           data-setting="spelling_dialect"
+          disabled={!spelling().enabled}
           value={spelling().dialect}
           onChange={(e) => onSpellingDialectChange(e.currentTarget.value)}
         >
@@ -611,7 +642,7 @@ function fallbackLine(displayPath: string, reason: NotesFallbackReason): string 
 
 /** Names the files a move would have written over, at most three of them. */
 function collisionLine(names: string[]): string {
-  const shown = names.slice(0, 3).map((name) => `"${name}"`).join(", ");
+  const shown = names.slice(0, 3).map((name) => `“${name}”`).join(", ");
   const rest = names.length - 3;
   const list = rest > 0 ? `${shown} and ${rest} more` : shown;
   return `That folder already has ${list}. Nothing moved.`;
@@ -650,8 +681,9 @@ function NotesSection() {
         return;
       }
       showToast(`Your notes are now in ${folder()?.display_path ?? outcome.new_root}.`, "success");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e), "error");
+    } catch {
+      showToast("Could not move the notes folder", "error");
+      logFailure("the notes folder could not be moved");
     }
   }
 
@@ -777,7 +809,7 @@ function PreviewSection() {
       </SettingsRow>
       <SettingsRow
         id="preview.layout_md"
-        label="When opening a Markdown file, show:"
+        label="When opening a Markdown file, show"
         labelFor="setting-layout-md"
       >
         <select
@@ -794,7 +826,7 @@ function PreviewSection() {
       </SettingsRow>
       <SettingsRow
         id="preview.layout_html"
-        label="When opening an HTML file, show:"
+        label="When opening an HTML file, show"
         labelFor="setting-layout-html"
       >
         <select
@@ -834,7 +866,7 @@ function UpdatesSection() {
           onChange={onAutoCheckToggle}
         />
       </SettingsRow>
-      <SettingsRow id="updates.check_now" label="Check for updates now">
+      <SettingsRow id="updates.check_now" label="Updates">
         <Button
           data-action="check-updates-now"
           onClick={() => void updateStore.checkForUpdate()}
@@ -1688,9 +1720,9 @@ function AdvancedSection() {
       const result = await installCli();
       setCliInstalled(true);
       showToast(`writ installed at ${result.symlink_path}`, "success");
-    } catch (err) {
-      const detail = typeof err === "string" ? err : String(err);
-      showToast(detail, "error");
+    } catch {
+      showToast("Could not install the writ command", "error");
+      logFailure("the writ command could not be installed");
       refreshCliStatus();
     } finally {
       setIsInstallingCli(false);
@@ -1701,8 +1733,11 @@ function AdvancedSection() {
     void patchConfig((prev) => ({ ...prev, inbox: { ...prev.inbox, focus: !prev.inbox.focus } }));
   }
 
+  // A live threshold above the refuse threshold describes a file Writ renders
+  // live and refuses to render, so each value is held under the other.
   function onLiveLimitChange(raw: string) {
-    const value = clamp(parseFloatSafe(raw, preview().live_render_threshold_mb), 0.1, 100);
+    const ceiling = Math.min(100, preview().render_refuse_threshold_mb);
+    const value = clamp(parseFloatSafe(raw, preview().live_render_threshold_mb), 0.1, ceiling);
     void patchConfig((prev) => ({
       ...prev,
       preview: { ...prev.preview, live_render_threshold_mb: value },
@@ -1713,7 +1748,11 @@ function AdvancedSection() {
     const value = clamp(parseFloatSafe(raw, preview().render_refuse_threshold_mb), 1, 500);
     void patchConfig((prev) => ({
       ...prev,
-      preview: { ...prev.preview, render_refuse_threshold_mb: value },
+      preview: {
+        ...prev.preview,
+        render_refuse_threshold_mb: value,
+        live_render_threshold_mb: Math.min(prev.preview.live_render_threshold_mb, value),
+      },
     }));
   }
 
@@ -1787,6 +1826,7 @@ function AdvancedSection() {
         id="preview.live_threshold"
         label="Stop live preview above"
         labelFor="setting-live-limit"
+        description="Writ keeps this under the size it will not preview."
       >
         <span class="settings-inbox-controls">
           <input
@@ -2019,13 +2059,13 @@ function ProgramsSection() {
                       Writing includes reading.
                     </span>
                   </Show>
-                  <span class="settings-program-note" data-program-note="forget">
-                    Removes this program. It can ask again next time it connects.
-                  </span>
                 </li>
               )}
             </For>
           </ul>
+          <span class="settings-program-note" data-program-note="forget">
+            Forget removes a program. It can ask again next time it connects.
+          </span>
         </Show>
       </SettingsRow>
 
@@ -2037,7 +2077,7 @@ function ProgramsSection() {
             openActivity();
           }}
         >
-          Open
+          Open activity…
         </Button>
       </SettingsRow>
     </div>
@@ -2274,7 +2314,7 @@ export default function SettingsModal() {
                     when={!noMatches()}
                     fallback={
                       <div class="settings-empty">
-                        <div class="settings-empty-title">No settings match "{query()}"</div>
+                        <div class="settings-empty-title">No settings match “{query()}”</div>
                         <div class="settings-empty-hint">Try a different word, or clear the search.</div>
                       </div>
                     }
