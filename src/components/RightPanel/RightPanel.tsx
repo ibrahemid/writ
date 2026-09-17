@@ -29,8 +29,8 @@ import "./RightPanel.css";
  * that rather than each asking again.
  *
  * A section with nothing in it renders nothing at all — no heading, no line
- * saying it is empty. A note with none of them leaves the panel showing its
- * ground and its edge, which is the honest answer.
+ * saying it is empty. A note with none of them gets one line instead of a
+ * blank column, and so does a panel opened with no note in front of it.
  */
 export default function RightPanel() {
   const win = useWindow();
@@ -66,6 +66,21 @@ export default function RightPanel() {
   const facts = createMemo(() => {
     const path = openPath();
     return path === null ? null : noteFactsStore.factsFor(path);
+  });
+
+  // Whether any section has something to draw. The drawing is not asked about:
+  // a neighbour is a resolved link in one direction or the other, so a note
+  // with neither list has nothing around it either.
+  const hasConnections = createMemo(() => {
+    const note = openNote();
+    if (note === null) return false;
+    const read = facts()!();
+    return (
+      read.headings.length > 0 ||
+      read.properties.length > 0 ||
+      read.links.length > 0 ||
+      backlinksStore.backlinksFor(note.path)().length > 0
+    );
   });
 
   // A note the panel has stopped showing stops being followed. Without this
@@ -113,9 +128,15 @@ export default function RightPanel() {
       />
       <div class="right-panel-inner">
         <div class="right-panel-scroll">
-          <Show when={openNote()}>
+          <Show
+            when={openNote()}
+            fallback={<p class="right-panel-empty">No note open.</p>}
+          >
             {(note) => (
               <>
+                <Show when={!hasConnections()}>
+                  <p class="right-panel-empty">Nothing links to this note yet.</p>
+                </Show>
                 <Show when={facts()}>
                   {(read) => <OutlineSection facts={read()} bufferId={note().id} />}
                 </Show>

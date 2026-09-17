@@ -145,13 +145,39 @@ describe("a note with nothing to show", () => {
     expect(panel).not.toBeNull();
     expect(headings(container)).toEqual([]);
     expect(container.querySelector(".right-panel-section")).toBeNull();
-    expect(container.textContent?.trim()).toBe("");
   });
 
-  it("shows nothing when no note is open", () => {
+  it("says the note has nothing around it rather than opening blank", () => {
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Nothing links to this note yet.",
+    );
+  });
+
+  it("says no note is open when none is", () => {
     h.activeTabId = null;
     const { container } = mount();
     expect(headings(container)).toEqual([]);
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe("No note open.");
+  });
+
+  it("says neither once a section has something in it", () => {
+    h.facts = {
+      links: [],
+      properties: [],
+      tags: [],
+      headings: [{ level: 1, text: "Launch", line: 1, slug: "launch" }],
+    };
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")).toBeNull();
+  });
+
+  it("wears the sidebar's own hairline on its edge", () => {
+    const css = readFileSync(
+      resolve(process.cwd(), "src/components/RightPanel/RightPanel.css"),
+      "utf8",
+    );
+    expect(css).toMatch(/\.right-panel\s*\{[^}]*border-left:\s*1px solid var\(--writ-border-soft\)/);
   });
 
   it("hands the folder graph back when the last note closes", () => {
