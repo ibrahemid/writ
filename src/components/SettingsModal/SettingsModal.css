@@ -300,12 +300,15 @@
   box-shadow: var(--writ-shadow-chip);
 }
 
+/* The drawn swatch is 16px; the button around it is 24px so the hit box clears
+   the minimum. Swatch to swatch stays at the 25px it was before the box grew,
+   because the gap is whatever the box does not already spend. */
 .settings-accents {
+  --writ-accent-pitch: 25px;
+  --writ-accent-box: 24px;
   display: flex;
   align-items: center;
-  /* The swatch keeps its 16px, the button around it is 24px, and the gap sheds
-     the 8px the box gained so the row's pitch is unchanged. */
-  gap: var(--writ-space-1);
+  gap: calc(var(--writ-accent-pitch, 25px) - var(--writ-accent-box, 24px));
 }
 
 .settings-accent {
@@ -314,8 +317,8 @@
   margin: 0;
   padding: 0;
   background: transparent;
-  width: 24px;
-  height: 24px;
+  width: var(--writ-accent-box, 24px);
+  height: var(--writ-accent-box, 24px);
   display: grid;
   place-items: center;
   border-radius: var(--writ-r-pill);

@@ -78,6 +78,44 @@ describe("the settings area follows the interface text size", () => {
   });
 });
 
+describe("the accent row's pitch survives the bigger hit box", () => {
+  const css = readFileSync(
+    resolve(process.cwd(), "src/components/SettingsModal/SettingsModal.css"),
+    "utf8",
+  );
+
+  function rule(selector: string): string {
+    const match = css.match(new RegExp(`^\\${selector}\\s*\\{([^}]*)\\}`, "m"));
+    expect(match, `${selector} is declared`).toBeTruthy();
+    return match![1];
+  }
+
+  function local(body: string, name: string): number {
+    const found = body.match(new RegExp(`${name}:\\s*(\\d+)px`));
+    expect(found, `${name} is declared`).toBeTruthy();
+    return Number(found![1]);
+  }
+
+  // Before the hit box grew, the swatch was 16px and the gap 9px. The box is
+  // 24px now, so the gap owes the row the 8px difference: the six swatches sit
+  // exactly where they sat.
+  const SWATCH_PITCH = 16 + 9;
+
+  it("keeps swatch to swatch at the distance it was", () => {
+    const row = rule(".settings-accents");
+    const pitch = local(row, "--writ-accent-pitch");
+    const box = local(row, "--writ-accent-box");
+
+    expect(pitch).toBe(SWATCH_PITCH);
+    expect(box).toBeGreaterThanOrEqual(24);
+    expect(row).toMatch(/gap:\s*calc\(var\(--writ-accent-pitch[^)]*\) - var\(--writ-accent-box/);
+
+    const swatch = rule(".settings-accent");
+    expect(swatch).toMatch(/width:\s*var\(--writ-accent-box/);
+    expect(swatch).toMatch(/height:\s*var\(--writ-accent-box/);
+  });
+});
+
 describe("the two app-level banners share one layer", () => {
   it("spend the banner token rather than a bare number", () => {
     for (const rel of [

@@ -119,12 +119,17 @@ describe("a settings row at the top of the interface text range", () => {
   });
 
   it("gives every hit box in the panel at least 24px", () => {
-    for (const selector of [".settings-seg-option", ".settings-switch", ".settings-accent"]) {
+    for (const selector of [".settings-seg-option", ".settings-switch"]) {
       const body = rule(SETTINGS, selector);
       const floor = body.match(/(?:min-)?height:\s*(\d+)px/);
       expect(floor, `${selector} states a height`).toBeTruthy();
       expect(Number(floor![1]), selector).toBeGreaterThanOrEqual(24);
     }
+    // The accent swatch takes its box from the row, which sets it against the
+    // pitch the row has to keep (settings-area-chrome.test.ts).
+    const box = rule(SETTINGS, ".settings-accents").match(/--writ-accent-box:\s*(\d+)px/);
+    expect(box, "the accent row states its box").toBeTruthy();
+    expect(Number(box![1]), ".settings-accent").toBeGreaterThanOrEqual(24);
   });
 });
 
