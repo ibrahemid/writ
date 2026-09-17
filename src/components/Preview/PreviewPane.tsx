@@ -385,7 +385,7 @@ export default function PreviewPane(props: Props) {
       />
       <Show when={state() === "too_large"}>
         <div class="preview-pane-overlay">
-          document too large to preview — use source view
+          Too large to render. Use the source view.
         </div>
       </Show>
       <PreviewStatusChip state={state()} warnings={warnings()} message={message()} />

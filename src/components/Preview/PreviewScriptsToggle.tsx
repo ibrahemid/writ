@@ -39,15 +39,11 @@ export default function PreviewScriptsToggle() {
         class="scripts-toggle"
         classList={{ "is-off": !on() }}
         aria-pressed={on()}
-        title={
-          on()
-            ? "Scripts on — content can run scripts. Click to disable. Network is always off."
-            : "Scripts off — no scripts run. Click to enable."
-        }
+        title={on() ? "Scripts on. Network is always off." : "Scripts off."}
         onClick={toggle}
       >
         <span class="scripts-toggle-dot" aria-hidden="true" />
-        {on() ? "scripts" : "scripts off"}
+        {on() ? "Scripts" : "Scripts off"}
       </button>
     </Show>
   );
