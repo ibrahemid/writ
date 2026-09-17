@@ -112,6 +112,31 @@ describe("ContextMenu separator items stay clickable", () => {
     expect(action).not.toHaveBeenCalled();
   });
 
+  // A right-click on a tree row opens the menu on the row the keyboard is on,
+  // and Escape has to put the user back there rather than on the body.
+  it("hands focus back to the row it was opened from", () => {
+    render(() => <ContextMenu />);
+    const row = document.createElement("div");
+    row.tabIndex = 0;
+    document.body.append(row);
+    row.focus();
+
+    showContextMenu(0, 0, [{ label: "Rename", action: () => {} }]);
+    (document.activeElement as HTMLElement | null)?.blur();
+
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Escape" });
+    expect(document.activeElement).toBe(row);
+    row.remove();
+  });
+
+  it("hands focus nowhere when the menu was opened from the page itself", () => {
+    render(() => <ContextMenu />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    showContextMenu(0, 0, [{ label: "Rename", action: () => {} }]);
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Escape" });
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("gives keyboard focus to a separator item", () => {
     const action = vi.fn();
     render(() => <ContextMenu />);
