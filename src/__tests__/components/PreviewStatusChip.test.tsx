@@ -30,7 +30,7 @@ describe("PreviewStatusChip — transient status indicator", () => {
     ));
     const chip = container.querySelector(".preview-chip")!;
     expect(chip.classList.contains("is-error")).toBe(true);
-    expect(chip.textContent).toContain("Couldn't render");
+    expect(chip.textContent).toContain("Could not render");
     expect(chip.textContent).toContain("boom");
   });
 

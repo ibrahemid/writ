@@ -22,7 +22,7 @@ const STATE_LABEL: Record<PreviewState, string> = {
   ok: "",
   manual: "Too large to render live",
   too_large: "Too large to render",
-  error: "Couldn't render",
+  error: "Could not render",
 };
 
 export default function PreviewStatusChip(props: Props) {

@@ -50,7 +50,7 @@ export default function RightPanel() {
         {win.tabs.activeTabId() === null
           ? "No note open."
           : readFailed()
-            ? "Couldn't read this note's connections."
+            ? "Could not read this note's connections."
             : "Nothing links to this note yet."}
       </p>
     );

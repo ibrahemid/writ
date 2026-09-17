@@ -205,7 +205,7 @@ describe("a note with nothing to show", () => {
     h.factsError = "Could not read what the notes folder holds.";
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Couldn't read this note's connections.",
+      "Could not read this note's connections.",
     );
   });
 
@@ -213,7 +213,7 @@ describe("a note with nothing to show", () => {
     h.backlinksError = "Could not read what the notes folder holds.";
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Couldn't read this note's connections.",
+      "Could not read this note's connections.",
     );
   });
 
