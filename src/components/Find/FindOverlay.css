@@ -18,7 +18,7 @@
 .find-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--writ-space-2);
 }
 
 .find-input {
@@ -58,7 +58,7 @@
 
 .find-toggles {
   display: flex;
-  gap: 2px;
+  gap: var(--writ-space-2);
   flex-shrink: 0;
 }
 
@@ -66,8 +66,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  min-height: 24px;
+  min-width: 28px;
+  min-height: 28px;
   padding: 0 4px;
   background: transparent;
   border: 1px solid transparent;
@@ -98,7 +98,7 @@
 
 .find-nav {
   display: flex;
-  gap: 2px;
+  gap: var(--writ-space-2);
   flex-shrink: 0;
 }
 
@@ -106,8 +106,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  min-height: 24px;
+  min-width: 28px;
+  min-height: 28px;
   background: transparent;
   border: none;
   border-radius: var(--writ-r-action);
@@ -136,7 +136,7 @@
 
 .find-text-btn {
   flex-shrink: 0;
-  min-height: 24px;
+  min-height: 28px;
   padding: 0 8px;
   background: transparent;
   border: 1px solid var(--writ-border);

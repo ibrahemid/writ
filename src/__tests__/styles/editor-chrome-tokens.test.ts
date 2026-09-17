@@ -86,3 +86,27 @@ describe("the editor chrome's focus rings", () => {
     }
   });
 });
+
+// WCAG 2.2 Target Size (Minimum) is 24px, and nine controls in one row at
+// exactly 24px with 2px between them leaves no margin for a mis-aimed click.
+describe("the find bar's targets", () => {
+  const CONTROLS = [".find-toggle", ".find-icon-btn", ".find-text-btn"];
+
+  it("stands every control on at least 28px", () => {
+    for (const selector of CONTROLS) {
+      const declarations = rule(CSS.find, selector);
+      const height = declarations.match(/min-height:\s*(\d+)px/)?.[1];
+      expect(Number(height), `${selector} min-height`).toBeGreaterThanOrEqual(28);
+    }
+    const toggle = rule(CSS.find, ".find-toggle").match(/min-width:\s*(\d+)px/)?.[1];
+    expect(Number(toggle)).toBeGreaterThanOrEqual(28);
+    const icon = rule(CSS.find, ".find-icon-btn").match(/min-width:\s*(\d+)px/)?.[1];
+    expect(Number(icon)).toBeGreaterThanOrEqual(28);
+  });
+
+  it("keeps a step of the spacing ramp between neighbours", () => {
+    for (const selector of [".find-row", ".find-toggles", ".find-nav"]) {
+      expect(rule(CSS.find, selector), selector).toMatch(/gap:\s*var\(--writ-space-2\)/);
+    }
+  });
+});
