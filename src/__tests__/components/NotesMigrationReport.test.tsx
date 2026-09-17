@@ -139,6 +139,35 @@ describe("NotesMigrationReport", () => {
     fireEvent.click(container.querySelector("[data-action='notes-report-dismiss']")!);
     await waitFor(() => expect(mocks.dismiss).toHaveBeenCalledTimes(1));
   });
+
+  it("draws its dismiss control as an icon rather than a times sign", () => {
+    const { container } = render(() => <NotesMigrationReport />);
+    const dismiss = container.querySelector("[data-action='notes-report-dismiss']")!;
+    expect(dismiss.querySelector("svg")).not.toBeNull();
+    expect(dismiss.textContent).not.toContain("×");
+    expect(dismiss.getAttribute("aria-label")).toBe("Dismiss the notes report");
+  });
+
+  it("draws every action with the app's button", () => {
+    mocks.report.mockReturnValue(report({ archived: 4, failed: 2 }));
+    const { container } = render(() => <NotesMigrationReport />);
+    for (const action of ["show", "archive", "details", "dismiss"]) {
+      expect(
+        container.querySelector(`[data-action='notes-report-${action}']`)!.classList.contains("writ-btn"),
+        action,
+      ).toBe(true);
+    }
+  });
+
+  it("writes its own sentence when the archive cannot be moved", async () => {
+    mocks.report.mockReturnValue(report({ archived: 4 }));
+    mocks.moveArchived.mockRejectedValue(new Error("EACCES: permission denied, rename '/home'"));
+    const { container } = render(() => <NotesMigrationReport />);
+
+    fireEvent.click(container.querySelector("[data-action='notes-report-archive']")!);
+    await waitFor(() => expect(mocks.showToast).toHaveBeenCalled());
+    expect(mocks.showToast).toHaveBeenCalledWith("Could not move the archive", "error");
+  });
 });
 
 // The panel's own buttons raise toasts, so a panel sharing the toast stack's
