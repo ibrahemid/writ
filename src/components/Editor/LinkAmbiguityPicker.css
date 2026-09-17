@@ -1,7 +1,7 @@
 .link-picker-scrim {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--writ-z-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -13,8 +13,8 @@
   padding: var(--writ-space-3);
   background: var(--writ-bg-raised);
   border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-control);
-  box-shadow: var(--writ-shadow-popover);
+  border-radius: var(--writ-r-modal);
+  box-shadow: var(--writ-shadow-modal);
   color: var(--writ-fg);
   font-size: var(--writ-ui-sm);
 }
@@ -47,18 +47,16 @@
   cursor: pointer;
 }
 
-.link-picker-row:hover,
+.link-picker-row:hover {
+  background: var(--writ-bg-hover);
+}
+
 .link-picker-row:focus-visible {
-  background: var(--writ-accent);
-  color: var(--writ-accent-fg);
-  outline: none;
+  background: var(--writ-bg-selected);
+  font-weight: 500;
 }
 
 .link-picker-folder {
   color: var(--writ-fg-muted);
 }
 
-.link-picker-row:hover .link-picker-folder,
-.link-picker-row:focus-visible .link-picker-folder {
-  color: inherit;
-}

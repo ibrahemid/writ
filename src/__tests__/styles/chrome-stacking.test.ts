@@ -18,6 +18,10 @@ const TITLEBAR_CSS = readFileSync(
   resolve(process.cwd(), "src/components/TitleBar/TitleBar.css"),
   "utf8",
 );
+const PICKER_CSS = readFileSync(
+  resolve(process.cwd(), "src/components/Editor/LinkAmbiguityPicker.css"),
+  "utf8",
+);
 const THEME_CSS = readFileSync(resolve(process.cwd(), "src/styles/generated/theme.css"), "utf8");
 
 const layer = (name: string): number => {
@@ -49,6 +53,20 @@ describe("find panel stacking", () => {
 
   it("never hardcodes a z-index number", () => {
     expect(FIND_CSS).not.toMatch(/z-index:\s*\d/);
+  });
+});
+
+// Nothing in the chain from the root to the picker opens a stacking context, so
+// a number below the layer tokens puts an aria-modal dialog under the find
+// panel, the toolbar and the toasts.
+describe("link picker stacking", () => {
+  it("sits on the modal layer, above every chrome layer", () => {
+    expect(zToken(PICKER_CSS, ".link-picker-scrim")).toBe("--writ-z-modal");
+    expect(layer("modal")).toBeGreaterThan(layer("popover"));
+  });
+
+  it("never hardcodes a z-index number", () => {
+    expect(PICKER_CSS).not.toMatch(/z-index:\s*\d/);
   });
 });
 
