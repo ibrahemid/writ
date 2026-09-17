@@ -75,7 +75,7 @@ export default function TitleBar() {
         </Show>
 
         <div class="titlebar-end">
-          <div class="titlebar-right" title="Toggle Writ from anywhere" data-no-drag>
+          <div class="titlebar-right" data-no-drag>
             <Kbd binding={configStore.config().hotkey.toggle} />
           </div>
           <CaptionButtons kind={layout.caption} maximized={osWindowStore.maximized()} />

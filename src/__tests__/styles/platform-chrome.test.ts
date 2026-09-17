@@ -76,6 +76,18 @@ describe("Windows caption row", () => {
     expect(TITLEBAR).not.toContain("winctrl-danger");
   });
 
+  // TitleBarDeactivatedOpacity: an unfocused Windows window holds its caption
+  // row at half strength.
+  it("dims the caption row when the window is not the focused one", () => {
+    for (const part of [".titlebar-appmenu", ".winctrl", ".titlebar-right"]) {
+      const dim = declarations(
+        TITLEBAR,
+        `:root[data-platform="win"] .titlebar.is-blurred ${part}`,
+      );
+      expect(dim.get("opacity")).toBe("0.5");
+    }
+  });
+
   it("strokes the content layer under the caption row", () => {
     const body = declarations(APP, ':root[data-platform="win"] .app-body');
     expect(body.get("border-top-left-radius")).toBe("var(--writ-r-window)");
@@ -92,10 +104,10 @@ describe("GNOME header bar", () => {
     expect(bar.get("background")).toBe("var(--writ-lin-headerbar-bg)");
   });
 
-  it("centres the title at the GNOME metric", () => {
+  it("centres the title at the GNOME metric, and follows the interface text size", () => {
     const title = declarations(TITLEBAR, ".headerbar-title");
-    expect(title.get("font-size")).toBe("14.67px");
-    expect(title.get("line-height")).toBe("20.5px");
+    expect(title.get("font-size")).toBe("var(--writ-ui-md)");
+    expect(title.get("line-height")).toBe("var(--writ-ui-md-lh)");
     expect(title.get("font-weight")).toBe("700");
   });
 
