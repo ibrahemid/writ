@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import PreviewStatusChip from "../../components/Preview/PreviewStatusChip";
 
 // The chip is now a transient status indicator: silent in the steady OK
@@ -70,5 +72,18 @@ describe("PreviewStatusChip — transient status indicator", () => {
     expect(container.querySelector(".preview-chip")!.textContent).toContain(
       "Too large to render",
     );
+  });
+
+  // The chip is where a state is stated. The overlay is on screen at the same
+  // moment, so it carries the way out and does not say the state a second time.
+  it("is the only place the size gate is stated", () => {
+    const pane = readFileSync(
+      resolve(process.cwd(), "src/components/Preview/PreviewPane.tsx"),
+      "utf8",
+    );
+    const overlay = pane.match(/<div class="preview-pane-overlay">([\s\S]*?)<\/div>/);
+    expect(overlay, "the pane draws the size-gate overlay").toBeTruthy();
+    expect(overlay![1]).not.toContain("Too large to render");
+    expect(overlay![1]).toContain("Use the source view.");
   });
 });

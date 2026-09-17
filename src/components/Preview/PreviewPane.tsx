@@ -384,9 +384,7 @@ export default function PreviewPane(props: Props) {
         title={props.buffer ? `Preview of ${props.buffer.title}` : "Preview"}
       />
       <Show when={state() === "too_large"}>
-        <div class="preview-pane-overlay">
-          Too large to render. Use the source view.
-        </div>
+        <div class="preview-pane-overlay">Use the source view.</div>
       </Show>
       <PreviewStatusChip state={state()} warnings={warnings()} message={message()} />
       {/* A sibling of the iframe, never a wrapper: the frame element must stay
