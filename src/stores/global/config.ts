@@ -9,6 +9,7 @@ import * as api from "../../services/tauri";
 import { showToast } from "../../components/Notifications/Toast";
 import { logFailure } from "../../lib/log";
 import { knownSidebarSections, withSidebarSection } from "../../lib/sidebar-sections";
+import { SIDEBAR } from "../../styles/generated/tokens";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // Config is shared by every window; mutations persist to disk for all.
@@ -25,10 +26,11 @@ export function clampEditorFontSize(size: number): number {
 }
 
 // Sidebar width bounds (ADR-030 decision 3). The single source of truth for
-// the drag handle, its keyboard steps and the persisted value.
-export const SIDEBAR_WIDTH_MIN = 200;
-export const SIDEBAR_WIDTH_MAX = 320;
-export const SIDEBAR_WIDTH_DEFAULT = 240;
+// the drag handle, its keyboard steps and the persisted value, read from the
+// tokens the stylesheet lays the panel out with.
+export const SIDEBAR_WIDTH_MIN = Number.parseFloat(SIDEBAR.minWidth);
+export const SIDEBAR_WIDTH_MAX = Number.parseFloat(SIDEBAR.maxWidth);
+export const SIDEBAR_WIDTH_DEFAULT = Number.parseFloat(SIDEBAR.width);
 
 export function clampSidebarWidth(width: number): number {
   if (!Number.isFinite(width)) return SIDEBAR_WIDTH_DEFAULT;

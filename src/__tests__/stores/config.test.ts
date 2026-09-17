@@ -1,11 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 vi.mock("../../services/tauri", () => ({
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { configStore } from "../../stores/global/config";
+import {
+  configStore,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+} from "../../stores/global/config";
+import { SIDEBAR } from "../../styles/generated/tokens";
 import { getConfig, updateConfig } from "../../services/tauri";
 import type { WritConfig } from "../../types/config";
 
@@ -254,6 +262,24 @@ describe("configStore", () => {
 
       await vi.advanceTimersByTimeAsync(1000);
       expect(mockedUpdateConfig).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("sidebar bounds", () => {
+    // One source of truth: the drag handle clamps to the same numbers the
+    // stylesheet lays the panel out with.
+    it("are the token values, not a second copy of them", () => {
+      expect(SIDEBAR_WIDTH_MIN).toBe(Number.parseFloat(SIDEBAR.minWidth));
+      expect(SIDEBAR_WIDTH_MAX).toBe(Number.parseFloat(SIDEBAR.maxWidth));
+      expect(SIDEBAR_WIDTH_DEFAULT).toBe(Number.parseFloat(SIDEBAR.width));
+    });
+
+    it("are read from the token module rather than written out", () => {
+      const source = readFileSync(resolve(process.cwd(), "src/stores/global/config.ts"), "utf8");
+      const bounds = source.slice(source.indexOf("export const SIDEBAR_WIDTH_MIN"));
+      expect(bounds.slice(0, bounds.indexOf("export function clampSidebarWidth"))).not.toMatch(
+        /\b(200|320|240)\b/,
+      );
     });
   });
 
