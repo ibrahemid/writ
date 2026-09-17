@@ -115,6 +115,51 @@ describe("NoteHistoryPanel while it reads", () => {
     );
   });
 
+  // Two reads open at once is the ordinary keyboard path: every ArrowDown
+  // starts one. An earlier read settling must not un-blank the pane while the
+  // read the selected row is waiting for is still open.
+  it("never shows a version the row beside it does not name, whatever settles first", async () => {
+    h.noteVersions.mockResolvedValue([
+      version(11, at(0, 14, 32)),
+      version(12, at(2, 9, 11)),
+      version(13, at(5, 9, 11)),
+    ]);
+    h.noteVersionContent.mockResolvedValueOnce("newest text\n");
+
+    const screen = render(() => <NoteHistoryPanel />);
+    openNoteVersions(NOTE);
+    await waitFor(() => expect(screen.getByText("newest text")).toBeTruthy());
+
+    const middle = held<string>();
+    const oldest = held<string>();
+    h.noteVersionContent.mockReturnValueOnce(middle.promise);
+    h.noteVersionContent.mockReturnValueOnce(oldest.promise);
+
+    const list = screen.container.querySelector('[role="listbox"]')!;
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    await waitFor(() => expect(h.noteVersionContent).toHaveBeenCalledWith(12));
+    fireEvent.keyDown(list, { key: "ArrowDown" });
+    await waitFor(() => expect(h.noteVersionContent).toHaveBeenCalledWith(13));
+
+    const pane = () => screen.container.querySelector(".note-versions-text")!.textContent;
+    const named = () =>
+      screen.container
+        .querySelector('[role="option"][aria-selected="true"]')!
+        .getAttribute("data-version");
+
+    // The read the user moved past settles first.
+    middle.settle("middle text\n");
+    for (let i = 0; i < 4; i += 1) await Promise.resolve();
+
+    expect(named()).toBe("13");
+    expect(pane()).not.toContain("newest text");
+    expect(pane()).not.toContain("middle text");
+
+    oldest.settle("oldest text\n");
+    await waitFor(() => expect(pane()).toBe("oldest text\n"));
+    expect(named()).toBe("13");
+  });
+
   it("says once that a restore keeps what the note holds now", async () => {
     h.noteVersions.mockResolvedValue([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]);
     h.noteVersionContent.mockResolvedValue("what the note said\n");
