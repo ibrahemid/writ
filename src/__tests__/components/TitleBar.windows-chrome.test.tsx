@@ -208,7 +208,7 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
     expect(container.querySelector(".headerbar")).not.toBeNull();
     expect(container.querySelectorAll(".gnomectrl")).toHaveLength(1);
     expect(container.querySelector(".gnomectrl-close")!.getAttribute("aria-label")).toBe(
-      "Hide window",
+      "Hide",
     );
     expect(container.querySelector(".winctrl")).toBeNull();
   });
@@ -274,8 +274,22 @@ describe("Windows window controls", () => {
   it("names the close button for what it does, which is hide", () => {
     const { container } = renderOn("win");
     const button = container.querySelector<HTMLButtonElement>(".winctrl-close")!;
-    expect(button.getAttribute("title")).toBe("Hide");
-    expect(button.getAttribute("aria-label")).toBe("Hide window");
+    expect(button.getAttribute("aria-label")).toBe("Hide");
+  });
+
+  // One name per control: a native tip that disagrees with the accessible name
+  // gives the same button two names, one of which nobody can hear.
+  it("names each caption control once", () => {
+    for (const platform of ["win", "linux"] as const) {
+      const { container, unmount } = renderOn(platform);
+      for (const button of container.querySelectorAll("button")) {
+        expect(button.getAttribute("title"), button.className).toBeNull();
+      }
+      for (const control of container.querySelectorAll(".winctrl, .gnomectrl")) {
+        expect(control.getAttribute("aria-label"), control.className).toBeTruthy();
+      }
+      unmount();
+    }
   });
 
   it("clicks through a press on the glyph instead of dragging the window", () => {
@@ -294,8 +308,7 @@ describe("maximize button reflects window state", () => {
     mocks.maximized.current = false;
     const { container } = renderOn("win");
     const button = container.querySelector<HTMLButtonElement>(".winctrl-max")!;
-    expect(button.getAttribute("aria-label")).toBe("Maximize window");
-    expect(button.getAttribute("title")).toBe("Maximize");
+    expect(button.getAttribute("aria-label")).toBe("Maximize");
     expect(button.querySelectorAll("svg rect")).toHaveLength(1);
   });
 
@@ -303,8 +316,7 @@ describe("maximize button reflects window state", () => {
     mocks.maximized.current = true;
     const { container } = renderOn("win");
     const button = container.querySelector<HTMLButtonElement>(".winctrl-max")!;
-    expect(button.getAttribute("aria-label")).toBe("Restore window");
-    expect(button.getAttribute("title")).toBe("Restore");
+    expect(button.getAttribute("aria-label")).toBe("Restore");
     expect(button.querySelector("svg path")).not.toBeNull();
   });
 });
