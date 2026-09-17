@@ -107,7 +107,7 @@ function openNote() {
 
 function buttons(container: HTMLElement): HTMLButtonElement[] {
   return [
-    ...container.querySelectorAll<HTMLButtonElement>(".file-changed-bar-action"),
+    ...container.querySelectorAll<HTMLButtonElement>(".file-changed-bar .writ-btn"),
   ];
 }
 
@@ -493,7 +493,7 @@ describe("a note that is waiting for an answer about its file", () => {
     const labels = () =>
       [
         ...container.querySelectorAll<HTMLButtonElement>(
-          ".save-failure-bar-action",
+          ".save-failure-bar .writ-btn",
         ),
       ].map((button) => button.textContent);
     await waitFor(() => expect(labels()).toEqual(["Save a copy…"]));

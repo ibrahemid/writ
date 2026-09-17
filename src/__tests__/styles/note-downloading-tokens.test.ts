@@ -47,13 +47,8 @@ describe("the download pane's stylesheet", () => {
     // The names actually in use, so a silent swap back to a literal or onto a
     // property from another layer shows up here.
     expect(readNames(SHEET_CSS)).toEqual([
-      "--writ-accent",
       "--writ-bg-canvas",
-      "--writ-bg-raised",
-      "--writ-border",
       "--writ-fg",
-      "--writ-r-control",
-      "--writ-space-2",
       "--writ-space-3",
       "--writ-space-4",
       "--writ-status-error",

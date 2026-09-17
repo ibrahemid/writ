@@ -2,7 +2,8 @@ import { createSignal, Show } from "solid-js";
 import { saveStatusStore } from "../../stores/global/save-status";
 import { saveCopyOfNote } from "../../lib/note-actions";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import "./SaveFailureBar.css";
+import Button from "../Button/Button";
+import "./EditorBar.css";
 
 // The code for a file whose bytes are not on this machine. Asking the file
 // before writing again is what stops a press landing on a placeholder.
@@ -67,36 +68,28 @@ export default function SaveFailureBar(props: { noteId: string | null }) {
   return (
     <Show when={failed()}>
       {(current) => (
-        <div class="save-failure-bar" role="alert">
-          <p class="save-failure-bar-text">
+        <div class="editor-bar save-failure-bar" role="alert">
+          <p class="editor-bar-text">
             Couldn't save {current().fileName}: {current().reason?.message}
             <Show when={stillWaiting()}>
               {" "}
-              <span class="save-failure-bar-note">Still downloading.</span>
+              <span class="editor-bar-note">Still downloading.</span>
             </Show>
           </p>
-          <div class="save-failure-bar-actions">
+          <div class="editor-bar-actions">
             <Show
               when={current().reason?.retryable !== false && !heldForAnswer()}
             >
-              <button
-                type="button"
-                class="save-failure-bar-action"
+              <Button
                 disabled={retrying()}
                 onClick={() =>
                   void tryAgain(props.noteId!, current().reason?.code ?? null)
                 }
               >
                 Try again
-              </button>
+              </Button>
             </Show>
-            <button
-              type="button"
-              class="save-failure-bar-action"
-              onClick={() => void saveCopyOfNote(props.noteId!)}
-            >
-              Save a copy…
-            </button>
+            <Button onClick={() => void saveCopyOfNote(props.noteId!)}>Save a copy…</Button>
           </div>
         </div>
       )}

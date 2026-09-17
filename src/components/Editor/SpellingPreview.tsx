@@ -1,6 +1,7 @@
 import { createSignal, Show, For, createEffect, createMemo, onCleanup } from "solid-js";
 import { spellingStore, entryKey } from "../../stores/global/spelling";
 import type { SpellingEntry } from "../../editor/spelling";
+import Button from "../Button/Button";
 import "./SpellingPreview.css";
 
 // Non-modal overlay listing every flagged range as `wrong → fix`, with
@@ -125,24 +126,21 @@ export default function SpellingPreview() {
             <span>{fixableRows().length} to fix</span>
           </label>
           <div class="spelling-preview-actions">
-            <button
-              type="button"
+            <Button
               ref={applyRef}
-              class="spelling-preview-btn spelling-preview-apply"
+              variant="primary"
               disabled={selected().size === 0}
               onClick={apply}
             >
               Apply
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
               ref={closeRef}
-              class="spelling-preview-btn"
               onClick={closeSpellingPreview}
               aria-label="Close spelling preview"
             >
               Close
-            </button>
+            </Button>
           </div>
         </div>
 

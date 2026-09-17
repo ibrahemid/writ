@@ -1,7 +1,8 @@
 import { Show } from "solid-js";
 import { noteName, saveCopyOfNote } from "../../lib/note-actions";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import "./RemovedOnDiskBar.css";
+import Button from "../Button/Button";
+import "./EditorBar.css";
 
 /**
  * The bar a note carries once its file is gone from disk.
@@ -26,32 +27,14 @@ export default function RemovedOnDiskBar(props: { noteId: string | null }) {
   return (
     <Show when={removed()}>
       {(id) => (
-        <div class="removed-on-disk-bar" role="alert">
-          <p class="removed-on-disk-bar-text">
-            {name()} was deleted. Your text is still here.
-          </p>
-          <div class="removed-on-disk-bar-actions">
-            <button
-              type="button"
-              class="removed-on-disk-bar-action"
-              onClick={() => void win.editor.restoreRemovedFile(id())}
-            >
+        <div class="editor-bar removed-on-disk-bar" role="alert">
+          <p class="editor-bar-text">{name()} was deleted. Your text is still here.</p>
+          <div class="editor-bar-actions">
+            <Button onClick={() => void win.editor.restoreRemovedFile(id())}>
               Put the file back
-            </button>
-            <button
-              type="button"
-              class="removed-on-disk-bar-action"
-              onClick={() => void saveCopyOfNote(id())}
-            >
-              Save a copy…
-            </button>
-            <button
-              type="button"
-              class="removed-on-disk-bar-action"
-              onClick={() => void win.tabs.closeTab(id())}
-            >
-              Close
-            </button>
+            </Button>
+            <Button onClick={() => void saveCopyOfNote(id())}>Save a copy…</Button>
+            <Button onClick={() => void win.tabs.closeTab(id())}>Close</Button>
           </div>
         </div>
       )}

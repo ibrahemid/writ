@@ -1,0 +1,58 @@
+/* The bar the editor puts between the tab strip and the note when the file
+   under it needs an answer. One sheet for all four: they differ only in the
+   colour of the rail on their leading edge, which is what --editor-bar-rail
+   carries. The default is the neutral border, so a bar that is a question
+   rather than a fault does not spend the accent on it (ADR-030 §6). */
+.editor-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-4);
+  padding: var(--writ-space-2) var(--writ-space-4);
+  background: var(--writ-bg-selected);
+  border-bottom: 1px solid var(--writ-border);
+  border-left: 2px solid var(--editor-bar-rail, var(--writ-border));
+  box-shadow: var(--writ-shadow-popover);
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg);
+  flex-shrink: 0;
+}
+
+.removed-on-disk-bar,
+.rename-skipped-bar {
+  --editor-bar-rail: var(--writ-status-warning);
+}
+
+.save-failure-bar {
+  --editor-bar-rail: var(--writ-status-error);
+}
+
+/* A bar whose text is a list stands its actions at the top of it. */
+.rename-skipped-bar {
+  align-items: flex-start;
+}
+
+.editor-bar-text {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.editor-bar-heading {
+  margin: 0;
+}
+
+.editor-bar-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor-bar-note {
+  color: var(--writ-fg-muted);
+}
+
+.editor-bar-actions {
+  display: flex;
+  gap: var(--writ-space-2);
+  flex-shrink: 0;
+}

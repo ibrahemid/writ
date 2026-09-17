@@ -31,7 +31,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 import FileChangedBar from "../../components/Editor/FileChangedBar";
 
 function buttons(container: HTMLElement): HTMLButtonElement[] {
-  return [...container.querySelectorAll<HTMLButtonElement>(".file-changed-bar-action")];
+  return [...container.querySelectorAll<HTMLButtonElement>(".file-changed-bar .writ-btn")];
 }
 
 beforeEach(() => {
