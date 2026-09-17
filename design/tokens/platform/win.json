@@ -353,9 +353,6 @@
           "stroke": {
             "$value": "rgba(0,0,0,.059)"
           },
-          "input": {
-            "$value": "rgba(255,255,255,.702)"
-          },
           "input-active": {
             "$value": "#FFFFFF"
           },
@@ -449,9 +446,6 @@
         "win": {
           "stroke": {
             "$value": "rgba(255,255,255,.071)"
-          },
-          "input": {
-            "$value": "rgba(255,255,255,.059)"
           },
           "input-active": {
             "$value": "rgba(30,30,30,.702)"

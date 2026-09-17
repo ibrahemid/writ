@@ -351,7 +351,11 @@ describe("every emitted token is spent", () => {
     "--writ-selection-match": "owed to the editor's search-match highlight (editor-20)",
   };
 
-  const SEARCH_ROOTS = ["src", "site/src", "src-tauri/src", "crates", "design"];
+  // design/ is the generator, not a consumer: config.mjs and the token JSON
+  // name custom properties as the text they emit, so a token mentioned there
+  // would vouch for itself. The two things that legitimately spend a name
+  // without a stylesheet reading it are added back by hand below.
+  const SEARCH_ROOTS = ["src", "site/src", "src-tauri/src", "crates"];
   const SEARCH_EXTENSIONS = [".css", ".ts", ".tsx", ".rs", ".astro", ".json", ".mjs"];
 
   function sources(dir: string, found: string[] = []): string[] {
@@ -368,17 +372,39 @@ describe("every emitted token is spent", () => {
     return found;
   }
 
-  it("is referenced by something that is not a generated file", () => {
-    // A token's own `cssName` extension states its CSS name, so it would
-    // count as a reference to itself; strip those before searching.
-    const corpus = SEARCH_ROOTS.flatMap((root) => sources(resolve(ROOT, root))).map((file) =>
-      readFileSync(file, "utf8").replace(/"cssName"\s*:\s*"[^"]*"/g, ""),
+  /** One name, not a name that merely starts another one. */
+  function isReadBy(name: string, text: string): boolean {
+    return new RegExp(`${name}(?![a-z0-9-])`).test(text);
+  }
+
+  function corpus(): string[] {
+    const files = SEARCH_ROOTS.flatMap((root) => sources(resolve(ROOT, root))).map((file) =>
+      readFileSync(file, "utf8"),
     );
+    // A token another token's value chains to is spent: --writ-motion is
+    // `var(--writ-motion-duration) var(--writ-ease)`, and nothing else reads
+    // either half.
+    files.push([...THEME_CSS.matchAll(/var\(\s*(--writ-[a-z0-9-]+)/g)].map((m) => m[1]).join(" "));
+    // CSS_VAR is the hand-kept list of names the app passes to cssVar() at
+    // runtime rather than writing into a stylesheet.
+    const tokensTs = readFileSync(resolve(ROOT, "src/styles/generated/tokens.ts"), "utf8");
+    const map = tokensTs.slice(tokensTs.indexOf("export const CSS_VAR"));
+    files.push(map.slice(0, map.indexOf("} as const;")));
+    return files;
+  }
+
+  it("is referenced by something that is not a generated file", () => {
+    const texts = corpus();
     const declared = [...new Set([...THEME_CSS.matchAll(/(--writ-[a-z0-9-]+)\s*:/g)].map((m) => m[1]))];
     const orphans = declared.filter(
-      (name) => !(name in UNSPENT) && !corpus.some((text) => text.includes(name)),
+      (name) => !(name in UNSPENT) && !texts.some((text) => isReadBy(name, text)),
     );
     expect(orphans, `nothing reads:\n${orphans.join("\n")}`).toEqual([]);
+  });
+
+  it("is not vouched for by a longer name that happens to start with it", () => {
+    expect(isReadBy("--writ-win-input", "var(--writ-win-input-active)")).toBe(false);
+    expect(isReadBy("--writ-win-input", "var(--writ-win-input)")).toBe(true);
   });
 
   it("or is listed as owed, with the reason", () => {

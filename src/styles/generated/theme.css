@@ -214,7 +214,6 @@
   --writ-fg-faint: rgba(0,0,0,.447);
   --writ-shadow-modal: 0 0 8px rgba(0,0,0,.20), 0 32px 64px rgba(0,0,0,.24);
   --writ-win-stroke: rgba(0,0,0,.059);
-  --writ-win-input: rgba(255,255,255,.702);
   --writ-win-input-active: #FFFFFF;
   --writ-win-focus-outer: rgba(0,0,0,.894);
   --writ-win-focus-inner: rgba(255,255,255,.702);
@@ -237,7 +236,6 @@
   --writ-fg-faint: rgba(255,255,255,.529);
   --writ-shadow-modal: 0 0 8px rgba(0,0,0,.40), 0 32px 64px rgba(0,0,0,.48);
   --writ-win-stroke: rgba(255,255,255,.071);
-  --writ-win-input: rgba(255,255,255,.059);
   --writ-win-input-active: rgba(30,30,30,.702);
   --writ-win-focus-outer: #FFFFFF;
   --writ-win-focus-inner: rgba(0,0,0,.702);
