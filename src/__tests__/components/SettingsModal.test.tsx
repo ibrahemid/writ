@@ -1193,6 +1193,85 @@ describe("AI section", () => {
     }
   });
 
+  /** Holds the deepseek row back to an empty model catalog, as the table being
+   * unloaded leaves it, and hands over the real suggestions when told to. */
+  function deferredCatalog() {
+    const [ready, setReady] = createSignal(false);
+    const row = TEST_PROVIDERS.find((r) => r.id === "deepseek") as AiProviderInfo;
+    const byId = vi.spyOn(aiProvidersStore, "byId").mockImplementation((id: string) => {
+      if (id !== "deepseek") return null;
+      return ready() ? row : { ...row, curated_models: [], default_model: "" };
+    });
+    return { arrive: () => setReady(true), restore: () => byId.mockRestore() };
+  }
+
+  // Same shape as the provider picker: the catalog is the table's, so it is
+  // empty when the saved model is first applied to the select.
+  it("shows the saved model once the catalog arrives", async () => {
+    const catalog = deferredCatalog();
+    try {
+      const { container } = await openAiSection();
+      const select = container.querySelector('[data-setting="ai_model"]') as HTMLSelectElement;
+      expect([...select.querySelectorAll("option")].map((o) => o.value)).toEqual(["__custom__"]);
+
+      catalog.arrive();
+      await waitFor(() => expect(select.querySelectorAll("option").length).toBeGreaterThan(1));
+      expect(select.value).toBe("deepseek-chat");
+    } finally {
+      catalog.restore();
+    }
+  });
+
+  // The live list replaces the suggestions after mount and need not put the
+  // saved model where the suggestions had it.
+  it("keeps the saved model when the live list replaces the suggestions", async () => {
+    let answer: (c: ReturnType<typeof listed>) => void = () => {};
+    mocks.aiListModels.mockImplementation(
+      () => new Promise<ReturnType<typeof listed>>((resolve) => (answer = resolve)),
+    );
+    const { container } = await openAiSection();
+    const select = container.querySelector('[data-setting="ai_model"]') as HTMLSelectElement;
+
+    answer(listed("deepseek", ["deepseek-reasoner", "deepseek-chat"]));
+    await waitFor(() =>
+      expect(select.querySelector("option")!.textContent).toBe("deepseek-reasoner"),
+    );
+    expect(select.value).toBe("deepseek-chat");
+  });
+
+  it("shows the saved chat model once the catalog arrives", async () => {
+    const catalog = deferredCatalog();
+    try {
+      const { container } = await openAiSection({
+        chat: { enabled: true, model: "deepseek-reasoner", model_provider: "deepseek" },
+      });
+      const select = container.querySelector(
+        '[data-setting="ai_chat_model"]',
+      ) as HTMLSelectElement;
+      expect(select.querySelectorAll("option").length).toBe(0);
+
+      catalog.arrive();
+      await waitFor(() => expect(select.querySelectorAll("option").length).toBeGreaterThan(0));
+      expect(select.value).toBe("deepseek-reasoner");
+    } finally {
+      catalog.restore();
+    }
+  });
+
+  // The catalog is suggestions, not an inventory, so an id it does not name is
+  // still the saved model: it lands on Custom with the id in the text field.
+  it("lands a model the catalog does not name on Custom, with the id showing", async () => {
+    const { container } = await openAiSection({ model: "deepseek-chat-v9" });
+    const select = container.querySelector('[data-setting="ai_model"]') as HTMLSelectElement;
+    await waitFor(() =>
+      expect(container.querySelector('[data-setting="ai_model_custom"]')).not.toBeNull(),
+    );
+    expect(select.value).toBe("__custom__");
+    expect(
+      (container.querySelector('[data-setting="ai_model_custom"]') as HTMLInputElement).value,
+    ).toBe("deepseek-chat-v9");
+  });
+
   it("shows the base URL row only for a custom server", async () => {
     const hosted = await openAiSection();
     expect(hosted.container.querySelector('[data-setting-id="ai.base_url"]')).toBeNull();

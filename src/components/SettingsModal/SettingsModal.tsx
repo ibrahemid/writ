@@ -1391,8 +1391,14 @@ function AiSection() {
                 value={cfg().chat.model}
                 onChange={(e) => void aiConnectionStore.selectChatModel(e.currentTarget.value)}
               >
+                {/* The catalog arrives after this mounts and `chat.model` does not
+                    change with it, so the option carries the choice. */}
                 <For each={modelOptionList()}>
-                  {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
+                  {(id) => (
+                    <option value={id} selected={id === cfg().chat.model}>
+                      {modelOptionLabel(id)}
+                    </option>
+                  )}
                 </For>
               </select>
             </Show>
