@@ -190,6 +190,9 @@ export default function ChatComposer(props: {
 
   function onInput(event: InputEvent & { currentTarget: HTMLTextAreaElement }) {
     const el = event.currentTarget;
+    // A refusal answers the pick it was refused for, so the next thing typed
+    // takes it off the screen.
+    setRefusal(null);
     chatStore.setDraft(el.value);
     fit(el);
     const found = mentionQuery(el.value, el.selectionStart);

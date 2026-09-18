@@ -415,6 +415,25 @@ describe("the mention list", () => {
     );
   });
 
+  it("takes a refusal off the screen when the next word is typed", async () => {
+    mocks.folders.mockResolvedValue([{ folder: "Archive", notes: 30 }]);
+    mocks.attachFolder.mockResolvedValue({ ok: false, reason: "Archive/Big.md is too large." });
+    const view = mount();
+    const el = field(view.container);
+    el.value = "see @Archive/";
+    fireEvent.input(el);
+    await waitFor(() => expect(view.container.querySelector(".chat-mention-row")).toBeTruthy());
+    fireEvent.mouseDown(view.container.querySelector(".chat-mention-row") as HTMLElement);
+    await waitFor(() =>
+      expect(view.container.textContent).toContain("Archive/Big.md is too large."),
+    );
+
+    el.value = "see what";
+    fireEvent.input(el);
+
+    expect(view.container.textContent).not.toContain("Archive/Big.md is too large.");
+  });
+
   it("keeps the empty answer out of the list", async () => {
     mocks.candidates.mockResolvedValue([]);
     const { container } = mount();

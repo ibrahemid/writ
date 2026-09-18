@@ -231,6 +231,20 @@ describe("a folder the @ list offered", () => {
     expect(chatStore.attachments().map((note) => note.path)).toEqual([LAUNCH]);
   });
 
+  it("keeps its count when the tab in front holds one of its notes", async () => {
+    mocks.notePathsInFolder.mockResolvedValue([NESTED, OLD]);
+    await chatStore.attachFolder(ARCHIVE);
+
+    // The note in front is already one of the folder's, so the row says the
+    // same thing it said: one note is one chip, whichever way it arrived.
+    await chatStore.followTab(tab("t1", OLD));
+
+    expect(chatStore.attachments().map((note) => note.path)).toEqual([NESTED, OLD]);
+    const rows = chipRows(chatStore.attachments());
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ kind: "folder", folder: ARCHIVE, bytes: 24 });
+  });
+
   it("leaves a note already picked by hand out of the folder's chip", async () => {
     await chatStore.attachByPath(OLD);
     mocks.notePathsInFolder.mockResolvedValue([NESTED, OLD]);
