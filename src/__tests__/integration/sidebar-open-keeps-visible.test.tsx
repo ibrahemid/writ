@@ -53,7 +53,7 @@ afterEach(() => {
 });
 
 describe("sidebar: restoring a note from history", () => {
-  it("takes its row out of Recently closed, and the section once nothing is left", async () => {
+  it("takes its row out of Recent, and the section once nothing is left", async () => {
     const { bufferRegistry } = await import("../../stores/global/buffer-registry");
     const { windowRegistry } = await import("../../stores/global/window-registry");
     const WindowProvider = (await import("../../components/WindowProvider/WindowProvider")).default;

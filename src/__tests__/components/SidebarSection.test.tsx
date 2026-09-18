@@ -39,7 +39,7 @@ afterEach(() => {
 
 function mount(extra: Partial<Parameters<typeof SidebarSection>[0]> = {}) {
   return render(() => (
-    <SidebarSection id="recent" heading="Recently closed" count={3} {...extra}>
+    <SidebarSection id="recent" heading="Recent" count={3} {...extra}>
       <div class="row">Kitchen rebuild</div>
     </SidebarSection>
   ));
@@ -54,7 +54,7 @@ describe("SidebarSection", () => {
     expect(toggles).toHaveLength(1);
     expect(toggles[0].getAttribute("type")).toBe("button");
     expect(toggles[0].getAttribute("aria-expanded")).toBe("true");
-    expect(toggles[0].querySelector(".sidebar-section-name")!.textContent).toBe("Recently closed");
+    expect(toggles[0].querySelector(".sidebar-section-name")!.textContent).toBe("Recent");
     expect(toggles[0].querySelector(".sidebar-section-count")!.textContent).toBe("3");
     expect(container.querySelector("section")!.getAttribute("aria-labelledby")).toBe(heading.id);
     expect(container.querySelector(".row")).not.toBeNull();

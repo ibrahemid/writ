@@ -116,11 +116,11 @@ afterEach(() => {
 });
 
 describe("sidebar section headers", () => {
-  it("names the history section Recently closed, with its count", () => {
+  it("names the history section Recent, with its count", () => {
     h.history = [doc("h1", "Kitchen rebuild", null)];
     const { container } = render(() => <HistorySection />);
     const head = container.querySelector(".sidebar-section-heading")!;
-    expect(head.textContent).toBe("Recently closed1");
+    expect(head.textContent).toBe("Recent1");
   });
 
   it("names the folder section after the folder itself", () => {

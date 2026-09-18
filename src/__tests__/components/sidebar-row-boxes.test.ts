@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 // Rows and headings across the sidebar share one box, so a hover fill in one
 // section lines up with the next. Pinned from the 2026-09 completeness pass:
 // the watched-folder rows ran edge to edge, and the day headings under
-// Recently closed sat left of the section name once it gained a caret.
+// Recent sat left of the section name once it gained a caret.
 
 function css(file: string): string {
   return readFileSync(resolve(process.cwd(), file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
