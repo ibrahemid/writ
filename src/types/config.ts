@@ -39,10 +39,15 @@ export interface AiRewriteConfig {
 }
 
 /** The chat feature's switch and its optional own model (`[ai.chat]`). An
- * empty `model` means the connection's model. */
+ * empty `model` means the connection's model.
+ *
+ * `model_provider` is the provider the model was picked under. The override is
+ * read only while it matches the connection's provider, so an id chosen from
+ * one server is never sent to another. */
 export interface AiChatConfig {
   enabled: boolean;
   model: string;
+  model_provider: string;
 }
 
 /** One connection, serving rewriting and chat (ADR-040 section 1).

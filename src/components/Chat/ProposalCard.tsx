@@ -1,12 +1,14 @@
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import {
   chatStore,
   type ChatProposal,
+  type ChatProposalOutcome,
   type DiffHunk,
   type DiffLine,
 } from "../../stores/global/chat";
+import { byteLabel } from "../../commands/chat";
 
 /** One diff row, with the line number each side gives it. */
 interface Row {
@@ -45,6 +47,30 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
   const status = () => props.proposal.status ?? "pending";
   const refusal = () => chatStore.refusalFor(props.turn, props.proposal.path);
   const rows = createMemo(() => (props.proposal.hunks ?? []).map(hunkRows));
+  // What the write did to the note, which only this card saw: the stored turn
+  // records that it was applied, not how many bytes the file ended up holding.
+  const [outcome, setOutcome] = createSignal<ChatProposalOutcome | null>(null);
+  const [discarding, setDiscarding] = createSignal(false);
+
+  const applying = () => chatStore.isApplying(props.turn, props.proposal.path);
+  /** A refused offer stays on the card: the note it names is still the one the
+   * reply meant, and the reason is usually something a person can answer. */
+  const settled = () =>
+    status() === "applied" || status() === "discarded" || outcome() !== null;
+
+  async function applyIt() {
+    const done = await chatStore.apply(props.turn, props.proposal);
+    if (done) setOutcome(done);
+  }
+
+  async function discardIt() {
+    setDiscarding(true);
+    try {
+      await chatStore.discard(props.turn, props.proposal);
+    } finally {
+      setDiscarding(false);
+    }
+  }
 
   return (
     <section class="chat-proposal" aria-label={`Change to ${props.proposal.path}`}>
@@ -84,21 +110,22 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
         </div>
       </Show>
 
-      <Show
-        when={status() === "pending"}
-        fallback={
-          <p class="chat-proposal-verdict" role="status">
-            {verdict(status(), refusal())}
-          </p>
-        }
-      >
+      <Show when={settled() || status() === "refused"}>
+        <p class="chat-proposal-verdict" role="status">
+          {verdict(status(), refusal(), outcome(), props.proposal.stale === true)}
+        </p>
+      </Show>
+
+      <Show when={!settled()}>
         <div class="chat-proposal-actions">
-          <Button onClick={() => void chatStore.discard(props.turn, props.proposal)}>
+          <Button disabled={discarding() || applying()} onClick={() => void discardIt()}>
             Discard
           </Button>
           <Button
             variant="primary"
-            onClick={() => void chatStore.apply(props.turn, props.proposal)}
+            disabled={applying() || discarding()}
+            aria-busy={applying() ? true : undefined}
+            onClick={() => void applyIt()}
           >
             Apply
           </Button>
@@ -108,8 +135,16 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
   );
 }
 
-function verdict(status: string, refusal: string | undefined): string {
+function verdict(
+  status: string,
+  refusal: string | undefined,
+  outcome: ChatProposalOutcome | null,
+  stale: boolean,
+): string {
+  if (outcome && !outcome.changed) return "The note already held this text.";
+  if (outcome) return `Applied. The note is now ${byteLabel(outcome.bytes)}.`;
   if (status === "applied") return "Applied.";
   if (status === "discarded") return "Discarded.";
-  return refusal ?? "Not applied.";
+  if (refusal) return refusal;
+  return stale ? "Nothing was written." : "Not applied.";
 }

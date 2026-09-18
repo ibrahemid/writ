@@ -92,7 +92,7 @@ function configWith(statusBar: boolean): WritConfig {
       model: "",
       consented_hosts: [],
       rewrite: { enabled: false },
-      chat: { enabled: false, model: "" },
+      chat: { enabled: false, model: "", model_provider: "" },
     },
     mcp: { enabled: false, approved_clients: [] },
     spelling: { enabled: false, dialect: "american", ignored_words: [] },

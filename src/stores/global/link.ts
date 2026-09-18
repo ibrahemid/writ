@@ -7,9 +7,14 @@ import { resolveWithinRoot } from "../../lib/path";
 import { noteLinkHeading, noteLinkPath } from "../../lib/wikilink";
 import type { LinkVerdict } from "../../types/link";
 import type { BufferDocument } from "../../types/buffer";
-import type { LinkResolution, LinkStatus, NoteNameHit } from "../../services/tauri";
+import type {
+  LinkResolution,
+  LinkStatus,
+  NoteFolderHit,
+  NoteNameHit,
+} from "../../services/tauri";
 
-export type { LinkResolution, LinkStatus, NoteNameHit };
+export type { LinkResolution, LinkStatus, NoteFolderHit, NoteNameHit };
 
 const FALLBACK_MESSAGE = "Could not open the link.";
 
@@ -199,6 +204,27 @@ async function noteNameCandidates(query: string, limit?: number): Promise<NoteNa
   }
 }
 
+/** The folders a query names, for the rows an `@` offers beside the notes. */
+async function noteFolderCandidates(query: string, limit?: number): Promise<NoteFolderHit[]> {
+  try {
+    return await tauri.noteFolderCandidates(query, limit);
+  } catch {
+    return [];
+  }
+}
+
+/** The notes one folder holds, the subfolders included, as the index has them.
+ *
+ * What attaching a folder attaches. A folder the index cannot answer for
+ * attaches nothing rather than some of it. */
+async function notePathsInFolder(folder: string): Promise<string[]> {
+  try {
+    return await tauri.notePathsInFolder(folder);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Creates the note a `[[…]]` target names and opens it.
  *
@@ -240,6 +266,8 @@ export const linkStore = {
   notePathFromPreview,
   noteOpenFromPreview,
   noteNameCandidates,
+  noteFolderCandidates,
+  notePathsInFolder,
   createNote,
   reset,
 };

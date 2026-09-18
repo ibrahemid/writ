@@ -1,9 +1,40 @@
-import { For, Show, createEffect, onCleanup } from "solid-js";
+import { For, Index, Show, createEffect, onCleanup } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import ProposalCard from "./ProposalCard";
+import { providerLabel } from "./ChatTranscript";
 import { linkStore } from "../../stores/global/link";
-import { chatStore, noteName, type Message } from "../../stores/global/chat";
+import {
+  chatStore,
+  noteName,
+  type ChatDroppedProposal,
+  type Message,
+} from "../../stores/global/chat";
+
+/** Why a block the reply wrote is not on offer, in the reader's words. The
+ * note it named is stated; none of its text is (ADR-031 rule 5.2). */
+export function dropLine(drop: ChatDroppedProposal): string {
+  const named = drop.named.trim();
+  const subject = named ? `An offer for ${named}` : "An offer";
+  switch (drop.reason) {
+    case "unknown_note":
+      return `${subject} was not shown: that note is not attached.`;
+    case "ambiguous_note":
+      return `${subject} was not shown: more than one attached note has that name.`;
+    case "truncated":
+      return `${subject} was not shown: the reply ended before the note did.`;
+    case "unterminated_block":
+      return `${subject} was not shown: its text was never closed.`;
+    case "empty_body":
+      return `${subject} was not shown: it held no text.`;
+    case "placeholder":
+      return `${subject} was not shown: it repeated the example instead of the note.`;
+    case "duplicate":
+      return `${subject} was not shown: the same note was offered twice.`;
+    default:
+      return `${subject} was not shown.`;
+  }
+}
 
 /** How long a copy button reads "Copied" before going back to its label. */
 const COPIED_MS = 1200;
@@ -31,22 +62,33 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
     if (copiedTimer !== null) clearTimeout(copiedTimer);
   });
 
+  /** The fragment this element already holds. A stream renders the same string
+   * over and over, and writing it again would destroy and rebuild every node
+   * in the reply for nothing. */
+  let applied: string | null = null;
+
   // Scoped to this turn's own element, which is what the ref is for: nothing
   // here reaches the document.
   createEffect(() => {
     const el = reply;
     const html = props.message.html;
-    if (!el) return;
+    if (!el || html === applied) return;
+    applied = html;
     el.innerHTML = html;
     for (const block of Array.from(el.querySelectorAll("pre"))) {
       if (!block.querySelector("code")) continue;
-      block.classList.add("chat-code");
+      // The button sits beside the block rather than in it: a block wider than
+      // the column scrolls sideways, and a button inside would scroll out.
+      const box = document.createElement("div");
+      box.className = "chat-code";
+      block.replaceWith(box);
+      box.append(block);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "chat-code-copy";
       button.dataset.copy = "";
       button.textContent = "Copy";
-      block.append(button);
+      box.append(button);
     }
     // A table sets its own width from its content, which beats the column's,
     // so it scrolls in a box of its own rather than widening the pane.
@@ -66,7 +108,7 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
 
     const copy = target.closest<HTMLElement>("[data-copy]");
     if (copy) {
-      const source = copy.closest("pre")?.querySelector("code")?.textContent ?? "";
+      const source = copy.closest(".chat-code")?.querySelector("code")?.textContent ?? "";
       void chatStore.copyCode(source).then((landed) => {
         if (landed) sayCopied(copy);
       });
@@ -138,9 +180,24 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
         <Show when={props.message.html.length > 0} fallback={<RawReply text={props.message.content} />}>
           <div class="chat-reply" ref={reply} onClick={onReplyClick} />
         </Show>
-        <For each={props.message.proposals}>
-          {(proposal) => <ProposalCard turn={props.message.turn} proposal={proposal} />}
+        {/* By position, so a card keeps what its own write answered when the
+            conversation is rebuilt around it. */}
+        <Index each={props.message.proposals}>
+          {(proposal) => <ProposalCard turn={props.message.turn} proposal={proposal()} />}
+        </Index>
+        <Show when={props.message.truncated}>
+          <p class="chat-note">Reply was cut off.</p>
+        </Show>
+        <For each={props.message.dropped}>
+          {(drop) => <p class="chat-note">{dropLine(drop)}</p>}
         </For>
+        <Show when={props.message.identity}>
+          {(identity) => (
+            <p class="chat-identity">
+              {identity().model} via {providerLabel(identity().provider)}
+            </p>
+          )}
+        </Show>
       </Show>
     </article>
   );

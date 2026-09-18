@@ -30,7 +30,8 @@ use futures_util::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use writ_core::ai::models::{
-    filter_openai_ids, parse_anthropic_page, parse_model_list, sort_ids, ListFamily, ModelListError,
+    filter_openai_ids, parse_anthropic_page, parse_model_list, seed_model, sort_ids, CatalogSource,
+    ListFamily, ModelCatalog, ModelListError,
 };
 use writ_core::ai::providers::{self, ProviderGroup, ProviderInfo};
 use writ_core::chat::{self, Provider};
@@ -43,8 +44,14 @@ use crate::state::AppState;
 
 /// Connect timeout: a local Ollama that is not running should fail fast.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-/// Overall request budget for a single rewrite.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long a stream may go silent before it is given up.
+///
+/// The budget is silence between bytes, not the whole reply. A reply that
+/// keeps arriving has no ceiling here: a small local model writing a long
+/// answer is bounded by its token ceiling and by Stop, not by the clock. A
+/// whole-request timeout ended exactly those replies at two minutes with
+/// nothing to show for them (2026-09-17).
+const READ_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// The key stored for one account, from the keychain or from this session's
 /// memory. The account is the provider id, so the surface asking for it never
@@ -167,6 +174,13 @@ pub struct AiState {
     key_cache: Mutex<HashMap<String, Option<String>>>,
     /// Cancel flags for in-flight streams, keyed by the frontend's request id.
     tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// The last list a provider answered for itself, keyed by provider id.
+    ///
+    /// Only a live list is kept: the table's suggestions are not the account's
+    /// inventory and a send may not be refused against them. This is what lets
+    /// a send be refused before a request is built, without the send reading
+    /// the network itself. Never persisted.
+    catalogs: Mutex<HashMap<String, ModelCatalog>>,
 }
 
 impl AiState {
@@ -182,7 +196,25 @@ impl AiState {
             keys: Mutex::new(HashMap::new()),
             key_cache: Mutex::new(HashMap::new()),
             tasks: Mutex::new(HashMap::new()),
+            catalogs: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Keeps a catalog the provider answered for itself. Anything else is
+    /// dropped, so what a send is judged against is never a guess.
+    pub fn remember_catalog(&self, catalog: ModelCatalog) {
+        if catalog.source != CatalogSource::Live {
+            return;
+        }
+        let mut catalogs = recover_poison(self.catalogs.lock(), "commands::ai::remember_catalog");
+        catalogs.insert(catalog.provider.clone(), catalog);
+    }
+
+    /// The live catalog held for a provider, if one was read this session.
+    pub fn live_catalog(&self, provider: &str) -> Option<ModelCatalog> {
+        recover_poison(self.catalogs.lock(), "commands::ai::live_catalog")
+            .get(provider)
+            .cloned()
     }
 }
 
@@ -577,6 +609,7 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
             return Err(reason);
         }
         config = updated;
+        announce_ai_config(&app);
     }
 
     let key_state = {
@@ -586,6 +619,96 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
         key_state(&ai, &memory, &config.ai.provider)
     };
     Ok(endpoint_state_from(&config.ai, key_state))
+}
+
+/// The model a provider starts from: the first id of the list it answered this
+/// session, and nothing when no list has been read for it yet.
+///
+/// The rule lives in `writ_core::ai::models::seed_model`; this reads the
+/// catalog held for the provider and applies it. Picking a row is not a model
+/// decision, so nothing is guessed from the table: the list arriving is what
+/// writes the first model ([`seed_from_catalog`]).
+fn seed_model_for(app: &AppHandle, provider: &str) -> String {
+    let held = app.state::<AiState>().live_catalog(provider);
+    seed_model(provider, held.as_ref())
+}
+
+/// Writes the first model of a list the provider answered, when the connection
+/// has none.
+///
+/// First use of a provider: the row is chosen before anything is known about
+/// what it serves, so the model is written when its own list arrives rather
+/// than guessed from the table. A model already in the file is left alone, a
+/// list that could not be read writes nothing, and a list that names another
+/// provider is ignored — the connection may have moved while it was in flight.
+fn seed_from_catalog(app: &AppHandle, catalog: &ModelCatalog) {
+    let seed = seed_model(&catalog.provider, Some(catalog));
+    if seed.is_empty() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    let (updated, previous) = {
+        let mut guard = recover_poison(state.config.lock(), "commands::ai::seed_from_catalog");
+        if guard.ai.provider != catalog.provider || !guard.ai.model.trim().is_empty() {
+            return;
+        }
+        let previous = guard.ai.model.clone();
+        guard.ai.model = seed;
+        (guard.clone(), previous)
+    };
+    if let Err(reason) = super::config::persist_config(&state, &updated) {
+        let mut guard = recover_poison(state.config.lock(), "commands::ai::seed_from_catalog");
+        guard.ai.model = previous;
+        tracing::warn!(error = %reason, "the first model could not be saved");
+        return;
+    }
+    announce_ai_config(app);
+}
+
+/// Tells the frontend the `[ai]` section changed.
+///
+/// `persist_config` records its own write in the watcher's ignore set, so the
+/// file change never returns as external: without this the copy the frontend
+/// holds keeps the value it read before, and its next settings write sends that
+/// copy whole and undoes what was just written.
+fn announce_ai_config(app: &AppHandle) {
+    if let Err(error) = emit_event(
+        app,
+        WritFrontendEvent::ConfigChanged {
+            keys: vec!["ai".to_string()],
+        },
+    ) {
+        tracing::warn!(error = %error, "failed to emit config event");
+    }
+}
+
+/// Points the connection at another provider and saves.
+///
+/// The one place a provider change happens. The rule that a chat model belongs
+/// to the server it was picked from lives in [`AiConfig::with_provider`], so
+/// the settings panel and the pane cannot clear an override differently.
+#[tauri::command]
+pub fn ai_set_provider(app: AppHandle, provider: String) -> Result<AiConfig, String> {
+    if providers::provider(&provider).is_none() {
+        return Err("That provider is not one this version knows.".to_string());
+    }
+    let state = app.state::<AppState>();
+    let seed = seed_model_for(&app, &provider);
+
+    // Read, change and clone under one lock, so a settings write landing
+    // between a read and a write is not overwritten with a stale copy.
+    let (updated, previous) = {
+        let mut guard = recover_poison(state.config.lock(), "commands::ai::ai_set_provider");
+        let previous = guard.ai.clone();
+        guard.ai = previous.with_provider(&provider, &seed);
+        (guard.clone(), previous)
+    };
+    if let Err(reason) = super::config::persist_config(&state, &updated) {
+        let mut guard = recover_poison(state.config.lock(), "commands::ai::ai_set_provider");
+        guard.ai = previous;
+        return Err(reason);
+    }
+    Ok(updated.ai)
 }
 
 // --- Request preparation (pure, testable) ----------------------------------
@@ -698,7 +821,9 @@ const STREAM_FAILED: &str = "The model server ended the reply.";
 fn parse_sse_line(provider: Provider, line: &str) -> SseLine {
     match chat::parse_delta(provider, line) {
         writ_core::chat::Delta::Text(content) => SseLine::Chunk(content),
-        writ_core::chat::Delta::Done => SseLine::Done,
+        // A reply cut off at the token ceiling still ends the stream. The
+        // rewrite surface has nowhere to say so, so it takes what arrived.
+        writ_core::chat::Delta::Done | writ_core::chat::Delta::Truncated => SseLine::Done,
         writ_core::chat::Delta::Failed => SseLine::Failed,
         writ_core::chat::Delta::Ignore => SseLine::Ignore,
     }
@@ -859,11 +984,19 @@ fn ensure_crypto_provider() {
 /// refused: following a 3xx would re-send the request body (the user's text) to
 /// the `Location` host, escaping the endpoint guard, so a 3xx surfaces as an
 /// error status instead.
-pub(crate) fn build_client() -> Result<reqwest::Client, String> {
+pub fn build_client() -> Result<reqwest::Client, String> {
+    build_client_with(CONNECT_TIMEOUT, READ_TIMEOUT)
+}
+
+/// [`build_client`] with its two budgets chosen by the caller.
+///
+/// There is no whole-request timeout: `read` is the longest the stream may
+/// go quiet, and each byte that arrives starts it again.
+pub fn build_client_with(connect: Duration, read: Duration) -> Result<reqwest::Client, String> {
     ensure_crypto_provider();
     reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .timeout(REQUEST_TIMEOUT)
+        .connect_timeout(connect)
+        .read_timeout(read)
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| sanitize_ai_error(&e.to_string()))
@@ -1308,16 +1441,42 @@ where
 /// allowed answers `ConsentRequired` and nothing leaves the machine. Both the
 /// gate and the list URL come from [`list_gate`].
 #[tauri::command]
-pub async fn ai_list_models(app: AppHandle) -> Result<Vec<String>, ModelListError> {
+pub async fn ai_list_models(app: AppHandle) -> ModelCatalog {
     let cfg = {
         let state = app.state::<AppState>();
         let guard = recover_poison(state.config.lock(), "commands::ai::ai_list_models");
         guard.ai.clone()
     };
 
-    let (targets, api_key) = gated_list_key(&cfg, |provider| key_for(&app, provider))?;
+    let catalog = read_catalog(&app, &cfg).await;
+    app.state::<AiState>().remember_catalog(catalog.clone());
+    seed_from_catalog(&app, &catalog);
+    catalog
+}
 
-    let client = build_http_client(MODEL_LIST_TIMEOUT).map_err(|_| ModelListError::Unreachable)?;
+/// The catalog for a provider, from what its list answered.
+///
+/// A failure is not an empty answer: the table's suggestions take over and the
+/// reason travels with them, so the picker offers something and the panel can
+/// still say why the account's own list is missing.
+fn catalog_for(provider: &str, listed: Result<Vec<String>, ModelListError>) -> ModelCatalog {
+    match listed {
+        Ok(ids) => ModelCatalog::live(provider, ids),
+        Err(error) => ModelCatalog::fallback(provider, error),
+    }
+}
+
+/// Runs the gated list and turns it into a catalog, logging the outcome.
+async fn read_catalog(app: &AppHandle, cfg: &AiConfig) -> ModelCatalog {
+    let (targets, api_key) = match gated_list_key(cfg, |provider| key_for(app, provider)) {
+        Ok(pair) => pair,
+        Err(error) => return catalog_for(&cfg.provider, Err(error)),
+    };
+
+    let client = match build_http_client(MODEL_LIST_TIMEOUT) {
+        Ok(client) => client,
+        Err(_) => return catalog_for(&cfg.provider, Err(ModelListError::Unreachable)),
+    };
     let ids = fetch_model_ids(
         &client,
         &cfg.provider,
@@ -1339,7 +1498,7 @@ pub async fn ai_list_models(app: AppHandle) -> Result<Vec<String>, ModelListErro
             "the model list could not be read"
         ),
     }
-    ids
+    catalog_for(&cfg.provider, ids)
 }
 
 /// Resolves a URL the guard allows, or says nothing answered there.
@@ -1445,6 +1604,7 @@ async fn run_connection_check(
     list_url: &str,
     api_key: Option<&str>,
     model: &str,
+    chat_model: &str,
     host_port: &str,
 ) -> AiConnectionStatus {
     let mut ids = match fetch_model_ids(client, provider, list_url, api_key).await {
@@ -1453,12 +1613,15 @@ async fn run_connection_check(
     };
     ids.truncate(MODEL_LIST_CAP);
 
-    let status = match model_listed_among(&ids, model) {
-        Some(true) => AiConnectionStatus::new(true, Some(true), "ok", String::new()),
-        Some(false) => {
-            AiConnectionStatus::new(true, Some(false), "model_missing", model.to_string())
-        }
-        None => AiConnectionStatus::new(true, None, "ok", String::new()),
+    // Both models the connection can send under, in the order a person reads
+    // them. A check that passed on the rewrite model while the pane sent
+    // another id is a check that answers about a request nobody makes.
+    let missing = [model, chat_model]
+        .into_iter()
+        .find(|id| model_listed_among(&ids, id) == Some(false));
+    let status = match missing {
+        Some(id) => AiConnectionStatus::new(true, Some(false), "model_missing", id.to_string()),
+        None => AiConnectionStatus::new(true, model_listed_among(&ids, model), "ok", String::new()),
     };
     status.with_models(ids)
 }
@@ -1577,6 +1740,7 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
         &list_url,
         api_key.as_deref(),
         cfg.model.trim(),
+        cfg.chat_model().trim(),
         &host_port,
     )
     .await)
@@ -1788,7 +1952,7 @@ mod tests {
         assert_eq!(prepared.endpoint, "https://api.anthropic.com/v1/messages");
         assert_eq!(prepared.provider, Provider::Anthropic);
         assert!(prepared.body["system"].as_str().is_some());
-        assert_eq!(prepared.body["max_tokens"], chat::ANTHROPIC_MAX_TOKENS);
+        assert_eq!(prepared.body["max_tokens"], chat::MAX_REPLY_TOKENS);
         assert_eq!(prepared.body["messages"][0]["role"], "user");
     }
 
@@ -2480,10 +2644,24 @@ mod tests {
     }
 
     fn check_against(base_url: &str, model: &str) -> AiConnectionStatus {
+        check_both_against(base_url, model, model)
+    }
+
+    fn check_both_against(base_url: &str, model: &str, chat_model: &str) -> AiConnectionStatus {
         let list_url = format!("{}/models", base_url.trim_end_matches('/'));
+        let (model, chat_model) = (model.to_string(), chat_model.to_string());
         tauri::async_runtime::block_on(async move {
             let client = build_probe_client().unwrap();
-            run_connection_check(&client, "custom", &list_url, None, model, "127.0.0.1:0").await
+            run_connection_check(
+                &client,
+                "custom",
+                &list_url,
+                None,
+                &model,
+                &chat_model,
+                "127.0.0.1:0",
+            )
+            .await
         })
     }
 
@@ -2697,6 +2875,58 @@ mod tests {
         assert_eq!(status.model_listed, Some(false));
         assert_eq!(status.kind, "model_missing");
         assert_eq!(status.detail, "llama3");
+    }
+
+    #[test]
+    fn check_connection_validates_the_chat_model_too() {
+        let base = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            "{\"data\":[{\"id\":\"llama3\"}]}",
+        );
+        // The connection's model is listed and the chat's own is not. The
+        // check names the id that would fail on the next send, because that is
+        // the request the person is about to make.
+        let status = check_both_against(&base, "llama3", "qwen2.5-coder:0.5b");
+        assert!(status.reachable);
+        assert_eq!(status.model_listed, Some(false));
+        assert_eq!(status.kind, "model_missing");
+        assert_eq!(status.detail, "qwen2.5-coder:0.5b");
+
+        let both = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            "{\"data\":[{\"id\":\"llama3\"},{\"id\":\"mistral\"}]}",
+        );
+        let ok = check_both_against(&both, "llama3", "mistral");
+        assert_eq!(ok.kind, "ok");
+        assert_eq!(ok.model_listed, Some(true));
+    }
+
+    #[test]
+    fn model_catalog_carries_the_provider_it_was_read_for() {
+        let live = catalog_for("ollama", Ok(vec!["qwen3:4b".to_string()]));
+        assert_eq!(live.provider, "ollama");
+        assert_eq!(live.source, CatalogSource::Live);
+        assert!(live.error.is_none());
+
+        // A list that could not be read still answers for its provider, with
+        // the table's suggestions and the reason the account's own is missing.
+        let failed = catalog_for("deepseek", Err(ModelListError::Unauthorized));
+        assert_eq!(failed.provider, "deepseek");
+        assert_eq!(failed.source, CatalogSource::Curated);
+        assert_eq!(failed.models, ["deepseek-flash", "deepseek-v4-pro"]);
+        assert_eq!(failed.error, Some(ModelListError::Unauthorized));
+
+        // What the session holds is keyed by the provider it was read for, so
+        // a send under another provider finds nothing rather than the wrong
+        // list, and suggestions are never held at all.
+        let ai = AiState::with_store(Box::new(MemoryKeyStore::default()));
+        ai.remember_catalog(live);
+        assert!(ai.live_catalog("ollama").is_some());
+        assert!(ai.live_catalog("deepseek").is_none());
+        ai.remember_catalog(failed);
+        assert!(ai.live_catalog("deepseek").is_none());
     }
 
     #[test]

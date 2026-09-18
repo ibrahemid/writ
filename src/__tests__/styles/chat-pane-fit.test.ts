@@ -27,4 +27,15 @@ describe("the chat pane at a narrow width", () => {
   it("scrolls a wide table inside the reply", () => {
     expect(block(".chat-reply-table")).toMatch(/overflow-x:\s*auto/);
   });
+
+  // A box measured in rem keeps its size while the interface text grows, so
+  // the boxes that hold lines of text are measured in line heights.
+  it("sizes the mention list, the diff box and the field in line heights", () => {
+    expect(block(".chat-mention")).toMatch(/max-height:\s*calc\(var\(--writ-ui-md-lh\)/);
+    expect(block(".chat-diff")).toMatch(/max-height:\s*calc\(var\(--writ-ui-sm-lh\)/);
+    const field = block(".chat-composer-input");
+    expect(field).toMatch(/min-height:\s*calc\(var\(--writ-ui-md-lh\) \* 2/);
+    expect(field).toMatch(/max-height:\s*calc\(var\(--writ-ui-md-lh\) \* 10/);
+    expect(field).toMatch(/overflow-y:\s*auto/);
+  });
 });

@@ -46,8 +46,8 @@ import {
   type LocalProbe,
   type ModelListError,
 } from "../../stores/global/ai-connection";
-import { aiProvidersStore, type AiProviderInfo } from "../../stores/global/ai-providers";
-import { modelOptions, defaultModelFor, resolveAutoModel } from "../../stores/global/ai-models";
+import { aiProvidersStore } from "../../stores/global/ai-providers";
+import { modelOptions, resolveAutoModel } from "../../stores/global/ai-models";
 import { linkStore } from "../../stores/global/link";
 import { notesStore } from "../../stores/global/notes";
 import type { NotesFallbackReason } from "../../stores/global/notes";
@@ -908,8 +908,13 @@ function AiSection() {
   const [keyBusy, setKeyBusy] = createSignal(false);
   const [connecting, setConnecting] = createSignal(false);
   const [probe, setProbe] = createSignal<LocalProbe | null>(null);
-  const [liveModels, setLiveModels] = createSignal<string[]>([]);
-  const [listError, setListError] = createSignal<ModelListError | null>(null);
+  // The catalog lives in the connection store, so the panel and the chat pane
+  // read one list and it is stamped with the provider it was read for.
+  const liveModels = (): string[] => {
+    const held = aiConnectionStore.catalog();
+    return held?.source === "live" ? held.models : [];
+  };
+  const listError = (): ModelListError | null => aiConnectionStore.catalog()?.error ?? null;
   // The user has picked (or typed) the current model this session; guards the
   // Ollama auto-select from replacing a deliberate choice.
   const [userSelected, setUserSelected] = createSignal(false);
@@ -945,14 +950,7 @@ function AiSection() {
   }
 
   async function refreshModels(): Promise<void> {
-    const result = await aiConnectionStore.listModels();
-    if ("models" in result) {
-      setLiveModels(result.models);
-      setListError(null);
-    } else {
-      setLiveModels([]);
-      setListError(result.error);
-    }
+    await aiConnectionStore.refreshCatalog();
   }
 
   // The table, the probe and the model list, once the section can be seen and
@@ -1048,26 +1046,21 @@ function AiSection() {
 
   const showLocalLine = () => Boolean(isLocal() && endpointHost());
 
-  function seedProvider(row: AiProviderInfo | null, id: string) {
-    // A new provider is a fresh context: reset the selection guard, and seed
-    // the model the table names so the connection works without a decision.
+  function seedProvider(id: string) {
+    // A new provider is a fresh context: reset the selection guard, and let
+    // the connection store make the change. Rust seeds the row's model and
+    // drops a chat model that belonged to the old provider, so the panel and
+    // the pane cannot clear an override differently.
     setUserSelected(false);
     setCustomMode(id === "custom");
-    setLiveModels([]);
-    setListError(null);
-    const seeded = row?.default_model || defaultModelFor(id);
-    void patchConfig((prev) => ({
-      ...prev,
-      ai: {
-        ...prev.ai,
-        provider: id,
-        model: id === "custom" ? prev.ai.model : seeded,
-      },
-    }));
+    setChatModelOpen(false);
+    void aiConnectionStore.selectProvider(id).catch(() => {
+      showToast("Could not save your settings", "error");
+    });
   }
 
   function onProviderChange(raw: string) {
-    seedProvider(aiProvidersStore.byId(raw), raw);
+    seedProvider(raw);
   }
 
   function onBaseUrlChange(raw: string) {
@@ -1089,7 +1082,7 @@ function AiSection() {
     void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: value } }));
   }
 
-  function patchChat(next: Partial<{ enabled: boolean; model: string }>) {
+  function patchChat(next: Partial<{ enabled: boolean }>) {
     void patchConfig((prev) => ({
       ...prev,
       ai: { ...prev.ai, chat: { ...prev.ai.chat, ...next } },
@@ -1099,11 +1092,11 @@ function AiSection() {
   function onChatModelDisclosure() {
     if (chatModelOpen()) {
       setChatModelOpen(false);
-      patchChat({ model: "" });
+      void aiConnectionStore.selectChatModel(null);
       return;
     }
     setChatModelOpen(true);
-    patchChat({ model: cfg().model || modelOptionList()[0] || "" });
+    void aiConnectionStore.selectChatModel(cfg().model || modelOptionList()[0] || "");
   }
 
   // Consent is recorded host-side: the command resolves the host itself and
@@ -1188,7 +1181,13 @@ function AiSection() {
               {(group) => (
                 <optgroup label={group.label}>
                   <For each={group.providers}>
-                    {(row) => <option value={row.id}>{row.label}</option>}
+                    {/* The table loads after this mounts, so the option carries the
+                        choice: `value` on the select alone leaves the first showing. */}
+                    {(row) => (
+                      <option value={row.id} selected={row.id === cfg().provider}>
+                        {row.label}
+                      </option>
+                    )}
                   </For>
                 </optgroup>
               )}
@@ -1427,10 +1426,16 @@ function AiSection() {
                 data-setting="ai_chat_model"
                 aria-label="Chat model"
                 value={cfg().chat.model}
-                onChange={(e) => patchChat({ model: e.currentTarget.value })}
+                onChange={(e) => void aiConnectionStore.selectChatModel(e.currentTarget.value)}
               >
+                {/* The catalog arrives after this mounts and `chat.model` does not
+                    change with it, so the option carries the choice. */}
                 <For each={modelOptionList()}>
-                  {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
+                  {(id) => (
+                    <option value={id} selected={id === cfg().chat.model}>
+                      {modelOptionLabel(id)}
+                    </option>
+                  )}
                 </For>
               </select>
             </Show>

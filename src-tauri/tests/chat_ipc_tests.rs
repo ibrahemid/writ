@@ -10,12 +10,13 @@
 use std::path::Path;
 
 use writ_core::activity::{Actor, Decision};
+use writ_core::ai::models::{ModelCatalog, ModelListError};
 use writ_core::chat::{ChatError, ChatTurn, Role};
 use writ_core::config::{AiChatConfig, AiConfig};
 use writ_tauri_lib::commands::ai::AiKeyState;
 use writ_tauri_lib::commands::chat::{
-    apply_proposal_inner, attached_sizes_in, discard_proposal_inner, endpoint_state_from,
-    note_file_in, prepare_chat, read_attached_in, ChatState,
+    apply_proposal_inner, attached_sizes_in, begin_request, discard_proposal_inner,
+    endpoint_state_from, note_file_in, prepare_chat, read_attached_in, ChatState,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -24,7 +25,7 @@ const COMMANDS: &[&str] = &[
     "commands::chat::chat_state",
     "commands::chat::chat_attached_sizes",
     "commands::chat::chat_send",
-    "commands::chat::chat_cancel",
+    "commands::chat::chat_stop",
     "commands::chat::chat_apply_proposal",
     "commands::chat::chat_discard_proposal",
 ];
@@ -46,6 +47,7 @@ fn config(base_url: &str) -> AiConfig {
         chat: AiChatConfig {
             enabled: true,
             model: String::new(),
+            model_provider: String::new(),
         },
         ..AiConfig::default()
     }
@@ -117,7 +119,109 @@ fn chat_state_reports_the_connection_and_its_model() {
     assert_eq!(state.model, "claude-sonnet-5");
 
     cfg.chat.model = "claude-haiku-5".to_string();
+    cfg.chat.model_provider = "anthropic".to_string();
     assert_eq!(endpoint_state_from(&cfg, no_key()).model, "claude-haiku-5");
+}
+
+#[test]
+fn chat_state_reports_the_override_only_for_its_own_provider() {
+    let mut cfg = config("");
+    cfg.provider = "ollama".to_string();
+    cfg.model = "qwen3:4b".to_string();
+    cfg.chat.model = "qwen2.5-coder:0.5b".to_string();
+    cfg.chat.model_provider = "ollama".to_string();
+    assert_eq!(
+        endpoint_state_from(&cfg, no_key()).model,
+        "qwen2.5-coder:0.5b"
+    );
+
+    // The same file after the connection moved. The pane reports the model it
+    // would actually send, which is the connection's.
+    cfg.provider = "deepseek".to_string();
+    cfg.model = "deepseek-chat".to_string();
+    let moved = endpoint_state_from(&cfg, no_key());
+    assert_eq!(moved.provider, "deepseek");
+    assert_eq!(moved.model, "deepseek-chat");
+}
+
+#[test]
+fn the_provider_change_the_pane_and_settings_share_is_registered() {
+    // Both surfaces change a provider through one command, so the override
+    // rule cannot be applied differently in two places.
+    assert!(
+        LIB_RS.contains("commands::ai::ai_set_provider"),
+        "ai_set_provider is not in the invoke handler"
+    );
+}
+
+// --- chat_send preflight ----------------------------------------------------
+
+#[test]
+fn chat_send_refuses_a_model_not_in_the_catalog() {
+    let mut cfg = config("https://api.example.com/v1");
+    cfg.consented_hosts = vec!["api.example.com".to_string()];
+    cfg.model = "a-model".to_string();
+
+    let live = ModelCatalog::live("custom", vec!["a-model".to_string()]);
+    assert_eq!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), Some(&live), |_| Some(
+            "k".to_string()
+        ))
+        .map(|p| p.identity.model),
+        Ok("a-model".to_string())
+    );
+
+    // A model the provider does not list is refused before a request exists,
+    // and before a key is read: a send that cannot work raises no keychain
+    // prompt.
+    cfg.model = "not-on-this-server".to_string();
+    assert_eq!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), Some(&live), |_| panic!(
+            "the key was read for a send that cannot happen"
+        )),
+        Err(ChatError::ModelUnavailable {
+            model: "not-on-this-server".to_string(),
+            provider: "custom".to_string(),
+        })
+    );
+
+    // A live list with nothing in it is its own failure.
+    let empty = ModelCatalog::live("custom", Vec::new());
+    assert_eq!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), Some(&empty), |_| None),
+        Err(ChatError::EmptyModelList {
+            provider: "custom".to_string(),
+        })
+    );
+
+    // Suggestions are not an inventory, so they refuse nothing, and neither
+    // does a list read for another provider.
+    let curated = ModelCatalog::fallback("custom", ModelListError::Unreachable);
+    assert!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), Some(&curated), |_| Some(
+            "k".to_string()
+        ))
+        .is_ok()
+    );
+    let elsewhere = ModelCatalog::live("ollama", vec!["qwen3:4b".to_string()]);
+    assert!(
+        prepare_chat(
+            &cfg,
+            &turn("hello"),
+            Vec::new(),
+            Some(&elsewhere),
+            |_| Some("k".to_string())
+        )
+        .is_ok(),
+        "a list answered for another provider decides nothing here"
+    );
+    // And with no list at all, nothing blocks.
+    assert!(
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), None, |_| Some(
+            "k".to_string()
+        ))
+        .is_ok()
+    );
 }
 
 // --- chat_attached_sizes ----------------------------------------------------
@@ -214,6 +318,7 @@ fn chat_send_carries_the_attached_notes_and_nothing_else() {
         &config("http://localhost:11434/v1"),
         &turn("what does it argue"),
         attached,
+        None,
         |_| None,
     )
     .expect("prepared");
@@ -249,6 +354,7 @@ fn chat_send_refuses_an_unconsented_hosted_host_before_the_body_is_built() {
         &config("https://api.example.com/v1"),
         &turn("hello"),
         Vec::new(),
+        None,
         |_| panic!("the key was read for a host with no consent"),
     )
     .expect_err("refused");
@@ -265,7 +371,7 @@ fn chat_send_refuses_when_the_switch_is_off() {
     let mut cfg = config("http://localhost:11434/v1");
     cfg.chat.enabled = false;
     assert_eq!(
-        prepare_chat(&cfg, &turn("hello"), Vec::new(), |_| None),
+        prepare_chat(&cfg, &turn("hello"), Vec::new(), None, |_| None),
         Err(ChatError::Disabled)
     );
 }
@@ -285,20 +391,20 @@ fn chat_send_reads_one_note_once_however_often_it_was_named() {
     assert_eq!(attached.len(), 1);
 }
 
-// --- chat_cancel ------------------------------------------------------------
+// --- chat_stop --------------------------------------------------------------
 
 #[test]
-fn chat_cancel_raises_the_flag_of_a_live_conversation_and_no_other() {
+fn chat_stop_raises_the_flag_of_a_live_conversation_and_no_other() {
     let state = ChatState::default();
-    let cancel = state.begin("c1");
-    state.begin("c2");
-    assert!(state.cancel("c1"));
+    let (cancel, first) = begin_request(&state, "c1", "r-1").expect("accepted");
+    let (_other, _second) = begin_request(&state, "c2", "r-2").expect("accepted");
+    assert!(state.cancel("c1", Some("r-1")));
     assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
     assert_eq!(state.live(), 2);
 
-    state.finish("c1");
+    drop(first);
     assert!(
-        !state.cancel("c1"),
+        !state.cancel("c1", Some("r-1")),
         "a conversation that ended cancels nothing"
     );
     assert_eq!(state.live(), 1);
@@ -517,9 +623,10 @@ fn every_chat_command_is_in_the_invoke_handler() {
 }
 
 #[test]
-fn a_note_the_folder_does_not_hold_is_not_a_note() {
+fn a_note_the_folder_does_not_hold_is_refused_without_naming_it_again() {
+    // The sentence lands under a chip or a card that already names the note.
     let (notes, _writ) = folders();
     let root = root(&notes);
     let error = note_file_in(&root, "Nowhere.md").expect_err("refused");
-    assert!(error.contains("Nowhere.md"), "got: {error}");
+    assert_eq!(error, "This note is no longer there.");
 }

@@ -488,3 +488,39 @@ fn opening_an_index_that_is_not_there_creates_no_database() {
     assert!(!host.has_index());
     assert!(!fixture.db.exists(), "no database was created");
 }
+
+#[test]
+fn an_identical_proposal_reports_no_change() {
+    let fixture = fixture();
+    let note = write_note(&fixture, "Launch.md", "the same text\n");
+    let before = modified(&note);
+    let host = host(&fixture, &[Capability::WriteNote]);
+
+    let receipt = host
+        .write_note("Launch.md", "the same text\n", None, origin())
+        .expect("a write of the text the note already holds is not a refusal");
+
+    assert!(
+        !receipt.changed,
+        "a write that moved no bytes must not report a change"
+    );
+    assert_eq!(receipt.bytes, "the same text\n".len() as u64);
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read"),
+        "the same text\n"
+    );
+    assert_eq!(modified(&note), before, "the file was rewritten");
+}
+
+#[test]
+fn a_proposal_that_moves_bytes_reports_a_change() {
+    let fixture = fixture();
+    write_note(&fixture, "Launch.md", "before\n");
+    let host = host(&fixture, &[Capability::WriteNote]);
+
+    let receipt = host
+        .write_note("Launch.md", "after\n", None, origin())
+        .expect("the write lands");
+
+    assert!(receipt.changed);
+}

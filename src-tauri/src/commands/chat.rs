@@ -28,14 +28,17 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 use writ_core::activity::{ActivityRecord, Actor, Decision};
+use writ_core::ai::models::{CatalogSource, ModelCatalog};
 use writ_core::chat::{
-    self, AttachedNote, AttachmentRef, ChatError, ChatTurn, Conversation, Delta, Proposal,
-    ProposalFilter, ProposalStatus, Provider, Role, StoredProposal, MAX_CONVERSATION_BYTES,
+    self, AssistantReply, AttachedNote, AttachmentRef, ChatError, ChatErrorFrame, ChatTurn,
+    Conversation, Delta, ParsedProposals, ProposalFilter, ProposalStatus, Provider, RejectCode,
+    RequestIdentity, Role, StoredProposal, MAX_CONVERSATION_BYTES,
 };
 use writ_core::config::AiConfig;
 use writ_core::diff::{line_diff, Hunk};
@@ -67,44 +70,81 @@ const MISSING_CONVERSATION: &str = "This chat no longer exists.";
 const CONVERSATION_FULL: &str = "This chat is full. Start a new chat to continue.";
 
 /// What a second send says while the reply to the first is still streaming.
-const REPLY_IN_FLIGHT: &str = "A reply is still arriving.";
+pub const REPLY_IN_FLIGHT: &str = "A reply is still arriving.";
 
-/// Session-scoped state for the pane: the cancel flag of each live stream,
+/// The request a conversation is running: the id the pane minted for it and
+/// the flag that stops it.
+///
+/// The id is what makes a stop and a finish nameable. Without it a stop sent
+/// while one reply was ending and the next beginning reaches whichever request
+/// happened to be in the map.
+struct LiveRequest {
+    request_id: String,
+    cancel: Arc<AtomicBool>,
+}
+
+/// Session-scoped state for the pane: the live request of each conversation,
 /// keyed by the conversation the frontend named.
-#[derive(Default)]
+///
+/// Cloning shares one registry, so a task can hold its own handle rather than
+/// borrowing the managed state for as long as it streams.
+#[derive(Default, Clone)]
 pub struct ChatState {
-    tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    tasks: Arc<Mutex<HashMap<String, LiveRequest>>>,
 }
 
 impl ChatState {
-    /// Registers a conversation and hands back its cancel flag.
+    /// Claims a conversation for one request and hands back its cancel flag,
+    /// or `None` when a reply is already arriving for it.
     ///
-    /// Called before the request task is spawned, so a cancel that races it
-    /// cannot miss the flag and the task's own cleanup has an entry to remove.
-    pub fn begin(&self, conversation_id: &str) -> Arc<AtomicBool> {
-        let cancel = Arc::new(AtomicBool::new(false));
-        let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::begin");
-        tasks.insert(conversation_id.to_string(), cancel.clone());
-        cancel
-    }
-
-    /// Raises a conversation's cancel flag. `false` when nothing is live under
-    /// that id, which is what a cancel arriving after a reply finished is.
-    pub fn cancel(&self, conversation_id: &str) -> bool {
-        let tasks = recover_poison(self.tasks.lock(), "commands::chat::cancel");
-        match tasks.get(conversation_id) {
-            Some(cancel) => {
-                cancel.store(true, Ordering::Relaxed);
-                true
+    /// The check and the claim are one lock. Two sends racing on one
+    /// conversation are two tasks appending to one file, and the loser must
+    /// learn it lost before it reads a note or a key, not after.
+    pub fn try_begin(&self, conversation_id: &str, request_id: &str) -> Option<Arc<AtomicBool>> {
+        let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::try_begin");
+        match tasks.entry(conversation_id.to_string()) {
+            std::collections::hash_map::Entry::Occupied(_) => None,
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                let cancel = Arc::new(AtomicBool::new(false));
+                slot.insert(LiveRequest {
+                    request_id: request_id.to_string(),
+                    cancel: cancel.clone(),
+                });
+                Some(cancel)
             }
-            None => false,
         }
     }
 
-    /// Forgets a conversation whose request has ended.
-    pub fn finish(&self, conversation_id: &str) {
-        let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::finish");
-        tasks.remove(conversation_id);
+    /// Raises the cancel flag of the named request, or of whatever is live
+    /// when no request is named.
+    ///
+    /// `false` when nothing matches: a stop that arrives after its reply
+    /// finished, or one naming a request the conversation has already moved
+    /// on from. Shutdown is the caller with no id, because it stops every
+    /// reply rather than one it chose.
+    pub fn cancel(&self, conversation_id: &str, request_id: Option<&str>) -> bool {
+        let tasks = recover_poison(self.tasks.lock(), "commands::chat::cancel");
+        match tasks.get(conversation_id) {
+            Some(live) if request_id.is_none_or(|named| named == live.request_id) => {
+                live.cancel.store(true, Ordering::Relaxed);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Forgets a conversation's request, and only that request.
+    ///
+    /// A finish that arrives after the conversation moved on removes nothing:
+    /// the entry it would take belongs to a send that is still streaming.
+    fn release(&self, conversation_id: &str, request_id: &str) {
+        let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::release");
+        if tasks
+            .get(conversation_id)
+            .is_some_and(|live| live.request_id == request_id)
+        {
+            tasks.remove(conversation_id);
+        }
     }
 
     /// Whether a reply is arriving for that conversation.
@@ -119,6 +159,111 @@ impl ChatState {
     /// How many conversations are live.
     pub fn live(&self) -> usize {
         recover_poison(self.tasks.lock(), "commands::chat::live").len()
+    }
+
+    /// Stops every live reply, and says how many it stopped.
+    ///
+    /// Shutdown's form of the stop: it names no request because it means all
+    /// of them, and each task then saves what arrived through the same
+    /// stopped path a person's Stop uses.
+    pub fn cancel_all(&self) -> usize {
+        let tasks = recover_poison(self.tasks.lock(), "commands::chat::cancel_all");
+        for live in tasks.values() {
+            live.cancel.store(true, Ordering::Relaxed);
+        }
+        tasks.len()
+    }
+}
+
+/// How long a quit waits for the replies it stopped to write what arrived.
+///
+/// The text a reply has streamed so far is held by the task streaming it, and
+/// reaches the conversation file only when that task ends. The budget is the
+/// whole wait rather than one per conversation: a quit that hangs on a stalled
+/// host is worse than a reply that lost its last few words.
+pub const CHAT_SHUTDOWN_BUDGET: Duration = Duration::from_millis(500);
+
+/// How often the wait looks again. Short enough that the usual case — a task
+/// that ends in a millisecond or two — costs the quit nothing measurable.
+const CHAT_SHUTDOWN_POLL: Duration = Duration::from_millis(5);
+
+/// Stops every live reply and waits, briefly, for their tasks to save.
+///
+/// `true` when every conversation released inside the budget. `false` is a
+/// reply whose host is still holding the connection open: its partial text is
+/// lost, which is what the pre-stop behaviour did to every interrupted reply.
+pub fn stop_live_chats(chat: &ChatState, budget: Duration) -> bool {
+    if chat.cancel_all() == 0 {
+        return true;
+    }
+    let deadline = Instant::now() + budget;
+    loop {
+        let left = chat.live();
+        if left == 0 {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            tracing::warn!(
+                conversations = left,
+                "a reply was still arriving when the quit ran out of time for it"
+            );
+            return false;
+        }
+        std::thread::sleep(CHAT_SHUTDOWN_POLL);
+    }
+}
+
+/// Holds a conversation for one request and releases it however the request
+/// ends.
+///
+/// A plain call at the end of the task released the conversation only on the
+/// paths that reached it: a panic in the stream, in the parse or in the save
+/// left the conversation live for the life of the process, with every later
+/// send refused and no stop able to clear it. A refusal between the claim and
+/// the spawn had the same shape. Dropping is the one release, so there is no
+/// path that forgets it.
+pub struct LiveGuard {
+    state: ChatState,
+    conversation_id: String,
+    request_id: String,
+}
+
+impl LiveGuard {
+    pub fn new(state: ChatState, conversation_id: String, request_id: String) -> Self {
+        Self {
+            state,
+            conversation_id,
+            request_id,
+        }
+    }
+}
+
+impl Drop for LiveGuard {
+    fn drop(&mut self) {
+        self.state.release(&self.conversation_id, &self.request_id);
+    }
+}
+
+/// Claims a conversation for one send, or refuses it.
+///
+/// The claim and the guard come together: every path out of a send, accepted
+/// or refused, carries the guard, so the entry is the task's for exactly as
+/// long as the task exists.
+pub fn begin_request(
+    chat: &ChatState,
+    conversation_id: &str,
+    request_id: &str,
+) -> Result<(Arc<AtomicBool>, LiveGuard), String> {
+    match chat.try_begin(conversation_id, request_id) {
+        Some(cancel) => Ok((
+            cancel,
+            LiveGuard::new(
+                chat.clone(),
+                conversation_id.to_string(),
+                request_id.to_string(),
+            ),
+        )),
+        None => Err(REPLY_IN_FLIGHT.to_string()),
     }
 }
 
@@ -217,8 +362,14 @@ pub struct ProposalDto {
 pub struct ChatSendAccepted {
     /// The conversation the frames are keyed by.
     pub conversation_id: String,
+    /// The send the frames belong to, echoed back so the pane can pin the
+    /// exchange it is showing to the request that will fill it.
+    pub request_id: String,
     /// What the request carried, in the order it carried it.
     pub attached: Vec<AttachedNote>,
+    /// The connection the request was frozen against: what the reply will be
+    /// attributed to, whatever the config says by the time it lands.
+    pub identity: RequestIdentity,
 }
 
 /// What a proposal the user applied did to the note.
@@ -230,6 +381,12 @@ pub struct ProposalOutcome {
     pub hash: String,
     /// How many bytes were written.
     pub bytes: u64,
+    /// The write moved bytes.
+    ///
+    /// False when the note already held the proposed text, which is what a
+    /// model asked for a whole note often writes back. The card says so rather
+    /// than reporting a change nobody made.
+    pub changed: bool,
 }
 
 /// Builds the endpoint state for `cfg`. Pure over its key lookup, so the
@@ -344,7 +501,17 @@ pub fn chat_rename(app: AppHandle, id: String, title: String) -> Result<Conversa
 /// Unlinks a conversation. There is no trash for one, because it is not a note.
 #[tauri::command]
 pub fn chat_delete(app: AppHandle, id: String) -> Result<(), String> {
-    chat_store(&app).delete(&id).map_err(missing_or)
+    chat_delete_inner(&chat_store(&app), &app.state::<ChatState>(), &id)
+}
+
+/// Stops the conversation's reply, then unlinks it.
+///
+/// The stop comes first because a reply outliving its file has nowhere to go:
+/// its chunks reach a pane with no conversation to put them in, and the save
+/// that ends it fails on a file nothing can recreate.
+pub fn chat_delete_inner(store: &ChatStore, chat: &ChatState, id: &str) -> Result<(), String> {
+    chat.cancel(id, None);
+    store.delete(id).map_err(missing_or)
 }
 
 /// Renders one reply to the fragment the pane inserts into its own DOM.
@@ -471,10 +638,16 @@ pub struct PreparedChat {
     pub api_key: Option<String>,
     /// The host, for the log line and the activity record.
     pub host: String,
+    /// The host with its port, for the line a local runtime's silence reads
+    /// as.
+    pub host_port: String,
     /// The endpoint is on this machine.
     pub is_localhost: bool,
     /// The notes the request carries, and nothing else.
     pub context: Vec<AttachedNote>,
+    /// The connection this request was frozen against, carried on every frame
+    /// it produces.
+    pub identity: RequestIdentity,
 }
 
 /// Validates config and inputs and resolves the request.
@@ -485,6 +658,7 @@ pub fn prepare_chat(
     cfg: &AiConfig,
     turns: &[ChatTurn],
     context: Vec<AttachedNote>,
+    catalog: Option<&ModelCatalog>,
     lookup_key: impl FnOnce(&str) -> Option<String>,
 ) -> Result<PreparedChat, ChatError> {
     if !cfg.chat.enabled {
@@ -509,6 +683,7 @@ pub fn prepare_chat(
     if cfg.chat_model().trim().is_empty() {
         return Err(ChatError::ModelRequired);
     }
+    model_is_on_offer(cfg, catalog)?;
 
     let api_key = if target.is_hosted {
         if !super::ai::is_consented(cfg, &target.host) {
@@ -531,7 +706,7 @@ pub fn prepare_chat(
     let body = chat::build_request_body(
         provider,
         cfg.chat_model(),
-        chat::SYSTEM_PROMPT,
+        &chat::system_prompt(&context),
         turns,
         &context,
     );
@@ -541,9 +716,42 @@ pub fn prepare_chat(
         body,
         api_key,
         is_localhost: !target.is_hosted,
+        identity: RequestIdentity {
+            provider: cfg.provider.clone(),
+            model: cfg.chat_model().to_string(),
+            host: target.host.clone(),
+        },
         host: target.host,
+        host_port: target.host_port,
         context,
     })
+}
+
+/// Whether the model about to be sent is one the provider offers.
+///
+/// Only a live catalog read for this same provider can answer: the table's
+/// suggestions are guesses, and a list answered for another provider describes
+/// another server. A catalog that cannot answer blocks nothing, so a send is
+/// never refused for want of evidence.
+fn model_is_on_offer(cfg: &AiConfig, catalog: Option<&ModelCatalog>) -> Result<(), ChatError> {
+    let Some(catalog) = catalog else {
+        return Ok(());
+    };
+    if catalog.provider != cfg.provider || catalog.source != CatalogSource::Live {
+        return Ok(());
+    }
+    if catalog.models.is_empty() {
+        return Err(ChatError::EmptyModelList {
+            provider: cfg.provider.clone(),
+        });
+    }
+    if catalog.refuses(cfg.chat_model()) {
+        return Err(ChatError::ModelUnavailable {
+            model: cfg.chat_model().to_string(),
+            provider: cfg.provider.clone(),
+        });
+    }
+    Ok(())
 }
 
 /// The notes folder in the one spelling every path here is compared against.
@@ -577,8 +785,13 @@ pub fn note_file_in(notes_root: &Path, path: &str) -> Result<PathBuf, String> {
         return Err(outside_notes(path));
     }
     let file = PathBuf::from(resolved);
+    // The sentence goes under a chip or a card that already names the note,
+    // so it says what is wrong and not, a second time, which note.
+    if !file.exists() {
+        return Err("This note is no longer there.".to_string());
+    }
     if !file.is_file() {
-        return Err(format!("{} is not a note.", file_name_only(path)));
+        return Err("This is not a note.".to_string());
     }
     Ok(file)
 }
@@ -760,18 +973,21 @@ pub fn apply_proposal_inner(
 
     match outcome {
         Ok(written) => {
+            // A write that moved nothing records no bytes: a line claiming a
+            // length was written is a claim about a write that did not happen.
             record_proposal(
                 writ_dir,
                 host,
                 "apply_proposal",
                 &note_key,
                 Decision::Allow,
-                Some(written.bytes),
+                written.changed.then_some(written.bytes),
             );
             Ok(ProposalOutcome {
                 path: note_key,
                 hash: written.hash,
                 bytes: written.bytes,
+                changed: written.changed,
             })
         }
         Err(error) => {
@@ -786,6 +1002,31 @@ pub fn apply_proposal_inner(
             Err(refusal(&note_key, &error))
         }
     }
+}
+
+/// Tells the tab holding `file` that an applied proposal changed it.
+///
+/// The write carries no ignore stamp, because ADR-033 is right that the folder
+/// watcher is the channel a write Writ did not make reaches a tab through. That
+/// channel is slow and, on a loaded machine, late. This is the same event the
+/// watcher would build, delivered by the write itself; recording the written
+/// bytes as the tab's disk state in the same step is what makes the watcher's
+/// own delivery silent at
+/// [`writ_core::watcher::change_event::modification_is_news`], so the tab gets
+/// one event rather than two.
+///
+/// A note nobody has open is told nothing, and answers `None`.
+pub fn announce_applied_note(state: &AppState, file: &Path, bytes: &[u8]) -> Option<String> {
+    let note_id = state.open_notes().note_at(file)?;
+    state.record_disk_state_bytes(&note_id, file, bytes);
+    state
+        .event_bus
+        .emit(crate::watcher::open_files::open_note_modified(
+            &note_id,
+            file,
+            Some(bytes),
+        ));
+    Some(note_id)
 }
 
 /// What the pane shows when a write does not happen.
@@ -858,27 +1099,101 @@ fn record_proposal(
     }
 }
 
-fn emit_chat(app: &AppHandle, conversation_id: &str, kind: &str, text: Option<String>) {
-    emit_chat_with(app, conversation_id, kind, text, Vec::new());
+/// Which reply a frame belongs to: the conversation it is keyed by, and the
+/// send that produced it.
+///
+/// Both travel on every frame. The pane holds one entry per conversation and
+/// replaces it on each send, so a frame from a request the conversation has
+/// moved on from has to be recognisable as one.
+#[derive(Clone, Copy)]
+struct FrameIds<'a> {
+    conversation_id: &'a str,
+    request_id: &'a str,
 }
 
-fn emit_chat_with(
-    app: &AppHandle,
-    conversation_id: &str,
-    kind: &str,
-    text: Option<String>,
-    proposals: Vec<Proposal>,
-) {
-    if let Err(error) = emit_event(
-        app,
-        WritFrontendEvent::AiChat {
-            conversation_id: conversation_id.to_string(),
-            kind: kind.to_string(),
+fn text_frame(ids: FrameIds<'_>, kind: &str, text: Option<String>) -> WritFrontendEvent {
+    chat_frame(
+        ids,
+        kind,
+        ChatFrame {
             text,
-            proposals,
+            ..ChatFrame::default()
         },
-    ) {
-        tracing::warn!(error = %error, "failed to emit ai-chat event");
+    )
+}
+
+/// The frame that ends a reply, carrying what it proposed, what it lost,
+/// whether it was cut off and which connection answered.
+///
+/// A dropped block is reported rather than swallowed: a proposal that vanishes
+/// without a word reads as a broken feature, and the path the model named with
+/// a reason is all a person needs to see which it was (ADR-031 rule 5.2).
+fn done_frame(
+    ids: FrameIds<'_>,
+    parsed: ParsedProposals,
+    identity: Option<RequestIdentity>,
+    truncated: bool,
+) -> WritFrontendEvent {
+    chat_frame(
+        ids,
+        "done",
+        ChatFrame {
+            parsed,
+            identity,
+            truncated,
+            ..ChatFrame::default()
+        },
+    )
+}
+
+/// The frame a failed reply ends on.
+///
+/// `text` carries the same sentence the frame does, so a pane that renders a
+/// terminal frame's text needs no change to keep showing it; `error` is what a
+/// recovery action is chosen from.
+fn error_frame(ids: FrameIds<'_>, frame: ChatErrorFrame) -> WritFrontendEvent {
+    let message = frame.message.clone();
+    chat_frame(
+        ids,
+        "error",
+        ChatFrame {
+            text: Some(message),
+            error: Some(frame),
+            ..ChatFrame::default()
+        },
+    )
+}
+
+/// What a frame carries beyond its kind.
+#[derive(Default)]
+struct ChatFrame {
+    text: Option<String>,
+    parsed: ParsedProposals,
+    identity: Option<RequestIdentity>,
+    error: Option<ChatErrorFrame>,
+    truncated: bool,
+}
+
+fn chat_frame(ids: FrameIds<'_>, kind: &str, frame: ChatFrame) -> WritFrontendEvent {
+    WritFrontendEvent::AiChat {
+        conversation_id: ids.conversation_id.to_string(),
+        request_id: ids.request_id.to_string(),
+        kind: kind.to_string(),
+        text: frame.text,
+        proposals: frame.parsed.proposals,
+        identity: frame.identity,
+        error: frame.error.map(Box::new),
+        dropped: frame.parsed.dropped,
+        truncated: frame.truncated,
+    }
+}
+
+/// Sends one frame to the pane. A frame that cannot be delivered is a warning:
+/// the reply is already in the file, and there is nothing a second attempt
+/// would reach.
+fn emit_to_pane(app: &AppHandle, event: WritFrontendEvent) {
+    if let Err(error) = emit_event(app, event) {
+        tracing::warn!(error = %error, "failed to emit chat frame");
     }
 }
 
@@ -898,17 +1213,74 @@ fn log_request(prepared: &PreparedChat, note_bytes: usize, turns: usize) {
     );
 }
 
-/// The one line a refused request writes. The status code is the whole of what
-/// the server said that may be recorded; its body is never read.
-fn log_rejected(status: u16) {
-    tracing::warn!(status, "chat request rejected");
+/// The one line a refused request writes.
+///
+/// The status and, when the envelope named one of the six reasons Writ knows,
+/// that reason's own token. Neither is the server's text: `code` can only be a
+/// [`RejectCode`], and no other part of the body is read (ADR-031 rule 5.2 as
+/// narrowed by the ADR-040 amendment of 2026-09-17).
+fn log_rejected(status: u16, code: Option<RejectCode>) {
+    tracing::warn!(
+        status,
+        code = code.map(RejectCode::as_str).unwrap_or("none"),
+        "chat request rejected"
+    );
+}
+
+/// How much of a refusal body is read before the rest is dropped.
+///
+/// An envelope is a few hundred bytes; this is the ceiling on what a host can
+/// make Writ hold while looking for one of six words.
+const MAX_REJECT_BODY_BYTES: usize = 8 * 1024;
+
+/// The reason a refusal names, when it names one on the allowlist.
+///
+/// The body is read here and nowhere else, is bounded, and leaves this
+/// function only as a [`RejectCode`].
+async fn reject_code_of(response: reqwest::Response) -> Option<RejectCode> {
+    let mut stream = response.bytes_stream();
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(Ok(bytes)) = stream.next().await {
+        body.extend_from_slice(&bytes);
+        if body.len() >= MAX_REJECT_BODY_BYTES {
+            body.truncate(MAX_REJECT_BODY_BYTES);
+            break;
+        }
+    }
+    chat::parse_reject_code(&String::from_utf8_lossy(&body))
+}
+
+/// What a request that never reached the host reads as.
+///
+/// A local runtime that refused the connection is the one case with a step
+/// behind it, so it gets a typed failure naming the runtime and the port it
+/// was expected on. Everything else keeps the sanitized transport line.
+fn transport_frame(prepared: &PreparedChat, error: &reqwest::Error) -> ChatErrorFrame {
+    if prepared.is_localhost && error.is_connect() {
+        return ChatErrorFrame::from_error(
+            &ChatError::LocalServerOffline {
+                runtime: prepared.identity.provider.clone(),
+                host_port: prepared.host_port.clone(),
+            },
+            &prepared.identity,
+        );
+    }
+    ChatErrorFrame::untyped(
+        "unreachable",
+        super::ai::connection_error_message(error, prepared.is_localhost),
+        &prepared.identity,
+    )
 }
 
 /// One thing that happens during a stream.
 enum ChatEvent {
     Chunk(String),
-    Done,
-    Error(String),
+    /// The stream ended. `truncated` is set when it ended at the model's token
+    /// ceiling, so what arrived is the start of a reply rather than all of it.
+    Done {
+        truncated: bool,
+    },
+    Error(ChatErrorFrame),
 }
 
 /// Sends the request and streams the reply, invoking `on_event` for each
@@ -935,20 +1307,22 @@ async fn run_chat_stream(
     let response = match builder.send().await {
         Ok(response) => response,
         Err(error) => {
-            on_event(ChatEvent::Error(super::ai::connection_error_message(
-                &error,
-                prepared.is_localhost,
-            )));
+            on_event(ChatEvent::Error(transport_frame(prepared, &error)));
             return;
         }
     };
 
     let status = response.status();
     if !status.is_success() {
-        log_rejected(status.as_u16());
-        on_event(ChatEvent::Error(format!(
-            "The model server returned status {}.",
-            status.as_u16()
+        let code = reject_code_of(response).await;
+        log_rejected(status.as_u16(), code);
+        on_event(ChatEvent::Error(ChatErrorFrame::from_error(
+            &ChatError::ProviderRejected {
+                provider: prepared.identity.provider.clone(),
+                status: status.as_u16(),
+                code,
+            },
+            &prepared.identity,
         )));
         return;
     }
@@ -962,8 +1336,10 @@ async fn run_chat_stream(
         let bytes = match item {
             Ok(bytes) => bytes,
             Err(error) => {
-                on_event(ChatEvent::Error(super::ai::sanitize_ai_error(
-                    &error.to_string(),
+                on_event(ChatEvent::Error(ChatErrorFrame::untyped(
+                    "stream_failed",
+                    super::ai::sanitize_ai_error(&error.to_string()),
+                    &prepared.identity,
                 )));
                 return;
             }
@@ -973,7 +1349,15 @@ async fn run_chat_stream(
             match chat::parse_delta(prepared.provider, &line) {
                 Delta::Text(text) => on_event(ChatEvent::Chunk(text)),
                 Delta::Done => {
-                    on_event(ChatEvent::Done);
+                    on_event(ChatEvent::Done { truncated: false });
+                    return;
+                }
+                // The ceiling ends the stream as surely as a stop does. The
+                // flag is what lets the pane say the reply was cut off, rather
+                // than leaving a half-written note to vanish as an
+                // unterminated block.
+                Delta::Truncated => {
+                    on_event(ChatEvent::Done { truncated: true });
                     return;
                 }
                 // Nothing the server wrote is shown or logged: an error
@@ -985,9 +1369,11 @@ async fn run_chat_stream(
                         host = %prepared.host,
                         "the model server ended the stream with an error frame"
                     );
-                    on_event(ChatEvent::Error(
+                    on_event(ChatEvent::Error(ChatErrorFrame::untyped(
+                        "stream_failed",
                         "The model server ended the reply.".to_string(),
-                    ));
+                        &prepared.identity,
+                    )));
                     return;
                 }
                 Delta::Ignore => {}
@@ -998,7 +1384,7 @@ async fn run_chat_stream(
     if cancel.load(Ordering::Relaxed) {
         return;
     }
-    on_event(ChatEvent::Done);
+    on_event(ChatEvent::Done { truncated: false });
 }
 
 /// What a reply has produced so far: everything the model wrote, and the part
@@ -1048,10 +1434,99 @@ impl ReplyBuffer {
 /// those backticks in the filter until the stream ends. They are part of the
 /// saved reply, so the pane has to be handed them too; without this the pane
 /// renders an unterminated fence until the conversation is reopened.
-fn emit_tail(app: &AppHandle, conversation_id: &str, buffer: &mut ReplyBuffer) {
+fn emit_tail<F: FnMut(WritFrontendEvent)>(
+    emit: &mut F,
+    ids: FrameIds<'_>,
+    buffer: &mut ReplyBuffer,
+) {
     let tail = buffer.finish();
     if !tail.is_empty() {
-        emit_chat(app, conversation_id, "chunk", Some(tail));
+        emit(text_frame(ids, "chunk", Some(tail)));
+    }
+}
+
+/// One reply, from the request to the turn it leaves in the file.
+///
+/// This is the whole of what a send spawns, the guard aside, so a test that
+/// interrupts this interrupts what the app runs.
+pub async fn run_reply(
+    client: &reqwest::Client,
+    prepared: &PreparedChat,
+    cancel: &AtomicBool,
+    store: &ChatStore,
+    conversation_id: &str,
+    request_id: &str,
+    emit: impl FnMut(WritFrontendEvent),
+) {
+    let identity = prepared.identity.clone();
+    stream_reply(
+        client,
+        prepared,
+        cancel,
+        FrameIds {
+            conversation_id,
+            request_id,
+        },
+        |shown, parsed, truncated| {
+            record_reply(store, conversation_id, shown, parsed, truncated, &identity)
+        },
+        emit,
+    )
+    .await;
+}
+
+/// Streams one reply: every frame the pane sees and every write the file
+/// takes, for one send.
+///
+/// The frames and the save are handed in rather than reached for, so the
+/// sequence a reply produces — the chunks, the tail, the terminal frame, and
+/// the save that comes before it — is the same code a test drives against a
+/// stub host as the one a send runs.
+async fn stream_reply(
+    client: &reqwest::Client,
+    prepared: &PreparedChat,
+    cancel: &AtomicBool,
+    ids: FrameIds<'_>,
+    mut record: impl FnMut(&str, &ParsedProposals, bool),
+    mut emit: impl FnMut(WritFrontendEvent),
+) {
+    let mut buffer = ReplyBuffer::new();
+    let mut ended = false;
+    run_chat_stream(client, prepared, cancel, |event| match event {
+        ChatEvent::Chunk(text) => {
+            let visible = buffer.push(&text);
+            if !visible.is_empty() {
+                emit(text_frame(ids, "chunk", Some(visible)));
+            }
+        }
+        ChatEvent::Done { truncated } => {
+            ended = true;
+            emit_tail(&mut emit, ids, &mut buffer);
+            let parsed = chat::parse_proposals(&buffer.raw, &prepared.context, truncated);
+            record(&buffer.shown, &parsed, truncated);
+            emit(done_frame(
+                ids,
+                parsed,
+                Some(prepared.identity.clone()),
+                truncated,
+            ));
+        }
+        ChatEvent::Error(frame) => {
+            ended = true;
+            emit_tail(&mut emit, ids, &mut buffer);
+            record(&buffer.shown, &ParsedProposals::default(), false);
+            emit(error_frame(ids, frame));
+        }
+    })
+    .await;
+
+    // A stopped reply ends the stream with no terminal event of its own.
+    // What arrived before the stop is the reply, so it is saved and the pane
+    // is told to render what it has.
+    if !ended {
+        emit_tail(&mut emit, ids, &mut buffer);
+        record(&buffer.shown, &ParsedProposals::default(), false);
+        emit(text_frame(ids, "stopped", None));
     }
 }
 
@@ -1061,11 +1536,31 @@ fn emit_tail(app: &AppHandle, conversation_id: &str, buffer: &mut ReplyBuffer) {
 /// saves, so the stamp records that the conversation was used. A store that
 /// refuses is a warning and not an error: the reply is already on screen, and
 /// there is nothing a person could do with a second message about it.
-fn record_reply(store: &ChatStore, conversation_id: &str, shown: &str, proposals: &[Proposal]) {
-    let stored: Vec<StoredProposal> = proposals.iter().map(StoredProposal::from).collect();
+fn record_reply(
+    store: &ChatStore,
+    conversation_id: &str,
+    shown: &str,
+    parsed: &ParsedProposals,
+    truncated: bool,
+    identity: &RequestIdentity,
+) {
+    let reply = AssistantReply {
+        proposals: parsed.proposals.iter().map(StoredProposal::from).collect(),
+        dropped: parsed.dropped.clone(),
+        truncated,
+    };
+    let empty = shown.is_empty()
+        && reply.proposals.is_empty()
+        && reply.dropped.is_empty()
+        && !reply.truncated;
     let saved = store.load(conversation_id).and_then(|mut conversation| {
-        if !shown.is_empty() || !stored.is_empty() {
-            conversation.push_assistant(shown.to_string(), stored, ChatStore::now());
+        if !empty {
+            conversation.push_assistant(
+                shown.to_string(),
+                reply,
+                Some(identity.clone()),
+                ChatStore::now(),
+            );
         }
         store.save(&conversation)
     });
@@ -1129,10 +1624,10 @@ fn attachment_refs(context: &[AttachedNote]) -> Vec<AttachmentRef> {
 /// first.
 ///
 /// `conversation_id` names the file the turns live in and keys the
-/// `writ://ai-chat` frames and the cancel, so there is no window in which an
-/// early event could arrive unmatched. `truncate_to` cuts the conversation to
-/// that many turns before the new one is appended, which is what retrying a
-/// turn and editing one both are.
+/// `writ://ai-chat` frames; `request_id` names this send among the sends that
+/// conversation has had, so a stop and a frame both say which reply they mean.
+/// `truncate_to` cuts the conversation to that many turns before the new one is
+/// appended, which is what retrying a turn and editing one both are.
 ///
 /// The user's turn is saved after the request is resolved rather than before:
 /// a send a switch, a consent or a missing key refuses never happened, and a
@@ -1145,17 +1640,17 @@ pub async fn chat_send(
     text: String,
     context_paths: Vec<String>,
     truncate_to: Option<usize>,
+    request_id: String,
 ) -> Result<ChatSendAccepted, String> {
     let cfg = chat_config(&app);
     if text.trim().is_empty() {
         return Err(ChatError::EmptyMessage.to_string());
     }
-    // Two streams on one conversation are two tasks appending to one file,
-    // and the second send would take the cancel flag the pane needs to stop
-    // the first. Nothing is read or written before this.
-    if app.state::<ChatState>().is_live(&conversation_id) {
-        return Err(REPLY_IN_FLIGHT.to_string());
-    }
+    // Two streams on one conversation are two tasks appending to one file, so
+    // the conversation is claimed before anything is read, in one lock, and
+    // the guard hands it back on every path out of here — a refusal below as
+    // surely as the end of the stream.
+    let (cancel, guard) = begin_request(&app.state::<ChatState>(), &conversation_id, &request_id)?;
 
     let store = chat_store(&app);
     let mut conversation = store.load(&conversation_id).map_err(missing_or)?;
@@ -1177,7 +1672,10 @@ pub async fn chat_send(
     }
 
     let turns = conversation.request_turns();
-    let prepared = prepare_chat(&cfg, &turns, context, |account| {
+    let catalog = app
+        .state::<super::ai::AiState>()
+        .live_catalog(&cfg.provider);
+    let prepared = prepare_chat(&cfg, &turns, context, catalog.as_ref(), |account| {
         super::ai::key_for(&app, account)
     })
     .map_err(|error| error.to_string())?;
@@ -1188,61 +1686,48 @@ pub async fn chat_send(
     log_request(&prepared, attached_bytes, turns.len());
 
     let client = super::ai::build_client()?;
-    let cancel = app.state::<ChatState>().begin(&conversation_id);
 
     let attached = prepared.context.clone();
+    let accepted_identity = prepared.identity.clone();
     let task_app = app.clone();
     let task_id = conversation_id.clone();
+    let task_request_id = request_id.clone();
     tauri::async_runtime::spawn(async move {
-        let mut buffer = ReplyBuffer::new();
-        let mut ended = false;
-        run_chat_stream(&client, &prepared, &cancel, |event| match event {
-            ChatEvent::Chunk(text) => {
-                let visible = buffer.push(&text);
-                if !visible.is_empty() {
-                    emit_chat(&task_app, &task_id, "chunk", Some(visible));
-                }
-            }
-            ChatEvent::Done => {
-                ended = true;
-                emit_tail(&task_app, &task_id, &mut buffer);
-                let proposals = chat::parse_proposals(&buffer.raw, &prepared.context);
-                record_reply(&store, &task_id, &buffer.shown, &proposals);
-                emit_chat_with(&task_app, &task_id, "done", None, proposals);
-            }
-            ChatEvent::Error(message) => {
-                ended = true;
-                emit_tail(&task_app, &task_id, &mut buffer);
-                record_reply(&store, &task_id, &buffer.shown, &[]);
-                emit_chat(&task_app, &task_id, "error", Some(message));
-            }
-        })
+        // The conversation is this request's until the task ends, however it
+        // ends: the guard is dropped by a return, by a panic in the stream or
+        // in the save, and by the end of the reply alike.
+        let _live = guard;
+        run_reply(
+            &client,
+            &prepared,
+            &cancel,
+            &store,
+            &task_id,
+            &task_request_id,
+            |event| emit_to_pane(&task_app, event),
+        )
         .await;
-
-        // A stopped reply ends the stream with no terminal event of its own.
-        // What arrived before the stop is the reply, so it is saved and the
-        // pane is told to render what it has.
-        if !ended {
-            emit_tail(&task_app, &task_id, &mut buffer);
-            record_reply(&store, &task_id, &buffer.shown, &[]);
-            emit_chat(&task_app, &task_id, "stopped", None);
-        }
-
-        task_app.state::<ChatState>().finish(&task_id);
     });
 
     Ok(ChatSendAccepted {
         conversation_id,
         attached,
+        identity: accepted_identity,
+        request_id,
     })
 }
 
 /// Signals a live reply to stop. Further deltas are dropped and no proposal is
 /// read out of half a reply: the text already on screen is the reply, and the
 /// task saves it and emits `stopped` so the pane can render it.
+///
+/// The stop names the request it means. A pane that sent, was answered and
+/// sent again would otherwise stop the second reply with the first one's
+/// button; `None` is the blunt form shutdown uses, which stops whatever that
+/// conversation is running.
 #[tauri::command]
-pub fn chat_cancel(chat: State<'_, ChatState>, conversation_id: String) {
-    chat.cancel(&conversation_id);
+pub fn chat_stop(chat: State<'_, ChatState>, conversation_id: String, request_id: Option<String>) {
+    chat.cancel(&conversation_id, request_id.as_deref());
 }
 
 /// Writes a proposal the user applied, and records what became of it.
@@ -1273,6 +1758,14 @@ pub fn chat_apply_proposal(
         &before_hash,
         Some(&app.state::<AppState>().note_history),
     );
+    // Only a write that moved bytes has something to tell a tab. An apply of
+    // the text the note already holds leaves the file exactly as the tab has
+    // it, so an event about it would be a notice about nothing.
+    if outcome.as_ref().is_ok_and(|applied| applied.changed) {
+        if let Ok(file) = note_file_in(&notes_root, &path) {
+            announce_applied_note(&app.state::<AppState>(), &file, new_content.as_bytes());
+        }
+    }
     let status = if outcome.is_ok() {
         ProposalStatus::Applied
     } else {
@@ -1330,17 +1823,17 @@ mod tests {
         let id = "0b7d6b7a-1111-4b6a-9d5e-000000000001";
 
         assert!(!state.is_live(id));
-        let cancel = state.begin(id);
+        let (cancel, guard) = begin_request(&state, id, "r-1").expect("the send was accepted");
         assert!(state.is_live(id));
         assert!(!state.is_live("0b7d6b7a-2222-4b6a-9d5e-000000000002"));
 
         // A stop asks the task to end; the reply is still arriving until it
         // has, so the conversation stays live until the task says so.
-        assert!(state.cancel(id));
+        assert!(state.cancel(id, Some("r-1")));
         assert!(cancel.load(Ordering::Relaxed));
         assert!(state.is_live(id));
 
-        state.finish(id);
+        drop(guard);
         assert!(!state.is_live(id));
     }
 
@@ -1355,6 +1848,7 @@ mod tests {
             chat: writ_core::config::AiChatConfig {
                 enabled,
                 model: String::new(),
+                model_provider: String::new(),
             },
             ..AiConfig::default()
         }
@@ -1401,6 +1895,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_note_that_vanished_and_a_folder_are_refused_in_their_own_words() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        std::fs::create_dir(dir.path().join("Archive")).expect("folder");
+        assert_eq!(
+            note_file_in(dir.path(), "Launch.md"),
+            Err("This note is no longer there.".to_string())
+        );
+        assert_eq!(
+            note_file_in(dir.path(), "Archive"),
+            Err("This is not a note.".to_string())
+        );
+    }
+
     #[cfg(windows)]
     #[test]
     fn a_refusal_names_a_windows_note_without_its_folder() {
@@ -1414,7 +1922,7 @@ mod tests {
     fn a_switch_that_is_off_refuses_before_anything_is_read() {
         let cfg = config(false, "http://localhost:11434/v1", "llama3");
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
+            prepare_chat(&cfg, &turns(), Vec::new(), None, no_key),
             Err(ChatError::Disabled)
         );
     }
@@ -1423,7 +1931,7 @@ mod tests {
     fn an_unconsented_hosted_host_is_refused_before_a_body_is_built() {
         let cfg = config(true, "https://api.example.com/v1", "some-model");
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), |_| panic!(
+            prepare_chat(&cfg, &turns(), Vec::new(), None, |_| panic!(
                 "the key was read for a host with no consent"
             )),
             Err(ChatError::ConsentRequired {
@@ -1437,7 +1945,7 @@ mod tests {
         let mut cfg = config(true, "https://api.example.com/v1", "some-model");
         cfg.consented_hosts = vec!["api.example.com".to_string()];
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
+            prepare_chat(&cfg, &turns(), Vec::new(), None, no_key),
             Err(ChatError::ApiKeyRequired {
                 host: "api.example.com".to_string()
             })
@@ -1449,7 +1957,7 @@ mod tests {
         let mut cfg = config(true, "http://api.example.com/v1", "some-model");
         cfg.consented_hosts = vec!["api.example.com".to_string()];
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
+            prepare_chat(&cfg, &turns(), Vec::new(), None, no_key),
             Err(ChatError::EndpointNotAllowed)
         );
     }
@@ -1457,7 +1965,7 @@ mod tests {
     #[test]
     fn a_local_endpoint_needs_neither_consent_nor_a_key() {
         let cfg = config(true, "http://localhost:11434/v1", "llama3");
-        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), |_| {
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, |_| {
             panic!("a local endpoint read a key")
         })
         .expect("prepared");
@@ -1473,7 +1981,7 @@ mod tests {
     fn a_model_nobody_chose_is_refused() {
         let cfg = config(true, "http://localhost:11434/v1", "  ");
         assert_eq!(
-            prepare_chat(&cfg, &turns(), Vec::new(), no_key),
+            prepare_chat(&cfg, &turns(), Vec::new(), None, no_key),
             Err(ChatError::ModelRequired)
         );
     }
@@ -1486,7 +1994,7 @@ mod tests {
             content: "   ".to_string(),
         }];
         assert_eq!(
-            prepare_chat(&cfg, &blank, Vec::new(), no_key),
+            prepare_chat(&cfg, &blank, Vec::new(), None, no_key),
             Err(ChatError::EmptyMessage)
         );
     }
@@ -1496,8 +2004,8 @@ mod tests {
         let mut cfg = config(true, "", "claude-sonnet-5");
         cfg.provider = "anthropic".to_string();
         cfg.consented_hosts = vec!["api.anthropic.com".to_string()];
-        let prepared =
-            prepare_chat(&cfg, &turns(), Vec::new(), |_| Some("k".to_string())).expect("prepared");
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, |_| Some("k".to_string()))
+            .expect("prepared");
         assert_eq!(prepared.provider, Provider::Anthropic);
         assert_eq!(prepared.endpoint, "https://api.anthropic.com/v1/messages");
     }
@@ -1505,12 +2013,22 @@ mod tests {
     #[test]
     fn the_pane_sends_its_own_model_only_when_it_names_one() {
         let mut cfg = config(true, "http://localhost:11434/v1", "llama3");
-        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), no_key).expect("prepared");
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, no_key).expect("prepared");
         assert_eq!(prepared.body["model"], "llama3");
 
+        // An override travels with the provider it was picked under.
         cfg.chat.model = "mistral".to_string();
-        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), no_key).expect("prepared");
+        cfg.chat.model_provider = "custom".to_string();
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, no_key).expect("prepared");
         assert_eq!(prepared.body["model"], "mistral");
+        assert_eq!(prepared.identity.model, "mistral");
+        assert_eq!(prepared.identity.provider, "custom");
+
+        // The same override under another provider is not sent.
+        cfg.chat.model_provider = "ollama".to_string();
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, no_key).expect("prepared");
+        assert_eq!(prepared.body["model"], "llama3");
+        assert_eq!(prepared.identity.model, "llama3");
     }
 
     #[test]
@@ -1549,7 +2067,7 @@ mod tests {
         let mut cfg = config(true, "", "llama-3.3-70b-versatile");
         cfg.provider = "groq".to_string();
         cfg.consented_hosts = vec!["api.groq.com".to_string()];
-        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), |account| {
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, |account| {
             assert_eq!(account, "groq", "the chat read another provider's key");
             Some("secret".to_string())
         })
@@ -1671,8 +2189,15 @@ Tell me if that reads better.\n";
 
         let mut buffer = ReplyBuffer::new();
         let emitted = stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
-        let proposals = chat::parse_proposals(&buffer.raw, &attached);
-        record_reply(&store, ID, &buffer.shown, &proposals);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &parsed,
+            false,
+            &tests_support::test_identity(),
+        );
 
         // What the stream handed the pane is what the file holds, and neither
         // carries a fence character or a line of the proposed text.
@@ -1708,7 +2233,14 @@ Tell me if that reads better.\n";
         let mut buffer = ReplyBuffer::new();
         buffer.push("The first half of an answer");
         buffer.finish();
-        record_reply(&store, ID, &buffer.shown, &[]);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &ParsedProposals::default(),
+            false,
+            &tests_support::test_identity(),
+        );
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 2);
@@ -1721,7 +2253,14 @@ Tell me if that reads better.\n";
         let data = tempfile::TempDir::new().expect("temp dir");
         let store = store_in(data.path());
 
-        record_reply(&store, ID, "", &[]);
+        record_reply(
+            &store,
+            ID,
+            "",
+            &ParsedProposals::default(),
+            false,
+            &tests_support::test_identity(),
+        );
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 1);
@@ -1759,12 +2298,52 @@ Tell me if that reads better.\n";
             &mut buffer,
             "Here you go.\n```writ-proposal path=\"Launch.md\"\nhalf a not",
         );
-        record_reply(&store, ID, &buffer.shown, &[]);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &ParsedProposals::default(),
+            false,
+            &tests_support::test_identity(),
+        );
 
         let saved = store.load(ID).expect("load");
         assert_eq!(saved.turns.len(), 2);
         assert_eq!(saved.turns[1].content, "Here you go.\n");
         assert!(saved.turns[1].proposals.is_empty());
+    }
+
+    #[test]
+    fn a_reply_that_named_a_note_nobody_attached_records_the_drop() {
+        let data = tempfile::TempDir::new().expect("temp dir");
+        let store = store_in(data.path());
+        let (_notes, attached) = notes_with("one intro\n");
+
+        let mut buffer = ReplyBuffer::new();
+        stream_through(
+            &mut buffer,
+            "Here you go.\n```writ-proposal path=\"Nope.md\"\nnew\n```\n",
+        );
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &parsed,
+            true,
+            &tests_support::test_identity(),
+        );
+
+        let saved = store.load(ID).expect("load");
+        let reply = &saved.turns[1];
+        assert!(reply.proposals.is_empty());
+        assert_eq!(reply.dropped.len(), 1);
+        assert_eq!(reply.dropped[0].named, "Nope.md");
+        assert_eq!(
+            reply.dropped[0].reason,
+            writ_core::chat::DropReason::UnknownNote
+        );
+        assert!(reply.truncated, "the turn forgot the reply was cut off");
     }
 
     #[test]
@@ -1774,8 +2353,15 @@ Tell me if that reads better.\n";
         let (_notes, attached) = notes_with("one intro\nand another intro\n");
         let mut buffer = ReplyBuffer::new();
         stream_through(&mut buffer, REPLY_WITH_A_PROPOSAL);
-        let proposals = chat::parse_proposals(&buffer.raw, &attached);
-        record_reply(&store, ID, &buffer.shown, &proposals);
+        let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
+        record_reply(
+            &store,
+            ID,
+            &buffer.shown,
+            &parsed,
+            false,
+            &tests_support::test_identity(),
+        );
 
         record_status(&store, ID, 1, "Launch.md", ProposalStatus::Applied);
         assert_eq!(
@@ -1804,13 +2390,17 @@ Tell me if that reads better.\n";
         );
         conversation.push_assistant(
             "Here is a shorter opening.".to_string(),
-            vec![StoredProposal {
-                path: "Launch.md".to_string(),
-                summary: "Fold the intros".to_string(),
-                before_hash: attached[0].before_hash.clone(),
-                new_content: "one intro, folded\n".to_string(),
-                status: ProposalStatus::Pending,
-            }],
+            AssistantReply {
+                proposals: vec![StoredProposal {
+                    path: "Launch.md".to_string(),
+                    summary: "Fold the intros".to_string(),
+                    before_hash: attached[0].before_hash.clone(),
+                    new_content: "one intro, folded\n".to_string(),
+                    status: ProposalStatus::Pending,
+                }],
+                ..AssistantReply::default()
+            },
+            None,
             ChatStore::now(),
         );
 
@@ -1853,13 +2443,17 @@ Tell me if that reads better.\n";
         );
         conversation.push_assistant(
             "Done.".to_string(),
-            vec![StoredProposal {
-                path: "Launch.md".to_string(),
-                summary: "Fold the intros".to_string(),
-                before_hash: attached[0].before_hash.clone(),
-                new_content: "one intro, folded\n".to_string(),
-                status: ProposalStatus::Applied,
-            }],
+            AssistantReply {
+                proposals: vec![StoredProposal {
+                    path: "Launch.md".to_string(),
+                    summary: "Fold the intros".to_string(),
+                    before_hash: attached[0].before_hash.clone(),
+                    new_content: "one intro, folded\n".to_string(),
+                    status: ProposalStatus::Applied,
+                }],
+                ..AssistantReply::default()
+            },
+            None,
             ChatStore::now(),
         );
 
@@ -1917,8 +2511,8 @@ mod stream_tests {
                 let mut seen = sink.lock().expect("events");
                 match event {
                     ChatEvent::Chunk(text) => seen.push(format!("chunk:{text}")),
-                    ChatEvent::Done => seen.push("done".to_string()),
-                    ChatEvent::Error(message) => seen.push(format!("error:{message}")),
+                    ChatEvent::Done { truncated } => seen.push(format!("done:{truncated}")),
+                    ChatEvent::Error(frame) => seen.push(format!("error:{}", frame.message)),
                 }
             })
             .await;
@@ -1943,7 +2537,29 @@ mod stream_tests {
             .filter_map(|event| event.strip_prefix("chunk:"))
             .collect();
         assert_eq!(text, RECORDED_REPLY);
-        assert_eq!(events.last().map(String::as_str), Some("done"));
+        assert_eq!(events.last().map(String::as_str), Some("done:false"));
+    }
+
+    #[test]
+    fn a_reply_cut_off_at_the_ceiling_ends_as_done_and_says_so() {
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"half an ans\"}}]}\n\n\
+             data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
+        );
+        let prepared = prepared_for(&base, Provider::OpenAiCompatible, None);
+        let events = run_against(&prepared, Arc::new(AtomicBool::new(false)));
+
+        assert_eq!(
+            events.first().map(String::as_str),
+            Some("chunk:half an ans")
+        );
+        assert_eq!(
+            events.last().map(String::as_str),
+            Some("done:true"),
+            "a reply that stopped at the ceiling read as a whole one"
+        );
     }
 
     #[test]
@@ -1965,6 +2581,91 @@ mod stream_tests {
             !request.to_lowercase().contains("authorization:"),
             "got: {request}"
         );
+    }
+
+    /// Every frame of a reply says which send it came from, chunks and the
+    /// terminal frame alike. The pane keeps one exchange per conversation and
+    /// replaces it on each send, so a frame with no request id on it cannot be
+    /// told apart from one belonging to the send before.
+    #[test]
+    fn every_frame_carries_the_request_id() {
+        fn frames_of(prepared: &PreparedChat, cancel: bool) -> Vec<(String, String)> {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = seen.clone();
+            tauri::async_runtime::block_on(async move {
+                let client = super::super::ai::build_client().expect("client");
+                stream_reply(
+                    &client,
+                    prepared,
+                    &AtomicBool::new(cancel),
+                    FrameIds {
+                        conversation_id: CONVERSATION,
+                        request_id: REQUEST,
+                    },
+                    |_, _, _| {},
+                    |event| {
+                        let WritFrontendEvent::AiChat {
+                            conversation_id,
+                            request_id,
+                            kind,
+                            ..
+                        } = event
+                        else {
+                            panic!("a chat frame reached the pane as another event");
+                        };
+                        assert_eq!(conversation_id, CONVERSATION);
+                        sink.lock().expect("frames").push((kind, request_id));
+                    },
+                )
+                .await;
+            });
+            Arc::try_unwrap(seen)
+                .expect("one reference")
+                .into_inner()
+                .expect("frames")
+        }
+
+        const CONVERSATION: &str = "0b7d6b7a-1111-4b6a-9d5e-000000000001";
+        const REQUEST: &str = "1f2e3d4c-5b6a-4790-8123-456789abcdef";
+
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            ANTHROPIC_STREAM,
+        );
+        let answered = frames_of(&prepared_for(&base, Provider::Anthropic, None), false);
+
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            ANTHROPIC_STREAM,
+        );
+        let stopped = frames_of(&prepared_for(&base, Provider::Anthropic, None), true);
+
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 429 Too Many Requests",
+            "Content-Length: 21\r\nConnection: close\r\n",
+            "{\"error\":\"slow down\"}",
+        );
+        let refused = frames_of(&prepared_for(&base, Provider::Anthropic, None), false);
+
+        let kinds: Vec<&str> = answered
+            .iter()
+            .chain(stopped.iter())
+            .chain(refused.iter())
+            .map(|(kind, _)| kind.as_str())
+            .collect();
+        assert!(kinds.contains(&"chunk"), "got: {kinds:?}");
+        assert_eq!(answered.last().map(|(kind, _)| kind.as_str()), Some("done"));
+        assert_eq!(
+            stopped.last().map(|(kind, _)| kind.as_str()),
+            Some("stopped")
+        );
+        assert_eq!(refused.last().map(|(kind, _)| kind.as_str()), Some("error"));
+
+        for (kind, request_id) in answered.iter().chain(&stopped).chain(&refused) {
+            assert_eq!(request_id, REQUEST, "a {kind} frame named no request");
+        }
     }
 
     #[test]
@@ -2018,7 +2719,7 @@ mod stream_tests {
         let store = ChatStore::new(&writ_dir);
         let logs = captured_logs(|| {
             log_request(&prepared, NOTE_TEXT.len(), 1);
-            log_rejected(401);
+            log_rejected(401, Some(RejectCode::InvalidApiKey));
             record_proposal(
                 &writ_dir,
                 "127.0.0.1",
@@ -2031,7 +2732,9 @@ mod stream_tests {
                 &store,
                 "0b7d6b7a-5555-4b6a-9d5e-000000000005",
                 RECORDED_REPLY,
-                &[],
+                &ParsedProposals::default(),
+                false,
+                &test_identity(),
             );
             record_status(
                 &store,
@@ -2091,7 +2794,7 @@ mod stream_tests {
             "a reply reached the log: {logs}"
         );
         assert!(
-            !logs.contains(writ_core::chat::SYSTEM_PROMPT),
+            !logs.contains(writ_core::chat::SYSTEM_PROMPT_HEAD),
             "the system prompt reached the log: {logs}"
         );
         assert!(logs.contains("127.0.0.1"), "the host is loggable: {logs}");
@@ -2112,8 +2815,8 @@ mod stream_tests {
             tauri::async_runtime::block_on(async {
                 let client = super::super::ai::build_client().expect("client");
                 run_chat_stream(&client, &streamed, &cancel, |event| {
-                    if let ChatEvent::Error(message) = event {
-                        sink.lock().expect("events").push(message);
+                    if let ChatEvent::Error(frame) = event {
+                        sink.lock().expect("events").push(frame.message);
                     }
                 })
                 .await;
@@ -2136,6 +2839,232 @@ mod stream_tests {
             shown,
             vec!["The model server ended the reply.".to_string()],
             "the pane is shown a fixed sentence and nothing the host wrote"
+        );
+    }
+}
+
+#[cfg(test)]
+mod reject_stream_tests {
+    use super::tests_support::*;
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// The body DeepSeek answers a model it does not serve with. Its
+    /// `message` is the one string that must never reach a person or a log.
+    const DEEPSEEK_400: &str = "{\"error\":{\"message\":\"Model Not Exist\",\"type\":\"invalid_request_error\",\"code\":\"invalid_request_error\"}}";
+    const SERVER_SENTENCE: &str = "Model Not Exist";
+
+    #[test]
+    fn a_rejected_request_names_the_mapped_code_and_never_the_server_sentence() {
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 400 Bad Request",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            DEEPSEEK_400,
+        );
+        let mut prepared = prepared_for(&base, Provider::OpenAiCompatible, Some(SECRET_KEY));
+        prepared.identity.provider = "deepseek".to_string();
+        prepared.identity.model = "qwen2.5-coder:0.5b".to_string();
+
+        let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
+        let sink = seen.clone();
+        let logs = captured_logs(|| {
+            let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            tauri::async_runtime::block_on(async {
+                let client = super::super::ai::build_client().expect("client");
+                run_chat_stream(&client, &prepared, &cancel, |event| {
+                    if let ChatEvent::Error(frame) = event {
+                        sink.lock().expect("frames").push(frame);
+                    }
+                })
+                .await;
+            });
+        });
+
+        let frames = seen.lock().expect("frames").clone();
+        assert_eq!(frames.len(), 1, "one terminal failure: {frames:?}");
+        let frame = &frames[0];
+        assert_eq!(frame.kind, "provider_rejected");
+        assert_eq!(frame.status, Some(400));
+        assert_eq!(frame.provider, "deepseek");
+        assert_eq!(
+            frame.model, "qwen2.5-coder:0.5b",
+            "the refusal names the model that was refused"
+        );
+        // Writ's own sentence, built from the code the envelope named.
+        assert_eq!(
+            frame.message,
+            "DeepSeek rejected the request (400): the request was not accepted."
+        );
+        assert!(
+            !frame.message.contains(SERVER_SENTENCE),
+            "the server's words reached the pane: {}",
+            frame.message
+        );
+
+        // The positive control first: the line has to be in the capture before
+        // its lack of the server's text means anything.
+        assert!(
+            logs.contains("chat request rejected"),
+            "the rejection line did not reach the capture: {logs}"
+        );
+        assert!(logs.contains("400"), "the status is loggable: {logs}");
+        assert!(
+            logs.contains("invalid_request"),
+            "the mapped reason is loggable: {logs}"
+        );
+        assert!(
+            !logs.contains(SERVER_SENTENCE),
+            "the server's words reached the log: {logs}"
+        );
+        assert!(!logs.contains(SECRET_KEY), "a key reached the log: {logs}");
+    }
+
+    #[test]
+    fn a_status_with_no_reason_on_the_allowlist_is_the_bare_status() {
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 503 Service Unavailable",
+            "Content-Type: text/html\r\nConnection: close\r\n",
+            "<html>ZZ-gateway-text-nobody-may-see</html>",
+        );
+        let mut prepared = prepared_for(&base, Provider::OpenAiCompatible, None);
+        prepared.identity.provider = "groq".to_string();
+
+        let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
+        let sink = seen.clone();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        tauri::async_runtime::block_on(async {
+            let client = super::super::ai::build_client().expect("client");
+            run_chat_stream(&client, &prepared, &cancel, |event| {
+                if let ChatEvent::Error(frame) = event {
+                    sink.lock().expect("frames").push(frame);
+                }
+            })
+            .await;
+        });
+
+        let frames = seen.lock().expect("frames").clone();
+        assert_eq!(frames[0].message, "Groq rejected the request (503).");
+        assert_eq!(frames[0].status, Some(503));
+        assert!(!frames[0].message.contains("ZZ-gateway-text-nobody-may-see"));
+    }
+
+    #[test]
+    fn a_local_runtime_that_is_not_running_says_so_by_name() {
+        // Bind then drop to obtain a port with nothing listening.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        drop(listener);
+
+        let mut prepared = prepared_for(
+            &format!("http://127.0.0.1:{port}"),
+            Provider::OpenAiCompatible,
+            None,
+        );
+        prepared.identity.provider = "ollama".to_string();
+        prepared.host_port = format!("127.0.0.1:{port}");
+
+        let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
+        let sink = seen.clone();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        tauri::async_runtime::block_on(async {
+            let client = super::super::ai::build_client().expect("client");
+            run_chat_stream(&client, &prepared, &cancel, |event| {
+                if let ChatEvent::Error(frame) = event {
+                    sink.lock().expect("frames").push(frame);
+                }
+            })
+            .await;
+        });
+
+        let frames = seen.lock().expect("frames").clone();
+        assert_eq!(frames[0].kind, "local_server_offline");
+        assert_eq!(
+            frames[0].message,
+            format!("Ollama is not running at 127.0.0.1:{port}.")
+        );
+    }
+}
+
+#[cfg(test)]
+mod stream_budget_tests {
+    use super::tests_support::*;
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    const CONNECT: Duration = Duration::from_secs(2);
+
+    fn frame(text: &str) -> String {
+        format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"{text}\"}}}}]}}\n\n")
+    }
+
+    fn run(base: &str, read: Duration) -> Vec<String> {
+        let prepared = prepared_for(base, Provider::OpenAiCompatible, None);
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = seen.clone();
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        tauri::async_runtime::block_on(async {
+            let client = super::super::ai::build_client_with(CONNECT, read).expect("client");
+            run_chat_stream(&client, &prepared, &cancel, |event| {
+                sink.lock().expect("events").push(match event {
+                    ChatEvent::Chunk(text) => format!("chunk:{text}"),
+                    ChatEvent::Done { truncated } => format!("done:{truncated}"),
+                    ChatEvent::Error(frame) => format!("error:{}", frame.kind),
+                })
+            })
+            .await;
+        });
+        let events = seen.lock().expect("events").clone();
+        events
+    }
+
+    /// Eight pieces, each after a pause: the whole reply takes well over the
+    /// read budget, and no pause comes near it. Every piece arrives and the
+    /// reply ends as the server said it did.
+    #[test]
+    fn a_reply_that_keeps_arriving_is_never_cut_off_by_the_clock() {
+        let pause = Duration::from_millis(120);
+        let read = Duration::from_millis(400);
+        let pieces: Vec<(&'static str, Duration)> = [
+            "one ", "two ", "three ", "four ", "five ", "six ", "seven ", "eight",
+        ]
+        .into_iter()
+        .map(|word| {
+            (
+                Box::leak(frame(word).into_boxed_str()) as &'static str,
+                pause,
+            )
+        })
+        .chain(std::iter::once(("data: [DONE]\n\n", Duration::ZERO)))
+        .collect();
+        let base = spawn_trickle(pieces);
+
+        let events = run(&base, read);
+
+        let text: String = events
+            .iter()
+            .filter_map(|event| event.strip_prefix("chunk:"))
+            .collect();
+        assert_eq!(text, "one two three four five six seven eight");
+        assert_eq!(events.last().map(String::as_str), Some("done:false"));
+    }
+
+    /// One piece, then silence past the budget: the stream ends with an error
+    /// frame and what arrived before the silence was delivered first.
+    #[test]
+    fn a_reply_that_goes_silent_past_the_budget_is_given_up() {
+        let read = Duration::from_millis(300);
+        let first: &'static str = Box::leak(frame("first").into_boxed_str());
+        let base = spawn_trickle(vec![
+            (first, Duration::from_millis(900)),
+            ("data: [DONE]\n\n", Duration::ZERO),
+        ]);
+
+        let events = run(&base, read);
+
+        assert_eq!(
+            events,
+            vec!["chunk:first".to_string(), "error:stream_failed".to_string()]
         );
     }
 }
@@ -2165,6 +3094,15 @@ mod tests_support {
     /// The wording in that frame, which is response text and nothing else.
     pub const SERVER_ERROR_TEXT: &str = "ZZ-server-text-that-must-never-be-logged";
 
+    /// The connection a test's reply is attributed to.
+    pub fn test_identity() -> RequestIdentity {
+        RequestIdentity {
+            provider: "custom".to_string(),
+            model: "a-model".to_string(),
+            host: "127.0.0.1".to_string(),
+        }
+    }
+
     pub const SECRET_KEY: &str = "sk-do-not-log-me";
     pub const NOTE_TEXT: &str = "the note said this and it is nobody else's business";
     pub const USER_TURN: &str = "what does the note argue about the launch";
@@ -2193,6 +3131,32 @@ mod tests_support {
         (format!("http://127.0.0.1:{port}"), seen)
     }
 
+    /// A server that writes its reply in pieces, pausing after each one.
+    ///
+    /// The pauses are the point: a client whose budget covers the whole
+    /// request gives up on a reply that is still arriving, and one whose
+    /// budget is silence gives up only on the pause that outlasts it.
+    pub fn spawn_trickle(pieces: Vec<(&'static str, std::time::Duration)>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n",
+                );
+                let _ = stream.flush();
+                for (piece, pause) in pieces {
+                    let _ = stream.write_all(piece.as_bytes());
+                    let _ = stream.flush();
+                    std::thread::sleep(pause);
+                }
+            }
+        });
+        format!("http://127.0.0.1:{port}")
+    }
+
     /// A request aimed at a local mock, carrying a note, a turn and a key.
     pub fn prepared_for(base: &str, provider: Provider, key: Option<&str>) -> PreparedChat {
         let context = vec![AttachedNote {
@@ -2210,14 +3174,20 @@ mod tests_support {
             body: chat::build_request_body(
                 provider,
                 "a-model",
-                chat::SYSTEM_PROMPT,
+                &chat::system_prompt(&context),
                 &turns,
                 &context,
             ),
             api_key: key.map(str::to_string),
             host: "127.0.0.1".to_string(),
+            host_port: "127.0.0.1:0".to_string(),
             is_localhost: true,
             context,
+            identity: RequestIdentity {
+                provider: "custom".to_string(),
+                model: "a-model".to_string(),
+                host: "127.0.0.1".to_string(),
+            },
         }
     }
 

@@ -52,8 +52,11 @@ pub struct ProviderInfo {
     pub models_url: &'static str,
     /// Where a person obtains a key, for the "Get a key" link.
     pub key_page_url: Option<&'static str>,
-    /// The model id offered before a list has been fetched. Empty for the
-    /// local rows, which answer with what is installed.
+    /// The model id shown first among the suggestions, when the provider's
+    /// own list cannot be read. Empty for the local rows, which answer with
+    /// what is installed. Never written to `config.toml`: the model saved for a
+    /// row is the first id of that provider's own list
+    /// (`crate::ai::models::seed_model`).
     pub default_model: &'static str,
     /// Whether a request needs a key. False for local and for custom.
     pub needs_key: bool,
@@ -61,6 +64,17 @@ pub struct ProviderInfo {
     pub supports_connect: bool,
     /// The loopback port the probe knocks on, for local rows.
     pub probe_port: Option<u16>,
+    /// Model ids offered when the provider's own list cannot be read.
+    /// Suggestions, not an inventory: the account may not carry them, and a
+    /// suggestion is never seeded into the file for that reason. First entry is
+    /// the one shown first. Empty for the rows whose list is whatever the
+    /// runtime or the typed endpoint holds.
+    ///
+    /// These are read by hand from each provider's list and go stale when a
+    /// provider retires an id. Refreshed rows carry the date they were read;
+    /// the rest were written for 0.6 and have not been checked against a live
+    /// list since.
+    pub curated_models: &'static [&'static str],
 }
 
 /// Every provider Writ knows, in the order the dropdown shows them.
@@ -77,6 +91,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: false,
         supports_connect: false,
         probe_port: Some(11434),
+        curated_models: &["qwen3:4b", "qwen3:8b", "gemma3:4b", "llama3.2:3b"],
     },
     ProviderInfo {
         id: "lmstudio",
@@ -90,6 +105,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: false,
         supports_connect: false,
         probe_port: Some(1234),
+        curated_models: &[],
     },
     ProviderInfo {
         id: "anthropic",
@@ -103,6 +119,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"],
     },
     ProviderInfo {
         id: "openai",
@@ -116,6 +133,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["gpt-5-mini", "gpt-5", "gpt-4.1-mini"],
     },
     ProviderInfo {
         id: "gemini",
@@ -129,6 +147,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["gemini-2.5-flash", "gemini-2.5-flash-lite"],
     },
     ProviderInfo {
         id: "openrouter",
@@ -142,6 +161,11 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: true,
         probe_port: None,
+        curated_models: &[
+            "meta-llama/llama-3.3-70b-instruct",
+            "openai/gpt-5-mini",
+            "google/gemma-4-26b-a4b-it:free",
+        ],
     },
     ProviderInfo {
         id: "groq",
@@ -155,6 +179,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
     },
     ProviderInfo {
         id: "deepseek",
@@ -164,10 +189,15 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.deepseek.com",
         models_url: "https://api.deepseek.com/models",
         key_page_url: Some("https://platform.deepseek.com/api_keys"),
-        default_model: "deepseek-chat",
+        // Read from the live list on 2026-09-18. `deepseek-chat` and
+        // `deepseek-reasoner` are gone from it; the endpoint still answers a
+        // request for `deepseek-reasoner` as an alias, which is why a stale
+        // suggestion is not a safe thing to write into the file.
+        default_model: "deepseek-flash",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["deepseek-flash", "deepseek-v4-pro"],
     },
     ProviderInfo {
         id: "mistral",
@@ -181,6 +211,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["mistral-small-latest", "mistral-large-latest"],
     },
     ProviderInfo {
         id: "xai",
@@ -194,6 +225,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["grok-4", "grok-3-mini"],
     },
     ProviderInfo {
         id: "together",
@@ -207,6 +239,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["meta-llama/Llama-3.3-70B-Instruct-Turbo"],
     },
     ProviderInfo {
         id: "fireworks",
@@ -220,6 +253,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: true,
         supports_connect: false,
         probe_port: None,
+        curated_models: &["accounts/fireworks/models/llama-v3p3-70b-instruct"],
     },
     ProviderInfo {
         id: "custom",
@@ -233,6 +267,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: false,
         supports_connect: false,
         probe_port: None,
+        curated_models: &[],
     },
 ];
 
@@ -362,6 +397,38 @@ mod tests {
             serde_json::to_string(&Wire::Anthropic).unwrap(),
             "\"anthropic\""
         );
+    }
+
+    #[test]
+    fn the_table_is_the_one_source_of_the_curated_ids() {
+        // The first entry is the id the picker shows first, so the order is
+        // part of the data rather than incidental.
+        assert_eq!(provider("ollama").unwrap().curated_models[0], "qwen3:4b");
+        assert_eq!(
+            provider("groq").unwrap().curated_models,
+            ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+        );
+        assert_eq!(
+            provider("deepseek").unwrap().curated_models,
+            ["deepseek-flash", "deepseek-v4-pro"]
+        );
+        // The rows whose list is whatever the runtime or the typed endpoint
+        // holds suggest nothing.
+        assert!(provider("lmstudio").unwrap().curated_models.is_empty());
+        assert!(provider("custom").unwrap().curated_models.is_empty());
+
+        // Every hosted row's default is one of its own suggestions, so the id
+        // shown first is always one the picker offers.
+        for row in PROVIDERS
+            .iter()
+            .filter(|p| p.group == ProviderGroup::Hosted)
+        {
+            assert!(
+                row.curated_models.contains(&row.default_model),
+                "{} shows a model first that it does not suggest",
+                row.id
+            );
+        }
     }
 
     #[test]

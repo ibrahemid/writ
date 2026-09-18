@@ -1,5 +1,6 @@
 {
   "model": "llama3",
+  "max_tokens": 16000,
   "stream": true,
   "messages": [
     { "role": "system", "content": "SYSTEM" },

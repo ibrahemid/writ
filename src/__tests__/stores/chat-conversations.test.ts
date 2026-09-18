@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   chatDelete: vi.fn(),
   chatRenderReply: vi.fn(),
   chatSend: vi.fn(),
-  chatCancel: vi.fn(),
+  chatStop: vi.fn(),
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn(),
   chatAttachedSizes: vi.fn(),
@@ -29,13 +29,24 @@ vi.mock("../../services/tauri", () => ({
   chatDelete: mocks.chatDelete,
   chatRenderReply: mocks.chatRenderReply,
   chatSend: mocks.chatSend,
-  chatCancel: mocks.chatCancel,
+  chatStop: mocks.chatStop,
   chatApplyProposal: mocks.chatApplyProposal,
   chatDiscardProposal: mocks.chatDiscardProposal,
 }));
 
 import { chatStore, RENDER_THROTTLE_MS } from "../../stores/global/chat";
 import type { ChatConversation, ChatProposal } from "../../services/tauri";
+
+/** The id the last send on that conversation was minted with. Every frame of
+ * an exchange carries it, and a frame that does not is a leftover. */
+function rid(id: string): string {
+  const calls = mocks.chatSend.mock.calls as unknown[][];
+  for (let index = calls.length - 1; index >= 0; index -= 1) {
+    if (calls[index][0] === id) return calls[index][4] as string;
+  }
+  return "no-such-request";
+}
+
 
 function summary(id: string, title: string, updated: string) {
   return { id, title, created_at: updated, updated_at: updated, turns: 2 };
@@ -91,7 +102,7 @@ beforeEach(() => {
   mocks.chatList.mockResolvedValue([]);
   mocks.chatRenderReply.mockImplementation(async (text: string) => `<p>${text}</p>`);
   mocks.chatSend.mockResolvedValue({ conversation_id: "c1", attached: [] });
-  mocks.chatCancel.mockResolvedValue(undefined);
+  mocks.chatStop.mockResolvedValue(undefined);
   mocks.chatDiscardProposal.mockResolvedValue(undefined);
   mocks.chatAttachedSizes.mockResolvedValue([]);
   chatStore.reset();
@@ -145,7 +156,13 @@ describe("sending", () => {
     await chatStore.send();
 
     expect(mocks.chatNew).toHaveBeenCalledTimes(1);
-    expect(mocks.chatSend).toHaveBeenCalledWith("c1", "what does it argue", [], undefined);
+    expect(mocks.chatSend).toHaveBeenCalledWith(
+      "c1",
+      "what does it argue",
+      [],
+      undefined,
+      expect.any(String),
+    );
     expect(chatStore.status()).toBe("thinking");
     expect(chatStore.draft()).toBe("");
   });
@@ -162,6 +179,7 @@ describe("sending", () => {
       "tighten the opening",
       ["/notes/Launch.md"],
       undefined,
+      expect.any(String),
     );
   });
 
@@ -190,18 +208,39 @@ describe("the stream", () => {
     await startSend();
     expect(chatStore.status()).toBe("thinking");
 
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "it " });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "it ",
+    });
     expect(chatStore.status()).toBe("streaming");
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "argues this" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "argues this",
+    });
     expect(chatStore.messages()[1].content).toBe("it argues this");
 
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("it argues this")]);
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     expect(chatStore.status()).toBe("done");
     await flush();
 
     expect(chatStore.current()?.turns).toHaveLength(2);
     expect(chatStore.messages()[1].html).toBe("<p>it argues this</p>");
+    // The settle renders the finished reply and the reload behind it walks the
+    // same turns: one ending is one render, not two.
+    const finished = mocks.chatRenderReply.mock.calls.filter(
+      ([text]) => text === "it argues this",
+    );
+    expect(finished).toHaveLength(1);
   });
 
   it("keeps a tail that arrives with nothing shown before it", async () => {
@@ -210,9 +249,19 @@ describe("the stream", () => {
 
     // A reply the filter withheld whole releases its tail when the stream
     // ends, one frame before the ending, so the first chunk can be the last.
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "```" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "```",
+    });
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("```")]);
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
 
     expect(chatStore.messages()[1].content).toBe("```");
@@ -224,7 +273,12 @@ describe("the stream", () => {
     try {
       await startSend();
       for (const text of ["a", "b", "c"]) {
-        chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text });
+        chatStore.handleStreamEvent({
+          conversation_id: "c1",
+          request_id: rid("c1"),
+          kind: "chunk",
+          text,
+        });
       }
       expect(mocks.chatRenderReply).not.toHaveBeenCalled();
       vi.advanceTimersByTime(RENDER_THROTTLE_MS);
@@ -235,12 +289,54 @@ describe("the stream", () => {
     }
   });
 
+  it("a delta leaves every settled turn's object untouched", async () => {
+    // The proposal counts what reads its diff: a settled turn that is
+    // re-derived per token is what makes a long conversation cost a token.
+    const reads = { count: 0 };
+    const hunks: ChatProposal["hunks"] = [];
+    const offer = {
+      ...PROPOSAL,
+      get hunks() {
+        reads.count += 1;
+        return hunks;
+      },
+    } as ChatProposal;
+    mocks.chatList.mockResolvedValue([summary("c1", "A chat", "2026-09-14T10:00:00+00:00")]);
+    mocks.chatOpen.mockResolvedValue(
+      conversation("c1", [userTurn("what does it argue"), replyTurn("it argues this", [offer])]),
+    );
+    await chatStore.openPane();
+    chatStore.setDraft("and then");
+    await chatStore.send();
+
+    const before = chatStore.messages();
+    reads.count = 0;
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "because ",
+    });
+    const after = chatStore.messages();
+
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    expect(after[2]).toBe(before[2]);
+    expect(after[3]).not.toBe(before[3]);
+    expect(reads.count).toBe(0);
+  });
+
   it("keeps the text a stopped reply had already shown", async () => {
     await startSend();
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "half an ans" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "half an ans",
+    });
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("half an ans")]);
 
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "stopped" });
+    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: rid("c1"), kind: "stopped" });
     await flush();
 
     expect(chatStore.status()).toBe("stopped");
@@ -255,14 +351,19 @@ describe("the stream", () => {
     await chatStore.openPane();
     expect(chatStore.status()).toBe("idle");
 
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "stopped" });
+    chatStore.handleStreamEvent({ conversation_id: "c1", request_id: rid("c1"), kind: "stopped" });
 
     expect(chatStore.status()).toBe("idle");
   });
 
   it("ignores a frame from another conversation", async () => {
     await startSend();
-    chatStore.handleStreamEvent({ conversation_id: "other", kind: "chunk", text: "not mine" });
+    chatStore.handleStreamEvent({
+      conversation_id: "other",
+      request_id: rid("other"),
+      kind: "chunk",
+      text: "not mine",
+    });
     expect(chatStore.messages()[1].content).toBe("");
   });
 
@@ -278,10 +379,20 @@ describe("the stream", () => {
       )
       .mockResolvedValue("<p>the whole reply</p>");
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("the whole reply")]);
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "the whole" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "the whole",
+    });
 
     await new Promise((resolve) => setTimeout(resolve, RENDER_THROTTLE_MS + 5));
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
     release("<p>the whole</p>");
     await flush();
@@ -299,7 +410,7 @@ describe("recovering from an error", () => {
 
     fileAfter("c1", [userTurn("what does it argue", ["Launch.md"])]);
     chatStore.handleStreamEvent({
-      conversation_id: "c1",
+      conversation_id: "c1", request_id: rid("c1"),
       kind: "error",
       text: "The model did not answer.",
     });
@@ -315,6 +426,7 @@ describe("recovering from an error", () => {
       "what does it argue",
       ["/notes/Launch.md"],
       0,
+      expect.any(String),
     );
     expect(chatStore.status()).toBe("thinking");
   });
@@ -351,7 +463,14 @@ describe("editing a sent turn", () => {
       { path: "Ideas/Launch.md", key: "Ideas/Launch.md", bytes: 42 },
     ]);
     expect(await chatStore.attachedOnDisk()).toEqual([
-      { path: "Ideas/Launch.md", name: "Launch.md", bytes: 42 },
+      {
+        path: "Ideas/Launch.md",
+        name: "Launch.md",
+        bytes: 42,
+        key: "Ideas/Launch.md",
+        state: "ok",
+        dirty: false,
+      },
     ]);
 
     chatStore.setDraft("a better first question");
@@ -361,6 +480,7 @@ describe("editing a sent turn", () => {
       "a better first question",
       ["Ideas/Launch.md"],
       0,
+      expect.any(String),
     );
   });
 
@@ -398,6 +518,7 @@ describe("editing a sent turn", () => {
       "a better first question",
       ["Ideas/Launch.md"],
       0,
+      expect.any(String),
     );
   });
 
@@ -417,7 +538,13 @@ describe("editing a sent turn", () => {
     chatStore.setDraft("a better second question");
     await chatStore.send();
 
-    expect(mocks.chatSend).toHaveBeenCalledWith("c1", "a better second question", [], 2);
+    expect(mocks.chatSend).toHaveBeenCalledWith(
+      "c1",
+      "a better second question",
+      [],
+      2,
+      expect.any(String),
+    );
     expect(chatStore.messages().map((turn) => turn.content)).toEqual([
       "first question",
       "first answer",
@@ -469,17 +596,32 @@ describe("the turns on screen", () => {
     mocks.chatNew.mockResolvedValue(conversation("c1"));
     chatStore.setDraft("what does it argue");
     await chatStore.send();
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "it " });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "it ",
+    });
     const asked = chatStore.messages()[0];
 
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "chunk", text: "argues this" });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "argues this",
+    });
 
     expect(chatStore.messages()[0]).toBe(asked);
 
     // The reload hands back equal turns in new arrays, which is the case a
     // reference check misses.
     fileAfter("c1", [userTurn("what does it argue"), replyTurn("it argues this")]);
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
 
     expect(chatStore.messages()[0]).toBe(asked);
@@ -529,11 +671,16 @@ describe("a proposal read again", () => {
       replyTurn("here it is again"),
     ]);
     chatStore.handleStreamEvent({
-      conversation_id: "c1",
+      conversation_id: "c1", request_id: rid("c1"),
       kind: "chunk",
       text: "here it is again",
     });
-    chatStore.handleStreamEvent({ conversation_id: "c1", kind: "done", proposals: [] });
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "done",
+      proposals: [],
+    });
     await flush();
 
     expect(chatStore.messages()[1].proposals[0].hunks).toEqual([HUNK_AFTER]);
@@ -570,7 +717,13 @@ describe("a send that was refused", () => {
     mocks.chatSend.mockReset().mockResolvedValue({ conversation_id: "c1", attached: [] });
     await chatStore.send();
 
-    expect(mocks.chatSend).toHaveBeenCalledWith("c1", "a better second question", [], 2);
+    expect(mocks.chatSend).toHaveBeenCalledWith(
+      "c1",
+      "a better second question",
+      [],
+      2,
+      expect.any(String),
+    );
   });
 
   // Three of the four stream arms already refuse a frame the pane is not
@@ -585,7 +738,7 @@ describe("a send that was refused", () => {
     expect(chatStore.status()).toBe("idle");
 
     chatStore.handleStreamEvent({
-      conversation_id: "c1",
+      conversation_id: "c1", request_id: rid("c1"),
       kind: "error",
       text: "The model did not answer.",
     });
@@ -602,7 +755,7 @@ describe("a send that was refused", () => {
 
     fileAfter("c1", [userTurn("what does it argue")]);
     chatStore.handleStreamEvent({
-      conversation_id: "c1",
+      conversation_id: "c1", request_id: rid("c1"),
       kind: "error",
       text: "The model did not answer.",
     });
@@ -650,6 +803,25 @@ describe("a proposal", () => {
 
     expect(chatStore.messages()[1].proposals[0].status).toBe("refused");
     expect(chatStore.refusalFor(1, "Launch.md")).toBe("The note changed since this was offered.");
+  });
+
+  it("lets a refused apply be tried again", async () => {
+    await openWithProposal();
+    mocks.chatApplyProposal.mockRejectedValueOnce("The note changed since this was offered.");
+
+    await chatStore.apply(1, PROPOSAL);
+
+    // The write is over, whatever it answered: a card that reads this is the
+    // only way back to the offer.
+    expect(chatStore.isApplying(1, "Launch.md")).toBe(false);
+
+    mocks.chatApplyProposal.mockResolvedValue({ path: "Launch.md", bytes: 16, changed: true });
+    await chatStore.apply(1, PROPOSAL);
+
+    expect(mocks.chatApplyProposal).toHaveBeenCalledTimes(2);
+    expect(chatStore.messages()[1].proposals[0].status).toBe("applied");
+    // The refusal it answered goes with it.
+    expect(chatStore.refusalFor(1, "Launch.md")).toBeUndefined();
   });
 
   it("is discarded at the same turn", async () => {

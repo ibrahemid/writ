@@ -1,5 +1,6 @@
 import { createSignal, createRoot } from "solid-js";
 import type {
+  AiConfig,
   AppearanceConfig,
   CommandUsage,
   SidebarSectionId,
@@ -118,7 +119,7 @@ const DEFAULT_CONFIG: WritConfig = {
     model: "",
     consented_hosts: [],
     rewrite: { enabled: false },
-    chat: { enabled: false, model: "" },
+    chat: { enabled: false, model: "", model_provider: "" },
   },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
@@ -174,6 +175,7 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       chat: {
         enabled: incoming.ai?.chat?.enabled ?? false,
         model: incoming.ai?.chat?.model ?? "",
+        model_provider: incoming.ai?.chat?.model_provider ?? "",
       },
     },
     mcp: {
@@ -237,6 +239,15 @@ function createConfigStore() {
     const normalized = normalizeIncomingConfig(updated);
     await api.updateConfig(normalized);
     setConfig(normalized);
+  }
+
+  /** Puts a connection Rust has already written into the running config.
+   *
+   * `ai_set_provider` saves the file itself and answers what it saved, so the
+   * surface that asked for the change applies that answer rather than reading
+   * the file back and racing whatever else is writing it. */
+  function applyAi(ai: AiConfig) {
+    setConfig((held) => ({ ...held, ai }));
   }
 
   function recordCommandUse(id: string, nowMs: number = Date.now()) {
@@ -397,6 +408,7 @@ function createConfigStore() {
     config,
     load,
     save,
+    applyAi,
     recordCommandUse,
     setEditorFontSize,
     setSidebarWidth,
