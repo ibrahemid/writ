@@ -65,8 +65,14 @@ pub fn update_config(state: State<'_, AppState>, config: WritConfig) -> Result<(
     };
 
     if let Err(reason) = persist_config(&state, &merged) {
+        // Memory goes back to what the write found, except for the fields Rust
+        // owns: a consent or an approval recorded while the write was on its
+        // way to disk is read from the live value rather than rolled back with
+        // it.
         let mut current = state.config.lock().map_err(|e| e.to_string())?;
-        *current = previous;
+        let mut restored = previous;
+        restored.carry_rust_owned(&current);
+        *current = restored;
         return Err(reason);
     }
     Ok(())

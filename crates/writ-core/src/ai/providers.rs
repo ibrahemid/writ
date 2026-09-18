@@ -54,9 +54,9 @@ pub struct ProviderInfo {
     pub key_page_url: Option<&'static str>,
     /// The model id shown first among the suggestions, when the provider's
     /// own list cannot be read. Empty for the local rows, which answer with
-    /// what is installed. Never written to `config.toml`: the first model of
-    /// the provider's own list is
-    /// (`writ_core::ai::models::seed_model`).
+    /// what is installed. Never written to `config.toml`: the model saved for a
+    /// row is the first id of that provider's own list
+    /// (`crate::ai::models::seed_model`).
     pub default_model: &'static str,
     /// Whether a request needs a key. False for local and for custom.
     pub needs_key: bool,
