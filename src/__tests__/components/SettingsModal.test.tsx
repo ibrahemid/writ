@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { configStore } from "../../stores/global/config";
 import type { WritConfig } from "../../types/config";
 
@@ -268,6 +269,12 @@ vi.spyOn(configStore, "config").mockImplementation(mocks.config);
 
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
 import { aiConnectionStore } from "../../stores/global/ai-connection";
+import {
+  aiProvidersStore,
+  groupProviders,
+  type AiProviderInfo,
+  type ProviderGroupedOptions,
+} from "../../stores/global/ai-providers";
 import { SETTINGS_INDEX, SECTION_ORDER } from "../../settings";
 import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/global/default-app-support";
 
@@ -1166,6 +1173,24 @@ describe("AI section", () => {
       "Ollama",
       "LM Studio",
     ]);
+  });
+
+  // The table arrives after the panel mounts, so the picker has no options when
+  // the saved provider is first applied to it.
+  it("shows the saved provider once the table arrives", async () => {
+    const [groups, setGroups] = createSignal<ProviderGroupedOptions[]>([]);
+    const grouped = vi.spyOn(aiProvidersStore, "grouped").mockImplementation(() => groups());
+    try {
+      const { container } = await openAiSection();
+      const select = container.querySelector('[data-setting="ai_provider"]') as HTMLSelectElement;
+      expect(select.querySelectorAll("option").length).toBe(0);
+
+      setGroups(groupProviders(TEST_PROVIDERS as AiProviderInfo[]));
+      await waitFor(() => expect(select.querySelectorAll("option").length).toBeGreaterThan(0));
+      expect(select.value).toBe("deepseek");
+    } finally {
+      grouped.mockRestore();
+    }
   });
 
   it("shows the base URL row only for a custom server", async () => {

@@ -1144,7 +1144,13 @@ function AiSection() {
               {(group) => (
                 <optgroup label={group.label}>
                   <For each={group.providers}>
-                    {(row) => <option value={row.id}>{row.label}</option>}
+                    {/* The table loads after this mounts, so the option carries the
+                        choice: `value` on the select alone leaves the first showing. */}
+                    {(row) => (
+                      <option value={row.id} selected={row.id === cfg().provider}>
+                        {row.label}
+                      </option>
+                    )}
                   </For>
                 </optgroup>
               )}
