@@ -32,11 +32,14 @@ export default function EditorArea() {
   };
 
   // The toast stack is a sibling of this subtree, not a descendant, so the
-  // clearance the status bar needs has to reach it through the root.
+  // clearance the status bar needs has to reach it through the root. The bar's
+  // height is a floor, so the clearance is read off it rather than guessed.
   createEffect(() => {
     document.documentElement.style.setProperty(
       "--writ-toast-bottom",
-      statusBarOn() ? "40px" : "16px",
+      statusBarOn()
+        ? "calc(var(--writ-statusbar-height) + var(--writ-space-4))"
+        : "var(--writ-space-5)",
     );
   });
   onCleanup(() => document.documentElement.style.removeProperty("--writ-toast-bottom"));

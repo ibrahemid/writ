@@ -111,7 +111,6 @@
 .preview-split-handle:hover,
 .preview-split-handle:focus-visible {
   background: var(--writ-accent);
-  outline: none;
 }
 
 .preview-split-vertical {
@@ -137,11 +136,11 @@
 /* Status chip — bottom-right, discreet, theme-aware. */
 .preview-chip {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
+  right: var(--writ-space-3-5);
+  bottom: var(--writ-space-3-5);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--writ-space-3);
   padding: 3px 9px;
   border-radius: var(--writ-r-popover);
   background: var(--writ-bg-selected);

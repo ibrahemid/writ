@@ -537,7 +537,8 @@ export default function GraphCanvas(props: Props) {
       <canvas
         class="graph-canvas"
         classList={{ "is-over": hovered() !== null }}
-        role="img"
+        role={props.focusable ? "application" : "img"}
+        aria-roledescription={props.focusable ? "graph" : undefined}
         aria-label={description()}
         tabindex={props.focusable ? 0 : undefined}
         ref={canvas}

@@ -22,7 +22,7 @@ export default function SaveMarker(props: { noteId: string }) {
         class="save-marker"
         classList={{ "save-marker--failed": state() === "failed" }}
         role="img"
-        aria-label={state() === "failed" ? "not saved" : "unsaved changes"}
+        aria-label={state() === "failed" ? "Not saved" : "Unsaved changes"}
       />
     </Show>
   );

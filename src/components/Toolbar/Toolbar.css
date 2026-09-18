@@ -3,11 +3,10 @@
    and the toolbar's controls have to win those. */
 
 .writ-toolbar {
-  /* The baseline's compose gap and GNOME's toolbar metric. 6px is not a step
-     on the ADR-030 spacing ramp, so the bar names it for itself rather than
-     forking the ramp, and every reader carries the fallback the token contract
-     asks of a component-set property. */
-  --writ-toolbar-tight: 6px;
+  /* The baseline's compose gap and GNOME's toolbar metric, named so the bar
+     moves both in one place; every reader carries the fallback the token
+     contract asks of a component-set property. */
+  --writ-toolbar-tight: var(--writ-space-2-5);
   height: 44px;
   flex: none;
   display: flex;
@@ -31,8 +30,8 @@
 }
 
 :root .writ-toolbar[data-platform] .writ-toolbar-compose {
-  gap: var(--writ-toolbar-tight, 6px);
-  padding: 0 10px 0 var(--writ-space-3);
+  gap: var(--writ-toolbar-tight, var(--writ-space-2-5));
+  padding: 0 var(--writ-space-3-5) 0 var(--writ-space-3);
   /* GNOME sets its buttons in bold; the toolbar's compose label is not one. */
   font-weight: 400;
   color: var(--writ-fg);
@@ -101,7 +100,7 @@
 
 :root .writ-toolbar[data-platform="win"] .writ-toolbar-compose {
   gap: var(--writ-space-3);
-  padding: 0 var(--writ-space-4) 0 10px;
+  padding: 0 var(--writ-space-4) 0 var(--writ-space-3-5);
 }
 
 .writ-toolbar[data-platform="win"] .writ-toolbar-divider {
@@ -125,18 +124,19 @@
 }
 
 .writ-toolbar[data-platform="win"] .search-field {
-  height: 32px;
+  min-height: 32px;
   gap: var(--writ-space-3);
   border-radius: var(--writ-r-control);
   background: var(--writ-win-input-active);
   border: 1px solid var(--writ-win-stroke);
+  border-bottom-width: 2px;
 }
 
 /* The second AdwToolbarView row under the header bar: same ground, no rule
    between them, so the two read as one chrome stack. */
 .writ-toolbar[data-platform="linux"] {
-  gap: var(--writ-toolbar-tight, 6px);
-  padding: var(--writ-toolbar-tight, 6px);
+  gap: var(--writ-toolbar-tight, var(--writ-space-2-5));
+  padding: var(--writ-toolbar-tight, var(--writ-space-2-5));
   background: var(--writ-lin-headerbar-bg);
   border-bottom: 0;
 }

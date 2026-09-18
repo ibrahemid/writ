@@ -2,6 +2,7 @@ import {
   createSignal,
   createEffect,
   createContext,
+  createUniqueId,
   useContext,
   onCleanup,
   onMount,
@@ -26,6 +27,8 @@ import { PRESETS } from "../../styles/themes";
 import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
 import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { joinAnd } from "../../lib/join-and";
+import { logFailure } from "../../lib/log";
 import { FILE_MANAGER_NAME, IS_MAC, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
@@ -273,42 +276,69 @@ interface SettingsRowProps {
   children: JSX.Element;
 }
 
+/** What a row's description can be attached to, in the order a row holds one. */
+const ROW_CONTROL = '[role="switch"], [role="radiogroup"], input, select, textarea, button';
+
 function SettingsRow(props: SettingsRowProps) {
   const search = useSearch();
+  const descriptionId = createUniqueId();
+  const cautionId = createUniqueId();
+  let rowRef: HTMLDivElement | undefined;
+
+  const describedBy = () =>
+    [props.description ? descriptionId : "", props.caution ? cautionId : ""]
+      .filter(Boolean)
+      .join(" ");
+
+  // The control is `children`, so the row cannot hand it a prop. It finds the
+  // control inside its own element instead: the description belongs on the
+  // control as a description, not inside the label, where it became part of the
+  // control's accessible name.
+  createEffect(() => {
+    const ids = describedBy();
+    if (!rowRef) return;
+    // Not simply the first match: `labelAside` puts a control inside the label
+    // column, ahead of the row's own in document order.
+    const control = props.labelFor
+      ? rowRef.querySelector<HTMLElement>(`[id="${props.labelFor}"]`)
+      : (Array.from(rowRef.querySelectorAll<HTMLElement>(ROW_CONTROL)).find(
+          (el) => !el.closest(".settings-row-label"),
+        ) ?? null);
+    if (!control) return;
+    if (ids) control.setAttribute("aria-describedby", ids);
+    else control.removeAttribute("aria-describedby");
+  });
+
   return (
     <Show when={search.rowVisible(props.id)}>
       <div
+        ref={rowRef}
         class="settings-row"
         classList={{ "settings-row-highlight": search.highlighted(props.id) }}
         data-setting-id={props.id}
         data-align={props.align}
       >
-        <Show
-          when={props.labelFor}
-          fallback={
-            <span class="settings-row-label">
+        <span class="settings-row-label">
+          <Show
+            when={props.labelFor}
+            fallback={<span class="settings-row-label-text">{props.label}</span>}
+          >
+            <label class="settings-row-label-text" for={props.labelFor}>
               {props.label}
-              {props.labelAside}
-              <Show when={props.description}>
-                <span class="settings-row-description">{props.description}</span>
-              </Show>
-              <Show when={props.caution}>
-                <span class="settings-row-caution">{props.caution}</span>
-              </Show>
+            </label>
+          </Show>
+          {props.labelAside}
+          <Show when={props.description}>
+            <span id={descriptionId} class="settings-row-description">
+              {props.description}
             </span>
-          }
-        >
-          <label class="settings-row-label" for={props.labelFor}>
-            {props.label}
-            {props.labelAside}
-            <Show when={props.description}>
-              <span class="settings-row-description">{props.description}</span>
-            </Show>
-            <Show when={props.caution}>
-              <span class="settings-row-caution">{props.caution}</span>
-            </Show>
-          </label>
-        </Show>
+          </Show>
+          <Show when={props.caution}>
+            <span id={cautionId} class="settings-row-caution">
+              {props.caution}
+            </span>
+          </Show>
+        </span>
         {props.children}
       </div>
     </Show>
@@ -445,11 +475,17 @@ function EditorSection() {
           onChange={onSpellingToggle}
         />
       </SettingsRow>
-      <SettingsRow id="editor.spelling_dialect" label="Spelling" labelFor="setting-spelling-dialect">
+      <SettingsRow
+        id="editor.spelling_dialect"
+        label="Dictionary"
+        labelFor="setting-spelling-dialect"
+        caution={spelling().enabled ? undefined : "Turn on Spell check to pick a dictionary."}
+      >
         <select
           id="setting-spelling-dialect"
           class="settings-select"
           data-setting="spelling_dialect"
+          disabled={!spelling().enabled}
           value={spelling().dialect}
           onChange={(e) => onSpellingDialectChange(e.currentTarget.value)}
         >
@@ -610,7 +646,7 @@ function fallbackLine(displayPath: string, reason: NotesFallbackReason): string 
 
 /** Names the files a move would have written over, at most three of them. */
 function collisionLine(names: string[]): string {
-  const shown = names.slice(0, 3).map((name) => `"${name}"`).join(", ");
+  const shown = names.slice(0, 3).map((name) => `“${name}”`).join(", ");
   const rest = names.length - 3;
   const list = rest > 0 ? `${shown} and ${rest} more` : shown;
   return `That folder already has ${list}. Nothing moved.`;
@@ -649,8 +685,9 @@ function NotesSection() {
         return;
       }
       showToast(`Your notes are now in ${folder()?.display_path ?? outcome.new_root}.`, "success");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e), "error");
+    } catch {
+      showToast("Could not move the notes folder", "error");
+      logFailure("the notes folder could not be moved");
     }
   }
 
@@ -776,7 +813,7 @@ function PreviewSection() {
       </SettingsRow>
       <SettingsRow
         id="preview.layout_md"
-        label="When opening a Markdown file, show:"
+        label="When opening a Markdown file, show"
         labelFor="setting-layout-md"
       >
         <select
@@ -793,7 +830,7 @@ function PreviewSection() {
       </SettingsRow>
       <SettingsRow
         id="preview.layout_html"
-        label="When opening an HTML file, show:"
+        label="When opening an HTML file, show"
         labelFor="setting-layout-html"
       >
         <select
@@ -833,7 +870,7 @@ function UpdatesSection() {
           onChange={onAutoCheckToggle}
         />
       </SettingsRow>
-      <SettingsRow id="updates.check_now" label="Check for updates now">
+      <SettingsRow id="updates.check_now" label="Updates">
         <Button
           data-action="check-updates-now"
           onClick={() => void updateStore.checkForUpdate()}
@@ -1471,6 +1508,36 @@ function AppearanceSection() {
     patchAppearance({ interface_text_size: value });
   }
 
+  // One of six, so the arrows move the choice and Tab leaves the set — the
+  // pattern Segmented already implements two rows above.
+  let accentsRef: HTMLDivElement | undefined;
+
+  function moveAccent(delta: number) {
+    if (!themeStore.accentApplies()) return;
+    const ids = ACCENT_OPTIONS.map((option) => option.id);
+    const current = ids.indexOf(appearance().accent);
+    const next = ids[(current + delta + ids.length) % ids.length];
+    patchAppearance({ accent: next });
+    requestAnimationFrame(() =>
+      accentsRef?.querySelector<HTMLButtonElement>(`[data-accent="${next}"]`)?.focus(),
+    );
+  }
+
+  function onAccentKeyDown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowRight":
+      case "ArrowDown":
+        event.preventDefault();
+        moveAccent(1);
+        break;
+      case "ArrowLeft":
+      case "ArrowUp":
+        event.preventDefault();
+        moveAccent(-1);
+        break;
+    }
+  }
+
   return (
     <div data-section="appearance">
       <SectionLabel section="appearance" />
@@ -1488,15 +1555,24 @@ function AppearanceSection() {
         label="Accent color"
         caution={themeStore.accentApplies() ? undefined : "The current theme sets its own accent."}
       >
-        <div class="settings-accents" role="group" aria-label="Accent color" data-setting="appearance_accent">
+        <div
+          ref={accentsRef}
+          class="settings-accents"
+          role="radiogroup"
+          aria-label="Accent color"
+          data-setting="appearance_accent"
+          onKeyDown={onAccentKeyDown}
+        >
           <For each={ACCENT_OPTIONS}>
             {(option) => (
               <button
                 type="button"
                 class="settings-accent"
                 data-accent={option.id}
+                role="radio"
                 disabled={!themeStore.accentApplies()}
-                aria-pressed={appearance().accent === option.id}
+                aria-checked={appearance().accent === option.id}
+                tabindex={appearance().accent === option.id ? 0 : -1}
                 aria-label={option.label}
                 onClick={() => patchAppearance({ accent: option.id })}
               >
@@ -1653,9 +1729,9 @@ function AdvancedSection() {
       const result = await installCli();
       setCliInstalled(true);
       showToast(`writ installed at ${result.symlink_path}`, "success");
-    } catch (err) {
-      const detail = typeof err === "string" ? err : String(err);
-      showToast(detail, "error");
+    } catch {
+      showToast("Could not install the writ command", "error");
+      logFailure("the writ command could not be installed");
       refreshCliStatus();
     } finally {
       setIsInstallingCli(false);
@@ -1666,8 +1742,11 @@ function AdvancedSection() {
     void patchConfig((prev) => ({ ...prev, inbox: { ...prev.inbox, focus: !prev.inbox.focus } }));
   }
 
+  // A live threshold above the refuse threshold describes a file Writ renders
+  // live and refuses to render, so each value is held under the other.
   function onLiveLimitChange(raw: string) {
-    const value = clamp(parseFloatSafe(raw, preview().live_render_threshold_mb), 0.1, 100);
+    const ceiling = Math.min(100, preview().render_refuse_threshold_mb);
+    const value = clamp(parseFloatSafe(raw, preview().live_render_threshold_mb), 0.1, ceiling);
     void patchConfig((prev) => ({
       ...prev,
       preview: { ...prev.preview, live_render_threshold_mb: value },
@@ -1678,7 +1757,11 @@ function AdvancedSection() {
     const value = clamp(parseFloatSafe(raw, preview().render_refuse_threshold_mb), 1, 500);
     void patchConfig((prev) => ({
       ...prev,
-      preview: { ...prev.preview, render_refuse_threshold_mb: value },
+      preview: {
+        ...prev.preview,
+        render_refuse_threshold_mb: value,
+        live_render_threshold_mb: Math.min(prev.preview.live_render_threshold_mb, value),
+      },
     }));
   }
 
@@ -1752,6 +1835,7 @@ function AdvancedSection() {
         id="preview.live_threshold"
         label="Stop live preview above"
         labelFor="setting-live-limit"
+        description="Writ keeps this under the size it will not preview."
       >
         <span class="settings-inbox-controls">
           <input
@@ -1811,11 +1895,6 @@ export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
   create_note: { group: "write", phrase: "make a new note" },
   rename_note: { group: "write", phrase: "rename a note" },
 };
-
-function joinAnd(parts: readonly string[]): string {
-  if (parts.length < 2) return parts[0] ?? "";
-  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-}
 
 export function describeReadTools(ids: readonly string[]): string {
   const verbs: string[] = [];
@@ -1989,13 +2068,13 @@ function ProgramsSection() {
                       Writing includes reading.
                     </span>
                   </Show>
-                  <span class="settings-program-note" data-program-note="forget">
-                    Removes this program. It can ask again next time it connects.
-                  </span>
                 </li>
               )}
             </For>
           </ul>
+          <span class="settings-program-note" data-program-note="forget">
+            Forget removes a program. It can ask again next time it connects.
+          </span>
         </Show>
       </SettingsRow>
 
@@ -2007,7 +2086,7 @@ function ProgramsSection() {
             openActivity();
           }}
         >
-          Open
+          Open activity…
         </Button>
       </SettingsRow>
     </div>
@@ -2037,7 +2116,10 @@ export default function SettingsModal() {
   let modalRef: HTMLDivElement | undefined;
   let contentRef: HTMLDivElement | undefined;
   let searchRef: HTMLInputElement | undefined;
+  let navRef: HTMLDivElement | undefined;
   const titleId = "settings-modal-title";
+  const tabId = "settings-section-tab";
+  const panelId = "settings-section-panel";
 
   const matched = () => matchedSettingIds(query());
 
@@ -2056,6 +2138,45 @@ export default function SettingsModal() {
     sectionVisible: (section) => !isSearching() || matchedSections().has(section),
     highlighted: (id) => highlightId() === id,
   };
+
+  // Focus follows the selection: roving tabindex has just set every other tab
+  // to -1, so a tab that keeps focus without keeping the selection is one Tab
+  // can no longer come back to.
+  function selectSection(next: SettingsSection) {
+    setActiveSection(next);
+    requestAnimationFrame(() =>
+      navRef?.querySelector<HTMLButtonElement>(`[data-section-tab="${next}"]`)?.focus(),
+    );
+  }
+
+  function moveSection(delta: number) {
+    const ids = NAV_ITEMS.map((item) => item.id);
+    const current = ids.indexOf(activeSection());
+    selectSection(ids[(current + delta + ids.length) % ids.length]);
+  }
+
+  function onNavKeyDown(event: KeyboardEvent) {
+    switch (event.key) {
+      case "ArrowDown":
+      case "ArrowRight":
+        event.preventDefault();
+        moveSection(1);
+        break;
+      case "ArrowUp":
+      case "ArrowLeft":
+        event.preventDefault();
+        moveSection(-1);
+        break;
+      case "Home":
+        event.preventDefault();
+        selectSection(NAV_ITEMS[0].id);
+        break;
+      case "End":
+        event.preventDefault();
+        selectSection(NAV_ITEMS[NAV_ITEMS.length - 1].id);
+        break;
+    }
+  }
 
   const noMatches = () =>
     isSearching() && rankSettings(query()).every((entry) => !isSettingAvailable(entry.id));
@@ -2146,26 +2267,45 @@ export default function SettingsModal() {
             </div>
 
             <div class="settings-body">
-              <Show when={!isSearching()}>
-                <nav class="settings-nav" aria-label="Settings sections">
-                  {NAV_ITEMS.map((item) => (
-                    <button
-                      type="button"
-                      class="settings-nav-item"
-                      classList={{ "settings-nav-item-active": activeSection() === item.id }}
-                      onClick={() => setActiveSection(item.id)}
-                      aria-current={activeSection() === item.id ? "page" : undefined}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </nav>
-              </Show>
+              {/* The rail stays mounted while searching, dimmed: unmounting it
+                  moved the content column 156px mid-keystroke and back on
+                  clear. */}
+              <div
+                ref={navRef}
+                class="settings-nav"
+                classList={{ "settings-nav-dimmed": isSearching() }}
+                role="tablist"
+                aria-orientation="vertical"
+                aria-label="Settings sections"
+                aria-disabled={isSearching() ? "true" : undefined}
+                onKeyDown={onNavKeyDown}
+              >
+                {NAV_ITEMS.map((item) => (
+                  <button
+                    type="button"
+                    id={`${tabId}-${item.id}`}
+                    class="settings-nav-item"
+                    classList={{ "settings-nav-item-active": activeSection() === item.id }}
+                    role="tab"
+                    data-section-tab={item.id}
+                    aria-selected={activeSection() === item.id}
+                    aria-controls={panelId}
+                    tabindex={activeSection() === item.id ? 0 : -1}
+                    disabled={isSearching()}
+                    onClick={() => setActiveSection(item.id)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
 
               <div
                 ref={contentRef}
+                id={panelId}
                 class="settings-content"
                 classList={{ "settings-content-search": isSearching() }}
+                role="tabpanel"
+                aria-labelledby={`${tabId}-${activeSection()}`}
               >
                 <Show
                   when={isSearching()}
@@ -2189,7 +2329,7 @@ export default function SettingsModal() {
                     when={!noMatches()}
                     fallback={
                       <div class="settings-empty">
-                        <div class="settings-empty-title">No settings match "{query()}"</div>
+                        <div class="settings-empty-title">No settings match “{query()}”</div>
                         <div class="settings-empty-hint">Try a different word, or clear the search.</div>
                       </div>
                     }

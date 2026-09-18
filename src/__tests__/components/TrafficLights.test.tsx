@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { render, cleanup } from "@solidjs/testing-library";
 import type { Platform } from "../../lib/platform";
 
@@ -90,7 +92,19 @@ describe("the macOS lights have one host", () => {
     const labels = Array.from(layer!.querySelectorAll(".maclight")).map((el) =>
       el.getAttribute("aria-label"),
     );
-    expect(labels).toEqual(["Hide window", "Minimize window", "Toggle full screen"]);
+    expect(labels).toEqual(["Hide", "Minimize", "Full screen"]);
+  });
+
+  // macOS draws no tooltip over its own lights, so a native title there is a
+  // name nobody reads that disagrees with the one they do.
+  it("carries no native title where the shell draws none", () => {
+    for (const file of ["TrafficLights.tsx", "TitleBar.tsx"]) {
+      const source = readFileSync(
+        resolve(process.cwd(), `src/components/TitleBar/${file}`),
+        "utf8",
+      );
+      expect(source, `${file} carries a title attribute`).not.toMatch(/\stitle="/);
+    }
   });
 
   it("dims the lights when the window is not focused", () => {

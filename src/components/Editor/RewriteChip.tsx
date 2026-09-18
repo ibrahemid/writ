@@ -1,7 +1,7 @@
 import { Show } from "solid-js";
 import { configStore } from "../../stores/global/config";
 import { windowRegistry } from "../../stores/global/window-registry";
-import { showAnchoredMenu } from "../ContextMenu/ContextMenu";
+import { showAnchoredMenu, isMenuOpenFor } from "../ContextMenu/ContextMenu";
 import { openSettings } from "../SettingsModal/SettingsModal";
 import { runRewriteAction } from "../../commands/ai";
 import { REWRITE_ACTIONS } from "../../commands/rewrite-actions";
@@ -41,7 +41,15 @@ export default function RewriteChip() {
 
   return (
     <Show when={visible()}>
-      <button ref={ref} type="button" class="statusbar-chip" onClick={openMenu} title="Rewrite">
+      <button
+        ref={ref}
+        type="button"
+        class="statusbar-chip"
+        onClick={openMenu}
+        title="Rewrite"
+        aria-haspopup="menu"
+        aria-expanded={isMenuOpenFor(ref)}
+      >
         Rewrite
       </button>
     </Show>

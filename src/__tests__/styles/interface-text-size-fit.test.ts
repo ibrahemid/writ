@@ -15,6 +15,16 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 const TABBAR = read("src/components/Editor/TabBar.css");
 const STATUSBAR = read("src/components/Editor/StatusBar.css");
 const SETTINGS = read("src/components/SettingsModal/SettingsModal.css");
+const BUTTON = read("src/components/Button/Button.css");
+const SIDEBAR = read("src/components/Sidebar/Sidebar.css");
+const TITLEBAR = read("src/components/TitleBar/TitleBar.css");
+const CONTEXTMENU = read("src/components/ContextMenu/ContextMenu.css");
+const SEARCHBAR = read("src/components/Sidebar/SearchBar.css");
+const TOOLBAR = read("src/components/Toolbar/Toolbar.css");
+const FIND = read("src/components/Find/FindOverlay.css");
+const PALETTE = read("src/components/Palette/Palette.css");
+const REWRITE = read("src/components/AiRewrite/AiRewriteOverlay.css");
+const PROMPTFILL = read("src/components/PromptFill/PromptFillModal.css");
 
 /** The declaration body of one rule, matched on its own selector line. */
 function rule(css: string, selector: string): string {
@@ -33,7 +43,7 @@ function declares(css: string, selector: string, property: string, value: RegExp
 /** A box whose text comes from a --writ-ui-* step must not be a fixed height. */
 function isNotFixedHeight(css: string, selector: string): void {
   expect(rule(css, selector), `${selector} sets a fixed height`).not.toMatch(
-    /(^|[\s;])height:\s*\d/,
+    /(^|[\s;])height:\s*(\d|var\()/,
   );
 }
 
@@ -95,9 +105,148 @@ describe("a settings row at the top of the interface text range", () => {
   });
 
   it("treats control heights as floors, so a taller label is not clipped", () => {
-    for (const selector of [".settings-input", ".settings-select", ".settings-seg-option"]) {
+    for (const selector of [
+      ".settings-input",
+      ".settings-select",
+      ".settings-seg-option",
+      ".settings-nav-item",
+      ".settings-search-bar",
+    ]) {
       isNotFixedHeight(SETTINGS, selector);
       declares(SETTINGS, selector, "min-height", /\d+px/);
+    }
+  });
+
+  it("sizes the columns that hold scaling text against the text", () => {
+    // Eleven nav labels at interface text 22 do not fit 156px, and a pixel
+    // width has nowhere to go but a wrap inside a fixed row.
+    declares(SETTINGS, ".settings-nav", "width", /\d+ch/);
+    declares(SETTINGS, ".settings-nav", "min-width", /\d+px/);
+    declares(SETTINGS, ".settings-input-number", "width", /\d+ch/);
+    declares(SETTINGS, ".settings-input-number", "min-width", /\d+px/);
+    declares(SETTINGS, ".settings-select", "min-width", /\d+px/);
+  });
+
+  it("gives every hit box in the panel at least 24px", () => {
+    for (const selector of [".settings-seg-option", ".settings-switch"]) {
+      const body = rule(SETTINGS, selector);
+      const floor = body.match(/(?:min-)?height:\s*(\d+)px/);
+      expect(floor, `${selector} states a height`).toBeTruthy();
+      expect(Number(floor![1]), selector).toBeGreaterThanOrEqual(24);
+    }
+    // The accent swatch takes its box from the row, which sets it against the
+    // pitch the row has to keep (settings-area-chrome.test.ts).
+    const box = rule(SETTINGS, ".settings-accents").match(/--writ-accent-box:\s*(\d+)px/);
+    expect(box, "the accent row states its box").toBeTruthy();
+    expect(Number(box![1]), ".settings-accent").toBeGreaterThanOrEqual(24);
+  });
+});
+
+describe("the sidebar and the chrome menus at the top of the interface text range", () => {
+  it("treats the row pitch as a floor, so a descender is not clipped", () => {
+    isNotFixedHeight(SIDEBAR, ".sidebar-row");
+    declares(SIDEBAR, ".sidebar-row", "min-height", /var\(--writ-sidebar-row-fill\)/);
+  });
+
+  it("treats the app menu, a menu item and the search field as floors too", () => {
+    for (const [css, selector] of [
+      [TITLEBAR, ".titlebar-appmenu"],
+      [CONTEXTMENU, ".context-menu-item"],
+      [SEARCHBAR, ".search-field"],
+      [TOOLBAR, '.writ-toolbar[data-platform="win"] .search-field'],
+    ] as const) {
+      isNotFixedHeight(css, selector);
+      declares(css, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("a button at the top of the interface text range", () => {
+  it("treats its platform height as a floor on all three shells", () => {
+    for (const selector of [
+      ".writ-btn",
+      ':root[data-platform="win"] .writ-btn',
+      ':root[data-platform="linux"] .writ-btn',
+    ]) {
+      isNotFixedHeight(BUTTON, selector);
+      declares(BUTTON, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("the find bar and the palette at the top of the interface text range", () => {
+  it("treats the find bar's box sizes as floors", () => {
+    isNotFixedHeight(FIND, ".find-input");
+    declares(FIND, ".find-input", "min-height", /\d+px/);
+    // The buttons are the shared control; their find-bar metrics are written at
+    // a weight that beats Button.css, and they stay floors there too.
+    const controls =
+      ":root .find-overlay .find-row .find-toggle,\n:root .find-overlay .find-row .find-icon-btn";
+    isNotFixedHeight(FIND, controls);
+    declares(FIND, controls, "min-height", /\d+px/);
+  });
+
+  it("treats the palette's input and row heights as floors", () => {
+    for (const selector of [".palette-search", ".palette-item"]) {
+      isNotFixedHeight(PALETTE, selector);
+      declares(PALETTE, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("the overlays that take typed text at the top of the interface text range", () => {
+  it("treats the rewrite and placeholder inputs as floors", () => {
+    for (const [css, selector] of [
+      [REWRITE, ".ai-overlay-input"],
+      [PROMPTFILL, ".placeholders-input"],
+    ] as const) {
+      isNotFixedHeight(css, selector);
+      declares(css, selector, "min-height", /\d+px/);
+    }
+  });
+});
+
+describe("the rows and controls that borrow their box", () => {
+  // A row states no height of its own: .sidebar-row carries the floor for all
+  // five, and the find bar's word buttons are the shared control. A height
+  // written back into one of these sheets takes that row out of the setting.
+  it("state no height in their own sheet", () => {
+    for (const [file, selector] of [
+      ["src/components/Sidebar/FileTree.css", ".file-tree-item"],
+      ["src/components/Sidebar/TagsSection.css", ".tags-row"],
+      ["src/components/Sidebar/TabItem.css", ".tab-item"],
+      ["src/components/Sidebar/InboxSection.css", ".inbox-item"],
+      ["src/components/Sidebar/SearchResults.css", ".search-result"],
+    ] as const) {
+      const css = read(file);
+      const names = new RegExp(`\\${selector}(?![\\w-])`);
+      const named = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, list]) =>
+        names.test(list),
+      );
+      expect(named.length, `${file} names ${selector}`).toBeGreaterThan(0);
+      for (const [, list, body] of named) {
+        expect(body, `${list.trim()} sets a height`).not.toMatch(/(^|[\s;])height:/);
+      }
+    }
+  });
+
+  it("draw the find bar's word buttons as the shared control", () => {
+    // .find-text-btn has no rule of its own: the box is Button.css's floor.
+    expect(FIND).not.toMatch(/\.find-text-btn/);
+    expect(read("src/components/Find/FindOverlay.tsx")).toMatch(
+      /<Button\s+class="find-text-btn"/,
+    );
+  });
+
+  it("compose the shared row in the markup", () => {
+    for (const file of [
+      "src/components/Sidebar/FileTree.tsx",
+      "src/components/Sidebar/TagsSection.tsx",
+      "src/components/Sidebar/TabItem.tsx",
+      "src/components/Sidebar/InboxSection.tsx",
+      "src/components/Sidebar/SearchResults.tsx",
+    ]) {
+      expect(read(file), `${file} composes sidebar-row`).toMatch(/"sidebar-row /);
     }
   });
 });

@@ -25,7 +25,7 @@ export function registerPromptCommands(): void {
 
   registerCommand({
     id: "prompt.fillPlaceholders",
-    label: "Fill Placeholders…",
+    label: "Fill placeholders…",
     description: "Fill {{placeholders}} and copy the result to the clipboard",
     scope: "app",
     execute: () => {
@@ -43,7 +43,7 @@ async function copyAsPrompt(): Promise<void> {
     showToast("Copied as prompt", "success");
   } catch {
     logFailure("copy as prompt failed");
-    showToast("Copy as prompt failed", "error");
+    showToast("Could not copy as prompt", "error");
   }
 }
 
@@ -59,6 +59,6 @@ async function fillPlaceholders(): Promise<void> {
     showToast("Filled prompt copied", "success");
   } catch {
     logFailure("filling placeholders failed");
-    showToast("Fill placeholders failed", "error");
+    showToast("Could not fill the placeholders", "error");
   }
 }

@@ -22,9 +22,6 @@
   animation: link-confirm-in var(--writ-motion-fast) var(--writ-ease);
 }
 
-.link-confirm:focus {
-  outline: none;
-}
 
 @keyframes link-confirm-in {
   from {

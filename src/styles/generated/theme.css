@@ -20,8 +20,6 @@
   --writ-prose-measure: 704px;
   --writ-prose-pad-x: 32px;
   --writ-prose-pad-y: 32px;
-  --writ-prose-p-spacing: 1.25rem;
-  --writ-heading-spacing: 2em;
   --writ-heading-color: inherit;
   --writ-heading-formatting: var(--writ-fg-faint);
   --writ-h1-size: 1.75em;
@@ -57,12 +55,14 @@
   --writ-icon-color: var(--writ-fg-muted);
   --writ-icon-opacity: 0.85;
   --writ-icon-opacity-hover: 1;
+  --writ-disabled-opacity: 0.5;
   --writ-statusbar-height: 28px;
   --writ-sidebar-width: 240px;
   --writ-sidebar-min-width: 200px;
   --writ-sidebar-max-width: 320px;
   --writ-sidebar-row-pitch: 28px;
   --writ-sidebar-row-fill: 26px;
+  --writ-scrollbar-thumb-min: 30px;
   --writ-space-1: 2px;
   --writ-space-2: 4px;
   --writ-space-3: 8px;
@@ -70,15 +70,19 @@
   --writ-space-5: 16px;
   --writ-space-6: 24px;
   --writ-space-7: 32px;
+  --writ-space-2-5: 6px;
+  --writ-space-3-5: 10px;
+  --writ-space-4-5: 14px;
   --writ-ease: cubic-bezier(.33, 1, .68, 1);
   --writ-ease-linear: linear;
   --writ-motion-fast: 120ms;
   --writ-motion-duration: 150ms;
   --writ-motion-slow: 180ms;
+  --writ-motion-ambient: 700ms;
   --writ-motion: var(--writ-motion-duration) var(--writ-ease);
-  --writ-z-base: 0;
   --writ-z-chrome: 100;
   --writ-z-window-lights: 150;
+  --writ-z-banner: 160;
   --writ-z-popover: 200;
   --writ-z-palette: 300;
   --writ-z-modal: 400;
@@ -88,6 +92,7 @@
   --writ-switch-knob: #FFFFFF;
   --writ-overlay-scrim: rgba(0, 0, 0, 0.5);
   --writ-selection: color-mix(in srgb, var(--writ-accent) 30%, transparent);
+  --writ-selection-match: color-mix(in srgb, var(--writ-accent) 18%, transparent);
   --writ-status-success: #178035;
   --writ-status-warning: #9a6b00;
   --writ-status-error: var(--writ-danger);
@@ -118,6 +123,7 @@
   --writ-fg-muted: #5D5850;
   --writ-fg-faint: #8A847A;
   --writ-danger: #A6392E;
+  --writ-danger-hover: #953329;
   --writ-switch-off: #CFCAC1;
   --writ-syn-string: #5C7A5A;
   --writ-shadow-popover: 0 1px 6px rgba(0,0,0,.05), 0 6px 24px rgba(0,0,0,.09);
@@ -141,6 +147,7 @@
   --writ-fg-muted: #A8A296;
   --writ-fg-faint: #827C72;
   --writ-danger: #E08D82;
+  --writ-danger-hover: #CA7F75;
   --writ-switch-off: #4A463F;
   --writ-syn-string: #8FAE8B;
   --writ-shadow-popover: 0 1px 6px rgba(0,0,0,.16), 0 6px 24px rgba(0,0,0,.28);
@@ -185,12 +192,18 @@
   --writ-r-modal: 8px;
   --writ-r-card: 8px;
   --writ-r-media: 4px;
+  --writ-r-action: 4px;
   --writ-r-window: 8px;
   --writ-r-tooltip: 4px;
   --writ-icon-size: 16px;
   --writ-icon-opacity: 1;
   --writ-sidebar-row-pitch: 40px;
   --writ-sidebar-row-fill: 36px;
+  --writ-scrollbar-rail: 12px;
+  --writ-scrollbar-thumb: 2px;
+  --writ-scrollbar-thumb-hover: 6px;
+  --writ-scrollbar-thumb-radius: 3px;
+  --writ-scrollbar-motion: 83ms;
   --writ-bg-canvas: #FFFFFF;
   --writ-bg-sidebar: #F4F2EF;
   --writ-bg-raised: #FBFAF8;
@@ -204,8 +217,6 @@
   --writ-fg-faint: rgba(0,0,0,.447);
   --writ-shadow-modal: 0 0 8px rgba(0,0,0,.20), 0 32px 64px rgba(0,0,0,.24);
   --writ-win-stroke: rgba(0,0,0,.059);
-  --writ-win-stroke-strong: rgba(0,0,0,.447);
-  --writ-win-input: rgba(255,255,255,.702);
   --writ-win-input-active: #FFFFFF;
   --writ-win-focus-outer: rgba(0,0,0,.894);
   --writ-win-focus-inner: rgba(255,255,255,.702);
@@ -228,8 +239,6 @@
   --writ-fg-faint: rgba(255,255,255,.529);
   --writ-shadow-modal: 0 0 8px rgba(0,0,0,.40), 0 32px 64px rgba(0,0,0,.48);
   --writ-win-stroke: rgba(255,255,255,.071);
-  --writ-win-stroke-strong: rgba(255,255,255,.545);
-  --writ-win-input: rgba(255,255,255,.059);
   --writ-win-input-active: rgba(30,30,30,.702);
   --writ-win-focus-outer: #FFFFFF;
   --writ-win-focus-inner: rgba(0,0,0,.702);
@@ -270,6 +279,7 @@
   --writ-r-modal: 15px;
   --writ-r-card: 12px;
   --writ-r-media: 9px;
+  --writ-r-action: 9px;
   --writ-r-window: 15px;
   --writ-icon-size: 16px;
   --writ-icon-opacity: 1;
@@ -277,6 +287,11 @@
   --writ-sidebar-row-fill: 36px;
   --writ-shadow-csd: 0 0 14px 5px rgb(0 0 0 / 15%), 0 0 5px 2px rgb(0 0 0 / 10%), 0 0 0 1px rgb(0 0 0 / 5%);
   --writ-frame-shadow-inset: 19px;
+  --writ-scrollbar-rail: 8px;
+  --writ-scrollbar-thumb: 3px;
+  --writ-scrollbar-thumb-hover: 8px;
+  --writ-scrollbar-thumb-radius: 99px;
+  --writ-scrollbar-motion: 200ms;
   --writ-bg-canvas: #FFFFFF;
   --writ-bg-sidebar: #EEECE6;
   --writ-bg-raised: #FFFDF9;
@@ -291,7 +306,6 @@
   --writ-shadow-modal: 0 0 14px 5px rgb(0 0 0 / 15%), 0 0 5px 2px rgb(0 0 0 / 10%), 0 0 0 1px rgb(0 0 0 / 5%);
   --writ-shadow-popover: 0 0 0 1px rgb(0 0 0 / 5%), 0 1px 5px 1px rgb(0 0 0 / 9%), 0 2px 14px 3px rgb(0 0 0 / 5%);
   --writ-lin-headerbar-bg: #FAF9F6;
-  --writ-lin-entry-bg: rgb(28 24 16 / 5%);
 }
 
 :root[data-platform="linux"][data-theme="dark"] {
@@ -305,7 +319,9 @@
   --writ-fg-muted: rgba(246,242,236,.55);
   --writ-fg-faint: rgba(246,242,236,.34);
   --writ-lin-headerbar-bg: #2E2B28;
-  --writ-lin-entry-bg: rgb(255 255 255 / 8%);
+  --writ-shadow-modal: 0 0 14px 5px rgb(0 0 0 / 45%), 0 0 5px 2px rgb(0 0 0 / 30%), 0 0 0 1px rgb(0 0 0 / 15%);
+  --writ-shadow-popover: 0 0 0 1px rgb(0 0 0 / 15%), 0 1px 5px 1px rgb(0 0 0 / 27%), 0 2px 14px 3px rgb(0 0 0 / 15%);
+  --writ-shadow-csd: 0 0 14px 5px rgb(0 0 0 / 45%), 0 0 5px 2px rgb(0 0 0 / 30%), 0 0 0 1px rgb(0 0 0 / 15%);
 }
 
 :root[data-accent="pine"] {

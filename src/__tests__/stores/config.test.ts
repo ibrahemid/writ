@@ -1,11 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 vi.mock("../../services/tauri", () => ({
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { configStore } from "../../stores/global/config";
+import {
+  configStore,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+} from "../../stores/global/config";
 import { getConfig, updateConfig } from "../../services/tauri";
 import type { WritConfig } from "../../types/config";
 
@@ -254,6 +261,38 @@ describe("configStore", () => {
 
       await vi.advanceTimersByTimeAsync(1000);
       expect(mockedUpdateConfig).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("sidebar bounds", () => {
+    // One source of truth: the drag handle clamps to the same numbers the
+    // stylesheet lays the panel out with.
+    it("are the token values, not a second copy of them", () => {
+      // Read out of the generated file as text: comparing the constants to the
+      // same import they are computed from asserts nothing. The three numbers
+      // are the baseline's Sidebar width row, 240 resizable 200 to 320.
+      const generated = readFileSync(
+        resolve(process.cwd(), "src/styles/generated/tokens.ts"),
+        "utf8",
+      );
+      const block = generated.slice(generated.indexOf("export const SIDEBAR"));
+      const px = (key: string): number => {
+        const found = new RegExp(`^\\s*${key}:\\s*"(\\d+(?:\\.\\d+)?)px"`, "m").exec(block);
+        expect(found, `SIDEBAR.${key} is stated in px`).not.toBeNull();
+        return Number(found![1]);
+      };
+      expect([px("minWidth"), px("maxWidth"), px("width")]).toEqual([200, 320, 240]);
+      expect(SIDEBAR_WIDTH_MIN).toBe(px("minWidth"));
+      expect(SIDEBAR_WIDTH_MAX).toBe(px("maxWidth"));
+      expect(SIDEBAR_WIDTH_DEFAULT).toBe(px("width"));
+    });
+
+    it("are read from the token module rather than written out", () => {
+      const source = readFileSync(resolve(process.cwd(), "src/stores/global/config.ts"), "utf8");
+      const bounds = source.slice(source.indexOf("export const SIDEBAR_WIDTH_MIN"));
+      expect(bounds.slice(0, bounds.indexOf("export function clampSidebarWidth"))).not.toMatch(
+        /\b(200|320|240)\b/,
+      );
     });
   });
 

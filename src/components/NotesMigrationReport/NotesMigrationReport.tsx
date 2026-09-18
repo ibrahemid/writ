@@ -2,7 +2,9 @@ import { Show, onMount } from "solid-js";
 import { notesMigrationStore } from "../../stores/global/notes-migration";
 import type { MoveArchiveOutcome } from "../../stores/global/notes-migration";
 import { notesStore } from "../../stores/global/notes";
+import Button from "../Button/Button";
 import { showToast } from "../Notifications/Toast";
+import { logFailure } from "../../lib/log";
 import { SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import "./NotesMigrationReport.css";
 
@@ -86,8 +88,9 @@ export default function NotesMigrationReport() {
   async function onMoveArchived() {
     try {
       showToast(archiveLine(await notesMigrationStore.moveArchived()), "success");
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e), "error");
+    } catch {
+      showToast("Could not move the archive", "error");
+      logFailure("the archive could not be moved into the notes folder");
     }
   }
 
@@ -102,54 +105,54 @@ export default function NotesMigrationReport() {
               <span class="notes-report-text">
                 {placedLine(placedCount(current()), where() ?? current().notes_folder)}
               </span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 class="notes-report-btn"
                 data-action="notes-report-show"
                 onClick={() => void onShow()}
               >
                 {SHOW_IN_FILE_MANAGER}
-              </button>
+              </Button>
             </div>
           </Show>
 
           <Show when={current().archived > 0}>
             <div class="notes-report-line">
               <span class="notes-report-text">{archivedLine(current().archived)}</span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 class="notes-report-btn"
                 data-action="notes-report-archive"
                 onClick={() => void onMoveArchived()}
               >
                 Move them into your notes folder
-              </button>
+              </Button>
             </div>
           </Show>
 
           <Show when={current().failed > 0}>
             <div class="notes-report-line">
               <span class="notes-report-text">{failedLine(current().failed)}</span>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 class="notes-report-btn"
                 data-action="notes-report-details"
                 onClick={() => void onShowRecovered()}
               >
                 Show details
-              </button>
+              </Button>
             </div>
           </Show>
 
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            icon="x"
+            iconSize={16}
             class="notes-report-dismiss"
             data-action="notes-report-dismiss"
-            aria-label="Dismiss"
+            aria-label="Dismiss the notes report"
             onClick={() => void notesMigrationStore.dismiss()}
-          >
-            ×
-          </button>
+          />
         </div>
       )}
     </Show>

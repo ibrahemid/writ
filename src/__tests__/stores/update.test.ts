@@ -54,6 +54,15 @@ describe("updateStore", () => {
     expect(mockedApi.downloadAndInstallUpdate).toHaveBeenCalledOnce();
   });
 
+  it("install says the install failed, not that the server was unreachable", async () => {
+    mockedApi.downloadAndInstallUpdate.mockRejectedValueOnce(new Error("no space left"));
+    await updateStore.install();
+    expect(updateStore.phase()).toEqual({
+      status: "failed",
+      message: "The update could not be installed.",
+    });
+  });
+
   it("dismiss resets to idle and tells the backend", async () => {
     updateStore.applyPhase({ status: "available", version: "0.9.0" });
     await updateStore.dismiss();

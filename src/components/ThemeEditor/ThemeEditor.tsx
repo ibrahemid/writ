@@ -1,8 +1,9 @@
-import { createSignal, createEffect, onCleanup, For, Show } from "solid-js";
+import { createSignal, createEffect, createUniqueId, onCleanup, For, Show } from "solid-js";
 import { themeStore } from "../../stores/global/theme";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { requestChoice, requestConfirm } from "../ConfirmDialog/ConfirmDialog";
 import {
   GROUP_LABELS,
   NON_EDITABLE_TOKENS,
@@ -46,7 +47,27 @@ function tokensForGroup(theme: Theme, group: TokenGroup): Record<string, string>
 
 export default function ThemeEditor() {
   const win = useWindow();
+  const titleId = createUniqueId();
   let modalRef: HTMLDivElement | undefined;
+
+  function isDirty(): boolean {
+    if (!openSnapshot) return false;
+    return JSON.stringify(snapshot()) !== JSON.stringify(openSnapshot);
+  }
+
+  async function requestClose() {
+    if (!isDirty()) {
+      closeThemeEditor();
+      return;
+    }
+    const outcome = await requestChoice({
+      title: "Discard your changes?",
+      message: "Writ will put the colors back the way they were.",
+      confirmLabel: "Discard",
+      defaultAction: "cancel",
+    });
+    if (outcome === "confirm") closeThemeEditor();
+  }
 
   function valueFor(group: TokenGroup, name: string): string {
     return themeStore.resolvedTokens()[tokenKey(group, name)];
@@ -60,8 +81,18 @@ export default function ThemeEditor() {
     themeStore.setPreset(id);
   }
 
-  function handleReset() {
-    themeStore.resetOverrides();
+  async function handleResetAll() {
+    if (Object.keys(themeStore.overrides()).length === 0) {
+      themeStore.resetOverrides();
+      return;
+    }
+    const confirmed = await requestConfirm({
+      title: "Reset every color?",
+      message: "The colors you picked go back to the preset's own.",
+      confirmLabel: "Reset all",
+      defaultAction: "cancel",
+    });
+    if (confirmed) themeStore.resetOverrides();
   }
 
   async function handleSave() {
@@ -74,14 +105,14 @@ export default function ThemeEditor() {
       openSnapshot = snapshot();
       showToast("Theme saved", "success");
     } catch {
-      showToast("Failed to save theme", "error");
+      showToast("Could not save the theme", "error");
     }
   }
 
   createEffect(() => {
     if (!isOpen() || !modalRef) return;
     const teardown = installFocusTrap(modalRef, {
-      onEscape: () => closeThemeEditor(),
+      onEscape: () => void requestClose(),
       fallbackRestore: () => {
         win.editor.focusEditor();
         return null;
@@ -97,7 +128,7 @@ export default function ThemeEditor() {
 
   return (
     <Show when={isOpen()}>
-      <div class="theme-editor-overlay" onClick={() => closeThemeEditor()}>
+      <div class="theme-editor-overlay" onClick={() => void requestClose()}>
         <div
           ref={modalRef}
           class="theme-editor"
@@ -105,10 +136,12 @@ export default function ThemeEditor() {
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"
-          aria-label="Customize theme"
+          aria-labelledby={titleId}
         >
           <div class="theme-editor-header">
-            <div class="theme-editor-title">Customize theme</div>
+            <div id={titleId} class="theme-editor-title">
+              Customize theme
+            </div>
             <div class="theme-editor-actions">
               <select
                 class="theme-editor-preset"
@@ -120,8 +153,8 @@ export default function ThemeEditor() {
                   {(preset) => <option value={preset.id}>{preset.name}</option>}
                 </For>
               </select>
-              <Button data-action="reset-theme" onClick={handleReset}>
-                Reset
+              <Button data-action="reset-theme" onClick={() => void handleResetAll()}>
+                Reset all
               </Button>
               <Button variant="primary" data-action="save-theme" onClick={handleSave}>
                 Save
@@ -131,7 +164,7 @@ export default function ThemeEditor() {
                   variant="ghost"
                   icon="x"
                   iconSize={16}
-                  onClick={closeThemeEditor}
+                  onClick={() => void requestClose()}
                   aria-label="Close theme editor"
                 />
               </Tooltip>

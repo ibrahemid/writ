@@ -1,6 +1,7 @@
 import { Match, Switch, Show } from "solid-js";
 import type { DownloadFailure, PendingDownload } from "../../stores/window/download-store";
 import "./NoteDownloading.css";
+import Button from "../Button/Button";
 
 // A failure the provider reported is about the file; the other two are about
 // Writ, and each says what the person can do next.
@@ -33,9 +34,7 @@ export default function NoteDownloading(props: Props) {
           <p class="note-downloading-line">
             {provider() ? `Downloading from ${provider()}…` : "Downloading…"}
           </p>
-          <button type="button" class="note-downloading-action" onClick={props.onDismiss}>
-            Cancel
-          </button>
+          <Button onClick={props.onDismiss}>Cancel</Button>
         </Match>
 
         <Match when={props.download.state === "failed"}>
@@ -43,9 +42,7 @@ export default function NoteDownloading(props: Props) {
           <Show when={props.download.reason === "download" && props.download.message}>
             {(message) => <p class="note-downloading-detail">{message()}</p>}
           </Show>
-          <button type="button" class="note-downloading-action" onClick={props.onDismiss}>
-            Close
-          </button>
+          <Button onClick={props.onDismiss}>Close</Button>
         </Match>
 
         <Match when={props.download.state === "timed_out"}>
@@ -54,9 +51,7 @@ export default function NoteDownloading(props: Props) {
               ? `Still waiting for ${provider()}. Try again once the file has downloaded.`
               : "Still waiting. Try again once the file has downloaded."}
           </p>
-          <button type="button" class="note-downloading-action" onClick={props.onDismiss}>
-            Close
-          </button>
+          <Button onClick={props.onDismiss}>Close</Button>
         </Match>
       </Switch>
     </div>

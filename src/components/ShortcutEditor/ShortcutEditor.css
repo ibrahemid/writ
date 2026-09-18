@@ -5,12 +5,12 @@
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 64px 24px;
+  padding: 64px var(--writ-space-6);
   z-index: var(--writ-z-modal);
 }
 
 .shortcut-editor {
-  width: 680px;
+  width: min(680px, calc(100vw - 48px));
   max-height: calc(100vh - 128px);
   background: var(--writ-bg-raised);
   border: 0;
@@ -32,10 +32,15 @@
 }
 
 .shortcut-editor-title {
-  font-size: var(--writ-ui-md);
-  line-height: var(--writ-ui-md-lh);
+  font-size: var(--writ-ui-lg);
+  line-height: var(--writ-ui-lg-lh);
   font-weight: 600;
   color: var(--writ-fg);
+}
+
+.shortcut-editor-blocked {
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-status-warning);
 }
 
 .shortcut-editor-actions {
@@ -52,8 +57,7 @@
 .shortcut-group-label {
   padding: var(--writ-space-3) var(--writ-space-3) var(--writ-space-1);
   font-size: var(--writ-ui-xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: var(--writ-ui-tracking);
   color: var(--writ-fg-faint);
   font-weight: 600;
 }
@@ -90,20 +94,19 @@
 .shortcut-row-desc {
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
-  margin-top: 2px;
+  margin-top: var(--writ-space-1);
 }
 
 .shortcut-row-aliases {
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
-  margin-top: 4px;
-  font-style: italic;
+  margin-top: var(--writ-space-2);
 }
 
 .shortcut-row-conflict {
   font-size: var(--writ-ui-xs);
   color: var(--writ-status-warning);
-  margin-top: 4px;
+  margin-top: var(--writ-space-2);
 }
 
 .shortcut-row-chip {
@@ -116,12 +119,10 @@
 .shortcut-row-listening {
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
-  font-style: italic;
 }
 
 .shortcut-row-listening {
-  color: var(--writ-accent);
-  font-style: normal;
+  color: var(--writ-fg-muted);
 }
 
 .shortcut-row-controls {

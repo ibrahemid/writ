@@ -2,7 +2,8 @@ import { createEffect, Show } from "solid-js";
 import { resolveNoteChange } from "../../lib/note-actions";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import type { ChangeChoice } from "../../types/buffer";
-import "./FileChangedBar.css";
+import Button from "../Button/Button";
+import "./EditorBar.css";
 
 /**
  * The bar a note carries when its file changed while the document held text
@@ -46,36 +47,19 @@ export default function FileChangedBar(props: { noteId: string | null }) {
     <Show when={changed()}>
       {(id) => (
         <div
-          class="file-changed-bar"
+          class="editor-bar file-changed-bar"
           role="alertdialog"
           aria-labelledby="file-changed-bar-text"
         >
-          <p class="file-changed-bar-text" id="file-changed-bar-text">
+          <p class="editor-bar-text" id="file-changed-bar-text">
             This file changed on disk.
           </p>
-          <div class="file-changed-bar-actions">
-            <button
-              type="button"
-              class="file-changed-bar-action"
-              ref={firstAction}
-              onClick={() => void answer(id(), "keep_mine")}
-            >
+          <div class="editor-bar-actions">
+            <Button ref={firstAction} onClick={() => void answer(id(), "keep_mine")}>
               Keep mine
-            </button>
-            <button
-              type="button"
-              class="file-changed-bar-action"
-              onClick={() => void answer(id(), "use_disk")}
-            >
-              Use the file on disk
-            </button>
-            <button
-              type="button"
-              class="file-changed-bar-action"
-              onClick={() => void answer(id(), "keep_both")}
-            >
-              Show both
-            </button>
+            </Button>
+            <Button onClick={() => void answer(id(), "use_disk")}>Use the file on disk</Button>
+            <Button onClick={() => void answer(id(), "keep_both")}>Show both</Button>
           </div>
         </div>
       )}

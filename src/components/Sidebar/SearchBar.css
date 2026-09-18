@@ -1,14 +1,14 @@
 .search-bar {
-  padding: 8px;
+  padding: var(--writ-space-3);
   flex-shrink: 0;
 }
 
 .search-field {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
+  gap: var(--writ-space-2-5);
+  min-height: 28px;
+  padding: 0 var(--writ-space-3-5);
   background: var(--writ-bg-sunken);
   border: 0;
   border-radius: var(--writ-r-pill);
@@ -16,6 +16,23 @@
 
 .search-field:focus-within {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--writ-accent) 30%, transparent);
+}
+
+/* Fluent's field carries the heavier stroke on its bottom edge at rest and
+   moves that one edge to the accent on focus: no ring, no glow. */
+:root[data-platform="win"] .search-field {
+  border-bottom: 2px solid transparent;
+}
+
+:root[data-platform="win"] .search-field:focus-within {
+  border-bottom: 2px solid var(--writ-accent);
+  box-shadow: none;
+}
+
+:root[data-platform="linux"] .search-field:focus-within {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset, 2px);
+  box-shadow: none;
 }
 
 .search-icon {
@@ -35,10 +52,6 @@
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg);
   text-overflow: ellipsis;
-}
-
-.search-input:focus {
-  outline: none;
 }
 
 .search-input::placeholder {

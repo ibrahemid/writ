@@ -65,8 +65,7 @@ export default function CaptionButtons(props: Props) {
               type="button"
               class="gnomectrl gnomectrl-close"
               onClick={osWindowStore.hide}
-              title="Hide"
-              aria-label="Hide window"
+              aria-label="Hide"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
                 <path
@@ -86,8 +85,7 @@ export default function CaptionButtons(props: Props) {
           type="button"
           class="winctrl winctrl-min"
           onClick={osWindowStore.minimize}
-          title="Minimize"
-          aria-label="Minimize window"
+          aria-label="Minimize"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M1 5.5H9" stroke="currentColor" stroke-width="1" />
@@ -106,8 +104,7 @@ export default function CaptionButtons(props: Props) {
             "is-snap-pressed": osWindowStore.snapPressed(),
           }}
           onClick={osWindowStore.toggleMaximize}
-          title={props.maximized ? "Restore" : "Maximize"}
-          aria-label={props.maximized ? "Restore window" : "Maximize window"}
+          aria-label={props.maximized ? "Restore" : "Maximize"}
         >
           <Show
             when={props.maximized}
@@ -127,8 +124,7 @@ export default function CaptionButtons(props: Props) {
           type="button"
           class="winctrl winctrl-close"
           onClick={osWindowStore.hide}
-          title="Hide"
-          aria-label="Hide window"
+          aria-label="Hide"
         >
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="currentColor" stroke-width="1" />

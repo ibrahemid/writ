@@ -72,21 +72,20 @@
 
 .placeholders-input {
   width: 100%;
-  height: 28px;
-  padding: 0 10px;
+  min-height: 28px;
+  padding: 0 var(--writ-space-3-5);
   font-family: inherit;
   font-size: var(--writ-ui-md);
   background: var(--writ-bg-sunken);
   color: var(--writ-fg);
   border: 0;
   border-radius: var(--writ-r-control);
-  outline: none;
   box-sizing: border-box;
 }
 
 .placeholders-input:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: 2px;
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset, 2px);
 }
 
 .placeholders-empty {

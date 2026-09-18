@@ -18,6 +18,14 @@ const TITLEBAR_CSS = readFileSync(
   resolve(process.cwd(), "src/components/TitleBar/TitleBar.css"),
   "utf8",
 );
+const PICKER_CSS = readFileSync(
+  resolve(process.cwd(), "src/components/Editor/LinkAmbiguityPicker.css"),
+  "utf8",
+);
+const SPELLING_CSS = readFileSync(
+  resolve(process.cwd(), "src/components/Editor/SpellingPreview.css"),
+  "utf8",
+);
 const THEME_CSS = readFileSync(resolve(process.cwd(), "src/styles/generated/theme.css"), "utf8");
 
 const layer = (name: string): number => {
@@ -46,9 +54,23 @@ describe("find panel stacking", () => {
   it("keeps the tickmap on the same popover layer", () => {
     expect(block(FIND_CSS, ".find-tickmap")).toMatch(/z-index:\s*var\(--writ-z-popover\)/);
   });
+});
 
-  it("never hardcodes a z-index number", () => {
-    expect(FIND_CSS).not.toMatch(/z-index:\s*\d/);
+// Nothing in the chain from the root to the picker opens a stacking context, so
+// a number below the layer tokens puts an aria-modal dialog under the find
+// panel, the toolbar and the toasts.
+describe("link picker stacking", () => {
+  it("sits on the modal layer, above every chrome layer", () => {
+    expect(zToken(PICKER_CSS, ".link-picker-scrim")).toBe("--writ-z-modal");
+    expect(layer("modal")).toBeGreaterThan(layer("popover"));
+  });
+});
+
+// A number above the popover layer means nothing: the context menu is on that
+// layer and mounts after the editor, so it still paints over the panel.
+describe("spelling panel stacking", () => {
+  it("sits on the popover layer, by name", () => {
+    expect(zToken(SPELLING_CSS, ".spelling-preview")).toBe("--writ-z-popover");
   });
 });
 

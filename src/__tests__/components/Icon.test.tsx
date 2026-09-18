@@ -92,3 +92,10 @@ describe("the icon sprite", () => {
     expect(listed).toEqual([...ICON_NAMES]);
   });
 });
+
+describe("Icon stylesheet", () => {
+  it("ships no size class, because every caller sizes through the prop", () => {
+    const css = readFileSync(resolve(REPO_ROOT, "src/components/Icon/Icon.css"), "utf8");
+    expect(css).not.toMatch(/\.writ-icon-\d+/);
+  });
+});

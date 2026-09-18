@@ -28,7 +28,14 @@ interface ContextMenuState {
   items: MenuItem[];
   cursor?: { x: number; y: number };
   anchor?: DOMRect;
+  /**
+   * The control that owns this menu, which is only ever the one an anchored
+   * menu was opened from. A cursor menu has none: the element under the focus
+   * when the user right-clicked did not open it.
+   */
   trigger?: HTMLElement | null;
+  /** Where the focus goes when the menu closes, in either mode. */
+  restoreTo?: HTMLElement | null;
   /** Region the menu must stay inside. Defaults to the viewport. */
   bounds?: DOMRect;
 }
@@ -36,13 +43,20 @@ interface ContextMenuState {
 // Singleton state — Writ is single-window, single-instance per component
 const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
 
+/**
+ * Opens the menu at the cursor. The element the user was on is captured here
+ * rather than passed in, so every right-click — a tree row, a closed note, a
+ * word in the editor — lands back where it started on Escape.
+ */
 export function showContextMenu(
   x: number,
   y: number,
   items: MenuItem[],
   bounds?: DOMRect,
 ) {
-  setMenu({ items, cursor: { x, y }, bounds });
+  const active = document.activeElement;
+  const restoreTo = active instanceof HTMLElement && active !== document.body ? active : null;
+  setMenu({ items, cursor: { x, y }, restoreTo, bounds });
 }
 
 /**
@@ -59,11 +73,20 @@ export function showAnchoredMenu(
   trigger?: HTMLElement,
   bounds?: DOMRect,
 ) {
-  setMenu({ items, anchor, trigger: trigger ?? null, bounds });
+  setMenu({ items, anchor, trigger: trigger ?? null, restoreTo: trigger ?? null, bounds });
 }
 
 export function hideContextMenu() {
   setMenu(null);
+}
+
+/**
+ * Whether the open menu is the one `trigger` opened, so a trigger can say
+ * `aria-expanded` from the menu's own state. Read in a component, it tracks:
+ * every open and every dismiss goes through the same signal.
+ */
+export function isMenuOpenFor(trigger: HTMLElement | undefined): boolean {
+  return trigger !== undefined && menu()?.trigger === trigger;
 }
 
 /** Keeps the menu off the very edge of its allowed region. */
@@ -87,11 +110,11 @@ export default function ContextMenu() {
   }
 
   function close() {
-    const trigger = menu()?.trigger;
+    const restoreTo = menu()?.restoreTo;
     setMenu(null);
     setFocused(-1);
     buttons = [];
-    trigger?.focus();
+    restoreTo?.focus();
   }
 
   function focusableIndices(items: MenuItem[]): number[] {
@@ -108,12 +131,16 @@ export default function ContextMenu() {
     setFocused(order[next]);
   }
 
+  // The menu closes before the row runs, never after. Closing restores the
+  // focus to the trigger, so a row that opens a layer of its own would have the
+  // focus pulled straight back out of it and the new layer would be left with
+  // no keyboard exit. `Palette.tsx`'s handleSelect takes the same order.
   function activate(index: number) {
     const m = menu();
     const item = m?.items[index];
     if (!item || item.disabled) return;
-    item.action();
     close();
+    item.action();
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -287,6 +314,7 @@ export default function ContextMenu() {
                   type="button"
                   role="menuitem"
                   tabindex={-1}
+                  data-writ-focus-silent
                   disabled={item.disabled}
                   class={`context-menu-item ${item.danger ? "context-menu-danger" : ""}`}
                   onClick={() => activate(index())}

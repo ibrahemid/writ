@@ -207,7 +207,7 @@ describe("tab appearance", () => {
     expect(tab.declarations.get("height")).toBeUndefined();
     expect(tab.declarations.get("min-width")).toBe("100px");
     expect(tab.declarations.get("max-width")).toBe("200px");
-    expect(tab.declarations.get("padding")).toBe("0 10px");
+    expect(tab.declarations.get("padding")).toBe("0 var(--writ-space-3-5)");
     expect(tab.declarations.get("border")).toBe("0");
     expect(tab.declarations.get("border-radius")).toBe(
       "var(--writ-r-tab) var(--writ-r-tab) 0 0",
@@ -237,8 +237,12 @@ describe("tab appearance", () => {
   });
 
   it("spends the accent on nothing but the GNOME tab indicator", () => {
+    // The focus ring's own fallback names the accent, but the ring's colour is
+    // the platform's decision, not a paint this strip makes.
+    const painted = (value: string) =>
+      value.replace(/var\(--writ-focus-[a-z-]+,[^)]*\)\)?/g, "");
     const accented = RULES.filter((rule) =>
-      [...rule.declarations.values()].some((value) => value.includes("--writ-accent")),
+      [...rule.declarations.values()].some((value) => painted(value).includes("--writ-accent")),
     );
     expect(accented.map((rule) => rule.selectors.join(","))).toEqual([
       '.tabbar[data-platform="linux"] .tab-active::after',
@@ -394,7 +398,9 @@ describe("platform layers", () => {
     const tab = ruleFor('.tabbar[data-platform="win"] .tab');
     expect(tab.declarations.get("min-height")).toBe("32px");
     expect(tab.declarations.get("max-width")).toBe("240px");
-    expect(tab.declarations.get("padding")).toBe("8px 3px 4px 3px");
+    expect(tab.declarations.get("padding")).toBe(
+      "var(--writ-space-3) 3px var(--writ-space-2) 3px",
+    );
     expect(tab.declarations.get("font-size")).toBe("var(--writ-ui-sm)");
     const close = ruleFor('.tabbar[data-platform="win"] .tab-close');
     expect(close.declarations.get("width")).toBe("32px");

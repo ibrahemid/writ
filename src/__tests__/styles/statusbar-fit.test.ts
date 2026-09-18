@@ -29,4 +29,19 @@ describe("status bar fit", () => {
   it("never drops the cursor position", () => {
     expect(CSS).not.toMatch(/\.statusbar-field--cursor\s*\{[^}]*display:\s*none/);
   });
+
+  // The save label carries the file name, so the left block is as wide as the
+  // longest name a note can have. It gives way first and truncates; the right
+  // cluster is controls, and a control clipped off the edge has no other way in.
+  it("shrinks the left block before the controls on the right", () => {
+    expect(block(".statusbar-left")).toMatch(/flex-shrink:\s*1/);
+    expect(block(".statusbar-left")).not.toMatch(/flex-shrink:\s*0/);
+    expect(block(".statusbar-live")).toMatch(/min-width:\s*0/);
+  });
+
+  it("ellipsises the label rather than letting it push the bar wide", () => {
+    const label = CSS.match(/^\.statusbar-label\s*\{([^}]*)\}/m)?.[1] ?? "";
+    expect(label).toMatch(/overflow:\s*hidden/);
+    expect(label).toMatch(/text-overflow:\s*ellipsis/);
+  });
 });

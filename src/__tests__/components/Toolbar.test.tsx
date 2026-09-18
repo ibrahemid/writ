@@ -152,14 +152,14 @@ describe("Toolbar shape", () => {
     expect(bar(container).dataset.platform).toBe("linux");
     expect(container.querySelector("input.search-input")).toBeNull();
     expect(TOOLBAR_CSS).toMatch(
-      /\.writ-toolbar\[data-platform="linux"\]\s*\{[^}]*gap:\s*var\(--writ-toolbar-tight, 6px\)[^}]*padding:\s*var\(--writ-toolbar-tight, 6px\)/,
+      /\.writ-toolbar\[data-platform="linux"\]\s*\{[^}]*gap:\s*var\(--writ-toolbar-tight, var\(--writ-space-2-5\)\)[^}]*padding:\s*var\(--writ-toolbar-tight, var\(--writ-space-2-5\)\)/,
     );
-    expect(TOOLBAR_CSS).toMatch(/--writ-toolbar-tight:\s*6px/);
+    expect(TOOLBAR_CSS).toMatch(/--writ-toolbar-tight:\s*var\(--writ-space-2-5\)/);
   });
 
   it("keeps New note on the baseline gap and out of the GNOME bold rule", () => {
     const compose = /\.writ-toolbar-compose\s*\{([^}]*)\}/.exec(TOOLBAR_CSS)![1];
-    expect(compose).toMatch(/gap:\s*var\(--writ-toolbar-tight, 6px\)/);
+    expect(compose).toMatch(/gap:\s*var\(--writ-toolbar-tight, var\(--writ-space-2-5\)\)/);
     expect(compose).toMatch(/font-weight:\s*400/);
     expect(TOOLBAR_CSS).toMatch(
       /\[data-platform="win"\] \.writ-toolbar-compose\s*\{[^}]*gap:\s*var\(--writ-space-3\)/,

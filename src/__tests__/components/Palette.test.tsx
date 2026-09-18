@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeAll, afterEach } from "vitest";
-import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import type { Platform } from "../../lib/platform";
 
@@ -142,9 +142,11 @@ describe("the palette sheet", () => {
 
   it("puts a 40px input on the baseline face without tracking", () => {
     const search = ruleFor(".palette-search");
-    expect(search.declarations.get("height")).toBe("40px");
-    expect(search.declarations.get("gap")).toBe("10px");
-    expect(search.declarations.get("padding")).toBe("0 14px");
+    // A floor, not a fixed height: the row reads --writ-ui-lg, so at the top of
+    // the interface text range the line box is taller than the baseline metric.
+    expect(search.declarations.get("min-height")).toBe("40px");
+    expect(search.declarations.get("gap")).toBe("var(--writ-space-3-5)");
+    expect(search.declarations.get("padding")).toBe("0 var(--writ-space-4-5)");
     const input = ruleFor(".palette-input");
     expect(input.declarations.get("font-size")).toBe("var(--writ-ui-lg)");
     expect(input.declarations.get("letter-spacing")).toBe("var(--writ-ui-tracking)");
@@ -153,10 +155,10 @@ describe("the palette sheet", () => {
 
   it("rows are 32px with a 6px radius", () => {
     const item = ruleFor(".palette-item");
-    expect(item.declarations.get("height")).toBe("32px");
-    expect(item.declarations.get("margin")).toBe("0 6px");
-    expect(item.declarations.get("padding")).toBe("0 10px");
-    expect(item.declarations.get("gap")).toBe("10px");
+    expect(item.declarations.get("min-height")).toBe("32px");
+    expect(item.declarations.get("margin")).toBe("0 var(--writ-space-2-5)");
+    expect(item.declarations.get("padding")).toBe("0 var(--writ-space-3-5)");
+    expect(item.declarations.get("gap")).toBe("var(--writ-space-3-5)");
     expect(item.declarations.get("border-radius")).toBe("var(--writ-r-row)");
     expect(item.declarations.get("font-size")).toBe("var(--writ-ui-md)");
   });
@@ -295,5 +297,31 @@ describe("the platform layer", () => {
     expect(ruleFor('.palette[data-platform="win"]').declarations.get("border")).toBe(
       "1px solid var(--writ-win-layer-stroke)",
     );
+  });
+
+  // One app, one way of quoting a name: the link picker sets a target in curly
+  // quotes and this sentence is the same sentence about the same thing.
+  it("quotes the query the way the rest of the app quotes a name", async () => {
+    const { container } = harness([]);
+    fireEvent.input(container.querySelector(".palette-input")!, { target: { value: "zzz" } });
+    const title = await waitFor(() => {
+      const el = container.querySelector(".palette-empty-title");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(title.textContent).toContain("\u201C");
+    expect(title.textContent).toContain("\u201D");
+    expect(title.textContent).not.toContain('"');
+  });
+
+  it("does not spend a line saying Esc dismisses a layer just opened", async () => {
+    const { container } = harness([]);
+    fireEvent.input(container.querySelector(".palette-input")!, { target: { value: "zzz" } });
+    const hint = await waitFor(() => {
+      const el = container.querySelector(".palette-empty-hint");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(hint.textContent).toBe("Try a different word.");
   });
 });

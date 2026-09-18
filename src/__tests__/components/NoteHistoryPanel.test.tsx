@@ -12,6 +12,11 @@ const h = vi.hoisted(() => ({
   noteVersionContent: vi.fn(),
   restoreNoteVersion: vi.fn(),
   copyNoteVersion: vi.fn(),
+  focusEditor: vi.fn(),
+}));
+
+vi.mock("../../components/WindowProvider/WindowProvider", () => ({
+  useWindow: () => ({ editor: { focusEditor: h.focusEditor } }),
 }));
 
 vi.mock("../../services/tauri", () => ({

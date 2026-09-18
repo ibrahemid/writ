@@ -21,23 +21,26 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding-bottom: 6px;
+  padding-bottom: var(--writ-space-2-5);
 }
 
 .palette-search {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 40px;
-  padding: 0 14px;
+  gap: var(--writ-space-3-5);
+  min-height: 40px;
+  padding: 0 var(--writ-space-4-5);
   border-bottom: 1px solid var(--writ-border-soft);
 }
 
 .palette-input {
   flex: 1;
   min-width: 0;
-  height: 100%;
+  /* The row is a floor now, not a fixed height, so a percentage has nothing to
+     resolve against: the field fills the line instead, and a click anywhere in
+     the row lands in it. */
+  align-self: stretch;
   padding: 0;
   border: 0;
   background: transparent;
@@ -61,11 +64,11 @@
 .palette-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--writ-space-3-5);
   width: calc(100% - 12px);
-  height: 32px;
-  margin: 0 6px;
-  padding: 0 10px;
+  min-height: 32px;
+  margin: 0 var(--writ-space-2-5);
+  padding: 0 var(--writ-space-3-5);
   text-align: left;
   color: var(--writ-fg);
   font-size: var(--writ-ui-md);
@@ -102,7 +105,7 @@
   flex: 0 1 auto;
   min-width: 0;
   font-size: var(--writ-ui-sm);
-  color: var(--writ-fg-faint);
+  color: var(--writ-fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -139,7 +142,7 @@
 }
 
 .palette-section-label {
-  padding: 10px 14px 4px;
+  padding: var(--writ-space-3-5) var(--writ-space-4-5) var(--writ-space-2);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   letter-spacing: var(--writ-ui-tracking);
@@ -149,7 +152,7 @@
 }
 
 .palette-section-more {
-  padding: var(--writ-space-1) 16px var(--writ-space-2);
+  padding: var(--writ-space-1) var(--writ-space-5) var(--writ-space-2);
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);
 }
@@ -174,7 +177,7 @@
 
 .palette-notice {
   flex: 0 0 auto;
-  padding: var(--writ-space-2) 14px;
+  padding: var(--writ-space-2) var(--writ-space-4-5);
   border-top: 1px solid var(--writ-border-soft);
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);

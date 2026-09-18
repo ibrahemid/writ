@@ -298,10 +298,10 @@ export default function Palette(props: PaletteProps) {
                     when={parsed().text === "" && bareModeHint()}
                     fallback={
                       <>
-                        <div class="palette-empty-title">Nothing matches "{query()}"</div>
-                        <div class="palette-empty-hint">
-                          Try a different word, or press Esc to dismiss.
+                        <div class="palette-empty-title">
+                          Nothing matches “{query()}”
                         </div>
+                        <div class="palette-empty-hint">Try a different word.</div>
                       </>
                     }
                   >

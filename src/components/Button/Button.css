@@ -1,9 +1,9 @@
 .writ-btn {
-  height: 28px;
+  min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 12px;
+  gap: var(--writ-space-2-5);
+  padding: 0 var(--writ-space-4);
   border: 0;
   border-radius: var(--writ-r-control);
   font-family: inherit;
@@ -63,21 +63,20 @@
 }
 
 .writ-btn-primary.writ-btn-danger:hover:not(:disabled) {
-  background: var(--writ-danger);
-  filter: brightness(1.08);
+  background: var(--writ-danger-hover);
 }
 
 .writ-btn:disabled {
-  opacity: 0.5;
+  opacity: var(--writ-disabled-opacity);
   cursor: default;
 }
 
 :root[data-platform="win"] .writ-btn {
-  height: 32px;
+  min-height: 32px;
 }
 
 :root[data-platform="linux"] .writ-btn {
-  height: 34px;
+  min-height: 34px;
   padding: 0 17px;
   font-weight: 700;
 }

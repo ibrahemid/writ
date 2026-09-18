@@ -109,22 +109,9 @@
           "value": 32,
           "unit": "px"
         }
-      },
-      "p-spacing": {
-        "$value": {
-          "value": 1.25,
-          "unit": "rem"
-        }
       }
     },
     "heading": {
-      "spacing": {
-        "$type": "dimension",
-        "$value": {
-          "value": 2,
-          "unit": "em"
-        }
-      },
       "color": {
         "$type": "other",
         "$value": "inherit",
@@ -289,7 +276,7 @@
         }
       },
       "action": {
-        "$description": "The 18px icon button in a section header (baseline .sb-add), 4px on every platform.",
+        "$description": "The 18px icon button in a section header (baseline .sb-add). Each platform layer states its own; GNOME takes the control radius.",
         "$value": {
           "value": 4,
           "unit": "px"
@@ -328,6 +315,13 @@
       "opacity-hover": {
         "$type": "number",
         "$value": 1
+      }
+    },
+    "disabled": {
+      "$type": "number",
+      "opacity": {
+        "$value": 0.5,
+        "$description": "One dim for every disabled control, whatever draws it."
       }
     },
     "statusbar": {
@@ -372,6 +366,16 @@
         }
       }
     },
+    "scrollbar": {
+      "$type": "dimension",
+      "thumb-min": {
+        "$value": {
+          "value": 30,
+          "unit": "px"
+        },
+        "$description": "The shortest a thumb may be drawn. The baseline states it for Windows; GNOME takes the same floor."
+      }
+    },
     "space": {
       "1": {
         "$value": {
@@ -385,15 +389,33 @@
           "unit": "px"
         }
       },
+      "2-5": {
+        "$value": {
+          "value": 6,
+          "unit": "px"
+        }
+      },
       "3": {
         "$value": {
           "value": 8,
           "unit": "px"
         }
       },
+      "3-5": {
+        "$value": {
+          "value": 10,
+          "unit": "px"
+        }
+      },
       "4": {
         "$value": {
           "value": 12,
+          "unit": "px"
+        }
+      },
+      "4-5": {
+        "$value": {
+          "value": 14,
           "unit": "px"
         }
       },
@@ -446,6 +468,13 @@
           "unit": "ms"
         }
       },
+      "ambient": {
+        "$description": "The looping and lingering tier: a spinner, an indeterminate sweep, a state that fades out on its own. Long enough that the three interaction steps stay short.",
+        "$value": {
+          "value": 700,
+          "unit": "ms"
+        }
+      },
       "shorthand": {
         "$type": "other",
         "$value": "var(--writ-motion-duration) var(--writ-ease)",
@@ -459,15 +488,16 @@
     "z": {
       "$type": "number",
       "$description": "[derived] Eight named layers (ADR-030). A component picks a layer, never a number.",
-      "base": {
-        "$value": 0
-      },
       "chrome": {
         "$value": 100
       },
       "window-lights": {
         "$value": 150,
         "$description": "The window's own controls, above the app chrome they overlap and below every overlay."
+      },
+      "banner": {
+        "$value": 160,
+        "$description": "A bottom-anchored strip the app raises over its own chrome: the update banner and the migration report."
       },
       "popover": {
         "$value": 200
@@ -510,6 +540,11 @@
       "$type": "other",
       "$value": "color-mix(in srgb, var(--writ-accent) 30%, transparent)",
       "$description": "Host text selection in chrome surfaces."
+    },
+    "selection-match": {
+      "$type": "other",
+      "$value": "color-mix(in srgb, var(--writ-accent) 18%, transparent)",
+      "$description": "The other occurrences of what is selected. Weaker than --writ-selection so the active one still reads as the active one."
     }
   }
 }

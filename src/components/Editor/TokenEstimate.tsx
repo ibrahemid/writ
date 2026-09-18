@@ -12,10 +12,10 @@ export default function TokenEstimate() {
     <Show when={tokenEstimateStore.count() !== null}>
       <span
         class="statusbar-tokens"
-        title="Estimated token count (heuristic)"
-        aria-label={`approximately ${formatTokenCount(tokenEstimateStore.count()!)} tokens`}
+        title="Estimated token count"
+        aria-label={`Estimated ${formatTokenCount(tokenEstimateStore.count()!)} tokens`}
       >
-        ≈ {formatTokenCount(tokenEstimateStore.count()!)} tok
+        ≈ {formatTokenCount(tokenEstimateStore.count()!)} tokens
       </span>
     </Show>
   );

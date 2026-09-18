@@ -16,6 +16,9 @@ html, body {
   font-family: var(--writ-font-ui);
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
+}
+
+:root[data-platform="mac"] body {
   -webkit-font-smoothing: antialiased;
 }
 
@@ -25,22 +28,72 @@ html, body {
   flex-direction: column;
 }
 
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* macOS keeps its host overlay bar: any ::-webkit-scrollbar rule replaces it
+   with a reserved-width rail. On the two shells that draw a rail, a thumb
+   thinner than it is drawn by insetting the paint box, and the radius adds the
+   inset back because the fill is clipped to the content box. */
+:root[data-platform="win"] ::-webkit-scrollbar {
+  width: var(--writ-scrollbar-rail);
+  height: var(--writ-scrollbar-rail);
 }
 
-::-webkit-scrollbar-track {
+:root[data-platform="win"] ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--writ-border);
-  border-radius: var(--writ-r-control);
+:root[data-platform="win"] ::-webkit-scrollbar-thumb {
+  background-color: var(--writ-border);
+  background-clip: content-box;
+  border: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2) solid transparent;
+  border-radius: calc(var(--writ-scrollbar-thumb-radius) + (var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2);
+  transition: border-width var(--writ-scrollbar-motion) var(--writ-ease),
+    background-color var(--writ-scrollbar-motion) var(--writ-ease);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--writ-fg-faint);
+:root[data-platform="win"] ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--writ-fg-faint);
+  border-width: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
+  border-radius: calc(var(--writ-scrollbar-thumb-radius) + (var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
+}
+
+:root[data-platform="win"] ::-webkit-scrollbar-thumb:vertical {
+  min-height: var(--writ-scrollbar-thumb-min);
+}
+
+:root[data-platform="win"] ::-webkit-scrollbar-thumb:horizontal {
+  min-width: var(--writ-scrollbar-thumb-min);
+}
+
+:root[data-platform="linux"] ::-webkit-scrollbar {
+  width: var(--writ-scrollbar-rail);
+  height: var(--writ-scrollbar-rail);
+}
+
+:root[data-platform="linux"] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:root[data-platform="linux"] ::-webkit-scrollbar-thumb {
+  background-color: var(--writ-border);
+  background-clip: content-box;
+  border: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2) solid transparent;
+  border-radius: calc(var(--writ-scrollbar-thumb-radius) + (var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2);
+  transition: border-width var(--writ-scrollbar-motion) var(--writ-ease-linear),
+    background-color var(--writ-scrollbar-motion) var(--writ-ease-linear);
+}
+
+:root[data-platform="linux"] ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--writ-fg-faint);
+  border-width: calc((var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
+  border-radius: calc(var(--writ-scrollbar-thumb-radius) + (var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2);
+}
+
+:root[data-platform="linux"] ::-webkit-scrollbar-thumb:vertical {
+  min-height: var(--writ-scrollbar-thumb-min);
+}
+
+:root[data-platform="linux"] ::-webkit-scrollbar-thumb:horizontal {
+  min-width: var(--writ-scrollbar-thumb-min);
 }
 
 ::selection {

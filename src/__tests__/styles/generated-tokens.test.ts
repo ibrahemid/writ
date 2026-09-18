@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import { COLORS, TYPE } from "../../styles/generated/tokens";
+import { COLORS, RADII, TYPE } from "../../styles/generated/tokens";
 
 const ROOT = process.cwd();
 
@@ -37,8 +37,6 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-prose-measure",
   "--writ-prose-pad-x",
   "--writ-prose-pad-y",
-  "--writ-prose-p-spacing",
-  "--writ-heading-spacing",
   "--writ-heading-color",
   "--writ-heading-formatting",
   "--writ-h1-size",
@@ -111,7 +109,6 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-motion-duration",
   "--writ-motion-slow",
   "--writ-motion",
-  "--writ-z-base",
   "--writ-z-chrome",
   "--writ-z-window-lights",
   "--writ-z-popover",
@@ -261,6 +258,157 @@ describe("generated token outputs", () => {
     for (const [key, name] of pairs) {
       expect(COLORS.light[key], `light ${name}`).toBe(ROOT_DECLS.get(name));
       expect(COLORS.dark[key], `dark ${name}`).toBe(DARK_DECLS.get(name));
+    }
+  });
+});
+
+describe("platform dark layers", () => {
+  const PLATFORMS = ["win", "linux"];
+  // --writ-bg-hover and --writ-bg-selected are currentColor alphas: the same
+  // declaration paints both polarities, so a platform re-declares them once.
+  const POLARITY_FREE = new Set(["--writ-bg-hover", "--writ-bg-selected"]);
+
+  it("re-declare every token whose base value the dark scheme moves", () => {
+    for (const platform of PLATFORMS) {
+      const light = declarationsIn(blockBody(THEME_CSS, `:root[data-platform="${platform}"]`));
+      const dark = declarationsIn(
+        blockBody(THEME_CSS, `:root[data-platform="${platform}"][data-theme="dark"]`),
+      );
+      const missing = [...light.keys()].filter(
+        (name) => DARK_DECLS.has(name) && !POLARITY_FREE.has(name) && !dark.has(name),
+      );
+      expect(missing, `${platform} dark is missing: ${missing.join(", ")}`).toEqual([]);
+    }
+  });
+
+  it("carry a dark client-side-decoration shadow, which no other layer declares", () => {
+    // App.css paints the GNOME window shadow itself, so --writ-shadow-csd has
+    // no base value to fall back on and needs its own dark stack.
+    const dark = declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"][data-theme="dark"]'));
+    expect(dark.has("--writ-shadow-csd")).toBe(true);
+    expect(dark.get("--writ-shadow-csd")).not.toBe(
+      declarationsIn(blockBody(THEME_CSS, ':root[data-platform="linux"]')).get("--writ-shadow-csd"),
+    );
+  });
+});
+
+describe("layers and selection", () => {
+  it("seats the banner between the window lights and the popovers", () => {
+    const lights = Number(ROOT_DECLS.get("--writ-z-window-lights"));
+    const popover = Number(ROOT_DECLS.get("--writ-z-popover"));
+    const banner = Number(ROOT_DECLS.get("--writ-z-banner"));
+    expect(banner).toBe(160);
+    expect(banner).toBeGreaterThan(lights);
+    expect(banner).toBeLessThan(popover);
+  });
+
+  it("mixes the match highlight the way the selection is mixed, one step weaker", () => {
+    expect(ROOT_DECLS.get("--writ-selection")).toBe(
+      "color-mix(in srgb, var(--writ-accent) 30%, transparent)",
+    );
+    expect(ROOT_DECLS.get("--writ-selection-match")).toBe(
+      "color-mix(in srgb, var(--writ-accent) 18%, transparent)",
+    );
+  });
+});
+
+describe("platform radii", () => {
+  // The general rule is narrowed to the radii that actually move: requiring
+  // every --writ-r-* in every layer would mint a GNOME selection-bar radius for
+  // a selection bar only Windows draws.
+  it("state every radius their platform moves off the base value", () => {
+    for (const platform of ["win", "linux"] as const) {
+      const declared = declarationsIn(blockBody(THEME_CSS, `:root[data-platform="${platform}"]`));
+      const moved = Object.entries(RADII[platform])
+        .filter(([key, value]) => value !== RADII.mac[key as keyof typeof RADII.mac])
+        .map(([key]) => `--writ-r-${key}`);
+      const missing = moved.filter((name) => !declared.has(name));
+      expect(missing, `${platform} does not declare: ${missing.join(", ")}`).toEqual([]);
+    }
+  });
+
+  it("state the action radius, which a section header spends on every shell", () => {
+    for (const [platform, radius] of [
+      ["win", "4px"],
+      ["linux", "9px"],
+    ] as const) {
+      const declared = declarationsIn(blockBody(THEME_CSS, `:root[data-platform="${platform}"]`));
+      expect(declared.get("--writ-r-action"), platform).toBe(radius);
+      expect(RADII[platform].action, platform).toBe(radius);
+    }
+  });
+});
+
+describe("every emitted token is spent", () => {
+  // A name nothing reads is a contract that is not enforced: it reads as a
+  // promise the app keeps somewhere else, and editing it changes nothing.
+  const UNSPENT: Record<string, string> = {
+    "--writ-sidebar-min-width":
+      "read as SIDEBAR.minWidth in stores/global/config.ts, not as a custom property",
+    "--writ-sidebar-max-width":
+      "read as SIDEBAR.maxWidth in stores/global/config.ts, not as a custom property",
+  };
+
+  // design/ is the generator, not a consumer: config.mjs and the token JSON
+  // name custom properties as the text they emit, so a token mentioned there
+  // would vouch for itself. The two things that legitimately spend a name
+  // without a stylesheet reading it are added back by hand below.
+  const SEARCH_ROOTS = ["src", "site/src", "src-tauri/src", "crates"];
+  const SEARCH_EXTENSIONS = [".css", ".ts", ".tsx", ".rs", ".astro", ".json", ".mjs"];
+
+  function sources(dir: string, found: string[] = []): string[] {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const rel = relative(ROOT, full);
+      if (statSync(full).isDirectory()) {
+        if (entry === "node_modules" || entry === "target" || rel.includes("__tests__")) continue;
+        sources(full, found);
+      } else if (SEARCH_EXTENSIONS.some((ext) => entry.endsWith(ext)) && !GENERATED.includes(rel)) {
+        found.push(full);
+      }
+    }
+    return found;
+  }
+
+  /** One name, not a name that merely starts another one. */
+  function isReadBy(name: string, text: string): boolean {
+    return new RegExp(`${name}(?![a-z0-9-])`).test(text);
+  }
+
+  function corpus(): string[] {
+    const files = SEARCH_ROOTS.flatMap((root) => sources(resolve(ROOT, root))).map((file) =>
+      readFileSync(file, "utf8"),
+    );
+    // A token another token's value chains to is spent: --writ-motion is
+    // `var(--writ-motion-duration) var(--writ-ease)`, and nothing else reads
+    // either half.
+    files.push([...THEME_CSS.matchAll(/var\(\s*(--writ-[a-z0-9-]+)/g)].map((m) => m[1]).join(" "));
+    // CSS_VAR is the hand-kept list of names the app passes to cssVar() at
+    // runtime rather than writing into a stylesheet.
+    const tokensTs = readFileSync(resolve(ROOT, "src/styles/generated/tokens.ts"), "utf8");
+    const map = tokensTs.slice(tokensTs.indexOf("export const CSS_VAR"));
+    files.push(map.slice(0, map.indexOf("} as const;")));
+    return files;
+  }
+
+  it("is referenced by something that is not a generated file", () => {
+    const texts = corpus();
+    const declared = [...new Set([...THEME_CSS.matchAll(/(--writ-[a-z0-9-]+)\s*:/g)].map((m) => m[1]))];
+    const orphans = declared.filter(
+      (name) => !(name in UNSPENT) && !texts.some((text) => isReadBy(name, text)),
+    );
+    expect(orphans, `nothing reads:\n${orphans.join("\n")}`).toEqual([]);
+  });
+
+  it("is not vouched for by a longer name that happens to start with it", () => {
+    expect(isReadBy("--writ-win-input", "var(--writ-win-input-active)")).toBe(false);
+    expect(isReadBy("--writ-win-input", "var(--writ-win-input)")).toBe(true);
+  });
+
+  it("or is listed as owed, with the reason", () => {
+    for (const [name, reason] of Object.entries(UNSPENT)) {
+      expect(THEME_CSS, `${name} is listed as unspent but not declared`).toContain(`${name}:`);
+      expect(reason.length).toBeGreaterThan(0);
     }
   });
 });

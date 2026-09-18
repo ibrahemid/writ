@@ -53,9 +53,7 @@ export interface TypeTokens {
     measure: string;
     padX: string;
     padY: string;
-    pSpacing: string;
   };
-  headingSpacing: string;
   headings: {
     h1: HeadingStep;
     h2: HeadingStep;
@@ -88,7 +86,6 @@ export interface MotionTokens {
 }
 
 export interface ZTokens {
-  base: number;
   chrome: number;
   popover: number;
   palette: number;
@@ -192,9 +189,7 @@ export const TYPE: Readonly<Record<PlatformId, TypeTokens>> = {
       measure: "704px",
       padX: "32px",
       padY: "32px",
-      pSpacing: "1.25rem",
     },
-    headingSpacing: "2em",
     headings: {
       h1: { size: "1.75em", weight: 700, lineHeight: 1.2 },
       h2: { size: "1.4em", weight: 650, lineHeight: 1.25 },
@@ -217,9 +212,7 @@ export const TYPE: Readonly<Record<PlatformId, TypeTokens>> = {
       measure: "704px",
       padX: "32px",
       padY: "32px",
-      pSpacing: "1.25rem",
     },
-    headingSpacing: "2em",
     headings: {
       h1: { size: "1.75em", weight: 600, lineHeight: 1.286 },
       h2: { size: "1.25em", weight: 600, lineHeight: 1.4 },
@@ -242,9 +235,7 @@ export const TYPE: Readonly<Record<PlatformId, TypeTokens>> = {
       measure: "704px",
       padX: "32px",
       padY: "32px",
-      pSpacing: "1.25rem",
     },
-    headingSpacing: "2em",
     headings: {
       h1: { size: "1.66em", weight: 800, lineHeight: 1.2 },
       h2: { size: "1.247em", weight: 700, lineHeight: 1.25 },
@@ -292,7 +283,7 @@ export const RADII: Readonly<Record<PlatformId, RadiusTokens>> = {
     card: "12px",
     media: "9px",
     pill: "999px",
-    action: "4px",
+    action: "9px",
     indicator: "2px",
     window: "15px",
   },
@@ -306,7 +297,6 @@ export const MOTION: Readonly<MotionTokens> = {
 };
 
 export const Z: Readonly<ZTokens> = {
-  base: 0,
   chrome: 100,
   popover: 200,
   palette: 300,

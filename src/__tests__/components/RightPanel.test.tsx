@@ -27,6 +27,10 @@ const h = vi.hoisted(() => ({
     source_path: string | null;
   }[],
   backlinks: [] as unknown[],
+  factsSettled: true,
+  backlinksSettled: true,
+  factsError: null as string | null,
+  backlinksError: null as string | null,
   graph: { nodes: [], edges: [] } as {
     nodes: { path: string; name: string; folder: string }[];
     edges: { from_path: string; to_path: string; count: number }[];
@@ -72,7 +76,12 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 }));
 
 vi.mock("../../stores/global/backlinks", () => ({
-  backlinksStore: { backlinksFor: () => () => h.backlinks, release: vi.fn() },
+  backlinksStore: {
+    backlinksFor: () => () => h.backlinks,
+    settledFor: () => () => h.backlinksSettled,
+    errorFor: () => () => h.backlinksError,
+    release: vi.fn(),
+  },
 }));
 
 vi.mock("../../stores/global/link", () => ({
@@ -93,6 +102,8 @@ vi.mock("../../components/Graph/GraphCanvas", () => ({
 vi.mock("../../stores/global/note-facts", () => ({
   noteFactsStore: {
     factsFor: () => () => h.facts,
+    settledFor: () => () => h.factsSettled,
+    errorFor: () => () => h.factsError,
     graph: () => {
       h.graphHolds += 1;
       return () => h.graph;
@@ -129,6 +140,10 @@ beforeEach(() => {
   h.graphReleases = 0;
   h.tabs = [{ id: "buf-1", source_path: "/notes/Open.md" }];
   h.backlinks = [];
+  h.factsSettled = true;
+  h.backlinksSettled = true;
+  h.factsError = null;
+  h.backlinksError = null;
   h.graph = { nodes: [], edges: [] };
   h.facts = { links: [], properties: [], tags: [], headings: [] };
   h.toggleSection.mockClear();
@@ -145,13 +160,80 @@ describe("a note with nothing to show", () => {
     expect(panel).not.toBeNull();
     expect(headings(container)).toEqual([]);
     expect(container.querySelector(".right-panel-section")).toBeNull();
-    expect(container.textContent?.trim()).toBe("");
   });
 
-  it("shows nothing when no note is open", () => {
+  it("says the note has nothing around it rather than opening blank", () => {
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Nothing links to this note yet.",
+    );
+  });
+
+  it("says no note is open when none is", () => {
     h.activeTabId = null;
     const { container } = mount();
     expect(headings(container)).toEqual([]);
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe("No note open.");
+  });
+
+  // Both reads start empty and fill asynchronously, so a line about what the
+  // note holds is a falsehood until they land.
+  it("says nothing at all while the reads are still in flight", () => {
+    h.factsSettled = false;
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")).toBeNull();
+  });
+
+  it("waits for the backlinks read too, not the facts alone", () => {
+    h.backlinksSettled = false;
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")).toBeNull();
+  });
+
+  // A note typed into but never saved is open, whatever the index knows.
+  it("treats an unsaved note as a note, not as no note", () => {
+    h.tabs = [{ id: "buf-1", source_path: null }];
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Nothing links to this note yet.",
+    );
+  });
+
+  // A read that failed leaves the same empty lists as a note with nothing in
+  // it, so the line has to say which of the two it is.
+  it("says the read failed rather than that nothing links here", () => {
+    h.factsError = "Could not read what the notes folder holds.";
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Could not read this note's connections.",
+    );
+  });
+
+  it("says it for a failed backlinks read too", () => {
+    h.backlinksError = "Could not read what the notes folder holds.";
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Could not read this note's connections.",
+    );
+  });
+
+  it("says neither once a section has something in it", () => {
+    h.facts = {
+      links: [],
+      properties: [],
+      tags: [],
+      headings: [{ level: 1, text: "Launch", line: 1, slug: "launch" }],
+    };
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")).toBeNull();
+  });
+
+  it("wears the sidebar's own hairline on its edge", () => {
+    const css = readFileSync(
+      resolve(process.cwd(), "src/components/RightPanel/RightPanel.css"),
+      "utf8",
+    );
+    expect(css).toMatch(/\.right-panel\s*\{[^}]*border-left:\s*1px solid var\(--writ-border-soft\)/);
   });
 
   it("hands the folder graph back when the last note closes", () => {

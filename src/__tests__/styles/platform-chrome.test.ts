@@ -32,6 +32,7 @@ const APP = sheet("src/App.css");
 const SIDEBAR = sheet("src/components/Sidebar/Sidebar.css");
 const TOOLBAR = sheet("src/components/Toolbar/Toolbar.css");
 const THEME = sheet("src/styles/generated/theme.css");
+const GLOBAL = sheet("src/styles/global.css");
 
 describe("the platform layer keys off one selector root", () => {
   it("scopes every platform-specific rule to the root attribute", () => {
@@ -75,6 +76,18 @@ describe("Windows caption row", () => {
     expect(TITLEBAR).not.toContain("winctrl-danger");
   });
 
+  // TitleBarDeactivatedOpacity: an unfocused Windows window holds its caption
+  // row at half strength.
+  it("dims the caption row when the window is not the focused one", () => {
+    for (const part of [".titlebar-appmenu", ".winctrl", ".titlebar-right"]) {
+      const dim = declarations(
+        TITLEBAR,
+        `:root[data-platform="win"] .titlebar.is-blurred ${part}`,
+      );
+      expect(dim.get("opacity")).toBe("0.5");
+    }
+  });
+
   it("strokes the content layer under the caption row", () => {
     const body = declarations(APP, ':root[data-platform="win"] .app-body');
     expect(body.get("border-top-left-radius")).toBe("var(--writ-r-window)");
@@ -87,14 +100,14 @@ describe("GNOME header bar", () => {
     const bar = declarations(TITLEBAR, ':root[data-platform="linux"] .headerbar');
     expect(bar.get("height")).toBe("47px");
     expect(bar.get("grid-template-columns")).toBe("1fr auto 1fr");
-    expect(bar.get("padding")).toBe("6px 7px 7px");
+    expect(bar.get("padding")).toBe("var(--writ-space-2-5) 7px 7px");
     expect(bar.get("background")).toBe("var(--writ-lin-headerbar-bg)");
   });
 
-  it("centres the title at the GNOME metric", () => {
+  it("centres the title at the GNOME metric, and follows the interface text size", () => {
     const title = declarations(TITLEBAR, ".headerbar-title");
-    expect(title.get("font-size")).toBe("14.67px");
-    expect(title.get("line-height")).toBe("20.5px");
+    expect(title.get("font-size")).toBe("var(--writ-ui-md)");
+    expect(title.get("line-height")).toBe("var(--writ-ui-md-lh)");
     expect(title.get("font-weight")).toBe("700");
   });
 
@@ -282,4 +295,105 @@ describe("window frame", () => {
     );
     expect(declarations(APP, ".app-container").has("border")).toBe(false);
   });
+});
+
+describe("font smoothing", () => {
+  it("thins the face on macOS only, where the host draws it that way", () => {
+    // The baseline gives antialiased/grayscale to macOS, DirectWrite to Windows
+    // and slight hinting to GNOME: on those two the host draws its own weight.
+    const carriers = [...GLOBAL.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, , body]) =>
+      body.includes("-webkit-font-smoothing"),
+    );
+    expect(carriers.length).toBe(1);
+    expect(carriers[0][1].trim()).toBe(':root[data-platform="mac"] body');
+  });
+});
+
+describe("scrollbars", () => {
+  // The baseline's Scrollbar row gives macOS "Overlay, native" and states
+  // numbers for Windows (12px rail, thumb 2 to 6, radius 3, min 30, 83ms) and
+  // GNOME (overlay 3 to 8, radius 99, 200ms linear) only. Any ::-webkit-
+  // scrollbar rule defeats the macOS overlay and reserves layout width, so the
+  // mac shell is left to the host and carries no rule and no numbers.
+  const RAILS: [string, string, string][] = [
+    [':root[data-platform="win"]', "12px", "3px"],
+    [':root[data-platform="linux"]', "8px", "99px"],
+  ];
+
+  it("size their own rail and thumb radius per platform", () => {
+    for (const [selector, rail, radius] of RAILS) {
+      const decls = declarations(THEME, selector);
+      expect(decls.get("--writ-scrollbar-rail"), selector).toBe(rail);
+      expect(decls.get("--writ-scrollbar-thumb-radius"), selector).toBe(radius);
+    }
+  });
+
+  it("leave macOS to its own overlay bar", () => {
+    expect(declarations(THEME, ":root").has("--writ-scrollbar-rail")).toBe(false);
+    const scoped = [...GLOBAL.matchAll(/([^{}]+)\{/g)]
+      .map((m) => m[1].trim())
+      .filter((selector) => selector.includes("::-webkit-scrollbar"));
+    expect(scoped.length).toBeGreaterThan(0);
+    for (const selector of scoped) {
+      expect(selector.startsWith(':root[data-platform="win"]') ||
+        selector.startsWith(':root[data-platform="linux"]'), selector).toBe(true);
+    }
+  });
+
+  it("grow the thumb on hover where the host does, at the host's rate", () => {
+    for (const platform of ["win", "linux"]) {
+      const decls = declarations(THEME, `:root[data-platform="${platform}"]`);
+      expect(
+        Number.parseFloat(decls.get("--writ-scrollbar-thumb-hover")!),
+        platform,
+      ).toBeGreaterThan(Number.parseFloat(decls.get("--writ-scrollbar-thumb")!));
+      expect(decls.get("--writ-scrollbar-motion"), platform).toMatch(/^\d+ms$/);
+    }
+  });
+
+  it("are drawn once per platform root in the global sheet", () => {
+    for (const platform of ["win", "linux"]) {
+      const rail = declarations(GLOBAL, `:root[data-platform="${platform}"] ::-webkit-scrollbar`);
+      expect(rail.get("width"), platform).toBe("var(--writ-scrollbar-rail)");
+      const thumb = declarations(
+        GLOBAL,
+        `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb`,
+      );
+      // The fill is clipped to the content box, whose corner radius is the
+      // declared one less the border that insets it. The declared radius adds
+      // that inset back, so the thumb curves at the token, not at zero.
+      const inset = "(var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb)) / 2";
+      expect(thumb.get("border"), platform).toBe(`calc(${inset}) solid transparent`);
+      expect(thumb.get("border-radius"), platform).toBe(
+        `calc(var(--writ-scrollbar-thumb-radius) + ${inset})`,
+      );
+      const hover = declarations(
+        GLOBAL,
+        `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb:hover`,
+      );
+      const hoverInset = "(var(--writ-scrollbar-rail) - var(--writ-scrollbar-thumb-hover)) / 2";
+      expect(hover.get("border-width"), platform).toBe(`calc(${hoverInset})`);
+      expect(hover.get("border-radius"), platform).toBe(
+        `calc(var(--writ-scrollbar-thumb-radius) + ${hoverInset})`,
+      );
+      // The minimum is a length, so it constrains a different axis on each
+      // orientation: min-height on a horizontal thumb is its thickness.
+      expect(thumb.has("min-height"), `${platform} constrains both orientations`).toBe(false);
+      expect(
+        declarations(
+          GLOBAL,
+          `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb:vertical`,
+        ).get("min-height"),
+        platform,
+      ).toBe("var(--writ-scrollbar-thumb-min)");
+      expect(
+        declarations(
+          GLOBAL,
+          `:root[data-platform="${platform}"] ::-webkit-scrollbar-thumb:horizontal`,
+        ).get("min-width"),
+        platform,
+      ).toBe("var(--writ-scrollbar-thumb-min)");
+    }
+  });
+
 });

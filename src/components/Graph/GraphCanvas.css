@@ -5,8 +5,8 @@
 .graph {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 2px var(--writ-space-3) var(--writ-space-2);
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-1) var(--writ-space-3) var(--writ-space-2);
 }
 
 .graph-canvas {

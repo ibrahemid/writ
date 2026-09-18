@@ -197,6 +197,12 @@
               "unit": "px"
             }
           },
+          "action": {
+            "$value": {
+              "value": 4,
+              "unit": "px"
+            }
+          },
           "window": {
             "$value": {
               "value": 8,
@@ -235,6 +241,40 @@
             "$value": {
               "value": 36,
               "unit": "px"
+            }
+          }
+        },
+        "scrollbar": {
+          "$type": "dimension",
+          "rail": {
+            "$value": {
+              "value": 12,
+              "unit": "px"
+            }
+          },
+          "thumb": {
+            "$value": {
+              "value": 2,
+              "unit": "px"
+            }
+          },
+          "thumb-hover": {
+            "$value": {
+              "value": 6,
+              "unit": "px"
+            }
+          },
+          "thumb-radius": {
+            "$value": {
+              "value": 3,
+              "unit": "px"
+            }
+          },
+          "motion": {
+            "$type": "duration",
+            "$value": {
+              "value": 83,
+              "unit": "ms"
             }
           }
         }
@@ -312,12 +352,6 @@
         "win": {
           "stroke": {
             "$value": "rgba(0,0,0,.059)"
-          },
-          "stroke-strong": {
-            "$value": "rgba(0,0,0,.447)"
-          },
-          "input": {
-            "$value": "rgba(255,255,255,.702)"
           },
           "input-active": {
             "$value": "#FFFFFF"
@@ -412,12 +446,6 @@
         "win": {
           "stroke": {
             "$value": "rgba(255,255,255,.071)"
-          },
-          "stroke-strong": {
-            "$value": "rgba(255,255,255,.545)"
-          },
-          "input": {
-            "$value": "rgba(255,255,255,.059)"
           },
           "input-active": {
             "$value": "rgba(30,30,30,.702)"

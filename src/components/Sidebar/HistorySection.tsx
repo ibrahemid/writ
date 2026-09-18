@@ -180,7 +180,7 @@ export default function HistorySection() {
     <Show when={rows().length > 0}>
       <SidebarSection
         id="recent"
-        heading="Recently closed"
+        heading="Recent"
         count={total()}
         class="history-section"
         focusable

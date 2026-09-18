@@ -71,6 +71,33 @@ describe("backlinksStore", () => {
     mockedApi.noteBacklinks.mockResolvedValue([]);
   });
 
+  // A note nothing links to and a note nothing has been read for are the same
+  // empty array, so a surface saying "nothing links here" has to ask first.
+  it("says whether the list has landed, not just what it holds", async () => {
+    const held = deferred<Backlink[]>();
+    mockedApi.noteBacklinks.mockReturnValue(held.promise);
+
+    backlinksStore.backlinksFor(NOTE);
+    const settled = backlinksStore.settledFor(NOTE);
+    await settle();
+    expect(settled()).toBe(false);
+
+    held.resolve([backlink()]);
+    await settle();
+    expect(settled()).toBe(true);
+
+    backlinksStore.release(NOTE);
+    expect(settled()).toBe(false);
+  });
+
+  it("counts a failed read as landed, and says why, so the surface can tell", async () => {
+    mockedApi.noteBacklinks.mockRejectedValue(new Error("no"));
+    backlinksStore.backlinksFor(NOTE);
+    await settle();
+    expect(backlinksStore.settledFor(NOTE)()).toBe(true);
+    expect(backlinksStore.errorFor(NOTE)()).not.toBeNull();
+  });
+
   it("reads the list for a note the first time it is asked for", async () => {
     const rows = [backlink()];
     mockedApi.noteBacklinks.mockResolvedValueOnce(rows);

@@ -1,8 +1,8 @@
 .update-banner-live {
   position: fixed;
   bottom: calc(var(--writ-statusbar-height) + 12px);
-  left: 16px;
-  z-index: 150;
+  left: var(--writ-space-5);
+  z-index: var(--writ-z-banner);
   pointer-events: none;
 }
 
@@ -14,9 +14,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--writ-space-4-5);
   max-width: min(440px, calc(100vw - 32px));
-  padding: 10px 14px;
+  padding: var(--writ-space-3-5) var(--writ-space-4-5);
   background: var(--writ-bg-selected);
   border: 1px solid var(--writ-border);
   border-radius: var(--writ-r-card);
@@ -28,9 +28,9 @@
 .update-banner::before {
   content: '';
   position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 6px;
+  top: var(--writ-space-3);
+  bottom: var(--writ-space-3);
+  left: var(--writ-space-2-5);
   width: 3px;
   border-radius: var(--writ-r-pill);
   background: var(--writ-accent);
@@ -51,49 +51,15 @@
 
 .update-banner-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--writ-space-3);
   flex-shrink: 0;
-}
-
-.update-banner-btn {
-  font-size: var(--writ-ui-sm);
-  padding: 5px 12px;
-  border-radius: var(--writ-r-control);
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-
-.update-banner-btn.ghost {
-  background: transparent;
-  border-color: var(--writ-border-soft);
-  color: var(--writ-fg-muted);
-}
-
-.update-banner-btn.ghost:hover {
-  background: var(--writ-bg-hover);
-  color: var(--writ-fg);
-}
-
-.update-banner-btn.primary {
-  background: var(--writ-accent);
-  color: var(--writ-accent-fg);
-  font-weight: 600;
-}
-
-.update-banner-btn.primary:hover {
-  background: var(--writ-accent-hover);
-}
-
-.update-banner-btn:focus-visible {
-  outline: 2px solid var(--writ-accent);
-  outline-offset: 1px;
 }
 
 .update-banner-progress {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--writ-space-2-5);
 }
 
 .update-banner-track {
@@ -111,8 +77,10 @@
   transition: width var(--writ-motion-fast) var(--writ-ease-linear);
 }
 
+/* A track with no share to show fills, so reduced motion reads as unknown
+   rather than as a transfer stalled at 40%. The animation below narrows it. */
 .update-banner-track.indeterminate .update-banner-fill {
-  width: 40%;
+  width: 100%;
 }
 
 .update-banner-spinner {
@@ -130,11 +98,13 @@
   }
 
   .update-banner-spinner {
-    animation: update-banner-spin 700ms var(--writ-ease-linear) infinite;
+    animation: update-banner-spin var(--writ-motion-ambient) var(--writ-ease-linear) infinite;
   }
 
   .update-banner-track.indeterminate .update-banner-fill {
-    animation: update-banner-indeterminate 1100ms var(--writ-ease) infinite;
+    width: 40%;
+    animation: update-banner-indeterminate calc(var(--writ-motion-ambient) * 11 / 7)
+      var(--writ-ease) infinite;
   }
 
   @keyframes update-banner-in {

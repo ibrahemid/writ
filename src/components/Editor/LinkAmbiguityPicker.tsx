@@ -1,4 +1,6 @@
 import { createSignal, createEffect, onCleanup, Show, For } from "solid-js";
+import { installFocusTrap } from "../../lib/focus-trap";
+import { windowRegistry } from "../../stores/global/window-registry";
 import "./LinkAmbiguityPicker.css";
 
 /** What the picker is being opened for. */
@@ -54,34 +56,24 @@ function folder(path: string): string {
 
 export default function LinkAmbiguityPicker() {
   let panelRef: HTMLDivElement | undefined;
-  let restoreFocusTo: HTMLElement | null = null;
 
   function close() {
     setPicker(null);
-    restoreFocusTo?.focus();
-    restoreFocusTo = null;
   }
 
-  // Takes focus when it appears and gives it back where it came from, so
-  // following a link by keyboard never strands the caret.
+  // The dialog says it is modal, so it has to hold the Tab ring as well as the
+  // focus: the trap takes focus on open, keeps it inside, answers Escape and
+  // gives it back where it came from, or to the note when that is gone.
   createEffect(() => {
-    const state = picker();
-    if (!state) return;
-    restoreFocusTo = document.activeElement as HTMLElement | null;
-    queueMicrotask(() => {
-      panelRef?.querySelector<HTMLButtonElement>("button")?.focus();
+    if (!picker() || !panelRef) return;
+    const teardown = installFocusTrap(panelRef, {
+      onEscape: () => close(),
+      fallbackRestore: () => {
+        windowRegistry.getActive()?.editor.focusEditor();
+        return null;
+      },
     });
-  });
-
-  createEffect(() => {
-    if (!picker()) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      close();
-    }
-    document.addEventListener("keydown", onKeyDown);
-    onCleanup(() => document.removeEventListener("keydown", onKeyDown));
+    onCleanup(teardown);
   });
 
   return (

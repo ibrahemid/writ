@@ -1,8 +1,16 @@
 import { Show, For, createMemo, createEffect, onCleanup } from "solid-js";
 import { findStore, type FindController } from "../../stores/global/find-store";
+import { useCommand } from "../../commands/registry";
+import { useEffectiveBinding } from "../../commands/keybindings";
+import { formatKeybinding } from "../../lib/keybinding-format";
+import Button from "../Button/Button";
+import Tooltip from "../Tooltip/Tooltip";
 import "./FindOverlay.css";
 
 const MAX_TICK = 200;
+
+/** The option toggles share one class; the accent belongs to the on state. */
+const toggleClass = (on: boolean): string => `find-toggle${on ? " is-on" : ""}`;
 
 interface Props {
   store?: FindController;
@@ -32,6 +40,15 @@ export default function FindOverlay(props: Props) {
     const suffix = capped ? "+" : "";
     if (current > 0) return `${current} of ${total}${suffix}`;
     return `${total}${suffix} match${total === 1 ? "" : "es"}`;
+  });
+
+  // The row's own control for the command the app registers as Replace, so it
+  // carries that name and that key rather than a second name for one action.
+  const replaceTitle = createMemo(() => {
+    const key = formatKeybinding(
+      useEffectiveBinding("editor.replace", useCommand("editor.replace")?.keybinding),
+    );
+    return key ? `Replace (${key})` : "Replace";
   });
 
   const noResults = createMemo(() => hasQuery() && find.matches().total === 0);
@@ -101,83 +118,89 @@ export default function FindOverlay(props: Props) {
           </span>
 
           <div class="find-toggles">
-            <button
-              type="button"
-              class="find-toggle"
-              classList={{ "is-on": find.caseSensitive() }}
-              aria-pressed={find.caseSensitive()}
-              title="Match case"
-              onClick={() => find.toggleCaseSensitive()}
-            >
-              Aa
-            </button>
-            <button
-              type="button"
-              class="find-toggle"
-              classList={{ "is-on": find.wholeWord() }}
-              aria-pressed={find.wholeWord()}
-              title="Whole word"
-              onClick={() => find.toggleWholeWord()}
-            >
-              <span class="find-toggle-word">ab</span>
-            </button>
-            <button
-              type="button"
-              class="find-toggle"
-              classList={{ "is-on": find.regexp() }}
-              aria-pressed={find.regexp()}
-              title="Regular expression"
-              onClick={() => find.toggleRegexp()}
-            >
-              .*
-            </button>
+            <Tooltip label="Match case">
+              <Button
+                variant="ghost"
+                class={toggleClass(find.caseSensitive())}
+                pressed={find.caseSensitive()}
+                aria-label="Match case"
+                onClick={() => find.toggleCaseSensitive()}
+              >
+                Aa
+              </Button>
+            </Tooltip>
+            <Tooltip label="Whole word">
+              <Button
+                variant="ghost"
+                class={toggleClass(find.wholeWord())}
+                pressed={find.wholeWord()}
+                aria-label="Whole word"
+                onClick={() => find.toggleWholeWord()}
+              >
+                <span class="find-toggle-word">ab</span>
+              </Button>
+            </Tooltip>
+            <Tooltip label="Regular expression">
+              <Button
+                variant="ghost"
+                class={toggleClass(find.regexp())}
+                pressed={find.regexp()}
+                aria-label="Regular expression"
+                onClick={() => find.toggleRegexp()}
+              >
+                .*
+              </Button>
+            </Tooltip>
           </div>
 
           <div class="find-nav">
-            <button
-              type="button"
-              class="find-icon-btn"
-              title="Previous match (Shift+Enter)"
-              aria-label="Previous match"
-              disabled={!hasQuery()}
-              onClick={() => find.previous()}
-            >
-              <ChevronUp />
-            </button>
-            <button
-              type="button"
-              class="find-icon-btn"
-              title="Next match (Enter)"
-              aria-label="Next match"
-              disabled={!hasQuery()}
-              onClick={() => find.next()}
-            >
-              <ChevronDown />
-            </button>
+            <Tooltip label="Previous match (Shift+Enter)">
+              <Button
+                variant="ghost"
+                class="find-icon-btn"
+                icon="caret-up"
+                iconSize={12}
+                aria-label="Previous match"
+                disabled={!hasQuery()}
+                onClick={() => find.previous()}
+              />
+            </Tooltip>
+            <Tooltip label="Next match (Enter)">
+              <Button
+                variant="ghost"
+                class="find-icon-btn"
+                icon="caret-down"
+                iconSize={12}
+                aria-label="Next match"
+                disabled={!hasQuery()}
+                onClick={() => find.next()}
+              />
+            </Tooltip>
           </div>
 
           <Show when={find.canReplace()}>
-            <button
-              type="button"
-              class="find-icon-btn find-replace-toggle"
-              classList={{ "is-on": find.replaceOpen() }}
-              title="Toggle replace"
-              aria-label="Toggle replace"
-              aria-expanded={find.replaceOpen()}
-              onClick={() => find.toggleReplace()}
-            >
-              <ChevronRight />
-            </button>
+            <Tooltip label={replaceTitle()}>
+              <Button
+                variant="ghost"
+                class={`find-icon-btn find-replace-toggle${find.replaceOpen() ? " is-on" : ""}`}
+                icon="caret-right"
+                iconSize={12}
+                aria-label="Replace"
+                aria-expanded={find.replaceOpen()}
+                onClick={() => find.toggleReplace()}
+              />
+            </Tooltip>
           </Show>
-          <button
-            type="button"
-            class="find-icon-btn"
-            title="Close (Esc)"
-            aria-label="Close find"
-            onClick={() => find.close()}
-          >
-            <CloseIcon />
-          </button>
+          <Tooltip label="Close (Esc)">
+            <Button
+              variant="ghost"
+              class="find-icon-btn"
+              icon="x"
+              iconSize={14}
+              aria-label="Close"
+              onClick={() => find.close()}
+            />
+          </Tooltip>
         </div>
 
         <Show when={find.replaceOpen() && find.canReplace()}>
@@ -189,64 +212,33 @@ export default function FindOverlay(props: Props) {
               spellcheck={false}
               autocomplete="off"
               placeholder="Replace"
-              aria-label="Replace"
+              aria-label="Replace with"
               value={find.replaceText()}
               onInput={(e) => find.setReplaceText(e.currentTarget.value)}
               onKeyDown={onReplaceKeyDown}
             />
-            <button
-              type="button"
-              class="find-text-btn"
-              title="Replace (Enter)"
-              disabled={!hasQuery()}
-              onClick={() => find.replaceCurrent()}
-            >
-              Replace
-            </button>
-            <button
-              type="button"
-              class="find-text-btn"
-              title="Replace all (Shift+Enter)"
-              disabled={!hasQuery()}
-              onClick={() => find.replaceAll()}
-            >
-              All
-            </button>
+            <Tooltip label="Replace (Enter)">
+              <Button
+                class="find-text-btn"
+                disabled={!hasQuery()}
+                onClick={() => find.replaceCurrent()}
+              >
+                Replace
+              </Button>
+            </Tooltip>
+            <Tooltip label="Replace all (Shift+Enter)">
+              <Button
+                class="find-text-btn"
+                aria-label="Replace all"
+                disabled={!hasQuery()}
+                onClick={() => find.replaceAll()}
+              >
+                All
+              </Button>
+            </Tooltip>
           </div>
         </Show>
       </div>
     </Show>
-  );
-}
-
-function ChevronUp() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M3 7.5L6 4.5L9 7.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronDown() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronRight() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M4.5 3L7.5 6L4.5 9" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M3 3L9 9M9 3L3 9" stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round" />
-    </svg>
   );
 }

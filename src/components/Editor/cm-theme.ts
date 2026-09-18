@@ -8,8 +8,10 @@ import "./cm-markdown-typography.css";
 // Values are `var()` references, never baked colours: the theme switches live
 // by rewriting custom properties on the root, and the site island renders this
 // same spec against its own values (ADR-030).
-const SELECTION_ALPHA = `color-mix(in srgb, ${cssVar(CSS_VAR.accent)} 32%, transparent)`;
-const SELECTION_MATCH_ALPHA = `color-mix(in srgb, ${cssVar(CSS_VAR.accent)} 18%, transparent)`;
+// The app's own selection, so the note and the find field select in one colour;
+// the match is the same mix a step weaker, and both are named in the theme.
+const SELECTION = "var(--writ-selection)";
+const SELECTION_MATCH = "var(--writ-selection-match)";
 const ACTIVE_LINE_ALPHA = `color-mix(in srgb, ${cssVar(CSS_VAR.bgHover)} 55%, transparent)`;
 
 
@@ -41,13 +43,13 @@ export const writThemeSpec = {
       borderLeftColor: cssVar(CSS_VAR.accent),
     },
     "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
-      backgroundColor: SELECTION_ALPHA,
+      backgroundColor: SELECTION,
     },
     ".cm-selectionBackground, .cm-content ::selection": {
-      backgroundColor: SELECTION_ALPHA,
+      backgroundColor: SELECTION,
     },
     ".cm-selectionMatch": {
-      backgroundColor: SELECTION_MATCH_ALPHA,
+      backgroundColor: SELECTION_MATCH,
     },
     ".cm-activeLine": {
       backgroundColor: ACTIVE_LINE_ALPHA,
@@ -70,15 +72,15 @@ export const writThemeSpec = {
       color: cssVar(CSS_VAR.fgFaint),
     },
     ".cm-matchingBracket, .cm-nonmatchingBracket": {
-      backgroundColor: SELECTION_MATCH_ALPHA,
+      backgroundColor: SELECTION_MATCH,
       outline: `1px solid ${cssVar(CSS_VAR.border)}`,
     },
     ".cm-searchMatch": {
-      backgroundColor: SELECTION_MATCH_ALPHA,
+      backgroundColor: SELECTION_MATCH,
       outline: `1px solid ${cssVar(CSS_VAR.accent)}`,
     },
     ".cm-searchMatch.cm-searchMatch-selected": {
-      backgroundColor: SELECTION_ALPHA,
+      backgroundColor: SELECTION,
     },
     ".cm-panels": {
       backgroundColor: cssVar(CSS_VAR.bgRaised),

@@ -56,6 +56,12 @@ describe("registerPromptCommands", () => {
     expect(getCommand("prompt.fillPlaceholders")).toBeDefined();
   });
 
+  // One name through the flow: the context menu item, the palette command and
+  // the modal's own title all name the same action.
+  it("names the fill command the way the menu and the modal name it", () => {
+    expect(getCommand("prompt.fillPlaceholders")!.label).toBe("Fill placeholders…");
+  });
+
   describe("prompt.copyAsPrompt", () => {
     it("strips via the prepare_prompt transform and copies without mutating the buffer", async () => {
       editorMock.getActiveText.mockReturnValue({ text: "raw text", usedSelection: false });
@@ -89,7 +95,7 @@ describe("registerPromptCommands", () => {
       await flush();
 
       expect(mockedClipboard.writeClipboardText).not.toHaveBeenCalled();
-      expect(mockedToast).toHaveBeenCalledWith("Copy as prompt failed", "error");
+      expect(mockedToast).toHaveBeenCalledWith("Could not copy as prompt", "error");
     });
 
     it("does nothing when there is no active view", async () => {
@@ -143,7 +149,7 @@ describe("registerPromptCommands", () => {
       await flush();
 
       expect(mockedClipboard.writeClipboardText).not.toHaveBeenCalled();
-      expect(mockedToast).toHaveBeenCalledWith("Fill placeholders failed", "error");
+      expect(mockedToast).toHaveBeenCalledWith("Could not fill the placeholders", "error");
     });
   });
 });

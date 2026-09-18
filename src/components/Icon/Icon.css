@@ -6,18 +6,3 @@
   color: var(--writ-icon-color);
   opacity: var(--writ-icon-opacity);
 }
-
-.writ-icon-12 {
-  width: 12px;
-  height: 12px;
-}
-
-.writ-icon-14 {
-  width: 14px;
-  height: 14px;
-}
-
-.writ-icon-16 {
-  width: 16px;
-  height: 16px;
-}

@@ -197,6 +197,12 @@
               "unit": "px"
             }
           },
+          "action": {
+            "$value": {
+              "value": 9,
+              "unit": "px"
+            }
+          },
           "window": {
             "$value": {
               "value": 15,
@@ -269,6 +275,40 @@
               "unit": "px"
             },
             "$description": "Room around the frame for the client-side-decoration shadow to land: its widest layer reaches spread 5px plus blur 14px, and the window is transparent, so anything narrower is clipped at the webview edge."
+          }
+        },
+        "scrollbar": {
+          "$type": "dimension",
+          "rail": {
+            "$value": {
+              "value": 8,
+              "unit": "px"
+            }
+          },
+          "thumb": {
+            "$value": {
+              "value": 3,
+              "unit": "px"
+            }
+          },
+          "thumb-hover": {
+            "$value": {
+              "value": 8,
+              "unit": "px"
+            }
+          },
+          "thumb-radius": {
+            "$value": {
+              "value": 99,
+              "unit": "px"
+            }
+          },
+          "motion": {
+            "$type": "duration",
+            "$value": {
+              "value": 200,
+              "unit": "ms"
+            }
           }
         }
       },
@@ -379,9 +419,6 @@
         "lin": {
           "headerbar-bg": {
             "$value": "#FAF9F6"
-          },
-          "entry-bg": {
-            "$value": "rgb(28 24 16 / 5%)"
           }
         }
       },
@@ -433,9 +470,85 @@
         "lin": {
           "headerbar-bg": {
             "$value": "#2E2B28"
+          }
+        },
+        "shadow": {
+          "$type": "shadow",
+          "modal": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "14px",
+                "spread": "5px",
+                "color": "rgb(0 0 0 / 45%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "5px",
+                "spread": "2px",
+                "color": "rgb(0 0 0 / 30%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "0",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 15%)"
+              }
+            ]
           },
-          "entry-bg": {
-            "$value": "rgb(255 255 255 / 8%)"
+          "popover": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "0",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 15%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "1px",
+                "blur": "5px",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 27%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "2px",
+                "blur": "14px",
+                "spread": "3px",
+                "color": "rgb(0 0 0 / 15%)"
+              }
+            ]
+          },
+          "csd": {
+            "$value": [
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "14px",
+                "spread": "5px",
+                "color": "rgb(0 0 0 / 45%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "5px",
+                "spread": "2px",
+                "color": "rgb(0 0 0 / 30%)"
+              },
+              {
+                "offsetX": "0",
+                "offsetY": "0",
+                "blur": "0",
+                "spread": "1px",
+                "color": "rgb(0 0 0 / 15%)"
+              }
+            ],
+            "$description": "The dark client-side-decoration stack. libadwaita's light alphas at the 3x step the base layer takes from light to dark."
           }
         }
       }

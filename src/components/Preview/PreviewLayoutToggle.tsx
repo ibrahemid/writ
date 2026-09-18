@@ -76,6 +76,11 @@ export default function PreviewLayoutToggle() {
     win.layout.set(buf.id, buf.source_path, next);
   }
 
+  // A radiogroup moves focus with the selection: the roving tabindex leaves
+  // every unchecked segment untabbable, so a ring left behind on one is a dead
+  // end for the keyboard.
+  const segmentRefs: HTMLButtonElement[] = [];
+
   function onKeyDown(e: KeyboardEvent) {
     const idx = SEGMENTS.findIndex((s) => s.kind === currentKind());
     let nextIdx: number | null = null;
@@ -86,13 +91,14 @@ export default function PreviewLayoutToggle() {
     if (nextIdx === null) return;
     e.preventDefault();
     select(SEGMENTS[nextIdx].kind);
+    segmentRefs[nextIdx]?.focus();
   }
 
   return (
     <Show when={renderable()}>
       <div class="layout-toggle" role="radiogroup" aria-label="Preview layout" onKeyDown={onKeyDown}>
         <For each={SEGMENTS}>
-          {(seg) => {
+          {(seg, index) => {
             const isActive = () => currentKind() === seg.kind;
             return (
               <button
@@ -101,8 +107,9 @@ export default function PreviewLayoutToggle() {
                 classList={{ "is-active": isActive() }}
                 role="radio"
                 aria-checked={isActive()}
-                aria-label={seg.title}
+                aria-label={seg.label}
                 title={seg.title}
+                ref={(el) => (segmentRefs[index()] = el)}
                 tabIndex={isActive() ? 0 : -1}
                 onClick={() => select(seg.kind)}
               >

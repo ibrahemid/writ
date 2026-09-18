@@ -1,4 +1,7 @@
-import { Show } from "solid-js";
+import { Show, createMemo } from "solid-js";
+import { useCommand } from "../../commands/registry";
+import { useEffectiveBinding } from "../../commands/keybindings";
+import { formatKeybinding } from "../../lib/keybinding-format";
 
 export type PreviewState = "rendering" | "ok" | "manual" | "too_large" | "error";
 
@@ -15,16 +18,28 @@ interface Props {
 // scripts kill switch are persistent controls and live in the status bar.
 
 const STATE_LABEL: Record<PreviewState, string> = {
-  rendering: "rendering…",
+  rendering: "Rendering…",
   ok: "",
-  manual: "large — F5 to render",
-  too_large: "document too large",
-  error: "render error",
+  manual: "Too large to render live",
+  too_large: "Too large to render",
+  error: "Could not render",
 };
 
 export default function PreviewStatusChip(props: Props) {
   const hasState = () => props.state !== "ok";
   const visible = () => hasState() || props.warnings.length > 0;
+
+  // A document held back for its size renders on one keystroke, so the chip
+  // says which one, reading it from the command rather than repeating a
+  // default the user may have rebound.
+  const label = createMemo(() => {
+    const text = STATE_LABEL[props.state];
+    if (props.state !== "manual") return text;
+    const key = formatKeybinding(
+      useEffectiveBinding("preview.refresh", useCommand("preview.refresh")?.keybinding),
+    );
+    return key ? `${text}. Press ${key} to render.` : text;
+  });
 
   return (
     <Show when={visible()}>
@@ -38,7 +53,7 @@ export default function PreviewStatusChip(props: Props) {
         aria-live="polite"
       >
         <Show when={hasState()}>
-          <span class="preview-chip-mode">{STATE_LABEL[props.state]}</span>
+          <span class="preview-chip-mode">{label()}</span>
         </Show>
         <Show when={props.state === "error" && props.message}>
           <span class="preview-chip-detail" title={props.message}>

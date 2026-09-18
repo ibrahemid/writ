@@ -1777,6 +1777,16 @@ export async function mcpForgetClient(name: string): Promise<McpClients> {
   return invoke("mcp_forget_client", { name });
 }
 
+/**
+ * Turns one waiting program down without deciding about it.
+ *
+ * Nothing is written to the approval list, so the program is neither allowed
+ * nor blocked: its next call puts it back on the waiting list.
+ */
+export async function mcpRefuseWaitingClient(name: string): Promise<McpClients> {
+  return invoke("mcp_refuse_waiting_client", { name });
+}
+
 export interface McpServerCommand {
   path: string;
   command: string;

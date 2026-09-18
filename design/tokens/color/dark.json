@@ -55,6 +55,10 @@
       "danger": {
         "$value": "#E08D82"
       },
+      "danger-hover": {
+        "$value": "#CA7F75",
+        "$description": "The hover step pine takes between accent and accent-hover: 10% deeper. A destructive fill deepens under the pointer in both schemes rather than brightening."
+      },
       "switch-off": {
         "$value": "#4A463F"
       },

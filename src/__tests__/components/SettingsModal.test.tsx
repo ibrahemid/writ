@@ -613,15 +613,40 @@ describe("SettingsModal", () => {
     expect(saved.appearance.accent).toBe("plum");
   });
 
-  it("marks the active accent with aria-pressed and leaves the rest unpressed", async () => {
+  // One of six, so it is a radiogroup: aria-checked says which, and only the
+  // checked swatch is tabbable.
+  it("checks the active accent and leaves the rest unchecked", async () => {
     mocks.accentApplies.mockReturnValue(true);
     const { container } = render(() => <SettingsModal />);
     await openAppearance(container);
+    const group = container.querySelector("[data-setting='appearance_accent']")!;
+    expect(group.getAttribute("role")).toBe("radiogroup");
+
     const swatches = accentSwatches(container);
-    const pressed = swatches.filter((s) => s.getAttribute("aria-pressed") === "true");
-    expect(pressed).toHaveLength(1);
-    expect(pressed[0].dataset.accent).toBe("pine");
-    expect(pressed[0].getAttribute("aria-label")).toBe("Pine");
+    const checked = swatches.filter((s) => s.getAttribute("aria-checked") === "true");
+    expect(checked).toHaveLength(1);
+    expect(checked[0].dataset.accent).toBe("pine");
+    expect(checked[0].getAttribute("aria-label")).toBe("Pine");
+    expect(checked[0].tabIndex).toBe(0);
+    expect(swatches.filter((s) => s.tabIndex === 0)).toHaveLength(1);
+  });
+
+  it("moves the accent on an arrow key", async () => {
+    mocks.accentApplies.mockReturnValue(true);
+    const { container } = render(() => <SettingsModal />);
+    await openAppearance(container);
+
+    fireEvent.keyDown(container.querySelector("[data-setting='appearance_accent']")!, {
+      key: "ArrowRight",
+    });
+
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({ accent: "writ-blue" }),
+        }),
+      ),
+    );
   });
 
   it("disables the accent and says why while the theme sets its own", async () => {
@@ -953,10 +978,19 @@ describe("SettingsModal", () => {
       return input;
     }
 
-    it("hides the section nav while searching", async () => {
+    // The rail stays in the tree: unmounting it moved the content column by
+    // its own width, mid-keystroke, and back again on clear.
+    it("dims the section rail while searching rather than removing it", async () => {
       const { container } = render(() => <SettingsModal />);
       await openAndSearch(container, "font");
-      await waitFor(() => expect(container.querySelector(".settings-nav")).toBeNull());
+      await waitFor(() => {
+        const nav = container.querySelector<HTMLElement>(".settings-nav")!;
+        expect(nav.classList.contains("settings-nav-dimmed")).toBe(true);
+        expect(nav.getAttribute("aria-disabled")).toBe("true");
+      });
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-nav-item")!.disabled,
+      ).toBe(true);
     });
 
     it("shows only rows matching the query across sections", async () => {
@@ -1026,12 +1060,24 @@ describe("SettingsModal", () => {
       await waitFor(() => expect(container.querySelector(".settings-empty")).not.toBeNull());
     });
 
-    it("restores the nav when the query is cleared", async () => {
+    it("wakes the rail when the query is cleared", async () => {
       const { container } = render(() => <SettingsModal />);
       const input = await openAndSearch(container, "font");
-      await waitFor(() => expect(container.querySelector(".settings-nav")).toBeNull());
+      await waitFor(() =>
+        expect(
+          container.querySelector<HTMLElement>(".settings-nav")!.classList.contains(
+            "settings-nav-dimmed",
+          ),
+        ).toBe(true),
+      );
       fireEvent.input(input, { target: { value: "" } });
-      await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+      await waitFor(() =>
+        expect(
+          container.querySelector<HTMLElement>(".settings-nav")!.classList.contains(
+            "settings-nav-dimmed",
+          ),
+        ).toBe(false),
+      );
     });
   });
 
@@ -1748,16 +1794,16 @@ describe("Connected programs section, programs you approved", () => {
     expect(mocks.mcpSetClientPermission).toHaveBeenCalledWith("Desk helper", false, false);
   });
 
-  it("says what forgetting a program does, on every program", async () => {
+  // Once under the list, not once per row: three programs used to carry three
+  // copies of the same sentence.
+  it("says what forgetting a program does, once under the list", async () => {
     const { container } = await openProgramList([WRITING_CLIENT, READING_CLIENT]);
 
     const notes = container.querySelectorAll("[data-program-note='forget']");
-    expect(notes.length).toBe(2);
-    for (const note of notes) {
-      expect(note.textContent).toBe(
-        "Removes this program. It can ask again next time it connects.",
-      );
-    }
+    expect(notes.length).toBe(1);
+    expect(notes[0].textContent?.trim()).toBe(
+      "Forget removes a program. It can ask again next time it connects.",
+    );
   });
 
   it("carries no caution on the row, now that the rule is at the switch", async () => {
@@ -1766,5 +1812,148 @@ describe("Connected programs section, programs you approved", () => {
     expect(
       container.querySelector("[data-setting-id='mcp.clients'] .settings-row-caution"),
     ).toBeNull();
+  });
+});
+
+// The rail, the rows and the words the panel uses. Reaching the first control
+// of a section used to cost eleven Tab presses, and a labelled control's name
+// carried the whole description sentence with it.
+describe("Settings as a keyboard and a screen reader take it", () => {
+  async function openPanel() {
+    const screen = render(() => <SettingsModal />);
+    openSettings();
+    await waitFor(() => expect(screen.container.querySelector(".settings-nav")).not.toBeNull());
+    return screen.container;
+  }
+
+  async function openSection(container: HTMLElement, word: string) {
+    const items = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+    const item = Array.from(items).find((n) => n.textContent?.toLowerCase().includes(word));
+    fireEvent.click(item!);
+    await waitFor(() => expect(container.querySelector(`[data-section='${word}']`)).not.toBeNull());
+  }
+
+  it("drives the sections from a tablist", async () => {
+    const container = await openPanel();
+    const rail = container.querySelector<HTMLElement>(".settings-nav")!;
+    expect(rail.getAttribute("role")).toBe("tablist");
+
+    const tabs = container.querySelectorAll<HTMLButtonElement>("[role='tab']");
+    expect(tabs.length).toBe(SECTION_ORDER.length);
+    expect(Array.from(tabs).filter((t) => t.tabIndex === 0)).toHaveLength(1);
+
+    const panel = container.querySelector<HTMLElement>("[role='tabpanel']")!;
+    const selected = Array.from(tabs).find((t) => t.getAttribute("aria-selected") === "true")!;
+    expect(selected.getAttribute("aria-controls")).toBe(panel.id);
+    expect(panel.getAttribute("aria-labelledby")).toBe(selected.id);
+  });
+
+  it("moves the section on Down", async () => {
+    const container = await openPanel();
+    const first = SECTION_ORDER[0];
+    fireEvent.keyDown(container.querySelector(".settings-nav")!, { key: "ArrowDown" });
+
+    await waitFor(() => {
+      const selected = container.querySelector("[role='tab'][aria-selected='true']")!;
+      expect(selected.getAttribute("data-section-tab")).not.toBe(first);
+    });
+  });
+
+  // Roving tabindex sets the unselected tabs to -1, so a selection the focus
+  // did not follow leaves focus on a tab Tab can no longer reach.
+  it("takes focus to the section Home and End open", async () => {
+    const container = await openPanel();
+    const rail = container.querySelector(".settings-nav")!;
+
+    fireEvent.keyDown(rail, { key: "End" });
+    await waitFor(() => {
+      const selected = container.querySelector("[role='tab'][aria-selected='true']")!;
+      expect(selected.getAttribute("data-section-tab")).toBe(
+        SECTION_ORDER[SECTION_ORDER.length - 1],
+      );
+      expect(document.activeElement).toBe(selected);
+    });
+
+    fireEvent.keyDown(rail, { key: "Home" });
+    await waitFor(() => {
+      const selected = container.querySelector("[role='tab'][aria-selected='true']")!;
+      expect(selected.getAttribute("data-section-tab")).toBe(SECTION_ORDER[0]);
+      expect(document.activeElement).toBe(selected);
+    });
+  });
+
+  it("keeps the description out of a labelled control's name", async () => {
+    const container = await openPanel();
+    await openSection(container, "advanced");
+
+    const row = container.querySelector<HTMLElement>("[data-setting-id='preview.live_threshold']")!;
+    const label = row.querySelector<HTMLLabelElement>("label.settings-row-label-text")!;
+    expect(label.textContent).toBe("Stop live preview above");
+
+    const control = row.querySelector<HTMLElement>("#setting-live-limit")!;
+    const described = control.getAttribute("aria-describedby")!;
+    expect(described).toBeTruthy();
+    expect(container.querySelector(`#${described.split(" ")[0]}`)!.textContent).toContain(
+      "Writ keeps this",
+    );
+  });
+
+  // A row may put a control in the label column (labelAside, the "Get a key"
+  // link), and that one comes first in document order.
+  it("never hangs a row's description on a control in the label column", async () => {
+    const container = await openPanel();
+    for (const section of ["editor", "advanced", "notes"]) {
+      await openSection(container, section);
+      const described = container.querySelectorAll<HTMLElement>("[aria-describedby]");
+      for (const control of described) {
+        expect(control.closest(".settings-row-label"), control.outerHTML.slice(0, 80)).toBeNull();
+      }
+    }
+  });
+
+  it("describes a switch row as well as naming it", async () => {
+    const container = await openPanel();
+    await openSection(container, "editor");
+
+    const row = container.querySelector<HTMLElement>("[data-setting-id='editor.spelling_dialect']")!;
+    const select = row.querySelector<HTMLSelectElement>("#setting-spelling-dialect")!;
+    expect(select.disabled).toBe(true);
+    const described = select.getAttribute("aria-describedby")!;
+    expect(container.querySelector(`#${described.split(" ")[0]}`)!.textContent).toBe(
+      "Turn on Spell check to pick a dictionary.",
+    );
+  });
+});
+
+describe("the words the panel uses", () => {
+  async function openPanel() {
+    const screen = render(() => <SettingsModal />);
+    openSettings();
+    await waitFor(() => expect(screen.container.querySelector(".settings-nav")).not.toBeNull());
+    return screen.container;
+  }
+
+  it("ends no row label in a colon and names the dictionary row for what it sets", async () => {
+    const container = await openPanel();
+    const items = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
+    fireEvent.click(Array.from(items).find((n) => n.textContent?.toLowerCase().includes("editor"))!);
+    await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
+
+    const labels = Array.from(
+      container.querySelectorAll(".settings-row-label-text"),
+    ).map((n) => n.textContent ?? "");
+    expect(labels).toContain("Dictionary");
+    for (const label of labels) expect(label.endsWith(":")).toBe(false);
+  });
+
+  it("sets the query in typographic quotes when nothing matches", async () => {
+    const container = await openPanel();
+    const input = container.querySelector<HTMLInputElement>(".settings-search-input")!;
+    fireEvent.input(input, { target: { value: "zzzzz" } });
+
+    await waitFor(() => expect(container.querySelector(".settings-empty-title")).not.toBeNull());
+    const title = container.querySelector(".settings-empty-title")!.textContent!;
+    expect(title).toBe("No settings match “zzzzz”");
+    expect(title).not.toContain('"');
   });
 });

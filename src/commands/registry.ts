@@ -67,7 +67,7 @@ export function executeCommand(id: string): boolean {
     result = cmd.execute();
   } catch {
     logFailure(`the "${id}" command threw`);
-    showToast(`${cmd.label} failed`, "error");
+    showToast(`Could not run “${cmd.label}”`, "error");
     return true;
   }
   if (result === false) return false;

@@ -169,6 +169,7 @@ export default function LinkConfirm(props: Props) {
       role="dialog"
       aria-label="Link destination"
       tabIndex={-1}
+      data-writ-focus-silent
       style={{ left: `${position().left}px`, top: `${position().top}px` }}
     >
       {/* The host line makes a claim about where the click goes, so it exists

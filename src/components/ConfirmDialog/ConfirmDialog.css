@@ -13,10 +13,10 @@
   background: var(--writ-bg-raised);
   border: 0;
   border-radius: var(--writ-r-modal);
-  padding: 24px;
+  padding: var(--writ-space-6);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--writ-space-4);
   box-shadow: var(--writ-shadow-modal);
   font-family: var(--writ-font-ui);
 }
@@ -37,6 +37,6 @@
 .confirm-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--writ-space-3);
+  margin-top: var(--writ-space-3);
 }

@@ -49,7 +49,7 @@ export default function InboxSection() {
                 <Tooltip label={file.path}>
                   <button
                     type="button"
-                    class="inbox-item"
+                    class="sidebar-row inbox-item"
                     onClick={() => void win.tabs.openFile(file.path)}
                   >
                     <Icon name="file-text" />

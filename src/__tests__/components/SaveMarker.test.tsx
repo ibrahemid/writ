@@ -33,7 +33,7 @@ describe("SaveMarker", () => {
 
     const mark = container.querySelector<HTMLElement>(".save-marker")!;
     expect(mark).not.toBeNull();
-    expect(mark.getAttribute("aria-label")).toBe("unsaved changes");
+    expect(mark.getAttribute("aria-label")).toBe("Unsaved changes");
     expect(mark.classList.contains("save-marker--failed")).toBe(false);
   });
 
@@ -43,7 +43,7 @@ describe("SaveMarker", () => {
 
     const mark = container.querySelector<HTMLElement>(".save-marker")!;
     expect(mark.classList.contains("save-marker--failed")).toBe(true);
-    expect(mark.getAttribute("aria-label")).toBe("not saved");
+    expect(mark.getAttribute("aria-label")).toBe("Not saved");
   });
 
   it("marks only the note that failed, with two open", () => {
@@ -72,7 +72,7 @@ describe("SaveMarker", () => {
 
     const mark = container.querySelector<HTMLElement>(".save-marker")!;
     expect(mark).not.toBeNull();
-    expect(mark.getAttribute("aria-label")).toBe("unsaved changes");
+    expect(mark.getAttribute("aria-label")).toBe("Unsaved changes");
     expect(mark.classList.contains("save-marker--failed")).toBe(false);
   });
 

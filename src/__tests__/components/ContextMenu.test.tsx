@@ -6,6 +6,7 @@ import ContextMenu, {
   showAnchoredMenu,
   showContextMenu,
   hideContextMenu,
+  isMenuOpenFor,
 } from "../../components/ContextMenu/ContextMenu";
 
 afterEach(() => {
@@ -100,6 +101,65 @@ describe("ContextMenu separator items stay clickable", () => {
     expect(container.querySelector(".context-menu")).toBeNull();
   });
 
+  // The menu goes before the row it ran: a row that opens a layer of its own
+  // takes the focus, and a restore that happens afterwards steals it back and
+  // leaves the new layer with no keyboard exit.
+  it("hands the focus to a row that opens a layer, by click", () => {
+    const opened = document.createElement("button");
+    document.body.appendChild(opened);
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    const { getByText } = render(() => <ContextMenu />);
+    showAnchoredMenu(
+      trigger.getBoundingClientRect(),
+      [{ label: "Review fixes…", action: () => opened.focus() }],
+      trigger,
+    );
+    fireEvent.click(getByText("Review fixes…"));
+
+    expect(document.activeElement).toBe(opened);
+    opened.remove();
+    trigger.remove();
+  });
+
+  it("hands the focus to a row that opens a layer, by keyboard", () => {
+    const opened = document.createElement("button");
+    document.body.appendChild(opened);
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    render(() => <ContextMenu />);
+    showAnchoredMenu(
+      trigger.getBoundingClientRect(),
+      [{ label: "Review fixes…", action: () => opened.focus() }],
+      trigger,
+    );
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Enter" });
+
+    expect(document.activeElement).toBe(opened);
+    opened.remove();
+    trigger.remove();
+  });
+
+  it("still hands the focus back when the row opens nothing", () => {
+    const trigger = document.createElement("button");
+    document.body.appendChild(trigger);
+
+    const { getByText } = render(() => <ContextMenu />);
+    showAnchoredMenu(
+      trigger.getBoundingClientRect(),
+      [{ label: "Turn off spelling", action: () => {} }],
+      trigger,
+    );
+    fireEvent.click(getByText("Turn off spelling"));
+
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+
   it("still draws the divider and still skips disabled items", () => {
     const action = vi.fn();
     const { container, getByText } = render(() => <ContextMenu />);
@@ -110,6 +170,62 @@ describe("ContextMenu separator items stay clickable", () => {
     expect(container.querySelector(".context-menu-separator")).not.toBeNull();
     fireEvent.click(getByText("Not reachable"));
     expect(action).not.toHaveBeenCalled();
+  });
+
+  // A right-click on a tree row opens the menu on the row the keyboard is on,
+  // and Escape has to put the user back there rather than on the body.
+  it("hands focus back to the row it was opened from", () => {
+    render(() => <ContextMenu />);
+    const row = document.createElement("div");
+    row.tabIndex = 0;
+    document.body.append(row);
+    row.focus();
+
+    showContextMenu(0, 0, [{ label: "Rename", action: () => {} }]);
+    (document.activeElement as HTMLElement | null)?.blur();
+
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Escape" });
+    expect(document.activeElement).toBe(row);
+    row.remove();
+  });
+
+  // Where the focus goes back to and which control owns the menu are two
+  // different things. A right-click anywhere captures the focused element for
+  // the restore; that element did not open the menu and must not be told it did.
+  it("never calls a cursor menu the focused control's own", () => {
+    const chip = document.createElement("button");
+    document.body.append(chip);
+    chip.focus();
+
+    render(() => <ContextMenu />);
+    showContextMenu(0, 0, [{ label: "Rename", action: () => {} }]);
+
+    expect(isMenuOpenFor(chip)).toBe(false);
+
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Escape" });
+    expect(document.activeElement).toBe(chip);
+    chip.remove();
+  });
+
+  it("calls an anchored menu the control that opened it", () => {
+    const chip = document.createElement("button");
+    document.body.append(chip);
+
+    render(() => <ContextMenu />);
+    showAnchoredMenu(chip.getBoundingClientRect(), [{ label: "Rename", action: () => {} }], chip);
+
+    expect(isMenuOpenFor(chip)).toBe(true);
+    hideContextMenu();
+    expect(isMenuOpenFor(chip)).toBe(false);
+    chip.remove();
+  });
+
+  it("hands focus nowhere when the menu was opened from the page itself", () => {
+    render(() => <ContextMenu />);
+    (document.activeElement as HTMLElement | null)?.blur();
+    showContextMenu(0, 0, [{ label: "Rename", action: () => {} }]);
+    fireEvent.keyDown(document.querySelector(".context-menu")!, { key: "Escape" });
+    expect(document.activeElement).toBe(document.body);
   });
 
   it("gives keyboard focus to a separator item", () => {
@@ -338,6 +454,6 @@ describe("ContextMenu platform chrome", () => {
   it("keeps GNOME rows at the 32px minimum", () => {
     const row = declarations(':root[data-platform="linux"] .context-menu-item');
     expect(row.get("min-height")).toBe("32px");
-    expect(row.get("padding")).toBe("0 12px");
+    expect(row.get("padding")).toBe("0 var(--writ-space-4)");
   });
 });

@@ -1,18 +1,18 @@
 .toast-container {
   position: fixed;
   /* EditorArea sets this: 16px with no status bar, 40px when the bar is on. */
-  bottom: var(--writ-toast-bottom, 16px);
-  right: 16px;
+  bottom: var(--writ-toast-bottom, var(--writ-space-5));
+  right: var(--writ-space-5);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--writ-space-3);
   z-index: var(--writ-z-toast);
   pointer-events: none;
 }
 
 .toast {
   position: relative;
-  padding: 10px 16px;
+  padding: var(--writ-space-3-5) var(--writ-space-5);
   background: var(--writ-bg-raised);
   border: 0;
   border-radius: var(--writ-r-media);
@@ -22,7 +22,7 @@
   line-height: var(--writ-ui-md-lh);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--writ-space-4);
   box-shadow: var(--writ-shadow-popover);
   pointer-events: all;
   max-width: 400px;
@@ -35,9 +35,9 @@
 .toast-success::before {
   content: '';
   position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 6px;
+  top: var(--writ-space-3);
+  bottom: var(--writ-space-3);
+  left: var(--writ-space-2-5);
   width: 3px;
   border-radius: var(--writ-r-pill);
   background: var(--writ-accent);
@@ -47,9 +47,22 @@
 .toast-warning::before { background: var(--writ-status-warning); }
 .toast-success::before { background: var(--writ-status-success); }
 
-.toast-text { flex: 1; }
+.toast-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast-count {
+  flex-shrink: 0;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  font-variant-numeric: tabular-nums;
+}
 
 .toast-dismiss {
-  height: 20px;
-  padding: 0 2px;
+  flex-shrink: 0;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0;
 }

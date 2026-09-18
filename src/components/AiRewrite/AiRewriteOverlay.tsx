@@ -7,7 +7,7 @@ import "./AiRewriteOverlay.css";
 const STATUS_LABELS: Record<string, string> = {
   streaming: "Streaming…",
   done: "Ready to apply",
-  error: "Failed",
+  error: "Could not rewrite",
 };
 
 export default function AiRewriteOverlay() {
@@ -50,7 +50,10 @@ export default function AiRewriteOverlay() {
 
   return (
     <Show when={store.isOpen()}>
-      <div class="ai-overlay" role="dialog" aria-label="Rewrite preview">
+      {/* A region rather than a dialog: the editor keeps focus so an edit can
+          abort the preview, and a dialog that never takes focus is not
+          reachable in a screen reader's browse mode. */}
+      <div class="ai-overlay" role="region" aria-label="Rewrite preview">
         <div class="ai-overlay-header">
           <span class="ai-overlay-action">{store.actionLabel()}</span>
           <span class="ai-overlay-status" data-status={store.status()} aria-live="polite">
@@ -90,7 +93,7 @@ export default function AiRewriteOverlay() {
               <div class="ai-overlay-pane-label">Original</div>
               <div class="ai-overlay-pane-body">{store.original()}</div>
             </div>
-            <div class="ai-overlay-pane">
+            <div class="ai-overlay-pane" aria-live="polite">
               <div class="ai-overlay-pane-label">Result</div>
               <Show
                 when={store.status() === "error"}

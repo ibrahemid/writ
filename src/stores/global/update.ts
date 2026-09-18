@@ -13,6 +13,7 @@ import type { UpdatePhase } from "../../types/update";
 // writ://update-status events and exposes the user actions that drive transitions.
 
 const UNREACHABLE_MESSAGE = "Couldn't reach the update server.";
+const NOT_INSTALLED_MESSAGE = "The update could not be installed.";
 
 function createUpdateStore() {
   const [phase, setPhase] = createSignal<UpdatePhase>({ status: "idle" });
@@ -34,7 +35,7 @@ function createUpdateStore() {
     try {
       await downloadAndInstallUpdate();
     } catch {
-      setPhase({ status: "failed", message: UNREACHABLE_MESSAGE });
+      setPhase({ status: "failed", message: NOT_INSTALLED_MESSAGE });
     }
   }
 
