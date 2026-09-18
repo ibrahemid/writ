@@ -6,6 +6,7 @@ import {
   activityRecent,
   mcpClients,
   mcpForgetClient,
+  mcpRefuseWaitingClient,
   mcpServerCommand,
   mcpSetClientPermission,
   mcpTools,
@@ -133,6 +134,16 @@ async function setPermission(name: string, read: boolean, write: boolean): Promi
   await refreshLog();
 }
 
+/**
+ * Turns a waiting program down for this connection.
+ *
+ * The waiting entry goes and no approval is written, so the program is not
+ * blocked: it asks again the next time it calls.
+ */
+async function refuseWaiting(name: string): Promise<void> {
+  takeClients(await mcpRefuseWaitingClient(name));
+}
+
 /** Takes a program off the list, so its next call waits to be decided on. */
 async function forget(name: string): Promise<void> {
   takeClients(await mcpForgetClient(name));
@@ -153,5 +164,6 @@ export const activityStore = {
   copyCommand,
   clear,
   setPermission,
+  refuseWaiting,
   forget,
 };

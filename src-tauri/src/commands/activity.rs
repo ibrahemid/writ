@@ -219,6 +219,33 @@ pub fn mcp_set_client_permission(
     })
 }
 
+/// Drops one waiting program's entry, deciding nothing about it.
+///
+/// The waiting file is the only thing written: no approval is added, and none
+/// is removed, so the program is neither allowed nor blocked. Its next call
+/// writes the entry again and puts it back on the list to be decided on.
+pub fn refuse_waiting_client_inner(writ_dir: &Path, name: &str) -> Result<(), String> {
+    writ_storage::pending_clients::forget(writ_dir, name).map_err(|error| error.to_string())
+}
+
+/// IPC: turn one waiting program down for this connection.
+#[tauri::command]
+pub fn mcp_refuse_waiting_client(app: AppHandle, name: String) -> Result<McpClients, String> {
+    let state = app.state::<AppState>();
+    refuse_waiting_client_inner(&state.writ_dir, &name)?;
+    let approved = {
+        let guard = recover_poison(
+            state.config.lock(),
+            "commands::activity::mcp_refuse_waiting_client",
+        );
+        mcp_clients_inner(&guard.mcp)
+    };
+    Ok(McpClients {
+        waiting: waiting_in(&state.writ_dir, &approved),
+        approved,
+    })
+}
+
 /// IPC: forget one client.
 #[tauri::command]
 pub fn mcp_forget_client(app: AppHandle, name: String) -> Result<McpClients, String> {
@@ -319,6 +346,7 @@ fn resolved_cli_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use writ_core::activity::ClientId;
 
     fn approved(name: &str, read: bool, write: bool) -> ClientApproval {
         ClientApproval {
@@ -420,6 +448,59 @@ mod tests {
         forget_client_inner(&mut config, "Claude Code");
 
         assert_eq!(config.approved_clients.len(), 1);
+    }
+
+    #[test]
+    fn refusing_a_waiting_program_takes_its_row_off_the_list() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        for name in ["Claude Code", "Zed"] {
+            writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named(name), 1)
+                .expect("note");
+        }
+
+        refuse_waiting_client_inner(dir.path(), "Claude Code").expect("refuse");
+
+        let names: Vec<String> = waiting_in(dir.path(), &[])
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(names, ["Zed"]);
+    }
+
+    #[test]
+    fn refusing_a_waiting_program_writes_no_approval() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Claude Code"), 1)
+            .expect("note");
+        let config = McpConfig::default();
+
+        refuse_waiting_client_inner(dir.path(), "Claude Code").expect("refuse");
+
+        assert!(config.approved_clients.is_empty());
+        assert!(config.approval_for("Claude Code").is_none());
+        assert!(mcp_clients_inner(&config).is_empty());
+    }
+
+    #[test]
+    fn refusing_a_program_that_sent_no_name_takes_its_row_off_the_list() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named(""), 1)
+            .expect("note");
+
+        refuse_waiting_client_inner(dir.path(), "").expect("refuse");
+
+        assert!(waiting_in(dir.path(), &[]).is_empty());
+    }
+
+    #[test]
+    fn refusing_a_program_that_is_not_waiting_changes_nothing() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Zed"), 1)
+            .expect("note");
+
+        refuse_waiting_client_inner(dir.path(), "Claude Code").expect("refuse");
+
+        assert_eq!(waiting_in(dir.path(), &[]).len(), 1);
     }
 
     #[test]

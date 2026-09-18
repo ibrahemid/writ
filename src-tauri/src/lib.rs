@@ -760,6 +760,7 @@ pub fn run() {
             commands::activity::mcp_clients,
             commands::activity::mcp_set_client_permission,
             commands::activity::mcp_forget_client,
+            commands::activity::mcp_refuse_waiting_client,
             commands::activity::mcp_server_command,
             commands::activity::mcp_tools,
         ])

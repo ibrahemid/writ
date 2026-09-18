@@ -118,6 +118,16 @@ function Waiting(props: { client: PendingClient }) {
     }
   }
 
+  // The name the program sent, not the row's stand-in for an empty one: the
+  // waiting entry is held under the name as it came in.
+  async function refuse() {
+    try {
+      await activityStore.refuseWaiting(props.client.name);
+    } catch {
+      showToast("Could not turn the program down", "error");
+    }
+  }
+
   return (
     <li class="activity-waiting" data-program={props.client.name}>
       <span class="activity-waiting-what">
@@ -133,6 +143,9 @@ function Waiting(props: { client: PendingClient }) {
         </Button>
         <Button data-action="approve-write" onClick={() => void approve(true)}>
           Approve reading and writing
+        </Button>
+        <Button variant="ghost" data-action="refuse" onClick={() => void refuse()}>
+          Don't allow
         </Button>
       </span>
     </li>
