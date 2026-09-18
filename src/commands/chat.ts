@@ -6,7 +6,6 @@ import { chatStore, totalBytes, type Attachment } from "../stores/global/chat";
 import { configStore } from "../stores/global/config";
 import { windowRegistry } from "../stores/global/window-registry";
 import type { ChatEndpointState } from "../services/tauri";
-import { aiConsentHost } from "../services/tauri";
 
 export const CHAT_TOGGLE_COMMAND_ID = "chat.toggle";
 
@@ -101,7 +100,7 @@ export async function clearBlockersBeforeSending(
     });
     if (!confirmed) return false;
     try {
-      await aiConsentHost();
+      await aiConnectionStore.consentHost();
       endpoint = await chatStore.endpointState();
     } catch {
       showToast("Could not record the choice.", "error");

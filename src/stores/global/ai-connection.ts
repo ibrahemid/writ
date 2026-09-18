@@ -1,12 +1,14 @@
 import { createSignal, createRoot, createEffect } from "solid-js";
 import {
   aiCheckConnection,
+  aiConsentHost,
   aiListModels,
   aiProbeLocal,
   aiOpenrouterCancel,
   aiOpenrouterConnect,
   aiSetProvider,
   type AiConnectionStatus,
+  type AiEndpointState,
   type AiKeyState,
   type LocalProbe,
   type ModelCatalog,
@@ -157,6 +159,21 @@ function createAiConnectionStore() {
     configStore.applyAi(saved);
   }
 
+  /** Records the send notice for the host this connection reaches, then
+   * re-reads the config Rust wrote.
+   *
+   * The command writes `consented_hosts` itself and answers an endpoint state,
+   * so without the re-read the copy this frontend holds still says no host was
+   * allowed, and the next settings write would send that copy whole and drop
+   * the consent. The re-read is also what brings the model list: the list waits
+   * for consent, so the connection effect reads it as soon as the host is
+   * allowed rather than on the next launch. */
+  async function consentHost(): Promise<AiEndpointState> {
+    const state = await aiConsentHost();
+    await configStore.load();
+    return state;
+  }
+
   /** Saves the chat's own model, qualified to the provider it was picked
    * under, or clears it so the chat follows the connection. */
   async function selectChatModel(id: string | null): Promise<void> {
@@ -221,6 +238,7 @@ function createAiConnectionStore() {
     watch,
     selectProvider,
     selectChatModel,
+    consentHost,
     /** The models the connection's provider lists, or why it could not be
      * read. */
     listModels: (): Promise<ModelCatalog> => aiListModels(currentProvider()),
