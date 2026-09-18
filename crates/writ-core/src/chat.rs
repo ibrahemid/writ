@@ -689,6 +689,10 @@ fn parse_openai_payload(payload: &str) -> Delta {
 /// The info-string word that makes a fenced block a proposal.
 const PROPOSAL_WORD: &str = "writ-proposal";
 
+/// The attribute a header line has to carry, so a bare fence over a note that
+/// happens to say `writ-proposal` stays an ordinary code block.
+const PROPOSAL_PATH: &str = "path=";
+
 /// The shortest run of fence characters that opens a block (CommonMark).
 const MIN_FENCE: usize = 3;
 
@@ -737,6 +741,61 @@ fn open_proposal(line: &str) -> Option<(Fence, &str)> {
     Some((fence, info))
 }
 
+/// A line that is nothing but a fence run, and the fence it is.
+fn bare_fence(line: &str) -> Option<Fence> {
+    let (fence, rest) = fence_run(line)?;
+    rest.trim().is_empty().then_some(fence)
+}
+
+/// Reads a proposal's header line, and the attributes after the word.
+///
+/// A header is the line under a bare fence, carrying what an info string
+/// carries. It has to name a path: a bare fence is an ordinary code block
+/// until its first line does, so the word alone never turns a note whose first
+/// line reads `writ-proposal` into a block nobody asked for.
+fn header_info(line: &str) -> Option<&str> {
+    let info = line
+        .trim_start_matches([' ', '\t'])
+        .strip_prefix(PROPOSAL_WORD)?;
+    info.trim_start_matches([' ', '\t'])
+        .starts_with(PROPOSAL_PATH)
+        .then_some(info)
+}
+
+/// What opens a proposal: the fence, the attributes, and where the body starts.
+struct Opening<'a> {
+    /// The fence the block was opened with, which its close has to match.
+    fence: Fence,
+    /// The attributes, as an info string would have carried them.
+    info: &'a str,
+    /// The first line of the body.
+    body: usize,
+}
+
+/// Reads the proposal `lines[index]` opens, in either form.
+///
+/// A fence whose info string is the word opens one; so does a bare fence whose
+/// next line is a [`header_info`] line, which is what a local model writes
+/// when it puts the fence on a line of its own. The header is part of the
+/// opening, not the first line of the body, and the block closes by the same
+/// rule either way.
+fn open_proposal_at<'a>(lines: &[&'a str], index: usize) -> Option<Opening<'a>> {
+    if let Some((fence, info)) = open_proposal(lines[index]) {
+        return Some(Opening {
+            fence,
+            info,
+            body: index + 1,
+        });
+    }
+    let fence = bare_fence(lines[index])?;
+    let info = header_info(lines.get(index + 1)?)?;
+    Some(Opening {
+        fence,
+        info,
+        body: index + 2,
+    })
+}
+
 /// True when `line` closes a block opened with `fence`.
 ///
 /// The CommonMark rule: the same character, at least as long, and nothing but
@@ -778,8 +837,29 @@ fn could_open_proposal(read: &str) -> bool {
     if len < MIN_FENCE {
         return false;
     }
-    let info = info.trim_start_matches([' ', '\t']);
+    // A carriage return is trimmed with the spaces, so a reply written with
+    // CRLF line endings holds a bare fence back the same as one written with
+    // LF: `bare_fence` reads that line as bare either way, and what this
+    // releases the pane has shown for good.
+    let info = info.trim_start_matches([' ', '\t', '\r']);
     info.is_empty() || PROPOSAL_WORD.starts_with(info) || info.starts_with(PROPOSAL_WORD)
+}
+
+/// True while `read` could still grow into a header line.
+///
+/// The counterpart of [`could_open_proposal`] for the line under a bare fence:
+/// what this rejects releases both lines to the pane, so it and
+/// [`header_info`] have to agree the same way.
+fn could_be_header(read: &str) -> bool {
+    let rest = read.trim_start_matches([' ', '\t']);
+    if rest.is_empty() {
+        return true;
+    }
+    let Some(info) = rest.strip_prefix(PROPOSAL_WORD) else {
+        return PROPOSAL_WORD.starts_with(rest);
+    };
+    let after = info.trim_start_matches([' ', '\t']);
+    after.is_empty() || PROPOSAL_PATH.starts_with(after) || after.starts_with(PROPOSAL_PATH)
 }
 
 /// A proposal a reply carried that nobody can be offered.
@@ -946,13 +1026,13 @@ pub fn parse_proposals(reply: &str, context: &[AttachedNote], truncated: bool) -
     let mut parsed = ParsedProposals::default();
     let mut index = 0;
     while index < lines.len() {
-        let Some((fence, info)) = open_proposal(lines[index]) else {
+        let Some(opening) = open_proposal_at(&lines, index) else {
             index += 1;
             continue;
         };
-        let named = attribute(info, "path").unwrap_or_default();
-        let summary = attribute(info, "summary").unwrap_or_default();
-        let (block, next) = read_block(&lines, index + 1, fence);
+        let named = attribute(opening.info, "path").unwrap_or_default();
+        let summary = attribute(opening.info, "summary").unwrap_or_default();
+        let (block, next) = read_block(&lines, opening.body, opening.fence);
         index = next;
         let Some(Block { body, closed }) = block else {
             parsed.dropped.push(DroppedProposal {
@@ -1129,7 +1209,7 @@ fn line_in_block(line: &str, fence: Fence, inner: Option<Fence>) -> BlockLine {
 /// next note's text and the proposal it was written as.
 fn last_close(lines: &[&str], from: usize, fence: Fence) -> Option<usize> {
     let limit = (from..lines.len())
-        .find(|index| open_proposal(lines[*index]).is_some())
+        .find(|index| open_proposal_at(lines, *index).is_some())
         .unwrap_or(lines.len());
     (from..limit)
         .rev()
@@ -1154,8 +1234,8 @@ fn prose_in(lines: &[&str]) -> String {
     let mut out = String::new();
     let mut index = 0;
     while index < lines.len() {
-        match open_proposal(lines[index]) {
-            Some((fence, _)) => index = read_block(lines, index + 1, fence).1,
+        match open_proposal_at(lines, index) {
+            Some(opening) => index = read_block(lines, opening.body, opening.fence).1,
             None => {
                 out.push_str(lines[index]);
                 out.push('\n');
@@ -1189,6 +1269,17 @@ enum FilterState {
         /// What has been held back, verbatim.
         buffered: String,
     },
+    /// A line that was nothing but a fence, held back until the line under it
+    /// shows whether it is a header. This is the one line the filter's
+    /// contract allows it to be late by.
+    MaybeHeader {
+        /// The fence line and its newline, verbatim.
+        opening: String,
+        /// The fence it was, which the block's close has to match.
+        fence: Fence,
+        /// What has been read of the line under it, verbatim.
+        read: String,
+    },
     /// Inside a proposal, where nothing is released.
     Withholding {
         /// The line being read, so the closing fence is recognised.
@@ -1219,9 +1310,10 @@ enum FilterState {
 /// [`parse_proposals`] reads the whole reply once it is complete; this reads
 /// the same grammar one delta at a time, so a proposal never flashes in the
 /// pane on its way to a card. The two agree by construction: a line opens a
-/// block when [`open_proposal`] reads one out of it, and closes it when
+/// block when [`open_proposal_at`] reads one out of it, and closes it when
 /// [`closes_proposal`] says so, which is what [`parse_proposals`] asks of the
-/// same lines.
+/// same lines. A bare fence is held until the line under it says whether it is
+/// a header, and both lines are released when it is not.
 ///
 /// Anything else is released as soon as it can no longer become a fence, so an
 /// ordinary code block arrives byte for byte, one line late at most. A block
@@ -1268,6 +1360,12 @@ impl ProposalFilter {
             },
         ) {
             FilterState::MaybeFence { buffered } => buffered,
+            FilterState::MaybeHeader {
+                mut opening, read, ..
+            } => {
+                opening.push_str(&read);
+                opening
+            }
             FilterState::Deciding { fence, buffered } => {
                 let lines: Vec<&str> = buffered.lines().collect();
                 match last_close(&lines, 0, fence) {
@@ -1294,11 +1392,65 @@ impl ProposalFilter {
                 }
             }
             FilterState::MaybeFence { buffered } if character == '\n' => {
-                out.push_str(buffered);
+                match bare_fence(buffered) {
+                    Some(fence) => {
+                        let mut opening = std::mem::take(buffered);
+                        opening.push('\n');
+                        Some(FilterState::MaybeHeader {
+                            opening,
+                            fence,
+                            read: String::new(),
+                        })
+                    }
+                    None => {
+                        out.push_str(buffered);
+                        out.push('\n');
+                        Some(FilterState::Text {
+                            at_line_start: true,
+                        })
+                    }
+                }
+            }
+            FilterState::MaybeHeader { opening, read, .. } if character == '\n' => {
+                // No prefix of the line was a header, so neither line opened a
+                // block. What was read cannot itself be a fence: every prefix
+                // of it passed `could_be_header`, whose first character is the
+                // word's.
+                out.push_str(opening);
+                out.push_str(read);
                 out.push('\n');
                 Some(FilterState::Text {
                     at_line_start: true,
                 })
+            }
+            FilterState::MaybeHeader {
+                opening,
+                fence,
+                read,
+            } => {
+                read.push(character);
+                if header_info(read).is_some() {
+                    Some(FilterState::Withholding {
+                        line: std::mem::take(read),
+                        fence: *fence,
+                        inner: None,
+                        opening: true,
+                    })
+                } else if could_be_header(read) {
+                    None
+                } else {
+                    out.push_str(opening);
+                    let read = std::mem::take(read);
+                    match could_open_proposal(&read) {
+                        true => Some(FilterState::MaybeFence { buffered: read }),
+                        false => {
+                            out.push_str(&read);
+                            Some(FilterState::Text {
+                                at_line_start: false,
+                            })
+                        }
+                    }
+                }
             }
             FilterState::MaybeFence { buffered } => {
                 buffered.push(character);
