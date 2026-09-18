@@ -455,3 +455,152 @@ And then the reply ran out of room while writing thi";
         "a block a fence closed is whole, whatever happened after it"
     );
 }
+
+#[test]
+fn a_bare_fence_with_the_header_on_the_next_line_is_a_proposal() {
+    let reply = "Here you go.\n\
+```\n\
+writ-proposal path=\"Ideas/Launch.md\" summary=\"Fold the intros\"\n\
+# Launch\n\
+\n\
+The whole note.\n\
+```\n\
+That is the change.\n";
+
+    let parsed = parse_proposals(reply, &launch(), false);
+    let proposal = only(&parsed);
+    assert_eq!(proposal.path, "Ideas/Launch.md");
+    assert_eq!(
+        proposal.summary, "Fold the intros",
+        "the header line carries the info string's attributes"
+    );
+    assert_eq!(
+        proposal.new_content, "# Launch\n\nThe whole note.\n",
+        "the header line is the opening, not the first line of the body"
+    );
+}
+
+#[test]
+fn a_bare_fence_header_reads_a_quoted_a_single_quoted_and_a_bare_path() {
+    for spelling in [
+        "path=\"Ideas/Launch.md\"",
+        "path='Ideas/Launch.md'",
+        "path=Ideas/Launch.md",
+    ] {
+        let reply = format!("```\nwrit-proposal {spelling}\nThe whole note.\n```\n");
+        let parsed = parse_proposals(&reply, &launch(), false);
+        let proposal = only(&parsed);
+        assert_eq!(proposal.path, "Ideas/Launch.md", "spelling {spelling:?}");
+        assert_eq!(proposal.new_content, "The whole note.\n");
+    }
+}
+
+#[test]
+fn a_bare_tilde_fence_and_a_longer_bare_fence_both_open_a_proposal() {
+    for fence in ["~~~", "````", "~~~~~"] {
+        let reply =
+            format!("{fence}\nwrit-proposal path=\"Ideas/Launch.md\"\nThe whole note.\n{fence}\n");
+        let parsed = parse_proposals(&reply, &launch(), false);
+        let proposal = only(&parsed);
+        assert_eq!(proposal.new_content, "The whole note.\n", "fence {fence:?}");
+    }
+}
+
+#[test]
+fn a_bare_fence_block_the_reply_left_open_closes_at_the_end_of_the_reply() {
+    let reply = "```\nwrit-proposal path=\"Ideas/Launch.md\"\n# Launch\n\nTo the last line.\n";
+
+    let parsed = parse_proposals(reply, &launch(), false);
+    let proposal = only(&parsed);
+    assert_eq!(proposal.new_content, "# Launch\n\nTo the last line.\n");
+}
+
+#[test]
+fn a_bare_fence_header_with_nothing_under_it_is_dropped_as_empty() {
+    let reply = "```\nwrit-proposal path=\"Ideas/Launch.md\"\n```\nHere is the guide instead.\n";
+
+    let parsed = parse_proposals(reply, &launch(), false);
+    assert!(parsed.proposals.is_empty());
+    assert_eq!(parsed.dropped.len(), 1);
+    assert_eq!(parsed.dropped[0].named, "Ideas/Launch.md");
+    assert_eq!(parsed.dropped[0].reason, DropReason::EmptyBody);
+}
+
+#[test]
+fn a_bare_fence_over_anything_but_a_header_is_an_ordinary_code_block() {
+    for first in [
+        "fn main() {}",
+        "writ-proposal",
+        "writ-proposal summary=\"No path\"",
+        "writ-proposal-path=\"Ideas/Launch.md\"",
+        "The writ-proposal path=\"Ideas/Launch.md\" is below",
+    ] {
+        let reply = format!("```\n{first}\nmore\n```\n");
+        let parsed = parse_proposals(&reply, &launch(), false);
+        assert_eq!(
+            parsed,
+            ParsedProposals::default(),
+            "first body line {first:?} must not open a proposal"
+        );
+    }
+}
+
+#[test]
+fn a_header_line_inside_an_info_string_block_stays_in_the_body() {
+    let reply = "```writ-proposal path=\"Ideas/Launch.md\"\n\
+writ-proposal path=\"Ideas/Other.md\"\n\
+The whole note.\n\
+```\n";
+
+    let parsed = parse_proposals(reply, &launch(), false);
+    let proposal = only(&parsed);
+    assert_eq!(
+        proposal.new_content, "writ-proposal path=\"Ideas/Other.md\"\nThe whole note.\n",
+        "only the line after the fence that opened the block can be a header"
+    );
+}
+
+#[test]
+fn a_bare_fence_under_a_bare_fence_is_prose_and_the_proposal_under_it_is_read() {
+    let reply = "```\n```\nwrit-proposal path=\"Ideas/Launch.md\"\nThe whole note.\n```\n";
+
+    let parsed = parse_proposals(reply, &launch(), false);
+    let proposal = only(&parsed);
+    assert_eq!(proposal.new_content, "The whole note.\n");
+}
+
+#[test]
+fn a_bare_fence_proposal_bounds_an_ambiguous_fences_recovery() {
+    let context = vec![
+        note("Ideas/Launch.md", "The old text.\n"),
+        note("Ideas/Other.md", "The other old text.\n"),
+    ];
+    let reply = "```writ-proposal path=\"Ideas/Launch.md\"\n\
+```sh\n\
+cargo run\n\
+```\n\
+```\n\
+writ-proposal path=\"Ideas/Other.md\"\n\
+The other note, whole.\n\
+```\n";
+
+    let parsed = parse_proposals(reply, &context, false);
+    assert_eq!(parsed.dropped.len(), 1);
+    assert_eq!(
+        parsed.dropped[0].reason,
+        DropReason::UnterminatedBlock,
+        "the recovery must stop at the bare-fence block that follows"
+    );
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(parsed.proposals[0].path, "Ideas/Other.md");
+    assert_eq!(parsed.proposals[0].new_content, "The other note, whole.\n");
+}
+
+#[test]
+fn a_bare_fence_header_indented_up_to_three_spaces_still_opens_a_proposal() {
+    let reply = "   ```\n   writ-proposal path=\"Ideas/Launch.md\"\n   The whole note.\n```\n";
+
+    let parsed = parse_proposals(reply, &launch(), false);
+    let proposal = only(&parsed);
+    assert_eq!(proposal.new_content, "   The whole note.\n");
+}
