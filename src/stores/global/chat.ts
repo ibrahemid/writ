@@ -12,6 +12,7 @@ import {
   chatStop,
   chatApplyProposal,
   chatDiscardProposal,
+  type ChatAttachedSize,
   type ChatDroppedProposal,
   type ChatEndpointState,
   type ChatAttachmentRef,
@@ -29,6 +30,7 @@ import { aiConnectionStore } from "./ai-connection";
 import { aiProvidersStore } from "./ai-providers";
 import { bufferRegistry } from "./buffer-registry";
 import { configStore } from "./config";
+import { linkStore } from "./link";
 import { saveStatusStore } from "./save-status";
 import { windowRegistry } from "./window-registry";
 import { showToast } from "../../components/Notifications/Toast";
@@ -68,9 +70,12 @@ export interface Attachment {
   /** The note's folder-relative key, where one has been read. Two paths with
    * the same key are the same note. */
   key?: string;
-  /** Added by the pane-open latch rather than by a person. One such chip at a
-   * time: a later opening replaces it. */
+  /** Added by the tab in front rather than by a person. One such chip at a
+   * time: whichever tab comes forward next replaces it. */
   auto?: boolean;
+  /** The folder whose chip carries this note, for a note attached by picking
+   * a folder. The note still travels on its own, one per file. */
+  viaFolder?: string;
   /** Whether the note could be read. Unknown until a read has been tried. */
   state?: AttachmentState;
   /** Why the note could not be read, in Rust's words. */
@@ -79,6 +84,17 @@ export interface Attachment {
    * saved version rather than what is on screen (ADR-031 containment). */
   dirty?: boolean;
 }
+
+/** The tab the editor is showing, as the chip row follows it. */
+export interface FrontTab {
+  /** The tab's own id, which a removal is remembered against. */
+  id: string;
+  /** The note it holds, or null for a tab with no file yet. */
+  note: Attachment | null;
+}
+
+/** What attaching a folder did, or the words it was refused in. */
+export type AttachFolderResult = { ok: true; notes: number } | { ok: false; reason: string };
 
 /** Why attaching the note in front was refused. */
 export type AddOpenNoteRefusal = "unsaved" | "none";
@@ -166,14 +182,58 @@ export function noteName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-/** What a chip reads: the note's folder-relative key with the folders above
- * the last one elided. Two notes of the same name in different folders read
- * differently; the whole key is in `key`, for the row's title. */
+/** What a chip reads: the note's own name. Two notes of the same name are told
+ * apart by the folder in the chip's title, which is what `key` carries. */
 export function chipLabel(note: Attachment): string {
-  const key = note.key ?? note.path;
-  const parts = key.split(/[\\/]/).filter((part) => part.length > 0);
-  if (parts.length <= 2) return parts.join("/");
-  return `…/${parts.slice(-2).join("/")}`;
+  return note.name.length > 0 ? note.name : noteName(note.path);
+}
+
+/** The whole of what the folder calls a note, for a line that has to tell two
+ * notes of one name apart where no folder is shown beside it. */
+export function noteKeyLabel(note: Attachment): string {
+  return note.key ?? note.path;
+}
+
+/** What a folder's chip reads: the folder's own name, the slash saying it is
+ * one. The folders above it are in the chip's title. */
+export function folderChipLabel(folder: string): string {
+  const parts = folder.split(/[\\/]/).filter((part) => part.length > 0);
+  return `${parts[parts.length - 1] ?? folder}/`;
+}
+
+/** One row of the chip line: a note, or a folder with the notes it carries. */
+export type ChipRow =
+  | { kind: "note"; note: Attachment }
+  | { kind: "folder"; folder: string; notes: Attachment[]; bytes: number };
+
+/** The chip line, as the set reads: a note picked on its own is its own chip,
+ * and the notes one folder brought are that folder's chip. The set stays flat,
+ * so what the request carries is still one note per file. */
+export function chipRows(attachments: readonly Attachment[]): ChipRow[] {
+  const rows: ChipRow[] = [];
+  const folders = new Map<string, Extract<ChipRow, { kind: "folder" }>>();
+  for (const note of attachments) {
+    const folder = note.viaFolder;
+    if (folder === undefined) {
+      rows.push({ kind: "note", note });
+      continue;
+    }
+    const held = folders.get(folder);
+    if (held === undefined) {
+      const row: Extract<ChipRow, { kind: "folder" }> = {
+        kind: "folder",
+        folder,
+        notes: [note],
+        bytes: note.bytes,
+      };
+      folders.set(folder, row);
+      rows.push(row);
+      continue;
+    }
+    held.notes.push(note);
+    held.bytes += note.bytes;
+  }
+  return rows;
 }
 
 /** Whether a rebuilt turn shows anything the last one did not. A reload hands
@@ -276,9 +336,21 @@ function createChatStore() {
   const [draft, setDraft] = createSignal("");
   const [editing, setEditing] = createSignal<number | null>(null);
   const [refusals, setRefusals] = createSignal<Record<string, string>>({});
-  // Counts the chat openings the pane has to attach the note in front for: the
-  // pane latches on it, so one open attaches once however often it re-renders.
+  // Counts the times the chip set was emptied for a conversation, which is
+  // what the pane watches to offer the tab in front again.
   const [attachGeneration, setAttachGeneration] = createSignal(0);
+  // The tab the automatic chip is following, the tab whose automatic chip was
+  // sent away, and the ticket the latest follow holds. Plain fields rather
+  // than signals: the pane calls `followTab` from an effect, and an effect
+  // that read these would re-run on its own writes.
+  let autoTabId: string | null = null;
+  let suppressedTabId: string | null = null;
+  let followTicket = 0;
+  // The note the last settled follow answered for, which is not always a chip:
+  // a note already on the list by hand is answered by leaving it alone. Read
+  // rather than the chip row, so a rebuilt tab list does not read disk again
+  // for a tab that has already been answered.
+  let followedPath: string | null = null;
   // True while a stored conversation is being read and rendered, so the pane
   // shows nothing rather than the copy that belongs to a chat with no turns.
   const [loading, setLoading] = createSignal(false);
@@ -512,6 +584,22 @@ function createChatStore() {
   function reset() {
     for (const id of Object.keys(exchanges())) dropEntry(id);
     clearView();
+    autoTabId = null;
+    suppressedTabId = null;
+    followedPath = null;
+  }
+
+  /** Empties the chip set and asks the pane for the tab in front again.
+   *
+   * The notes belong to the conversation they were attached in (R5 design
+   * item 7), so a conversation change takes the whole set with it, a removal
+   * included: the next conversation starts from what the editor is showing. */
+  function clearChips() {
+    setAttachments([]);
+    autoTabId = null;
+    suppressedTabId = null;
+    followedPath = null;
+    setAttachGeneration((count) => count + 1);
   }
 
   /** Adds a note to what the request carries. Attaching is a user's action and
@@ -523,12 +611,26 @@ function createChatStore() {
     );
   }
 
+  /** Takes a note back out of what the request carries. Sending the automatic
+   * chip away is remembered against the tab it came from, so it does not
+   * return while that tab is still the one in front. */
   function detach(path: string) {
-    setAttachments((held) => held.filter((note) => note.path !== path));
+    const held = attachments().find((note) => note.path === path);
+    if (held?.auto === true) suppressedTabId = autoTabId;
+    setAttachments((all) => all.filter((note) => note.path !== path));
   }
 
   function isAttached(path: string): boolean {
     return attachments().some((note) => note.path === path);
+  }
+
+  /** What the folder calls each of these notes, and how big each one is now,
+   * keyed by the path that was asked about. A folder that refuses the read
+   * answers nothing rather than failing the caller: a chip states what was
+   * last read of it until a send reads it again. */
+  async function readKeys(paths: string[]): Promise<Map<string, ChatAttachedSize>> {
+    const rows = await chatAttachedSizes(paths).catch(() => []);
+    return new Map(rows.map((row) => [row.path, row]));
   }
 
   /** Adds notes, each of them once, with the key the folder knows them by.
@@ -546,11 +648,10 @@ function createChatStore() {
         notes.findIndex((other) => other.path === note.path) === index,
     );
     if (wanted.length === 0) return;
-    const sizes = await chatAttachedSizes([
+    const byPath = await readKeys([
       ...wanted.map((note) => note.path),
       ...held.map((note) => note.path),
-    ]).catch(() => []);
-    const byPath = new Map(sizes.map((note) => [note.path, note]));
+    ]);
     const taken = new Set<string>();
     for (const note of held) {
       const key = byPath.get(note.path)?.key ?? note.key;
@@ -567,30 +668,113 @@ function createChatStore() {
     }
   }
 
+  /** Attaches every note one folder holds, the subfolders included.
+   *
+   * The folder is how the notes were chosen and how they are shown, not a
+   * second kind of thing that travels: the request carries them one per file,
+   * exactly as the folder's chip lists them (ADR-031 rule 2.5). The paths come
+   * from the notes index, never from a directory walk.
+   *
+   * The limits are Rust's and so are the sentences they are refused in. The
+   * sizes of the notes arriving and of the notes already held are read in one
+   * call, which is the call that refuses a note over the per-note ceiling and
+   * a conversation over the note count, so a folder that would go over attaches
+   * nothing rather than as much of itself as fits. */
+  async function attachFolder(folder: string): Promise<AttachFolderResult> {
+    const paths = await linkStore.notePathsInFolder(folder);
+    if (paths.length === 0) return { ok: false, reason: "That folder holds no notes." };
+    const held = attachments();
+    const wanted = paths.filter(
+      (path, index) =>
+        paths.indexOf(path) === index && !held.some((note) => note.path === path),
+    );
+    // Every note under it is already a chip, so the folder adds nothing and
+    // refuses nothing.
+    if (wanted.length === 0) return { ok: true, notes: 0 };
+    let rows: ChatAttachedSize[];
+    try {
+      rows = await chatAttachedSizes([...wanted, ...held.map((note) => note.path)]);
+    } catch (error) {
+      return { ok: false, reason: readableError(error) };
+    }
+    const byPath = new Map(rows.map((row) => [row.path, row]));
+    const taken = new Set(
+      held
+        .map((note) => byPath.get(note.path)?.key ?? note.key)
+        .filter((key): key is string => key !== undefined),
+    );
+    let added = 0;
+    for (const path of wanted) {
+      const found = byPath.get(path);
+      const key = found?.key;
+      if (key !== undefined) {
+        if (taken.has(key)) continue;
+        taken.add(key);
+      }
+      attach({ path, name: noteName(path), bytes: found?.bytes ?? 0, key, viaFolder: folder });
+      added += 1;
+    }
+    return { ok: true, notes: added };
+  }
+
+  /** Takes a folder's chip back out, and with it every note it carried: the
+   * chip was one choice, so undoing it undoes the whole of it. */
+  function detachFolder(folder: string) {
+    setAttachments((all) => all.filter((note) => note.viaFolder !== folder));
+  }
+
   /** Attaches a note the pane knows only a path for, reading its size from
    * disk so the chip and the send dialog state the same number. */
   async function attachByPath(path: string) {
     await attachAll([{ path, name: noteName(path), bytes: 0 }]);
   }
 
-  /** The note the pane opened over, as one replaceable chip.
+  /** Points the automatic chip at the tab the editor is showing.
    *
-   * Opening the pane offers the note in front. Opening it again offers
-   * whatever is in front then, in place of the last offer rather than beside
-   * it: a pane toggle must not grow what the next message carries (R5 design
-   * item 2). A chip a person added by hand is never the one replaced, and
-   * removing the automatic chip leaves the slot empty until the next opening.
-   */
-  async function attachAuto(note: Attachment | null) {
-    setAttachments((held) => held.filter((other) => other.auto !== true));
-    if (!note) return;
-    if (isAttached(note.path)) return;
-    await attachAll([note]);
-    // Marked by path rather than by what the list held before the read: a
-    // note-changed frame can rebuild the list while that read is in flight.
-    setAttachments((held) =>
-      held.map((other) => (other.path === note.path ? { ...other, auto: true } : other)),
+   * The note in front follows the editor: the tab that comes forward replaces
+   * the chip the last one left, so the row states what the next message will
+   * carry rather than what was in front when the pane opened. A chip a person
+   * added is never the one replaced. A tab with no file gets no chip, and a
+   * chip sent away stays away until another tab is focused, which is what
+   * `detach` remembers.
+   *
+   * The read that resolves the note happens before the list is touched, and a
+   * later call retires this one's ticket: holding Cmd+] cannot leave two
+   * automatic chips or the chip of a tab that is no longer in front. */
+  async function followTab(front: FrontTab | null): Promise<void> {
+    const id = front?.id ?? null;
+    const previous = autoTabId;
+    if (id !== previous) {
+      autoTabId = id;
+      // Focusing another tab forgets a removal, the tab it was removed from
+      // included: the offer is about what is in front, not about history.
+      if (suppressedTabId !== null && suppressedTabId !== id) suppressedTabId = null;
+    }
+    const wanted = suppressedTabId !== null && suppressedTabId === id ? null : front?.note ?? null;
+    if (id === previous && followedPath === (wanted?.path ?? null)) return;
+    const ticket = (followTicket += 1);
+    if (!wanted) {
+      followedPath = null;
+      setAttachments((held) => held.filter((note) => note.auto !== true));
+      return;
+    }
+    const held = attachments().filter((note) => note.auto !== true);
+    const byPath = await readKeys([wanted.path, ...held.map((note) => note.path)]);
+    if (ticket !== followTicket) return;
+    followedPath = wanted.path;
+    const found = byPath.get(wanted.path);
+    const key = found?.key ?? wanted.key;
+    // One note is one chip however each spelling reached the list, so the
+    // note in front is dropped where a person already picked it.
+    const taken = new Set(
+      held.map((note) => byPath.get(note.path)?.key ?? note.key).filter((one) => one !== undefined),
     );
+    setAttachments((all) => {
+      const kept = all.filter((note) => note.auto !== true);
+      if (kept.some((note) => note.path === wanted.path)) return kept;
+      if (key !== undefined && taken.has(key)) return kept;
+      return [...kept, { ...wanted, bytes: found?.bytes ?? wanted.bytes, key, auto: true }];
+    });
   }
 
   /** The tab in front, when it holds a note on disk. */
@@ -777,7 +961,7 @@ function createChatStore() {
     try {
       clearView();
       // The notes belong to the chat they were attached in (R5 design item 7).
-      setAttachments([]);
+      clearChips();
       ensureEntry(id);
       setCurrent(conversation);
       await renderStoredReplies(conversation);
@@ -791,9 +975,8 @@ function createChatStore() {
   function newChat() {
     clearView();
     // A new chat starts with the note in front and nothing the last chat
-    // carried, so it counts as an opening.
-    setAttachments([]);
-    setAttachGeneration((count) => count + 1);
+    // carried.
+    clearChips();
   }
 
   async function rename(id: string, title: string) {
@@ -820,7 +1003,7 @@ function createChatStore() {
     dropEntry(id);
     if (current()?.id === id) {
       clearView();
-      setAttachments([]);
+      clearChips();
     }
     await refreshList();
   }
@@ -1374,7 +1557,9 @@ function createChatStore() {
     attach,
     attachAll,
     attachByPath,
-    attachAuto,
+    attachFolder,
+    detachFolder,
+    followTab,
     addOpenNote,
     detach,
     isAttached,

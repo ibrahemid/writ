@@ -12,9 +12,9 @@ use std::path::Path;
 use tempfile::TempDir;
 use writ_storage::notes_index::{self, NotesIndexStore};
 use writ_tauri_lib::commands::note_index::{
-    note_all_tags_inner, note_backlinks_inner, note_facts_inner, note_graph_inner,
-    note_heading_line_inner, note_name_candidates_inner, note_paths_for_tag_inner,
-    resolve_note_link_inner,
+    note_all_tags_inner, note_backlinks_inner, note_facts_inner, note_folder_candidates_inner,
+    note_graph_inner, note_heading_line_inner, note_name_candidates_inner,
+    note_paths_for_tag_inner, note_paths_in_folder_inner, resolve_note_link_inner, NoteFolderHit,
 };
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
@@ -303,6 +303,93 @@ fn note_name_candidates_answers_an_empty_query_with_nothing() {
 }
 
 #[test]
+fn note_folder_candidates_offer_a_folder_and_count_the_notes_under_it() {
+    let (_dir, root, index) = indexed(&[
+        ("Launch.md", "one\n"),
+        ("Archive/Old.md", "two\n"),
+        ("Archive/2025/Launch.md", "three\n"),
+        ("Archive/2025/Notes.md", "four\n"),
+    ]);
+
+    // The count is what picking the row attaches: every note under the folder,
+    // the subfolders included. The nearer folder is offered first.
+    let hits = note_folder_candidates_inner(&index, "Archive/", &root, None).expect("folders");
+    assert_eq!(
+        hits,
+        vec![
+            NoteFolderHit {
+                folder: "Archive".to_string(),
+                notes: 3,
+            },
+            NoteFolderHit {
+                folder: "Archive/2025".to_string(),
+                notes: 2,
+            },
+        ]
+    );
+
+    // A folder a plain query names is offered too, and the case it is typed in
+    // is not what decides it.
+    let plain = note_folder_candidates_inner(&index, "archive", &root, None).expect("folders");
+    assert_eq!(plain, hits);
+}
+
+#[test]
+fn note_folder_candidates_honour_the_limit_and_offer_nothing_for_an_empty_query() {
+    let (_dir, root, index) = indexed(&[
+        ("Archive/Old.md", "one\n"),
+        ("Archive/2025/New.md", "two\n"),
+    ]);
+
+    let one = note_folder_candidates_inner(&index, "archive", &root, Some(1)).expect("folders");
+    assert_eq!(one.len(), 1);
+    assert_eq!(one[0].folder, "Archive");
+
+    // A slash on its own names no folder, and neither does a query nothing is
+    // filed under.
+    for query in ["  ", " / ", "groceries"] {
+        assert!(note_folder_candidates_inner(&index, query, &root, None)
+            .expect("folders")
+            .is_empty());
+    }
+}
+
+#[test]
+fn note_paths_in_folder_names_every_note_under_it_subfolders_included() {
+    let (_dir, root, index) = indexed(&[
+        ("Launch.md", "one\n"),
+        ("Archive/Old.md", "two\n"),
+        ("Archive/2025/Notes.md", "three\n"),
+        ("Archived/Nope.md", "four\n"),
+    ]);
+
+    // The notes come from the index rather than from a walk, and a folder whose
+    // name only starts the way another one does is not one of them.
+    let paths = note_paths_in_folder_inner(&index, "Archive", &root).expect("paths");
+    assert_eq!(
+        paths,
+        vec![
+            notes_index::index_key(&root.join("Archive").join("2025").join("Notes.md")),
+            notes_index::index_key(&root.join("Archive").join("Old.md")),
+        ]
+    );
+
+    let nested = note_paths_in_folder_inner(&index, "Archive/2025/", &root).expect("paths");
+    assert_eq!(
+        nested,
+        vec![notes_index::index_key(
+            &root.join("Archive").join("2025").join("Notes.md")
+        )]
+    );
+
+    // No folder was named, so no note is under it: the notes folder itself is
+    // not something the list offers.
+    assert!(note_paths_in_folder_inner(&index, "", &root)
+        .expect("paths")
+        .is_empty());
+}
+
+#[test]
 fn note_heading_line_finds_the_line_from_the_anchor_and_from_the_text() {
     let (_dir, root, index) =
         indexed(&[("Target.md", "# Target\n\nbody\n\n## Later Part\n\nmore\n")]);
@@ -443,6 +530,8 @@ fn every_note_index_command_is_registered() {
         "commands::note_index::resolve_note_link",
         "commands::note_index::note_facts",
         "commands::note_index::note_name_candidates",
+        "commands::note_index::note_folder_candidates",
+        "commands::note_index::note_paths_in_folder",
         "commands::note_index::note_backlinks",
         "commands::note_index::note_heading_line",
         "commands::note_index::note_all_tags",

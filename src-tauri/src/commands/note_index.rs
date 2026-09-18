@@ -8,6 +8,7 @@
 //! tab keys the same rows the walk wrote, and it hands the editor an
 //! `Ambiguous` result whole rather than picking one of the candidates.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Serialize;
@@ -139,6 +140,16 @@ pub struct NoteNameHit {
     /// its parts, and empty for a note at the root. Two notes of one name are
     /// told apart by this and by nothing else the row shows.
     pub folder: String,
+}
+
+/// One folder the `@` list offers.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct NoteFolderHit {
+    /// The folder inside the notes folder, with `/` between its parts.
+    pub folder: String,
+    /// The notes under it, the subfolders included, which is what picking it
+    /// attaches.
+    pub notes: u32,
 }
 
 /// The folder part of `path` inside `notes_root`, as [`NoteNameHit::folder`]
@@ -354,6 +365,91 @@ pub fn note_name_candidates_inner(
         .collect())
 }
 
+/// The folders a query names, each with the notes under it.
+///
+/// A query ending in `/` names a folder, and so does a plain query a folder
+/// name carries, so a person who types a folder can attach it whole. Counted
+/// off the index the name completion already reads: no folder is walked
+/// (ADR-031 rule 2.5).
+pub fn note_folder_candidates_inner(
+    index: &NotesIndexStore,
+    query: &str,
+    notes_root: &Path,
+    limit: Option<usize>,
+) -> Result<Vec<NoteFolderHit>, String> {
+    let needle = query.trim().trim_end_matches(['/', '\\']).to_lowercase();
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
+    let limit = limit
+        .unwrap_or(NAME_CANDIDATE_LIMIT)
+        .min(NAME_CANDIDATE_LIMIT);
+    let mut counts: BTreeMap<String, u32> = BTreeMap::new();
+    for path in index.note_paths().map_err(|e| e.to_string())? {
+        // Every folder above the note holds it as well, which is what makes a
+        // parent's count the whole of what attaching that parent carries.
+        let mut at = folder_inside(notes_root, &path);
+        while !at.is_empty() {
+            *counts.entry(at.clone()).or_default() += 1;
+            at = match at.rsplit_once('/') {
+                Some((parent, _)) => parent.to_string(),
+                None => String::new(),
+            };
+        }
+    }
+    let mut hits: Vec<NoteFolderHit> = counts
+        .into_iter()
+        .filter(|(folder, _)| folder.to_lowercase().contains(&needle))
+        .map(|(folder, notes)| NoteFolderHit { folder, notes })
+        .collect();
+    // The folder that holds the others first, then alphabetically, which is the
+    // order the map already built them in.
+    hits.sort_by(|a, b| {
+        depth(&a.folder)
+            .cmp(&depth(&b.folder))
+            .then_with(|| a.folder.cmp(&b.folder))
+    });
+    hits.truncate(limit);
+    Ok(hits)
+}
+
+/// How many folders deep `folder` sits.
+fn depth(folder: &str) -> usize {
+    folder.matches('/').count()
+}
+
+/// The notes one folder holds, the subfolders included.
+///
+/// Attaching a folder attaches these, and it attaches nothing else: the paths
+/// come from the index rather than from a directory walk, and a folder whose
+/// name only begins the way another one does is not under it.
+pub fn note_paths_in_folder_inner(
+    index: &NotesIndexStore,
+    folder: &str,
+    notes_root: &Path,
+) -> Result<Vec<String>, String> {
+    let wanted = folder
+        .trim()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
+    if wanted.is_empty() {
+        return Ok(Vec::new());
+    }
+    let under = format!("{wanted}/");
+    let mut paths: Vec<String> = index
+        .note_paths()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|path| {
+            let at = folder_inside(notes_root, path);
+            at == wanted || at.starts_with(&under)
+        })
+        .collect();
+    paths.sort();
+    Ok(paths)
+}
+
 /// The line the heading `slug` names inside the note at `path`, or `None` when
 /// the note has no such heading.
 ///
@@ -436,4 +532,23 @@ pub fn note_name_candidates(
     limit: Option<usize>,
 ) -> Result<Vec<NoteNameHit>, String> {
     note_name_candidates_inner(&state.notes_index, &query, &state.notes_root(), limit)
+}
+
+/// The folders a query names. See [`note_folder_candidates_inner`].
+#[tauri::command]
+pub fn note_folder_candidates(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<NoteFolderHit>, String> {
+    note_folder_candidates_inner(&state.notes_index, &query, &state.notes_root(), limit)
+}
+
+/// The notes one folder holds. See [`note_paths_in_folder_inner`].
+#[tauri::command]
+pub fn note_paths_in_folder(
+    state: State<'_, AppState>,
+    folder: String,
+) -> Result<Vec<String>, String> {
+    note_paths_in_folder_inner(&state.notes_index, &folder, &state.notes_root())
 }

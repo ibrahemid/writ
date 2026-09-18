@@ -15,11 +15,14 @@ const mocks = vi.hoisted(() => ({
   setDraft: vi.fn(),
   detach: vi.fn(),
   attachByPath: vi.fn(),
+  attachFolder: vi.fn(),
+  detachFolder: vi.fn(),
   addOpenNote: vi.fn(),
   cancelEdit: vi.fn(),
   stop: vi.fn(),
   send: vi.fn(),
   candidates: vi.fn(),
+  folders: vi.fn(),
 }));
 
 vi.mock("../../stores/global/chat", async () => {
@@ -36,6 +39,8 @@ vi.mock("../../stores/global/chat", async () => {
       editing: () => (mocks.editingRead ? mocks.editingRead() : mocks.editing),
       detach: mocks.detach,
       attachByPath: mocks.attachByPath,
+      attachFolder: mocks.attachFolder,
+      detachFolder: mocks.detachFolder,
       addOpenNote: mocks.addOpenNote,
       cancelEdit: mocks.cancelEdit,
       stop: mocks.stop,
@@ -44,11 +49,12 @@ vi.mock("../../stores/global/chat", async () => {
 });
 
 vi.mock("../../stores/global/link", () => ({
-  linkStore: { noteNameCandidates: mocks.candidates },
+  linkStore: { noteNameCandidates: mocks.candidates, noteFolderCandidates: mocks.folders },
 }));
 
 vi.mock("../../commands/chat", () => ({
   byteLabel: (bytes: number) => `${bytes} bytes`,
+  noteCount: (count: number) => (count === 1 ? "1 note" : `${count} notes`),
   sendChatMessage: mocks.send,
 }));
 
@@ -96,11 +102,14 @@ beforeEach(() => {
   mocks.setDraft.mockReset();
   mocks.detach.mockReset();
   mocks.attachByPath.mockReset();
+  mocks.attachFolder.mockReset().mockResolvedValue({ ok: true, notes: 2 });
+  mocks.detachFolder.mockReset();
   mocks.addOpenNote.mockReset().mockResolvedValue({ ok: true, path: "Launch.md" });
   mocks.cancelEdit.mockReset();
   mocks.stop.mockReset();
   mocks.send.mockReset();
   mocks.candidates.mockReset().mockResolvedValue([]);
+  mocks.folders.mockReset().mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -196,15 +205,26 @@ describe("the chip row", () => {
     expect(unsaved.getByText("Save this note first")).toBeTruthy();
   });
 
-  it("names a chip by its folder and keeps the whole key within reach", () => {
+  it("names a chip by the note and keeps its folder within reach", () => {
     vi.useFakeTimers();
     mocks.attachments = [chip("Notes/Ideas/Launch.md")];
     const { container } = mount();
-    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("…/Ideas/Launch.md");
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
     expect(container.querySelector(".chat-chip-remove")?.getAttribute("aria-label")).toBe(
       "Remove Launch.md",
     );
     expect(tipOver(container)).toBe("Notes/Ideas/Launch.md");
+  });
+
+  // The automatic chip reads and removes like every other: the store decides
+  // what a removal means for the tab it came from.
+  it("hands a removed chip to the store, automatic or not", () => {
+    mocks.attachments = [chip("Launch.md", { auto: true })];
+    const { container } = mount();
+
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+
+    expect(mocks.detach).toHaveBeenCalledWith("Launch.md");
   });
 
   it("says a dirty note sends its saved text", () => {
@@ -225,6 +245,52 @@ describe("the chip row", () => {
     // The line names the note by its whole key, since a bare name can belong
     // to a note in another folder, and the reason says only what is wrong.
     expect(container.textContent).toContain("Archive/Gone.md: This note is no longer there.");
+  });
+});
+
+// A folder is one chip carrying the notes it brought. What it carries is what
+// the message carries, so the chip can be asked to list it.
+describe("a folder's chip", () => {
+  it("says what it carries and lists it", () => {
+    mocks.attachments = [
+      chip("Archive/Old.md", { viaFolder: "Archive" }),
+      chip("Archive/2025/Notes.md", { viaFolder: "Archive" }),
+    ];
+    const { container } = mount();
+
+    const folder = container.querySelector(".chat-chip-folder") as HTMLElement;
+    expect(folder.querySelector(".chat-chip-name")?.textContent).toBe("Archive/");
+    expect(folder.textContent).toContain("2 notes");
+    expect(folder.textContent).toContain("20 bytes");
+    const carried = Array.from(folder.querySelectorAll(".chat-chip-notes li"));
+    expect(carried.map((row) => row.textContent)).toEqual([
+      "Old.md10 bytes",
+      "Notes.md10 bytes",
+    ]);
+  });
+
+  it("hands the whole folder to the store when it is removed", () => {
+    mocks.attachments = [chip("Archive/Old.md", { viaFolder: "Archive" })];
+    const { container } = mount();
+
+    fireEvent.click(
+      container.querySelector(".chat-chip-folder .chat-chip-remove") as HTMLElement,
+    );
+
+    expect(mocks.detachFolder).toHaveBeenCalledWith("Archive");
+    expect(mocks.detach).not.toHaveBeenCalled();
+  });
+
+  it("stands beside the chips of the notes a person picked one by one", () => {
+    mocks.attachments = [
+      chip("Launch.md"),
+      chip("Archive/Old.md", { viaFolder: "Archive" }),
+      chip("Archive/2025/Notes.md", { viaFolder: "Archive" }),
+    ];
+    const { container } = mount();
+
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(2);
+    expect(container.querySelectorAll(".chat-chip-folder")).toHaveLength(1);
   });
 });
 
@@ -288,6 +354,84 @@ describe("the mention list", () => {
 
     await waitFor(() => expect(scroll).toHaveBeenCalled());
     expect(seen[seen.length - 1]).toEqual(["Later.md", { block: "nearest" }]);
+  });
+
+  it("offers a folder a query names, and hands the pick to the store", async () => {
+    mocks.folders.mockResolvedValue([{ folder: "Archive", notes: 3 }]);
+    const view = mount();
+    const el = field(view.container);
+    el.value = "see @Archive/";
+    fireEvent.input(el);
+    await waitFor(() => expect(view.container.querySelector(".chat-mention-row")).toBeTruthy());
+
+    const row = view.container.querySelector(".chat-mention-row") as HTMLElement;
+    expect(row.querySelector(".chat-mention-name")?.textContent).toBe("Archive/");
+    expect(row.textContent).toContain("3 notes");
+    expect(mocks.folders).toHaveBeenCalledWith("Archive/", 8);
+
+    fireEvent.mouseDown(row);
+
+    expect(mocks.attachFolder).toHaveBeenCalledWith("Archive");
+    expect(mocks.attachByPath).not.toHaveBeenCalled();
+  });
+
+  it("offers the folders above the notes and takes the active row either way", async () => {
+    mocks.folders.mockResolvedValue([{ folder: "Archive", notes: 3 }]);
+    mocks.candidates.mockResolvedValue([{ path: "/n/Archive/Old.md", name: "Old.md", folder: "Archive" }]);
+    const view = mount();
+    const el = field(view.container);
+    el.value = "see @arch";
+    fireEvent.input(el);
+    await waitFor(() =>
+      expect(view.container.querySelectorAll(".chat-mention-row")).toHaveLength(2),
+    );
+
+    fireEvent.keyDown(el, { key: "ArrowDown" });
+    expect(el.getAttribute("aria-activedescendant")).toBe("chat-mention-1");
+    fireEvent.keyDown(el, { key: "Enter" });
+
+    expect(mocks.attachByPath).toHaveBeenCalledWith("/n/Archive/Old.md");
+    expect(mocks.attachFolder).not.toHaveBeenCalled();
+  });
+
+  it("says why a folder was refused", async () => {
+    mocks.folders.mockResolvedValue([{ folder: "Archive", notes: 30 }]);
+    mocks.attachFolder.mockResolvedValue({
+      ok: false,
+      reason: "Attach at most 20 notes to one conversation.",
+    });
+    const view = mount();
+    const el = field(view.container);
+    el.value = "see @Archive/";
+    fireEvent.input(el);
+    await waitFor(() => expect(view.container.querySelector(".chat-mention-row")).toBeTruthy());
+
+    fireEvent.mouseDown(view.container.querySelector(".chat-mention-row") as HTMLElement);
+
+    await waitFor(() =>
+      expect(view.container.textContent).toContain(
+        "Attach at most 20 notes to one conversation.",
+      ),
+    );
+  });
+
+  it("takes a refusal off the screen when the next word is typed", async () => {
+    mocks.folders.mockResolvedValue([{ folder: "Archive", notes: 30 }]);
+    mocks.attachFolder.mockResolvedValue({ ok: false, reason: "Archive/Big.md is too large." });
+    const view = mount();
+    const el = field(view.container);
+    el.value = "see @Archive/";
+    fireEvent.input(el);
+    await waitFor(() => expect(view.container.querySelector(".chat-mention-row")).toBeTruthy());
+    fireEvent.mouseDown(view.container.querySelector(".chat-mention-row") as HTMLElement);
+    await waitFor(() =>
+      expect(view.container.textContent).toContain("Archive/Big.md is too large."),
+    );
+
+    el.value = "see what";
+    fireEvent.input(el);
+
+    expect(view.container.textContent).not.toContain("Archive/Big.md is too large.");
   });
 
   it("keeps the empty answer out of the list", async () => {

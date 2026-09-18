@@ -17,10 +17,14 @@ export function byteLabel(bytes: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
+/** How many notes, as a chip and the send dialog both say it. */
+export function noteCount(count: number): string {
+  return count === 1 ? "1 note" : `${count} notes`;
+}
+
 /** What the dialog says is being sent, and where. */
 export function sendNotice(host: string, attachments: readonly Attachment[]) {
-  const count = attachments.length;
-  const notes = count === 1 ? "1 note" : `${count} notes`;
+  const notes = noteCount(attachments.length);
   return {
     title: `Send notes to ${host}?`,
     message: `${notes} (${byteLabel(totalBytes(attachments))}) and this message go to ${host} with your API key.`,

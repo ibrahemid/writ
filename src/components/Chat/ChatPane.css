@@ -670,6 +670,55 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A folder's chip. What it carries is on show while the pointer rests on it or
+   the keyboard is inside it, and above the chip, since the chip row sits at the
+   bottom of the column. */
+.chat-chip-folder {
+  position: relative;
+}
+
+.chat-chip-count {
+  flex-shrink: 0;
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.chat-chip-notes {
+  display: none;
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  z-index: var(--writ-z-popover, 40);
+  min-width: 100%;
+  max-width: 260px;
+  margin: 0;
+  padding: var(--writ-space-1) var(--writ-space-2);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  box-shadow: var(--writ-shadow-popover);
+  list-style: none;
+}
+
+.chat-chip-folder:hover .chat-chip-notes,
+.chat-chip-folder:focus-within .chat-chip-notes {
+  display: block;
+}
+
+.chat-chip-notes > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-3);
+  white-space: nowrap;
+}
+
+.chat-chip-note-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .chat-chip-remove {
   display: inline-flex;
   align-items: center;
