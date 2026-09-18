@@ -50,7 +50,7 @@
 .scripts-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--writ-space-2-5);
   padding: 3px 9px;
   border: none;
   border-radius: var(--writ-r-control);

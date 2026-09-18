@@ -13,7 +13,7 @@
 .file-tree-item {
   display: flex;
   align-items: center;
-  padding-right: 10px;
+  padding-right: var(--writ-space-3-5);
   cursor: pointer;
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
@@ -73,7 +73,7 @@
 .file-tree-children::before {
   content: "";
   position: absolute;
-  left: var(--tree-connector-left, 14px);
+  left: var(--tree-connector-left, var(--writ-space-4-5));
   top: 0;
   bottom: var(--writ-space-2);
   width: 1px;

@@ -187,7 +187,7 @@ describe("sidebar rows", () => {
     const row = ruleFor(SIDEBAR_CSS, ".sidebar-row");
     expect(row.get("min-height")).toBe("var(--writ-sidebar-row-fill)");
     expect(row.get("border-radius")).toBe("var(--writ-r-row)");
-    expect(row.get("margin")).toBe("1px 6px");
+    expect(row.get("margin")).toBe("1px var(--writ-space-2-5)");
   });
 
   // Tabbing to a closed note reveals Restore and Close, which sit over the

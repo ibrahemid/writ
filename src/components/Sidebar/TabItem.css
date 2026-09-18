@@ -1,7 +1,7 @@
 .tab-item {
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 var(--writ-space-3-5);
   cursor: pointer;
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
@@ -45,7 +45,7 @@
   font-variant-numeric: tabular-nums;
   font-size: var(--writ-ui-xs);
   line-height: var(--writ-ui-xs-lh);
-  padding-left: 6px;
+  padding-left: var(--writ-space-2-5);
   font-weight: 400;
 }
 

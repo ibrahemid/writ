@@ -21,7 +21,7 @@ describe("sidebar row boxes", () => {
   it("gives a watched-folder row the same margin as every other row", () => {
     const inbox = rule(css("src/components/Sidebar/InboxSection.css"), ".inbox-item");
     expect(rule(css("src/components/Sidebar/Sidebar.css"), ".sidebar-row")).toMatch(
-      /margin:\s*1px 6px/,
+      /margin:\s*1px var\(--writ-space-2-5\)/,
     );
     expect(inbox).not.toMatch(/margin:/);
     expect(inbox).not.toMatch(/width:\s*100%/);
@@ -33,10 +33,10 @@ describe("sidebar row boxes", () => {
       /padding:\s*var\(--writ-space-4\) var\(--writ-space-4\) var\(--writ-space-2\) var\(--writ-space-5\)/,
     );
     expect(sidebar).toMatch(
-      /:root\[data-platform="win"\] \.sidebar-section-title,\s*:root\[data-platform="win"\] \.sidebar-section-toggle\s*\{\s*padding:\s*14px var\(--writ-space-5\) 6px;/,
+      /:root\[data-platform="win"\] \.sidebar-section-title,\s*:root\[data-platform="win"\] \.sidebar-section-toggle\s*\{\s*padding:\s*var\(--writ-space-4-5\) var\(--writ-space-5\) var\(--writ-space-2-5\);/,
     );
     expect(sidebar).toMatch(
-      /:root\[data-platform="linux"\] \.sidebar-section-title,\s*:root\[data-platform="linux"\] \.sidebar-section-toggle\s*\{\s*padding:\s*10px 14px var\(--writ-space-2\) var\(--writ-space-5\);/,
+      /:root\[data-platform="linux"\] \.sidebar-section-title,\s*:root\[data-platform="linux"\] \.sidebar-section-toggle\s*\{\s*padding:\s*var\(--writ-space-3-5\) var\(--writ-space-4-5\) var\(--writ-space-2\) var\(--writ-space-5\);/,
     );
   });
 
@@ -46,10 +46,10 @@ describe("sidebar row boxes", () => {
       /padding:\s*var\(--writ-space-4\) var\(--writ-space-4\) var\(--writ-space-2\) 34px/,
     );
     expect(rule(history, ':root[data-platform="win"] .history-group-title')).toMatch(
-      /padding:\s*14px var\(--writ-space-5\) 6px 34px/,
+      /padding:\s*var\(--writ-space-4-5\) var\(--writ-space-5\) var\(--writ-space-2-5\) 34px/,
     );
     expect(rule(history, ':root[data-platform="linux"] .history-group-title')).toMatch(
-      /padding:\s*10px 14px var\(--writ-space-2\) 34px/,
+      /padding:\s*var\(--writ-space-3-5\) var\(--writ-space-4-5\) var\(--writ-space-2\) 34px/,
     );
   });
 
@@ -60,7 +60,7 @@ describe("sidebar row boxes", () => {
       /padding-left:\s*20px/,
     );
     expect(rule(css("src/components/Sidebar/InboxSection.css"), ".inbox-item")).toMatch(
-      /padding:\s*0 10px 0 30px/,
+      /padding:\s*0 var\(--writ-space-3-5\) 0 30px/,
     );
   });
 

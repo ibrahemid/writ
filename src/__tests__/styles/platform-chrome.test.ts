@@ -100,7 +100,7 @@ describe("GNOME header bar", () => {
     const bar = declarations(TITLEBAR, ':root[data-platform="linux"] .headerbar');
     expect(bar.get("height")).toBe("47px");
     expect(bar.get("grid-template-columns")).toBe("1fr auto 1fr");
-    expect(bar.get("padding")).toBe("6px 7px 7px");
+    expect(bar.get("padding")).toBe("var(--writ-space-2-5) 7px 7px");
     expect(bar.get("background")).toBe("var(--writ-lin-headerbar-bg)");
   });
 

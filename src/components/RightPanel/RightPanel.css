@@ -93,7 +93,7 @@
 .right-panel-section-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--writ-space-2-5);
   width: 100%;
   padding: var(--writ-space-4) var(--writ-space-4) var(--writ-space-2);
   border: none;
@@ -250,7 +250,7 @@
 }
 
 :root[data-platform="win"] .right-panel-section-toggle {
-  padding: 14px var(--writ-space-5) 6px;
+  padding: var(--writ-space-4-5) var(--writ-space-5) var(--writ-space-2-5);
 }
 
 :root[data-platform="linux"] .right-panel {
@@ -259,11 +259,11 @@
 }
 
 :root[data-platform="linux"] .right-panel-scroll {
-  padding-top: 6px;
+  padding-top: var(--writ-space-2-5);
 }
 
 :root[data-platform="linux"] .right-panel-section-toggle {
-  padding: 10px 14px var(--writ-space-2);
+  padding: var(--writ-space-3-5) var(--writ-space-4-5) var(--writ-space-2);
   font-weight: 700;
   color: var(--writ-fg);
   opacity: 0.55;

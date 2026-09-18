@@ -207,7 +207,7 @@ describe("tab appearance", () => {
     expect(tab.declarations.get("height")).toBeUndefined();
     expect(tab.declarations.get("min-width")).toBe("100px");
     expect(tab.declarations.get("max-width")).toBe("200px");
-    expect(tab.declarations.get("padding")).toBe("0 10px");
+    expect(tab.declarations.get("padding")).toBe("0 var(--writ-space-3-5)");
     expect(tab.declarations.get("border")).toBe("0");
     expect(tab.declarations.get("border-radius")).toBe(
       "var(--writ-r-tab) var(--writ-r-tab) 0 0",

@@ -26,7 +26,7 @@
   /* A block-level grid fills its anchor minus the margins, the way .tab-item
      does. A width here would add to them and push the row past the scroller. */
   width: auto;
-  padding: 5px 10px;
+  padding: 5px var(--writ-space-3-5);
   border: none;
   background: transparent;
   text-align: left;
@@ -83,7 +83,7 @@
 
 .search-footer {
   flex-shrink: 0;
-  padding: 6px var(--writ-space-4);
+  padding: var(--writ-space-2-5) var(--writ-space-4);
   border-top: 1px solid var(--writ-border-soft);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);

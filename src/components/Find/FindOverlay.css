@@ -1,12 +1,12 @@
 .find-overlay {
   position: absolute;
-  top: 10px;
+  top: var(--writ-space-3-5);
   right: 18px;
   z-index: var(--writ-z-popover);
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);
-  padding: 6px;
+  padding: var(--writ-space-2-5);
   min-width: 340px;
   max-width: min(520px, calc(100% - 36px));
   background: var(--writ-bg-raised);

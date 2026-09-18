@@ -136,8 +136,8 @@
 /* Status chip — bottom-right, discreet, theme-aware. */
 .preview-chip {
   position: absolute;
-  right: 10px;
-  bottom: 10px;
+  right: var(--writ-space-3-5);
+  bottom: var(--writ-space-3-5);
   display: inline-flex;
   align-items: center;
   gap: var(--writ-space-3);

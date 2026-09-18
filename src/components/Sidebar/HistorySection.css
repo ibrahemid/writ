@@ -13,11 +13,11 @@
 }
 
 :root[data-platform="win"] .history-group-title {
-  padding: 14px var(--writ-space-5) 6px 34px;
+  padding: var(--writ-space-4-5) var(--writ-space-5) var(--writ-space-2-5) 34px;
 }
 
 :root[data-platform="linux"] .history-group-title {
-  padding: 10px 14px var(--writ-space-2) 34px;
+  padding: var(--writ-space-3-5) var(--writ-space-4-5) var(--writ-space-2) 34px;
 }
 
 /* A closed note has no caret, but its icon and name keep the tree's columns:

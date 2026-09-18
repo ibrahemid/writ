@@ -21,16 +21,16 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  padding-bottom: 6px;
+  padding-bottom: var(--writ-space-2-5);
 }
 
 .palette-search {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--writ-space-3-5);
   min-height: 40px;
-  padding: 0 14px;
+  padding: 0 var(--writ-space-4-5);
   border-bottom: 1px solid var(--writ-border-soft);
 }
 
@@ -64,11 +64,11 @@
 .palette-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--writ-space-3-5);
   width: calc(100% - 12px);
   min-height: 32px;
-  margin: 0 6px;
-  padding: 0 10px;
+  margin: 0 var(--writ-space-2-5);
+  padding: 0 var(--writ-space-3-5);
   text-align: left;
   color: var(--writ-fg);
   font-size: var(--writ-ui-md);
@@ -142,7 +142,7 @@
 }
 
 .palette-section-label {
-  padding: 10px 14px var(--writ-space-2);
+  padding: var(--writ-space-3-5) var(--writ-space-4-5) var(--writ-space-2);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   letter-spacing: var(--writ-ui-tracking);
@@ -177,7 +177,7 @@
 
 .palette-notice {
   flex: 0 0 auto;
-  padding: var(--writ-space-2) 14px;
+  padding: var(--writ-space-2) var(--writ-space-4-5);
   border-top: 1px solid var(--writ-border-soft);
   font-size: var(--writ-ui-xs);
   color: var(--writ-fg-faint);

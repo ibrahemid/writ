@@ -253,7 +253,7 @@ const TAGS_CSS = readFileSync(resolve(process.cwd(), "src/components/Sidebar/Tag
 describe("the tag row on the design baseline", () => {
   it("takes the shared row box, with the count muted and small", () => {
     expect(TAGS_CSS).not.toMatch(/\.tags-row\s*\{[^}]*[\s;](height|margin|border-radius):/);
-    expect(TAGS_CSS).toMatch(/\.tags-row\s*\{[^}]*padding-right:\s*10px/);
+    expect(TAGS_CSS).toMatch(/\.tags-row\s*\{[^}]*padding-right:\s*var\(--writ-space-3-5\)/);
     expect(TAGS_CSS).toMatch(
       /\.tags-row-count\s*\{[^}]*color:\s*var\(--writ-fg-muted\)[^}]*font-size:\s*var\(--writ-ui-sm\)/,
     );

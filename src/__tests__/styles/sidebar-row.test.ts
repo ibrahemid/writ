@@ -30,7 +30,7 @@ describe("the shared sidebar row", () => {
   it("carries the pitch, the margin and the radius on one class", () => {
     const base = rule(SIDEBAR, ".sidebar-row");
     expect(base).toMatch(/min-height:\s*var\(--writ-sidebar-row-fill\)/);
-    expect(base).toMatch(/margin:\s*1px 6px/);
+    expect(base).toMatch(/margin:\s*1px var\(--writ-space-2-5\)/);
     expect(base).toMatch(/border-radius:\s*var\(--writ-r-row\)/);
     expect(base).toMatch(/position:\s*relative/);
   });
@@ -40,8 +40,8 @@ describe("the shared sidebar row", () => {
       /margin:\s*var\(--writ-space-1\) var\(--writ-space-2\)/,
     );
     const linux = rule(SIDEBAR, ':root[data-platform="linux"] .sidebar-row');
-    expect(linux).toMatch(/margin:\s*0 6px var\(--writ-space-1\)/);
-    expect(linux).toMatch(/column-gap:\s*10px/);
+    expect(linux).toMatch(/margin:\s*0 var\(--writ-space-2-5\) var\(--writ-space-1\)/);
+    expect(linux).toMatch(/column-gap:\s*var\(--writ-space-3-5\)/);
   });
 
   it("is worn by every list row in the sidebar", () => {

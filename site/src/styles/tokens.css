@@ -70,6 +70,9 @@
   --writ-space-5: 16px;
   --writ-space-6: 24px;
   --writ-space-7: 32px;
+  --writ-space-2-5: 6px;
+  --writ-space-3-5: 10px;
+  --writ-space-4-5: 14px;
   --writ-ease: cubic-bezier(.33, 1, .68, 1);
   --writ-ease-linear: linear;
   --writ-motion-fast: 120ms;

@@ -14,9 +14,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--writ-space-4-5);
   max-width: min(440px, calc(100vw - 32px));
-  padding: 10px 14px;
+  padding: var(--writ-space-3-5) var(--writ-space-4-5);
   background: var(--writ-bg-selected);
   border: 1px solid var(--writ-border);
   border-radius: var(--writ-r-card);
@@ -30,7 +30,7 @@
   position: absolute;
   top: var(--writ-space-3);
   bottom: var(--writ-space-3);
-  left: 6px;
+  left: var(--writ-space-2-5);
   width: 3px;
   border-radius: var(--writ-r-pill);
   background: var(--writ-accent);
@@ -59,7 +59,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--writ-space-2-5);
 }
 
 .update-banner-track {

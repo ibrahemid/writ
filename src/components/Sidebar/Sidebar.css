@@ -83,7 +83,7 @@
 .sidebar-row {
   position: relative;
   min-height: var(--writ-sidebar-row-fill);
-  margin: 1px 6px;
+  margin: 1px var(--writ-space-2-5);
   column-gap: var(--writ-space-3);
   border-radius: var(--writ-r-row);
 }
@@ -93,8 +93,8 @@
 }
 
 :root[data-platform="linux"] .sidebar-row {
-  margin: 0 6px var(--writ-space-1);
-  column-gap: 10px;
+  margin: 0 var(--writ-space-2-5) var(--writ-space-1);
+  column-gap: var(--writ-space-3-5);
 }
 
 /* Fluent marks the selected row with a bar on its leading edge; macOS and
@@ -127,7 +127,7 @@
 .sidebar-section-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--writ-space-2-5);
   padding: var(--writ-space-4) var(--writ-space-4) var(--writ-space-2);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
@@ -166,7 +166,7 @@
 .sidebar-section-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--writ-space-2-5);
   width: 100%;
   padding: var(--writ-space-4) var(--writ-space-4) var(--writ-space-2) var(--writ-space-5);
   border: none;
@@ -265,11 +265,11 @@
 
 :root[data-platform="win"] .sidebar-section-title,
 :root[data-platform="win"] .sidebar-section-toggle {
-  padding: 14px var(--writ-space-5) 6px;
+  padding: var(--writ-space-4-5) var(--writ-space-5) var(--writ-space-2-5);
 }
 
 :root[data-platform="win"] .sidebar-section-action-slot {
-  padding: 14px var(--writ-space-5) 6px 0;
+  padding: var(--writ-space-4-5) var(--writ-space-5) var(--writ-space-2-5) 0;
 }
 
 :root[data-platform="linux"] .sidebar {
@@ -278,12 +278,12 @@
 }
 
 :root[data-platform="linux"] .sidebar-scroll {
-  padding-top: 6px;
+  padding-top: var(--writ-space-2-5);
 }
 
 :root[data-platform="linux"] .sidebar-section-title,
 :root[data-platform="linux"] .sidebar-section-toggle {
-  padding: 10px 14px var(--writ-space-2) var(--writ-space-5);
+  padding: var(--writ-space-3-5) var(--writ-space-4-5) var(--writ-space-2) var(--writ-space-5);
   font-weight: 700;
   color: var(--writ-fg);
   opacity: 0.55;
@@ -294,5 +294,5 @@
 }
 
 :root[data-platform="linux"] .sidebar-section-action-slot {
-  padding: 10px 14px var(--writ-space-2) 0;
+  padding: var(--writ-space-3-5) var(--writ-space-4-5) var(--writ-space-2) 0;
 }

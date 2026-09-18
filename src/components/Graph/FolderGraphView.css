@@ -50,7 +50,7 @@
   pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--writ-space-3-5);
   width: min(260px, 100%);
   height: 40px;
   padding: 0 var(--writ-space-4);

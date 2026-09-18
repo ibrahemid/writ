@@ -25,7 +25,7 @@
   position: absolute;
   top: var(--writ-space-3);
   bottom: var(--writ-space-3);
-  left: 6px;
+  left: var(--writ-space-2-5);
   width: 3px;
   border-radius: var(--writ-r-pill);
   background: var(--writ-accent);

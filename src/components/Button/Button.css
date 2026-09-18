@@ -2,7 +2,7 @@
   min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--writ-space-2-5);
   padding: 0 var(--writ-space-4);
   border: 0;
   border-radius: var(--writ-r-control);

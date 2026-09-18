@@ -3,10 +3,11 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 // The spacing ramp is a token set, so a padding of 8px written as a literal is
-// a fork of --writ-space-3 that no theme can move. Values off the ramp
-// (6/10/14px and the rest) are left alone: they are a pending product call.
-// A px inside calc() is not bare — the ramp cannot be substituted there
-// without rewriting the expression — so calc() spans are cut before the scan.
+// a fork of --writ-space-3 that no theme can move. 6, 10 and 14px sit between
+// the steps and are the half-steps --writ-space-2-5, -3-5 and -4-5, so they are
+// read from the ramp too. A px inside calc() is not bare — the ramp cannot be
+// substituted there without rewriting the expression — so calc() spans are cut
+// before the scan.
 
 const REPO_ROOT = process.cwd();
 const COMPONENTS = resolve(REPO_ROOT, "src/components");
@@ -15,8 +16,9 @@ const COMPONENTS = resolve(REPO_ROOT, "src/components");
 export const SPACING_PROPERTY =
   /^(?:(?:padding|margin)(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?|(?:row-|column-)?gap|inset(?:-(?:inline|block)(?:-(?:start|end))?)?|top|right|bottom|left)$/;
 
-/** The ramp: 2, 4, 8, 12, 16, 24, 32px are --writ-space-1 … -7. */
-export const ON_RAMP_LITERAL = /(?<![\w.-])(?:2|4|8|12|16|24|32)px(?![\w-])/;
+/** The ramp: 2, 4, 8, 12, 16, 24, 32px are --writ-space-1 … -7, and 6, 10, 14px
+ * are the half-steps between the first five. */
+export const ON_RAMP_LITERAL = /(?<![\w.-])(?:2|4|6|8|10|12|14|16|24|32)px(?![\w-])/;
 
 function stylesheets(dir: string, found: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

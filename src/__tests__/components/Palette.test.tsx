@@ -145,8 +145,8 @@ describe("the palette sheet", () => {
     // A floor, not a fixed height: the row reads --writ-ui-lg, so at the top of
     // the interface text range the line box is taller than the baseline metric.
     expect(search.declarations.get("min-height")).toBe("40px");
-    expect(search.declarations.get("gap")).toBe("10px");
-    expect(search.declarations.get("padding")).toBe("0 14px");
+    expect(search.declarations.get("gap")).toBe("var(--writ-space-3-5)");
+    expect(search.declarations.get("padding")).toBe("0 var(--writ-space-4-5)");
     const input = ruleFor(".palette-input");
     expect(input.declarations.get("font-size")).toBe("var(--writ-ui-lg)");
     expect(input.declarations.get("letter-spacing")).toBe("var(--writ-ui-tracking)");
@@ -156,9 +156,9 @@ describe("the palette sheet", () => {
   it("rows are 32px with a 6px radius", () => {
     const item = ruleFor(".palette-item");
     expect(item.declarations.get("min-height")).toBe("32px");
-    expect(item.declarations.get("margin")).toBe("0 6px");
-    expect(item.declarations.get("padding")).toBe("0 10px");
-    expect(item.declarations.get("gap")).toBe("10px");
+    expect(item.declarations.get("margin")).toBe("0 var(--writ-space-2-5)");
+    expect(item.declarations.get("padding")).toBe("0 var(--writ-space-3-5)");
+    expect(item.declarations.get("gap")).toBe("var(--writ-space-3-5)");
     expect(item.declarations.get("border-radius")).toBe("var(--writ-r-row)");
     expect(item.declarations.get("font-size")).toBe("var(--writ-ui-md)");
   });

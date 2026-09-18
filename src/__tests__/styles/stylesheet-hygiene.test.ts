@@ -49,7 +49,7 @@ describe("authored stylesheets", () => {
       /:root\[data-platform="win"\] \.right-panel-scroll\s*\{[^}]*padding-top:\s*var\(--writ-space-2\)/,
     );
     expect(css).toMatch(
-      /:root\[data-platform="linux"\] \.right-panel-scroll\s*\{[^}]*padding-top:\s*6px/,
+      /:root\[data-platform="linux"\] \.right-panel-scroll\s*\{[^}]*padding-top:\s*var\(--writ-space-2-5\)/,
     );
     expect(css.match(/\.right-panel-empty\s*\{/g)).toHaveLength(1);
   });
