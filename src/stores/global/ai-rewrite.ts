@@ -9,12 +9,12 @@ import {
   aiSetApiKey,
   aiClearApiKey,
   aiEndpointState,
-  aiConsentHost,
   type AiAction,
   type AiKeyState,
   type AiEndpointState,
 } from "../../services/tauri";
 import { rewriteActionLabel } from "../../commands/rewrite-actions";
+import { aiConnectionStore } from "./ai-connection";
 import type { WritEvent } from "../../types/events";
 
 export type { AiKeyState, AiEndpointState };
@@ -218,8 +218,10 @@ function createAiRewriteStore() {
     clearApiKey: (provider: string): Promise<AiKeyState> => aiClearApiKey(provider),
     /** Where the configured endpoint points and what it still needs. */
     endpointState: (): Promise<AiEndpointState> => aiEndpointState(),
-    /** Records the send notice for the configured host, host-side. */
-    consentHost: (): Promise<AiEndpointState> => aiConsentHost(),
+    /** Records the send notice for the configured host, host-side, through the
+     * connection both features share: one consent, one re-read of the config
+     * it was written to. */
+    consentHost: (): Promise<AiEndpointState> => aiConnectionStore.consentHost(),
   };
 }
 

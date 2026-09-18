@@ -765,6 +765,30 @@ impl Default for WritConfig {
     }
 }
 
+impl WritConfig {
+    /// Carries the fields only Rust writes onto a copy that may predate them.
+    ///
+    /// The frontend holds the whole config and sends the whole of it back on
+    /// any change, so a field a command wrote between that copy's last read and
+    /// its next write would be replaced by the value it held before: a
+    /// recorded consent, an approved program, a word added to the dictionary,
+    /// or a folder picked through a dialog. Those are listed here rather than
+    /// trusted to arrive, so the write of a window size cannot undo one.
+    ///
+    /// Named field by field on purpose. `spelling.enabled`, `spelling.dialect`,
+    /// `inbox.focus`, `mcp.enabled`, `first_run.hint_dismissed` and the
+    /// connection's provider and model are edited in the settings panel, so
+    /// carrying their sections whole would make those controls dead.
+    pub fn carry_rust_owned(&mut self, live: &WritConfig) {
+        self.ai.consented_hosts = live.ai.consented_hosts.clone();
+        self.mcp.approved_clients = live.mcp.approved_clients.clone();
+        self.spelling.ignored_words = live.spelling.ignored_words.clone();
+        self.workspace.root = live.workspace.root.clone();
+        self.notes.root = live.notes.root.clone();
+        self.inbox.path = live.inbox.path.clone();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

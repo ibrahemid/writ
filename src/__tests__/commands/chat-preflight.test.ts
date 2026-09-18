@@ -56,8 +56,10 @@ vi.mock("../../stores/global/config", () => ({
   configStore: { config: mocks.config },
 }));
 
+// Consent goes through the connection both features share: the command is
+// called once and the config it wrote is re-read there.
 vi.mock("../../stores/global/ai-connection", () => ({
-  aiConnectionStore: { catalog: mocks.catalog },
+  aiConnectionStore: { catalog: mocks.catalog, consentHost: mocks.consentHost },
 }));
 
 vi.mock("../../services/tauri", () => ({

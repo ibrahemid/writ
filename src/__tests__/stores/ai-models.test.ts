@@ -83,12 +83,13 @@ describe("model picker options", () => {
 });
 
 describe("resolveAutoModel", () => {
-  it("fills an empty model from the live list first, else curated", () => {
+  it("fills an empty model from the live list, and from nothing else", () => {
     expect(resolveAutoModel({ provider: "ollama", model: "", live: ["phi4"], userSelected: false })).toBe("phi4");
-    expect(resolveAutoModel({ provider: "ollama", model: "", live: [], userSelected: false })).toBe("qwen3:4b");
-    expect(resolveAutoModel({ provider: "groq", model: "", live: [], userSelected: false })).toBe(
-      "llama-3.3-70b-versatile",
-    );
+    // A suggestion is not the account's inventory: the row a person picked is
+    // left without a model until its own list answers, rather than filled with
+    // an id the provider may have retired.
+    expect(resolveAutoModel({ provider: "ollama", model: "", live: [], userSelected: false })).toBeNull();
+    expect(resolveAutoModel({ provider: "groq", model: "", live: [], userSelected: false })).toBeNull();
   });
 
   it("keeps a valid model", () => {

@@ -11,6 +11,7 @@ interface AiFixture {
 
 const hoisted = vi.hoisted(() => ({
   aiCheckConnection: vi.fn(),
+  aiConsentHost: vi.fn(),
   aiProviders: vi.fn(),
   aiListModels: vi.fn(),
   aiSetProvider: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("../../services/tauri", () => ({
   aiProviders: (...a: unknown[]) => hoisted.aiProviders(...a),
   aiListModels: (...a: unknown[]) => hoisted.aiListModels(...a),
   aiSetProvider: (...a: unknown[]) => hoisted.aiSetProvider(...a),
+  aiConsentHost: (...a: unknown[]) => hoisted.aiConsentHost(...a),
 }));
 
 vi.mock("../../stores/global/config", () => ({
@@ -98,7 +100,9 @@ describe("ai connection store", () => {
     hoisted.aiCheckConnection.mockReset();
     hoisted.aiListModels.mockReset();
     hoisted.aiSetProvider.mockReset();
-    hoisted.ai.model = "llama3";
+    hoisted.aiConsentHost.mockReset();
+    hoisted.configLoad.mockReset();
+    hoisted.ai = { ...hoisted.ai, model: "llama3", consented_hosts: [] };
     await setProvider("ollama");
     aiConnectionStore.reset();
   });
@@ -159,6 +163,53 @@ describe("ai connection store", () => {
     await setProvider("groq");
     expect(hoisted.aiListModels.mock.calls.length).toBeGreaterThan(before);
     expect(aiConnectionStore.catalog()?.provider).toBe("groq");
+  });
+
+  // The defect an operator hit: the consent was recorded in Rust and the
+  // frontend kept a copy that predated it, so the next settings write emptied
+  // `consented_hosts` on disk and the pane still said the host was not
+  // allowed.
+  it("re-reads the config after a consent, which brings the live list", async () => {
+    await setProvider("deepseek");
+    hoisted.aiConsentHost.mockResolvedValue({
+      host: "api.deepseek.com",
+      host_port: "api.deepseek.com",
+      is_hosted: true,
+      is_allowed: true,
+      is_consented: true,
+      key_state: { is_set: true, memory_only: false },
+      provider: "deepseek",
+    });
+    // `configStore.load` re-reads what Rust wrote, which is the consent.
+    hoisted.configLoad.mockImplementation(async () => {
+      hoisted.ai = { ...hoisted.ai, consented_hosts: ["api.deepseek.com"] };
+      setConfigValue({ ai: hoisted.ai });
+      return true;
+    });
+    // The list waits for consent, so the first read answers the refusal and
+    // the second answers the provider's own ids.
+    hoisted.aiListModels.mockResolvedValue({
+      provider: "deepseek",
+      models: ["deepseek-flash", "deepseek-v4-pro"],
+      source: "curated",
+      error: { kind: "consent_required" },
+    });
+    aiConnectionStore.watch();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const before = hoisted.aiListModels.mock.calls.length;
+
+    hoisted.aiListModels.mockResolvedValue(
+      catalog("deepseek", ["deepseek-flash", "deepseek-v4-pro"]),
+    );
+    const state = await aiConnectionStore.consentHost();
+
+    expect(state.is_consented).toBe(true);
+    expect(hoisted.configLoad).toHaveBeenCalled();
+    expect(hoisted.ai.consented_hosts).toEqual(["api.deepseek.com"]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(hoisted.aiListModels.mock.calls.length).toBeGreaterThan(before);
+    expect(aiConnectionStore.catalog()?.source).toBe("live");
+    expect(aiConnectionStore.catalog()?.models).toEqual(["deepseek-flash", "deepseek-v4-pro"]);
   });
 
   it("debounces scheduled checks into one call", async () => {

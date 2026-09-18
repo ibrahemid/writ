@@ -458,6 +458,43 @@ would have explained it was discarded. The following amend sections 1, 3 and 9 o
   and the apply itself records the new disk state and tells an open note it changed, so the
   editor does not read the write back as an external edit.
 
+### 12. The first model comes from the live list, and a field Rust owns survives a stale write, amended 2026-09-18
+
+A second operator run found the table's ids had gone stale and a recorded consent had not
+survived a quit. DeepSeek's list holds `deepseek-flash` and `deepseek-v4-pro`; `deepseek-chat`,
+which section 2's table named as its default, is gone from it, though the endpoint still answers
+a request for `deepseek-reasoner` as an alias. The consent was accepted, written under
+`consented_hosts` and found empty in `config.toml` after the app closed. The following amend
+sections 1, 3 and 7.
+
+- **A curated id is never written to the file.** `writ_core::ai::models::seed_model(provider,
+  catalog)` answers the first id of a list the provider itself answered, and nothing otherwise.
+  `ai_set_provider` seeds from a list already read for that row, so picking a provider writes no
+  model of its own, and `ai_list_models` writes the first model when the connection has none. The
+  table's `curated_models` and `default_model` become display values: they fill the picker while
+  the list cannot be read and every row is marked "suggested" there. An empty model was already a
+  state both surfaces hold, and it is honest where a retired id is not. DeepSeek's row carries the
+  two ids read on 2026-09-18; the other hosted rows were written for 0.6 and have not been read
+  against a live list, which this rule makes harmless rather than urgent.
+
+- **The fields only Rust writes survive a frontend write.** The frontend holds the whole config
+  and sends the whole of it on any change, so a consent, an approved program, a word added to the
+  dictionary or a folder picked through a dialog could be undone by the next window resize.
+  `WritConfig::carry_rust_owned` names those fields — `ai.consented_hosts`,
+  `mcp.approved_clients`, `spelling.ignored_words`, `workspace.root`, `notes.root`,
+  `inbox.path` — and `update_config` carries them from the live value onto the write before
+  anything reaches disk. They are named one by one: `spelling.enabled`, `spelling.dialect`,
+  `inbox.focus`, `mcp.enabled`, `first_run.hint_dismissed` and the connection's provider and model
+  are edited in the settings panel, and carrying their sections whole would make those controls
+  dead.
+
+- **A consent is announced, and the list follows it.** `ai_consent_host` and the seed write emit
+  `config:changed` for `ai`, because `persist_config` records its own write in the watcher's
+  ignore set and the change never returns as external. The connection store records consent
+  through `aiConnectionStore.consentHost`, which re-reads the config after the command answers, so
+  the model list is read as soon as the host is allowed and the pane shows the provider's own rows
+  without a relaunch.
+
 ## Consequences
 
 **Callers.** `AiConfig` changes shape; every reader of `ai.preset`, `ai.enabled`, `ai.chat.provider`

@@ -30,8 +30,8 @@ use futures_util::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use writ_core::ai::models::{
-    filter_openai_ids, parse_anthropic_page, parse_model_list, sort_ids, CatalogSource, ListFamily,
-    ModelCatalog, ModelListError,
+    filter_openai_ids, parse_anthropic_page, parse_model_list, seed_model, sort_ids, CatalogSource,
+    ListFamily, ModelCatalog, ModelListError,
 };
 use writ_core::ai::providers::{self, ProviderGroup, ProviderInfo};
 use writ_core::chat::{self, Provider};
@@ -609,6 +609,7 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
             return Err(reason);
         }
         config = updated;
+        announce_ai_config(&app);
     }
 
     let key_state = {
@@ -620,20 +621,64 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
     Ok(endpoint_state_from(&config.ai, key_state))
 }
 
-/// The model a provider starts from: its own default, else the first of its
-/// suggestions, else nothing.
+/// The model a provider starts from: the first id of the list it answered this
+/// session, and nothing when no list has been read for it yet.
 ///
-/// The local rows name no default because their list is whatever the runtime
-/// has pulled; the suggestion is what keeps the picker from opening empty.
-fn seed_model_for(provider: &str) -> String {
-    match providers::provider(provider) {
-        Some(row) if !row.default_model.is_empty() => row.default_model.to_string(),
-        Some(row) => row
-            .curated_models
-            .first()
-            .map(|id| id.to_string())
-            .unwrap_or_default(),
-        None => String::new(),
+/// The rule lives in `writ_core::ai::models::seed_model`; this reads the
+/// catalog held for the provider and applies it. Picking a row is not a model
+/// decision, so nothing is guessed from the table: the list arriving is what
+/// writes the first model ([`seed_from_catalog`]).
+fn seed_model_for(app: &AppHandle, provider: &str) -> String {
+    let held = app.state::<AiState>().live_catalog(provider);
+    seed_model(provider, held.as_ref())
+}
+
+/// Writes the first model of a list the provider answered, when the connection
+/// has none.
+///
+/// First use of a provider: the row is chosen before anything is known about
+/// what it serves, so the model is written when its own list arrives rather
+/// than guessed from the table. A model already in the file is left alone, a
+/// list that could not be read writes nothing, and a list that names another
+/// provider is ignored — the connection may have moved while it was in flight.
+fn seed_from_catalog(app: &AppHandle, catalog: &ModelCatalog) {
+    let seed = seed_model(&catalog.provider, Some(catalog));
+    if seed.is_empty() {
+        return;
+    }
+    let state = app.state::<AppState>();
+    let (updated, previous) = {
+        let mut guard = recover_poison(state.config.lock(), "commands::ai::seed_from_catalog");
+        if guard.ai.provider != catalog.provider || !guard.ai.model.trim().is_empty() {
+            return;
+        }
+        let previous = guard.ai.model.clone();
+        guard.ai.model = seed;
+        (guard.clone(), previous)
+    };
+    if let Err(reason) = super::config::persist_config(&state, &updated) {
+        let mut guard = recover_poison(state.config.lock(), "commands::ai::seed_from_catalog");
+        guard.ai.model = previous;
+        tracing::warn!(error = %reason, "the first model could not be saved");
+        return;
+    }
+    announce_ai_config(app);
+}
+
+/// Tells the frontend the `[ai]` section changed.
+///
+/// `persist_config` records its own write in the watcher's ignore set, so the
+/// file change never returns as external: without this the copy the frontend
+/// holds keeps the value it read before, and its next settings write sends that
+/// copy whole and undoes what was just written.
+fn announce_ai_config(app: &AppHandle) {
+    if let Err(error) = emit_event(
+        app,
+        WritFrontendEvent::ConfigChanged {
+            keys: vec!["ai".to_string()],
+        },
+    ) {
+        tracing::warn!(error = %error, "failed to emit config event");
     }
 }
 
@@ -648,7 +693,7 @@ pub fn ai_set_provider(app: AppHandle, provider: String) -> Result<AiConfig, Str
         return Err("That provider is not one this version knows.".to_string());
     }
     let state = app.state::<AppState>();
-    let seed = seed_model_for(&provider);
+    let seed = seed_model_for(&app, &provider);
 
     // Read, change and clone under one lock, so a settings write landing
     // between a read and a write is not overwritten with a stale copy.
@@ -1405,6 +1450,7 @@ pub async fn ai_list_models(app: AppHandle) -> ModelCatalog {
 
     let catalog = read_catalog(&app, &cfg).await;
     app.state::<AiState>().remember_catalog(catalog.clone());
+    seed_from_catalog(&app, &catalog);
     catalog
 }
 
@@ -2869,7 +2915,7 @@ mod tests {
         let failed = catalog_for("deepseek", Err(ModelListError::Unauthorized));
         assert_eq!(failed.provider, "deepseek");
         assert_eq!(failed.source, CatalogSource::Curated);
-        assert_eq!(failed.models, ["deepseek-chat", "deepseek-reasoner"]);
+        assert_eq!(failed.models, ["deepseek-flash", "deepseek-v4-pro"]);
         assert_eq!(failed.error, Some(ModelListError::Unauthorized));
 
         // What the session holds is keyed by the provider it was read for, so

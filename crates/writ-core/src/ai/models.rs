@@ -166,6 +166,28 @@ impl ModelCatalog {
     }
 }
 
+/// The model a provider starts from: the first id its own list answered, and
+/// nothing otherwise.
+///
+/// A curated id is never seeded. The table's suggestions are offered as
+/// suggestions where the picker names them, but a value written to
+/// `config.toml` is the value a send carries, and only the provider's own list
+/// is the account's inventory: DeepSeek stopped serving `deepseek-chat` while
+/// the table still named it, so a seeded suggestion is a send that fails for a
+/// reason nobody chose. An empty model is a state both surfaces already hold:
+/// nothing is sent and each one asks for a model.
+///
+/// The list counts only while it names this provider, so an answer that
+/// arrives after a provider change never seeds the row that replaced it.
+pub fn seed_model(provider: &str, catalog: Option<&ModelCatalog>) -> String {
+    match catalog {
+        Some(held) if held.provider == provider && held.source == CatalogSource::Live => {
+            held.models.first().cloned().unwrap_or_default()
+        }
+        _ => String::new(),
+    }
+}
+
 /// One page of Anthropic's model list, with the cursor for the next one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnthropicPage {
@@ -554,7 +576,7 @@ mod catalog_tests {
         let catalog = ModelCatalog::fallback("deepseek", ModelListError::Unauthorized);
         assert_eq!(catalog.provider, "deepseek");
         assert_eq!(catalog.source, CatalogSource::Curated);
-        assert_eq!(catalog.models, ["deepseek-chat", "deepseek-reasoner"]);
+        assert_eq!(catalog.models, ["deepseek-flash", "deepseek-v4-pro"]);
         assert_eq!(catalog.error, Some(ModelListError::Unauthorized));
 
         // A row with nothing to suggest says so rather than offering an empty
@@ -567,7 +589,7 @@ mod catalog_tests {
     #[test]
     fn only_a_live_list_can_refuse_a_model() {
         let live = ModelCatalog::live("ollama", vec!["qwen3:4b".to_string()]);
-        assert!(live.refuses("deepseek-chat"));
+        assert!(live.refuses("deepseek-flash"));
         assert!(!live.refuses("qwen3:4b"));
 
         // Suggestions are not the account's inventory, so they decide nothing.
@@ -589,5 +611,41 @@ mod catalog_tests {
             serde_json::to_string(&CatalogSource::None).unwrap(),
             "\"none\""
         );
+    }
+
+    #[test]
+    fn a_live_list_seeds_its_first_id_and_no_curated_one() {
+        // Every row: a list that holds none of the row's suggestions seeds the
+        // id the provider answered, and no suggestion can reach the file.
+        for row in super::super::providers::PROVIDERS {
+            let live = ModelCatalog::live(row.id, vec!["answered-id".to_string()]);
+            let seed = seed_model(row.id, Some(&live));
+            assert_eq!(seed, "answered-id", "{} seeded something else", row.id);
+            assert!(
+                !row.curated_models.contains(&seed.as_str()),
+                "{} seeded a curated id",
+                row.id
+            );
+        }
+    }
+
+    #[test]
+    fn a_list_that_could_not_be_read_seeds_nothing() {
+        let fallback = ModelCatalog::fallback("deepseek", ModelListError::Unauthorized);
+        assert_eq!(fallback.source, CatalogSource::Curated);
+        assert_eq!(seed_model("deepseek", Some(&fallback)), "");
+        assert_eq!(seed_model("deepseek", None), "");
+    }
+
+    #[test]
+    fn a_list_read_for_another_provider_seeds_nothing() {
+        let live = ModelCatalog::live("ollama", vec!["qwen3:4b".to_string()]);
+        assert_eq!(seed_model("deepseek", Some(&live)), "");
+    }
+
+    #[test]
+    fn a_provider_that_lists_nothing_seeds_nothing() {
+        let empty = ModelCatalog::live("deepseek", Vec::new());
+        assert_eq!(seed_model("deepseek", Some(&empty)), "");
     }
 }
