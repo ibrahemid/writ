@@ -30,6 +30,7 @@ import { aiConnectionStore } from "./ai-connection";
 import { aiProvidersStore } from "./ai-providers";
 import { bufferRegistry } from "./buffer-registry";
 import { configStore } from "./config";
+import { linkStore } from "./link";
 import { saveStatusStore } from "./save-status";
 import { windowRegistry } from "./window-registry";
 import { showToast } from "../../components/Notifications/Toast";
@@ -72,6 +73,9 @@ export interface Attachment {
   /** Added by the tab in front rather than by a person. One such chip at a
    * time: whichever tab comes forward next replaces it. */
   auto?: boolean;
+  /** The folder whose chip carries this note, for a note attached by picking
+   * a folder. The note still travels on its own, one per file. */
+  viaFolder?: string;
   /** Whether the note could be read. Unknown until a read has been tried. */
   state?: AttachmentState;
   /** Why the note could not be read, in Rust's words. */
@@ -88,6 +92,9 @@ export interface FrontTab {
   /** The note it holds, or null for a tab with no file yet. */
   note: Attachment | null;
 }
+
+/** What attaching a folder did, or the words it was refused in. */
+export type AttachFolderResult = { ok: true; notes: number } | { ok: false; reason: string };
 
 /** Why attaching the note in front was refused. */
 export type AddOpenNoteRefusal = "unsaved" | "none";
@@ -175,14 +182,58 @@ export function noteName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-/** What a chip reads: the note's folder-relative key with the folders above
- * the last one elided. Two notes of the same name in different folders read
- * differently; the whole key is in `key`, for the row's title. */
+/** What a chip reads: the note's own name. Two notes of the same name are told
+ * apart by the folder in the chip's title, which is what `key` carries. */
 export function chipLabel(note: Attachment): string {
-  const key = note.key ?? note.path;
-  const parts = key.split(/[\\/]/).filter((part) => part.length > 0);
-  if (parts.length <= 2) return parts.join("/");
-  return `…/${parts.slice(-2).join("/")}`;
+  return note.name.length > 0 ? note.name : noteName(note.path);
+}
+
+/** The whole of what the folder calls a note, for a line that has to tell two
+ * notes of one name apart where no folder is shown beside it. */
+export function noteKeyLabel(note: Attachment): string {
+  return note.key ?? note.path;
+}
+
+/** What a folder's chip reads: the folder's own name, the slash saying it is
+ * one. The folders above it are in the chip's title. */
+export function folderChipLabel(folder: string): string {
+  const parts = folder.split(/[\\/]/).filter((part) => part.length > 0);
+  return `${parts[parts.length - 1] ?? folder}/`;
+}
+
+/** One row of the chip line: a note, or a folder with the notes it carries. */
+export type ChipRow =
+  | { kind: "note"; note: Attachment }
+  | { kind: "folder"; folder: string; notes: Attachment[]; bytes: number };
+
+/** The chip line, as the set reads: a note picked on its own is its own chip,
+ * and the notes one folder brought are that folder's chip. The set stays flat,
+ * so what the request carries is still one note per file. */
+export function chipRows(attachments: readonly Attachment[]): ChipRow[] {
+  const rows: ChipRow[] = [];
+  const folders = new Map<string, Extract<ChipRow, { kind: "folder" }>>();
+  for (const note of attachments) {
+    const folder = note.viaFolder;
+    if (folder === undefined) {
+      rows.push({ kind: "note", note });
+      continue;
+    }
+    const held = folders.get(folder);
+    if (held === undefined) {
+      const row: Extract<ChipRow, { kind: "folder" }> = {
+        kind: "folder",
+        folder,
+        notes: [note],
+        bytes: note.bytes,
+      };
+      folders.set(folder, row);
+      rows.push(row);
+      continue;
+    }
+    held.notes.push(note);
+    held.bytes += note.bytes;
+  }
+  return rows;
 }
 
 /** Whether a rebuilt turn shows anything the last one did not. A reload hands
@@ -615,6 +666,61 @@ function createChatStore() {
       }
       attach({ ...note, bytes: found?.bytes ?? note.bytes, key });
     }
+  }
+
+  /** Attaches every note one folder holds, the subfolders included.
+   *
+   * The folder is how the notes were chosen and how they are shown, not a
+   * second kind of thing that travels: the request carries them one per file,
+   * exactly as the folder's chip lists them (ADR-031 rule 2.5). The paths come
+   * from the notes index, never from a directory walk.
+   *
+   * The limits are Rust's and so are the sentences they are refused in. The
+   * sizes of the notes arriving and of the notes already held are read in one
+   * call, which is the call that refuses a note over the per-note ceiling and
+   * a conversation over the note count, so a folder that would go over attaches
+   * nothing rather than as much of itself as fits. */
+  async function attachFolder(folder: string): Promise<AttachFolderResult> {
+    const paths = await linkStore.notePathsInFolder(folder);
+    if (paths.length === 0) return { ok: false, reason: "That folder holds no notes." };
+    const held = attachments();
+    const wanted = paths.filter(
+      (path, index) =>
+        paths.indexOf(path) === index && !held.some((note) => note.path === path),
+    );
+    // Every note under it is already a chip, so the folder adds nothing and
+    // refuses nothing.
+    if (wanted.length === 0) return { ok: true, notes: 0 };
+    let rows: ChatAttachedSize[];
+    try {
+      rows = await chatAttachedSizes([...wanted, ...held.map((note) => note.path)]);
+    } catch (error) {
+      return { ok: false, reason: readableError(error) };
+    }
+    const byPath = new Map(rows.map((row) => [row.path, row]));
+    const taken = new Set(
+      held
+        .map((note) => byPath.get(note.path)?.key ?? note.key)
+        .filter((key): key is string => key !== undefined),
+    );
+    let added = 0;
+    for (const path of wanted) {
+      const found = byPath.get(path);
+      const key = found?.key;
+      if (key !== undefined) {
+        if (taken.has(key)) continue;
+        taken.add(key);
+      }
+      attach({ path, name: noteName(path), bytes: found?.bytes ?? 0, key, viaFolder: folder });
+      added += 1;
+    }
+    return { ok: true, notes: added };
+  }
+
+  /** Takes a folder's chip back out, and with it every note it carried: the
+   * chip was one choice, so undoing it undoes the whole of it. */
+  function detachFolder(folder: string) {
+    setAttachments((all) => all.filter((note) => note.viaFolder !== folder));
   }
 
   /** Attaches a note the pane knows only a path for, reading its size from
@@ -1451,6 +1557,8 @@ function createChatStore() {
     attach,
     attachAll,
     attachByPath,
+    attachFolder,
+    detachFolder,
     followTab,
     addOpenNote,
     detach,

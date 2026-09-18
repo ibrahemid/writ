@@ -659,6 +659,8 @@ pub fn run() {
             commands::note_index::resolve_note_link,
             commands::note_index::note_facts,
             commands::note_index::note_name_candidates,
+            commands::note_index::note_folder_candidates,
+            commands::note_index::note_paths_in_folder,
             commands::note_index::note_backlinks,
             commands::note_index::note_heading_line,
             commands::note_index::note_all_tags,

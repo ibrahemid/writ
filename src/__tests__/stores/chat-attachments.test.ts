@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   ),
   stateOf: vi.fn<(id: string) => string>(() => "clean"),
   activeTabId: vi.fn<() => string | null>(() => null),
+  notePathsInFolder: vi.fn<(folder: string) => Promise<string[]>>(),
 }));
 
 vi.mock("../../services/tauri", () => ({
@@ -46,15 +47,22 @@ vi.mock("../../stores/global/save-status", () => ({
   saveStatusStore: { stateOf: mocks.stateOf },
 }));
 
+vi.mock("../../stores/global/link", () => ({
+  linkStore: { notePathsInFolder: mocks.notePathsInFolder },
+}));
+
 vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: { getActive: () => ({ tabs: { activeTabId: mocks.activeTabId } }) },
 }));
 
-import { chatStore, chipLabel } from "../../stores/global/chat";
+import { chatStore, chipLabel, chipRows, folderChipLabel } from "../../stores/global/chat";
 import type { ChatConversation, ChatProposal } from "../../services/tauri";
 
 const LAUNCH = "/notes/Ideas/Launch.md";
 const OTHER = "/notes/Other.md";
+const ARCHIVE = "Archive";
+const OLD = "/notes/Archive/Old.md";
+const NESTED = "/notes/Archive/2025/Notes.md";
 
 const PROPOSAL: ChatProposal = {
   path: "Ideas/Launch.md",
@@ -93,6 +101,7 @@ beforeEach(() => {
   mocks.activeTabs.mockReturnValue([]);
   mocks.stateOf.mockReturnValue("clean");
   mocks.activeTabId.mockReturnValue(null);
+  mocks.notePathsInFolder.mockResolvedValue([]);
   chatStore.reset();
   for (const note of chatStore.attachments()) chatStore.detach(note.path);
 });
@@ -133,12 +142,105 @@ describe("the set a message carries", () => {
     expect(chatStore.attachments()).toEqual([]);
   });
 
-  it("names a chip by its folder-relative key, with the folders above elided", async () => {
+  it("names a chip by the note's own name and keeps the folder in its key", async () => {
     await chatStore.attachByPath("/notes/Archive/Ideas/Launch.md");
     const chip = chatStore.attachments()[0];
 
     expect(chip.key).toBe("Archive/Ideas/Launch.md");
-    expect(chipLabel(chip)).toBe("…/Ideas/Launch.md");
+    expect(chipLabel(chip)).toBe("Launch.md");
+  });
+});
+
+// Picking a folder attaches the notes under it, and the request carries them
+// one per file: the folder is how they were chosen and how they are shown, not
+// a second kind of thing that leaves the machine (ADR-031 rule 2.5).
+describe("a folder the @ list offered", () => {
+  it("attaches every note under it, the subfolders included", async () => {
+    mocks.notePathsInFolder.mockResolvedValue([NESTED, OLD]);
+
+    const result = await chatStore.attachFolder(ARCHIVE);
+
+    expect(result).toEqual({ ok: true, notes: 2 });
+    expect(mocks.notePathsInFolder).toHaveBeenCalledWith(ARCHIVE);
+    expect(chatStore.attachments().map((note) => note.path)).toEqual([NESTED, OLD]);
+    expect(chatStore.attachments().every((note) => note.viaFolder === ARCHIVE)).toBe(true);
+  });
+
+  it("reads as one chip carrying its notes and the bytes they add up to", async () => {
+    mocks.notePathsInFolder.mockResolvedValue([NESTED, OLD]);
+    mocks.chatAttachedSizes.mockImplementation(async (paths: string[]) =>
+      paths.map((path) => sizeOf(path, path === OLD ? 30 : 12)),
+    );
+
+    await chatStore.attachFolder(ARCHIVE);
+    await chatStore.attachByPath(LAUNCH);
+
+    const rows = chipRows(chatStore.attachments());
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ kind: "folder", folder: ARCHIVE, bytes: 42 });
+    expect(rows[0].kind === "folder" && rows[0].notes.map((note) => note.path)).toEqual([
+      NESTED,
+      OLD,
+    ]);
+    expect(rows[1]).toMatchObject({ kind: "note" });
+    expect(folderChipLabel("Archive/2025")).toBe("2025/");
+  });
+
+  it("refuses the whole folder when its notes would pass the ceiling", async () => {
+    const many = Array.from({ length: 21 }, (_, at) => `/notes/Archive/n${at}.md`);
+    mocks.notePathsInFolder.mockResolvedValue(many);
+    // The ceiling and the sentence are Rust's, which is where the send reads
+    // them too.
+    mocks.chatAttachedSizes.mockRejectedValue("Attach at most 20 notes to one conversation.");
+
+    const result = await chatStore.attachFolder(ARCHIVE);
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "Attach at most 20 notes to one conversation.",
+    });
+    expect(chatStore.attachments()).toEqual([]);
+  });
+
+  it("refuses the whole folder when one of its notes cannot be read", async () => {
+    mocks.notePathsInFolder.mockResolvedValue([NESTED, OLD]);
+    mocks.chatAttachedSizes.mockRejectedValue("Archive/Old.md is too large to attach.");
+
+    const result = await chatStore.attachFolder(ARCHIVE);
+
+    expect(result).toEqual({ ok: false, reason: "Archive/Old.md is too large to attach." });
+    expect(chatStore.attachments()).toEqual([]);
+  });
+
+  it("refuses a folder the index holds no note for", async () => {
+    mocks.notePathsInFolder.mockResolvedValue([]);
+
+    const result = await chatStore.attachFolder(ARCHIVE);
+
+    expect(result).toEqual({ ok: false, reason: "That folder holds no notes." });
+    expect(mocks.chatAttachedSizes).not.toHaveBeenCalled();
+  });
+
+  it("removing the folder chip removes every note it carried", async () => {
+    mocks.notePathsInFolder.mockResolvedValue([NESTED, OLD]);
+    await chatStore.attachFolder(ARCHIVE);
+    await chatStore.attachByPath(LAUNCH);
+
+    chatStore.detachFolder(ARCHIVE);
+
+    expect(chatStore.attachments().map((note) => note.path)).toEqual([LAUNCH]);
+  });
+
+  it("leaves a note already picked by hand out of the folder's chip", async () => {
+    await chatStore.attachByPath(OLD);
+    mocks.notePathsInFolder.mockResolvedValue([NESTED, OLD]);
+
+    const result = await chatStore.attachFolder(ARCHIVE);
+
+    expect(result).toEqual({ ok: true, notes: 1 });
+    expect(chatStore.attachments().map((note) => note.path)).toEqual([OLD, NESTED]);
+    expect(chatStore.attachments()[0].viaFolder).toBeUndefined();
+    expect(chatStore.attachments()[1].viaFolder).toBe(ARCHIVE);
   });
 });
 

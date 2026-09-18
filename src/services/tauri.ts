@@ -325,6 +325,25 @@ export async function noteNameCandidates(
   return invoke("note_name_candidates", { query, limit });
 }
 
+/** One folder offered to an `@`, and the notes picking it carries. */
+export interface NoteFolderHit {
+  /** The folder inside the notes folder, `/`-joined. */
+  folder: string;
+  /** The notes under it, the subfolders included. */
+  notes: number;
+}
+
+export async function noteFolderCandidates(
+  query: string,
+  limit?: number,
+): Promise<NoteFolderHit[]> {
+  return invoke("note_folder_candidates", { query, limit });
+}
+
+export async function notePathsInFolder(folder: string): Promise<string[]> {
+  return invoke("note_paths_in_folder", { folder });
+}
+
 /** One link written in a note. */
 export interface NoteLink {
   /** The target as it was written: no alias, no heading. */

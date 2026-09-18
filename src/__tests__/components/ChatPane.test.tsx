@@ -266,7 +266,7 @@ describe("the chat column", () => {
   it("lists the note in front and sends that one and no other", async () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
-    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("notes/Launch.md");
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
 
     chatStore.setDraft("what does it argue");
     await chatStore.send();
@@ -313,7 +313,7 @@ describe("the chat column", () => {
   it("the chip follows the tab in front", async () => {
     const { container } = open();
     await waitFor(() =>
-      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("notes/Launch.md"),
+      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md"),
     );
 
     windowRegistry.getActive()?.tabs.setActiveTabId("O1");
@@ -353,7 +353,7 @@ describe("the chat column", () => {
 
     windowRegistry.getActive()?.tabs.setActiveTabId("L1");
     await waitFor(() =>
-      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("notes/Launch.md"),
+      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md"),
     );
   });
 
@@ -404,7 +404,7 @@ describe("the chat column", () => {
     fireEvent.click(container.querySelector('[aria-label="New chat"]') as HTMLElement);
 
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
-    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("notes/Launch.md");
+    expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Launch.md");
   });
 
   it("keeps an earlier turn, and what was copied from it, through a later reply", async () => {
@@ -518,7 +518,7 @@ describe("the chat column", () => {
 
     fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
 
-    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a note."));
+    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a note or a folder."));
   });
 
   it("shows a proposal as the lines it would change", async () => {
