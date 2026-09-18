@@ -837,7 +837,11 @@ fn could_open_proposal(read: &str) -> bool {
     if len < MIN_FENCE {
         return false;
     }
-    let info = info.trim_start_matches([' ', '\t']);
+    // A carriage return is trimmed with the spaces, so a reply written with
+    // CRLF line endings holds a bare fence back the same as one written with
+    // LF: `bare_fence` reads that line as bare either way, and what this
+    // releases the pane has shown for good.
+    let info = info.trim_start_matches([' ', '\t', '\r']);
     info.is_empty() || PROPOSAL_WORD.starts_with(info) || info.starts_with(PROPOSAL_WORD)
 }
 

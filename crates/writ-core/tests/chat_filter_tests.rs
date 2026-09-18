@@ -413,6 +413,9 @@ fn a_bare_fence_proposal_left_open_is_never_shown() {
 /// byte boundary and one character at a time, and has to release exactly the
 /// lines `parse_proposals` reads as prose -- with no line of a body it parsed
 /// among them.
+///
+/// The line-ending axis is there because the parser reads lines through
+/// `str::lines`, which drops a carriage return the filter still has to read.
 #[test]
 fn the_filter_shows_what_the_parser_reads_as_prose_for_every_shape() {
     const BODY_LINE: &str = "THE-PROPOSED-LINE";
@@ -436,27 +439,31 @@ fn the_filter_shows_what_the_parser_reads_as_prose_for_every_shape() {
                     ] {
                         for close in [format!("{fence}\n"), String::new()] {
                             for tail in ["", "TRAILING-PROSE\n"] {
-                                let reply = format!("LEADING-PROSE\n{opening}{body}{close}{tail}");
-                                let visible = every_split(&reply);
-                                let parsed = parse_proposals(&reply, &attached("A.md"), false);
+                                for ending in ["\n", "\r\n"] {
+                                    let reply =
+                                        format!("LEADING-PROSE\n{opening}{body}{close}{tail}")
+                                            .replace('\n', ending);
+                                    let visible = every_split(&reply);
+                                    let parsed = parse_proposals(&reply, &attached("A.md"), false);
 
-                                assert!(
-                                    visible.starts_with("LEADING-PROSE\n"),
-                                    "prose before the block is always shown: {reply:?}"
-                                );
-                                assert!(
-                                    !visible.contains("writ-proposal"),
-                                    "the opening reached the pane: {reply:?} -> {visible:?}"
-                                );
-                                for proposal in &parsed.proposals {
-                                    for line in proposal.new_content.lines() {
-                                        assert!(
+                                    assert!(
+                                        visible.starts_with(&format!("LEADING-PROSE{ending}")),
+                                        "prose before the block is always shown: {reply:?}"
+                                    );
+                                    assert!(
+                                        !visible.contains("writ-proposal"),
+                                        "the opening reached the pane: {reply:?} -> {visible:?}"
+                                    );
+                                    for proposal in &parsed.proposals {
+                                        for line in proposal.new_content.lines() {
+                                            assert!(
                                             line.trim().is_empty() || !visible.contains(line),
                                             "{line:?} reached the pane: {reply:?} -> {visible:?}"
                                         );
+                                        }
                                     }
+                                    shapes += 1;
                                 }
-                                shapes += 1;
                             }
                         }
                     }
@@ -465,5 +472,23 @@ fn the_filter_shows_what_the_parser_reads_as_prose_for_every_shape() {
         }
     }
 
-    assert_eq!(shapes, 192, "every combination of the grammar's axes");
+    assert_eq!(shapes, 384, "every combination of the grammar's axes");
+}
+
+#[test]
+fn a_bare_fence_proposal_written_with_carriage_returns_is_withheld() {
+    let reply = "Here you go.\r\n```\r\nwrit-proposal path=\"A.md\"\r\nThe whole note.\r\n```\r\n";
+
+    let parsed = parse_proposals(reply, &attached("A.md"), false);
+    assert_eq!(parsed.proposals.len(), 1, "the parser reads the block");
+
+    let visible = every_split(reply);
+    assert!(
+        !visible.contains("The whole note."),
+        "the body reached the pane: {visible:?}"
+    );
+    assert!(
+        !visible.contains("writ-proposal"),
+        "the header reached the pane: {visible:?}"
+    );
 }
