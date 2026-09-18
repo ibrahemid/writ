@@ -351,6 +351,25 @@ Tests feed one recorded proposal reply split at every byte boundary and assert t
 character and no proposed line reaches the visible text, and that a reply with an ordinary code
 block loses nothing. The persisted `content` (section 8) is the filtered text.
 
+**What opens an offer, amended 2026-09-18.** Two shapes do. A fence whose info string is
+`writ-proposal` opens one, and so does a bare fence whose first body line is a
+`writ-proposal path=` header, which is what a local model writes when it puts the fence on a line
+of its own:
+
+````
+```
+writ-proposal path="Launch.md" summary="Fold the two intros together"
+````
+
+The header carries the attributes an info string carries and is no part of the body. `path=` is
+mandatory in it, so a bare fence over a note whose own first line reads `writ-proposal` stays an
+ordinary code block. Nothing after the opening changes: the same close, the same close at the end
+of the text, the same empty-body drop. `parse_proposals` and `ProposalFilter` read both shapes
+through one function, `open_proposal_at`, which is what holds them in step. The filter withholds a
+bare fence until the line under it is known and releases both lines when that line is not a
+header, so its contract stands at one line late at most. A carriage return after the fence run is
+trimmed with the spaces, because `str::lines` drops it where the filter reads it.
+
 **Diff.** No diff implementation exists in the tree; the rewrite overlay replaces text inline and
 compares nothing. `crates/writ-core/src/diff.rs` adds a line diff, Myers `O(ND)` with a guard at
 ADR-031 rule 4.8's 2 MB, returning hunks of context, removed and added lines. The proposal card
