@@ -310,16 +310,89 @@ describe("the chat column", () => {
     expect(mocks.chatSend.mock.calls[0][2]).toEqual([]);
   });
 
-  it("attaches nothing when another tab comes to the front", async () => {
+  it("the chip follows the tab in front", async () => {
+    const { container } = open();
+    await waitFor(() =>
+      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("notes/Launch.md"),
+    );
+
+    windowRegistry.getActive()?.tabs.setActiveTabId("O1");
+
+    await waitFor(() =>
+      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Other.md"),
+    );
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(1);
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+    expect(mocks.chatSend.mock.calls[0][2]).toEqual([OTHER]);
+  });
+
+  it("a chip sent away stays away while that tab is in front", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(0));
+
+    windowRegistry.getActive()?.chatPanel.hide();
+    windowRegistry.getActive()?.chatPanel.show();
+    await Promise.resolve();
+
+    expect(container.querySelectorAll(".chat-chip")).toHaveLength(0);
+  });
+
+  it("another tab in front brings the chip back", async () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
     fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(0));
 
     windowRegistry.getActive()?.tabs.setActiveTabId("O1");
-    await Promise.resolve();
+    await waitFor(() =>
+      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Other.md"),
+    );
 
-    expect(container.querySelectorAll(".chat-chip")).toHaveLength(0);
+    windowRegistry.getActive()?.tabs.setActiveTabId("L1");
+    await waitFor(() =>
+      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("notes/Launch.md"),
+    );
+  });
+
+  it("an unsaved tab in front leaves no chip and says why", async () => {
+    mocks.activeTabs.mockReturnValue([
+      note("L1", LAUNCH),
+      { ...note("U1", LAUNCH), source_path: null },
+    ]);
+    const { container, getByText } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+
+    windowRegistry.getActive()?.tabs.setActiveTabId("U1");
+
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(0));
+    expect(getByText("Save this note first")).toBeTruthy();
+    expect((container.querySelector(".chat-chip-add") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("a tab switch while a reply arrives leaves the message in flight alone", async () => {
+    const { container } = open();
+    await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
+    chatStore.setDraft("what does it argue");
+    await chatStore.send();
+    const id = mocks.chatSend.mock.calls[0][0] as string;
+    chatStore.handleStreamEvent({
+      conversation_id: id,
+      request_id: rid(id),
+      kind: "chunk",
+      text: "still going",
+    });
+
+    windowRegistry.getActive()?.tabs.setActiveTabId("O1");
+
+    await waitFor(() =>
+      expect(container.querySelector(".chat-chip-name")?.textContent).toBe("Other.md"),
+    );
+    expect(mocks.chatSend.mock.calls[0][2]).toEqual([LAUNCH]);
+    const sent = chatStore.messages().find((message) => message.role === "user");
+    expect(sent?.attachments.map((held) => held.path)).toEqual([LAUNCH]);
   });
 
   it("starts a new chat with the note in front and nothing else", async () => {

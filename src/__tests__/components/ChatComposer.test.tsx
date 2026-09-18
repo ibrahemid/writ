@@ -207,6 +207,17 @@ describe("the chip row", () => {
     expect(tipOver(container)).toBe("Notes/Ideas/Launch.md");
   });
 
+  // The automatic chip reads and removes like every other: the store decides
+  // what a removal means for the tab it came from.
+  it("hands a removed chip to the store, automatic or not", () => {
+    mocks.attachments = [chip("Launch.md", { auto: true })];
+    const { container } = mount();
+
+    fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
+
+    expect(mocks.detach).toHaveBeenCalledWith("Launch.md");
+  });
+
   it("says a dirty note sends its saved text", () => {
     vi.useFakeTimers();
     mocks.attachments = [chip("Launch.md", { dirty: true })];
