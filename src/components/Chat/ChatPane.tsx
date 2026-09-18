@@ -2,7 +2,8 @@ import { Show, createEffect, createMemo, createSignal, untrack } from "solid-js"
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import EdgeResizer from "../Resizer/EdgeResizer";
-import ChatComposer from "./ChatComposer";
+import ChatComposer, { type OpenNoteState } from "./ChatComposer";
+import ChatReadiness from "./ChatReadiness";
 import ChatTranscript from "./ChatTranscript";
 import ConversationList from "./ConversationList";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -13,7 +14,7 @@ import {
   CHAT_WIDTH_MIN,
   CHAT_WIDTH_DEFAULT,
 } from "../../stores/global/config";
-import { chatStore, noteName, type Attachment } from "../../stores/global/chat";
+import { chatStore, noteName, type Attachment, type FrontTab } from "../../stores/global/chat";
 import "./ChatPane.css";
 
 /**
@@ -41,29 +42,34 @@ export default function ChatPane() {
     bufferRegistry.activeTabs().filter((doc) => doc.source_path !== null),
   );
 
-  /** The note in front, as an attachment. */
-  function frontNote(): Attachment | null {
-    const id = win.tabs.activeTabId();
-    const doc = notesInFront().find((tab) => tab.id === id);
-    if (!doc?.source_path) return null;
-    return { path: doc.source_path, name: noteName(doc.source_path), bytes: doc.size_bytes };
-  }
+  /** Whether the note in front can be attached, and why it cannot: a tab with
+   * no file has nothing on disk for a reply to read. */
+  const openNote = (): OpenNoteState => {
+    const front = frontTab();
+    if (!front) return "none";
+    return front.note ? "ready" : "unsaved";
+  };
 
-  // Opening attaches the note in front and nothing else. Every later change to
-  // the list is a person's: a removed chip stays removed, and a tab switch does
-  // not quietly add a note to what the next message carries. A new chat clears
-  // the chips and counts as an opening, so it starts the way a first open does.
-  let attachedFor: number | null = null;
+  /** The tab the editor is showing, with the note it holds. */
+  const frontTab = createMemo<FrontTab | null>(() => {
+    const id = win.tabs.activeTabId();
+    if (!id) return null;
+    const doc = notesInFront().find((tab) => tab.id === id);
+    const note: Attachment | null = doc?.source_path
+      ? { path: doc.source_path, name: noteName(doc.source_path), bytes: doc.size_bytes }
+      : null;
+    return { id, note };
+  });
+
+  // The note in front follows the editor: the automatic chip names whichever
+  // tab is active, and an emptied set (a new chat, another conversation) asks
+  // for it again. Every other chip is a person's and is left where it is. The
+  // call is untracked because the store writes the list this effect reads.
   createEffect(() => {
-    if (!isOpen()) {
-      attachedFor = null;
-      return;
-    }
-    const opening = chatStore.attachGeneration();
-    if (attachedFor === opening) return;
-    attachedFor = opening;
-    const front = untrack(frontNote);
-    if (front) void chatStore.attachAll([front]);
+    if (!isOpen()) return;
+    chatStore.attachGeneration();
+    const front = frontTab();
+    untrack(() => void chatStore.followTab(front));
   });
 
   // One load per open, not one per reactive read: the effect tracks the open
@@ -197,7 +203,8 @@ export default function ChatPane() {
           </Show>
 
           <ChatTranscript />
-          <ChatComposer />
+          <ChatReadiness />
+          <ChatComposer openNote={openNote} onClose={() => win.chatPanel.hide()} />
         </div>
       </aside>
     </Show>

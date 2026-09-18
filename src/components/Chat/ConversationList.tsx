@@ -77,6 +77,16 @@ export default function ConversationList(props: { onPick: () => void }) {
                         <span class="chat-chats-title">{row.title}</span>
                         <span class="chat-chats-time">{chatTimeLabel(row.updated_at)}</span>
                       </button>
+                      <Show when={chatStore.isLive(row.id)}>
+                        <span class="chat-chats-live" aria-hidden="true" />
+                        <Button
+                          variant="ghost"
+                          icon="square"
+                          iconSize={10}
+                          aria-label={`Stop ${row.title}`}
+                          onClick={() => chatStore.stop(row.id)}
+                        />
+                      </Show>
                       <Button
                         variant="ghost"
                         icon="pencil-simple"

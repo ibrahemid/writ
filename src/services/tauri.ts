@@ -6,7 +6,7 @@ import type {
   FileOpenResult,
   ResolveOutcome,
 } from "../types/buffer";
-import type { AiWire, ClientApproval, WritConfig } from "../types/config";
+import type { AiConfig, AiWire, ClientApproval, WritConfig } from "../types/config";
 
 export type { ClientApproval };
 import type { TransformDescriptor } from "../types/transforms";
@@ -314,6 +314,8 @@ export interface NoteNameHit {
   path: string;
   /** The note's file name without the extension. */
   name: string;
+  /** The folder inside the notes folder, `/`-joined, empty at the root. */
+  folder: string;
 }
 
 export async function noteNameCandidates(
@@ -321,6 +323,25 @@ export async function noteNameCandidates(
   limit?: number,
 ): Promise<NoteNameHit[]> {
   return invoke("note_name_candidates", { query, limit });
+}
+
+/** One folder offered to an `@`, and the notes picking it carries. */
+export interface NoteFolderHit {
+  /** The folder inside the notes folder, `/`-joined. */
+  folder: string;
+  /** The notes under it, the subfolders included. */
+  notes: number;
+}
+
+export async function noteFolderCandidates(
+  query: string,
+  limit?: number,
+): Promise<NoteFolderHit[]> {
+  return invoke("note_folder_candidates", { query, limit });
+}
+
+export async function notePathsInFolder(folder: string): Promise<string[]> {
+  return invoke("note_paths_in_folder", { folder });
 }
 
 /** One link written in a note. */
@@ -1271,6 +1292,8 @@ export interface AiProviderInfo {
   needs_key: boolean;
   supports_connect: boolean;
   probe_port: number | null;
+  /** Model ids offered when the provider's own list cannot be read. */
+  curated_models: string[];
 }
 
 export async function aiProviders(): Promise<AiProviderInfo[]> {
@@ -1287,14 +1310,21 @@ export type ModelListError =
   | { kind: "status"; code: number }
   | { kind: "consent_required" };
 
-/** The models a provider lists, or why it could not be read.
+/** Where the ids in a catalog came from. Only `live` is the account's own
+ * inventory; `curated` is the provider table's suggestions. */
+export type CatalogSource = "live" | "curated" | "none";
+
+/** The models on offer for one provider, stamped with the provider they were
+ * read for.
  *
- * The command answers a typed error, and a rejection Tauri could only hand
- * over as a plain string is narrowed here: this file is the only one that
- * knows what a rejection looks like. */
-export type ModelListResult =
-  | { models: string[] }
-  | { error: ModelListError };
+ * The stamp is what makes a stale list harmless: an answer whose `provider` is
+ * no longer the configured one is dropped instead of being offered. */
+export interface ModelCatalog {
+  provider: string;
+  models: string[];
+  source: CatalogSource;
+  error: ModelListError | null;
+}
 
 function narrowModelListError(err: unknown): ModelListError {
   if (err && typeof err === "object" && "kind" in err) {
@@ -1316,12 +1346,23 @@ function narrowModelListError(err: unknown): ModelListError {
   return { kind: "unreachable" };
 }
 
-export async function aiListModels(): Promise<ModelListResult> {
+/** Reads the configured provider's model list.
+ *
+ * The command folds its own failures into the catalog, so a rejection reaching
+ * here is the IPC call itself failing; it answers for `provider` all the same,
+ * because a catalog with no provider could not be dropped by the store. */
+export async function aiListModels(provider: string): Promise<ModelCatalog> {
   try {
-    return { models: await invoke<string[]>("ai_list_models") };
+    return await invoke<ModelCatalog>("ai_list_models");
   } catch (err) {
-    return { error: narrowModelListError(err) };
+    return { provider, models: [], source: "none", error: narrowModelListError(err) };
   }
+}
+
+/** Points the connection at another provider, seeding its model and dropping a
+ * chat model that belonged to the old one. Answers the saved connection. */
+export async function aiSetProvider(provider: string): Promise<AiConfig> {
+  return invoke("ai_set_provider", { provider });
 }
 
 /** Which local runtime answered its port. Keyless, and carries no note text
@@ -1390,7 +1431,39 @@ export interface ChatAttachedNote {
  * beside the text the model actually read. */
 export interface ChatSendAccepted {
   conversation_id: string;
+  /** The id the send was minted with, echoed so a caller can join on it. */
+  request_id: string;
   attached: ChatAttachedNote[];
+  /** The connection the request was frozen against. */
+  identity: RequestIdentity;
+}
+
+/** Which connection a request was sent as, carried on the frames it produces
+ * so a reply and a refusal both name the model that answered. */
+export interface RequestIdentity {
+  provider: string;
+  model: string;
+  host: string;
+}
+
+/** The reason a provider gave for a refusal, when it is one of the six Writ
+ * has a sentence for. No other part of a response body ever reaches here. */
+export type RejectCode =
+  | "model_not_found"
+  | "invalid_request"
+  | "invalid_api_key"
+  | "insufficient_quota"
+  | "rate_limited"
+  | "context_length_exceeded";
+
+/** What the pane is told when a reply fails. `message` is Writ's own sentence;
+ * `kind` is what a recovery action is chosen from. */
+export interface ChatErrorFrame {
+  kind: string;
+  message: string;
+  provider: string;
+  model: string;
+  status: number | null;
 }
 
 /** One line of a proposal's diff. */
@@ -1433,6 +1506,23 @@ export interface ChatProposal {
   stale?: boolean;
 }
 
+/** Why a block a reply wrote could not become a proposal. */
+export type ChatDropReason =
+  | "unterminated_block"
+  | "unknown_note"
+  | "ambiguous_note"
+  | "empty_body"
+  | "placeholder"
+  | "duplicate"
+  | "truncated";
+
+/** A block a reply wrote that nobody can be offered. It carries the path the
+ * model named and the reason, and no note text (ADR-031 rule 5.2). */
+export interface ChatDroppedProposal {
+  named: string;
+  reason: ChatDropReason;
+}
+
 /** A note a turn carried, named rather than copied: the conversation file
  * holds no note text. */
 export interface ChatAttachmentRef {
@@ -1447,6 +1537,12 @@ export interface ChatStoredTurn {
   content: string;
   attachments: ChatAttachmentRef[];
   proposals: ChatProposal[];
+  /** Blocks the reply wrote that could not become a proposal. Absent in a
+   * conversation written before drops were recorded. */
+  dropped?: ChatDroppedProposal[];
+  /** The reply reached the model's token ceiling, so it is the start of an
+   * answer rather than the whole of one. */
+  truncated?: boolean;
 }
 
 /** One conversation, as the pane reads it. */
@@ -1474,6 +1570,9 @@ export interface ChatProposalOutcome {
   path: string;
   hash: string;
   bytes: number;
+  /** The write moved bytes. False when the note already held the proposed
+   * text, which is what a model asked for a whole note often writes back. */
+  changed: boolean;
 }
 
 export async function chatState(): Promise<ChatEndpointState> {
@@ -1525,13 +1624,17 @@ export async function chatSend(
   conversationId: string,
   text: string,
   contextPaths: string[],
-  truncateTo?: number,
+  truncateTo: number | undefined,
+  requestId: string,
 ): Promise<ChatSendAccepted> {
-  return invoke("chat_send", { conversationId, text, contextPaths, truncateTo });
+  return invoke("chat_send", { conversationId, text, contextPaths, truncateTo, requestId });
 }
 
-export async function chatCancel(conversationId: string): Promise<void> {
-  return invoke("chat_cancel", { conversationId });
+/** Stops one reply. `requestId` names which: `null` stops whatever the
+ * conversation has in flight, which is what shutdown wants and what a person
+ * pressing Stop never does. */
+export async function chatStop(conversationId: string, requestId: string | null): Promise<void> {
+  return invoke("chat_stop", { conversationId, requestId });
 }
 
 export async function chatApplyProposal(

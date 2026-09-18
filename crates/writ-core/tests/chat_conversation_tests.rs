@@ -1,8 +1,9 @@
 //! The conversation document: what a chat file holds and how a turn changes it.
 
 use writ_core::chat::{
-    AttachmentRef, Conversation, Proposal, ProposalStatus, Role, StoredProposal, StoredTurn,
-    CONVERSATION_SCHEMA_VERSION, TITLE_MAX_CHARS,
+    AssistantReply, AttachmentRef, Conversation, DropReason, DroppedProposal, Proposal,
+    ProposalStatus, RequestIdentity, Role, StoredProposal, StoredTurn, CONVERSATION_SCHEMA_VERSION,
+    TITLE_MAX_CHARS,
 };
 
 /// A conversation with nothing in it.
@@ -87,13 +88,17 @@ fn an_assistant_turn_carries_its_proposals_and_no_attachments() {
     let mut conversation = fresh();
     conversation.push_assistant(
         "Here is what I would change.".to_string(),
-        vec![StoredProposal {
-            path: "Ideas/Launch.md".to_string(),
-            summary: "Fold the intros".to_string(),
-            before_hash: "abc".to_string(),
-            new_content: "new text\n".to_string(),
-            status: ProposalStatus::Pending,
-        }],
+        AssistantReply {
+            proposals: vec![StoredProposal {
+                path: "Ideas/Launch.md".to_string(),
+                summary: "Fold the intros".to_string(),
+                before_hash: "abc".to_string(),
+                new_content: "new text\n".to_string(),
+                status: ProposalStatus::Pending,
+            }],
+            ..AssistantReply::default()
+        },
+        None,
         "2026-09-15T10:03:00Z".to_string(),
     );
     assert_eq!(conversation.turns[0].role, Role::Assistant);
@@ -126,13 +131,17 @@ fn the_request_carries_roles_and_text_and_nothing_else() {
     );
     conversation.push_assistant(
         "answer".to_string(),
-        vec![StoredProposal {
-            path: "A.md".to_string(),
-            summary: String::new(),
-            before_hash: "abc".to_string(),
-            new_content: "new\n".to_string(),
-            status: ProposalStatus::Pending,
-        }],
+        AssistantReply {
+            proposals: vec![StoredProposal {
+                path: "A.md".to_string(),
+                summary: String::new(),
+                before_hash: "abc".to_string(),
+                new_content: "new\n".to_string(),
+                status: ProposalStatus::Pending,
+            }],
+            ..AssistantReply::default()
+        },
+        None,
         "t".to_string(),
     );
     let turns = conversation.request_turns();
@@ -149,13 +158,17 @@ fn a_proposal_status_is_set_by_turn_and_path() {
     conversation.push_user("q".to_string(), Vec::new(), "t".to_string());
     conversation.push_assistant(
         "a".to_string(),
-        vec![StoredProposal {
-            path: "A.md".to_string(),
-            summary: String::new(),
-            before_hash: "abc".to_string(),
-            new_content: "new\n".to_string(),
-            status: ProposalStatus::Pending,
-        }],
+        AssistantReply {
+            proposals: vec![StoredProposal {
+                path: "A.md".to_string(),
+                summary: String::new(),
+                before_hash: "abc".to_string(),
+                new_content: "new\n".to_string(),
+                status: ProposalStatus::Pending,
+            }],
+            ..AssistantReply::default()
+        },
+        None,
         "t".to_string(),
     );
     assert!(conversation.set_proposal_status(
@@ -256,6 +269,9 @@ fn a_turn_holds_no_note_text() {
         content: "q".to_string(),
         attachments: vec![attachment("A.md")],
         proposals: Vec::new(),
+        identity: None,
+        dropped: Vec::new(),
+        truncated: false,
     };
     let value: serde_json::Value = serde_json::to_value(&turn).expect("a turn serialises");
     let mut keys: Vec<&str> = value["attachments"][0]
@@ -266,4 +282,89 @@ fn a_turn_holds_no_note_text() {
         .collect();
     keys.sort_unstable();
     assert_eq!(keys, vec!["bytes", "hash", "path"]);
+}
+
+#[test]
+fn a_turn_written_before_the_identity_field_still_opens() {
+    // Every conversation on disk was written without it, and a file that
+    // stops opening is a conversation the person has lost.
+    let old = r#"{
+      "version": 1,
+      "id": "0b7d6b7a-1111-4b6a-9d5e-000000000001",
+      "title": "A chat",
+      "created_at": "2026-09-15T10:00:00Z",
+      "updated_at": "2026-09-15T10:01:00Z",
+      "provider": "ollama",
+      "model": "qwen3:4b",
+      "turns": [
+        { "role": "user", "content": "q" },
+        { "role": "assistant", "content": "a" }
+      ]
+    }"#;
+    let conversation: Conversation = serde_json::from_str(old).expect("an older file opens");
+    assert_eq!(conversation.turns.len(), 2);
+    assert!(conversation.turns[1].identity.is_none());
+
+    // And a turn that carries one round-trips.
+    let mut fresh = conversation.clone();
+    fresh.push_assistant(
+        "a".to_string(),
+        AssistantReply::default(),
+        Some(RequestIdentity {
+            provider: "deepseek".to_string(),
+            model: "deepseek-chat".to_string(),
+            host: "api.deepseek.com".to_string(),
+        }),
+        "2026-09-15T10:02:00Z".to_string(),
+    );
+    let written = serde_json::to_string(&fresh).expect("write");
+    let back: Conversation = serde_json::from_str(&written).expect("read");
+    assert_eq!(
+        back.turns[2].identity.as_ref().unwrap().model,
+        "deepseek-chat"
+    );
+}
+
+#[test]
+fn a_turn_written_before_drops_were_recorded_still_loads() {
+    let older = r#"{
+        "version": 1,
+        "id": "c1",
+        "title": "Old",
+        "created_at": "2026-09-01T00:00:00Z",
+        "updated_at": "2026-09-01T00:00:00Z",
+        "provider": "ollama",
+        "model": "llama3",
+        "turns": [{ "role": "assistant", "content": "an answer" }]
+    }"#;
+
+    let conversation: Conversation =
+        serde_json::from_str(older).expect("a file written before this reads");
+    assert_eq!(conversation.turns[0].dropped, Vec::new());
+    assert!(!conversation.turns[0].truncated);
+}
+
+#[test]
+fn an_assistant_turn_records_what_it_dropped_and_that_it_was_cut_off() {
+    let mut conversation = fresh();
+    conversation.push_assistant(
+        "half an answer".to_string(),
+        AssistantReply {
+            dropped: vec![DroppedProposal {
+                named: "Launch.md".to_string(),
+                reason: DropReason::UnterminatedBlock,
+            }],
+            truncated: true,
+            ..AssistantReply::default()
+        },
+        None,
+        "2026-09-17T10:00:00Z".to_string(),
+    );
+
+    let turn = &conversation.turns[0];
+    assert_eq!(turn.dropped[0].reason, DropReason::UnterminatedBlock);
+    assert!(turn.truncated);
+    let value = serde_json::to_value(turn).expect("a turn serialises");
+    assert_eq!(value["dropped"][0]["reason"], "unterminated_block");
+    assert_eq!(value["truncated"], true);
 }

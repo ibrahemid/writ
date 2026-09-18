@@ -1,20 +1,23 @@
-import { createSignal, createRoot } from "solid-js";
+import { createSignal, createRoot, createEffect } from "solid-js";
 import {
   aiCheckConnection,
+  aiConsentHost,
   aiListModels,
   aiProbeLocal,
   aiOpenrouterCancel,
   aiOpenrouterConnect,
+  aiSetProvider,
   type AiConnectionStatus,
+  type AiEndpointState,
   type AiKeyState,
   type LocalProbe,
+  type ModelCatalog,
   type ModelListError,
-  type ModelListResult,
 } from "../../services/tauri";
 import { configStore } from "./config";
 import { aiProvidersStore } from "./ai-providers";
 
-export type { AiConnectionStatus, LocalProbe, ModelListError, ModelListResult };
+export type { AiConnectionStatus, LocalProbe, ModelCatalog, ModelListError };
 
 export type ConnectionTone = "ok" | "warn" | "error" | "idle";
 
@@ -88,11 +91,105 @@ export function modelListDisplay(error: ModelListError, host: string): Connectio
 /** The next step after a key is saved and no model is chosen yet. */
 export const CHOOSE_A_MODEL = "Your key is saved. Choose a model to finish.";
 
-// Singleton state — Writ is single-window. Holds the latest probe result.
+// Singleton state — Writ is single-window. Holds the latest probe result and
+// the one model catalog both the settings panel and the pane read, so the two
+// surfaces cannot disagree about what the connection offers.
 function createAiConnectionStore() {
   const [status, setStatus] = createSignal<AiConnectionStatus | null>(null);
   const [checking, setChecking] = createSignal(false);
+  const [held, setHeld] = createSignal<ModelCatalog | null>(null);
+  const [listing, setListing] = createSignal(false);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let watching = false;
+
+  const currentProvider = () => configStore.config().ai.provider;
+
+  /** The catalog, but only while it describes the connection as it stands.
+   *
+   * A list is stamped with the provider it was read for, so one answered for
+   * a provider that is no longer current is dropped by comparison rather than
+   * by hoping the requests stayed in order. */
+  function catalog(): ModelCatalog | null {
+    const answer = held();
+    return answer && answer.provider === currentProvider() ? answer : null;
+  }
+
+  /** Reads the model list for the connection's provider. */
+  async function refreshCatalog(): Promise<void> {
+    const asked = currentProvider();
+    setListing(true);
+    try {
+      const answered = await aiListModels(asked);
+      if (answered.provider !== currentProvider()) return;
+      setHeld(answered);
+    } catch {
+      setHeld(null);
+    } finally {
+      setListing(false);
+    }
+  }
+
+  /** Follows the connection: the catalog is re-read whenever the provider or
+   * the typed base URL changes, rather than when a surface happens to open.
+   * Idempotent, and the root lives as long as the app does. */
+  function watch(): void {
+    if (watching) return;
+    watching = true;
+    createRoot(() => {
+      createEffect(() => {
+        const ai = configStore.config().ai;
+        void ai.provider;
+        void ai.base_url;
+        void refreshCatalog();
+      });
+    });
+  }
+
+  /** Points the connection at another provider.
+   *
+   * Rust owns the change, so the model a new row starts from and the dropping
+   * of a chat model that belonged to the old one happen in one place for every
+   * surface that offers the choice. */
+  async function selectProvider(id: string): Promise<void> {
+    const saved = await aiSetProvider(id);
+    setHeld(null);
+    // The command wrote the file and answered what it wrote, so that answer is
+    // what the running config takes; reading the file back would race whatever
+    // else is writing it and could land on the connection this one replaced.
+    configStore.applyAi(saved);
+  }
+
+  /** Records the send notice for the host this connection reaches, then
+   * re-reads the config Rust wrote.
+   *
+   * The command writes `consented_hosts` itself and answers an endpoint state,
+   * so without the re-read the copy this frontend holds still says no host was
+   * allowed, and the next settings write would send that copy whole and drop
+   * the consent. The re-read is also what brings the model list: the list waits
+   * for consent, so the connection effect reads it as soon as the host is
+   * allowed rather than on the next launch. */
+  async function consentHost(): Promise<AiEndpointState> {
+    const state = await aiConsentHost();
+    await configStore.load();
+    return state;
+  }
+
+  /** Saves the chat's own model, qualified to the provider it was picked
+   * under, or clears it so the chat follows the connection. */
+  async function selectChatModel(id: string | null): Promise<void> {
+    const previous = configStore.config();
+    await configStore.save({
+      ...previous,
+      ai: {
+        ...previous.ai,
+        chat: {
+          ...previous.ai.chat,
+          model: id ?? "",
+          model_provider: id ? previous.ai.provider : "",
+        },
+      },
+    });
+  }
 
   // One connection, checked whether or not either feature is switched on: the
   // check is what tells a person the connection works before they turn
@@ -122,17 +219,29 @@ function createAiConnectionStore() {
       debounceTimer = null;
     }
     setStatus(null);
+    setHeld(null);
   }
 
   return {
     status,
     checking,
     check,
+    /** Whether the connection points at a runtime on this machine, which is
+     * what makes a refused port an offline local server rather than an
+     * unreachable host. */
+    isLocal: providerIsLocal,
     scheduleCheck,
     reset,
+    catalog,
+    listing,
+    refreshCatalog,
+    watch,
+    selectProvider,
+    selectChatModel,
+    consentHost,
     /** The models the connection's provider lists, or why it could not be
      * read. */
-    listModels: (): Promise<ModelListResult> => aiListModels(),
+    listModels: (): Promise<ModelCatalog> => aiListModels(currentProvider()),
     /** Which local runtime answered its port. Keyless, and carries no note
      * text (ADR-040 section 4). */
     probeLocal: (): Promise<LocalProbe> => aiProbeLocal(),

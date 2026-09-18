@@ -105,6 +105,13 @@ after a completed or abandoned Connect.
 folder sweep, no index dump, no silent inclusion of neighbouring notes. The pane shows which notes
 are attached, and attaching one is a user action (U7).
 
+2.5, amended 2026-09-18: a folder the user picks in the `@` list attaches the notes under it, the
+subfolders included, one per file, and each one is a chip the user sees and can remove before the
+send. What leaves the machine is still exactly the chip row. The existing per-note size limit and
+note count refuse the whole folder rather than the part of it that would fit, and no folder is
+swept without that pick: the notes under a picked folder come from the note index, never from a
+directory walk.
+
 2.6. An endpoint that is not local and not `https` is refused before any bytes leave, by
 `polish::is_endpoint_allowed:223` against the parsed host, including for a hand-edited
 `config.toml`. The chat pane reuses that guard rather than adding a second one (U7).

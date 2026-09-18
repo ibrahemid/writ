@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { configStore } from "../../stores/global/config";
 import type { WritConfig } from "../../types/config";
 
@@ -47,6 +48,7 @@ const mocks = vi.hoisted(() => ({
   aiConsentHost: vi.fn(),
   aiProviders: vi.fn(),
   aiListModels: vi.fn(),
+  aiSetProvider: vi.fn(),
   aiProbeLocal: vi.fn(),
   aiOpenrouterConnect: vi.fn(),
   aiOpenrouterCancel: vi.fn(),
@@ -88,6 +90,22 @@ function hostedEndpoint(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** A catalog the provider itself answered. */
+function listed(provider: string, models: string[]) {
+  return { provider, models, source: "live" as const, error: null };
+}
+
+/** A catalog that fell back to the table's suggestions. */
+function suggested(provider: string) {
+  const row = TEST_PROVIDERS.find((r) => r.id === provider);
+  return {
+    provider,
+    models: (row?.curated_models ?? []) as string[],
+    source: "curated" as const,
+    error: { kind: "unreachable" as const },
+  };
+}
+
 /** Rendered text, with the line wrapping the markup adds taken back out. */
 function collapse(text: string | null): string {
   return (text ?? "").replace(/\s+/g, " ").trim();
@@ -107,6 +125,7 @@ function providerRow(overrides: Record<string, unknown> = {}) {
     needs_key: false,
     supports_connect: false,
     probe_port: 11434,
+    curated_models: [] as string[],
     ...overrides,
   };
 }
@@ -121,6 +140,7 @@ const TEST_PROVIDERS = [
     base_url: "https://api.deepseek.com",
     key_page_url: "https://platform.deepseek.com/api_keys",
     default_model: "deepseek-chat",
+    curated_models: ["deepseek-chat", "deepseek-reasoner"],
     needs_key: true,
     probe_port: null,
   }),
@@ -160,6 +180,7 @@ vi.mock("../../services/tauri", () => ({
   aiCheckConnection: mocks.aiCheckConnection,
   aiProviders: mocks.aiProviders,
   aiListModels: mocks.aiListModels,
+  aiSetProvider: mocks.aiSetProvider,
   aiProbeLocal: mocks.aiProbeLocal,
   aiOpenrouterConnect: mocks.aiOpenrouterConnect,
   aiOpenrouterCancel: mocks.aiOpenrouterCancel,
@@ -248,6 +269,12 @@ vi.spyOn(configStore, "config").mockImplementation(mocks.config);
 
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
 import { aiConnectionStore } from "../../stores/global/ai-connection";
+import {
+  aiProvidersStore,
+  groupProviders,
+  type AiProviderInfo,
+  type ProviderGroupedOptions,
+} from "../../stores/global/ai-providers";
 import { SETTINGS_INDEX, SECTION_ORDER } from "../../settings";
 import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/global/default-app-support";
 
@@ -269,7 +296,7 @@ function baseConfig(): WritConfig {
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
-  ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "" } },
+  ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
@@ -308,7 +335,8 @@ describe("SettingsModal", () => {
     mocks.setActiveTabId.mockReset();
     mocks.requestExternalReload.mockReset();
     mocks.aiProviders.mockReset().mockResolvedValue(TEST_PROVIDERS);
-    mocks.aiListModels.mockReset().mockResolvedValue({ models: [] });
+    mocks.aiListModels.mockReset().mockImplementation((provider: string) => suggested(provider));
+    mocks.aiSetProvider.mockReset().mockResolvedValue(undefined);
     mocks.aiProbeLocal.mockReset().mockResolvedValue({ ollama: false, lmstudio: false });
     mocks.aiOpenrouterConnect.mockReset().mockResolvedValue({ is_set: true, memory_only: false });
     mocks.aiOpenrouterCancel.mockReset().mockResolvedValue(undefined);
@@ -1078,7 +1106,7 @@ describe("AI section", () => {
       model: "deepseek-chat",
       consented_hosts: [] as string[],
       rewrite: { enabled: false },
-      chat: { enabled: false, model: "" },
+      chat: { enabled: false, model: "", model_provider: "" },
       ...overrides,
     };
   }
@@ -1098,7 +1126,8 @@ describe("AI section", () => {
     mocks.save.mockReset().mockResolvedValue(undefined);
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.aiProviders.mockReset().mockResolvedValue(TEST_PROVIDERS);
-    mocks.aiListModels.mockReset().mockResolvedValue({ models: [] });
+    mocks.aiListModels.mockReset().mockImplementation((provider: string) => suggested(provider));
+    mocks.aiSetProvider.mockReset().mockResolvedValue(undefined);
     mocks.aiProbeLocal.mockReset().mockResolvedValue({ ollama: false, lmstudio: false });
     mocks.aiConsentHost.mockReset().mockResolvedValue(hostedEndpoint({ is_consented: true }));
     mocks.aiEndpointState.mockReset().mockResolvedValue(hostedEndpoint());
@@ -1144,6 +1173,103 @@ describe("AI section", () => {
       "Ollama",
       "LM Studio",
     ]);
+  });
+
+  // The table arrives after the panel mounts, so the picker has no options when
+  // the saved provider is first applied to it.
+  it("shows the saved provider once the table arrives", async () => {
+    const [groups, setGroups] = createSignal<ProviderGroupedOptions[]>([]);
+    const grouped = vi.spyOn(aiProvidersStore, "grouped").mockImplementation(() => groups());
+    try {
+      const { container } = await openAiSection();
+      const select = container.querySelector('[data-setting="ai_provider"]') as HTMLSelectElement;
+      expect(select.querySelectorAll("option").length).toBe(0);
+
+      setGroups(groupProviders(TEST_PROVIDERS as AiProviderInfo[]));
+      await waitFor(() => expect(select.querySelectorAll("option").length).toBeGreaterThan(0));
+      expect(select.value).toBe("deepseek");
+    } finally {
+      grouped.mockRestore();
+    }
+  });
+
+  /** Holds the deepseek row back to an empty model catalog, as the table being
+   * unloaded leaves it, and hands over the real suggestions when told to. */
+  function deferredCatalog() {
+    const [ready, setReady] = createSignal(false);
+    const row = TEST_PROVIDERS.find((r) => r.id === "deepseek") as AiProviderInfo;
+    const byId = vi.spyOn(aiProvidersStore, "byId").mockImplementation((id: string) => {
+      if (id !== "deepseek") return null;
+      return ready() ? row : { ...row, curated_models: [], default_model: "" };
+    });
+    return { arrive: () => setReady(true), restore: () => byId.mockRestore() };
+  }
+
+  // Same shape as the provider picker: the catalog is the table's, so it is
+  // empty when the saved model is first applied to the select.
+  it("shows the saved model once the catalog arrives", async () => {
+    const catalog = deferredCatalog();
+    try {
+      const { container } = await openAiSection();
+      const select = container.querySelector('[data-setting="ai_model"]') as HTMLSelectElement;
+      expect([...select.querySelectorAll("option")].map((o) => o.value)).toEqual(["__custom__"]);
+
+      catalog.arrive();
+      await waitFor(() => expect(select.querySelectorAll("option").length).toBeGreaterThan(1));
+      expect(select.value).toBe("deepseek-chat");
+    } finally {
+      catalog.restore();
+    }
+  });
+
+  // The live list replaces the suggestions after mount and need not put the
+  // saved model where the suggestions had it.
+  it("keeps the saved model when the live list replaces the suggestions", async () => {
+    let answer: (c: ReturnType<typeof listed>) => void = () => {};
+    mocks.aiListModels.mockImplementation(
+      () => new Promise<ReturnType<typeof listed>>((resolve) => (answer = resolve)),
+    );
+    const { container } = await openAiSection();
+    const select = container.querySelector('[data-setting="ai_model"]') as HTMLSelectElement;
+
+    answer(listed("deepseek", ["deepseek-reasoner", "deepseek-chat"]));
+    await waitFor(() =>
+      expect(select.querySelector("option")!.textContent).toBe("deepseek-reasoner"),
+    );
+    expect(select.value).toBe("deepseek-chat");
+  });
+
+  it("shows the saved chat model once the catalog arrives", async () => {
+    const catalog = deferredCatalog();
+    try {
+      const { container } = await openAiSection({
+        chat: { enabled: true, model: "deepseek-reasoner", model_provider: "deepseek" },
+      });
+      const select = container.querySelector(
+        '[data-setting="ai_chat_model"]',
+      ) as HTMLSelectElement;
+      expect(select.querySelectorAll("option").length).toBe(0);
+
+      catalog.arrive();
+      await waitFor(() => expect(select.querySelectorAll("option").length).toBeGreaterThan(0));
+      expect(select.value).toBe("deepseek-reasoner");
+    } finally {
+      catalog.restore();
+    }
+  });
+
+  // The catalog is suggestions, not an inventory, so an id it does not name is
+  // still the saved model: it lands on Custom with the id in the text field.
+  it("lands a model the catalog does not name on Custom, with the id showing", async () => {
+    const { container } = await openAiSection({ model: "deepseek-chat-v9" });
+    const select = container.querySelector('[data-setting="ai_model"]') as HTMLSelectElement;
+    await waitFor(() =>
+      expect(container.querySelector('[data-setting="ai_model_custom"]')).not.toBeNull(),
+    );
+    expect(select.value).toBe("__custom__");
+    expect(
+      (container.querySelector('[data-setting="ai_model_custom"]') as HTMLInputElement).value,
+    ).toBe("deepseek-chat-v9");
   });
 
   it("shows the base URL row only for a custom server", async () => {
@@ -1201,13 +1327,34 @@ describe("AI section", () => {
   });
 
   it("drops the suggestion marking once the provider answers with a list", async () => {
-    mocks.aiListModels.mockResolvedValue({ models: ["deepseek-chat", "deepseek-reasoner"] });
+    mocks.aiListModels.mockResolvedValue(
+      listed("deepseek", ["deepseek-chat", "deepseek-reasoner"]),
+    );
     const { container } = await openAiSection();
     await waitFor(() =>
       expect(container.querySelector('[data-setting="ai_model"] option')!.textContent).toBe(
         "deepseek-chat",
       ),
     );
+  });
+
+  // The override is qualified by the provider it was picked under, and a
+  // provider change goes through the one command that drops a foreign one. A
+  // chat still sending an Ollama id to DeepSeek is the 400 this closes.
+  it("switching provider clears a chat model that belonged to the old one", async () => {
+    const { container } = await openAiSection({
+      provider: "ollama",
+      model: "qwen3:4b",
+      chat: { enabled: true, model: "qwen2.5-coder:0.5b", model_provider: "ollama" },
+    });
+    const select = container.querySelector('[data-setting="ai_provider"]') as HTMLSelectElement;
+    select.value = "deepseek";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await waitFor(() => expect(mocks.aiSetProvider).toHaveBeenCalledWith("deepseek"));
+    // The panel does not write the connection itself: one command holds the
+    // rule, so the pane and this section cannot clear an override differently.
+    expect(mocks.save).not.toHaveBeenCalled();
   });
 
   it("names the host that notes and text would be sent to", async () => {
@@ -1298,7 +1445,7 @@ describe("AI section", () => {
   });
 
   it("closing the chat model disclosure hands chat back to the connection's model", async () => {
-    const { container } = await openAiSection({ chat: { enabled: true, model: "deepseek-reasoner" } });
+    const { container } = await openAiSection({ chat: { enabled: true, model: "deepseek-reasoner", model_provider: "" } });
     const row = container.querySelector('[data-setting-id="ai.chat.model"]')!;
     expect(row.querySelector('[data-setting="ai_chat_model"]')).not.toBeNull();
     fireEvent.click(row.querySelector('[data-setting="ai_chat_model_disclosure"]')!);

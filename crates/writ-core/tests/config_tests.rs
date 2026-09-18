@@ -1,5 +1,6 @@
 use writ_core::config::{
-    Accent, CommandUsage, Polarity, ProseFace, SidebarPosition, SidebarSection, WritConfig,
+    Accent, ClientApproval, CommandUsage, Polarity, ProseFace, SidebarPosition, SidebarSection,
+    WritConfig,
 };
 
 #[test]
@@ -383,4 +384,75 @@ fn panel_state_round_trips_through_toml() {
     let restored: WritConfig = toml::from_str(&serialized).expect("deserialization failed");
     assert!(restored.panel.open);
     assert_eq!(restored.panel.width, 312);
+}
+
+/// The live config as it stands after the commands that own these fields have
+/// written them: a consent, an approved program, a word added to the
+/// dictionary, and the folders picked through a dialog.
+fn live_with_rust_owned() -> WritConfig {
+    let mut live = WritConfig::default();
+    live.ai.consented_hosts = vec!["api.deepseek.com".to_string()];
+    live.mcp.approved_clients = vec![ClientApproval {
+        name: "Zed".to_string(),
+        first_seen: chrono::Utc::now(),
+        read: true,
+        write: false,
+    }];
+    live.spelling.ignored_words = vec!["writ".to_string()];
+    live.workspace.root = Some("/notes/work".to_string());
+    live.notes.root = Some("/notes".to_string());
+    live.inbox.path = Some("/inbox".to_string());
+    live
+}
+
+#[test]
+fn a_stale_copy_carries_the_fields_only_rust_writes() {
+    let live = live_with_rust_owned();
+
+    // What the frontend holds: a copy read before any of those writes, with a
+    // geometry change of its own.
+    let mut stale = WritConfig::default();
+    stale.window.width = 900;
+
+    stale.carry_rust_owned(&live);
+
+    assert_eq!(stale.ai.consented_hosts, ["api.deepseek.com"]);
+    assert_eq!(stale.mcp.approved_clients.len(), 1);
+    assert_eq!(stale.spelling.ignored_words, ["writ"]);
+    assert_eq!(stale.workspace.root.as_deref(), Some("/notes/work"));
+    assert_eq!(stale.notes.root.as_deref(), Some("/notes"));
+    assert_eq!(stale.inbox.path.as_deref(), Some("/inbox"));
+    // The write's own change survives the carry.
+    assert_eq!(stale.window.width, 900);
+}
+
+#[test]
+fn the_carry_leaves_the_fields_a_settings_panel_owns() {
+    let mut live = live_with_rust_owned();
+    live.spelling.enabled = false;
+    live.spelling.dialect = "american".to_string();
+    live.mcp.enabled = false;
+    live.inbox.focus = false;
+    live.first_run.hint_dismissed = false;
+    live.ai.provider = "ollama".to_string();
+    live.ai.model = "qwen3:4b".to_string();
+
+    let mut incoming = WritConfig::default();
+    incoming.spelling.enabled = true;
+    incoming.spelling.dialect = "british".to_string();
+    incoming.mcp.enabled = true;
+    incoming.inbox.focus = true;
+    incoming.first_run.hint_dismissed = true;
+    incoming.ai.provider = "deepseek".to_string();
+    incoming.ai.model = "deepseek-flash".to_string();
+
+    incoming.carry_rust_owned(&live);
+
+    assert!(incoming.spelling.enabled);
+    assert_eq!(incoming.spelling.dialect, "british");
+    assert!(incoming.mcp.enabled);
+    assert!(incoming.inbox.focus);
+    assert!(incoming.first_run.hint_dismissed);
+    assert_eq!(incoming.ai.provider, "deepseek");
+    assert_eq!(incoming.ai.model, "deepseek-flash");
 }

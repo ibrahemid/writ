@@ -351,6 +351,25 @@ Tests feed one recorded proposal reply split at every byte boundary and assert t
 character and no proposed line reaches the visible text, and that a reply with an ordinary code
 block loses nothing. The persisted `content` (section 8) is the filtered text.
 
+**What opens an offer, amended 2026-09-18.** Two shapes do. A fence whose info string is
+`writ-proposal` opens one, and so does a bare fence whose first body line is a
+`writ-proposal path=` header, which is what a local model writes when it puts the fence on a line
+of its own:
+
+````
+```
+writ-proposal path="Launch.md" summary="Fold the two intros together"
+````
+
+The header carries the attributes an info string carries and is no part of the body. `path=` is
+mandatory in it, so a bare fence over a note whose own first line reads `writ-proposal` stays an
+ordinary code block. Nothing after the opening changes: the same close, the same close at the end
+of the text, the same empty-body drop. `parse_proposals` and `ProposalFilter` read both shapes
+through one function, `open_proposal_at`, which is what holds them in step. The filter withholds a
+bare fence until the line under it is known and releases both lines when that line is not a
+header, so its contract stands at one line late at most. A carriage return after the fence run is
+trimmed with the spaces, because `str::lines` drops it where the filter reads it.
+
 **Diff.** No diff implementation exists in the tree; the rewrite overlay replaces text inline and
 compares nothing. `crates/writ-core/src/diff.rs` adds a line diff, Myers `O(ND)` with a guard at
 ADR-031 rule 4.8's 2 MB, returning hunks of context, removed and added lines. The proposal card
@@ -395,6 +414,105 @@ overlay may adopt the same hunks later, and this is the implementation it would 
   text."
 - **Rule 7.1**: `ai.enabled` reads `ai.rewrite.enabled`; `ai.chat.enabled` is unchanged. Both
   default to `false`.
+
+### 11. What a connection change and a refusal do, amended 2026-09-17
+
+An operator run against a DeepSeek key answered `400` on every send. Two defects produced it,
+each on its own: a chat model picked under one provider stayed in the file after the provider
+changed, and the pane's model list was fetched once per pane open, keyed by nothing, so ids
+read from Ollama stayed on offer under DeepSeek. The status line the pane showed said only
+"The model server returned status 400", and the record's rule 5.2 is why the sentence that
+would have explained it was discarded. The following amend sections 1, 3 and 9 of this record.
+
+- **The chat model override carries the provider it was picked under.** `[ai.chat]` gains
+  `model_provider`, and `AiChatConfig::override_for(provider)` answers the override only while it
+  matches the connection. A file written before the field existed has its override qualified to
+  the provider that file names, once, in `AiConfig::from(AiConfigOnDisk)`, which stays the one
+  migration point. A chat that names no model of its own carries no qualifier.
+
+- **`AiConfig::with_provider` is the one place a provider changes.** It seeds the new row's model,
+  keeps a hand-typed row's model because that row names no default, drops an override that does
+  not belong to the new provider, and leaves consent and both feature switches alone. The
+  settings panel and the composer's own control both reach it through `ai_set_provider`, so the
+  clearing rule cannot be applied differently in two surfaces.
+
+- **A model list is stamped with the provider it was read for.** `ai_list_models` answers a
+  `ModelCatalog { provider, models, source, error }`, where `source` is `Live`, `Curated` or
+  `None`. The frontend drops an answer whose `provider` is no longer the configured one, which
+  makes an out-of-order response harmless by construction rather than by ordering. The curated
+  ids move into the provider table of section 2, so the ids, the defaults and the wire come from
+  one definition. One store holds the catalog for the settings panel and the pane.
+
+- **A send is refused against a live catalog only.** `ModelUnavailable` is raised before the
+  request is built and before a key is read, so a send that cannot work raises no keychain
+  prompt. A `Curated` catalog is the table's suggestions and refuses nothing, because it is not
+  the account's inventory. `ai_check_connection` reads the chat model as well as the connection's,
+  and names whichever of the two the provider does not list.
+
+- **A refusal names the reason, in Writ's words.** A non-2xx answer becomes
+  `ProviderRejected { provider, status, code }`, where `code` is a `RejectCode` matched against a
+  fixed allowlist parsed from `error.code` and `error.type` in the OpenAI-compatible envelope and
+  `error.type` in Anthropic's. Anything outside the allowlist leaves `code` empty and the status
+  stands alone. This narrows rule 5.2 of ADR-031: at most 8 KiB of a refusal body is read, and the
+  only value that may leave the parser is one of six variants of a closed enum, so no response
+  text can be shown, stored or logged whatever a host writes. `LocalServerOffline` and
+  `EmptyModelList` join it, and each sentence is built from the provider table's label.
+
+- **Every frame names the connection that produced it.** A request freezes
+  `identity { provider, model, host }` when it is built; the accepted reply, the `done` frame and
+  the assistant turn on disk all carry it, and an `error` frame carries
+  `{ kind, message, provider, model, status }`. A reply says which model wrote it, and a refusal
+  names the model that was refused. The turn field is optional, so conversations written before
+  it open unchanged.
+
+- **A request is identified by (conversation, request id).** The frontend mints the id, as it
+  already does for `ai_rewrite`, and every `writ://ai-chat` frame carries it. A frame whose pair
+  does not match what the pane is showing is dropped, so switching conversations mid-reply never
+  crosses two streams, and Stop cancels one request rather than whatever is live under an id.
+
+- **Applying a proposal reports what it did.** The parser widens to the fences models actually
+  write and resolves the path it was given against the notes the request attached; proposals it
+  could not place are named on the `done` frame with the reason, instead of disappearing. A write
+  whose bytes match what the note already holds reports `changed: false` and the card says so,
+  and the apply itself records the new disk state and tells an open note it changed, so the
+  editor does not read the write back as an external edit.
+
+### 12. The first model comes from the live list, and a field Rust owns survives a stale write, amended 2026-09-18
+
+A second operator run found the table's ids had gone stale and a recorded consent had not
+survived a quit. DeepSeek's list holds `deepseek-flash` and `deepseek-v4-pro`; `deepseek-chat`,
+which section 2's table named as its default, is gone from it, though the endpoint still answers
+a request for `deepseek-reasoner` as an alias. The consent was accepted, written under
+`consented_hosts` and found empty in `config.toml` after the app closed. The following amend
+sections 1, 3 and 7.
+
+- **A curated id is never written to the file.** `writ_core::ai::models::seed_model(provider,
+  catalog)` answers the first id of a list the provider itself answered, and nothing otherwise.
+  `ai_set_provider` seeds from a list already read for that row, so picking a provider writes no
+  model of its own, and `ai_list_models` writes the first model when the connection has none. The
+  table's `curated_models` and `default_model` become display values: they fill the picker while
+  the list cannot be read and every row is marked "suggested" there. An empty model was already a
+  state both surfaces hold, and it is honest where a retired id is not. DeepSeek's row carries the
+  two ids read on 2026-09-18; the other hosted rows were written for 0.6 and have not been read
+  against a live list, which this rule makes harmless rather than urgent.
+
+- **The fields only Rust writes survive a frontend write.** The frontend holds the whole config
+  and sends the whole of it on any change, so a consent, an approved program, a word added to the
+  dictionary or a folder picked through a dialog could be undone by the next window resize.
+  `WritConfig::carry_rust_owned` names those fields — `ai.consented_hosts`,
+  `mcp.approved_clients`, `spelling.ignored_words`, `workspace.root`, `notes.root`,
+  `inbox.path` — and `update_config` carries them from the live value onto the write before
+  anything reaches disk. They are named one by one: `spelling.enabled`, `spelling.dialect`,
+  `inbox.focus`, `mcp.enabled`, `first_run.hint_dismissed` and the connection's provider and model
+  are edited in the settings panel, and carrying their sections whole would make those controls
+  dead.
+
+- **A consent is announced, and the list follows it.** `ai_consent_host` and the seed write emit
+  `config:changed` for `ai`, because `persist_config` records its own write in the watcher's
+  ignore set and the change never returns as external. The connection store records consent
+  through `aiConnectionStore.consentHost`, which re-reads the config after the command answers, so
+  the model list is read as soon as the host is allowed and the pane shows the provider's own rows
+  without a relaunch.
 
 ## Consequences
 

@@ -42,6 +42,21 @@ pub struct WriteReceipt {
     /// SHA-256 of the file's bytes, the value the next write passes as its
     /// last known state.
     pub hash: String,
+    /// The write moved bytes.
+    ///
+    /// False when the file already held the text that was written: the guard
+    /// leaves it alone rather than rewriting identical bytes, which is the
+    /// right thing to do to a file a sync client is watching and the wrong
+    /// thing to report as a change. A caller that tells a person their edit
+    /// landed has to know the difference.
+    #[serde(default = "changed_by_default")]
+    pub changed: bool,
+}
+
+/// What a receipt written before [`WriteReceipt::changed`] existed meant: a
+/// write that reported success moved bytes.
+fn changed_by_default() -> bool {
+    true
 }
 
 /// Where a renamed note went, where it was, and how long it is.

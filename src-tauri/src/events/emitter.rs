@@ -90,15 +90,33 @@ pub enum WritFrontendEvent {
     /// One frame of a chat reply, or its terminal state: `chunk`, `done`,
     /// `stopped` or `error`. `proposals` is carried only by the `done` frame
     /// and holds whole-note text the user has not applied to anything
-    /// (ADR-031 rule 4.3).
+    /// (ADR-031 rule 4.3). `dropped` and `truncated` are carried there too:
+    /// they say why a reply offered less than it looked like it would, which
+    /// is the difference between a broken feature and a model that named the
+    /// wrong note.
     #[serde(rename = "ai:chat")]
     AiChat {
         conversation_id: String,
+        /// The send this frame belongs to. Always present: a frame from a
+        /// request its conversation has moved on from is recognisable only by
+        /// this.
+        request_id: String,
         kind: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         text: Option<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
         proposals: Vec<writ_core::chat::Proposal>,
+        /// The connection the reply came from, carried by `done`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        identity: Option<writ_core::chat::RequestIdentity>,
+        /// The typed failure, carried by `error`. Its `message` is the same
+        /// sentence `text` holds.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<Box<writ_core::chat::ChatErrorFrame>>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        dropped: Vec<writ_core::chat::DroppedProposal>,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        truncated: bool,
     },
 
     #[serde(rename = "note:download")]

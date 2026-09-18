@@ -97,7 +97,10 @@ func waitReady(_ pid: pid_t) {
     if front != pid, let app = NSRunningApplication(processIdentifier: pid) {
       app.activate()
     }
-    usleep(1_000_000)
+    // The workspace learns which app is frontmost from notifications, and a
+    // process that only sleeps never receives them: a wait that began behind
+    // a system dialog kept seeing the dialog after it was gone.
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 1))
   }
 }
 

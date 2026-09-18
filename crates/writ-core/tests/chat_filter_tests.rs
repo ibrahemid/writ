@@ -20,6 +20,15 @@ const PROPOSED: [&str; 3] = [
     "The third proposed line.",
 ];
 
+/// One attached note by that path, which is all these assertions need.
+fn attached(path: &str) -> Vec<AttachedNote> {
+    vec![AttachedNote {
+        path: path.to_string(),
+        text: "old text\n".to_string(),
+        before_hash: "abc".to_string(),
+    }]
+}
+
 /// Feeds a fresh filter the given pieces in order and returns all it released.
 fn feed(pieces: &[&str]) -> String {
     let mut filter = ProposalFilter::new();
@@ -72,10 +81,10 @@ fn nothing_parse_proposals_reads_reaches_the_pane() {
         text: "old text\n".to_string(),
         before_hash: "abc".to_string(),
     }];
-    let proposals = parse_proposals(REPLY, &context);
-    assert_eq!(proposals.len(), 1);
+    let parsed = parse_proposals(REPLY, &context, false);
+    assert_eq!(parsed.proposals.len(), 1);
     let visible = feed(&[REPLY]);
-    for line in proposals[0].new_content.lines() {
+    for line in parsed.proposals[0].new_content.lines() {
         assert!(!visible.contains(line), "{line:?} reached the pane");
     }
 }
@@ -97,8 +106,56 @@ fn an_indented_proposal_is_withheld_and_an_indented_code_block_is_not() {
 
 #[test]
 fn a_backtick_run_that_is_not_a_fence_is_released() {
-    let reply = "Call `x` and read ``a`` then:\n\n```json\n{\"a\": 1}\n```\n\n````writ-proposal\nnot a fence\n````\n";
+    let reply = "Call `x` and read ``a`` then:\n\n```json\n{\"a\": 1}\n```\n\n``not a fence``\n";
     assert_eq!(every_split(reply), reply);
+}
+
+#[test]
+fn the_filter_and_the_parser_agree_on_a_four_backtick_fence() {
+    let reply = "Before.\n````writ-proposal path=\"A.md\"\nnew\n````\nAfter.\n";
+    assert_eq!(every_split(reply), "Before.\nAfter.\n");
+    assert_eq!(
+        parse_proposals(reply, &attached("A.md"), false)
+            .proposals
+            .len(),
+        1,
+        "the filter withheld a block the parser must read"
+    );
+}
+
+#[test]
+fn the_filter_and_the_parser_agree_on_a_tilde_fence() {
+    let reply = "Before.\n~~~writ-proposal path=\"A.md\"\nnew\n~~~\nAfter.\n";
+    assert_eq!(every_split(reply), "Before.\nAfter.\n");
+    assert_eq!(
+        parse_proposals(reply, &attached("A.md"), false)
+            .proposals
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn the_filter_withholds_a_body_that_contains_a_fence() {
+    let reply = "Before.\n\
+````writ-proposal path=\"A.md\"\n\
+# A\n\
+```sh\n\
+cargo run\n\
+```\n\
+````\n\
+After.\n";
+    let visible = every_split(reply);
+    assert_eq!(visible, "Before.\nAfter.\n");
+    assert!(
+        !visible.contains("cargo run"),
+        "the note's code block leaked"
+    );
+    let parsed = parse_proposals(reply, &attached("A.md"), false);
+    assert_eq!(
+        parsed.proposals[0].new_content,
+        "# A\n```sh\ncargo run\n```\n"
+    );
 }
 
 #[test]
@@ -158,5 +215,280 @@ fn a_default_filter_matches_a_new_one() {
     assert_eq!(
         ProposalFilter::default().push("hello"),
         ProposalFilter::new().push("hello")
+    );
+}
+
+#[test]
+fn a_block_still_open_mid_stream_is_hidden_and_stays_hidden() {
+    let mut filter = ProposalFilter::new();
+    assert_eq!(filter.push("Here you go.\n"), "Here you go.\n");
+    assert_eq!(
+        filter.push("```writ-proposal path=\"A.md\"\nThe first half"),
+        ""
+    );
+    assert_eq!(filter.push(" of a note.\n"), "");
+    assert_eq!(
+        filter.finish(),
+        "",
+        "the end-of-text close is the parser's rule, not the pane's"
+    );
+}
+
+#[test]
+fn the_end_of_a_reply_closes_a_block_for_the_parser_and_not_for_the_pane() {
+    let reply = "Here you go.\n```writ-proposal path=\"A.md\"\nThe whole note.\n";
+    assert_eq!(every_split(reply), "Here you go.\n");
+    let parsed = parse_proposals(reply, &attached("A.md"), false);
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(parsed.proposals[0].new_content, "The whole note.\n");
+}
+
+/// One real reply: a note holding a bash block, wrapped in a fence of the same
+/// length, so the block's own close is also a close for the proposal.
+const NESTED: &str = include_str!("fixtures/chat-replies/ollama-llama3.2_3b-2.md");
+
+#[test]
+fn a_body_ended_by_its_own_code_fence_reaches_the_card_and_not_the_pane() {
+    let shown = every_split(NESTED);
+    assert_eq!(shown, "", "nothing of the block may be shown");
+    for held in ["```bash", "# Commands", "git tag v1.0.0", "writ-proposal"] {
+        assert!(!shown.contains(held), "{held} reached the pane: {shown:?}");
+    }
+
+    let parsed = parse_proposals(NESTED, &attached("Launch.md"), false);
+    assert_eq!(parsed.proposals.len(), 1, "the card is what carries it");
+    assert!(parsed.proposals[0]
+        .new_content
+        .contains("```bash\n# Commands\ngit tag v1.0.0\n```"));
+}
+
+#[test]
+fn prose_after_a_body_ended_by_its_own_code_fence_is_still_shown() {
+    let reply = "Here you go.\n\
+```writ-proposal path=\"A.md\"\n\
+```sh\n\
+cargo run\n\
+```\n\
+```\n\
+That adds the commands.\n";
+
+    let shown = every_split(reply);
+    assert!(
+        shown.contains("That adds the commands."),
+        "the reply's own prose is still shown: {shown:?}"
+    );
+    assert!(
+        !shown.contains("cargo run"),
+        "the note's text is not: {shown:?}"
+    );
+    assert!(parse_proposals(reply, &attached("A.md"), false)
+        .proposals
+        .is_empty());
+}
+
+#[test]
+fn a_block_after_an_ambiguous_fence_is_withheld_like_any_other() {
+    let reply = "```writ-proposal path=\"A.md\"\n\
+```sh\n\
+cargo run\n\
+```\n\
+```writ-proposal path=\"B.md\"\n\
+The other note, whole.\n\
+```\n";
+
+    let shown = every_split(reply);
+    for held in ["The other note, whole.", "writ-proposal", "cargo run"] {
+        assert!(!shown.contains(held), "{held} reached the pane: {shown:?}");
+    }
+    let parsed = parse_proposals(reply, &attached("B.md"), false);
+    assert_eq!(parsed.proposals.len(), 1, "the second block is a card");
+}
+
+#[test]
+fn prose_after_a_second_proposal_reaches_the_pane() {
+    let reply = "intro\n\
+```writ-proposal path=\"A.md\"\n\
+```rust\n\
+fn main() {}\n\
+```\n\
+MIDDLE-PROSE\n\
+```writ-proposal path=\"B.md\"\n\
+The whole of B.\n\
+```\n\
+TRAILING-PROSE\n";
+
+    let shown = every_split(reply);
+    assert_eq!(
+        shown, "intro\nMIDDLE-PROSE\nTRAILING-PROSE\n",
+        "the pane shows every line the parser reads as prose"
+    );
+    for held in ["fn main() {}", "The whole of B.", "writ-proposal"] {
+        assert!(!shown.contains(held), "{held} reached the pane: {shown:?}");
+    }
+
+    let parsed = parse_proposals(reply, &attached("B.md"), false);
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(parsed.proposals[0].path, "B.md");
+    assert_eq!(parsed.proposals[0].new_content, "The whole of B.\n");
+    assert_eq!(parsed.dropped.len(), 1, "the ambiguous block is dropped");
+}
+
+#[test]
+fn a_bare_fence_proposal_is_withheld_at_every_byte_boundary() {
+    let reply = "Here is what I would change.\n\
+```\n\
+writ-proposal path=\"Ideas/Launch.md\" summary=\"Fold the intros\"\n\
+The first proposed line.\n\
+The second proposed line.\n\
+The third proposed line.\n\
+```\n\
+That keeps the two intros together.\n";
+
+    let visible = every_split(reply);
+    assert_eq!(
+        visible,
+        "Here is what I would change.\nThat keeps the two intros together.\n"
+    );
+    assert!(!visible.contains('`'), "a fence character reached the pane");
+    assert!(!visible.contains("writ-proposal"));
+    for line in PROPOSED {
+        assert!(!visible.contains(line), "{line:?} reached the pane");
+    }
+}
+
+#[test]
+fn a_bare_fence_over_prose_is_released_one_line_late() {
+    let reply = "before\n```\nnot a header\n```\nafter\n";
+    assert_eq!(
+        every_split(reply),
+        reply,
+        "an ordinary bare-fenced block loses nothing"
+    );
+}
+
+#[test]
+fn a_bare_fence_under_a_bare_fence_is_shown_and_the_proposal_under_it_is_not() {
+    let reply = "```\n```\nwrit-proposal path=\"A.md\"\nThe whole note.\n```\n";
+
+    let visible = every_split(reply);
+    assert_eq!(
+        visible, "```\n",
+        "the first fence is prose to the parser, so the pane shows it"
+    );
+    assert!(!visible.contains("The whole note."));
+
+    let parsed = parse_proposals(reply, &attached("A.md"), false);
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(parsed.proposals[0].new_content, "The whole note.\n");
+}
+
+#[test]
+fn a_bare_fence_header_the_stream_never_finished_is_released_on_finish() {
+    let mut filter = ProposalFilter::new();
+    assert_eq!(filter.push("text\n```\nwrit-proposal pa"), "text\n");
+    assert_eq!(filter.finish(), "```\nwrit-proposal pa");
+}
+
+#[test]
+fn a_bare_fence_at_the_end_of_a_reply_is_released_on_finish() {
+    let mut filter = ProposalFilter::new();
+    assert_eq!(filter.push("text\n```\n"), "text\n");
+    assert_eq!(filter.finish(), "```\n");
+}
+
+#[test]
+fn a_bare_fence_proposal_left_open_is_never_shown() {
+    let reply = "Here you go.\n```\nwrit-proposal path=\"A.md\"\nThe whole note.\n";
+    assert_eq!(every_split(reply), "Here you go.\n");
+    let parsed = parse_proposals(reply, &attached("A.md"), false);
+    assert_eq!(parsed.proposals.len(), 1);
+    assert_eq!(parsed.proposals[0].new_content, "The whole note.\n");
+}
+
+/// Every reply shape the two fence forms can be written in, crossed.
+///
+/// Structured generation on the same footing as the preview-URL property
+/// test: the grammar's own axes, every combination, rather than random bytes
+/// that almost never land on a fence. The filter is fed each shape at every
+/// byte boundary and one character at a time, and has to release exactly the
+/// lines `parse_proposals` reads as prose -- with no line of a body it parsed
+/// among them.
+///
+/// The line-ending axis is there because the parser reads lines through
+/// `str::lines`, which drops a carriage return the filter still has to read.
+#[test]
+fn the_filter_shows_what_the_parser_reads_as_prose_for_every_shape() {
+    const BODY_LINE: &str = "THE-PROPOSED-LINE";
+    let mut shapes = 0;
+
+    for marker in ['`', '~'] {
+        for length in [3usize, 4] {
+            let fence = marker.to_string().repeat(length);
+            for indent in ["", "   "] {
+                for bare in [false, true] {
+                    let opening = match bare {
+                        false => format!("{indent}{fence}writ-proposal path=\"A.md\"\n"),
+                        true => {
+                            format!("{indent}{fence}\n{indent}writ-proposal path=\"A.md\"\n")
+                        }
+                    };
+                    for body in [
+                        format!("{BODY_LINE}\n"),
+                        format!("# A\n\n```sh\n{BODY_LINE}\n```\n"),
+                        String::new(),
+                    ] {
+                        for close in [format!("{fence}\n"), String::new()] {
+                            for tail in ["", "TRAILING-PROSE\n"] {
+                                for ending in ["\n", "\r\n"] {
+                                    let reply =
+                                        format!("LEADING-PROSE\n{opening}{body}{close}{tail}")
+                                            .replace('\n', ending);
+                                    let visible = every_split(&reply);
+                                    let parsed = parse_proposals(&reply, &attached("A.md"), false);
+
+                                    assert!(
+                                        visible.starts_with(&format!("LEADING-PROSE{ending}")),
+                                        "prose before the block is always shown: {reply:?}"
+                                    );
+                                    assert!(
+                                        !visible.contains("writ-proposal"),
+                                        "the opening reached the pane: {reply:?} -> {visible:?}"
+                                    );
+                                    for proposal in &parsed.proposals {
+                                        for line in proposal.new_content.lines() {
+                                            assert!(
+                                            line.trim().is_empty() || !visible.contains(line),
+                                            "{line:?} reached the pane: {reply:?} -> {visible:?}"
+                                        );
+                                        }
+                                    }
+                                    shapes += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    assert_eq!(shapes, 384, "every combination of the grammar's axes");
+}
+
+#[test]
+fn a_bare_fence_proposal_written_with_carriage_returns_is_withheld() {
+    let reply = "Here you go.\r\n```\r\nwrit-proposal path=\"A.md\"\r\nThe whole note.\r\n```\r\n";
+
+    let parsed = parse_proposals(reply, &attached("A.md"), false);
+    assert_eq!(parsed.proposals.len(), 1, "the parser reads the block");
+
+    let visible = every_split(reply);
+    assert!(
+        !visible.contains("The whole note."),
+        "the body reached the pane: {visible:?}"
+    );
+    assert!(
+        !visible.contains("writ-proposal"),
+        "the header reached the pane: {visible:?}"
     );
 }

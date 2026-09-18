@@ -545,13 +545,30 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
                 state.record_disk_state_bytes(id, path, &bytes);
             }
         } else {
-            state.record_disk_state_bytes(id, path, content.as_bytes());
+            let bytes = content.as_bytes();
             // The reload of an externally changed note comes through here, so
-            // this is where the text the tab is about to be given is kept.
-            // The text it is replacing was kept when Writ read or wrote it,
-            // which is what puts the pre-overwrite text in the store before
-            // the reload lands.
-            keep_what_was_seen(state, path, content.as_bytes());
+            // this is where the tab learns what the file holds — and where the
+            // row learns it too. Without the row's stamp moving, a crash
+            // snapshot taken before the change still reads as newer than the
+            // row at the next unclean relaunch, and is written back over the
+            // note Writ just refreshed.
+            match store.note_synced_from_disk(
+                id,
+                writ_core::hash::sha256_bytes(bytes),
+                bytes.len() as u64,
+            ) {
+                Ok(Some(disk)) => state.set_disk_state(id, disk),
+                Ok(None) => state.record_disk_state_bytes(id, path, bytes),
+                Err(e) => {
+                    tracing::debug!(buffer_id = %id, error = %e, "the read was not recorded on the row");
+                    state.record_disk_state_bytes(id, path, bytes);
+                }
+            }
+            // The text the tab is about to be given is kept. The text it is
+            // replacing was kept when Writ read or wrote it, which is what
+            // puts the pre-overwrite text in the store before the reload
+            // lands.
+            keep_what_was_seen(state, path, bytes);
             // A file that gained or lost its carriage returns while Writ had
             // it open is followed rather than written back the old way.
             let ending = writ_core::notes::line_ending::LineEnding::detect(&content);
