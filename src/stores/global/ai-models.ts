@@ -37,9 +37,13 @@ export interface AutoModelInput {
 
 /**
  * The model to auto-assign, or `null` to leave the choice alone. Fills an empty
- * model with the first available option, and for Ollama replaces a
- * not-installed model with the first installed one — but never overrides a
- * model the user explicitly chose.
+ * model with the first id the provider's own list answered, and for Ollama
+ * replaces a not-installed model with the first installed one — but never
+ * overrides a model the user explicitly chose.
+ *
+ * A curated suggestion is never assigned. The picker offers the suggestions
+ * while the provider's list cannot be read, but the value saved is the value a
+ * send carries, and a provider can retire an id the table still names.
  */
 export function resolveAutoModel({
   provider,
@@ -47,9 +51,8 @@ export function resolveAutoModel({
   live,
   userSelected,
 }: AutoModelInput): string | null {
-  const options = modelOptions(provider, live);
   if (!model.trim()) {
-    return options[0] ?? null;
+    return live[0] ?? null;
   }
   if (provider === "ollama" && live.length > 0 && !live.includes(model) && !userSelected) {
     return live[0];

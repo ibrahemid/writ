@@ -149,10 +149,15 @@ impl AiConfig {
     /// The one place a provider change happens, so the rule that an override
     /// belongs to the server it was picked from lives beside the rule that a
     /// row seeds its own model, rather than in whichever surface made the
-    /// change. `default_model` is what the new row starts from; the hand-typed
+    /// change. `seed` is what the new row starts from; the hand-typed
     /// row has none, so the model already in the file is what the person typed
     /// and it is kept. Consent and both feature switches are untouched.
-    pub fn with_provider(&self, provider: &str, default_model: &str) -> AiConfig {
+    ///
+    /// `seed` is the first id of the new provider's own list, or empty when no
+    /// list has been read for it yet ([`crate::ai::models::seed_model`]). It is
+    /// never a value from the provider table: a suggestion the account cannot
+    /// reach would be a send that fails for a reason nobody chose.
+    pub fn with_provider(&self, provider: &str, seed: &str) -> AiConfig {
         let keeps_model = providers::provider(provider)
             .map(|row| row.group == providers::ProviderGroup::Custom)
             .unwrap_or(true);
@@ -163,7 +168,7 @@ impl AiConfig {
             model: if keeps_model {
                 self.model.clone()
             } else {
-                default_model.to_string()
+                seed.to_string()
             },
             consented_hosts: self.consented_hosts.clone(),
             rewrite: self.rewrite.clone(),
@@ -616,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn with_provider_seeds_the_default_model_and_clears_a_foreign_override() {
+    fn with_provider_seeds_the_given_model_and_clears_a_foreign_override() {
         let ollama = AiConfig {
             provider: "ollama".to_string(),
             model: "qwen3:4b".to_string(),
