@@ -1423,6 +1423,9 @@ export interface ChatEndpointState {
 /** A note the request carried, as the model read it. */
 export interface ChatAttachedNote {
   path: string;
+  /** What the model was told the file is called: the key for a note, the parent
+   * folder's name and the file name for a file outside the notes folder. */
+  prompt_path: string;
   text: string;
   before_hash: string;
 }

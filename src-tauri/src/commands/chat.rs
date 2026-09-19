@@ -54,6 +54,7 @@ use super::ai::AiKeyState;
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
+use crate::watcher::open_files::OpenNotes;
 
 /// How many notes one request may carry, so a loop in a caller cannot assemble
 /// an unbounded body.
@@ -455,8 +456,8 @@ pub fn chat_attached_sizes(
     app: AppHandle,
     paths: Vec<String>,
 ) -> Result<Vec<AttachedSize>, String> {
-    let notes_root = app.state::<AppState>().notes_root();
-    attached_sizes_in(&notes_root, &paths)
+    let state = app.state::<AppState>();
+    attached_sizes_in(&state.notes_root(), &state.open_tabs(), &paths)
 }
 
 /// The conversation folder under this instance's data directory.
@@ -475,8 +476,12 @@ pub fn chat_list(app: AppHandle) -> Result<Vec<ConversationSummary>, String> {
 #[tauri::command]
 pub fn chat_open(app: AppHandle, id: String) -> Result<ConversationDto, String> {
     let conversation = chat_store(&app).load(&id).map_err(missing_or)?;
-    let notes_root = app.state::<AppState>().notes_root();
-    Ok(conversation_dto(&notes_root, conversation))
+    let state = app.state::<AppState>();
+    Ok(conversation_dto(
+        &state.notes_root(),
+        &state.open_tabs(),
+        conversation,
+    ))
 }
 
 /// An empty conversation, on disk before the pane sees it.
@@ -486,16 +491,24 @@ pub fn chat_new(app: AppHandle) -> Result<ConversationDto, String> {
     let made = chat_store(&app)
         .create(&cfg.provider, cfg.chat_model())
         .map_err(|error| error.to_string())?;
-    let notes_root = app.state::<AppState>().notes_root();
-    Ok(conversation_dto(&notes_root, made))
+    let state = app.state::<AppState>();
+    Ok(conversation_dto(
+        &state.notes_root(),
+        &state.open_tabs(),
+        made,
+    ))
 }
 
 /// Names a conversation. A title that holds nothing leaves the name it has.
 #[tauri::command]
 pub fn chat_rename(app: AppHandle, id: String, title: String) -> Result<ConversationDto, String> {
     let renamed = chat_store(&app).rename(&id, &title).map_err(missing_or)?;
-    let notes_root = app.state::<AppState>().notes_root();
-    Ok(conversation_dto(&notes_root, renamed))
+    let state = app.state::<AppState>();
+    Ok(conversation_dto(
+        &state.notes_root(),
+        &state.open_tabs(),
+        renamed,
+    ))
 }
 
 /// Unlinks a conversation. There is no trash for one, because it is not a note.
@@ -544,7 +557,11 @@ fn missing_or(error: ChatStoreError) -> String {
 /// guard will refuse the apply for. A proposal nobody can apply any more — one
 /// already applied, discarded or refused — carries no hunks, and the card
 /// shows its summary and its status.
-fn conversation_dto(notes_root: &Path, conversation: Conversation) -> ConversationDto {
+fn conversation_dto(
+    notes_root: &Path,
+    open_notes: &dyn OpenNotes,
+    conversation: Conversation,
+) -> ConversationDto {
     ConversationDto {
         id: conversation.id,
         title: conversation.title,
@@ -562,7 +579,7 @@ fn conversation_dto(notes_root: &Path, conversation: Conversation) -> Conversati
                 proposals: turn
                     .proposals
                     .into_iter()
-                    .map(|proposal| proposal_dto(notes_root, proposal))
+                    .map(|proposal| proposal_dto(notes_root, open_notes, proposal))
                     .collect(),
             })
             .collect(),
@@ -570,7 +587,11 @@ fn conversation_dto(notes_root: &Path, conversation: Conversation) -> Conversati
 }
 
 /// One stored proposal, with the diff it would make computed now.
-fn proposal_dto(notes_root: &Path, proposal: StoredProposal) -> ProposalDto {
+fn proposal_dto(
+    notes_root: &Path,
+    open_notes: &dyn OpenNotes,
+    proposal: StoredProposal,
+) -> ProposalDto {
     if proposal.status != ProposalStatus::Pending {
         return ProposalDto {
             path: proposal.path,
@@ -587,7 +608,7 @@ fn proposal_dto(notes_root: &Path, proposal: StoredProposal) -> ProposalDto {
     // measured against, which is the same thing to a reader as one that
     // changed: there is nothing to show but the summary, and applying will be
     // refused.
-    let Some(current) = note_now(notes_root, &proposal.path) else {
+    let Some(current) = note_now(notes_root, open_notes, &proposal.path) else {
         return ProposalDto {
             path: proposal.path,
             summary: proposal.summary,
@@ -616,13 +637,13 @@ fn proposal_dto(notes_root: &Path, proposal: StoredProposal) -> ProposalDto {
 /// Every refusal collapses to `None`: opening a conversation must not fail
 /// because a note it names was renamed, deleted or grew past what a host will
 /// read.
-fn note_now(notes_root: &Path, path: &str) -> Option<writ_core::notes::host::NoteContent> {
-    let file = note_file_in(notes_root, path).ok()?;
-    let note_key = relative_key(notes_root, &file).ok()?;
-    context_host(notes_root, &note_key)
-        .ok()?
-        .read_note(path)
-        .ok()
+fn note_now(
+    notes_root: &Path,
+    open_notes: &dyn OpenNotes,
+    path: &str,
+) -> Option<writ_core::notes::host::NoteContent> {
+    let context = resolve_context_file(notes_root, open_notes, path).ok()?;
+    read_context(notes_root, &context, path).ok()
 }
 
 /// Everything a stream needs, resolved from config and validated.
@@ -820,6 +841,103 @@ fn relative_key(notes_root: &Path, file: &Path) -> Result<String, String> {
     relative_slug(&root, file).ok_or_else(|| outside_notes(&file.to_string_lossy()))
 }
 
+/// Whether a context file is a note in the folder or a file that is reachable
+/// only because a tab has it open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContextScope {
+    /// A note the folder holds. Read and written through the note host.
+    Notes,
+    /// A file outside the folder, open in this tab. Read directly and written
+    /// through the tab's own save path.
+    OpenTab { tab_id: String },
+}
+
+/// One file the chat may read, with the name every chat surface calls it by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextFile {
+    /// The file on disk, resolved.
+    pub file: PathBuf,
+    /// Folder-relative for a note, the absolute path for a file outside the
+    /// folder. This is the string the chip, the conversation file, the
+    /// proposal and the activity record all name the file by.
+    pub key: String,
+    /// Which of the two ways this file is reached.
+    pub scope: ContextScope,
+}
+
+/// The one place a chat path becomes a file the pane may read.
+///
+/// A note in the folder resolves exactly as [`note_file_in`] and
+/// [`relative_key`] resolved it together. A path outside the folder is
+/// accepted only when a tab has it open: the user opened the file and can
+/// already save it, so the pane adds no reach the editor lacks (ADR-040
+/// section 13). A path outside the folder that nobody has open is refused in
+/// the sentence it has always been refused in, which is why the tab lookup
+/// comes before the existence checks — a traversal at a path holding nothing
+/// must not start answering "This note is no longer there.".
+pub fn resolve_context_file(
+    notes_root: &Path,
+    open_notes: &dyn OpenNotes,
+    path: &str,
+) -> Result<ContextFile, String> {
+    let root = canonical_notes_root(notes_root);
+    let given = Path::new(path);
+    let candidate = match given.is_absolute() {
+        true => given.to_path_buf(),
+        false => root.join(given),
+    };
+    let Some(resolved) = crate::security::resolve_for_containment(&candidate) else {
+        return Err(outside_notes(path));
+    };
+    let file = PathBuf::from(resolved);
+
+    if writ_core::notes::containment::is_inside(&root, &file) {
+        let key = existing_file(&file).and_then(|()| relative_key(&root, &file))?;
+        return Ok(ContextFile {
+            file,
+            key,
+            scope: ContextScope::Notes,
+        });
+    }
+
+    let Some(tab_id) = open_notes.note_at(&file) else {
+        return Err(outside_notes(path));
+    };
+    existing_file(&file)?;
+    Ok(ContextFile {
+        key: file.to_string_lossy().into_owned(),
+        file,
+        scope: ContextScope::OpenTab { tab_id },
+    })
+}
+
+/// The two refusals a path that resolved but holds no file earns.
+///
+/// The sentences go under a chip or a card that already names the file, so
+/// they say what is wrong and not, a second time, which file.
+fn existing_file(file: &Path) -> Result<(), String> {
+    if !file.exists() {
+        return Err("This note is no longer there.".to_string());
+    }
+    if !file.is_file() {
+        return Err("This is not a note.".to_string());
+    }
+    Ok(())
+}
+
+/// What a refusal about a context file calls it.
+///
+/// A note reads by its folder-relative key, as every refusal has always read.
+/// A file outside the folder reads by its file name: the absolute path belongs
+/// in the chip's tooltip, the conversation file and the activity record, and
+/// not in a sentence a model's reply sits next to (ADR-031 rule 5.2).
+fn context_name(context: &ContextFile) -> String {
+    match context.scope {
+        ContextScope::Notes => context.key.clone(),
+        ContextScope::OpenTab { .. } => file_name_only(&context.key),
+    }
+}
+
 /// A note's size on disk, as the dialog that asks to send it must state it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttachedSize {
@@ -878,13 +996,72 @@ fn unattachable(note_key: &str, error: &HostError) -> String {
     }
 }
 
+/// What one context file holds now.
+///
+/// A note goes through the host, which is the only thing that reads the notes
+/// folder. A file outside the folder is read directly, under the host's own
+/// ceiling ([`writ_core::notes::host::MAX_NOTE_BYTES`]), the host's own
+/// text-or-not answer, and the host's own digest, so a `before_hash` taken
+/// here is comparable with one taken through the host and the two sides refuse
+/// an oversized or binary file in the same words.
+fn read_context(
+    notes_root: &Path,
+    context: &ContextFile,
+    given: &str,
+) -> Result<writ_core::notes::host::NoteContent, String> {
+    match &context.scope {
+        ContextScope::Notes => context_host(notes_root, &context.key)?
+            .read_note(given)
+            .map_err(|error| unattachable(&context.key, &error)),
+        ContextScope::OpenTab { .. } => {
+            let name = context_name(context);
+            let bytes = std::fs::metadata(&context.file)
+                .map_err(|_| format!("{name} could not be read."))?
+                .len();
+            if bytes > writ_core::notes::host::MAX_NOTE_BYTES {
+                return Err(format!("{name} is too large to attach."));
+            }
+            let read =
+                std::fs::read(&context.file).map_err(|_| format!("{name} could not be read."))?;
+            let text = String::from_utf8(read).map_err(|_| format!("{name} is not text."))?;
+            Ok(writ_core::notes::host::NoteContent {
+                path: context.key.clone(),
+                bytes,
+                hash: writ_core::hash::sha256_hex(text.as_bytes()),
+                text,
+            })
+        }
+    }
+}
+
+/// What one context file weighs, which is what the send dialog states.
+///
+/// Metadata on both sides, so asking costs no file text. A file over the
+/// ceiling still reports its size here and is refused at the read, which is
+/// what a note has always done: `note_summary` carries no size limit either.
+fn context_bytes(notes_root: &Path, context: &ContextFile, given: &str) -> Result<u64, String> {
+    match &context.scope {
+        ContextScope::Notes => context_host(notes_root, &context.key)?
+            .note_summary(given)
+            .map(|summary| summary.bytes)
+            .map_err(|error| unattachable(&context.key, &error)),
+        ContextScope::OpenTab { .. } => std::fs::metadata(&context.file)
+            .map(|meta| meta.len())
+            .map_err(|_| format!("{} could not be read.", context_name(context))),
+    }
+}
+
 /// The sizes of the notes the call named.
 ///
 /// The dialog asking to send them must state the bytes the send will read, not
 /// what a tab last recorded: a note another program rewrote since the tab
 /// synced would otherwise be consented to under the wrong number. Metadata
 /// only, so asking costs no note text.
-pub fn attached_sizes_in(notes_root: &Path, paths: &[String]) -> Result<Vec<AttachedSize>, String> {
+pub fn attached_sizes_in(
+    notes_root: &Path,
+    open_notes: &dyn OpenNotes,
+    paths: &[String],
+) -> Result<Vec<AttachedSize>, String> {
     if paths.len() > MAX_ATTACHED_NOTES {
         return Err(format!(
             "Attach at most {MAX_ATTACHED_NOTES} notes to one conversation."
@@ -892,20 +1069,17 @@ pub fn attached_sizes_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Atta
     }
     let mut sizes: Vec<AttachedSize> = Vec::with_capacity(paths.len());
     for path in paths {
-        let file = note_file_in(notes_root, path)?;
-        let note_key = relative_key(notes_root, &file)?;
-        // Two spellings of one note are one row, and the first spelling asked
+        let context = resolve_context_file(notes_root, open_notes, path)?;
+        // Two spellings of one file are one row, and the first spelling asked
         // about is the one answered under.
-        if sizes.iter().any(|note| note.key == note_key) {
+        if sizes.iter().any(|note| note.key == context.key) {
             continue;
         }
-        let summary = context_host(notes_root, &note_key)?
-            .note_summary(path)
-            .map_err(|error| unattachable(&note_key, &error))?;
+        let bytes = context_bytes(notes_root, &context, path)?;
         sizes.push(AttachedSize {
             path: path.clone(),
-            key: note_key,
-            bytes: summary.bytes,
+            key: context.key,
+            bytes,
         });
     }
     Ok(sizes)
@@ -915,7 +1089,11 @@ pub fn attached_sizes_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Atta
 ///
 /// This is the whole of what the request carries. Nothing walks the folder and
 /// nothing consults the index (ADR-031 rule 2.5).
-pub fn read_attached_in(notes_root: &Path, paths: &[String]) -> Result<Vec<AttachedNote>, String> {
+pub fn read_attached_in(
+    notes_root: &Path,
+    open_notes: &dyn OpenNotes,
+    paths: &[String],
+) -> Result<Vec<AttachedNote>, String> {
     if paths.len() > MAX_ATTACHED_NOTES {
         return Err(format!(
             "Attach at most {MAX_ATTACHED_NOTES} notes to one conversation."
@@ -923,42 +1101,89 @@ pub fn read_attached_in(notes_root: &Path, paths: &[String]) -> Result<Vec<Attac
     }
     let mut notes: Vec<AttachedNote> = Vec::with_capacity(paths.len());
     for path in paths {
-        let file = note_file_in(notes_root, path)?;
-        let note_key = relative_key(notes_root, &file)?;
-        if notes.iter().any(|note| note.path == note_key) {
+        let context = resolve_context_file(notes_root, open_notes, path)?;
+        if notes.iter().any(|note| note.path == context.key) {
             continue;
         }
-        let content = context_host(notes_root, &note_key)?
-            .read_note(path)
-            .map_err(|error| unattachable(&note_key, &error))?;
+        let content = read_context(notes_root, &context, path)?;
+        // The key is what an apply writes to and what the conversation file
+        // records; what the model is told is the name it can say back. For a
+        // note those are one string. For a file outside the folder the key is
+        // the whole path, and where that file sits on this machine is not the
+        // model's to read (ADR-031 rule 2.5).
+        let prompt_path = match context.scope {
+            ContextScope::Notes => context.key.clone(),
+            ContextScope::OpenTab { .. } => outside_prompt_path(&context.key),
+        };
         notes.push(AttachedNote {
             before_hash: content.hash,
-            path: note_key,
+            path: context.key,
+            prompt_path,
             text: content.text,
         });
     }
     Ok(notes)
 }
 
+/// What the model is told a file outside the notes folder is called.
+///
+/// The folder it sits in and its own name, which is enough to tell two files of
+/// one name apart in the reply and is what a person reading the pane would call
+/// it. The rest of the path names the home directory and whoever the user works
+/// for, and the model has no use for it (ADR-031 rule 2.5). A file with no named
+/// parent, which is a file at the root of a volume, is its name alone.
+fn outside_prompt_path(key: &str) -> String {
+    let name = file_name_only(key);
+    match Path::new(key).parent().and_then(Path::file_name) {
+        Some(folder) => format!("{}/{}", folder.to_string_lossy(), name),
+        None => name,
+    }
+}
+
 /// Writes one proposal and records what became of it.
 ///
-/// The host holds [`apply_permissions`] and the proposal's `before_hash` is
-/// what Writ last saw the note hold: a note changed since the proposal was
-/// made is refused, and the refusal writes the proposed text beside it as a
-/// dated copy rather than over it (ADR-031 rule 4.3). The write carries no
-/// ignore stamp, so a tab holding the note learns about it through the folder
-/// watcher the way it learns about any other write it did not make (ADR-033).
+/// A note in the folder is written through the host, which holds
+/// [`apply_permissions`]: the proposal's `before_hash` is what Writ last saw
+/// the note hold, a note changed since the proposal was made is refused, and
+/// the refusal writes the proposed text beside it as a dated copy rather than
+/// over it (ADR-031 rule 4.3). The write carries no ignore stamp, so a tab
+/// holding the note learns about it through the folder watcher the way it
+/// learns about any other write it did not make (ADR-033).
+///
+/// A file outside the folder is written through `write_tab`, which is the tab's
+/// own save path (ADR-040 section 13). The guarded facade belongs to the notes
+/// folder: its history, its dated conflict copy and its watcher contract are
+/// the folder's, and leaving a dated copy beside somebody else's repository is
+/// not something the pane may do. The digest is compared here instead, and a
+/// file that moved is refused with the proposed text left in the conversation.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_proposal_inner(
     notes_root: &Path,
+    open_notes: &dyn OpenNotes,
     writ_dir: &Path,
     host: &str,
     path: &str,
     new_content: &str,
     before_hash: &str,
     history: Option<&writ_storage::note_history::NoteHistoryStore>,
+    write_tab: impl FnOnce(&str, &str, &[u8]) -> Result<(), String>,
 ) -> Result<ProposalOutcome, String> {
-    let file = note_file_in(notes_root, path)?;
-    let note_key = relative_key(notes_root, &file)?;
+    let context = resolve_context_file(notes_root, open_notes, path)?;
+    if let ContextScope::OpenTab { tab_id } = &context.scope {
+        let tab_id = tab_id.clone();
+        return apply_to_open_tab(
+            notes_root,
+            &context,
+            writ_dir,
+            host,
+            path,
+            new_content,
+            before_hash,
+            &tab_id,
+            write_tab,
+        );
+    }
+    let note_key = context.key;
     let Some(digest) = digest_from_hex(before_hash) else {
         return Err(format!("The recorded state of {note_key} is not readable."));
     };
@@ -1004,6 +1229,101 @@ pub fn apply_proposal_inner(
     }
 }
 
+/// What the card reads when the tab's own save path refused the write.
+///
+/// The save answers in stable codes, which are not sentences a card may show,
+/// and a card that says only that nothing was written leaves a person with
+/// nowhere to go. The two refusals a person can act on get their own sentence;
+/// anything else says which file and stops, because a code invented for
+/// another surface is not a sentence.
+fn save_error_sentence(name: &str, error: &str) -> String {
+    use crate::commands::buffer::{ERR_FILE_REMOVED_ON_DISK, ERR_NOTE_READ_ONLY};
+    if error.starts_with(ERR_NOTE_READ_ONLY) {
+        return format!("{name} is read-only and was not written.");
+    }
+    if error.starts_with(ERR_FILE_REMOVED_ON_DISK) {
+        return format!("{name} is no longer there and was not written.");
+    }
+    format!("{name} was not written.")
+}
+
+/// Applies a proposal to a file that is only reachable because a tab has it
+/// open.
+///
+/// The digest is compared here rather than by the guarded facade, and a file
+/// that moved is refused with nothing written beside it: the proposed text is
+/// in the conversation file, which is where a person gets it back from, and a
+/// dated copy in somebody else's repository is not the pane's to leave.
+///
+/// `write_tab` is handed the bytes the digest was checked against, so what it
+/// records as the tab's disk state is the state this apply verified rather than
+/// whatever a second read would find.
+#[allow(clippy::too_many_arguments)]
+fn apply_to_open_tab(
+    notes_root: &Path,
+    context: &ContextFile,
+    writ_dir: &Path,
+    host: &str,
+    path: &str,
+    new_content: &str,
+    before_hash: &str,
+    tab_id: &str,
+    write_tab: impl FnOnce(&str, &str, &[u8]) -> Result<(), String>,
+) -> Result<ProposalOutcome, String> {
+    let name = context_name(context);
+    // A file that grew past the ceiling or stopped being text since the offer
+    // was made is refused in the words the attach would have used.
+    let current = read_context(notes_root, context, path)?;
+    if current.hash != before_hash {
+        record_proposal(
+            writ_dir,
+            host,
+            "apply_proposal",
+            &context.key,
+            Decision::Refuse,
+            None,
+        );
+        return Err(format!(
+            "{name} changed since this was proposed and was not written."
+        ));
+    }
+
+    // A write of the text the file already holds is skipped, which is what the
+    // guarded facade does for a note and what makes `changed: false` mean the
+    // same thing on both sides.
+    let changed = current.text != new_content;
+    if changed {
+        // The verified bytes travel with the write. The digest has just passed
+        // on these, and a second read taken inside the write is a read a change
+        // Writ never saw can land in: recording that as the tab's disk state is
+        // the one thing the buffer store's guard exists to catch.
+        write_tab(tab_id, new_content, current.text.as_bytes()).inspect_err(|_| {
+            record_proposal(
+                writ_dir,
+                host,
+                "apply_proposal",
+                &context.key,
+                Decision::Refuse,
+                None,
+            );
+        })?;
+    }
+    record_proposal(
+        writ_dir,
+        host,
+        "apply_proposal",
+        &context.key,
+        Decision::Allow,
+        changed.then_some(new_content.len() as u64),
+    );
+    Ok(ProposalOutcome {
+        path: context.key.clone(),
+        hash: writ_core::hash::sha256_hex(new_content.as_bytes()),
+        bytes: new_content.len() as u64,
+        changed,
+    })
+}
+
 /// Tells the tab holding `file` that an applied proposal changed it.
 ///
 /// The write carries no ignore stamp, because ADR-033 is right that the folder
@@ -1018,15 +1338,26 @@ pub fn apply_proposal_inner(
 /// A note nobody has open is told nothing, and answers `None`.
 pub fn announce_applied_note(state: &AppState, file: &Path, bytes: &[u8]) -> Option<String> {
     let note_id = state.open_notes().note_at(file)?;
-    state.record_disk_state_bytes(&note_id, file, bytes);
+    announce_note_change(state, &note_id, file, bytes);
+    Some(note_id)
+}
+
+/// The same notice, for a caller that already knows which tab holds the file.
+///
+/// A proposal applied to a file outside the notes folder took that tab's id
+/// from the resolver rather than from the folder watch, and the watch is the
+/// one thing that can be missing for such a file (see
+/// [`crate::state::AppState::open_tabs`]). Splitting the lookup off is what
+/// lets the tab be told either way.
+pub fn announce_note_change(state: &AppState, note_id: &str, file: &Path, bytes: &[u8]) {
+    state.record_disk_state_bytes(note_id, file, bytes);
     state
         .event_bus
         .emit(crate::watcher::open_files::open_note_modified(
-            &note_id,
+            note_id,
             file,
             Some(bytes),
         ));
-    Some(note_id)
 }
 
 /// What the pane shows when a write does not happen.
@@ -1057,9 +1388,15 @@ fn refusal(note_key: &str, error: &HostError) -> String {
 /// Every proposal reaches the log, applied or not, so the record of what a
 /// model asked for does not depend on the answer (ADR-031 rule 5.5). A path
 /// the folder does not hold is still recorded, under the name it was given.
-pub fn discard_proposal_inner(notes_root: &Path, writ_dir: &Path, host: &str, path: &str) {
-    let note_key = note_file_in(notes_root, path)
-        .and_then(|file| relative_key(notes_root, &file))
+pub fn discard_proposal_inner(
+    notes_root: &Path,
+    open_notes: &dyn OpenNotes,
+    writ_dir: &Path,
+    host: &str,
+    path: &str,
+) {
+    let note_key = resolve_context_file(notes_root, open_notes, path)
+        .map(|context| context.key)
         .unwrap_or_else(|_| file_name_only(path));
     record_proposal(
         writ_dir,
@@ -1656,8 +1993,8 @@ pub async fn chat_send(
     let mut conversation = store.load(&conversation_id).map_err(missing_or)?;
 
     let context = {
-        let notes_root = app.state::<AppState>().notes_root();
-        read_attached_in(&notes_root, &context_paths)?
+        let state = app.state::<AppState>();
+        read_attached_in(&state.notes_root(), &state.open_tabs(), &context_paths)?
     };
     let attached_bytes: usize = context.iter().map(|note| note.text.len()).sum();
 
@@ -1749,21 +2086,61 @@ pub fn chat_apply_proposal(
         let state = app.state::<AppState>();
         (state.notes_root(), state.writ_dir.clone())
     };
+    let state = app.state::<AppState>();
+    let open_tabs = state.open_tabs();
+    let context = resolve_context_file(&notes_root, &open_tabs, &path).ok();
+    let write_app = app.clone();
+    let write_file = context.as_ref().map(|context| context.file.clone());
+    let write_name = context
+        .as_ref()
+        .map_or_else(|| file_name_only(&path), context_name);
     let outcome = apply_proposal_inner(
         &notes_root,
+        &open_tabs,
         &writ_dir,
         &chat_host(&app),
         &path,
         &new_content,
         &before_hash,
-        Some(&app.state::<AppState>().note_history),
+        Some(&state.note_history),
+        |tab_id, content, verified| {
+            let state = write_app.state::<AppState>();
+            // The apply has just read this file and found it holding what the
+            // offer was made against, and those are the bytes handed here.
+            // Recording them as the tab's disk state is what stops the buffer
+            // store's own guard reading the write as one landing over a change
+            // Writ never saw, which for a file outside the folder would leave a
+            // dated copy beside it.
+            if let Some(file) = write_file.as_ref() {
+                state.record_disk_state_bytes(tab_id, file, verified);
+            }
+            crate::commands::buffer::save_buffer_content_inner(&state, tab_id, content)
+                .map(|_| ())
+                .map_err(|error| save_error_sentence(&write_name, &error))
+        },
     );
     // Only a write that moved bytes has something to tell a tab. An apply of
     // the text the note already holds leaves the file exactly as the tab has
     // it, so an event about it would be a notice about nothing.
     if outcome.as_ref().is_ok_and(|applied| applied.changed) {
-        if let Ok(file) = note_file_in(&notes_root, &path) {
-            announce_applied_note(&app.state::<AppState>(), &file, new_content.as_bytes());
+        if let Some(context) = context.as_ref() {
+            let bytes = match context.scope {
+                // The buffer store keeps the line ending the file keeps, so
+                // what landed is not always the string that was offered. The
+                // tab is told what the file holds.
+                ContextScope::OpenTab { .. } => {
+                    std::fs::read(&context.file).unwrap_or_else(|_| new_content.as_bytes().to_vec())
+                }
+                ContextScope::Notes => new_content.as_bytes().to_vec(),
+            };
+            match &context.scope {
+                ContextScope::OpenTab { tab_id } => {
+                    announce_note_change(&state, tab_id, &context.file, &bytes)
+                }
+                ContextScope::Notes => {
+                    announce_applied_note(&state, &context.file, &bytes);
+                }
+            }
         }
     }
     let status = if outcome.is_ok() {
@@ -1783,7 +2160,13 @@ pub fn chat_discard_proposal(app: AppHandle, conversation_id: String, turn: usiz
         let state = app.state::<AppState>();
         (state.notes_root(), state.writ_dir.clone())
     };
-    discard_proposal_inner(&notes_root, &writ_dir, &chat_host(&app), &path);
+    discard_proposal_inner(
+        &notes_root,
+        &app.state::<AppState>().open_tabs(),
+        &writ_dir,
+        &chat_host(&app),
+        &path,
+    );
     record_status(
         &chat_store(&app),
         &conversation_id,
@@ -1812,6 +2195,8 @@ fn announce_activity(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::buffer::{ERR_FILE_REMOVED_ON_DISK, ERR_NOTE_READ_ONLY};
+    use crate::watcher::open_files::NoOpenNotes;
 
     /// What `chat_send` asks before it appends a turn: a conversation whose
     /// reply is still arriving takes no second send, because two streams on
@@ -1863,6 +2248,343 @@ mod tests {
 
     fn no_key(_account: &str) -> Option<String> {
         None
+    }
+
+    /// A fixed answer to "which tab is this file open in", standing in for the
+    /// buffer rows [`crate::state::AppState::open_tabs`] reads.
+    struct StubTabs(std::collections::HashMap<String, String>);
+
+    impl StubTabs {
+        /// Keys are built through the resolver's own canonicalisation, so the
+        /// stub and `resolve_context_file` agree by construction rather than
+        /// by coincidence: on macOS a temp dir is reached through `/var` and
+        /// answered as `/private/var`.
+        fn open(file: &Path, tab_id: &str) -> Self {
+            let resolved =
+                crate::security::resolve_for_containment(file).expect("the fixture file resolves");
+            Self(std::collections::HashMap::from([(
+                resolved,
+                tab_id.to_string(),
+            )]))
+        }
+    }
+
+    impl OpenNotes for StubTabs {
+        fn note_at(&self, path: &Path) -> Option<String> {
+            self.0.get(&path.to_string_lossy().into_owned()).cloned()
+        }
+    }
+
+    /// A notes folder and a file beside it that the folder does not hold.
+    ///
+    /// Returns the temp dir, the notes root, and the outside file's path as a
+    /// caller would hand it in: absolute, and not through the root.
+    fn notes_and_an_outside_file(contents: &[u8]) -> (tempfile::TempDir, PathBuf, String) {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let notes = dir.path().join("notes");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&notes).expect("the notes folder");
+        std::fs::create_dir(&outside).expect("the outside folder");
+        let readme = outside.join("README.md");
+        std::fs::write(&readme, contents).expect("write the outside file");
+        let given = readme.to_string_lossy().into_owned();
+        (dir, notes, given)
+    }
+
+    /// The path the resolver answers with, which is the key every chat surface
+    /// names an outside file by.
+    fn resolved_key(given: &str) -> String {
+        crate::security::resolve_for_containment(Path::new(given)).expect("the file resolves")
+    }
+
+    #[test]
+    fn outside_open_tab_is_readable_context() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+
+        let attached = read_attached_in(&notes, &tabs, std::slice::from_ref(&given))
+            .expect("the open tab is context");
+        assert_eq!(attached.len(), 1);
+        assert_eq!(attached[0].path, resolved_key(&given));
+        assert_eq!(attached[0].text, "the readme text\n");
+        assert_eq!(
+            attached[0].before_hash,
+            writ_core::hash::sha256_hex(b"the readme text\n")
+        );
+    }
+
+    #[test]
+    fn a_save_refusal_says_why_the_file_was_not_written() {
+        assert_eq!(
+            save_error_sentence(
+                "README.md",
+                &format!("{ERR_NOTE_READ_ONLY}: note tab-1 is read-only")
+            ),
+            "README.md is read-only and was not written."
+        );
+        assert_eq!(
+            save_error_sentence(
+                "README.md",
+                &format!("{ERR_FILE_REMOVED_ON_DISK}: note tab-1 has no file on disk any more")
+            ),
+            "README.md is no longer there and was not written."
+        );
+    }
+
+    #[test]
+    fn a_save_refusal_with_no_known_code_still_names_the_file() {
+        assert_eq!(
+            save_error_sentence("README.md", "ERR_PERMISSION_DENIED: the filesystem said no"),
+            "README.md was not written."
+        );
+        assert_eq!(
+            save_error_sentence("README.md", ""),
+            "README.md was not written.",
+            "a code the card has no sentence for still says which file, never the code"
+        );
+    }
+
+    #[test]
+    fn an_outside_open_tab_is_sent_under_its_folder_and_file_name() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+
+        let attached = read_attached_in(&notes, &tabs, std::slice::from_ref(&given))
+            .expect("the open tab is context");
+        assert_eq!(
+            attached[0].prompt_path, "outside/README.md",
+            "the model is told the folder and the file, never where that folder sits"
+        );
+        assert_eq!(
+            attached[0].path,
+            resolved_key(&given),
+            "the key the apply writes to is still the whole path"
+        );
+    }
+
+    #[test]
+    fn a_file_with_no_named_parent_is_sent_under_its_name_alone() {
+        assert_eq!(
+            outside_prompt_path("/Users/someone/work/tessera/README.md"),
+            "tessera/README.md"
+        );
+        assert_eq!(
+            outside_prompt_path("/README.md"),
+            "README.md",
+            "a file at the root of a volume has no folder to name"
+        );
+    }
+
+    #[test]
+    fn a_note_in_the_folder_is_sent_under_its_key() {
+        let (_dir, notes, _given) = notes_and_an_outside_file(b"the readme text\n");
+        std::fs::write(notes.join("Launch.md"), "the note text\n").expect("write the note");
+
+        let attached = read_attached_in(&notes, &NoOpenNotes, &["Launch.md".to_string()])
+            .expect("the note is context");
+        assert_eq!(attached[0].prompt_path, "Launch.md");
+        assert_eq!(attached[0].path, "Launch.md");
+    }
+
+    #[test]
+    fn outside_file_with_no_tab_is_refused() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+
+        assert_eq!(
+            read_attached_in(&notes, &NoOpenNotes, std::slice::from_ref(&given)),
+            Err("README.md is not in the notes folder.".to_string())
+        );
+    }
+
+    #[test]
+    fn attached_sizes_report_an_outside_open_tab() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+
+        let sizes =
+            attached_sizes_in(&notes, &tabs, std::slice::from_ref(&given)).expect("the sizes");
+        assert_eq!(sizes.len(), 1);
+        // The path is echoed exactly as it was asked about; the key is the
+        // resolved absolute path the rest of the pane names the file by.
+        assert_eq!(sizes[0].path, given);
+        assert_eq!(sizes[0].key, resolved_key(&given));
+        assert_eq!(sizes[0].bytes, "the readme text\n".len() as u64);
+    }
+
+    #[test]
+    fn outside_open_tab_over_2mb_is_refused() {
+        let big = vec![b'a'; (writ_core::notes::host::MAX_NOTE_BYTES + 1) as usize];
+        let (_dir, notes, given) = notes_and_an_outside_file(&big);
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+
+        assert_eq!(
+            read_attached_in(&notes, &tabs, std::slice::from_ref(&given)),
+            Err("README.md is too large to attach.".to_string())
+        );
+    }
+
+    #[test]
+    fn outside_open_tab_that_is_not_text_is_refused() {
+        let (_dir, notes, given) = notes_and_an_outside_file(&[0xff, 0xfe, 0x00]);
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+
+        assert_eq!(
+            read_attached_in(&notes, &tabs, std::slice::from_ref(&given)),
+            Err("README.md is not text.".to_string())
+        );
+    }
+
+    #[test]
+    fn the_write_is_handed_the_bytes_the_digest_was_checked_against() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        let writ = tempfile::TempDir::new().expect("temp dir");
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+        let seen: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(Vec::new());
+
+        apply_proposal_inner(
+            &notes,
+            &tabs,
+            writ.path(),
+            "api.example.com",
+            &given,
+            "a tighter readme\n",
+            &writ_core::hash::sha256_hex(b"the readme text\n"),
+            None,
+            |_tab_id, _content, verified| {
+                *seen.borrow_mut() = verified.to_vec();
+                Ok(())
+            },
+        )
+        .expect("the proposal applies");
+
+        assert_eq!(
+            seen.into_inner(),
+            b"the readme text\n".to_vec(),
+            "the tab's disk state is recorded from the bytes the digest passed on, \
+             never from a second read a write could land inside"
+        );
+    }
+
+    #[test]
+    fn proposal_applies_to_an_outside_open_tab_through_its_save_path() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        let writ = tempfile::TempDir::new().expect("temp dir");
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+        let asked: std::cell::RefCell<Option<(String, String)>> = std::cell::RefCell::new(None);
+
+        let outcome = apply_proposal_inner(
+            &notes,
+            &tabs,
+            writ.path(),
+            "api.example.com",
+            &given,
+            "a tighter readme\n",
+            &writ_core::hash::sha256_hex(b"the readme text\n"),
+            None,
+            |tab_id, content, _verified| {
+                *asked.borrow_mut() = Some((tab_id.to_string(), content.to_string()));
+                Ok(())
+            },
+        )
+        .expect("the proposal applies");
+
+        assert!(outcome.changed);
+        assert_eq!(outcome.path, resolved_key(&given));
+        assert_eq!(
+            asked.into_inner(),
+            Some(("tab-1".to_string(), "a tighter readme\n".to_string()))
+        );
+
+        let recent = writ_storage::activity_log::read_recent(writ.path(), 1);
+        assert_eq!(recent.len(), 1);
+        assert_eq!(
+            recent[0].path.as_deref(),
+            Some(Path::new(&resolved_key(&given)))
+        );
+        assert_eq!(recent[0].decision, Decision::Allow);
+    }
+
+    #[test]
+    fn proposal_for_a_moved_outside_file_is_refused() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        let writ = tempfile::TempDir::new().expect("temp dir");
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+        let outside = Path::new(&given).parent().expect("the outside folder");
+
+        let refusal = apply_proposal_inner(
+            &notes,
+            &tabs,
+            writ.path(),
+            "api.example.com",
+            &given,
+            "a tighter readme\n",
+            &writ_core::hash::sha256_hex(b"somebody else's readme\n"),
+            None,
+            |_, _, _| panic!("the write ran"),
+        );
+
+        assert_eq!(
+            refusal,
+            Err("README.md changed since this was proposed and was not written.".to_string())
+        );
+        // Nothing was written beside it: a dated copy belongs to the notes
+        // folder's guard and not next to somebody else's repository.
+        assert_eq!(
+            std::fs::read_dir(outside)
+                .expect("the outside folder")
+                .count(),
+            1
+        );
+        let recent = writ_storage::activity_log::read_recent(writ.path(), 1);
+        assert_eq!(recent[0].decision, Decision::Refuse);
+    }
+
+    #[test]
+    fn traversal_outside_the_folder_stays_refused() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        let walked = notes
+            .join("..")
+            .join("outside")
+            .join("README.md")
+            .to_string_lossy()
+            .into_owned();
+        assert_ne!(walked, given);
+
+        assert_eq!(
+            read_attached_in(&notes, &NoOpenNotes, &[walked]),
+            Err("README.md is not in the notes folder.".to_string())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_out_of_the_folder_stays_refused() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        std::os::unix::fs::symlink(&given, notes.join("Linked.md")).expect("the link");
+
+        // The refusal names the link as it was given, not what it points at.
+        assert_eq!(
+            read_attached_in(&notes, &NoOpenNotes, &["Linked.md".to_string()]),
+            Err("Linked.md is not in the notes folder.".to_string())
+        );
+    }
+
+    #[test]
+    fn an_outside_open_tab_is_still_refused_by_the_note_host() {
+        let (_dir, notes, given) = notes_and_an_outside_file(b"the readme text\n");
+        let tabs = StubTabs::open(Path::new(&given), "tab-1");
+        assert_eq!(
+            tabs.note_at(Path::new(&resolved_key(&given))).as_deref(),
+            Some("tab-1")
+        );
+
+        // The boundary moved in the pane and nowhere else: the host answers a
+        // file outside the folder the same way whether or not a tab holds it.
+        let host = NoteHostImpl::open(&notes, None, context_permissions()).expect("the host");
+        assert!(matches!(
+            host.read_note(&given),
+            Err(HostError::OutsideNotesFolder { .. })
+        ));
     }
 
     #[test]
@@ -2094,6 +2816,7 @@ mod tests {
 #[cfg(test)]
 mod conversation_tests {
     use super::*;
+    use crate::watcher::open_files::NoOpenNotes;
     use writ_core::chat::Role;
 
     const ID: &str = "0b7d6b7a-4444-4b6a-9d5e-000000000004";
@@ -2129,8 +2852,8 @@ Tell me if that reads better.\n";
     fn notes_with(text: &str) -> (tempfile::TempDir, Vec<AttachedNote>) {
         let dir = tempfile::TempDir::new().expect("temp dir");
         std::fs::write(dir.path().join("Launch.md"), text).expect("write the note");
-        let attached =
-            read_attached_in(dir.path(), &["Launch.md".to_string()]).expect("attach the note");
+        let attached = read_attached_in(dir.path(), &NoOpenNotes, &["Launch.md".to_string()])
+            .expect("attach the note");
         (dir, attached)
     }
 
@@ -2404,7 +3127,7 @@ Tell me if that reads better.\n";
             ChatStore::now(),
         );
 
-        let fresh = conversation_dto(notes.path(), conversation.clone());
+        let fresh = conversation_dto(notes.path(), &NoOpenNotes, conversation.clone());
         let card = &fresh.turns[0].proposals[0];
         assert!(!card.stale);
         assert!(!card.hunks.is_empty());
@@ -2420,14 +3143,14 @@ Tell me if that reads better.\n";
         // the card says so.
         std::fs::write(notes.path().join("Launch.md"), "somebody else's opening\n")
             .expect("rewrite the note");
-        let moved = conversation_dto(notes.path(), conversation.clone());
+        let moved = conversation_dto(notes.path(), &NoOpenNotes, conversation.clone());
         assert!(moved.turns[0].proposals[0].stale);
         assert!(!moved.turns[0].proposals[0].hunks.is_empty());
 
         // The note is gone: nothing to compare against, and applying would be
         // refused.
         std::fs::remove_file(notes.path().join("Launch.md")).expect("remove the note");
-        let gone = conversation_dto(notes.path(), conversation);
+        let gone = conversation_dto(notes.path(), &NoOpenNotes, conversation);
         assert!(gone.turns[0].proposals[0].stale);
         assert!(gone.turns[0].proposals[0].hunks.is_empty());
     }
@@ -2457,7 +3180,8 @@ Tell me if that reads better.\n";
             ChatStore::now(),
         );
 
-        let card = &conversation_dto(notes.path(), conversation).turns[0].proposals[0];
+        let card =
+            &conversation_dto(notes.path(), &NoOpenNotes, conversation).turns[0].proposals[0];
         assert!(card.hunks.is_empty());
         assert!(!card.stale);
         assert_eq!(card.status, ProposalStatus::Applied);
@@ -2483,7 +3207,8 @@ Tell me if that reads better.\n";
         );
 
         let written =
-            serde_json::to_value(conversation_dto(notes.path(), conversation)).expect("serialize");
+            serde_json::to_value(conversation_dto(notes.path(), &NoOpenNotes, conversation))
+                .expect("serialize");
         assert_eq!(written["id"], ID);
         assert_eq!(written["title"], "Tighten the opening.");
         assert_eq!(written["provider"], "anthropic");
@@ -3161,6 +3886,7 @@ mod tests_support {
     pub fn prepared_for(base: &str, provider: Provider, key: Option<&str>) -> PreparedChat {
         let context = vec![AttachedNote {
             path: "Ideas/Launch.md".to_string(),
+            prompt_path: "Ideas/Launch.md".to_string(),
             text: NOTE_TEXT.to_string(),
             before_hash: writ_core::hash::sha256_hex(NOTE_TEXT.as_bytes()),
         }];

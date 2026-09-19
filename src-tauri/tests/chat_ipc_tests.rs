@@ -18,6 +18,7 @@ use writ_tauri_lib::commands::chat::{
     apply_proposal_inner, attached_sizes_in, begin_request, discard_proposal_inner,
     endpoint_state_from, note_file_in, prepare_chat, read_attached_in, ChatState,
 };
+use writ_tauri_lib::watcher::open_files::NoOpenNotes;
 
 const LIB_RS: &str = include_str!("../src/lib.rs");
 
@@ -237,7 +238,8 @@ fn chat_attached_sizes_answers_under_the_path_it_was_given() {
     std::fs::write(root.join("Ideas/Later.md"), "a longer second text\n").expect("write");
     let absolute = root.join("Ideas/Later.md").to_string_lossy().into_owned();
 
-    let sizes = attached_sizes_in(&root, std::slice::from_ref(&absolute)).expect("sizes");
+    let sizes =
+        attached_sizes_in(&root, &NoOpenNotes, std::slice::from_ref(&absolute)).expect("sizes");
     assert_eq!(sizes.len(), 1);
     assert_eq!(sizes[0].path, absolute, "the path asked about comes back");
     assert_eq!(sizes[0].key, "Ideas/Later.md");
@@ -253,6 +255,7 @@ fn chat_attached_sizes_reads_the_bytes_the_file_holds_now() {
 
     let sizes = attached_sizes_in(
         &root,
+        &NoOpenNotes,
         &["Launch.md".to_string(), "Ideas/Later.md".to_string()],
     )
     .expect("sizes");
@@ -265,7 +268,7 @@ fn chat_attached_sizes_reads_the_bytes_the_file_holds_now() {
     // Rewritten by another program after the tab read it: the dialog states
     // what a send would carry, not what the tab remembers.
     std::fs::write(root.join("Launch.md"), "much more text than before\n").expect("rewrite");
-    let sizes = attached_sizes_in(&root, &["Launch.md".to_string()]).expect("sizes");
+    let sizes = attached_sizes_in(&root, &NoOpenNotes, &["Launch.md".to_string()]).expect("sizes");
     assert_eq!(sizes[0].bytes, "much more text than before\n".len() as u64);
 }
 
@@ -277,8 +280,8 @@ fn chat_attached_sizes_refuses_a_path_outside_the_notes_folder() {
     std::fs::write(outside.path().join("Secret.md"), "not yours\n").expect("write");
     let path = std::fs::canonicalize(outside.path().join("Secret.md")).expect("canonical");
 
-    let error =
-        attached_sizes_in(&root, &[path.to_string_lossy().into_owned()]).expect_err("refused");
+    let error = attached_sizes_in(&root, &NoOpenNotes, &[path.to_string_lossy().into_owned()])
+        .expect_err("refused");
     assert!(error.contains("notes folder"), "got: {error}");
     // The sentence names the note and stops there: where the folder it was
     // looked for in sits on this machine is nobody's business, least of all a
@@ -297,7 +300,8 @@ fn chat_attached_sizes_reads_a_notes_folder_spelled_as_the_app_carries_it() {
     // Windows the resolved form drops the `\\?\` prefix the root keeps.
     // Comparing the two as they come refuses a note plainly in the folder.
     let (notes, _writ) = folders();
-    let sizes = attached_sizes_in(notes.path(), &["Launch.md".to_string()]).expect("sizes");
+    let sizes =
+        attached_sizes_in(notes.path(), &NoOpenNotes, &["Launch.md".to_string()]).expect("sizes");
     assert_eq!(sizes.len(), 1);
     assert_eq!(sizes[0].key, "Launch.md");
     assert_eq!(sizes[0].bytes, "the first text\n".len() as u64);
@@ -311,7 +315,8 @@ fn chat_send_carries_the_attached_notes_and_nothing_else() {
     let root = root(&notes);
     std::fs::write(root.join("Other.md"), "the neighbouring text\n").expect("write");
 
-    let attached = read_attached_in(&root, &["Launch.md".to_string()]).expect("attached");
+    let attached =
+        read_attached_in(&root, &NoOpenNotes, &["Launch.md".to_string()]).expect("attached");
     assert_eq!(attached.len(), 1, "one note was named, one was read");
 
     let prepared = prepare_chat(
@@ -343,7 +348,8 @@ fn chat_send_refuses_a_path_outside_the_notes_folder() {
         stranger.to_string_lossy().into_owned(),
         "../Secrets.md".to_string(),
     ] {
-        let error = read_attached_in(&root, std::slice::from_ref(&path)).expect_err("refused");
+        let error = read_attached_in(&root, &NoOpenNotes, std::slice::from_ref(&path))
+            .expect_err("refused");
         assert!(error.contains("notes folder"), "got: {error}");
     }
 }
@@ -382,6 +388,7 @@ fn chat_send_reads_one_note_once_however_often_it_was_named() {
     let root = root(&notes);
     let attached = read_attached_in(
         &root,
+        &NoOpenNotes,
         &[
             "Launch.md".to_string(),
             root.join("Launch.md").to_string_lossy().into_owned(),
@@ -420,12 +427,14 @@ fn chat_apply_proposal_writes_the_note_and_records_it() {
 
     let outcome = apply_proposal_inner(
         &root,
+        &NoOpenNotes,
         writ.path(),
         "api.example.com",
         "Launch.md",
         "the second text\n",
         &before,
         None,
+        |_, _, _| unreachable!(),
     )
     .expect("applied");
 
@@ -458,12 +467,14 @@ fn a_refused_note_in_a_subfolder_keeps_its_folder_relative_key() {
 
     let error = apply_proposal_inner(
         &root,
+        &NoOpenNotes,
         writ.path(),
         "api.example.com",
         "Ideas/Launch.md",
         "the model's text\n",
         &before,
         None,
+        |_, _, _| unreachable!(),
     )
     .expect_err("refused");
     assert!(error.starts_with("Ideas/Launch.md "), "got: {error}");
@@ -478,12 +489,14 @@ fn chat_apply_proposal_refuses_a_note_that_changed_and_leaves_a_copy() {
 
     let error = apply_proposal_inner(
         &root,
+        &NoOpenNotes,
         writ.path(),
         "api.example.com",
         "Launch.md",
         "the model's text\n",
         &before,
         None,
+        |_, _, _| unreachable!(),
     )
     .expect_err("refused");
 
@@ -530,12 +543,14 @@ fn chat_apply_proposal_refuses_a_path_outside_the_notes_folder() {
 
     let error = apply_proposal_inner(
         &root(&notes),
+        &NoOpenNotes,
         writ.path(),
         "api.example.com",
         &stranger.to_string_lossy(),
         "owned\n",
         &before,
         None,
+        |_, _, _| unreachable!(),
     )
     .expect_err("refused");
     assert!(error.contains("notes folder"), "got: {error}");
@@ -552,12 +567,14 @@ fn chat_apply_proposal_refuses_a_hash_it_cannot_read() {
     let root = root(&notes);
     let error = apply_proposal_inner(
         &root,
+        &NoOpenNotes,
         writ.path(),
         "api.example.com",
         "Launch.md",
         "the model's text\n",
         "not-a-digest",
         None,
+        |_, _, _| unreachable!(),
     )
     .expect_err("refused");
     assert!(error.contains("Launch.md"), "got: {error}");
@@ -573,7 +590,13 @@ fn chat_apply_proposal_refuses_a_hash_it_cannot_read() {
 fn chat_discard_proposal_records_the_offer_and_touches_no_file() {
     let (notes, writ) = folders();
     let root = root(&notes);
-    discard_proposal_inner(&root, writ.path(), "api.example.com", "Launch.md");
+    discard_proposal_inner(
+        &root,
+        &NoOpenNotes,
+        writ.path(),
+        "api.example.com",
+        "Launch.md",
+    );
 
     assert_eq!(
         std::fs::read_to_string(root.join("Launch.md")).expect("read"),
@@ -596,6 +619,7 @@ fn chat_discard_proposal_records_a_stranger_by_its_name_alone() {
 
     discard_proposal_inner(
         &root(&notes),
+        &NoOpenNotes,
         writ.path(),
         "api.example.com",
         &stranger.to_string_lossy(),

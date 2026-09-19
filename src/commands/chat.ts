@@ -2,7 +2,13 @@ import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
 import { openSettings } from "../components/SettingsModal/SettingsModal";
 import { aiConnectionStore } from "../stores/global/ai-connection";
-import { chatStore, totalBytes, type Attachment } from "../stores/global/chat";
+import {
+  chatStore,
+  isAbsolutePath,
+  noteName,
+  totalBytes,
+  type Attachment,
+} from "../stores/global/chat";
 import { configStore } from "../stores/global/config";
 import { windowRegistry } from "../stores/global/window-registry";
 import type { ChatEndpointState } from "../services/tauri";
@@ -22,12 +28,26 @@ export function noteCount(count: number): string {
   return count === 1 ? "1 note" : `${count} notes`;
 }
 
-/** What the dialog says is being sent, and where. */
+/** What the dialog says is being sent, and where.
+ *
+ * One file is named, because a person agreeing to send a file wants to know
+ * which one. A set is counted, and it is counted in the word that is true of
+ * it: a file the chat reaches through its tab is not a note in the folder, and
+ * the dialog that asks to send it may not call it one. */
 export function sendNotice(host: string, attachments: readonly Attachment[]) {
-  const notes = noteCount(attachments.length);
+  const bytes = byteLabel(totalBytes(attachments));
+  if (attachments.length === 1) {
+    const name = noteName(attachments[0].key ?? attachments[0].path);
+    return {
+      title: `Send ${name} to ${host}?`,
+      message: `${name} (${bytes}) and this message go to ${host} with your API key.`,
+    };
+  }
+  const outside = attachments.some((note) => isAbsolutePath(note.key ?? note.path));
+  const noun = outside ? "files" : "notes";
   return {
-    title: `Send notes to ${host}?`,
-    message: `${notes} (${byteLabel(totalBytes(attachments))}) and this message go to ${host} with your API key.`,
+    title: `Send ${noun} to ${host}?`,
+    message: `${attachments.length} ${noun} (${bytes}) and this message go to ${host} with your API key.`,
   };
 }
 

@@ -59,8 +59,10 @@ const CONVERSATION = {
 
 /** The card over the conversation the store actually holds, so the proposal it
  * renders is the one the store rewrites as the write lands. */
-async function openCard() {
-  mocks.chatOpen.mockResolvedValue(JSON.parse(JSON.stringify(CONVERSATION)));
+async function openCard(path?: string) {
+  const held = JSON.parse(JSON.stringify(CONVERSATION)) as typeof CONVERSATION;
+  if (path !== undefined) held.turns[1].proposals[0].path = path;
+  mocks.chatOpen.mockResolvedValue(held);
   await chatStore.open("c1");
   const view = render(() => (
     <ProposalCard turn={1} proposal={chatStore.messages()[1].proposals[0]} />
@@ -86,6 +88,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 describe("a proposal card", () => {
@@ -155,6 +158,45 @@ describe("a proposal card", () => {
 
     await waitFor(() => expect(container.textContent).toContain("The note already held this text."));
     expect(mocks.chatAttachedSizes).not.toHaveBeenCalled();
+  });
+
+  it("a note in the folder gets no tip repeating the line it sits on", async () => {
+    const { container } = await openCard("Ideas/Launch.md");
+
+    const shown = container.querySelector(".chat-proposal-path") as HTMLElement;
+    expect(shown.textContent).toBe("Ideas/Launch.md");
+    expect(container.querySelector(".writ-tooltip-anchor")).toBeNull();
+  });
+
+  it("an outside proposal reads as its file name", async () => {
+    const path = "/elsewhere/repo/README.md";
+    const { container, apply } = await openCard(path);
+
+    const shown = container.querySelector(".chat-proposal-path") as HTMLElement;
+    expect(shown.textContent).toBe("README.md");
+    expect(container.querySelector(".chat-proposal")?.getAttribute("aria-label")).toBe(
+      "Change to README.md",
+    );
+
+    // Two files of one name in two repositories are told apart by the path,
+    // which is what the tip under the pointer carries.
+    vi.useFakeTimers();
+    fireEvent.pointerEnter(container.querySelector(".writ-tooltip-anchor") as Element);
+    vi.advanceTimersByTime(500);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(path);
+    vi.useRealTimers();
+
+    fireEvent.click(apply());
+
+    await waitFor(() =>
+      expect(mocks.chatApplyProposal).toHaveBeenCalledWith(
+        "c1",
+        1,
+        path,
+        PROPOSAL.new_content,
+        PROPOSAL.before_hash,
+      ),
+    );
   });
 
   it("waits for the store before it says the offer is gone", async () => {

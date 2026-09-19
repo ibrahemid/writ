@@ -3,10 +3,25 @@ import Icon from "../Icon/Icon";
 import { noteCount } from "../../commands/chat";
 import type { NoteFolderHit, NoteNameHit } from "../../stores/global/link";
 
-/** One row the list offers: a note, or a folder with the notes under it. */
+/** One row the list offers: a note, a folder with the notes under it, or a
+ * file open in a tab that the notes folder does not hold. */
 export type MentionRow =
   | { kind: "note"; hit: NoteNameHit }
-  | { kind: "folder"; hit: NoteFolderHit };
+  | { kind: "folder"; hit: NoteFolderHit }
+  | { kind: "tab"; path: string; name: string };
+
+/** What a file row reads: the file's own name, whichever list found it. */
+function fileName(row: MentionRow): string {
+  if (row.kind === "note") return row.hit.name;
+  return row.kind === "tab" ? row.name : "";
+}
+
+/** The line under a file row, which tells two files of one name apart: the
+ * note's folder, and the whole path for a file outside the notes folder. */
+function secondLine(row: MentionRow): string {
+  if (row.kind === "note") return row.hit.folder;
+  return row.kind === "tab" ? row.path : "";
+}
 
 /** The element the field points `aria-controls` at. */
 export const MENTION_LIST_ID = "chat-mention-list";
@@ -59,11 +74,9 @@ export default function MentionPopover(props: {
                 fallback={
                   <>
                     <Icon name="file-text" size={14} />
-                    <span class="chat-mention-name">
-                      {row.kind === "note" ? row.hit.name : ""}
-                    </span>
-                    <Show when={row.kind === "note" && row.hit.folder}>
-                      {(folder) => <span class="chat-mention-folder">{folder()}</span>}
+                    <span class="chat-mention-name">{fileName(row)}</span>
+                    <Show when={secondLine(row)}>
+                      {(under) => <span class="chat-mention-folder">{under()}</span>}
                     </Show>
                   </>
                 }

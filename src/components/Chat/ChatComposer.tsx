@@ -207,6 +207,9 @@ export default function ChatComposer(props: {
       debounce = null;
       // A folder is offered above the notes: a query ending in `/` means one,
       // and a folder a plain query names is a row beside the notes it holds.
+      // The files open in a tab that the notes index does not hold come last:
+      // they are reachable because the editor has them open, not because the
+      // folder knows them.
       void Promise.all([
         linkStore.noteFolderCandidates(found.query, MENTION_LIMIT),
         linkStore.noteNameCandidates(found.query, MENTION_LIMIT),
@@ -215,6 +218,9 @@ export default function ChatComposer(props: {
         setRows([
           ...folders.map((hit): MentionRow => ({ kind: "folder", hit })),
           ...notes.map((hit): MentionRow => ({ kind: "note", hit })),
+          ...chatStore
+            .openTabCandidates(found.query, MENTION_LIMIT)
+            .map((tab): MentionRow => ({ kind: "tab", path: tab.path, name: tab.name })),
         ]);
       });
     }, MENTION_DEBOUNCE_MS);
@@ -239,7 +245,7 @@ export default function ChatComposer(props: {
         if (!result.ok) setRefusal(result.reason);
       });
     } else {
-      void chatStore.attachByPath(row.hit.path);
+      void chatStore.attachByPath(row.kind === "tab" ? row.path : row.hit.path);
     }
     input.focus();
   }

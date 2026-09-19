@@ -115,8 +115,14 @@ pub struct ChatTurn {
 /// this note is later judged against: the model never supplies it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AttachedNote {
-    /// The note's path, as the pane lists it and a proposal names it.
+    /// The note's key: the path the pane lists it under, the conversation
+    /// file records and an apply writes to.
     pub path: String,
+    /// What the model is told the file is called: the folder-relative key for
+    /// a note, the parent folder's name and the file name for a file outside
+    /// the notes folder, never its absolute path. A proposal comes back naming
+    /// this, and `resolve_proposal_path` reaches `path` from it.
+    pub prompt_path: String,
     /// What the note held when it was attached.
     pub text: String,
     /// The digest of `text`, hex-encoded.
@@ -455,7 +461,7 @@ writ-proposal:\n\n",
     }
     let path = context
         .first()
-        .map_or(EXAMPLE_PATH, |note| note.path.as_str());
+        .map_or(EXAMPLE_PATH, |note| note.prompt_path.as_str());
     let quote = match path.contains('"') {
         true => '\'',
         false => '"',
@@ -506,7 +512,7 @@ fn context_block(context: &[AttachedNote]) -> String {
     let mut out = String::from("<attached-notes>");
     for note in context {
         out.push_str("\n<note path=\"");
-        out.push_str(&note.path);
+        out.push_str(&note.prompt_path);
         out.push_str("\">\n");
         out.push_str(&note.text);
         out.push_str("\n</note>");
@@ -962,18 +968,31 @@ fn resolve_named<'a>(
     if named.is_empty() {
         return Err(DropReason::UnknownNote);
     }
+    // What the model was shown is the first and strongest rule: a reply can only
+    // land on an attachment it was given that name for. A name two attachments
+    // were shown under picks neither and drops here rather than falling through,
+    // because every rule under this one would answer with one of them, and a
+    // reply meaning the other would write the wrong file.
+    let mut shown = context.iter().filter(|note| note.prompt_path == named);
+    if let Some(first) = shown.next() {
+        return match shown.next() {
+            Some(_) => Err(DropReason::AmbiguousNote),
+            None => Ok(first),
+        };
+    }
     if let Some(note) = context.iter().find(|note| note.path == named) {
         return Ok(note);
     }
     let wanted = normalise_path(named);
     let mut ambiguous = false;
     let found = one_note(context, &mut ambiguous, |note| {
-        normalise_path(&note.path) == wanted
+        normalise_path(&note.path) == wanted || normalise_path(&note.prompt_path) == wanted
     })
     .or_else(|| {
         let base = basename_of(&wanted);
         one_note(context, &mut ambiguous, |note| {
             basename_of(&normalise_path(&note.path)) == base
+                || basename_of(&normalise_path(&note.prompt_path)) == base
         })
     })
     .or_else(|| {
@@ -991,11 +1010,14 @@ fn resolve_named<'a>(
 /// The attached note a proposal's path names, resolved the way a reply spells
 /// paths rather than the way Writ stores them.
 ///
-/// Exact key first, then separators settled, then a basename only one attached
-/// note ends with, then a path only one attached note is the tail of. A name
-/// that fits none of those, or more than one note, resolves to nothing: the
-/// result is always a note the user attached, which is the fence a reply can
-/// never reach past (ADR-031 rule 4.3).
+/// The name the model was shown comes first, then the key, then separators
+/// settled, then a basename only one attachment answers to, then a path only
+/// one attachment is the tail of. Every rule counts attachments rather than
+/// spellings, so an attachment matching on both its shown name and its key is
+/// one match and not two. A name that fits none of those, or more than one
+/// attachment, resolves to nothing: the result is always a note the user
+/// attached, which is the fence a reply can never reach past (ADR-031 rule
+/// 4.3).
 pub fn resolve_proposal_path<'a>(
     named: &str,
     context: &'a [AttachedNote],
@@ -1999,6 +2021,7 @@ mod tests {
     fn note(path: &str, text: &str) -> AttachedNote {
         AttachedNote {
             path: path.to_string(),
+            prompt_path: path.to_string(),
             text: text.to_string(),
             before_hash: crate::hash::sha256_hex(text.as_bytes()),
         }
@@ -2081,6 +2104,29 @@ mod tests {
             .expect("text")
             .contains("Ideas/Launch.md"));
         assert_eq!(messages[1]["content"], "What does this note argue?");
+    }
+
+    #[test]
+    fn an_outside_file_reaches_the_model_under_its_name_alone() {
+        let mut attached = note("/Users/someone/work/client-repo/README.md", "the readme");
+        attached.prompt_path = "README.md".to_string();
+        let context = [attached];
+        let body = build_request_body(
+            Provider::Anthropic,
+            "claude-opus-5",
+            &system_prompt(&context),
+            &turns(),
+            &context,
+        );
+        let sent = serde_json::to_string(&body).expect("body");
+        assert!(
+            sent.contains("<note path=\\\"README.md\\\">"),
+            "the model is told the file name it can name back: {sent}"
+        );
+        assert!(
+            !sent.contains("/Users/someone/work/client-repo"),
+            "where the file sits on this machine is not the model's to read: {sent}"
+        );
     }
 
     #[test]

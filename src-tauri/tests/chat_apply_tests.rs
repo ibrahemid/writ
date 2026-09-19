@@ -28,7 +28,7 @@ use writ_tauri_lib::security::AuthorizedPaths;
 use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::create_ignore_set;
 use writ_tauri_lib::watcher::moves::FileTracking;
-use writ_tauri_lib::watcher::open_files::start_open_file_watcher;
+use writ_tauri_lib::watcher::open_files::{start_open_file_watcher, NoOpenNotes};
 
 fn make_state(dir: &TempDir) -> AppState {
     let writ_dir = dir.path().to_path_buf();
@@ -130,12 +130,14 @@ fn applying_a_proposal_whose_text_the_note_already_holds_reports_no_change() {
 
     let outcome = apply_proposal_inner(
         &state.notes_root(),
+        &NoOpenNotes,
         &state.writ_dir,
         "probe-host",
         &file.to_string_lossy(),
         "the same text\n",
         &hash,
         None,
+        |_, _, _| unreachable!(),
     )
     .expect("a proposal the note already holds is not a refusal");
 
@@ -159,12 +161,14 @@ fn applying_a_proposal_that_moves_bytes_reports_a_change() {
 
     let outcome = apply_proposal_inner(
         &state.notes_root(),
+        &NoOpenNotes,
         &state.writ_dir,
         "probe-host",
         &file.to_string_lossy(),
         "after\n",
         &hash,
         None,
+        |_, _, _| unreachable!(),
     )
     .expect("the proposal applies");
 
@@ -180,12 +184,14 @@ fn an_identical_apply_records_no_bytes_written() {
 
     apply_proposal_inner(
         &state.notes_root(),
+        &NoOpenNotes,
         &state.writ_dir,
         "probe-host",
         &file.to_string_lossy(),
         "the same text\n",
         &hash,
         None,
+        |_, _, _| unreachable!(),
     )
     .expect("the apply returns");
 
@@ -303,12 +309,14 @@ fn an_applied_edit_is_not_reverted_by_recovery() {
 
     apply_proposal_inner(
         &state.notes_root(),
+        &NoOpenNotes,
         &state.writ_dir,
         "probe-host",
         &file.to_string_lossy(),
         "after\n",
         &hash,
         None,
+        |_, _, _| unreachable!(),
     )
     .expect("the proposal applies");
 

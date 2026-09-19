@@ -40,17 +40,25 @@ vi.mock("../../components/SettingsModal/SettingsModal", () => ({
   openSettings: mocks.openSettings,
 }));
 
-vi.mock("../../stores/global/chat", () => ({
-  chatStore: {
-    endpointState: mocks.endpointState,
-    attachments: mocks.attachments,
-    attachedOnDisk: mocks.attachedOnDisk,
-    draft: mocks.draft,
-    send: mocks.send,
-    setAttachedList: mocks.setAttachedList,
-  },
-  totalBytes: (notes: { bytes: number }[]) => notes.reduce((sum, n) => sum + n.bytes, 0),
-}));
+// The store itself is stubbed; the pure helpers the dialog reads a name and a
+// key with are the real ones, so what the dialog calls a file is what the pane
+// calls it.
+vi.mock("../../stores/global/chat", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../stores/global/chat")>();
+  return {
+    noteName: actual.noteName,
+    isAbsolutePath: actual.isAbsolutePath,
+    totalBytes: actual.totalBytes,
+    chatStore: {
+      endpointState: mocks.endpointState,
+      attachments: mocks.attachments,
+      attachedOnDisk: mocks.attachedOnDisk,
+      draft: mocks.draft,
+      send: mocks.send,
+      setAttachedList: mocks.setAttachedList,
+    },
+  };
+});
 
 vi.mock("../../stores/global/config", () => ({
   configStore: { config: mocks.config },
@@ -99,9 +107,17 @@ function endpoint(overrides: Record<string, unknown> = {}) {
 }
 
 const NOTES = [
-  { path: "/notes/Launch.md", name: "Launch.md", bytes: 8 * 1024 },
-  { path: "/notes/Other.md", name: "Other.md", bytes: 6 * 1024 },
+  { path: "/notes/Launch.md", name: "Launch.md", bytes: 8 * 1024, key: "Launch.md" },
+  { path: "/notes/Other.md", name: "Other.md", bytes: 6 * 1024, key: "Other.md" },
 ];
+
+/** A file reachable only because a tab has it open: its key is its whole path. */
+const OUTSIDE = {
+  path: "/Users/someone/work/client-repo/README.md",
+  name: "README.md",
+  bytes: 2 * 1024,
+  key: "/Users/someone/work/client-repo/README.md",
+};
 
 beforeEach(() => {
   mocks.requestConfirm.mockReset().mockResolvedValue(true);
@@ -127,8 +143,24 @@ describe("what the send dialog says", () => {
     expect(notice.message).toContain("api.example.com");
   });
 
-  it("counts one note as one note", () => {
-    expect(sendNotice("localhost", [NOTES[0]]).message).toContain("1 note (8 KB)");
+  it("names the one file it is sending", () => {
+    const notice = sendNotice("localhost", [NOTES[0]]);
+    expect(notice.title).toBe("Send Launch.md to localhost?");
+    expect(notice.message).toBe(
+      "Launch.md (8 KB) and this message go to localhost with your API key.",
+    );
+  });
+
+  it("names a file outside the notes folder too", () => {
+    const notice = sendNotice("api.example.com", [OUTSIDE]);
+    expect(notice.title).toBe("Send README.md to api.example.com?");
+    expect(notice.message).toContain("README.md (2 KB)");
+  });
+
+  it("calls a set holding a file outside the folder files, not notes", () => {
+    const notice = sendNotice("api.example.com", [NOTES[0], OUTSIDE]);
+    expect(notice.title).toBe("Send files to api.example.com?");
+    expect(notice.message).toContain("2 files (10 KB)");
   });
 
   it("says a size in the unit that reads", () => {

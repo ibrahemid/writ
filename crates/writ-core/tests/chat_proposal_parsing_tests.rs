@@ -12,6 +12,24 @@ use writ_core::chat::{
 fn note(path: &str, text: &str) -> AttachedNote {
     AttachedNote {
         path: path.to_string(),
+        prompt_path: path.to_string(),
+        text: text.to_string(),
+        before_hash: format!("hash-of-{path}"),
+    }
+}
+
+/// A file reachable only because a tab has it open, shown to the model the way
+/// `read_attached_in` shows one: the folder it sits in and its own name.
+fn outside(path: &str, text: &str) -> AttachedNote {
+    let mut parts = path.rsplit('/');
+    let name = parts.next().unwrap_or(path);
+    let folder = parts.next().unwrap_or("");
+    AttachedNote {
+        path: path.to_string(),
+        prompt_path: match folder.is_empty() {
+            true => name.to_string(),
+            false => format!("{folder}/{name}"),
+        },
         text: text.to_string(),
         before_hash: format!("hash-of-{path}"),
     }
@@ -311,6 +329,85 @@ fn resolving_a_path_hands_back_the_attached_note() {
     );
     assert_eq!(resolve_proposal_path("Missing.md", &context), None);
     assert_eq!(resolve_proposal_path("", &context), None);
+}
+
+#[test]
+fn a_proposal_naming_an_outside_file_reaches_the_path_it_was_read_from() {
+    let context = vec![outside(
+        "/Users/someone/work/client-repo/README.md",
+        "the readme\n",
+    )];
+
+    assert_eq!(
+        resolve_proposal_path("README.md", &context).map(|note| note.path.as_str()),
+        Some("/Users/someone/work/client-repo/README.md"),
+        "the model is given the file name, so the name has to reach the file"
+    );
+}
+
+#[test]
+fn two_outside_files_of_one_name_resolve_to_neither() {
+    let context = vec![
+        outside("/Users/someone/one/README.md", "one\n"),
+        outside("/Users/someone/two/README.md", "two\n"),
+    ];
+
+    assert_eq!(resolve_proposal_path("README.md", &context), None);
+}
+
+#[test]
+fn a_note_and_an_outside_file_of_one_name_resolve_by_the_name_each_was_shown_under() {
+    let context = vec![
+        note("Ideas/README.md", "the note\n"),
+        outside("/Users/someone/work/client-repo/README.md", "the readme\n"),
+    ];
+
+    assert_eq!(
+        resolve_proposal_path("client-repo/README.md", &context).map(|note| note.path.as_str()),
+        Some("/Users/someone/work/client-repo/README.md"),
+        "the name the model was shown reaches the file it was shown for"
+    );
+    assert_eq!(
+        resolve_proposal_path("Ideas/README.md", &context).map(|note| note.path.as_str()),
+        Some("Ideas/README.md")
+    );
+    assert_eq!(
+        resolve_proposal_path("README.md", &context),
+        None,
+        "a bare name neither was shown under, and both end with, picks neither"
+    );
+}
+
+#[test]
+fn a_root_note_and_an_outside_file_of_one_name_each_answer_to_their_own_name() {
+    let context = vec![
+        outside("/Users/someone/work/repo/Launch.md", "the readme\n"),
+        note("Launch.md", "the note\n"),
+    ];
+
+    assert_eq!(
+        resolve_proposal_path("Launch.md", &context).map(|note| note.path.as_str()),
+        Some("Launch.md"),
+        "the note at the root was shown under this name and the outside file was not"
+    );
+    assert_eq!(
+        resolve_proposal_path("repo/Launch.md", &context).map(|note| note.path.as_str()),
+        Some("/Users/someone/work/repo/Launch.md")
+    );
+}
+
+#[test]
+fn two_outside_files_shown_under_one_name_resolve_to_neither() {
+    // Same file name under same-named folders in two trees: the one case where
+    // what the model is shown still cannot tell two attachments apart. It picks
+    // neither rather than one of them.
+    let context = vec![
+        outside("/Users/someone/one/repo/README.md", "one\n"),
+        outside("/Users/someone/two/repo/README.md", "two\n"),
+    ];
+    assert_eq!(context[0].prompt_path, context[1].prompt_path);
+
+    assert_eq!(resolve_proposal_path("repo/README.md", &context), None);
 }
 
 #[test]
