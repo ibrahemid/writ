@@ -112,6 +112,15 @@ note count refuse the whole folder rather than the part of it that would fit, an
 swept without that pick: the notes under a picked folder come from the note index, never from a
 directory walk.
 
+2.5, amended 2026-09-19: a file the user attaches from outside the notes folder reaches the host
+under its parent folder's name and its file name, never its absolute path. Inside the folder the key
+and the name are the same string; outside it the path names the user's home directory and the
+repository they had open, which the model has no use for and which a proposal does not need, because
+it names the file back by the name it was given. The folder is named as well as the file so two files
+of one name can be told apart in a reply. A proposal resolves against the name it was shown first,
+and a name two attachments were shown under resolves to neither, so a reply can never land on a file
+it was not naming. The path is held here: the conversation file, the pane and the activity record.
+
 2.6. An endpoint that is not local and not `https` is refused before any bytes leave, by
 `polish::is_endpoint_allowed:223` against the parsed host, including for a hand-edited
 `config.toml`. The chat pane reuses that guard rather than adding a second one (U7).
@@ -180,8 +189,16 @@ the old and the new path in the ignore set. Link propagation is not offered to a
 links across a folder is a user-facing offer with a count and an undo, and a silent bulk rewrite
 triggered by a model is the failure this rule exists to prevent (U6).
 
-4.8. No tool reads a file larger than 2 MB, and none returns a file outside the notes root
-(U4).
+4.8. No MCP tool reads a file larger than 2 MB, and none returns a file outside the notes root
+(U4). `NoteHostImpl` answers `OutsideNotesFolder` for such a path whoever asks it.
+
+4.8, amended 2026-09-19: the size and text limits are the pane's too, the notes root is not. The
+chat pane acts only on files the user opened in the editor, so it reads any open tab under the
+same 2 MB ceiling and the same "is it text" check, and a file outside the notes folder is keyed
+by its absolute path rather than by a folder-relative slug. A proposal for such a file applies
+through the tab's own save path, not through the note host's guarded write. A path outside the
+folder that no tab holds is still refused, and the tool half of this rule is unchanged (ADR-040
+section 13).
 
 ### 5. What is logged, and what is not
 
