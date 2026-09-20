@@ -128,6 +128,13 @@ fn title_of(state: &AppState, id: &str) -> String {
     store.get(id).expect("row").title
 }
 
+/// Points the state at Markdown, for the tests whose subject is what a
+/// Markdown file does.
+fn defaults_to_markdown(state: &AppState) {
+    state.config.lock().expect("config").files.default_extension =
+        writ_core::config::FileExtension::Md;
+}
+
 /// Opens a file from outside the notes folder the way the frontend does.
 fn open_note_at(state: &AppState, path: &std::path::Path, content: &str) -> String {
     std::fs::write(path, content).expect("write");
@@ -150,7 +157,8 @@ fn a_named_note_takes_its_file_name_from_the_name() {
 
     assert_eq!(
         path.file_name().unwrap().to_string_lossy(),
-        "Grocery list.md"
+        "Grocery list.txt",
+        "a named file carries the configured format like every other mint"
     );
     assert!(path.starts_with(state.notes_root()), "{}", path.display());
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
@@ -163,6 +171,7 @@ fn a_named_note_takes_its_file_name_from_the_name() {
 fn a_named_note_written_with_the_extension_gets_one_extension() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
+    defaults_to_markdown(&state);
 
     for (typed, expected) in [
         ("Note.md", "Note.md"),
@@ -354,6 +363,7 @@ fn new_note_produces_a_file_on_disk_before_the_app_quits() {
         path.display()
     );
     assert!(path.starts_with(state.notes_root()), "{}", path.display());
+    assert_eq!(path, state.notes_root().join("Untitled.txt"));
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
     assert_eq!(doc.title, path.file_name().unwrap().to_string_lossy());
 
@@ -361,7 +371,7 @@ fn new_note_produces_a_file_on_disk_before_the_app_quits() {
     let second = new_note_inner(&state).expect("new note");
     let second_path =
         std::path::PathBuf::from(second.source_path.clone().expect("the note has no file"));
-    assert_ne!(second_path, path);
+    assert_eq!(second_path, state.notes_root().join("Untitled 2.txt"));
     assert!(second_path.exists());
     assert!(path.exists(), "the first note was written over");
 }
@@ -370,6 +380,7 @@ fn new_note_produces_a_file_on_disk_before_the_app_quits() {
 fn rename_note_keeps_the_buffer_id_so_the_tab_keeps_its_content() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
+    defaults_to_markdown(&state);
     let doc = new_note_inner(&state).expect("new note");
     save_buffer_content_inner(&state, &doc.id, "the text").expect("save");
     let before = note_file(&state, &doc.id);
@@ -393,6 +404,7 @@ fn rename_note_keeps_the_buffer_id_so_the_tab_keeps_its_content() {
 fn rename_keeps_the_extension_a_typed_name_already_carries() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
+    defaults_to_markdown(&state);
     let doc = new_note_inner(&state).expect("new note");
 
     rename_note_inner(&state, &doc.id, "Grocery list.md").expect("rename");
@@ -407,6 +419,7 @@ fn rename_keeps_the_extension_a_typed_name_already_carries() {
 fn rename_to_a_name_already_in_the_folder_says_which_one() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
+    defaults_to_markdown(&state);
     let doc = new_note_inner(&state).expect("new note");
     std::fs::write(
         state.notes_root().join("Grocery list.md"),

@@ -4,6 +4,8 @@
 
 Accepted, 2026-08-28. Supersedes [ADR-004](./004-sqlite-over-flat-files.md). Ships in release 0.4.
 
+[ADR-041](./041-writ-is-a-text-app.md) supersedes the positioning this record's context describes; every mechanism it ships stands.
+
 [ADR-020](./020-deferred-fts-reindex.md) and [ADR-024](./024-inbox-arrival-snapshot.md) stay in force. Section 12 records what each means after this change.
 
 ## Context

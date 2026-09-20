@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use tempfile::TempDir;
+use writ_core::config::FileExtension;
 use writ_core::notes::containment::resolve_for_containment;
 use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
@@ -60,13 +61,19 @@ fn held(capabilities: &[Capability]) -> PermissionSet {
 
 /// A host over the folder alone, holding `capabilities`.
 fn host(fixture: &Fixture, capabilities: &[Capability]) -> NoteHostImpl<'static> {
-    NoteHostImpl::open(&fixture.notes, None, held(capabilities)).expect("open the host")
+    NoteHostImpl::open(&fixture.notes, None, held(capabilities), FileExtension::Md)
+        .expect("open the host")
 }
 
 /// A host over the folder and the index it was walked into.
 fn indexed_host(fixture: &Fixture, capabilities: &[Capability]) -> NoteHostImpl<'static> {
-    NoteHostImpl::open(&fixture.notes, Some(&fixture.db), held(capabilities))
-        .expect("open the host")
+    NoteHostImpl::open(
+        &fixture.notes,
+        Some(&fixture.db),
+        held(capabilities),
+        FileExtension::Md,
+    )
+    .expect("open the host")
 }
 
 fn origin() -> WriteOrigin {
@@ -473,7 +480,12 @@ fn opening_a_folder_that_is_not_there_fails_rather_than_creating_one() {
     let dir = TempDir::new().expect("temp dir");
     let absent = dir.path().join("notes");
 
-    let opened = NoteHostImpl::open(&absent, None, held(&[Capability::ListNotes]));
+    let opened = NoteHostImpl::open(
+        &absent,
+        None,
+        held(&[Capability::ListNotes]),
+        FileExtension::Md,
+    );
 
     assert!(matches!(opened, Err(HostError::NotFound { .. })));
     assert!(!absent.exists());
@@ -523,4 +535,23 @@ fn a_proposal_that_moves_bytes_reports_a_change() {
         .expect("the write lands");
 
     assert!(receipt.changed);
+}
+
+#[test]
+fn a_host_mints_in_the_format_it_was_opened_with() {
+    let fixture = fixture();
+    let text = NoteHostImpl::open(
+        &fixture.notes,
+        None,
+        held(&[Capability::CreateNote]),
+        FileExtension::Txt,
+    )
+    .expect("open the host");
+
+    let receipt = text
+        .create_note("Ship it", "body\n", origin())
+        .expect("the note is minted");
+
+    assert!(receipt.path.ends_with("Ship it.txt"), "{}", receipt.path);
+    assert!(fixture.notes.join("Ship it.txt").is_file());
 }

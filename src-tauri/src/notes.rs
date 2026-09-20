@@ -12,21 +12,34 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
+use writ_core::config::FileExtension;
 
-/// Picks the path a note with `title` takes inside `notes_root`.
+/// Picks the path a note with `title` takes inside `notes_root`, in
+/// `extension`.
 ///
 /// Dated when the title names nothing, sanitised for all three platforms, and
-/// deduped Finder-style against what the folder already holds. The file is not
-/// created: the save that follows writes it, and creating it here would leave
-/// an empty file behind whenever that save fails.
+/// deduped Finder-style against what the folder already holds. `extension` is
+/// the configured one (ADR-041 §2), so a file that reaches its name here is
+/// the format every other mint makes. The file is not created: the save that
+/// follows writes it, and creating it here would leave an empty file behind
+/// whenever that save fails.
 ///
 /// A folder that cannot be listed yields no taken names rather than an error.
 /// The dedupe would only be less exact, and refusing to name a note because
 /// its folder could not be listed would lose the text the caller is holding.
-pub fn mint_note_path(notes_root: &Path, title: &str, now: DateTime<Utc>) -> PathBuf {
+pub fn mint_note_path(
+    notes_root: &Path,
+    title: &str,
+    now: DateTime<Utc>,
+    extension: FileExtension,
+) -> PathBuf {
     let stem = writ_core::notes::note_file_stem(title, now);
     let taken = taken_names(notes_root);
-    notes_root.join(writ_core::notes::dedupe_file_name(&stem, "md", &taken))
+    notes_root.join(writ_core::notes::dedupe_file_name(
+        &stem,
+        extension.as_str(),
+        &taken,
+    ))
 }
 
 /// The names `notes_root` already holds, lowercased the way the dedupe
@@ -50,8 +63,9 @@ pub fn mint_note_path_text(
     notes_root: &Path,
     title: &str,
     now: DateTime<Utc>,
+    extension: FileExtension,
 ) -> Result<String, String> {
-    let path = mint_note_path(notes_root, title, now);
+    let path = mint_note_path(notes_root, title, now, extension);
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| format!("the file name {} cannot be recorded", path.display()))
@@ -68,8 +82,9 @@ pub fn attach_note_file(
     id: &str,
     title: &str,
     now: DateTime<Utc>,
+    extension: FileExtension,
 ) -> Result<String, String> {
-    let path = mint_note_path_text(notes_root, title, now)?;
+    let path = mint_note_path_text(notes_root, title, now, extension)?;
     store
         .attach_source_path(id, &path)
         .map_err(|e| e.to_string())?;
@@ -90,24 +105,36 @@ mod tests {
     #[test]
     fn a_title_nobody_typed_becomes_the_date() {
         let root = TempDir::new().unwrap();
-        let path = mint_note_path(root.path(), "writ-1756000000000", day());
+        let path = mint_note_path(root.path(), "writ-1756000000000", day(), FileExtension::Txt);
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        assert!(name.ends_with(".md"), "{name}");
-        assert_eq!(name.len(), "2026-08-28.md".len(), "{name}");
+        assert_eq!(name, "2026-08-28.txt", "{name}");
+    }
+
+    #[test]
+    fn the_configured_format_names_the_file() {
+        let root = TempDir::new().unwrap();
+        assert_eq!(
+            mint_note_path(root.path(), "Notes", day(), FileExtension::Txt),
+            root.path().join("Notes.txt")
+        );
+        assert_eq!(
+            mint_note_path(root.path(), "Notes", day(), FileExtension::Md),
+            root.path().join("Notes.md")
+        );
     }
 
     #[test]
     fn a_name_already_in_the_folder_dedupes() {
         let root = TempDir::new().unwrap();
-        std::fs::write(root.path().join("Notes.md"), "first").unwrap();
-        let path = mint_note_path(root.path(), "Notes", day());
-        assert_eq!(path, root.path().join("Notes 2.md"));
+        std::fs::write(root.path().join("Notes.txt"), "first").unwrap();
+        let path = mint_note_path(root.path(), "Notes", day(), FileExtension::Txt);
+        assert_eq!(path, root.path().join("Notes 2.txt"));
     }
 
     #[test]
     fn nothing_is_created_by_choosing_a_name() {
         let root = TempDir::new().unwrap();
-        let path = mint_note_path(root.path(), "Notes", day());
+        let path = mint_note_path(root.path(), "Notes", day(), FileExtension::Txt);
         assert!(!path.exists());
     }
 }

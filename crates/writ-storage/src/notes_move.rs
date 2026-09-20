@@ -366,7 +366,7 @@ fn owners_by_archived_path(store: &BufferStore) -> StorageResult<HashMap<String,
 fn extension(path: &Path) -> String {
     path.extension()
         .map(|ext| ext.to_string_lossy().into_owned())
-        .unwrap_or_else(|| crate::note_ops::NOTE_EXTENSION.to_string())
+        .unwrap_or_default()
 }
 
 fn file_stem(path: &Path) -> String {

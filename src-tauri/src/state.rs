@@ -353,7 +353,12 @@ impl AppState {
             let mut recovered = store.resolve_recovery().unwrap_or_default();
             info!(count = recovered.len(), "buffers eligible for recovery");
             for buf in &mut recovered {
-                match restore_recovered_buffer(&store, &notes_root, buf) {
+                match restore_recovered_buffer(
+                    &store,
+                    &notes_root,
+                    buf,
+                    config.files.default_extension,
+                ) {
                     // Nothing is recorded for a note whose file was never
                     // read, so its first save reads it rather than trusting a
                     // record nobody took.
@@ -564,6 +569,17 @@ impl AppState {
     /// it does with the path.
     pub fn notes_root(&self) -> PathBuf {
         recover_poison(self.notes_root.read(), "state::notes_root").clone()
+    }
+
+    /// The format every file Writ mints carries, as the config stands now
+    /// (ADR-041 §2).
+    ///
+    /// Copied rather than borrowed so no caller holds the config lock across
+    /// the write it goes on to make.
+    pub fn default_extension(&self) -> writ_core::config::FileExtension {
+        recover_poison(self.config.lock(), "state::default_extension")
+            .files
+            .default_extension
     }
 
     /// Reads config.toml again after another program wrote it, so the copy
@@ -1012,6 +1028,7 @@ fn restore_recovered_buffer(
     store: &BufferStore,
     notes_root: &std::path::Path,
     recovered: &RecoveredBuffer,
+    default_extension: writ_core::config::FileExtension,
 ) -> Result<RecoveryLanding, String> {
     let doc = store.get(&recovered.id).map_err(|e| e.to_string())?;
     let had_file = doc.source_path.is_some();
@@ -1031,6 +1048,7 @@ fn restore_recovered_buffer(
             &recovered.id,
             &doc.title,
             chrono::Utc::now(),
+            default_extension,
         )?;
     }
     store

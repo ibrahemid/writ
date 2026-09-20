@@ -241,8 +241,9 @@ fn a_plain_new_note_still_mints_a_dated_file_in_the_notes_folder() {
     save_buffer_content_inner(&state, &doc.id, "just notes").expect("save");
 
     let expected = state.notes_root().join(format!(
-        "{}.md",
-        writ_core::notes::date_stem(doc.created_at)
+        "{}.{}",
+        writ_core::notes::date_stem(doc.created_at),
+        state.default_extension().as_str()
     ));
     assert_eq!(std::fs::read_to_string(&expected).unwrap(), "just notes");
     assert!(

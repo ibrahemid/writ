@@ -649,6 +649,7 @@ pub fn run() {
             commands::notes::get_notes_root,
             commands::first_run::first_run_state,
             commands::first_run::dismiss_first_run_hint,
+            commands::first_run::finish_first_run,
             commands::first_run::auto_retitle_note,
             commands::notes::get_notes_folder,
             commands::notes::show_notes_folder_in_finder,
@@ -870,15 +871,6 @@ pub fn run() {
                         watch.changed_outside(std::path::Path::new(path));
                     }
                 });
-            }
-
-            // First launch opens a note the person can type in, and asks
-            // nothing on the way (spec O1). It runs before the window is
-            // shown, so the frontend's first load already finds the note in
-            // the store and takes its ordinary "open the last tab" path.
-            {
-                let state = app.state::<AppState>();
-                first_run::open_first_note(&state);
             }
 
             // The window is created hidden (tauri.conf `visible: false`) to kill

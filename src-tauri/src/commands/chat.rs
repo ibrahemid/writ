@@ -40,7 +40,7 @@ use writ_core::chat::{
     Conversation, Delta, ParsedProposals, ProposalFilter, ProposalStatus, Provider, RejectCode,
     RequestIdentity, Role, StoredProposal, MAX_CONVERSATION_BYTES,
 };
-use writ_core::config::AiConfig;
+use writ_core::config::{AiConfig, FileExtension};
 use writ_core::diff::{line_diff, Hunk};
 use writ_core::hash::digest_from_hex;
 use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
@@ -955,6 +955,14 @@ pub struct AttachedSize {
     pub bytes: u64,
 }
 
+/// The format a host opened in this module would mint in.
+///
+/// The pane's two permission sets hold `ReadNote` and `WriteNote` and never
+/// `CreateNote`, so no host opened here can mint and the answer is never read.
+/// The default stands in rather than the configured format being threaded
+/// through every read the pane makes.
+const PANE_MINTS_NOTHING: FileExtension = FileExtension::Txt;
+
 /// What the side a model's reply can influence may ask for.
 ///
 /// One capability. The pane attaches the tabs the user named and lists nothing,
@@ -979,7 +987,7 @@ pub fn apply_permissions() -> PermissionSet {
 /// nothing, and the folder has already been resolved by the time this is asked
 /// for.
 fn context_host(notes_root: &Path, note_key: &str) -> Result<NoteHostImpl<'static>, String> {
-    NoteHostImpl::open(notes_root, None, context_permissions())
+    NoteHostImpl::open(notes_root, None, context_permissions(), PANE_MINTS_NOTHING)
         .map_err(|_| format!("{note_key} could not be read."))
 }
 
@@ -1191,7 +1199,7 @@ pub fn apply_proposal_inner(
     // Only the digest is handed over: the guard compares digests, never the
     // length or the modification time, neither of which the pane knew about the
     // text it showed.
-    let applier = NoteHostImpl::open(notes_root, None, apply_permissions())
+    let applier = NoteHostImpl::open(notes_root, None, apply_permissions(), PANE_MINTS_NOTHING)
         .map_err(|_| format!("{note_key} was not written."))?
         .with_history(history);
     let outcome = applier.write_note(path, new_content, Some(digest), WriteOrigin::Chat);
@@ -2580,7 +2588,8 @@ mod tests {
 
         // The boundary moved in the pane and nowhere else: the host answers a
         // file outside the folder the same way whether or not a tab holds it.
-        let host = NoteHostImpl::open(&notes, None, context_permissions()).expect("the host");
+        let host = NoteHostImpl::open(&notes, None, context_permissions(), PANE_MINTS_NOTHING)
+            .expect("the host");
         assert!(matches!(
             host.read_note(&given),
             Err(HostError::OutsideNotesFolder { .. })

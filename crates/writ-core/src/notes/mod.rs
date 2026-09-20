@@ -38,6 +38,13 @@ pub mod write_origin;
 
 pub use write_origin::WriteOrigin;
 
+/// The stem of a file nobody has named yet.
+///
+/// A new file and the file the first launch opens are both this, deduped
+/// Finder-style against what the folder holds, so a second one is `Untitled 2`
+/// (ADR-041 §3). The date belongs to Today's Note and to nothing else.
+pub const UNTITLED_STEM: &str = "Untitled";
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 

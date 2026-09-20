@@ -25,7 +25,7 @@ fn recorded(path: &Path) -> DiskState {
 fn create_note_writes_a_file_immediately() {
     let root = TempDir::new().expect("temp dir");
 
-    let path = note_ops::create_note(root.path(), "2026-08-29", WriteOrigin::Editor, None)
+    let path = note_ops::create_note(root.path(), "2026-08-29", "md", WriteOrigin::Editor, None)
         .expect("create");
 
     assert!(path.exists(), "{} was not created", path.display());
@@ -46,7 +46,7 @@ fn create_note_refuses_rather_than_writing_over_a_note_the_dedupe_could_not_see(
     std::fs::write(&existing, "first").expect("seed");
     std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o300)).expect("chmod");
 
-    let outcome = note_ops::create_note(root.path(), "Notes", WriteOrigin::Editor, None);
+    let outcome = note_ops::create_note(root.path(), "Notes", "md", WriteOrigin::Editor, None);
 
     std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).expect("chmod");
     assert!(
@@ -71,8 +71,8 @@ fn create_note_refuses_a_name_a_dangling_link_already_holds() {
 
     // The dedupe sees the name and picks `Notes 2.md`, so this only proves the
     // link is not followed and written through when the listing is what fails.
-    let path =
-        note_ops::create_note(root.path(), "Notes", WriteOrigin::Editor, None).expect("create");
+    let path = note_ops::create_note(root.path(), "Notes", "md", WriteOrigin::Editor, None)
+        .expect("create");
     assert_eq!(path, root.path().join("Notes 2.md"));
     assert!(
         link.symlink_metadata().is_ok(),
@@ -90,8 +90,8 @@ fn create_note_makes_a_second_note_beside_a_decomposed_name() {
     let decomposed = root.path().join("Cafe\u{301}.md");
     std::fs::write(&decomposed, "first").expect("seed");
 
-    let path =
-        note_ops::create_note(root.path(), "Caf\u{e9}", WriteOrigin::Editor, None).expect("create");
+    let path = note_ops::create_note(root.path(), "Caf\u{e9}", "md", WriteOrigin::Editor, None)
+        .expect("create");
 
     assert_eq!(path, root.path().join("Café 2.md"));
     assert_eq!(
@@ -106,8 +106,8 @@ fn create_note_dedupes_against_an_existing_name() {
     let root = TempDir::new().expect("temp dir");
     std::fs::write(root.path().join("Notes.md"), "first").expect("seed");
 
-    let path =
-        note_ops::create_note(root.path(), "Notes", WriteOrigin::Editor, None).expect("create");
+    let path = note_ops::create_note(root.path(), "Notes", "md", WriteOrigin::Editor, None)
+        .expect("create");
 
     assert_eq!(path, root.path().join("Notes 2.md"));
     assert_eq!(
@@ -325,9 +325,14 @@ fn every_write_is_stamped_before_it_happens() {
     let stamps = Stamps::default();
     let hook = stamps.hook();
 
-    let created =
-        note_ops::create_note(root.path(), "2026-08-29", WriteOrigin::Editor, Some(&hook))
-            .expect("create");
+    let created = note_ops::create_note(
+        root.path(),
+        "2026-08-29",
+        "md",
+        WriteOrigin::Editor,
+        Some(&hook),
+    )
+    .expect("create");
     assert_eq!(stamps.paths(), vec![created.clone()]);
     assert!(
         !stamps.existed_at(&created),
@@ -337,6 +342,7 @@ fn every_write_is_stamped_before_it_happens() {
     let copied = note_ops::save_copy(
         root.path(),
         "report",
+        "md",
         "the text",
         WriteOrigin::Editor,
         Some(&hook),
@@ -389,8 +395,15 @@ fn save_copy_writes_into_the_notes_folder_and_leaves_the_original_untouched() {
     let original = elsewhere.path().join("report.md");
     std::fs::write(&original, "the text").expect("seed");
 
-    let copy = note_ops::save_copy(root.path(), "report", "the text", WriteOrigin::Editor, None)
-        .expect("copy");
+    let copy = note_ops::save_copy(
+        root.path(),
+        "report",
+        "md",
+        "the text",
+        WriteOrigin::Editor,
+        None,
+    )
+    .expect("copy");
 
     assert_eq!(copy, root.path().join("report.md"));
     assert_eq!(std::fs::read_to_string(&copy).expect("read"), "the text");
@@ -399,4 +412,57 @@ fn save_copy_writes_into_the_notes_folder_and_leaves_the_original_untouched() {
         std::fs::read_to_string(&original).expect("read"),
         "the text"
     );
+}
+
+#[test]
+fn the_extension_the_caller_names_is_the_one_the_file_carries() {
+    let root = tempfile::tempdir().expect("tempdir");
+
+    let text = note_ops::create_note(root.path(), "Untitled", "txt", WriteOrigin::Editor, None)
+        .expect("create");
+    let markdown = note_ops::create_note(root.path(), "Untitled", "md", WriteOrigin::Editor, None)
+        .expect("create");
+
+    assert_eq!(text, root.path().join("Untitled.txt"));
+    assert_eq!(markdown, root.path().join("Untitled.md"));
+}
+
+#[test]
+fn a_second_untitled_file_dedupes_within_its_own_format() {
+    let root = tempfile::tempdir().expect("tempdir");
+
+    let first = note_ops::create_note(root.path(), "Untitled", "txt", WriteOrigin::Editor, None)
+        .expect("create");
+    let second = note_ops::create_note(root.path(), "Untitled", "txt", WriteOrigin::Editor, None)
+        .expect("create");
+
+    assert_eq!(first, root.path().join("Untitled.txt"));
+    assert_eq!(second, root.path().join("Untitled 2.txt"));
+    assert!(first.exists(), "the first file was written over");
+}
+
+#[test]
+fn a_rename_keeps_the_extension_the_file_already_had() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let from = root.path().join("a.txt");
+    std::fs::write(&from, "the text").expect("a plain-text file");
+
+    let to =
+        note_ops::rename_note(&from, "Groceries", None, WriteOrigin::Editor, None).expect("rename");
+
+    assert_eq!(to, root.path().join("Groceries.txt"));
+    assert_eq!(std::fs::read_to_string(&to).expect("read"), "the text");
+}
+
+#[test]
+fn a_rename_of_a_file_with_no_extension_leaves_it_with_none() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let from = root.path().join("LICENSE");
+    std::fs::write(&from, "the text").expect("a file with no extension");
+
+    let to =
+        note_ops::rename_note(&from, "COPYING", None, WriteOrigin::Editor, None).expect("rename");
+
+    assert_eq!(to, root.path().join("COPYING"));
+    assert_eq!(std::fs::read_to_string(&to).expect("read"), "the text");
 }

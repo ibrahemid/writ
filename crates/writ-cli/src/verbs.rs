@@ -16,6 +16,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use writ_core::config::FileExtension;
 use writ_core::notes::links::Resolution;
 use writ_core::notes::{
     name_is_taken, note_display_name, note_file_stem, rename_stem, WriteOrigin, NAME_IS_EMPTY,
@@ -24,9 +25,6 @@ use writ_storage::database::migrations::binary_schema_version;
 use writ_storage::errors::StorageError;
 use writ_storage::note_ops;
 use writ_storage::notes_index::{self, IndexedBy, NotesIndexStore};
-
-/// Extension a new note is created with.
-const NOTE_EXTENSION: &str = "md";
 
 /// Everything read successfully.
 pub const EXIT_OK: i32 = 0;
@@ -228,6 +226,8 @@ pub struct Context {
     pub db_path: PathBuf,
     /// The moment a note with no name of its own is named for.
     pub now: chrono::DateTime<chrono::Utc>,
+    /// The format `writ new` mints in, read from the config (ADR-041 §2).
+    pub default_extension: FileExtension,
 }
 
 /// What a verb produced: the two streams and the exit code.
@@ -373,7 +373,10 @@ fn note_file(arg: &str, ctx: &Context) -> Option<PathBuf> {
     [
         from_cwd,
         ctx.notes_dir.join(arg),
-        ctx.notes_dir.join(format!("{arg}.{NOTE_EXTENSION}")),
+        ctx.notes_dir
+            .join(format!("{arg}.{}", ctx.default_extension.as_str())),
+        ctx.notes_dir
+            .join(format!("{arg}.{}", FileExtension::Md.as_str())),
     ]
     .into_iter()
     .find(|candidate| candidate.is_file())
@@ -746,7 +749,13 @@ fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
 /// suppress.
 fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
     let stem = note_file_stem(name.unwrap_or(""), ctx.now);
-    match note_ops::create_note(&ctx.notes_dir, &stem, WriteOrigin::Cli, None) {
+    match note_ops::create_note(
+        &ctx.notes_dir,
+        &stem,
+        ctx.default_extension.as_str(),
+        WriteOrigin::Cli,
+        None,
+    ) {
         Ok(path) => path_outcome(json, &path, None),
         Err(error) => Outcome::failed(format!(
             "cannot create a note in {}: {}",

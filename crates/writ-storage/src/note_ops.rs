@@ -27,16 +27,16 @@ use crate::guarded::{
 use crate::notes_index::{indexes_as_note, names_a_note};
 use crate::workspace_search::build_walk;
 
-/// Extension every note Writ mints carries.
-pub const NOTE_EXTENSION: &str = "md";
-
-/// Creates an empty note file in `notes_root`, named from `stem`.
+/// Creates an empty note file in `notes_root`, named from `stem` and
+/// `extension`.
 ///
 /// `stem` is already sanitised ([`writ_core::notes::note_file_stem`]); the
-/// name is deduped Finder-style against what the folder holds. The file exists
-/// on return, which is the whole point: a new note is visible in Finder before
-/// anything else happens, not on the first keystroke and not at quit
-/// (ADR-028 §3).
+/// name is deduped Finder-style against what the folder holds. `extension` is
+/// the caller's configured one ([`writ_core::config::FilesConfig`]) — this
+/// module reads no config, so every mint is told which format it is making
+/// (ADR-041 §2). The file exists on return, which is the whole point: a new
+/// note is visible in Finder before anything else happens, not on the first
+/// keystroke and not at quit (ADR-028 §3).
 ///
 /// # Errors
 ///
@@ -47,6 +47,7 @@ pub const NOTE_EXTENSION: &str = "md";
 pub fn create_note(
     notes_root: &Path,
     stem: &str,
+    extension: &str,
     origin: WriteOrigin,
     before_write: BeforeWrite<'_>,
 ) -> StorageResult<PathBuf> {
@@ -54,6 +55,7 @@ pub fn create_note(
         CreateNote {
             notes_root,
             stem,
+            extension,
             content: "",
             origin,
             on_taken_name: TakenName::Dedupe,
@@ -63,12 +65,13 @@ pub fn create_note(
     )
 }
 
-/// Writes `content` into `notes_root` as a new note named from `stem`,
-/// leaving the file it came from untouched.
+/// Writes `content` into `notes_root` as a new note named from `stem` and
+/// `extension`, leaving the file it came from untouched.
 ///
 /// This is `Save a Copy…`: a note opened from somewhere else earns a place in
 /// the notes folder without moving, so the original stays exactly where its
-/// owner put it.
+/// owner put it. The copy carries the original's own extension, so a copy of
+/// a `.txt` is a `.txt` and the copy reads the way the file it came from did.
 ///
 /// # Errors
 ///
@@ -76,6 +79,7 @@ pub fn create_note(
 pub fn save_copy(
     notes_root: &Path,
     stem: &str,
+    extension: &str,
     content: &str,
     origin: WriteOrigin,
     before_write: BeforeWrite<'_>,
@@ -84,6 +88,7 @@ pub fn save_copy(
         CreateNote {
             notes_root,
             stem,
+            extension,
             content,
             origin,
             on_taken_name: TakenName::Dedupe,
@@ -94,6 +99,9 @@ pub fn save_copy(
 }
 
 /// Renames a note to `new_stem`, keeping its extension and its folder.
+///
+/// A file with no extension keeps none: the stem changes and nothing else,
+/// which is the rule for every rename (ADR-041 §2).
 ///
 /// `new_stem` is already sanitised. The move is refused rather than performed
 /// when the name is empty, when the folder already holds that name, or when
@@ -139,7 +147,7 @@ pub fn rename_note(
     let extension = from
         .extension()
         .map(|ext| ext.to_string_lossy().into_owned())
-        .unwrap_or_else(|| NOTE_EXTENSION.to_string());
+        .unwrap_or_default();
     let name = join_name(new_stem, &extension);
     let to = folder.join(&name);
 

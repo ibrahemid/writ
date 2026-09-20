@@ -177,6 +177,7 @@ fn a_note_writ_creates_is_saved_in_lf() {
     let path = writ_storage::note_ops::save_copy(
         &notes,
         "Fresh",
+        "md",
         "one\r\ntwo\r\n",
         WriteOrigin::Editor,
         None,

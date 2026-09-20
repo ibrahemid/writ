@@ -54,6 +54,14 @@ impl Fixture {
         self.data.join("writ.db")
     }
 
+    /// Writes the config that names Markdown as the format new files carry.
+    fn defaults_to_markdown(&self) {
+        write(
+            &self.data.join("config.toml"),
+            "[files]\ndefault_extension = \"md\"\n",
+        );
+    }
+
     /// Builds the database the way the app does, treating the files in
     /// `dataless` as placeholders with no local data.
     fn index(&self, dataless: &HashSet<PathBuf>) {
@@ -647,7 +655,7 @@ fn new_creates_a_note_in_the_notes_folder_and_prints_its_path() {
         path.canonicalize().expect("canonicalize"),
         fixture
             .notes
-            .join("Ideas.md")
+            .join("Ideas.txt")
             .canonicalize()
             .expect("canonicalize")
     );
@@ -665,9 +673,57 @@ fn new_needs_no_index() {
 #[test]
 fn new_dedupes_against_what_the_folder_already_holds() {
     let fixture = Fixture::new();
+    fixture.defaults_to_markdown();
     assert_eq!(
         PathBuf::from(stdout(&fixture.run(&["new", "One"])).trim()).file_name(),
         fixture.notes.join("One 2.md").file_name()
+    );
+}
+
+#[test]
+fn new_follows_the_format_the_config_names() {
+    let fixture = Fixture::new();
+    fixture.defaults_to_markdown();
+    assert_eq!(
+        PathBuf::from(stdout(&fixture.run(&["new", "Ideas"])).trim()).file_name(),
+        fixture.notes.join("Ideas.md").file_name()
+    );
+}
+
+#[test]
+fn a_note_is_found_by_name_in_either_format() {
+    let fixture = Fixture::new();
+    write(&fixture.notes.join("Plain.txt"), "see [[Two]]\n");
+    fixture.indexed();
+
+    // The configured format first, then Markdown: `One.md` is still found by
+    // its bare name on an install that mints plain text.
+    let plain = fixture.run(&["links", "Plain"]);
+    assert_eq!(code(&plain), 0, "{}", stderr(&plain));
+    let markdown = fixture.run(&["links", "One"]);
+    assert_eq!(code(&markdown), 0, "{}", stderr(&markdown));
+}
+
+#[test]
+fn the_configured_format_is_tried_before_markdown() {
+    let fixture = Fixture::new();
+    write(&fixture.notes.join("Same.txt"), "see [[Alone]]\n");
+    write(&fixture.notes.join("Same.md"), "see [[Two]]\n");
+    fixture.indexed();
+
+    let plain = fixture.run(&["links", "Same"]);
+    assert!(
+        stdout(&plain).contains("Alone"),
+        "plain text is configured, so Same.txt answers: {}",
+        stdout(&plain)
+    );
+
+    fixture.defaults_to_markdown();
+    let markdown = fixture.run(&["links", "Same"]);
+    assert!(
+        stdout(&markdown).contains("Two"),
+        "Markdown is configured, so Same.md answers: {}",
+        stdout(&markdown)
     );
 }
 
@@ -678,6 +734,7 @@ fn new_beside_a_decomposed_name_mints_rather_than_refusing() {
     // composed name, which the filesystem then refuses: the note could never
     // be created, however many times it was asked for.
     let fixture = Fixture::new();
+    fixture.defaults_to_markdown();
     let decomposed = fixture.notes.join("Cafe\u{301}.md");
     std::fs::write(&decomposed, "first").expect("seed");
 

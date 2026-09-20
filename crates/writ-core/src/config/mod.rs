@@ -7,6 +7,8 @@
 
 /// The AI connection and its two feature switches (`[ai]`).
 pub mod ai;
+/// The extension every file Writ mints carries (`[files]`).
+pub mod files;
 /// Keybinding conflict reporting types.
 pub mod keybinding;
 /// MCP server configuration (`[mcp]`).
@@ -19,6 +21,7 @@ pub mod preview;
 pub mod spelling;
 
 pub use ai::{AiChatConfig, AiConfig, AiConfigOnDisk, AiRewriteConfig};
+pub use files::{FileExtension, FilesConfig};
 pub use mcp::{ClientApproval, McpConfig};
 pub use notes::NotesConfig;
 pub use preview::{DefaultLayout, PreviewConfig};
@@ -690,6 +693,9 @@ pub struct WritConfig {
     /// Editor surface configuration.
     #[serde(default)]
     pub editor: EditorConfig,
+    /// The extension every file Writ mints carries.
+    #[serde(default)]
+    pub files: FilesConfig,
     /// Initial window geometry.
     #[serde(default)]
     pub window: WindowConfig,
@@ -746,6 +752,7 @@ impl Default for WritConfig {
             chat_panel: ChatPanelConfig::default(),
             first_run: FirstRunConfig::default(),
             editor: EditorConfig::default(),
+            files: FilesConfig::default(),
             window: WindowConfig::default(),
             keybindings: default_keybindings(),
             history: HistoryConfig::default(),

@@ -1,9 +1,13 @@
-//! The first launch: the note it opens, and what may rename that note.
+//! The first launch: the answer it records, the file it opens, and what may
+//! rename that file.
 //!
-//! The policy is [`writ_core::startup`]; this is the mechanism. It creates the
-//! note the window opens on, and it keeps the two facts the retitle guard
-//! rails read: whether a note's tab has been closed, and whether anything
-//! outside Writ has touched the note's path since it was created.
+//! The policy is [`writ_core::startup`]; this is the mechanism. Nothing is
+//! written until the screen is answered (ADR-041 §3), so the work runs from
+//! the `finish_first_run` command rather than from Tauri's setup. It records
+//! the chosen format, creates the file the window opens on, and it keeps the
+//! two facts the retitle guard rails read: whether a note's tab has been
+//! closed, and whether anything outside Writ has touched the note's path since
+//! it was created.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -11,6 +15,7 @@ use std::sync::Mutex;
 
 use tracing::info;
 use writ_core::buffer::document::BufferDocument;
+use writ_core::config::FileExtension;
 use writ_core::startup::{retitle_answer, RetitleAnswer, RetitleFacts};
 
 use crate::poison::recover_poison;
@@ -80,68 +85,48 @@ impl RetitleWatch {
     }
 }
 
-/// Opens the note the first launch shows, or `None` on every later launch.
+/// Records the format the first launch was answered with, and opens the file
+/// that launch shows. `None` on every later launch.
 ///
-/// Nothing is asked: no folder picker, no theme, no account. The notes folder
-/// is already there — [`AppState::initialize`] resolves and creates it before
-/// anything can write into it — and a minted note is named for today, so the
-/// tab carries a date rather than a placeholder.
+/// Nothing is written until this is called, so a person who quits on the
+/// screen is asked again next launch and a person whose config is already
+/// there is never asked (ADR-041 §3). The choice is written to the config
+/// first, because it is what the mint below reads and what makes the next
+/// launch a later one (ADR-039 §2).
 ///
 /// Only an empty notes folder is minted into. A folder that already holds
-/// today's note opens that note, and one holding other notes opens the newest
-/// of them, so a launch that finds work already done adds nothing to it. The
-/// launch then records itself in the config, which is what makes the next one
-/// a later launch (ADR-039 §2).
-pub fn open_first_note(state: &AppState) -> Option<BufferDocument> {
+/// files opens the newest of them, so a launch that finds work already done
+/// adds nothing to it.
+pub fn finish_first_run_inner(
+    state: &AppState,
+    default_extension: FileExtension,
+) -> Result<Option<BufferDocument>, String> {
     if !state.first_run {
-        return None;
+        return Ok(None);
     }
-    match first_note(state) {
-        Ok(note) => {
-            info!(opened = note.is_some(), "first launch");
-            remember_the_launch(state);
-            note
-        }
-        Err(error) => {
-            tracing::warn!(%error, "first launch could not open a note");
-            None
-        }
-    }
+    remember_the_launch(state, default_extension)?;
+    let note = first_note(state)?;
+    info!(opened = note.is_some(), "first launch");
+    Ok(note)
 }
 
-/// The note this launch opens, or `None` when there is nothing for it to do.
+/// The file this launch opens, or `None` when there is nothing for it to do.
 ///
 /// The order is the one that cannot lose anything: tabs the last session left
-/// open take the frontend's ordinary path, today's note is opened rather than
-/// minted a second time beside itself, any other note in the folder is opened
-/// rather than buried under a new empty one, and only an empty folder is
-/// minted into.
+/// open take the frontend's ordinary path, any file already in the folder is
+/// opened rather than buried under a new empty one, and only an empty folder
+/// is minted into.
 fn first_note(state: &AppState) -> Result<Option<BufferDocument>, String> {
     if has_open_notes(state)? {
         return Ok(None);
     }
     let root = state.notes_root();
-    let now = chrono::Utc::now();
-    let today = root.join(writ_core::startup::dated_note_name(now));
-    if !today.is_file() {
-        if let Some(path) = newest_note_in(&root) {
-            return open_note_at(state, &path);
-        }
+    if let Some(path) = newest_note_in(&root) {
+        return open_note_at(state, &path);
     }
-    // Today's note, opened or made, is the same one `Today's Note` reaches.
-    let opened = crate::commands::notes::open_or_mint_dated_note(state, now)?;
-    // Minting is what arms the retitle watch, so only a note Writ made this
+    // Minting is what arms the retitle watch, so only a file Writ made this
     // launch can be renamed from its own first line unasked.
-    if opened.minted {
-        if let Some(path) = opened
-            .doc
-            .as_ref()
-            .and_then(|doc| doc.source_path.as_deref())
-        {
-            state.retitle_watch.watch(Path::new(path));
-        }
-    }
-    Ok(opened.doc)
+    crate::commands::notes::new_note_inner(state).map(Some)
 }
 
 /// Whether the last session left tabs for the frontend to restore.
@@ -185,35 +170,44 @@ fn newest_note_in(root: &Path) -> Option<PathBuf> {
 
 /// Whether `path` is a note rather than one of the files a sync client, an
 /// editor or the operating system leaves in a folder.
+///
+/// The extensions are [`writ_storage::notes_index::has_text_extension`]'s, the
+/// list the index already reads, so a folder of `.txt` files is a folder with
+/// work in it rather than an empty one to mint into (ADR-041 §2).
 fn is_note_file(path: &Path) -> bool {
     let hidden = path
         .file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with('.'));
-    let markdown = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown"));
-    markdown && !hidden
+    writ_storage::notes_index::has_text_extension(path) && !hidden
 }
 
-/// Writes the config this launch found no trace of, so the next launch is a
-/// later one even if nobody typed a character.
+/// Writes the config this launch found no trace of, carrying the format it was
+/// answered with, so the next launch is a later one and mints what was asked
+/// for.
 ///
 /// It goes through the same [`crate::commands::config::persist_config`] every
 /// command uses, so the file has the shape the next read expects and the write
-/// is stamped into the watcher's ignore set. A failure is logged and dropped:
-/// the window is shown either way, and a launch that could not write the file
-/// simply asks the same question again.
-fn remember_the_launch(state: &AppState) {
-    let config = recover_poison(state.config.lock(), "first_run::remember_the_launch").clone();
-    if let Err(error) = crate::commands::config::persist_config(state, &config) {
+/// is stamped into the watcher's ignore set. The running copy is replaced
+/// after the file lands, so the mint that follows reads the same answer the
+/// next launch will.
+///
+/// A failure stops the launch here rather than minting: a file made in a
+/// format the config does not record is the one file the person cannot explain
+/// afterwards, and a launch that wrote nothing simply asks again.
+fn remember_the_launch(state: &AppState, default_extension: FileExtension) -> Result<(), String> {
+    let mut config = recover_poison(state.config.lock(), "first_run::remember_the_launch").clone();
+    config.files.default_extension = default_extension;
+    crate::commands::config::persist_config(state, &config).map_err(|error| {
         tracing::warn!(
             %error,
             path = %state.config_store.path().display(),
             "first launch could not record the config"
         );
-    }
+        error
+    })?;
+    *recover_poison(state.config.lock(), "first_run::remember_the_launch") = config;
+    Ok(())
 }
 
 #[cfg(test)]

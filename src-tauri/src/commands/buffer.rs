@@ -382,8 +382,9 @@ pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
     }
 }
 
-/// Gives a note with no file the file the invariant requires: a dated `.md`
-/// in the notes folder, deduped Finder-style, writable by containment.
+/// Gives a note with no file the file the invariant requires: a dated file in
+/// the configured format, in the notes folder, deduped Finder-style, writable
+/// by containment.
 ///
 /// The write then falls through to the ordinary path, so exactly one code
 /// path writes a note's text.
@@ -402,6 +403,7 @@ fn attach_new_note_file(
         &doc.id,
         &doc.title,
         chrono::Utc::now(),
+        state.default_extension(),
     )?;
     state.follow_note_path(&doc.id, Path::new(&path));
     Ok(path)
