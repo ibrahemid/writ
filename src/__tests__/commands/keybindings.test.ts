@@ -10,6 +10,7 @@ import {
   normalizeKey,
 } from "../../commands/keybindings";
 import type { Command } from "../../types/commands";
+import { firstRunStore } from "../../stores/global/first-run";
 
 function cmd(id: string, keybinding?: string, keybindingAliases?: string[]): Command {
   return { id, label: id, scope: "app", keybinding, keybindingAliases, execute: () => {} };
@@ -594,5 +595,43 @@ describe("editor-focus gating", () => {
     handleKeyDown(keyEvent({ key: "Shift", shiftKey: true }));
     handleKeyDown(keyEvent({ key: "Shift", shiftKey: true }));
     expect(executed).toBe(true);
+  });
+
+  // The first launch's question is the only thing the window can answer until
+  // it is answered: a palette opening behind it takes the focus the two
+  // options need, and nothing on screen says where the keystrokes went.
+  it("runs no command at all while the first launch is still asking", () => {
+    let opened = false;
+    registerCommand({
+      id: "palette.open",
+      label: "Command palette",
+      keybinding: "Shift+Shift",
+      scope: "app",
+      global: true,
+      execute: () => { opened = true; },
+    });
+    let newNote = false;
+    registerCommand({
+      id: "buffer.new",
+      label: "New note",
+      keybinding: "CmdOrCtrl+N",
+      scope: "app",
+      global: true,
+      execute: () => { newNote = true; },
+    });
+    rebuildKeyMap();
+    const asking = vi.spyOn(firstRunStore, "step").mockReturnValue("format");
+
+    expect(handleKeyDown(keyEvent({ key: "Shift", shiftKey: true }))).toBe(false);
+    expect(handleKeyDown(keyEvent({ key: "Shift", shiftKey: true }))).toBe(false);
+    expect(handleKeyDown(keyEvent({ key: "n", metaKey: true }))).toBe(false);
+    expect(opened).toBe(false);
+    expect(newNote).toBe(false);
+
+    asking.mockRestore();
+    handleKeyDown(keyEvent({ key: "n", metaKey: true }));
+    expect(newNote).toBe(true);
+    unregisterCommand("buffer.new");
+    rebuildKeyMap();
   });
 });

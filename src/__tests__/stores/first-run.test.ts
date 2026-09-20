@@ -1,6 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { createRoot } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 
@@ -27,6 +25,7 @@ vi.mock("../../services/tauri", () => ({
 }));
 
 import { createFirstRunStore } from "../../stores/global/first-run";
+import { openBootTab } from "../../stores/window/boot-tab";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { configStore } from "../../stores/global/config";
 
@@ -108,20 +107,50 @@ describe("what the first launch asks", () => {
   });
 });
 
-// The boot runs once, in App's onMount, so no mount test can watch its order.
-describe("where the boot reads the answer", () => {
-  const source = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
+describe("the tab the window opens on", () => {
+  function tabs(activeTabId: string | null) {
+    return {
+      activeTabId: vi.fn(() => activeTabId),
+      setActiveTabId: vi.fn(),
+      createTab: vi.fn().mockResolvedValue(undefined),
+    };
+  }
 
-  it("reads it before the window is shaped, not after it is shown", () => {
-    const read = source.indexOf("await firstRunStore.load();");
-    const firstTab = source.indexOf("await win.tabs.createTab();");
-    expect(read).toBeGreaterThan(-1);
-    expect(firstTab).toBeGreaterThan(read);
+  it("restores the last tab the session left", async () => {
+    const actions = tabs(null);
+
+    await openBootTab(actions, [{ id: "older" }, { id: "newest" }] as BufferDocument[], null);
+
+    expect(actions.setActiveTabId).toHaveBeenCalledWith("newest");
+    expect(actions.createTab).not.toHaveBeenCalled();
   });
 
-  it("mints no note behind the question", () => {
-    expect(source).toMatch(
-      /else if \(firstRunStore\.step\(\) === null\) \{[\s\S]*?await win\.tabs\.createTab\(\);/,
-    );
+  it("creates one when there is nothing to restore", async () => {
+    const actions = tabs(null);
+
+    await openBootTab(actions, [], null);
+
+    expect(actions.createTab).toHaveBeenCalledTimes(1);
+  });
+
+  // The question is answered on an empty window, and the note the answer
+  // carries is the one that opens. A tab minted here would be a second empty
+  // note nobody asked for.
+  it("mints nothing while the first launch is still asking", async () => {
+    const actions = tabs(null);
+
+    await openBootTab(actions, [], "format");
+
+    expect(actions.createTab).not.toHaveBeenCalled();
+    expect(actions.setActiveTabId).not.toHaveBeenCalled();
+  });
+
+  it("leaves a window that already has a tab alone", async () => {
+    const actions = tabs("open");
+
+    await openBootTab(actions, [{ id: "newest" }] as BufferDocument[], null);
+
+    expect(actions.createTab).not.toHaveBeenCalled();
+    expect(actions.setActiveTabId).not.toHaveBeenCalled();
   });
 });

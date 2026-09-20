@@ -35,6 +35,7 @@ import { saveStatusStore } from "./stores/global/save-status";
 import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
+import { openBootTab } from "./stores/window/boot-tab";
 import FirstRunHint from "./components/Editor/FirstRunHint";
 import FirstRunSetup from "./components/FirstRun/FirstRunSetup";
 import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
@@ -84,6 +85,30 @@ import "./styles/global.css";
 import "./App.css";
 
 const MAIN_WINDOW_ID = 1;
+
+/**
+ * How long the boot waits on the first-launch read before shaping the window
+ * without it.
+ *
+ * The read decides whether a tab may be created, so it comes first; a read that
+ * never settles would otherwise leave a revealed window with no editor in it.
+ * Past the deadline the boot carries on as a launch with nothing to ask, which
+ * is what every launch after the first one is.
+ */
+const FIRST_RUN_READ_DEADLINE_MS = 1500;
+
+/** [`firstRunStore.load`], given at most `deadlineMs` to settle. */
+async function readFirstRunWithin(deadlineMs: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, deadlineMs);
+  });
+  try {
+    await Promise.race([firstRunStore.load(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // A save failure names the file the user knows, never the buffer UUID.
 async function openPendingPaths(paths: string[]) {
@@ -292,20 +317,11 @@ function AppShell() {
     try {
       // Read before the first frame is shaped, because a first launch asks
       // its question on the window the reveal is about to show rather than
-      // over a note it has already put there. The reveal is armed above, so a
-      // read that never settles costs the deadline and nothing more.
-      await firstRunStore.load();
+      // over a note it has already put there. Under a deadline, so a read that
+      // never settles costs that and nothing more.
+      await readFirstRunWithin(FIRST_RUN_READ_DEADLINE_MS);
 
-      if (win.tabs.activeTabId() === null) {
-        const active = bufferRegistry.activeTabs();
-        if (active.length > 0) {
-          win.tabs.setActiveTabId(active[active.length - 1].id);
-        } else if (firstRunStore.step() === null) {
-          // A first launch mints nothing until Continue answers it, and the
-          // note it answers with is the one that opens.
-          await win.tabs.createTab();
-        }
-      }
+      await openBootTab(win.tabs, bufferRegistry.activeTabs(), firstRunStore.step());
 
       // Reapplied here rather than in the hidden Rust restore path: on Windows
       // maximizing runs ShowWindow(SW_MAXIMIZE), which has no visibility guard,

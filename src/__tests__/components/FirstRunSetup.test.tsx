@@ -129,6 +129,65 @@ describe("the format the first launch asks about", () => {
     consoleSpy.mockRestore();
   });
 
+  it("is the one thing on the window: a dialog, named by its own heading", async () => {
+    await firstRunStore.load();
+    const { container } = mount();
+
+    const panel = container.querySelector<HTMLElement>(".first-run-setup-panel");
+    expect(panel?.getAttribute("role")).toBe("dialog");
+    expect(panel?.getAttribute("aria-modal")).toBe("true");
+    const heading = panel?.getAttribute("aria-labelledby");
+    expect(heading).not.toBeNull();
+    expect(container.querySelector(`#${heading}`)?.textContent).toBe("Default format");
+  });
+
+  it("selects the focused option with Space and answers with Enter", async () => {
+    await firstRunStore.load();
+    // The answer is refused, so the screen stays up and the launch is still a
+    // first one for the tests that follow.
+    mocks.finishFirstRun.mockRejectedValue(new Error("no IPC"));
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = mount();
+
+    fireEvent.keyDown(option(container, "md"), { key: " " });
+    await waitFor(() => expect(option(container, "md").getAttribute("aria-checked")).toBe("true"));
+    expect(mocks.finishFirstRun).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(option(container, "md"), { key: "Enter" });
+    await waitFor(() => expect(mocks.finishFirstRun).toHaveBeenCalledWith("md"));
+
+    firstRunStore.setFormat("txt");
+    consoleSpy.mockRestore();
+  });
+
+  // A held Enter repeats inside one round trip. Two answers would leave the
+  // folder with an Untitled 2 nobody asked for.
+  it("takes one answer however many times Continue is pressed", async () => {
+    await firstRunStore.load();
+    let refuse: (reason: Error) => void = () => {};
+    mocks.finishFirstRun.mockImplementation(
+      () =>
+        new Promise<BufferDocument | null>((_resolve, reject) => {
+          refuse = reject;
+        }),
+    );
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = mount();
+    const button = container.querySelector("button")!;
+
+    fireEvent.click(button);
+    await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
+    expect(button.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(button);
+    fireEvent.keyDown(option(container, "txt"), { key: "Enter" });
+
+    refuse(new Error("no IPC"));
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+    expect(mocks.finishFirstRun).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(".first-run-setup")).not.toBeNull();
+    consoleSpy.mockRestore();
+  });
+
   it("records the chosen format, opens the note it answers with, and leaves", async () => {
     await firstRunStore.load();
     mocks.finishFirstRun.mockResolvedValue(DOC);

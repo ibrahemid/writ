@@ -33,6 +33,7 @@ export function createFirstRunStore() {
   const [showHint, setShowHint] = createSignal(false);
   const [fileManager, setFileManager] = createSignal("Finder");
   const [offer, setOffer] = createSignal<{ id: string; title: string } | null>(null);
+  const [busy, setBusy] = createSignal(false);
   let loaded = false;
   const asked = new Set<string>();
 
@@ -58,8 +59,14 @@ export function createFirstRunStore() {
    * config and answers with the note to open, which is null on a launch that
    * has tabs to restore. A call that fails leaves the screen up with the
    * answer still on it, because the config it would have written is not there.
+   *
+   * One at a time. A held Enter repeats well inside one round trip, and two
+   * calls that both reach the mint leave the folder with an `Untitled 2`
+   * nobody asked for. `busy()` is what the button reads to say so.
    */
   async function continueSetup(): Promise<void> {
+    if (busy()) return;
+    setBusy(true);
     const extension = format();
     let doc: BufferDocument | null;
     try {
@@ -67,13 +74,19 @@ export function createFirstRunStore() {
     } catch {
       logFailure("the first launch could not be finished");
       return;
+    } finally {
+      setBusy(false);
     }
     configStore.noteDefaultExtension(extension);
+    // The screen leaves before the note arrives. While it is up it holds the
+    // rest of the window inert, and an editor that mounts under that never
+    // takes the focus it asks for, which would end the first launch on a note
+    // the person has to click before they can type in it.
+    setStep(null);
     if (doc) {
       bufferRegistry.adoptDocument(doc);
       windowRegistry.getActive()?.tabs.setActiveTabId(doc.id);
     }
-    setStep(null);
   }
 
   // The line goes on the first keystroke and stays gone. The signal drops
@@ -137,6 +150,7 @@ export function createFirstRunStore() {
     format,
     setFormat,
     continueSetup,
+    busy,
     showHint,
     fileManager,
     offer,
