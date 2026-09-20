@@ -165,21 +165,21 @@ fn a_named_note_takes_its_file_name_from_the_name() {
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
 }
 
-/// A link is allowed to name a note with its extension, and `[[Note.md]]`
-/// resolves to the same note `[[Note]]` does. Minting `Note.md.md` would leave
-/// the link that offered to create it still pointing at nothing.
+/// A name written with its extension carries that one extension, and the
+/// extension it spells is the format it is minted in: `Plain.txt` under a
+/// Markdown config is a `.txt` file, not `Plain.txt.md` (ADR-041 §2).
 #[test]
-fn a_named_note_written_with_the_extension_gets_one_extension() {
+fn a_named_note_written_with_the_extension_keeps_that_format() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
     defaults_to_markdown(&state);
 
     for (typed, expected) in [
         ("Note.md", "Note.md"),
-        ("Recipes.markdown", "Recipes.md"),
+        ("Recipes.markdown", "Recipes.markdown"),
         ("Ideas.MD", "Ideas.md"),
         ("Log.md.md", "Log.md.md"),
-        ("Plain.txt", "Plain.txt.md"),
+        ("Plain.txt", "Plain.txt"),
     ] {
         let doc = new_note_named_inner(&state, typed).expect("named note");
         let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
@@ -315,6 +315,28 @@ fn a_link_target_is_refused_when_its_folder_is_a_link_out_of_the_notes_folder() 
         !outside.join("Ideas.md").exists(),
         "the note was written through the link anyway"
     );
+}
+
+/// The configured format is the rule for a name that spells none, and a name
+/// that spells one is minted in it (ADR-041 §2).
+#[test]
+fn a_named_note_takes_the_format_its_own_name_spells() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+
+    for (typed, expected) in [
+        ("Notes.md", "Notes.md"),
+        ("Notes", "Notes.txt"),
+        ("Notes.markdown", "Notes.markdown"),
+    ] {
+        let doc = new_note_named_inner(&state, typed).expect("named note");
+        let path = std::path::PathBuf::from(doc.source_path.expect("the note has no file"));
+        assert_eq!(
+            path.file_name().unwrap().to_string_lossy(),
+            expected,
+            "typed {typed}"
+        );
+    }
 }
 
 /// A link target reaches this as typed, so a name that reads like a path must

@@ -390,6 +390,34 @@ pub fn note_file_stem_from_link(target: &str, dated_from: DateTime<Utc>) -> Stri
     note_file_stem(links::strip_note_extension(target.trim()), dated_from)
 }
 
+/// The extensions a typed name may spell its own format with, the four the
+/// index reads as text.
+const TEXT_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text"];
+
+/// The name without the extension it spells for itself, and that extension as
+/// a file name carries it.
+///
+/// `[files] default_extension` is the rule for the format of a file nobody
+/// named one for (ADR-041 §2), and a name ending in a text extension names
+/// one: `Notes.md` asks for Markdown whatever the config holds, so minting
+/// `Notes.txt` from it answers a question the person already answered. A name
+/// ending in anything else — `Notes.rtf`, `Draft.2026` — spells no format Writ
+/// mints, so the whole name is the stem and the config decides.
+///
+/// The extension comes back lowercased, so `notes.TXT` mints `notes.txt`. A
+/// name that is nothing but an extension names no file and yields `None`.
+pub fn explicit_extension(name: &str) -> Option<(&str, &'static str)> {
+    let (stem, extension) = name.trim().rsplit_once('.')?;
+    if stem.trim().is_empty() {
+        return None;
+    }
+    let known = TEXT_EXTENSIONS
+        .iter()
+        .copied()
+        .find(|known| known.eq_ignore_ascii_case(extension))?;
+    Some((stem, known))
+}
+
 /// Where the note a link offers to create belongs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoteLocation {
@@ -586,6 +614,30 @@ mod tests {
         assert_eq!(note_file_stem_from_link("Note.MD", moment()), "Note");
         assert_eq!(note_file_stem_from_link("Note", moment()), "Note");
         assert_eq!(note_file_stem_from_link("  Note.md  ", moment()), "Note");
+    }
+
+    // A name ending in a text extension spells its own format; the config
+    // decides for every other name (ADR-041 section 2).
+    #[test]
+    fn a_name_ending_in_a_text_extension_spells_its_own_format() {
+        assert_eq!(explicit_extension("Notes.md"), Some(("Notes", "md")));
+        assert_eq!(
+            explicit_extension("Notes.markdown"),
+            Some(("Notes", "markdown"))
+        );
+        assert_eq!(explicit_extension("notes.TXT"), Some(("notes", "txt")));
+        assert_eq!(explicit_extension("Notes.text"), Some(("Notes", "text")));
+        assert_eq!(explicit_extension("Log.md.md"), Some(("Log.md", "md")));
+        assert_eq!(explicit_extension("  Notes.md  "), Some(("Notes", "md")));
+    }
+
+    #[test]
+    fn a_name_ending_in_anything_else_leaves_the_format_to_the_config() {
+        assert_eq!(explicit_extension("Notes.rtf"), None);
+        assert_eq!(explicit_extension("Notes"), None);
+        assert_eq!(explicit_extension("Notes."), None);
+        assert_eq!(explicit_extension(".md"), None);
+        assert_eq!(explicit_extension(""), None);
     }
 
     // Only one extension comes off, which is the name parse_wikilink reads out

@@ -78,17 +78,31 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 /// for want of a name; a name nobody typed at all is
 /// [`writ_core::notes::UNTITLED_STEM`], deduped Finder-style.
 ///
+/// A name ending in a text extension is minted in that format rather than the
+/// configured one: `Notes.md` asks for Markdown, and the config is the rule
+/// for a file nobody named a format for (ADR-041 §2).
+///
 /// A link target is not a title and does not come here:
 /// [`new_note_from_link_inner`] reads the folder a target names rather than
 /// flattening it.
 pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
-    let unnamed = name.trim().is_empty();
+    let typed = name.trim();
+    let unnamed = typed.is_empty();
+    let named = writ_core::notes::explicit_extension(typed);
     let stem = if unnamed {
         writ_core::notes::UNTITLED_STEM.to_string()
+    } else if let Some((stem, _)) = named {
+        // The extension the name spelled is already off, so the strip
+        // `note_file_stem_from_link` does would take `Log.md.md` to `Log`.
+        writ_core::notes::note_file_stem(stem, Utc::now())
     } else {
-        writ_core::notes::note_file_stem_from_link(name, Utc::now())
+        writ_core::notes::note_file_stem_from_link(typed, Utc::now())
     };
-    let doc = create_note_at(state, &state.notes_root(), &stem)?;
+    let extension = match named {
+        Some((_, extension)) => extension,
+        None => state.default_extension().as_str(),
+    };
+    let doc = create_note_at_in(state, &state.notes_root(), &stem, extension)?;
     // A file nobody named yet is called Untitled, and that is the name the
     // file's own first line may replace without being asked (ADR-041 §3). A
     // file the person did name is already called what they called it.
@@ -230,7 +244,7 @@ pub fn new_note_from_link_inner(state: &AppState, target: &str) -> Result<Buffer
         folder.push(part);
     }
     let folder = folder_inside_notes(&root, folder)?;
-    create_note_at_in(state, &folder, &location.stem, FileExtension::Md)
+    create_note_at_in(state, &folder, &location.stem, FileExtension::Md.as_str())
 }
 
 /// What a target is answered with when the folder it names is not in the notes
@@ -270,30 +284,26 @@ fn folder_inside_notes(root: &Path, folder: PathBuf) -> Result<PathBuf, String> 
 /// promises: it is in Finder immediately, not on the first keystroke and not
 /// at quit (ADR-028 §3).
 fn create_note_at(state: &AppState, folder: &Path, stem: &str) -> Result<BufferDocument, String> {
-    create_note_at_in(state, folder, stem, state.default_extension())
+    create_note_at_in(state, folder, stem, state.default_extension().as_str())
 }
 
 /// [`create_note_at`] in a format the caller names rather than the configured
-/// one.
+/// one, `extension` without its dot.
 ///
-/// The one caller is the note a `[[…]]` makes: links resolve to Markdown, so a
-/// `.txt` target would be unreachable from the link that made it (ADR-041 §2).
+/// Two callers name one: the note a `[[…]]` makes is Markdown, because links
+/// resolve to Markdown and a `.txt` target would be unreachable from the link
+/// that made it; and a typed name that spells its own extension is minted in
+/// that format (ADR-041 §2).
 fn create_note_at_in(
     state: &AppState,
     folder: &Path,
     stem: &str,
-    extension: FileExtension,
+    extension: &str,
 ) -> Result<BufferDocument, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let stamp = ignore_stamper(state);
-    let path = note_ops::create_note(
-        folder,
-        stem,
-        extension.as_str(),
-        WriteOrigin::Editor,
-        Some(&stamp),
-    )
-    .map_err(|e| note_failure_message(&e))?;
+    let path = note_ops::create_note(folder, stem, extension, WriteOrigin::Editor, Some(&stamp))
+        .map_err(|e| note_failure_message(&e))?;
     let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
 
     let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
