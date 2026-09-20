@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createRoot } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 
@@ -103,5 +105,23 @@ describe("what the first launch asks", () => {
 
     expect(first.step()).toBe("format");
     expect(first.format()).toBe("md");
+  });
+});
+
+// The boot runs once, in App's onMount, so no mount test can watch its order.
+describe("where the boot reads the answer", () => {
+  const source = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
+
+  it("reads it before the window is shaped, not after it is shown", () => {
+    const read = source.indexOf("await firstRunStore.load();");
+    const firstTab = source.indexOf("await win.tabs.createTab();");
+    expect(read).toBeGreaterThan(-1);
+    expect(firstTab).toBeGreaterThan(read);
+  });
+
+  it("mints no note behind the question", () => {
+    expect(source).toMatch(
+      /else if \(firstRunStore\.step\(\) === null\) \{[\s\S]*?await win\.tabs\.createTab\(\);/,
+    );
   });
 });
