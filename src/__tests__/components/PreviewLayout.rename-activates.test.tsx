@@ -4,6 +4,7 @@ import { Show } from "solid-js";
 import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { configStore } from "../../stores/global/config";
 import type { BufferDocument } from "../../types/buffer";
 
 // Regression for #122: renaming a non-renderable scratch buffer to a
@@ -106,7 +107,14 @@ function scratchTxtBuffer(overrides: Partial<BufferDocument> = {}): BufferDocume
 }
 
 describe("PreviewLayout — rename to renderable extension activates preview (regression #122)", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // A Markdown file opens on its text by default, so the preview this
+    // regression is about is the one the split setting asks for.
+    const held = configStore.config();
+    await configStore.save({
+      ...held,
+      preview: { ...held.preview, default_layout_markdown: "split" },
+    });
     mocks.forceRender.mockClear();
     mocks.renameNote.mockClear();
     // Renaming a note renames its file, so the backend answers with the row it

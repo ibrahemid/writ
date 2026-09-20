@@ -72,6 +72,15 @@ function createBufferRegistry() {
     return doc;
   }
 
+  // A note another call already minted, taken into the set the tab bar reads.
+  // The first launch is the one caller: `finish_first_run` writes the file and
+  // answers with its row, so there is nothing left here but to hold it.
+  function adoptDocument(doc: BufferDocument): void {
+    setBuffers((prev) =>
+      prev.find((b) => b.id === doc.id) ? prev : [...prev, doc],
+    );
+  }
+
   // One note a day: today's is opened when it is already there and made when
   // it is not, and the row that comes back is the only honest name for it. A
   // note that was closed comes back active, so the entry is replaced rather
@@ -268,6 +277,7 @@ function createBufferRegistry() {
     load,
     createBuffer,
     newNote,
+    adoptDocument,
     todaysNote,
     deleteNote,
     saveCopy,

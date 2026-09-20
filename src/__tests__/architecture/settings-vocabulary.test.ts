@@ -24,6 +24,7 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["editor.spelling", "editor", "Spell check", ["spell", "spelling", "check", "dictionary", "typos", "grammar"]],
   ["editor.spelling_dialect", "editor", "Spelling", ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"]],
   ["editor.status_bar", "editor", "Status bar", ["status bar", "line", "column", "encoding", "word count"]],
+  ["files.default_extension", "files", "Default format", ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file", "new note"]],
   ["files.default_app", "files", "Open these file types with Writ", ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"]],
   ["preview.run_scripts", "preview", "Allow HTML files to run their scripts", ["scripts", "javascript", "html", "run", "safety"]],
   ["preview.layout_md", "preview", "When opening a Markdown file, show:", ["layout", "markdown", "md", "text", "preview", "split"]],

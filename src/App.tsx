@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect } from "solid-js";
+import { onMount, onCleanup, createEffect, Show } from "solid-js";
 import TitleBar from "./components/TitleBar/TitleBar";
 import WindowLights from "./components/TitleBar/WindowLights";
 import EditorArea from "./components/Editor/EditorArea";
@@ -36,6 +36,7 @@ import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
 import FirstRunHint from "./components/Editor/FirstRunHint";
+import FirstRunSetup from "./components/FirstRun/FirstRunSetup";
 import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
 import { openThirdPartyNoticesBuffer } from "./stores/global/notices";
 import { workspaceStore } from "./stores/global/workspace";
@@ -974,6 +975,9 @@ function AppShell() {
       <ToastContainer />
       <UpdateBanner />
       <NotesMigrationReport />
+      <Show when={firstRunStore.step() !== null}>
+        <FirstRunSetup />
+      </Show>
     </AppFrame>
   );
 }

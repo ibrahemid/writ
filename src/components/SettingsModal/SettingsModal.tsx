@@ -60,6 +60,7 @@ import type {
   AccentId,
   AppearanceConfig,
   DefaultLayout,
+  FileExtension,
   Polarity,
   ProseFaceId,
   SidebarSectionId,
@@ -602,13 +603,35 @@ function FilesSection() {
       return s !== undefined && s.status !== "unsupported";
     });
 
-  // Files holds nothing but this row, so the section renders only where the row
-  // can. The registry answers first: App probes it at startup, before Settings
-  // can open, while this section re-queries on every visit.
+  function onDefaultExtensionChange(raw: string) {
+    const extension = raw as FileExtension;
+    void patchConfig((prev) => ({ ...prev, files: { ...prev.files, default_extension: extension } }));
+  }
+
+  // The format row is every platform's, so the section is too. The file-types
+  // row is the one that can be missing: the registry answers first, App probes
+  // it at startup before Settings can open, and this section re-queries on
+  // every visit.
   return (
-    <Show when={hasSupportedDefaultAppTypes() || claimable().length > 0}>
-      <div data-section="files">
-        <SectionLabel section="files" />
+    <div data-section="files">
+      <SectionLabel section="files" />
+      <SettingsRow
+        id="files.default_extension"
+        label="Default format"
+        labelFor="setting-default-extension"
+      >
+        <select
+          id="setting-default-extension"
+          class="settings-select"
+          data-setting="default_extension"
+          value={configStore.config().files.default_extension}
+          onChange={(e) => onDefaultExtensionChange(e.currentTarget.value)}
+        >
+          <option value="txt">Plain text (.txt)</option>
+          <option value="md">Markdown (.md)</option>
+        </select>
+      </SettingsRow>
+      <Show when={hasSupportedDefaultAppTypes() || claimable().length > 0}>
         <SettingsRow id={DEFAULT_APP_SETTING_ID} label="Open these file types with Writ">
           <span class="settings-file-types">
             <For each={claimable()}>
@@ -626,8 +649,8 @@ function FilesSection() {
             </span>
           </span>
         </SettingsRow>
-      </div>
-    </Show>
+      </Show>
+    </div>
   );
 }
 

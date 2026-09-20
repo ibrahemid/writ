@@ -1,0 +1,88 @@
+/* The window, on the background the note will stand on. Nothing behind it is
+   worth looking through to, so there is no scrim. */
+.first-run-setup {
+  position: fixed;
+  inset: 0;
+  z-index: var(--writ-z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--writ-space-7);
+  background: var(--writ-bg-canvas);
+  font-family: var(--writ-font-ui);
+  overflow-y: auto;
+}
+
+.first-run-setup-panel {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--writ-space-6);
+}
+
+.first-run-setup-heading {
+  margin: 0;
+  font-size: var(--writ-ui-lg);
+  line-height: var(--writ-ui-lg-lh);
+  letter-spacing: var(--writ-ui-tracking);
+  font-weight: 600;
+  color: var(--writ-fg);
+}
+
+.first-run-formats {
+  display: flex;
+  gap: var(--writ-space-4);
+  width: 100%;
+}
+
+/* Narrow enough that two cards would each hold one word a line. */
+@media (max-width: 520px) {
+  .first-run-formats {
+    flex-direction: column;
+  }
+}
+
+.first-run-format {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-5);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  cursor: pointer;
+}
+
+/* The edge answers the pointer, not the fill: a tint over the card would take
+   it back down to the background it is raised off. */
+.first-run-format:hover:not(.is-selected) {
+  border-color: var(--writ-fg-faint);
+}
+
+/* The accent draws the whole edge rather than a dot beside the label: the card
+   is the control, so the card is what reads as chosen. */
+.first-run-format.is-selected {
+  border-color: var(--writ-accent);
+  box-shadow: inset 0 0 0 1px var(--writ-accent);
+  background: var(--writ-bg-raised);
+}
+
+.first-run-format-label {
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  font-weight: 500;
+  color: var(--writ-fg);
+}
+
+.first-run-format-detail {
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+.first-run-setup-continue {
+  align-self: flex-start;
+}

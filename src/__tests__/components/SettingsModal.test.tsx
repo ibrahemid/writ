@@ -293,6 +293,7 @@ function baseConfig(): WritConfig {
     theme: { preset: "warp-dark", overrides: {} },
     appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
+    files: { default_extension: "txt" },
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
@@ -750,48 +751,51 @@ describe("SettingsModal", () => {
 
     // Support can be withdrawn: a type the startup probe counted answers
     // unsupported here, which empties the registry and takes the row with it.
-    it("drops the Files heading when a known type turns out unclaimable", async () => {
+    // The heading stays, because the format row under it is every platform's.
+    it("drops the file-types row when a known type turns out unclaimable", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
       await probeDefaultAppSupport();
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
 
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
-      expect(container.querySelector("[data-section='files']")).not.toBeNull();
-      await waitFor(() => expect(container.querySelector("[data-section='files']")).toBeNull());
-      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).not.toBeNull();
+      await waitFor(() =>
+        expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull(),
+      );
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
       expect(container.querySelector("[data-default-app-type]")).toBeNull();
     });
 
-    // A heading with nothing under it says less than no heading at all.
-    it("shows no Files heading when every type answers unsupported", async () => {
+    it("shows the format row alone when every type answers unsupported", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
       await waitFor(() => expect(mocks.fetchDefaultAppStatus).toHaveBeenCalled());
-      expect(filesHeading(container)).toBeUndefined();
-      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
-    // Opening Settings the instant the app starts: no heading appears and then
-    // leaves, because the list only ever grows as types report in.
-    it("shows no Files heading while the type probe is still pending", async () => {
+    // Opening Settings the instant the app starts: no file-types row appears
+    // and then leaves, because the list only ever grows as types report in.
+    it("shows no file-types row while the type probe is still pending", async () => {
       mocks.fetchDefaultAppTypes.mockReturnValue(new Promise(() => {}));
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
-      expect(filesHeading(container)).toBeUndefined();
-      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
-    it("shows no Files heading when the type probe fails", async () => {
+    it("shows no file-types row when the type probe fails", async () => {
       mocks.fetchDefaultAppTypes.mockRejectedValue(new Error("no IPC"));
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
       await waitFor(() => expect(mocks.fetchDefaultAppTypes).toHaveBeenCalled());
-      expect(filesHeading(container)).toBeUndefined();
-      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 

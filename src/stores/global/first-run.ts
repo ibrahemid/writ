@@ -4,7 +4,13 @@ import { onAutosaveSuccess } from "../../services/autosave";
 import { bufferRegistry } from "./buffer-registry";
 import { renameLinksStore } from "./rename-links";
 import { configStore } from "./config";
+import { windowRegistry } from "./window-registry";
+import type { FileExtension } from "../../types/config";
+import type { BufferDocument } from "../../types/buffer";
 import { logFailure } from "../../lib/log";
+
+/** What the first launch is asking. Null once it has nothing left to ask. */
+export type FirstRunStep = "format";
 
 // Singleton state — Writ is single-window. What the first launch shows is
 // read once and answered once, and the answer outlives the window.
@@ -22,6 +28,8 @@ export function offerText(title: string): string {
 /** Exported for tests: each launch reads the state once, so a test that
  * needs a second launch needs a second store. */
 export function createFirstRunStore() {
+  const [step, setStep] = createSignal<FirstRunStep | null>(null);
+  const [format, setFormat] = createSignal<FileExtension>("txt");
   const [showHint, setShowHint] = createSignal(false);
   const [fileManager, setFileManager] = createSignal("Finder");
   const [offer, setOffer] = createSignal<{ id: string; title: string } | null>(null);
@@ -37,9 +45,35 @@ export function createFirstRunStore() {
       const state = await api.firstRunState();
       setFileManager(state.file_manager);
       setShowHint(state.first_run && !state.hint_dismissed);
+      if (state.first_run) setStep("format");
     } catch {
       setShowHint(false);
     }
+  }
+
+  /**
+   * Takes the answer and leaves the screen.
+   *
+   * Nothing on disk has moved until this call: Rust writes the format into the
+   * config and answers with the note to open, which is null on a launch that
+   * has tabs to restore. A call that fails leaves the screen up with the
+   * answer still on it, because the config it would have written is not there.
+   */
+  async function continueSetup(): Promise<void> {
+    const extension = format();
+    let doc: BufferDocument | null;
+    try {
+      doc = await api.finishFirstRun(extension);
+    } catch {
+      logFailure("the first launch could not be finished");
+      return;
+    }
+    configStore.noteDefaultExtension(extension);
+    if (doc) {
+      bufferRegistry.adoptDocument(doc);
+      windowRegistry.getActive()?.tabs.setActiveTabId(doc.id);
+    }
+    setStep(null);
   }
 
   // The line goes on the first keystroke and stays gone. The signal drops
@@ -99,6 +133,10 @@ export function createFirstRunStore() {
   }
 
   return {
+    step,
+    format,
+    setFormat,
+    continueSetup,
     showHint,
     fileManager,
     offer,
