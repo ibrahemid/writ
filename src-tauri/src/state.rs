@@ -808,6 +808,20 @@ impl AppState {
         }
     }
 
+    /// Which tab a path is open in, asked of the tabs themselves.
+    ///
+    /// [`AppState::open_notes`] answers the folder watch, and a folder no
+    /// watcher backend would take is missing from it: a network mount, a
+    /// folder the process cannot read, a platform watch limit already spent.
+    /// It also answers nothing at all while the open-file watcher is not
+    /// running. Routing a change has nowhere to go in those cases, so the
+    /// watch is the right authority there. The chat's authority is that the
+    /// user opened the file, which is a fact about the rows rather than the
+    /// watch, so it asks the rows.
+    pub fn open_tabs(&self) -> OpenTabs<'_> {
+        OpenTabs(self)
+    }
+
     /// Releases the folder watch a note was holding, which the last tab in a
     /// folder closing is the end of.
     pub fn stop_following_note(&self, note_id: &str) {
@@ -1033,6 +1047,32 @@ enum RecoveryLanding {
     /// Nothing was written. The note's file is gone and the text goes to the
     /// tab, which comes up removed on disk.
     Withheld,
+}
+
+/// The open tab a path is loaded in, read off the buffer rows.
+///
+/// The one authority the chat pane accepts for a file outside the notes
+/// folder: a path is reachable because a tab has it open, and the tab set is
+/// what says so. One row list per attach or per apply, which is a click rather
+/// than a keystroke.
+pub struct OpenTabs<'a>(&'a AppState);
+
+impl OpenNotes for OpenTabs<'_> {
+    fn note_at(&self, path: &Path) -> Option<String> {
+        // The caller hands a path already through `resolve_for_containment`,
+        // and a row holds the spelling the tab was opened under, so the row's
+        // path goes through the same resolution before the two are compared.
+        let wanted = path.to_string_lossy().into_owned();
+        let store = recover_poison(self.0.store.lock(), "state::OpenTabs::note_at");
+        let rows = store
+            .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+            .ok()?;
+        rows.into_iter().find_map(|doc| {
+            let source = doc.source_path?;
+            let resolved = crate::security::resolve_for_containment(Path::new(&source))?;
+            (resolved == wanted).then_some(doc.id)
+        })
+    }
 }
 
 /// Re-blesses the source paths of every persisted buffer, returning how many.

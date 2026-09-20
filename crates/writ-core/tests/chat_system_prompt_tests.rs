@@ -11,6 +11,7 @@ use writ_core::chat::{
 fn note(path: &str) -> AttachedNote {
     AttachedNote {
         path: path.to_string(),
+        prompt_path: path.to_string(),
         text: "The old text.\n".to_string(),
         before_hash: format!("hash-of-{path}"),
     }

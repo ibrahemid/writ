@@ -712,12 +712,14 @@ fn an_applied_proposal_reaches_the_tab_as_somebody_elses_edit() {
     let written = "as the pane applied it\n";
     let outcome = writ_tauri_lib::commands::chat::apply_proposal_inner(
         &root,
+        &NoOpenNotes,
         data.path(),
         "api.example.com",
         "Launch.md",
         written,
         &writ_core::hash::sha256_hex(read_by_the_tab),
         None,
+        |_, _, _| unreachable!(),
     )
     .expect("the proposal is applied");
     assert_eq!(outcome.path, "Launch.md");

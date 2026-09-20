@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(),
   candidates: vi.fn(),
   folders: vi.fn(),
+  openTabCandidates: vi.fn<(query: string, limit: number) => { path: string; name: string }[]>(
+    () => [],
+  ),
 }));
 
 vi.mock("../../stores/global/chat", async () => {
@@ -40,6 +43,7 @@ vi.mock("../../stores/global/chat", async () => {
       detach: mocks.detach,
       attachByPath: mocks.attachByPath,
       attachFolder: mocks.attachFolder,
+      openTabCandidates: mocks.openTabCandidates,
       detachFolder: mocks.detachFolder,
       addOpenNote: mocks.addOpenNote,
       cancelEdit: mocks.cancelEdit,
@@ -110,6 +114,7 @@ beforeEach(() => {
   mocks.send.mockReset();
   mocks.candidates.mockReset().mockResolvedValue([]);
   mocks.folders.mockReset().mockResolvedValue([]);
+  mocks.openTabCandidates.mockReset().mockReturnValue([]);
 });
 
 afterEach(() => {
@@ -432,6 +437,40 @@ describe("the mention list", () => {
     fireEvent.input(el);
 
     expect(view.container.textContent).not.toContain("Archive/Big.md is too large.");
+  });
+
+  it("an open tab outside the folder is offered by at", async () => {
+    mocks.openTabCandidates.mockReturnValue([
+      { path: "/elsewhere/repo/README.md", name: "README.md" },
+    ]);
+    const view = mount();
+    const el = field(view.container);
+    el.value = "see @read";
+    fireEvent.input(el);
+    await waitFor(() => expect(view.container.querySelector(".chat-mention-row")).toBeTruthy());
+
+    const row = view.container.querySelector(".chat-mention-row") as HTMLElement;
+    expect(row.querySelector(".chat-mention-name")?.textContent).toBe("README.md");
+    expect(row.querySelector(".chat-mention-folder")?.textContent).toBe(
+      "/elsewhere/repo/README.md",
+    );
+    expect(mocks.openTabCandidates).toHaveBeenCalledWith("read", 8);
+  });
+
+  it("picking a tab row attaches it by path", async () => {
+    mocks.openTabCandidates.mockReturnValue([
+      { path: "/elsewhere/repo/README.md", name: "README.md" },
+    ]);
+    const view = mount();
+    const el = field(view.container);
+    el.value = "see @read";
+    fireEvent.input(el);
+    await waitFor(() => expect(view.container.querySelector(".chat-mention-row")).toBeTruthy());
+
+    fireEvent.mouseDown(view.container.querySelector(".chat-mention-row") as HTMLElement);
+
+    expect(mocks.attachByPath).toHaveBeenCalledWith("/elsewhere/repo/README.md");
+    expect(mocks.attachFolder).not.toHaveBeenCalled();
   });
 
   it("keeps the empty answer out of the list", async () => {

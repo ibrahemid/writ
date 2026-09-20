@@ -28,6 +28,7 @@ const BARE_1: &str = include_str!("fixtures/chat-replies/ollama-llama3.2_3b-bare
 fn attached() -> Vec<AttachedNote> {
     vec![AttachedNote {
         path: "Launch.md".to_string(),
+        prompt_path: "Launch.md".to_string(),
         text: NOTE.to_string(),
         before_hash: "hash-of-Launch.md".to_string(),
     }]
@@ -132,6 +133,7 @@ fn a_reply_that_wrote_one_filled_block_and_two_empty_ones_offers_none_of_them() 
 fn sourdough() -> Vec<AttachedNote> {
     vec![AttachedNote {
         path: "Sourdough.md".to_string(),
+        prompt_path: "Sourdough.md".to_string(),
         text: "# Sourdough\n\nThe starter lives in the fridge.\n".to_string(),
         before_hash: "79a5ec2906817bcf26efd083a70e900d7ee4a14ebc4be81535123b548ded3303".to_string(),
     }]

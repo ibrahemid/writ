@@ -1,8 +1,10 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
+import Tooltip from "../Tooltip/Tooltip";
 import {
   chatStore,
+  proposalLabel,
   type ChatProposal,
   type ChatProposalOutcome,
   type DiffHunk,
@@ -58,6 +60,10 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
   const settled = () =>
     status() === "applied" || status() === "discarded" || outcome() !== null;
 
+  /** A note by the key its folder gives it, a file outside the folder by its
+   * own name: the whole path is in the title, which is where it fits. */
+  const label = () => proposalLabel(props.proposal.path);
+
   async function applyIt() {
     const done = await chatStore.apply(props.turn, props.proposal);
     if (done) setOutcome(done);
@@ -73,10 +79,19 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
   }
 
   return (
-    <section class="chat-proposal" aria-label={`Change to ${props.proposal.path}`}>
+    <section class="chat-proposal" aria-label={`Change to ${label()}`}>
       <header class="chat-proposal-header">
         <Icon name="file-text" size={14} />
-        <span class="chat-proposal-path">{props.proposal.path}</span>
+        {/* The tip carries the path only where the line does not. A note's
+            line is its path already, and a tip repeating it says nothing. */}
+        <Show
+          when={label() !== props.proposal.path}
+          fallback={<span class="chat-proposal-path">{label()}</span>}
+        >
+          <Tooltip label={props.proposal.path}>
+            <span class="chat-proposal-path">{label()}</span>
+          </Tooltip>
+        </Show>
       </header>
 
       <Show when={props.proposal.summary.length > 0}>

@@ -4,6 +4,7 @@
 use tempfile::TempDir;
 use writ_storage::note_history::NoteHistoryStore;
 use writ_tauri_lib::commands::chat::apply_proposal_inner;
+use writ_tauri_lib::watcher::open_files::NoOpenNotes;
 
 #[test]
 fn applying_a_proposal_keeps_what_the_note_held() {
@@ -23,12 +24,14 @@ fn applying_a_proposal_keeps_what_the_note_held() {
 
     let outcome = apply_proposal_inner(
         &notes,
+        &NoOpenNotes,
         &writ,
         "probe-host",
         &note.to_string_lossy(),
         "after\n",
         &before_hash,
         Some(&store),
+        |_, _, _| unreachable!(),
     )
     .expect("the proposal applies");
 
@@ -58,12 +61,14 @@ fn applying_without_a_store_still_writes() {
 
     apply_proposal_inner(
         &notes,
+        &NoOpenNotes,
         &writ,
         "probe-host",
         &note.to_string_lossy(),
         "after\n",
         &writ_core::hash::sha256_hex(b"before\n"),
         None,
+        |_, _, _| unreachable!(),
     )
     .expect("the proposal applies");
 
@@ -87,12 +92,14 @@ fn a_stale_proposal_is_refused_with_a_copy() {
 
     let refusal = apply_proposal_inner(
         &notes,
+        &NoOpenNotes,
         &writ,
         "probe-host",
         &note.to_string_lossy(),
         "what the model proposed\n",
         &writ_core::hash::sha256_hex(b"what the pane last saw\n"),
         None,
+        |_, _, _| unreachable!(),
     )
     .expect_err("the note changed under the offer");
 

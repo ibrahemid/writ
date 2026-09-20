@@ -283,8 +283,9 @@ hosted provider not yet allowed, with one Allow button, and the local rows show 
 
 Every request to a hosted host waits for Allow: the model list, the check, the OpenRouter
 exchange, a rewrite and a chat. The send dialog before a chat still names the host and the bytes,
-attached notes are still the only note text sent, and a proposal still applies through
-`write_note_guarded` with `before_hash` (ADR-032 section 4). The context builder keeps
+attached files (notes, or any tab open in the editor) are still the only file text sent, and a
+proposal for a note in the folder still applies through `write_note_guarded` with `before_hash`
+(ADR-032 section 4); one for a file outside it applies through the tab's save path (section 13). The context builder keeps
 `{ReadNote}` and the applier keeps `{WriteNote}`.
 
 ### 8. Conversations are files under the data directory
@@ -513,6 +514,50 @@ sections 1, 3 and 7.
   through `aiConnectionStore.consentHost`, which re-reads the config after the command answers, so
   the model list is read as soon as the host is allowed and the pane shows the provider's own rows
   without a relaunch.
+
+### 13. Context is any open tab, amended 2026-09-19
+
+A README opened from another repository sat in a tab, and the chat refused it twice: the chip for
+the note in front and the `@` list both answered "README.md is not in the notes folder." Every
+chat path resolved its file through `note_file_in` and `relative_key`, which take the notes root
+as the whole of what exists, so a file the editor was plainly showing had no name the pane could
+give it. The following amend sections 1 and 7.
+
+- **The editor's open set is the authority.** The user opened the file and can already save it
+  from the tab, so a chat that reads it and offers a change to it reaches nothing the editor does
+  not already reach. A path outside the notes folder is accepted only when the tab set answers
+  with a tab id for it; a path outside the folder that nobody has open is refused in the sentence
+  it is refused in today, and so are traversal and symlink paths that land on a file no tab holds,
+  which is what keeps the MCP boundary and the pane's boundary separate things rather than one
+  loosened one.
+
+- **Outside files key by absolute path.** Inside the folder the key is the folder-relative slug,
+  which is the name the notes index, the conversation file and the activity log already use.
+  Outside it there is no root to strip, and two files named README.md in two repositories have to
+  stay distinct in the chip row, the conversation file, the proposal and the activity record, so
+  the key is the whole path as the tab holds it. The chip still reads the file's name; the path is
+  in its title. The key stays on this machine: the request carries the file's parent folder's name
+  and its file name, never its absolute path, because the rest of that path names the user's home
+  directory and whoever they work for, and the model only has to be able to say the name back
+  (ADR-031 rule 2.5). A proposal is matched against the name the model was shown before anything
+  else, and a name two attachments were shown under matches neither: a reply may only land on a file
+  it was given that name for.
+
+- **The apply goes through the tab's save path.** `write_note_guarded` carries the notes folder's
+  history, its dated conflict copy and its watcher contract, none of which a file in somebody
+  else's repository should acquire because a chat wrote to it. That file already has a write that
+  owns it, `save_buffer_content_inner`, with its own ignore stamp and disk-state record, so the
+  apply uses that one and leaves nothing beside the file.
+
+- **A file that moved is refused, not copied.** The file is read and its digest compared to
+  `before_hash` before anything is written. A mismatch refuses with the file's name, records
+  `Decision::Refuse`, and writes nothing and copies nothing: the proposed text is still in the
+  conversation, which is where a person gets it back from.
+
+- **MCP is unchanged.** The tool half of ADR-031 rule 4.8 stands, `NoteHostImpl` still answers
+  `OutsideNotesFolder` for a path outside the root, and a test asserts it for a file that is open
+  in a tab. The size ceiling and the text check apply to an outside file exactly as they apply to
+  a note.
 
 ## Consequences
 

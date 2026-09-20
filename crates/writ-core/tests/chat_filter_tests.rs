@@ -24,6 +24,7 @@ const PROPOSED: [&str; 3] = [
 fn attached(path: &str) -> Vec<AttachedNote> {
     vec![AttachedNote {
         path: path.to_string(),
+        prompt_path: path.to_string(),
         text: "old text\n".to_string(),
         before_hash: "abc".to_string(),
     }]
@@ -78,6 +79,7 @@ fn a_proposal_is_withheld_at_every_byte_boundary() {
 fn nothing_parse_proposals_reads_reaches_the_pane() {
     let context = vec![AttachedNote {
         path: "Ideas/Launch.md".to_string(),
+        prompt_path: "Ideas/Launch.md".to_string(),
         text: "old text\n".to_string(),
         before_hash: "abc".to_string(),
     }];

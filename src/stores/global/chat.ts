@@ -31,6 +31,7 @@ import { aiProvidersStore } from "./ai-providers";
 import { bufferRegistry } from "./buffer-registry";
 import { configStore } from "./config";
 import { linkStore } from "./link";
+import { notesStore } from "./notes";
 import { saveStatusStore } from "./save-status";
 import { windowRegistry } from "./window-registry";
 import { showToast } from "../../components/Notifications/Toast";
@@ -67,8 +68,10 @@ export interface Attachment {
   name: string;
   /** The note's size on disk. */
   bytes: number;
-  /** The note's folder-relative key, where one has been read. Two paths with
-   * the same key are the same note. */
+  /** What the folder calls this file, where one has been read: the
+   * folder-relative slug for a note inside the notes folder, and the whole
+   * absolute path for a file that is only reachable because a tab has it
+   * open. Two paths with the same key are the same file. */
   key?: string;
   /** Added by the tab in front rather than by a person. One such chip at a
    * time: whichever tab comes forward next replaces it. */
@@ -180,6 +183,18 @@ export function totalBytes(attachments: readonly Attachment[]): number {
 export function noteName(path: string): string {
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+/** Whether a path is the whole of where a file is, rather than a key the notes
+ * folder gives it. A file outside the folder is known by nothing else. */
+export function isAbsolutePath(path: string): boolean {
+  return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/** What a proposal's line reads: the key a note is filed under, and the file's
+ * own name for a file outside the folder, whose whole path is in the title. */
+export function proposalLabel(path: string): string {
+  return isAbsolutePath(path) ? noteName(path) : path;
 }
 
 /** What a chip reads: the note's own name. Two notes of the same name are told
@@ -806,17 +821,47 @@ function createChatStore() {
    * chips. */
   function noteIsDirty(path: string): boolean {
     try {
+      // An absolute key names one file, so it matches one tab or none: the
+      // suffix is there for a folder-relative key and would otherwise be a
+      // second way to land on the wrong tab.
+      const whole = isAbsolutePath(path);
       const doc = bufferRegistry
         .activeTabs()
         .find(
           (tab) =>
             tab.source_path === path ||
-            (tab.source_path !== null && tab.source_path.endsWith(`/${path}`)),
+            (!whole && tab.source_path !== null && tab.source_path.endsWith(`/${path}`)),
         );
       return doc ? saveStatusStore.stateOf(doc.id) === "dirty" : false;
     } catch {
       return false;
     }
+  }
+
+  /** The files open in a tab that the notes index does not already offer, for
+   * the `@` list: a tab outside the notes folder is context because the user
+   * opened it, and nothing else in the pane knows about it.
+   *
+   * With no notes root read yet every open file is offered, and the key each
+   * one attaches under takes the duplicate back out. */
+  function openTabCandidates(query: string, limit: number): { path: string; name: string }[] {
+    const wanted = query.trim().toLowerCase();
+    const found: { path: string; name: string }[] = [];
+    try {
+      const seen = new Set<string>();
+      for (const tab of bufferRegistry.activeTabs()) {
+        const path = tab.source_path;
+        if (path === null || seen.has(path) || notesStore.contains(path)) continue;
+        const name = noteName(path);
+        if (wanted.length > 0 && !name.toLowerCase().includes(wanted)) continue;
+        seen.add(path);
+        found.push({ path, name });
+        if (found.length === limit) break;
+      }
+    } catch {
+      return [];
+    }
+    return found;
   }
 
   /** The models the connection's provider lists, for the picker.
@@ -1559,6 +1604,7 @@ function createChatStore() {
     attachByPath,
     attachFolder,
     detachFolder,
+    openTabCandidates,
     followTab,
     addOpenNote,
     detach,
