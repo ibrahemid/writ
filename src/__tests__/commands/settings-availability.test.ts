@@ -66,13 +66,13 @@ describe("setting availability", () => {
     }
   });
 
-  // Files holds the file-types row and nothing else, so off macOS the section
-  // would open on its heading alone.
-  it("drops the Files section off macOS and keeps it on macOS", () => {
-    mocks.detectPlatform.mockReturnValue("win");
-    expect(isSectionAvailable("files")).toBe(false);
-    mocks.detectPlatform.mockReturnValue("mac");
-    expect(isSectionAvailable("files")).toBe(true);
+  // The format row is every platform's, so the section is offered on all
+  // three even where the file-types row under it cannot render.
+  it("keeps the Files section on every platform", () => {
+    for (const platform of ["mac", "win", "linux"] as const) {
+      mocks.detectPlatform.mockReturnValue(platform);
+      expect(isSectionAvailable("files"), platform).toBe(true);
+    }
   });
 
   it("keeps every other section on every platform", () => {

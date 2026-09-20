@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect } from "solid-js";
+import { onMount, onCleanup, createEffect, Show } from "solid-js";
 import TitleBar from "./components/TitleBar/TitleBar";
 import WindowLights from "./components/TitleBar/WindowLights";
 import EditorArea from "./components/Editor/EditorArea";
@@ -36,6 +36,7 @@ import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
 import FirstRunHint from "./components/Editor/FirstRunHint";
+import FirstRunSetup from "./components/FirstRun/FirstRunSetup";
 import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
 import { openThirdPartyNoticesBuffer } from "./stores/global/notices";
 import { workspaceStore } from "./stores/global/workspace";
@@ -289,12 +290,20 @@ function AppShell() {
     // becomes visible.
     const reveal = armReveal(osWindowStore.reveal);
     try {
+      // Read before the first frame is shaped, because a first launch asks
+      // its question on the window the reveal is about to show rather than
+      // over a note it has already put there. The reveal is armed above, so a
+      // read that never settles costs the deadline and nothing more.
+      await firstRunStore.load();
+
       if (win.tabs.activeTabId() === null) {
         const active = bufferRegistry.activeTabs();
-        if (active.length === 0) {
-          await win.tabs.createTab();
-        } else {
+        if (active.length > 0) {
           win.tabs.setActiveTabId(active[active.length - 1].id);
+        } else if (firstRunStore.step() === null) {
+          // A first launch mints nothing until Continue answers it, and the
+          // note it answers with is the one that opens.
+          await win.tabs.createTab();
         }
       }
 
@@ -913,10 +922,8 @@ function AppShell() {
     });
     unlisteners.push(unlistenChat);
 
-    // What the first launch shows, and what a new note's first line may do to
-    // its file name. Not awaited: the window is revealed above, and a line
-    // under the cursor is not worth holding the first frame for.
-    void firstRunStore.load();
+    // What a new note's first line may do to its file name. What the first
+    // launch shows was read above, before the window was revealed.
     unlisteners.push(watchSavesForRetitle());
     unlisteners.push(dismissHintOnFirstKeystroke());
   });
@@ -974,6 +981,9 @@ function AppShell() {
       <ToastContainer />
       <UpdateBanner />
       <NotesMigrationReport />
+      <Show when={firstRunStore.step() !== null}>
+        <FirstRunSetup />
+      </Show>
     </AppFrame>
   );
 }

@@ -33,6 +33,7 @@ const MOCK_CONFIG: WritConfig = {
   theme: { preset: "warp-dark", overrides: {} },
   appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
   commands: { usage: {} },
+  files: { default_extension: "txt" },
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
@@ -64,6 +65,30 @@ describe("configStore", () => {
       expect(mockedGetConfig).toHaveBeenCalledOnce();
       expect(configStore.config().editor.font_size).toBe(18);
       expect(configStore.config().editor.tab_size).toBe(4);
+    });
+
+    // A config file written before Writ had a format to ask about carries no
+    // [files] table; the answer it never gave is the one a first launch
+    // starts on.
+    it("fills the format in for a config that predates the question", async () => {
+      const older: Partial<WritConfig> = { ...MOCK_CONFIG };
+      delete older.files;
+      mockedGetConfig.mockResolvedValueOnce(older as WritConfig);
+
+      await configStore.load();
+
+      expect(configStore.config().files.default_extension).toBe("txt");
+    });
+
+    it("keeps the format the config names", async () => {
+      mockedGetConfig.mockResolvedValueOnce({
+        ...MOCK_CONFIG,
+        files: { default_extension: "md" },
+      });
+
+      await configStore.load();
+
+      expect(configStore.config().files.default_extension).toBe("md");
     });
 
     it("resets to defaults on load failure", async () => {

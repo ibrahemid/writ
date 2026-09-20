@@ -60,6 +60,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "editor.spelling", section: "editor", title: "Spell check", keywords: ["spell", "spelling", "check", "dictionary", "typos", "grammar"] },
   { id: "editor.spelling_dialect", section: "editor", title: "Spelling", keywords: ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"] },
   { id: "editor.status_bar", section: "editor", title: "Status bar", keywords: ["status bar", "line", "column", "encoding", "word count"] },
+  { id: "files.default_extension", section: "files", title: "Default format", keywords: ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file", "new note"] },
   { id: "files.default_app", section: "files", title: "Open these file types with Writ", keywords: ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"] },
   { id: "preview.run_scripts", section: "preview", title: "Allow HTML files to run their scripts", keywords: ["scripts", "javascript", "html", "run", "safety"] },
   { id: "preview.layout_md", section: "preview", title: "When opening a Markdown file, show:", keywords: ["layout", "markdown", "md", "text", "preview", "split"] },

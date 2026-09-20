@@ -194,6 +194,7 @@ function baseConfig(): WritConfig {
     theme: { preset: "warp-dark", overrides: {} },
     appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
+    files: { default_extension: "txt" },
     workspace: { root: null },
     inbox: { path: null, focus: true },
     updater: { auto_check: true },

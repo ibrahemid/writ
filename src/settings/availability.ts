@@ -32,8 +32,8 @@ export function isSettingAvailable(id: string): boolean {
 
 /**
  * Whether a section holds a row this platform can show. The nav asks this, so a
- * section is never offered with nothing under it: off macOS the whole of Files
- * is the default-app row, and `set_default_app` answers Unsupported there.
+ * section is never offered with nothing under it: the default-app row is the
+ * one Files can lose, because `set_default_app` answers Unsupported off macOS.
  *
  * Platform alone decides. The per-type support registry fills in only once the
  * section has mounted and queried, so gating the nav on it would keep the
