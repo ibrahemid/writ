@@ -55,6 +55,12 @@ Today's Note, the file the `writ` command writes from piped stdin, the file a
 connected program creates, and the file the first launch opens. Every site that
 used to hard-code `md` reads the config instead.
 
+A name that spells its own format keeps it: a new file named `Notes.md`
+is Markdown under a `txt` config, and `Notes.txt` is plain text under `md`.
+The config answers only for a file nobody named, and such a file is called
+`Untitled` (then `Untitled 2`, Finder-style) whether the first launch, Cmd+N
+or `writ new` made it. The dated name belongs to Today's Note alone.
+
 A file keeps its own extension for the rest of its life. A rename, including
 the one a first line offers, changes the stem and keeps the extension, so
 `Untitled.txt` becomes `Groceries.txt` and never `Groceries.md`.
