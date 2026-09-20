@@ -279,4 +279,9 @@ fn a_folder_wearing_the_other_formats_name_blocks_nothing() {
         opened_path(&note).file_name().and_then(|n| n.to_str()),
         Some("2026-09-21.txt")
     );
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec!["2026-09-21.md".to_string(), "2026-09-21.txt".to_string()],
+        "the folder in the way is still there and the day has its note"
+    );
 }

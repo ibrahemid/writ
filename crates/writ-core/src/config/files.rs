@@ -32,21 +32,6 @@ impl FileExtension {
             Self::Md => "md",
         }
     }
-
-    /// The extension `value` names, or `None` when it names neither.
-    ///
-    /// Case-insensitive and without the dot, which is how the two are written
-    /// in the config file and how a file name carries them.
-    pub fn parse(value: &str) -> Option<Self> {
-        let value = value.trim();
-        if value.eq_ignore_ascii_case("txt") {
-            Some(Self::Txt)
-        } else if value.eq_ignore_ascii_case("md") {
-            Some(Self::Md)
-        } else {
-            None
-        }
-    }
 }
 
 /// Files configuration.
@@ -103,14 +88,7 @@ mod tests {
     #[test]
     fn a_format_neither_name_names_is_refused() {
         assert!(toml::from_str::<FilesConfig>("default_extension = \"rtf\"").is_err());
-        assert_eq!(FileExtension::parse("rtf"), None);
-        assert_eq!(FileExtension::parse("markdown"), None);
-    }
-
-    #[test]
-    fn parsing_a_name_ignores_case_and_surrounding_space() {
-        assert_eq!(FileExtension::parse("TXT"), Some(FileExtension::Txt));
-        assert_eq!(FileExtension::parse(" Md "), Some(FileExtension::Md));
+        assert!(toml::from_str::<FilesConfig>("default_extension = \"markdown\"").is_err());
     }
 
     #[test]

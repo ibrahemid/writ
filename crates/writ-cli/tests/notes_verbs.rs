@@ -753,9 +753,35 @@ fn new_beside_a_decomposed_name_mints_rather_than_refusing() {
 }
 
 #[test]
-fn new_with_no_name_dates_the_note() {
+fn new_with_no_name_makes_an_untitled_note() {
     let fixture = Fixture::new();
     let output = fixture.run(&["new"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        PathBuf::from(stdout(&output).trim()).file_name(),
+        fixture.notes.join("Untitled.txt").file_name(),
+        "the same name the window's own New Note makes"
+    );
+}
+
+#[test]
+fn a_second_untitled_note_is_deduped_rather_than_written_over() {
+    let fixture = Fixture::new();
+    fixture.run(&["new"]);
+    let output = fixture.run(&["new"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    assert_eq!(
+        PathBuf::from(stdout(&output).trim()).file_name(),
+        fixture.notes.join("Untitled 2.txt").file_name()
+    );
+}
+
+#[test]
+fn a_name_that_survives_to_nothing_still_falls_back_to_the_date() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["new", "///"]);
 
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     let stem = PathBuf::from(stdout(&output).trim())

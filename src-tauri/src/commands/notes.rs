@@ -872,10 +872,14 @@ pub fn delete_note(state: State<'_, AppState>, id: String) -> Result<(), String>
 /// without moving. The caller opens the returned path, which is inside the
 /// notes folder and so needs no further permission.
 pub fn save_note_copy_inner(state: &AppState, id: &str, content: &str) -> Result<String, String> {
+    // Read before the store lock: the config lock is never taken under a held
+    // store lock, and a copy of a note with no file of its own is the only
+    // case that reads it.
+    let default_extension = state.default_extension();
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     let stem = writ_core::notes::note_file_stem(&copy_stem(&doc), chrono::Utc::now());
-    let extension = copy_extension(&doc, state.default_extension());
+    let extension = copy_extension(&doc, default_extension);
 
     let stamp = ignore_stamper(state);
     let path = note_ops::save_copy(

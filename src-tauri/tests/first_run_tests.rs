@@ -156,6 +156,63 @@ fn the_format_the_screen_was_answered_with_is_written_and_is_what_gets_minted() 
 }
 
 #[test]
+fn answering_the_screen_twice_mints_one_file_and_records_one_answer() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state = launch(dir.path());
+
+    let first = finish(&state).expect("the first launch opens a file");
+    let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
+
+    let second =
+        finish_first_run_inner(&state, FileExtension::Md).expect("the second call is answered");
+
+    assert!(
+        second.is_none(),
+        "the launch has already been answered, so there is nothing to open"
+    );
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec!["Untitled.txt".to_string()],
+        "no second file beside the one the answer minted"
+    );
+    assert_eq!(
+        std::fs::read_to_string(config_file(dir.path())).expect("the config"),
+        written,
+        "and the format the second call carried is not written over the first"
+    );
+    assert_eq!(state.default_extension(), FileExtension::Txt);
+    assert_eq!(
+        opened_path(&first).file_name(),
+        Some("Untitled.txt".as_ref())
+    );
+}
+
+#[test]
+fn a_run_that_could_not_record_the_answer_can_be_answered_again() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state = launch(dir.path());
+
+    // The config has nowhere to land: a folder is sitting on its path. The
+    // screen stays up, and the answer it is still holding is taken on the
+    // retry once the way is clear.
+    let config = config_file(dir.path());
+    std::fs::create_dir_all(&config).expect("a folder where the config goes");
+    assert!(finish_first_run_inner(&state, FileExtension::Md).is_err());
+    assert!(
+        notes_folder_entries(&state).is_empty(),
+        "a run that recorded nothing mints nothing"
+    );
+    std::fs::remove_dir_all(&config).expect("the way is clear");
+
+    let note = finish_first_run_inner(&state, FileExtension::Md)
+        .expect("the screen is answered")
+        .expect("the retry opens a file");
+
+    assert_eq!(opened_path(&note).file_name(), Some("Untitled.md".as_ref()));
+    assert_eq!(state.default_extension(), FileExtension::Md);
+}
+
+#[test]
 fn a_later_launch_records_nothing_and_leaves_the_format_alone() {
     let dir = tempfile::tempdir().expect("tempdir");
     let first = launch(dir.path());

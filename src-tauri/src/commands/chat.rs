@@ -963,6 +963,21 @@ pub struct AttachedSize {
 /// through every read the pane makes.
 const PANE_MINTS_NOTHING: FileExtension = FileExtension::Txt;
 
+/// The permission set a host in this module is opened with, checked to hold no
+/// `CreateNote`.
+///
+/// [`PANE_MINTS_NOTHING`] is only true while that holds. A set that gained the
+/// capability would mint in the default format whatever the config names, which
+/// is the one thing no reader of this file would look for, so the invariant is
+/// asserted where the set is handed over rather than written down beside it.
+fn mints_nothing(permissions: PermissionSet) -> PermissionSet {
+    debug_assert!(
+        !permissions.contains(Capability::CreateNote),
+        "a chat-pane host may not create notes: PANE_MINTS_NOTHING names the format it would mint in"
+    );
+    permissions
+}
+
 /// What the side a model's reply can influence may ask for.
 ///
 /// One capability. The pane attaches the tabs the user named and lists nothing,
@@ -987,8 +1002,13 @@ pub fn apply_permissions() -> PermissionSet {
 /// nothing, and the folder has already been resolved by the time this is asked
 /// for.
 fn context_host(notes_root: &Path, note_key: &str) -> Result<NoteHostImpl<'static>, String> {
-    NoteHostImpl::open(notes_root, None, context_permissions(), PANE_MINTS_NOTHING)
-        .map_err(|_| format!("{note_key} could not be read."))
+    NoteHostImpl::open(
+        notes_root,
+        None,
+        mints_nothing(context_permissions()),
+        PANE_MINTS_NOTHING,
+    )
+    .map_err(|_| format!("{note_key} could not be read."))
 }
 
 /// What the pane shows when a note it was told to attach does not come back.
@@ -1199,9 +1219,14 @@ pub fn apply_proposal_inner(
     // Only the digest is handed over: the guard compares digests, never the
     // length or the modification time, neither of which the pane knew about the
     // text it showed.
-    let applier = NoteHostImpl::open(notes_root, None, apply_permissions(), PANE_MINTS_NOTHING)
-        .map_err(|_| format!("{note_key} was not written."))?
-        .with_history(history);
+    let applier = NoteHostImpl::open(
+        notes_root,
+        None,
+        mints_nothing(apply_permissions()),
+        PANE_MINTS_NOTHING,
+    )
+    .map_err(|_| format!("{note_key} was not written."))?
+    .with_history(history);
     let outcome = applier.write_note(path, new_content, Some(digest), WriteOrigin::Chat);
 
     match outcome {

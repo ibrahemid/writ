@@ -20,6 +20,7 @@ use writ_core::config::FileExtension;
 use writ_core::notes::links::Resolution;
 use writ_core::notes::{
     name_is_taken, note_display_name, note_file_stem, rename_stem, WriteOrigin, NAME_IS_EMPTY,
+    UNTITLED_STEM,
 };
 use writ_storage::database::migrations::binary_schema_version;
 use writ_storage::errors::StorageError;
@@ -370,16 +371,22 @@ fn note_file(arg: &str, ctx: &Context) -> Option<PathBuf> {
     } else {
         ctx.cwd.join(given)
     };
-    [
+    let mut candidates = vec![
         from_cwd,
         ctx.notes_dir.join(arg),
         ctx.notes_dir
             .join(format!("{arg}.{}", ctx.default_extension.as_str())),
-        ctx.notes_dir
-            .join(format!("{arg}.{}", FileExtension::Md.as_str())),
-    ]
-    .into_iter()
-    .find(|candidate| candidate.is_file())
+    ];
+    // Markdown is tried after the configured format, and only when it is not
+    // the configured format: a name asked for twice is a name that answers
+    // twice as slowly and reads the same.
+    if ctx.default_extension != FileExtension::Md {
+        candidates.push(
+            ctx.notes_dir
+                .join(format!("{arg}.{}", FileExtension::Md.as_str())),
+        );
+    }
+    candidates.into_iter().find(|candidate| candidate.is_file())
 }
 
 /// The index key of the note a read verb was asked about.
@@ -747,8 +754,17 @@ fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
 /// No stamp is passed: the guard exists to keep the app from reading its own
 /// write back as somebody else's, and from another process there is nothing to
 /// suppress.
+///
+/// A note nobody named is `Untitled`, deduped Finder-style, which is what the
+/// window's own New Note makes (ADR-041 §3, decision D-a). The date belongs to
+/// Today's Note, and a name that was given and survives sanitising to nothing
+/// still falls back to it.
 fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
-    let stem = note_file_stem(name.unwrap_or(""), ctx.now);
+    let named = name.map(str::trim).filter(|name| !name.is_empty());
+    let stem = match named {
+        Some(name) => note_file_stem(name, ctx.now),
+        None => UNTITLED_STEM.to_string(),
+    };
     match note_ops::create_note(
         &ctx.notes_dir,
         &stem,

@@ -278,6 +278,10 @@ fn write_note_source(
     removed: RemovedFile,
 ) -> Result<Option<String>, String> {
     wait_out_a_held_removal(state, id, removed)?;
+    // Read before the store lock, and unconditionally: the config lock is
+    // never taken under a held store lock, and finding out whether this write
+    // needs the format at all takes the store lock first.
+    let default_extension = state.default_extension();
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     if doc.read_only {
@@ -296,7 +300,7 @@ fn write_note_source(
     let source_path = match doc.source_path.as_deref() {
         Some(path) => path.to_string(),
         None if content.is_empty() => return Ok(None),
-        None => attach_new_note_file(state, &store, &doc)?,
+        None => attach_new_note_file(state, &store, &doc, default_extension)?,
     };
 
     crate::commands::file::authorize_source_write(state, &source_path)?;
@@ -392,10 +396,15 @@ pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
 /// The tab starts following the file here rather than in the caller: this is
 /// the moment the note gets one, and a note that reached its file this way and
 /// was never followed heard nothing about it for the rest of the session.
+///
+/// The format is handed in rather than read here: the caller holds the store
+/// lock, and taking the config lock under it is the nesting order to keep out
+/// of the file.
 fn attach_new_note_file(
     state: &AppState,
     store: &BufferStore,
     doc: &BufferDocument,
+    default_extension: writ_core::config::FileExtension,
 ) -> Result<String, String> {
     let path = crate::notes::attach_note_file(
         store,
@@ -403,7 +412,7 @@ fn attach_new_note_file(
         &doc.id,
         &doc.title,
         chrono::Utc::now(),
-        state.default_extension(),
+        default_extension,
     )?;
     state.follow_note_path(&doc.id, Path::new(&path));
     Ok(path)

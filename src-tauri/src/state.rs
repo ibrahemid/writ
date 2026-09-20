@@ -106,6 +106,15 @@ pub struct AppState {
     /// written: a launch is a first one or it is not, and the config file it
     /// goes on to write must not change the answer mid-session.
     pub first_run: bool,
+    /// Whether the first launch's question has already been answered and acted
+    /// on this session.
+    ///
+    /// [`AppState::first_run`] is read once at startup and never written, so it
+    /// cannot say that the work is done. This can: it is set after a run that
+    /// wrote the config and opened the file, which makes a second
+    /// `finish_first_run` a no-op rather than a second mint. A run that failed
+    /// leaves it clear, so the screen that is still up can be answered again.
+    pub first_run_finished: AtomicBool,
     /// What has happened to each note Writ minted and has not yet retitled
     /// from its first line.
     pub retitle_watch: Arc<crate::first_run::RetitleWatch>,
@@ -524,6 +533,7 @@ impl AppState {
             buffers_dir,
             notes_root: RwLock::new(notes_root),
             first_run,
+            first_run_finished: AtomicBool::new(false),
             retitle_watch: Arc::new(crate::first_run::RetitleWatch::new()),
             notes_root_fallback: RwLock::new(notes_root_fallback),
             watcher_ignore,

@@ -11,6 +11,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 
 use tracing::info;
@@ -97,15 +98,23 @@ impl RetitleWatch {
 /// Only an empty notes folder is minted into. A folder that already holds
 /// files opens the newest of them, so a launch that finds work already done
 /// adds nothing to it.
+///
+/// Answered once. The command stays callable for the whole session, and a
+/// second call writes nothing and opens nothing: the file the first call
+/// minted is the file this launch opens, and a second one would be an empty
+/// `Untitled 2` beside it. The flag is set only after a run that got all the
+/// way through, so a run that could not record the config leaves the screen
+/// up with the answer still on it and may be answered again.
 pub fn finish_first_run_inner(
     state: &AppState,
     default_extension: FileExtension,
 ) -> Result<Option<BufferDocument>, String> {
-    if !state.first_run {
+    if !state.first_run || state.first_run_finished.load(Ordering::SeqCst) {
         return Ok(None);
     }
     remember_the_launch(state, default_extension)?;
     let note = first_note(state)?;
+    state.first_run_finished.store(true, Ordering::SeqCst);
     info!(opened = note.is_some(), "first launch");
     Ok(note)
 }

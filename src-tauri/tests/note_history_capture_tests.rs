@@ -86,6 +86,7 @@ impl App {
             buffers_dir,
             notes_root: RwLock::new(notes_root.clone()),
             first_run: false,
+            first_run_finished: std::sync::atomic::AtomicBool::new(false),
             retitle_watch: Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
             notes_root_fallback: RwLock::new(None),
             watcher_ignore: create_ignore_set(),
