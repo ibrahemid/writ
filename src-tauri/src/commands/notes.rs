@@ -166,13 +166,16 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<D
                 minted: false,
             });
         }
-        // Today's name is already on something that is not a note file: a
-        // folder, or a link to one. Minting would dedupe around it and hand
-        // back a second file for the same day, one more on every ask, so the
-        // name is reported as taken instead.
-        if path.symlink_metadata().is_ok() {
-            return Err(name_is_taken(name));
-        }
+    }
+    // The name about to be minted is already on something that is not a note
+    // file: a folder, or a link to one. Minting would dedupe around it and hand
+    // back a second file for the same day, one more on every ask, so the name
+    // is reported as taken instead. Only the configured name is asked about:
+    // the other one is somewhere to read the day from, never somewhere to
+    // write, so a folder wearing it blocks nothing.
+    let minting = root.join(&names[0]);
+    if minting.symlink_metadata().is_ok() {
+        return Err(name_is_taken(&names[0]));
     }
     let doc = new_dated_note_inner(state, now)?;
     Ok(DatedNote {

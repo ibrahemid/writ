@@ -336,8 +336,8 @@ fn a_name_that_reads_like_a_path_stays_one_file_in_the_notes_folder() {
     }
 }
 
-/// A name nothing survives from falls back to the dated stem a `New Note`
-/// gets, so the offer never fails for want of a usable name.
+/// A name nothing survives from falls back to the stem a `New Note` gets, so
+/// the offer never fails for want of a usable name.
 #[test]
 fn a_name_that_sanitises_to_nothing_still_mints_a_note() {
     let dir = TempDir::new().expect("temp dir");

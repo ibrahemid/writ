@@ -255,3 +255,28 @@ fn a_day_with_no_note_yet_is_minted_in_the_configured_format() {
         vec!["2026-09-21.txt".to_string()]
     );
 }
+
+#[test]
+fn a_folder_wearing_the_other_formats_name_blocks_nothing() {
+    let data = tempfile::tempdir().expect("tempdir");
+    let notes = tempfile::tempdir().expect("tempdir");
+    let state = launch(data.path(), notes.path());
+    let now = local_instant(2026, 9, 21, 9, 30, 0);
+
+    // The config says plain text, and something has left a folder at the
+    // Markdown name. That name is only somewhere to read the day from, so the
+    // day still gets its note.
+    std::fs::create_dir(
+        state
+            .notes_root()
+            .join(dated_note_name(now, FileExtension::Md)),
+    )
+    .expect("a folder in the way");
+
+    let note = todays_note_inner(&state, now).expect("today's note");
+
+    assert_eq!(
+        opened_path(&note).file_name().and_then(|n| n.to_str()),
+        Some("2026-09-21.txt")
+    );
+}
