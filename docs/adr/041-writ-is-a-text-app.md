@@ -44,8 +44,10 @@ Writ is "the only text app you need": light, opens any file, edits and
 searches everything. Markdown is one of the formats it renders. The words
 `notes app` and `Obsidian alternative` do not appear in Writ's copy; the
 Obsidian guides stay as search-landing pages under Guides, off the main
-navigation. The word `note` stays where it names the kind of file it names, and
-in identifiers, since nothing about the file changed.
+navigation. The word `note` leaves every string a person reads in the app: it is `file`,
+`files` and `folder` (New File, Today's File, Open File by Name, Settings,
+Files). It stays in identifiers, records and logs, since nothing about the
+file changed, and a test refuses it in a user-facing string.
 
 ### 2. The default format is a choice, and the choice is `.txt`
 
@@ -58,12 +60,23 @@ used to hard-code `md` reads the config instead.
 A name that spells its own format keeps it: a new file named `Notes.md`
 is Markdown under a `txt` config, and `Notes.txt` is plain text under `md`.
 The config answers only for a file nobody named, and such a file is called
-`Untitled` (then `Untitled 2`, Finder-style) whether the first launch, Cmd+N
-or `writ new` made it. The dated name belongs to Today's Note alone.
+`writ-<yymmdd>-<hhmm>` in local time whether the first launch, Cmd+N or
+`writ new` made it. The name is short, unique and carries no space; a second
+file in the same minute is `-2`. Every counter Writ appends is hyphenated;
+Writ never puts a space into a name the person did not type. The dated name
+belongs to Today's File alone.
 
-A file keeps its own extension for the rest of its life. A rename, including
-the one a first line offers, changes the stem and keeps the extension, so
-`Untitled.txt` becomes `Groceries.txt` and never `Groceries.md`.
+A rename that spells a format changes it: renaming `writ-260921-0748.txt` to
+`Groceries.md` gives `Groceries.md`, because the person typed the format. A
+rename that spells none keeps the file's own.
+
+Tabs, the file list and the palette show a name without its `.md` or `.txt`;
+the full name is on hover and in the rename field. Other extensions stay
+visible, since the type is the information. The tab strip shows the name of
+a single open file.
+
+A rename from a file's first line keeps the extension, so
+`writ-260921-0748.txt` becomes `Groceries.txt` and never `Groceries.md`.
 
 A link target is the one mint that does not follow the config. A note created
 by following a `[[wikilink]]` is `.md`, because links resolve to Markdown and a
@@ -86,7 +99,7 @@ so a person who quits on the screen is asked again next launch, and a person
 whose config exists is never asked. The line under the cursor from ADR-039
 section 4 stays and is dismissed the same way.
 
-Today's Note is no longer the first file. It stays in the File menu and mints
+Today's File is no longer the first file. It stays in the File menu and mints
 its dated name in the chosen format. Settings, Files, carries the same choice
 as a row, so the answer can be changed without a second first launch.
 
