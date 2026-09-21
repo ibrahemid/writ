@@ -105,6 +105,7 @@ function config(): WritConfig {
       markdown_typography: true,
       markdown_editing: true,
       status_bar: false,
+      status_bar_counts: false,
     },
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},

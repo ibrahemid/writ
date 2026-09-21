@@ -389,6 +389,13 @@ function EditorSection() {
     }));
   }
 
+  function onStatusBarCountsToggle() {
+    void patchConfig((prev) => ({
+      ...prev,
+      editor: { ...prev.editor, status_bar_counts: !prev.editor.status_bar_counts },
+    }));
+  }
+
   function onSpellingToggle() {
     void patchConfig((prev) => ({
       ...prev,
@@ -449,6 +456,14 @@ function EditorSection() {
           label="Status bar"
           checked={cfg().status_bar}
           onChange={onStatusBarToggle}
+        />
+      </SettingsRow>
+      <SettingsRow id="editor.status_bar_counts" label="Word, character and token counts">
+        <ToggleSwitch
+          setting="status_bar_counts"
+          label="Word, character and token counts"
+          checked={cfg().status_bar_counts}
+          onChange={onStatusBarCountsToggle}
         />
       </SettingsRow>
       <SettingsRow id="editor.spelling" label="Spell check">

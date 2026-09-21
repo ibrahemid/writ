@@ -127,6 +127,10 @@ fn default_status_bar() -> bool {
     true
 }
 
+fn default_status_bar_counts() -> bool {
+    false
+}
+
 fn default_polarity() -> Polarity {
     Polarity::System
 }
@@ -457,6 +461,9 @@ pub struct EditorConfig {
     /// sits at the top right of the canvas instead (ADR-030 decision 5).
     #[serde(default = "default_status_bar")]
     pub status_bar: bool,
+    /// Whether the status bar carries the word, character and token counts.
+    #[serde(default = "default_status_bar_counts")]
+    pub status_bar_counts: bool,
 }
 
 impl Default for EditorConfig {
@@ -470,6 +477,7 @@ impl Default for EditorConfig {
             markdown_typography: default_markdown_typography(),
             markdown_editing: default_markdown_editing(),
             status_bar: default_status_bar(),
+            status_bar_counts: default_status_bar_counts(),
         }
     }
 }
@@ -839,6 +847,18 @@ mod tests {
     fn editor_status_bar_defaults_on() {
         let config: WritConfig = toml::from_str("").unwrap();
         assert!(config.editor.status_bar);
+    }
+
+    #[test]
+    fn editor_status_bar_counts_defaults_off() {
+        let config: WritConfig = toml::from_str("").unwrap();
+        assert!(!config.editor.status_bar_counts);
+    }
+
+    #[test]
+    fn editor_status_bar_counts_reads_the_table() {
+        let config: WritConfig = toml::from_str("[editor]\nstatus_bar_counts = true\n").unwrap();
+        assert!(config.editor.status_bar_counts);
     }
 
     #[test]

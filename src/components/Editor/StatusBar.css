@@ -33,9 +33,9 @@
 }
 
 /* The bar never clips its own controls: as the editor narrows, the
-   informational fields go first, then the palette cue's label. The widths are
-   em so a larger interface text sheds them sooner, at the same amount of text
-   rather than at the same number of pixels. */
+   informational fields go first, then the token estimate. The widths are em so
+   a larger interface text sheds them sooner, at the same amount of text rather
+   than at the same number of pixels. */
 @container (max-width: 71.667em) {
   .statusbar-field:not(.statusbar-field--cursor) {
     display: none;
@@ -43,8 +43,7 @@
 }
 
 @container (max-width: 58.333em) {
-  .statusbar-tokens,
-  .statusbar-right > .statusbar-label {
+  .statusbar-tokens {
     display: none;
   }
 }
@@ -178,24 +177,4 @@
 .statusbar-field--cursor,
 .statusbar-field--words {
   font-variant-numeric: tabular-nums;
-}
-
-/* A field that is also a control: it looks like the fields beside it and
-   answers to a click and to the keyboard like a button. */
-.statusbar-folder {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  cursor: pointer;
-}
-
-.statusbar-folder:hover {
-  color: var(--writ-fg);
-}
-
-.statusbar-folder:focus-visible {
-  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
-  outline-offset: var(--writ-focus-offset, 2px);
-  border-radius: var(--writ-r-control);
 }

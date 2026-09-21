@@ -8,13 +8,6 @@ const h = vi.hoisted(() => ({
   platform: "mac" as "mac" | "win" | "linux",
   setSearchQuery: vi.fn(),
   panelOpen: false,
-  formats: {
-    bold: false,
-    italic: false,
-    code: false,
-    bullet: false,
-    task: false,
-  },
 }));
 
 vi.mock("../../lib/platform", () => ({
@@ -39,7 +32,6 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       restoreFromHistory: vi.fn(),
     },
     rightPanel: { isOpen: () => h.panelOpen },
-    editor: { activeFormats: () => h.formats },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({
@@ -57,7 +49,7 @@ import Toolbar from "../../components/Toolbar/Toolbar";
 import Sidebar from "../../components/Sidebar/Sidebar";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
 
-const FORMAT_CONTROLS = [
+const FORMAT_COMMANDS = [
   ["editor.toggleBold", "Bold"],
   ["editor.toggleItalic", "Italic"],
   ["editor.toggleInlineCode", "Inline code"],
@@ -80,11 +72,9 @@ function stub(id: string, label: string) {
   return execute;
 }
 
-/** The state of a markdown buffer: every formatting command is live. */
-function withMarkdownBuffer(): Map<string, ReturnType<typeof vi.fn>> {
-  const runs = new Map<string, ReturnType<typeof vi.fn>>();
-  for (const [id, label] of FORMAT_CONTROLS) runs.set(id, stub(id, label));
-  return runs;
+/** The state of a markdown buffer: every formatting command is registered. */
+function withMarkdownBuffer(): void {
+  for (const [id, label] of FORMAT_COMMANDS) stub(id, label);
 }
 
 function on(platform: Platform) {
@@ -103,7 +93,6 @@ afterEach(() => {
   cleanup();
   for (const id of registered.splice(0)) unregisterCommand(id);
   h.platform = "mac";
-  h.formats = { bold: false, italic: false, code: false, bullet: false, task: false };
   h.setSearchQuery.mockClear();
 });
 
@@ -114,21 +103,29 @@ describe("Toolbar shape", () => {
     expect(bar(container).getAttribute("aria-label")).toBe("File actions");
   });
 
-  it("carries the sidebar toggle, New note, the formatting cluster and search", () => {
+  it("carries the sidebar toggle, New note, connections and search", () => {
     const { container } = render(() => <Toolbar />);
     expect(control(container, "Toggle sidebar")).not.toBeNull();
     expect(container.querySelector(".writ-toolbar-compose")!.textContent).toContain("New file");
-    const cluster = container.querySelectorAll(".writ-toolbar-cluster button");
-    expect(Array.from(cluster).map((el) => el.getAttribute("aria-label"))).toEqual(
-      FORMAT_CONTROLS.map(([, label]) => label),
-    );
     expect(container.querySelector("input.search-input")).not.toBeNull();
     expect(control(container, "Connections")).not.toBeNull();
   });
 
+  it("carries no formatting control, with the commands still on their keys", () => {
+    withMarkdownBuffer();
+    const { container } = render(() => <Toolbar />);
+    for (const [, label] of FORMAT_COMMANDS) {
+      expect(container.querySelector(`button[aria-label="${label}"]`), label).toBeNull();
+    }
+    expect(container.querySelector(".writ-toolbar-cluster")).toBeNull();
+    expect(container.querySelector(".writ-toolbar-format")).toBeNull();
+    expect(TOOLBAR_CSS).not.toContain("writ-toolbar-cluster");
+    expect(TOOLBAR_CSS).not.toContain("writ-toolbar-format");
+  });
+
   it("names every icon-only control without a title attribute", () => {
     const { container } = render(() => <Toolbar />);
-    for (const [, label] of FORMAT_CONTROLS) {
+    for (const label of ["Toggle sidebar", "Connections"]) {
       expect(control(container, label), label).not.toBeNull();
     }
     expect(container.querySelector("[title]")).toBeNull();
@@ -213,80 +210,6 @@ describe("Toolbar commands", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("runs each formatting command from its own button", () => {
-    const runs = withMarkdownBuffer();
-    const { container } = render(() => <Toolbar />);
-    for (const [id, label] of FORMAT_CONTROLS) {
-      fireEvent.click(control(container, label));
-      expect(runs.get(id), label).toHaveBeenCalledOnce();
-    }
-  });
-
-  it("disables the formatting cluster while the note is not prose", () => {
-    const { container } = render(() => <Toolbar />);
-    for (const [, label] of FORMAT_CONTROLS) {
-      expect(control(container, label).disabled, label).toBe(true);
-    }
-  });
-
-  it("enables the cluster once a markdown buffer is active", () => {
-    const { container } = render(() => <Toolbar />);
-    expect(control(container, "Bold").disabled).toBe(true);
-    withMarkdownBuffer();
-    expect(control(container, "Bold").disabled).toBe(false);
-  });
-});
-
-describe("Toolbar pressed state", () => {
-  it("reports every toggle as off while the caret sits in plain prose", () => {
-    withMarkdownBuffer();
-    const { container } = render(() => <Toolbar />);
-    for (const label of ["Bold", "Italic", "Inline code", "Bulleted list", "Task list"]) {
-      expect(control(container, label).getAttribute("aria-pressed"), label).toBe("false");
-    }
-  });
-
-  it("presses the controls for the constructs the caret is inside", () => {
-    h.formats = { bold: true, italic: false, code: false, bullet: false, task: true };
-    withMarkdownBuffer();
-    const { container } = render(() => <Toolbar />);
-    expect(control(container, "Bold").getAttribute("aria-pressed")).toBe("true");
-    expect(control(container, "Task list").getAttribute("aria-pressed")).toBe("true");
-    expect(control(container, "Italic").getAttribute("aria-pressed")).toBe("false");
-    expect(control(container, "Bulleted list").getAttribute("aria-pressed")).toBe("false");
-  });
-
-  it("paints a pressed toggle over the bar's own ink and over the ghost hover", () => {
-    h.formats = { bold: true, italic: false, code: false, bullet: false, task: false };
-    withMarkdownBuffer();
-    const { container } = render(() => <Toolbar />);
-    const bold = control(container, "Bold");
-    // The ink is decided by this exact class-and-attribute pair, so the rule
-    // has to name the pair rather than leaning on Button.css.
-    expect(bold.classList.contains("writ-toolbar-format")).toBe(true);
-    expect(bold.getAttribute("aria-pressed")).toBe("true");
-
-    const rules = TOOLBAR_CSS.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^}]*)\}/g);
-    const pressed = [...rules].find(([, list]) => list.includes('[aria-pressed="true"]'));
-    expect(pressed, "no pressed rule in Toolbar.css").toBeDefined();
-    const [, selectors, body] = pressed!;
-    const list = selectors.split(",").map((selector) => selector.trim());
-    expect(list).toContain(
-      ':root .writ-toolbar[data-platform] .writ-toolbar-format[aria-pressed="true"]',
-    );
-    // Hover on a pressed control must not fall back to the ghost hover.
-    expect(list).toContain(
-      ':root .writ-toolbar[data-platform] .writ-toolbar-format[aria-pressed="true"]:hover:not(:disabled)',
-    );
-    expect(body).toContain("background: var(--writ-bg-selected)");
-    expect(body).toContain("color: var(--writ-fg)");
-  });
-
-  it("leaves Link unpressed: it inserts rather than toggles", () => {
-    withMarkdownBuffer();
-    const { container } = render(() => <Toolbar />);
-    expect(control(container, "Insert link").hasAttribute("aria-pressed")).toBe(false);
-  });
 });
 
 describe("Toolbar search", () => {

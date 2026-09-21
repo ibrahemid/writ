@@ -1,11 +1,9 @@
-import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+import { Show, createEffect, createMemo, createSignal } from "solid-js";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import SearchBar from "../Sidebar/SearchBar";
-import type { IconName } from "../Icon/Icon";
-import type { ActiveFormats } from "../../types/editor";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { executeCommand, useCommand } from "../../commands/registry";
+import { executeCommand } from "../../commands/registry";
 import { CHAT_TOGGLE_COMMAND_ID } from "../../commands/chat";
 import { configStore } from "../../stores/global/config";
 import { useEffectiveBinding } from "../../commands/keybindings";
@@ -13,30 +11,6 @@ import { formatKeybinding } from "../../lib/keybinding-format";
 import { resolvePlatform } from "../../lib/platform";
 import { resolveChromeLayout, toolbarLeadsLights } from "../../lib/window-chrome";
 import "./Toolbar.css";
-
-interface FormatControl {
-  command: string;
-  icon: IconName;
-  label: string;
-  /** The chord the command carries when it is registered. */
-  chord?: string;
-  /**
-   * The construct the control toggles. A control without one — Link, which
-   * inserts rather than toggles — carries no pressed state.
-   */
-  flag?: keyof ActiveFormats;
-}
-
-// Formatting applies to prose, so each control is live only while the editor
-// holds a markdown buffer — which is exactly when its command is registered.
-const FORMAT_CONTROLS: readonly FormatControl[] = [
-  { command: "editor.toggleBold", icon: "text-b", label: "Bold", chord: "CmdOrCtrl+B", flag: "bold" },
-  { command: "editor.toggleItalic", icon: "text-italic", label: "Italic", chord: "CmdOrCtrl+I", flag: "italic" },
-  { command: "editor.toggleInlineCode", icon: "code", label: "Inline code", chord: "CmdOrCtrl+Shift+E", flag: "code" },
-  { command: "editor.insertLink", icon: "link-simple", label: "Insert link", chord: "CmdOrCtrl+K" },
-  { command: "editor.toggleBulletList", icon: "list-bullets", label: "Bulleted list", flag: "bullet" },
-  { command: "editor.toggleTaskList", icon: "list-checks", label: "Task list", flag: "task" },
-];
 
 function tip(label: string, binding: string | undefined): string {
   const chord = formatKeybinding(binding);
@@ -56,9 +30,7 @@ export default function Toolbar() {
   const [focusIndex, setFocusIndex] = createSignal(0);
   let barRef: HTMLDivElement | undefined;
 
-  const available = createMemo(() =>
-    FORMAT_CONTROLS.map((control) => useCommand(control.command) !== undefined).join(","),
-  );
+  const chatControl = createMemo(() => configStore.config().ai.chat.enabled);
 
   /**
    * The roving stops: the search field keeps its own tab stop and its arrows,
@@ -69,10 +41,10 @@ export default function Toolbar() {
     return Array.from(barRef.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
   }
 
-  // One tab stop for the bar. Re-runs when a formatting control goes live or
-  // dead, because a disabled control is not a stop.
+  // One tab stop for the bar. Re-runs when the chat control comes or goes,
+  // because a control that is not rendered is not a stop.
   createEffect(() => {
-    available();
+    chatControl();
     const items = stops();
     if (items.length === 0) return;
     const active = Math.min(focusIndex(), items.length - 1);
@@ -134,24 +106,6 @@ export default function Toolbar() {
 
         <div class="writ-toolbar-divider" role="separator" aria-orientation="vertical" />
       </Show>
-
-      <div class="writ-toolbar-cluster">
-        <For each={FORMAT_CONTROLS}>
-          {(control) => (
-            <Tooltip label={tip(control.label, useEffectiveBinding(control.command, control.chord))}>
-              <Button
-                variant="ghost"
-                class="writ-toolbar-format"
-                icon={control.icon}
-                aria-label={control.label}
-                pressed={control.flag ? win.editor.activeFormats()[control.flag] : undefined}
-                disabled={useCommand(control.command) === undefined}
-                onClick={() => executeCommand(control.command)}
-              />
-            </Tooltip>
-          )}
-        </For>
-      </div>
 
       <Tooltip label={tip("Connections", useEffectiveBinding("panel.toggle", "CmdOrCtrl+Shift+\\"))}>
         <Button

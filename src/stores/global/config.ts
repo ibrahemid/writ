@@ -94,7 +94,7 @@ const DEFAULT_CONFIG: WritConfig = {
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },
   chat_panel: { open: false, width: CHAT_WIDTH_DEFAULT },
   first_run: { hint_dismissed: false },
-  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: true },
+  editor: { font_family: "monospace", font_size: EDITOR_FONT_DEFAULT, word_wrap: true, tab_size: 2, autosave_debounce_ms: 1000, markdown_typography: true, markdown_editing: true, status_bar: true, status_bar_counts: false },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
   history: { max_entries: 500 },

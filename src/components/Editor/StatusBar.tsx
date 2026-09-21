@@ -1,27 +1,14 @@
 import { createMemo, Show } from "solid-js";
-import { useCommand } from "../../commands/registry";
-import { useEffectiveBinding } from "../../commands/keybindings";
 import { saveStatusStore } from "../../stores/global/save-status";
-import { notesStore } from "../../stores/global/notes";
-import { basename } from "../../lib/path";
-import { FILE_MANAGER_NAME } from "../../lib/platform";
-import { logFailure } from "../../lib/log";
+import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
-import PreviewScriptsToggle from "../Preview/PreviewScriptsToggle";
-import SpellingChip from "./SpellingChip";
-import RewriteChip from "./RewriteChip";
 import TokenEstimate from "./TokenEstimate";
 import WordCount from "./WordCount";
-import { languageLabel } from "./language-label";
-import Kbd from "../Kbd/Kbd";
 import "./StatusBar.css";
 
 export default function StatusBar() {
   const win = useWindow();
-  const paletteBinding = createMemo(() =>
-    useEffectiveBinding("palette.open", useCommand("palette.open")?.keybinding),
-  );
 
   // The status is per note, so the bar reports on the tab in front and says
   // which one that is. A quiet note says nothing: a permanent "saved" beside
@@ -59,17 +46,11 @@ export default function StatusBar() {
     return id !== null && win.editor.isUpdatedFromDisk(id);
   });
 
-  // The folder is movable from Settings, so the word on the button is the
-  // folder's own name, the way the sidebar heads a folder with its basename.
-  const folderName = createMemo(() => {
-    const path = notesStore.folder()?.path ?? notesStore.root();
-    return (path ? basename(path) : "") || "Files";
-  });
-
-  const language = createMemo(() => languageLabel(win.editor.language()));
   const cursorPosition = createMemo(
     () => `Ln ${win.editor.cursorLine()}, Col ${win.editor.cursorCol()}`,
   );
+
+  const countsOn = createMemo(() => configStore.config().editor.status_bar_counts);
 
   const largeFileModeLabel = createMemo(() => {
     const mode = win.editor.largeFileMode();
@@ -114,32 +95,13 @@ export default function StatusBar() {
       </div>
       <div class="statusbar-spacer" />
       <div class="statusbar-right">
-        {/* Where the notes are, and the way to them. The word names the
-            folder; the label names what the click does with it. */}
-        <button
-          type="button"
-          class="statusbar-field statusbar-folder"
-          title={`Open ${folderName()} in ${FILE_MANAGER_NAME}`}
-          aria-label={`Open ${folderName()} in ${FILE_MANAGER_NAME}`}
-          onClick={() =>
-            void notesStore
-              .showInFileManager()
-              .catch(() => logFailure("the notes folder could not be opened"))
-          }
-        >
-          {folderName()}
-        </button>
         <span class="statusbar-field statusbar-field--cursor">{cursorPosition()}</span>
-        <span class="statusbar-field">{language()}</span>
+        <Show when={countsOn()}>
+          <WordCount class="statusbar-field statusbar-field--words" characters />
+          <TokenEstimate />
+        </Show>
         <span class="statusbar-field">UTF-8</span>
-        <WordCount class="statusbar-field statusbar-field--words" />
-        <SpellingChip />
-        <RewriteChip />
-        <TokenEstimate />
         <PreviewLayoutToggle />
-        <PreviewScriptsToggle />
-        <Kbd binding={paletteBinding()} />
-        <span class="statusbar-label">Command palette</span>
       </div>
     </div>
   );

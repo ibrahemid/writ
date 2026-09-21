@@ -17,18 +17,6 @@ vi.mock("../../stores/global/save-status", () => ({
   saveStatusStore: { forNote: (): NoteSaveStatus => fixtures.status() },
 }));
 
-vi.mock("../../commands/registry", () => ({
-  useCommand: () => undefined,
-}));
-
-vi.mock("../../commands/keybindings", () => ({
-  useEffectiveBinding: () => null,
-}));
-
-vi.mock("../../components/Kbd/Kbd", () => ({
-  default: () => null,
-}));
-
 // StatusBar and its preview controls reach into per-window state via
 // useWindow(); this test renders StatusBar without a WindowProvider and is
 // scoped to the save-status live region, so stub the window context and the
@@ -50,9 +38,6 @@ vi.mock("../../components/Editor/TokenEstimate", () => ({
   default: () => null,
 }));
 vi.mock("../../components/Preview/PreviewLayoutToggle", () => ({
-  default: () => null,
-}));
-vi.mock("../../components/Preview/PreviewScriptsToggle", () => ({
   default: () => null,
 }));
 

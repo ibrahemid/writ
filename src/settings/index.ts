@@ -59,6 +59,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "editor.spelling", section: "editor", title: "Spell check", keywords: ["spell", "spelling", "check", "dictionary", "typos", "grammar"] },
   { id: "editor.spelling_dialect", section: "editor", title: "Spelling", keywords: ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"] },
   { id: "editor.status_bar", section: "editor", title: "Status bar", keywords: ["status bar", "line", "column", "encoding", "word count"] },
+  { id: "editor.status_bar_counts", section: "editor", title: "Word, character and token counts", keywords: ["word count", "character count", "token", "counts", "status bar"] },
   { id: "preview.run_scripts", section: "preview", title: "Allow HTML files to run their scripts", keywords: ["scripts", "javascript", "html", "run", "safety"] },
   { id: "preview.layout_md", section: "preview", title: "When opening a Markdown file, show:", keywords: ["layout", "markdown", "md", "text", "preview", "inline"] },
   { id: "preview.layout_html", section: "preview", title: "When opening an HTML file, show:", keywords: ["layout", "html", "text", "preview", "split"] },
