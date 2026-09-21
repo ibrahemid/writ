@@ -111,13 +111,13 @@ describe("Toolbar shape", () => {
   it("is a toolbar with a name", () => {
     const { container } = render(() => <Toolbar />);
     expect(bar(container).getAttribute("role")).toBe("toolbar");
-    expect(bar(container).getAttribute("aria-label")).toBe("Note actions");
+    expect(bar(container).getAttribute("aria-label")).toBe("File actions");
   });
 
   it("carries the sidebar toggle, New note, the formatting cluster and search", () => {
     const { container } = render(() => <Toolbar />);
     expect(control(container, "Toggle sidebar")).not.toBeNull();
-    expect(container.querySelector(".writ-toolbar-compose")!.textContent).toContain("New note");
+    expect(container.querySelector(".writ-toolbar-compose")!.textContent).toContain("New file");
     const cluster = container.querySelectorAll(".writ-toolbar-cluster button");
     expect(Array.from(cluster).map((el) => el.getAttribute("aria-label"))).toEqual(
       FORMAT_CONTROLS.map(([, label]) => label),
@@ -207,7 +207,7 @@ describe("Toolbar commands", () => {
   });
 
   it("runs note.new from New note", () => {
-    const run = stub("note.new", "New note");
+    const run = stub("note.new", "New file");
     const { container } = render(() => <Toolbar />);
     fireEvent.click(container.querySelector<HTMLButtonElement>(".writ-toolbar-compose")!);
     expect(run).toHaveBeenCalledOnce();

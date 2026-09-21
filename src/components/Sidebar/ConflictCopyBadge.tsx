@@ -21,7 +21,7 @@ export function ConflictCopyBadge(props: {
       return "Writ kept this copy when the file changed on disk while it was open.";
     }
     const service = props.provider ?? "Your sync service";
-    return `${service} kept this copy when the note was edited in two places.`;
+    return `${service} kept this copy when the file was edited in two places.`;
   };
 
   return (

@@ -145,7 +145,7 @@ describe("NotesMigrationReport", () => {
     const dismiss = container.querySelector("[data-action='notes-report-dismiss']")!;
     expect(dismiss.querySelector("svg")).not.toBeNull();
     expect(dismiss.textContent).not.toContain("×");
-    expect(dismiss.getAttribute("aria-label")).toBe("Dismiss the notes report");
+    expect(dismiss.getAttribute("aria-label")).toBe("Dismiss the report");
   });
 
   it("draws every action with the app's button", () => {

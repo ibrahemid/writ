@@ -14,6 +14,8 @@ import {
 } from "../../lib/note-actions";
 import { startRenameActiveTab } from "../Editor/TabBar";
 import { moveTreeFocus } from "../../lib/tree-focus";
+import { displayFileName } from "../../lib/display-name";
+import Tooltip from "../Tooltip/Tooltip";
 import type { WorkspaceEntry } from "../../types/workspace";
 import "./FileTree.css";
 
@@ -145,6 +147,11 @@ function TreeNode(props: TreeNodeProps) {
     ]);
   }
 
+  // A folder keeps its whole name: an extension there is part of what it is
+  // called, never a format.
+  const shownName = () =>
+    props.entry.is_dir ? props.entry.name : displayFileName(props.entry.name);
+
   const paddingLeft = () => `${BASE_INDENT + (props.level - 1) * INDENT_PER_LEVEL}px`;
   const connectorLeft = () => `${BASE_INDENT + (props.level - 1) * INDENT_PER_LEVEL + 8}px`;
 
@@ -169,7 +176,11 @@ function TreeNode(props: TreeNodeProps) {
           </Show>
         </span>
         <Icon name={props.entry.is_dir ? (expanded() ? "folder-open" : "folder") : "file-text"} />
-        <span class="file-tree-item-name">{props.entry.name}</span>
+        {/* A row whose name reads whole only needs the tip when it is
+            clipped; one showing a stem always owes the reader the rest. */}
+        <Tooltip label={props.entry.name} requiresTruncation={shownName() === props.entry.name}>
+          <span class="file-tree-item-name">{shownName()}</span>
+        </Tooltip>
         <ConflictCopyBadge
           kind={props.entry.conflict_copy}
           provider={notesStore.folder()?.sync_provider ?? null}
@@ -251,7 +262,7 @@ export default function FileTree() {
         each={rootEntries()}
         fallback={
           <div class="file-tree-empty">
-            {tagged() === null ? "Empty folder" : "No notes with this tag"}
+            {tagged() === null ? "Empty folder" : "No files with this tag"}
           </div>
         }
       >

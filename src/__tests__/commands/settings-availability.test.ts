@@ -79,7 +79,7 @@ describe("setting availability", () => {
     for (const platform of ["mac", "win", "linux"] as const) {
       mocks.detectPlatform.mockReturnValue(platform);
       for (const section of [
-        "notes",
+        "files",
         "editor",
         "preview",
         "ai",

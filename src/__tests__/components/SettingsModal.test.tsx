@@ -717,7 +717,9 @@ describe("SettingsModal", () => {
 
   describe("Files section — the file-types row", () => {
     async function openFilesNav(container: Element) {
-      openSettings();
+      // Another section first: Files is the panel's default, and mounting it
+      // with the panel would settle the status probe before the click.
+      openSettings("editor");
       await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
       const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
       const filesNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("files"));
@@ -1421,7 +1423,7 @@ describe("AI section", () => {
     const { container } = await openAiSection();
     await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
     expect(collapse(container.querySelector(".settings-ai-consent-text")!.textContent)).toBe(
-      "The notes you attach and the text you rewrite are sent to api.deepseek.com with your " +
+      "The files you attach and the text you rewrite are sent to api.deepseek.com with your " +
         "API key. Writ also sends the key on its own to check the host is reachable; nothing " +
         "else leaves your machine.",
     );
@@ -1508,7 +1510,7 @@ describe("AI section", () => {
 
 // The Notes section is the answer to "where are my notes" (ADR-028 §2), so it
 // leads the nav rail and its row carries the path plus the three actions.
-describe("Notes section", () => {
+describe("Files section — the folder row", () => {
   beforeEach(() => {
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.notesFolder
@@ -1532,7 +1534,7 @@ describe("Notes section", () => {
 
   async function openNotes() {
     const result = render(() => <SettingsModal />);
-    openSettings("notes");
+    openSettings("files");
     await waitFor(() =>
       expect(result.container.querySelector("[data-setting-id='notes.folder']")).not.toBeNull(),
     );
@@ -1542,7 +1544,7 @@ describe("Notes section", () => {
   it("leads the nav rail", async () => {
     const { container } = await openNotes();
     const first = container.querySelector(".settings-nav-item");
-    expect(first?.textContent).toBe("Notes");
+    expect(first?.textContent).toBe("Files");
   });
 
   it("shows the folder path with the home folder collapsed", async () => {
@@ -1585,7 +1587,7 @@ describe("Notes section", () => {
     });
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
-      "The folder in your settings could not be used, so notes are in ~/Writ.",
+      "The folder in your settings could not be used, so files are in ~/Writ.",
     );
   });
 
@@ -1597,7 +1599,7 @@ describe("Notes section", () => {
     });
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
-      "The folder in your settings holds Writ's own data, so notes are in ~/Writ.",
+      "The folder in your settings holds Writ's own data, so files are in ~/Writ.",
     );
   });
 
@@ -1617,7 +1619,7 @@ describe("Notes section", () => {
   it("says how to sync a folder that nothing syncs", async () => {
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-sync]")?.textContent).toBe(
-      "Writ has no sync. Put the notes folder in iCloud Drive, Dropbox, or Google Drive and your notes sync with it. Use one sync service per folder.",
+      "Writ has no sync. Put the folder in iCloud Drive, Dropbox, or Google Drive and your files sync with it. Use one sync service per folder.",
     );
   });
 });
@@ -1696,10 +1698,10 @@ describe("Connected programs section — the tool row", () => {
 
     await waitFor(() => expect(container.querySelector(".settings-tools")).not.toBeNull());
     expect(container.querySelector("[data-grant='read']")?.textContent).toBe(
-      "Reading: list, search and open notes, and see their links, properties and tags.",
+      "Reading: list, search and open files, and see their links, properties and tags.",
     );
     expect(container.querySelector("[data-grant='write']")?.textContent).toBe(
-      "Writing: replace a note's text, make a new note, rename a note.",
+      "Writing: replace a file's text, make a new file, rename a file.",
     );
   });
 
@@ -1906,7 +1908,7 @@ describe("Settings as a keyboard and a screen reader take it", () => {
   // link), and that one comes first in document order.
   it("never hangs a row's description on a control in the label column", async () => {
     const container = await openPanel();
-    for (const section of ["editor", "advanced", "notes"]) {
+    for (const section of ["editor", "advanced", "files"]) {
       await openSection(container, section);
       const described = container.querySelectorAll<HTMLElement>("[aria-describedby]");
       for (const control of described) {

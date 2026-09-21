@@ -8,7 +8,7 @@ import "./SidebarEmpty.css";
 export default function SidebarEmpty() {
   return (
     <div class="sidebar-empty">
-      <p class="sidebar-empty-title">No notes yet.</p>
+      <p class="sidebar-empty-title">No files yet.</p>
       <div class="sidebar-empty-line">
         <Button
           variant="primary"
@@ -16,7 +16,7 @@ export default function SidebarEmpty() {
           iconSize={16}
           onClick={() => executeCommand("note.new")}
         >
-          New note
+          New file
         </Button>
         <Kbd binding="CmdOrCtrl+N" />
       </div>

@@ -9,11 +9,11 @@
 /** What the rename asks before it runs, when other notes link to this one. */
 export function linkCountQuestion(count: number): string {
   return count === 1
-    ? "1 note links here. Update it?"
-    : `${count} notes link here. Update them?`;
+    ? "1 file links here. Update it?"
+    : `${count} files link here. Update them?`;
 }
 
 /** What the rename says afterwards about the notes it could not rewrite. */
 export function unchangedHeading(count: number): string {
-  return count === 1 ? "Left 1 note unchanged:" : `Left ${count} notes unchanged:`;
+  return count === 1 ? "Left 1 file unchanged:" : `Left ${count} files unchanged:`;
 }

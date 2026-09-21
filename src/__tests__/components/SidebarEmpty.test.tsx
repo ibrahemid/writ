@@ -21,21 +21,21 @@ afterEach(() => {
 });
 
 describe("SidebarEmpty", () => {
-  it("offers New note and Open a folder as buttons with their keycaps", () => {
+  it("offers New file and Open a folder as buttons with their keycaps", () => {
     const { container } = render(() => <SidebarEmpty />);
-    expect(container.querySelector(".sidebar-empty-title")!.textContent).toBe("No notes yet.");
-    expect(buttonNamed(container, "New note").classList).toContain("writ-btn-primary");
+    expect(container.querySelector(".sidebar-empty-title")!.textContent).toBe("No files yet.");
+    expect(buttonNamed(container, "New file").classList).toContain("writ-btn-primary");
     expect(buttonNamed(container, "Open a folder").classList).toContain("writ-btn-secondary");
-    // Only New note has a binding; CmdOrCtrl+O still opens a file.
+    // Only New file has a binding; CmdOrCtrl+O still opens a file.
     const caps = Array.from(container.querySelectorAll(".kbd-chord")).map((el) =>
       el.getAttribute("aria-label"),
     );
     expect(caps).toEqual(["CmdOrCtrl+N"]);
   });
 
-  it("New note runs the note.new command", () => {
+  it("New file runs the note.new command", () => {
     const { container } = render(() => <SidebarEmpty />);
-    fireEvent.click(buttonNamed(container, "New note"));
+    fireEvent.click(buttonNamed(container, "New file"));
     expect(h.executeCommand).toHaveBeenCalledWith("note.new");
   });
 

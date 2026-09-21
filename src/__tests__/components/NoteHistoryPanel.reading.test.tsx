@@ -72,12 +72,12 @@ describe("NoteHistoryPanel while it reads", () => {
     openNoteVersions(NOTE);
 
     await Promise.resolve();
-    expect(screen.queryByText("No versions of this note yet.")).toBeNull();
+    expect(screen.queryByText("No versions of this file yet.")).toBeNull();
     expect(screen.getByText("Loading versions…")).toBeTruthy();
 
     list.settle([version(4, at(0, 14, 32))]);
     await waitFor(() => expect(screen.container.querySelector(".note-versions-row")).toBeTruthy());
-    expect(screen.queryByText("No versions of this note yet.")).toBeNull();
+    expect(screen.queryByText("No versions of this file yet.")).toBeNull();
     expect(screen.queryByText("Loading versions…")).toBeNull();
   });
 
@@ -87,7 +87,7 @@ describe("NoteHistoryPanel while it reads", () => {
     const screen = render(() => <NoteHistoryPanel />);
     openNoteVersions(NOTE);
 
-    await waitFor(() => expect(screen.getByText("No versions of this note yet.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("No versions of this file yet.")).toBeTruthy());
   });
 
   it("does not label one version's text with another version's row", async () => {

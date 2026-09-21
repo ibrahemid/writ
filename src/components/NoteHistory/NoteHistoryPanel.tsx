@@ -195,8 +195,8 @@ function VersionsDialog() {
               }
             >
               <div class="note-versions-empty">
-                <p class="note-versions-empty-line">No versions of this note yet.</p>
-                <p class="note-versions-empty-hint">Writ keeps one each time the note is saved.</p>
+                <p class="note-versions-empty-line">No versions of this file yet.</p>
+                <p class="note-versions-empty-hint">Writ keeps one each time the file is saved.</p>
               </div>
             </Show>
           }

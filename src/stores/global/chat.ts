@@ -697,7 +697,7 @@ function createChatStore() {
    * nothing rather than as much of itself as fits. */
   async function attachFolder(folder: string): Promise<AttachFolderResult> {
     const paths = await linkStore.notePathsInFolder(folder);
-    if (paths.length === 0) return { ok: false, reason: "That folder holds no notes." };
+    if (paths.length === 0) return { ok: false, reason: "That folder holds no files." };
     const held = attachments();
     const wanted = paths.filter(
       (path, index) =>

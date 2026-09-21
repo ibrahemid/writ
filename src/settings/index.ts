@@ -1,5 +1,4 @@
 export type SettingsSection =
-  | "notes"
   | "editor"
   | "files"
   | "preview"
@@ -22,9 +21,8 @@ export interface SettingEntry {
 }
 
 export const SECTION_LABELS: Record<SettingsSection, string> = {
-  notes: "Notes",
-  editor: "Editor",
   files: "Files",
+  editor: "Editor",
   preview: "Preview",
   ai: "AI",
   programs: "Connected programs",
@@ -36,9 +34,8 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
 };
 
 export const SECTION_ORDER: SettingsSection[] = [
-  "notes",
-  "editor",
   "files",
+  "editor",
   "preview",
   "ai",
   "programs",
@@ -50,8 +47,11 @@ export const SECTION_ORDER: SettingsSection[] = [
 ];
 
 export const SETTINGS_INDEX: SettingEntry[] = [
-  { id: "notes.folder", section: "notes", title: "Notes folder", keywords: ["notes", "folder", "where are my notes", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"] },
-  { id: "notes.versions", section: "notes", title: "Versions", keywords: ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"] },
+  { id: "notes.folder", section: "files", title: "Folder", keywords: ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"] },
+  { id: "files.default_extension", section: "files", title: "Default format", keywords: ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"] },
+  { id: "files.default_app", section: "files", title: "Open these file types with Writ", keywords: ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"] },
+  { id: "files.cli", section: "files", title: "Terminal command", keywords: ["cli", "writ command", "terminal", "command line", "install"] },
+  { id: "notes.versions", section: "files", title: "Versions", keywords: ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"] },
   { id: "editor.font_size", section: "editor", title: "Font size", keywords: ["font", "size", "text", "zoom"] },
   { id: "editor.tab_size", section: "editor", title: "Tab size", keywords: ["tab", "indent", "spaces", "width"] },
   { id: "editor.word_wrap", section: "editor", title: "Word wrap", keywords: ["wrap", "word", "line", "soft wrap"] },
@@ -60,8 +60,6 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "editor.spelling", section: "editor", title: "Spell check", keywords: ["spell", "spelling", "check", "dictionary", "typos", "grammar"] },
   { id: "editor.spelling_dialect", section: "editor", title: "Spelling", keywords: ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"] },
   { id: "editor.status_bar", section: "editor", title: "Status bar", keywords: ["status bar", "line", "column", "encoding", "word count"] },
-  { id: "files.default_extension", section: "files", title: "Default format", keywords: ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file", "new note"] },
-  { id: "files.default_app", section: "files", title: "Open these file types with Writ", keywords: ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"] },
   { id: "preview.run_scripts", section: "preview", title: "Allow HTML files to run their scripts", keywords: ["scripts", "javascript", "html", "run", "safety"] },
   { id: "preview.layout_md", section: "preview", title: "When opening a Markdown file, show:", keywords: ["layout", "markdown", "md", "text", "preview", "split"] },
   { id: "preview.layout_html", section: "preview", title: "When opening an HTML file, show:", keywords: ["layout", "html", "text", "preview", "split"] },
@@ -71,9 +69,9 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "ai.model", section: "ai", title: "Model", keywords: ["ai", "model", "id"] },
   { id: "ai.connection", section: "ai", title: "Connection", keywords: ["ai", "connection", "check", "reachable", "status"] },
   { id: "ai.rewrite.enabled", section: "ai", title: "Rewrite selected text", keywords: ["ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"] },
-  { id: "ai.chat.enabled", section: "ai", title: "Chat about your notes", keywords: ["ai", "chat", "ask", "conversation", "attach", "enable"] },
+  { id: "ai.chat.enabled", section: "ai", title: "Chat about your files", keywords: ["ai", "chat", "ask", "conversation", "attach", "enable"] },
   { id: "ai.chat.model", section: "ai", title: "Use a different model for chat", keywords: ["ai", "chat", "model", "id", "different"] },
-  { id: "mcp.enabled", section: "programs", title: "Let other programs read and write your notes", keywords: ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"] },
+  { id: "mcp.enabled", section: "programs", title: "Let other programs read and write your files", keywords: ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"] },
   { id: "mcp.command", section: "programs", title: "Command to give a program", keywords: ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"] },
   { id: "mcp.tools", section: "programs", title: "What a program can do", keywords: ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"] },
   { id: "mcp.clients", section: "programs", title: "Programs you approved", keywords: ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"] },
@@ -84,14 +82,13 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "appearance.interface_text_size", section: "appearance", title: "Interface text size", keywords: ["interface", "text", "size", "ui", "font", "scale", "bigger", "smaller", "sidebar", "tabs"] },
   { id: "appearance.theme", section: "appearance", title: "Theme", keywords: ["theme", "color", "appearance", "preset", "dark", "light"] },
   { id: "appearance.custom_colors", section: "appearance", title: "Custom colors", keywords: ["theme", "colors", "custom", "palette"] },
-  { id: "sidebar.folder", section: "sidebar", title: "Show notes", keywords: ["sidebar", "notes", "folder", "files", "tree", "show", "hide"] },
+  { id: "sidebar.folder", section: "sidebar", title: "Show files", keywords: ["sidebar", "folder", "files", "tree", "show", "hide"] },
   { id: "sidebar.tags", section: "sidebar", title: "Show tags", keywords: ["sidebar", "tags", "show", "hide"] },
   { id: "sidebar.inbox", section: "sidebar", title: "Show watched folder", keywords: ["sidebar", "watch", "watched folder", "new files", "show", "hide"] },
   { id: "sidebar.recent", section: "sidebar", title: "Show recently closed", keywords: ["sidebar", "recent", "recently closed", "closed", "show", "hide"] },
   { id: "updates.auto_check", section: "updates", title: "Check for updates automatically", keywords: ["update", "auto", "check", "version"] },
   { id: "updates.check_now", section: "updates", title: "Check for updates now", keywords: ["update", "check", "now", "version"] },
   { id: "shortcuts.edit", section: "shortcuts", title: "Keyboard shortcuts", keywords: ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"] },
-  { id: "files.cli", section: "advanced", title: "Terminal command", keywords: ["cli", "writ command", "terminal", "command line", "install"] },
   { id: "files.inbox_folder", section: "advanced", title: "Folder to watch for new files", keywords: ["watch", "watched folder", "new files", "auto-open", "drop"] },
   { id: "files.inbox_focus", section: "advanced", title: "Bring Writ to the front when a new file arrives", keywords: ["watch", "focus", "window", "front", "new file"] },
   { id: "preview.live_threshold", section: "advanced", title: "Stop live preview above", keywords: ["preview", "live", "size", "mb", "large files"] },
@@ -113,9 +110,9 @@ export const DEFAULT_APP_SETTING_ID = "files.default_app";
  *   1 the section label contains it
  *
  * A keyword equal to the query also contains it, so the exact tier moves rows
- * within the results and never adds or drops one. It is what puts `Notes
- * folder`, which claims `folder`, above `Folder to watch for new files`, which
- * only happens to start with the word.
+ * within the results and never adds or drops one. It is what puts `Folder`,
+ * which claims `folder`, above `Folder to watch for new files`, which only
+ * happens to start with the word.
  */
 function scoreEntry(entry: SettingEntry, queryLower: string): number {
   const title = entry.title.toLowerCase();

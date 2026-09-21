@@ -169,7 +169,7 @@ describe("backlinksStore", () => {
     mockedApi.noteBacklinks.mockRejectedValueOnce(new Error("index closed"));
     await backlinksStore.refresh(NOTE);
 
-    expect(backlinksStore.errorFor(NOTE)()).toBe("Could not read the notes that link here.");
+    expect(backlinksStore.errorFor(NOTE)()).toBe("Could not read the files that link here.");
     expect(list()).toEqual(rows);
   });
 

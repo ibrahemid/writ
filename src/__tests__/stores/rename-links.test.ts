@@ -133,7 +133,7 @@ describe("a rename that carries the links", () => {
 
     expect(mockedApi.countLinksTo).toHaveBeenCalledWith("/notes/Old note.md");
     const asked = chose.mock.calls[0][0] as { title: string };
-    expect(asked.title).toBe("3 notes link here. Update them?");
+    expect(asked.title).toBe("3 files link here. Update them?");
     expect(mockedApi.renameNoteWithLinks).toHaveBeenCalledWith(
       "/notes/Old note.md",
       "New note",
@@ -149,7 +149,7 @@ describe("a rename that carries the links", () => {
     await renameNoteAndLinks("n-1", "New note");
 
     const asked = chose.mock.calls[0][0] as { title: string };
-    expect(asked.title).toBe("1 note links here. Update it?");
+    expect(asked.title).toBe("1 file links here. Update it?");
   });
 
   it("renames without touching the links when the offer is declined", async () => {

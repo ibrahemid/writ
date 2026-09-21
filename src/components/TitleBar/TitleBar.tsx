@@ -65,7 +65,7 @@ export default function TitleBar() {
               icon="note-pencil"
               onClick={() => executeCommand("note.new")}
             >
-              New note
+              New file
             </Button>
           </Show>
           <AppMenu compact={layout.headerBar} />

@@ -94,7 +94,7 @@ describe("a tab whose file is gone", () => {
 
     const marked = container.querySelectorAll<HTMLElement>(".tab-removed");
     expect(marked).toHaveLength(1);
-    expect(marked[0].textContent).toContain("beta.md");
+    expect(marked[0].textContent).toContain("beta");
   });
 
   it("says so in the tab's own words, not in a colour alone", () => {

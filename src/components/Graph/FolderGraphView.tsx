@@ -89,21 +89,21 @@ export default function FolderGraphView() {
   const count = createMemo(() => {
     const graphNow = drawn();
     const shown = graphNow.nodes.length;
-    if (shown === 0) return "No notes yet";
+    if (shown === 0) return "No files yet";
     if (win.folderGraph.query().trim().length > 0) {
-      return `${matching()} of ${shown} notes match`;
+      return `${matching()} of ${shown} files match`;
     }
     if (graphNow.capped) {
-      return `${shown} of ${graphNow.total} notes, the largest linked group`;
+      return `${shown} of ${graphNow.total} files, the largest linked group`;
     }
-    return shown === 1 ? "1 note" : `${shown} notes`;
+    return shown === 1 ? "1 file" : `${shown} files`;
   });
 
   /** What the drawing is, for a reader who is never shown the drawing. */
   const description = () => {
     const shown = drawn().nodes.length;
-    if (shown === 1) return "1 note in this folder and the links between them";
-    return `${shown} notes in this folder and the links between them`;
+    if (shown === 1) return "1 file in this folder and the links between them";
+    return `${shown} files in this folder and the links between them`;
   };
 
   /** The notes a search passed over, which the drawing draws faint. */
@@ -213,8 +213,8 @@ export default function FolderGraphView() {
             type="text"
             ref={field}
             value={win.folderGraph.query()}
-            placeholder="Search notes"
-            aria-label="Search notes"
+            placeholder="Search files"
+            aria-label="Search files"
             spellcheck={false}
             onInput={(event) => win.folderGraph.search(event.currentTarget.value)}
           />

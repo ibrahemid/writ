@@ -156,7 +156,7 @@ describe("a proposal card", () => {
 
     fireEvent.click(apply());
 
-    await waitFor(() => expect(container.textContent).toContain("The note already held this text."));
+    await waitFor(() => expect(container.textContent).toContain("The file already held this text."));
     expect(mocks.chatAttachedSizes).not.toHaveBeenCalled();
   });
 

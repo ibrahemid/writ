@@ -23,17 +23,15 @@ export function byteLabel(bytes: number): string {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
-/** How many notes, as a chip and the send dialog both say it. */
+/** How many files, as a chip and the send dialog both say it. */
 export function noteCount(count: number): string {
-  return count === 1 ? "1 note" : `${count} notes`;
+  return count === 1 ? "1 file" : `${count} files`;
 }
 
 /** What the dialog says is being sent, and where.
  *
  * One file is named, because a person agreeing to send a file wants to know
- * which one. A set is counted, and it is counted in the word that is true of
- * it: a file the chat reaches through its tab is not a note in the folder, and
- * the dialog that asks to send it may not call it one. */
+ * which one. A set is counted. */
 export function sendNotice(host: string, attachments: readonly Attachment[]) {
   const bytes = byteLabel(totalBytes(attachments));
   if (attachments.length === 1) {
@@ -43,11 +41,9 @@ export function sendNotice(host: string, attachments: readonly Attachment[]) {
       message: `${name} (${bytes}) and this message go to ${host} with your API key.`,
     };
   }
-  const outside = attachments.some((note) => isAbsolutePath(note.key ?? note.path));
-  const noun = outside ? "files" : "notes";
   return {
-    title: `Send ${noun} to ${host}?`,
-    message: `${attachments.length} ${noun} (${bytes}) and this message go to ${host} with your API key.`,
+    title: `Send files to ${host}?`,
+    message: `${attachments.length} files (${bytes}) and this message go to ${host} with your API key.`,
   };
 }
 

@@ -269,11 +269,11 @@ describe("the search", () => {
     expect(recorder.discs.every((disc) => disc.alpha === 1)).toBe(true);
 
     recorder.discs = [];
-    fireEvent.input(view.getByLabelText("Search notes"), { target: { value: "alpha" } });
+    fireEvent.input(view.getByLabelText("Search files"), { target: { value: "alpha" } });
 
     expect(recorder.discs.filter((disc) => disc.alpha === 1).length).toBe(1);
     expect(recorder.discs.filter((disc) => disc.alpha === dim).length).toBe(3);
-    expect(view.getByText("1 of 4 notes match")).toBeTruthy();
+    expect(view.getByText("1 of 4 files match")).toBeTruthy();
   });
 
   it("leaves out a link between two notes it did not name", () => {
@@ -284,7 +284,7 @@ describe("the search", () => {
     recorder.lines = 0;
     // "Beta" names one note: the two links that touch it stay, the third,
     // between two notes the search passed over, is not drawn.
-    fireEvent.input(view.getByLabelText("Search notes"), { target: { value: "Beta" } });
+    fireEvent.input(view.getByLabelText("Search files"), { target: { value: "Beta" } });
     expect(recorder.lines).toBe(2);
   });
 });
@@ -338,7 +338,7 @@ describe("a folder too large to draw whole", () => {
       });
 
       const view = render(() => <FolderGraphView />);
-      expect(view.getByText("2000 of 2500 notes, the largest linked group")).toBeTruthy();
+      expect(view.getByText("2000 of 2500 files, the largest linked group")).toBeTruthy();
       expect(recorder.discs.length).toBe(2000);
     },
   );
@@ -346,7 +346,7 @@ describe("a folder too large to draw whole", () => {
   it("counts a folder it can draw whole without saying anything else", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
-    expect(view.getByText("4 notes")).toBeTruthy();
+    expect(view.getByText("4 files")).toBeTruthy();
   });
 });
 
@@ -377,7 +377,7 @@ describe("moving the drawing", () => {
   it("leaves the keys to the search field while it is being typed in", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
-    fireEvent.keyDown(view.getByLabelText("Search notes"), { key: "ArrowLeft" });
+    fireEvent.keyDown(view.getByLabelText("Search files"), { key: "ArrowLeft" });
     expect(folderGraph.pan()).toEqual({ x: 0, y: 0 });
   });
 });
@@ -397,7 +397,7 @@ describe("closing it", () => {
   it("closes on escape from the search field", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
-    const field = view.getByLabelText("Search notes");
+    const field = view.getByLabelText("Search files");
     fireEvent.input(field, { target: { value: "note" } });
     fireEvent.keyDown(field, { key: "Escape" });
     expect(folderGraph.isOpen()).toBe(false);
@@ -422,15 +422,15 @@ describe("what it says when there is nothing to draw", () => {
   it("says the folder is empty rather than drawing one dot", () => {
     setRows({ nodes: [], edges: [] });
     const view = render(() => <FolderGraphView />);
-    expect(view.getByText("No notes yet")).toBeTruthy();
+    expect(view.getByText("No files yet")).toBeTruthy();
     expect(view.container.querySelector("canvas")).toBeNull();
   });
 
   it("says what went wrong when the index could not be read", () => {
     setRows({ nodes: [], edges: [] });
-    h.error = "Could not read what the notes folder holds.";
+    h.error = "Could not read what the folder holds.";
     const view = render(() => <FolderGraphView />);
-    expect(view.getByText("Could not read what the notes folder holds.")).toBeTruthy();
+    expect(view.getByText("Could not read what the folder holds.")).toBeTruthy();
   });
 });
 
@@ -489,7 +489,7 @@ describe("choosing a note from the drawing", () => {
       nodes: [...held.nodes, { path: "Chain/zeta.md", name: "Zeta", folder: "Chain" }],
       edges: held.edges,
     });
-    expect(view.getByText(`${notes.length + 1} notes`)).toBeTruthy();
+    expect(view.getByText(`${notes.length + 1} files`)).toBeTruthy();
     expect(settles.started).toBe(started + 1);
 
     // The same note renamed: the same count of notes and the same links, one
@@ -522,7 +522,7 @@ describe("choosing a note from the drawing", () => {
 
     // The view is left where it was: the note that arrived is one more note in
     // the drawing, not a reason to send the reader back to the whole folder.
-    expect(view.getByText("5 notes")).toBeTruthy();
+    expect(view.getByText("5 files")).toBeTruthy();
     expect(folderGraph.zoom()).toBe(zoom);
     expect(folderGraph.pan()).toEqual(pan);
 

@@ -369,7 +369,7 @@ describe("the chat column", () => {
     windowRegistry.getActive()?.tabs.setActiveTabId("U1");
 
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(0));
-    expect(getByText("Save this note first")).toBeTruthy();
+    expect(getByText("Save this file first")).toBeTruthy();
     expect((container.querySelector(".chat-chip-add") as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -507,7 +507,7 @@ describe("the chat column", () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelector(".chat-empty")).not.toBeNull());
     expect(container.querySelector(".chat-transcript .chat-empty")?.textContent).toBe(
-      "Ask about a note. Apply the change an answer offers, or discard it.",
+      "Ask about a file. Apply the change an answer offers, or discard it.",
     );
   });
 
@@ -557,7 +557,7 @@ describe("the chat column", () => {
     );
     await waitFor(() =>
       expect(container.querySelector(".chat-proposal-verdict")?.textContent).toBe(
-        "Applied. The note is now 16 bytes.",
+        "Applied. The file is now 16 bytes.",
       ),
     );
   });
@@ -657,7 +657,7 @@ describe("the chat column", () => {
     const { container } = open();
 
     await waitFor(() => expect(container.textContent).toContain("Opening this chat."));
-    expect(container.textContent).not.toContain("Ask about a note.");
+    expect(container.textContent).not.toContain("Ask about a file.");
 
     settle({
       id: "c-9",
@@ -668,7 +668,7 @@ describe("the chat column", () => {
       model: "llama3",
       turns: [],
     });
-    await waitFor(() => expect(container.textContent).toContain("Ask about a note."));
+    await waitFor(() => expect(container.textContent).toContain("Ask about a file."));
   });
 
   it("says what a reply could not offer, and which model wrote it", async () => {
@@ -697,10 +697,10 @@ describe("the chat column", () => {
 
     await waitFor(() => expect(container.textContent).toContain("Reply was cut off."));
     expect(container.textContent).toContain(
-      "An offer for Gone.md was not shown: that note is not attached.",
+      "An offer for Gone.md was not shown: that file is not attached.",
     );
     expect(container.textContent).toContain(
-      "An offer for Launch.md was not shown: the same note was offered twice.",
+      "An offer for Launch.md was not shown: the same file was offered twice.",
     );
     expect(container.querySelector(".chat-identity")?.textContent).toBe("llama3 via ollama");
   });

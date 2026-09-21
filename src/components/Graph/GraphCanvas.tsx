@@ -202,8 +202,8 @@ export default function GraphCanvas(props: Props) {
     if (props.label) return props.label;
     const name = focusNode()?.name ?? "";
     const count = neighbourCount();
-    if (count === 1) return `${name} and 1 note it links with`;
-    return `${name} and ${count} notes it links with`;
+    if (count === 1) return `${name} and 1 file it links with`;
+    return `${name} and ${count} files it links with`;
   };
 
   function readPalette(element: HTMLCanvasElement): Palette {

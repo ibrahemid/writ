@@ -301,7 +301,7 @@ describe("SettingsModal sidebar section", () => {
     expect(controls.map((c) => c.dataset.setting)).toEqual(SIDEBAR_SETTINGS);
     expect(controls.map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "true", "true", "true"]);
     expect(controls.map((c) => c.getAttribute("aria-label"))).toEqual([
-      "Show notes",
+      "Show files",
       "Show tags",
       "Show watched folder",
       "Show recently closed",

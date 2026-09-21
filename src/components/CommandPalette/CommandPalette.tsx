@@ -37,7 +37,7 @@ export default function CommandPalette() {
       onClose={() => setIsOpen(false)}
       providers={PROVIDERS}
       initialQuery={seed}
-      placeholder="Type a command or note name"
+      placeholder="Type a command or file name"
       label="Command palette"
       inputLabel="Command search"
     />

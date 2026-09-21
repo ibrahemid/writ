@@ -85,11 +85,11 @@ describe("TabBar new-note button (#46)", () => {
     cleanup();
   });
 
-  it("exposes accessible name 'New note'", () => {
+  it("exposes accessible name 'New file'", () => {
     const { container } = render(() => <TabBar />);
     const newTab = container.querySelector<HTMLButtonElement>(".tab-add");
     expect(newTab).not.toBeNull();
-    expect(newTab!.getAttribute("aria-label")).toBe("New note");
+    expect(newTab!.getAttribute("aria-label")).toBe("New file");
     expect(newTab!.getAttribute("type")).toBe("button");
   });
 
