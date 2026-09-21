@@ -41,7 +41,7 @@ pub(crate) fn note_name(path: &Path) -> String {
 fn note_path(doc: &BufferDocument) -> Result<String, String> {
     doc.source_path
         .clone()
-        .ok_or_else(|| format!("note {} has no file yet", doc.id))
+        .ok_or_else(|| format!("file {} is on disk nowhere yet", doc.id))
 }
 
 /// Renders a note operation's failure for the editor.
@@ -76,7 +76,7 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 /// make it walk anywhere and the note lands in the notes folder. A name
 /// nothing survives from falls back to the dated stem, so this never fails
 /// for want of a name; a name nobody typed at all is
-/// [`writ_core::notes::UNTITLED_STEM`], deduped Finder-style.
+/// [`writ_core::notes::minted_stem`], deduped by counter.
 ///
 /// A name ending in a text extension is minted in that format rather than the
 /// configured one: `Notes.md` asks for Markdown, and the config is the rule
@@ -90,7 +90,7 @@ pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocume
     let unnamed = typed.is_empty();
     let named = writ_core::notes::explicit_extension(typed);
     let stem = if unnamed {
-        writ_core::notes::UNTITLED_STEM.to_string()
+        writ_core::notes::minted_stem(Utc::now())
     } else if let Some((stem, _)) = named {
         // The extension the name spelled is already off, so the strip
         // `note_file_stem_from_link` does would take `Log.md.md` to `Log`.
@@ -103,7 +103,7 @@ pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocume
         None => state.default_extension().as_str(),
     };
     let doc = create_note_at_in(state, &state.notes_root(), &stem, extension)?;
-    // A file nobody named yet is called Untitled, and that is the name the
+    // A file nobody named yet carries a minted name, and that is the name the
     // file's own first line may replace without being asked (ADR-041 §3). A
     // file the person did name is already called what they called it.
     if unnamed {
@@ -200,7 +200,7 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<D
 
 /// What today's note is answered with when its file is here and its text is
 /// still with the sync provider.
-const NOTE_IS_NOT_HERE_YET: &str = "That note is still being downloaded.";
+const NOTE_IS_NOT_HERE_YET: &str = "That file is still being downloaded.";
 
 /// [`open_or_mint_dated_note`] for the menu item and the command that share it.
 pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<BufferDocument, String> {
@@ -249,7 +249,7 @@ pub fn new_note_from_link_inner(state: &AppState, target: &str) -> Result<Buffer
 
 /// What a target is answered with when the folder it names is not in the notes
 /// folder after all.
-const FOLDER_IS_OUTSIDE: &str = "That link points outside the notes folder.";
+const FOLDER_IS_OUTSIDE: &str = "That link points outside your folder.";
 
 /// `folder` if it is inside the notes folder, refused otherwise.
 ///
@@ -834,8 +834,7 @@ fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[Str
 
 /// What the editor says when a delete names a file the notes folder does not
 /// hold.
-const NOT_YOURS_TO_DELETE: &str =
-    "Only notes in your notes folder can be moved to the Trash from here.";
+const NOT_YOURS_TO_DELETE: &str = "Only files in your folder can be moved to the Trash from here.";
 
 /// Moves a note to the operating system's trash and drops its row.
 ///
@@ -1074,15 +1073,15 @@ pub struct MoveNotesOutcome {
 
 /// What Writ says when the folder picked would swallow its own data folder.
 const WOULD_HOLD_WRIT_DATA: &str =
-    "Writ keeps its own data in that folder, so it cannot also be your notes folder.";
+    "Writ keeps its own data in that folder, so it cannot also hold your files.";
 
 /// What Writ says when the folder picked is inside the one being moved.
-const WOULD_HOLD_ITSELF: &str = "Pick a folder outside your notes folder.";
+const WOULD_HOLD_ITSELF: &str = "Pick a folder outside your current one.";
 
 /// What Writ says when the folder picked cannot be resolved to a path it can
 /// ask questions about: it is written relative to a working directory, or it
 /// ends in a `..` that names no folder. The OS folder dialog yields neither.
-const CANNOT_BE_CHECKED: &str = "That folder cannot be your notes folder.";
+const CANNOT_BE_CHECKED: &str = "That folder cannot hold your files.";
 
 /// Writ's own data folder in the spelling a canonical path can be compared
 /// against.
@@ -1318,7 +1317,7 @@ pub async fn pick_notes_folder(app: tauri::AppHandle) -> Result<Option<MoveNotes
     let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
     app.dialog()
         .file()
-        .set_title("Choose a notes folder")
+        .set_title("Choose a folder")
         .pick_folder(move |path| {
             let _ = tx.send(path);
         });
@@ -1411,7 +1410,7 @@ mod tests {
         };
         assert_eq!(
             note_failure_message(&error),
-            "A note named \"Grocery list.md\" is already there."
+            "A file named \"Grocery list.md\" is already there."
         );
         // The command line says the same thing by reading the same function.
         assert_eq!(

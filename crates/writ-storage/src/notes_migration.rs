@@ -902,7 +902,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut names = DirNames::read(dir.path());
         assert_eq!(names.allocate("Notes", "md"), dir.path().join("Notes.md"));
-        assert_eq!(names.allocate("Notes", "md"), dir.path().join("Notes 2.md"));
-        assert_eq!(names.allocate("notes", "md"), dir.path().join("notes 3.md"));
+        assert_eq!(names.allocate("Notes", "md"), dir.path().join("Notes-2.md"));
+        assert_eq!(names.allocate("notes", "md"), dir.path().join("notes-3.md"));
     }
 }

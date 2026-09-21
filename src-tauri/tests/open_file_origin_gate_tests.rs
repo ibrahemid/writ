@@ -375,7 +375,7 @@ fn the_dated_file_name_dedupes_when_todays_note_already_exists() {
     save_buffer_content_inner(&state, &doc.id, "today's").expect("save");
 
     assert_eq!(
-        std::fs::read_to_string(state.notes_root().join(format!("{day} 2.{extension}"))).unwrap(),
+        std::fs::read_to_string(state.notes_root().join(format!("{day}-2.{extension}"))).unwrap(),
         "today's"
     );
     assert_eq!(

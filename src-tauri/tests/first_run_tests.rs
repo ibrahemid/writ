@@ -53,6 +53,15 @@ fn opened_path(note: &writ_core::buffer::document::BufferDocument) -> std::path:
     std::path::PathBuf::from(note.source_path.clone().expect("a file"))
 }
 
+/// The name a file nobody named carries: `writ_core::notes::minted_stem` plus
+/// the format the launch was answered with.
+fn minted(extension: &str) -> String {
+    format!(
+        "{}.{extension}",
+        writ_core::notes::minted_stem(chrono::Utc::now())
+    )
+}
+
 /// Every file and folder directly inside the notes folder, sorted.
 fn notes_folder_entries(state: &AppState) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(state.notes_root())
@@ -90,14 +99,15 @@ fn a_first_launch_creates_one_notes_folder_and_one_file_and_a_second_creates_nei
     );
 
     let note = finish(&first).expect("the first launch opens a file");
+    let first_name = minted("txt");
     assert_eq!(
         notes_folder_entries(&first),
-        vec!["Untitled.txt".to_string()],
-        "exactly one file, untitled, in the format that was chosen"
+        vec![first_name.clone()],
+        "exactly one file, unnamed, in the format that was chosen"
     );
     assert_eq!(
         note.source_path.as_deref().map(std::path::Path::new),
-        Some(notes_root.join("Untitled.txt").as_path())
+        Some(notes_root.join(&first_name).as_path())
     );
     assert!(
         config_file(dir.path()).is_file(),
@@ -110,7 +120,7 @@ fn a_first_launch_creates_one_notes_folder_and_one_file_and_a_second_creates_nei
     assert!(finish(&second).is_none(), "a later launch mints nothing");
     assert_eq!(
         notes_folder_entries(&second),
-        vec!["Untitled.txt".to_string()],
+        vec![first_name],
         "the file from the first launch is the only one, and it is still there"
     );
     assert_eq!(
@@ -135,12 +145,13 @@ fn the_format_the_screen_was_answered_with_is_written_and_is_what_gets_minted() 
         .expect("the screen is answered")
         .expect("the first launch opens a file");
 
+    let name = minted("md");
     assert_eq!(
         notes_folder_entries(&state),
-        vec!["Untitled.md".to_string()],
+        vec![name.clone()],
         "Markdown was chosen, so the file is Markdown"
     );
-    assert_eq!(opened_path(&note).file_name(), Some("Untitled.md".as_ref()));
+    assert_eq!(opened_path(&note).file_name(), Some(name.as_ref()));
 
     let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
     assert_eq!(
@@ -172,7 +183,7 @@ fn answering_the_screen_twice_mints_one_file_and_records_one_answer() {
     );
     assert_eq!(
         notes_folder_entries(&state),
-        vec!["Untitled.txt".to_string()],
+        vec![minted("txt")],
         "no second file beside the one the answer minted"
     );
     assert_eq!(
@@ -183,7 +194,7 @@ fn answering_the_screen_twice_mints_one_file_and_records_one_answer() {
     assert_eq!(state.default_extension(), FileExtension::Txt);
     assert_eq!(
         opened_path(&first).file_name(),
-        Some("Untitled.txt".as_ref())
+        Some(minted("txt").as_ref())
     );
 }
 
@@ -208,7 +219,7 @@ fn a_run_that_could_not_record_the_answer_can_be_answered_again() {
         .expect("the screen is answered")
         .expect("the retry opens a file");
 
-    assert_eq!(opened_path(&note).file_name(), Some("Untitled.md".as_ref()));
+    assert_eq!(opened_path(&note).file_name(), Some(minted("md").as_ref()));
     assert_eq!(state.default_extension(), FileExtension::Md);
 }
 
@@ -234,7 +245,7 @@ fn a_later_launch_records_nothing_and_leaves_the_format_alone() {
     assert_eq!(second.default_extension(), FileExtension::Txt);
     assert_eq!(
         notes_folder_entries(&second),
-        vec!["Untitled.txt".to_string()],
+        vec![minted("txt")],
         "and mints nothing"
     );
 }
@@ -313,9 +324,10 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
         panic!("a note something else has touched is asked about, not renamed");
     };
     assert_eq!(title, "Grocery list");
+    let name = minted("md");
     assert_eq!(
         notes_folder_entries(&state),
-        vec!["Untitled.md".to_string()],
+        vec![name.clone()],
         "nothing moved"
     );
 
@@ -324,7 +336,12 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
     // because something outside Writ already touched the note, which is when
     // a link naming it can exist.
     let journal = state.notes_root().join("Journal.md");
-    std::fs::write(&journal, "see [[Untitled]]\n").expect("a note that links to it");
+    let stem = std::path::Path::new(&name)
+        .file_stem()
+        .expect("a stem")
+        .to_string_lossy()
+        .into_owned();
+    std::fs::write(&journal, format!("see [[{stem}]]\n")).expect("a file that links to it");
     state
         .notes_index
         .reconcile(&state.notes_root(), &|| false, &|_| false)
@@ -362,10 +379,7 @@ fn a_file_with_no_first_line_yet_is_left_alone() {
         auto_retitle_note_inner(&state, &note.id).expect("retitle"),
         RetitleOutcome::NotYet
     ));
-    assert_eq!(
-        notes_folder_entries(&state),
-        vec!["Untitled.txt".to_string()]
-    );
+    assert_eq!(notes_folder_entries(&state), vec![minted("txt")]);
 }
 
 #[test]
@@ -382,10 +396,7 @@ fn a_file_that_opens_with_frontmatter_keeps_its_name() {
         auto_retitle_note_inner(&state, &note.id).expect("retitle"),
         RetitleOutcome::Skipped
     ));
-    assert_eq!(
-        notes_folder_entries(&state),
-        vec!["Untitled.txt".to_string()]
-    );
+    assert_eq!(notes_folder_entries(&state), vec![minted("txt")]);
 }
 
 #[test]
@@ -406,7 +417,7 @@ fn a_launch_nobody_typed_in_still_records_itself_and_keeps_the_hint() {
     assert!(finish(&second).is_none(), "a later launch mints nothing");
     assert_eq!(
         notes_folder_entries(&second),
-        vec!["Untitled.txt".to_string()],
+        vec![minted("txt")],
         "one file, from the launch that made it"
     );
 }

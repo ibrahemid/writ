@@ -283,7 +283,7 @@ pub enum ChatError {
     #[error("Choose a chat model in AI settings.")]
     ModelRequired,
     /// The send notice for this host has not been accepted.
-    #[error("Confirm sending notes to {host} first.")]
+    #[error("Confirm sending your files to {host} first.")]
     ConsentRequired {
         /// The host awaiting consent, as stored in `consented_hosts`.
         host: String,

@@ -53,7 +53,7 @@ pub enum ConflictPolicy {
 /// the caller says which one it means rather than the folder deciding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TakenName {
-    /// Mint `Launch 2.md` beside `Launch.md`. What a person who asked for a
+    /// Mint `Launch-2.md` beside `Launch.md`. What a person who asked for a
     /// new note wants: the note appears, and the note already there is left
     /// alone.
     Dedupe,
@@ -338,7 +338,7 @@ pub fn create_note_guarded(
     let name =
         writ_core::notes::dedupe_file_name(stem, req.extension, &taken_names(req.notes_root));
     // The name in the error is the one the caller asked for, not the one the
-    // dedupe would have picked: a caller told `Launch 2.md` is taken is being
+    // dedupe would have picked: a caller told `Launch-2.md` is taken is being
     // told about a name it never mentioned.
     if req.on_taken_name == TakenName::Refuse && name != asked_for {
         return Err(StorageError::NoteNameTaken {
@@ -475,7 +475,7 @@ fn refuse(
 ///
 /// This is what keeps a refused save from ending with the user's text nowhere
 /// (ADR-028 §5). The name comes from [`writ_core::notes::conflict_file_name`]
-/// and dedupes Finder-style, so two refusals inside the same second produce
+/// and dedupes by counter, so two refusals inside the same second produce
 /// two files rather than one overwriting the other.
 ///
 /// # Errors

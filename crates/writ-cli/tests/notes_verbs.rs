@@ -438,7 +438,7 @@ fn a_name_no_note_answers_to_fails_with_a_plain_line() {
     let output = fixture.indexed().run(&["links", "Nowhere"]);
 
     assert_eq!(code(&output), 1);
-    assert_eq!(stderr(&output), "writ: no note called Nowhere\n");
+    assert_eq!(stderr(&output), "writ: nothing called Nowhere\n");
     assert_eq!(stdout(&output), "");
 }
 
@@ -449,7 +449,7 @@ fn a_name_two_notes_answer_to_is_refused_with_both() {
 
     assert_eq!(code(&output), 1);
     let said = stderr(&output);
-    assert!(said.contains("names more than one note"), "{said}");
+    assert!(said.contains("names more than one file"), "{said}");
     assert_eq!(said.matches("Dup.md").count(), 2, "{said}");
 }
 
@@ -463,10 +463,7 @@ fn a_missing_index_is_one_plain_line_and_a_nonzero_exit() {
     assert_eq!(code(&output), 1);
     assert_eq!(stdout(&output), "");
     let said = stderr(&output);
-    assert!(
-        said.starts_with("writ: there is no note index at "),
-        "{said}"
-    );
+    assert!(said.starts_with("writ: there is no index at "), "{said}");
     assert!(
         !fixture.db_path().exists(),
         "the failed read created the database"
@@ -488,7 +485,7 @@ fn an_index_from_an_older_schema_is_refused() {
     let output = fixture.run(&["links", "One"]);
     assert_eq!(code(&output), 1);
     assert!(
-        stderr(&output).contains("the note index is at version"),
+        stderr(&output).contains("the index is at version"),
         "{}",
         stderr(&output)
     );
@@ -527,7 +524,7 @@ fn a_file_that_is_not_a_database_is_not_called_stale() {
     let output = fixture.run(&["tags"]);
     assert_eq!(code(&output), 1);
     let said = stderr(&output);
-    assert!(said.contains("could not be read as a note index"), "{said}");
+    assert!(said.contains("could not be read as an index"), "{said}");
     assert!(
         !said.contains("brings it up to date"),
         "a corrupt file was reported as one the app migrates: {said}"
@@ -547,7 +544,7 @@ fn an_empty_file_where_the_index_should_be_is_not_called_stale() {
     // An empty file is a valid empty database to SQLite, so it has no
     // schema_version table and reads as unreadable rather than as version 0.
     assert!(
-        stderr(&output).contains("could not be read as a note index"),
+        stderr(&output).contains("could not be read as an index"),
         "{}",
         stderr(&output)
     );
@@ -624,7 +621,7 @@ fn a_note_held_by_name_alone_says_so_rather_than_reading_as_empty() {
     assert_eq!(stdout(&output), "");
     assert_eq!(
         stderr(&output),
-        "writ: this note has no data on this machine, so nothing was read out of it\n"
+        "writ: this file has no data on this machine, so nothing was read out of it\n"
     );
 }
 
@@ -676,7 +673,7 @@ fn new_dedupes_against_what_the_folder_already_holds() {
     fixture.defaults_to_markdown();
     assert_eq!(
         PathBuf::from(stdout(&fixture.run(&["new", "One"])).trim()).file_name(),
-        fixture.notes.join("One 2.md").file_name()
+        fixture.notes.join("One-2.md").file_name()
     );
 }
 
@@ -743,7 +740,7 @@ fn new_beside_a_decomposed_name_mints_rather_than_refusing() {
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     assert_eq!(
         PathBuf::from(stdout(&output).trim()).file_name(),
-        fixture.notes.join("Café 2.md").file_name()
+        fixture.notes.join("Café-2.md").file_name()
     );
     assert_eq!(
         std::fs::read_to_string(&decomposed).expect("read"),
@@ -752,30 +749,49 @@ fn new_beside_a_decomposed_name_mints_rather_than_refusing() {
     );
 }
 
+/// The file stem `writ new` printed a path to.
+fn printed_stem(output: &std::process::Output) -> String {
+    PathBuf::from(stdout(output).trim())
+        .file_stem()
+        .expect("a stem")
+        .to_string_lossy()
+        .into_owned()
+}
+
 #[test]
-fn new_with_no_name_makes_an_untitled_note() {
+fn new_with_no_name_mints_the_timestamped_name() {
     let fixture = Fixture::new();
     let output = fixture.run(&["new"]);
 
     assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let stem = printed_stem(&output);
     assert_eq!(
-        PathBuf::from(stdout(&output).trim()).file_name(),
-        fixture.notes.join("Untitled.txt").file_name(),
-        "the same name the window's own New Note makes"
+        stem,
+        writ_core::notes::minted_stem(chrono::Utc::now()),
+        "the same name the window's own New File makes"
+    );
+    assert_eq!(
+        PathBuf::from(stdout(&output).trim()).extension(),
+        Some("txt".as_ref())
     );
 }
 
 #[test]
-fn a_second_untitled_note_is_deduped_rather_than_written_over() {
+fn a_second_unnamed_file_is_deduped_rather_than_written_over() {
     let fixture = Fixture::new();
-    fixture.run(&["new"]);
+    let first = printed_stem(&fixture.run(&["new"]));
     let output = fixture.run(&["new"]);
 
     assert_eq!(code(&output), 0, "{}", stderr(&output));
-    assert_eq!(
-        PathBuf::from(stdout(&output).trim()).file_name(),
-        fixture.notes.join("Untitled 2.txt").file_name()
-    );
+    let second = printed_stem(&output);
+    assert_ne!(second, first, "the second file landed on the first");
+    // Both mints are in the same minute unless the two runs straddled one, in
+    // which case the second is a fresh name rather than a deduped one.
+    if second.starts_with(&first) {
+        assert_eq!(second, format!("{first}-2"));
+    } else {
+        assert!(writ_core::notes::is_minted_title(&second), "{second}");
+    }
 }
 
 #[test]
@@ -1005,7 +1021,7 @@ fn renaming_a_note_that_is_not_there_is_refused() {
     let output = fixture.run(&["rename", "Nowhere", "Somewhere"]);
 
     assert_eq!(code(&output), 1);
-    assert_eq!(stderr(&output), "writ: no note called Nowhere\n");
+    assert_eq!(stderr(&output), "writ: nothing called Nowhere\n");
 }
 
 #[test]
@@ -1027,7 +1043,7 @@ fn trashing_a_note_that_is_not_there_is_refused() {
     let output = fixture.run(&["trash", "Nowhere"]);
 
     assert_eq!(code(&output), 1);
-    assert_eq!(stderr(&output), "writ: no note called Nowhere\n");
+    assert_eq!(stderr(&output), "writ: nothing called Nowhere\n");
 }
 
 // ----------------------------------------------------------------- usage
@@ -1039,7 +1055,7 @@ fn a_verb_with_no_note_prints_usage_and_exits_two() {
 
     assert_eq!(code(&output), 2);
     let said = stderr(&output);
-    assert!(said.contains("writ links needs a note"), "{said}");
+    assert!(said.contains("writ links needs a file"), "{said}");
     assert!(said.contains("Usage: writ <verb>"), "{said}");
 }
 

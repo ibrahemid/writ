@@ -7,7 +7,7 @@
 //!
 //! The notes folder is resolved by `writ_core::notes::resolve_notes_root_from`,
 //! the function the app resolves it with. The launch path keeps its own
-//! Finder-style dedupe, which mirrors `writ_core::notes` rather than calling it;
+//! counter dedupe, which mirrors `writ_core::notes` rather than calling it;
 //! `writ_core::notes::sanitize_title` is the authority on what a title may
 //! become as a filename, the sanitiser here is the conservative subset the CLI
 //! has always applied, and the app re-sanitises anything it opens.
@@ -327,7 +327,7 @@ pub fn resolve_notes_dir(
 ///
 /// A payload with no title is named for the local calendar day, which is what
 /// the app names an untitled note. `extension` is the configured one
-/// ([`read_files_config`]). The name dedupes Finder-style against what the
+/// ([`read_files_config`]). The name dedupes against what the
 /// folder already holds, so piping twice on one day produces two notes rather
 /// than one overwriting the other.
 pub fn piped_note_path(
@@ -347,7 +347,7 @@ pub fn piped_note_path(
     ))
 }
 
-/// Finder-style dedupe: `stem.txt`, `stem 2.txt`, `stem 3.txt`, and so on.
+/// Dedupe by counter: `stem.txt`, `stem-2.txt`, `stem-3.txt`, and so on.
 ///
 /// `taken` holds lowercased file names including the extension, so the check
 /// is case-insensitive the way APFS and NTFS are. Mirrors
@@ -359,7 +359,7 @@ fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) -> Str
     }
     let mut counter: u64 = 2;
     loop {
-        let candidate = format!("{stem} {counter}.{extension}");
+        let candidate = format!("{stem}-{counter}.{extension}");
         if !taken.contains(&candidate.to_lowercase()) {
             return candidate;
         }
@@ -559,11 +559,11 @@ mod tests {
     fn piped_note_path_dedupes() {
         let dir = TempDir::new().unwrap();
         touch(&dir.path().join("my notes.txt"));
-        touch(&dir.path().join("my notes 2.txt"));
+        touch(&dir.path().join("my notes-2.txt"));
 
         assert_eq!(
             piped_note_path(dir.path(), Some("my notes"), noon(), FileExtension::Txt),
-            dir.path().join("my notes 3.txt")
+            dir.path().join("my notes-3.txt")
         );
     }
 

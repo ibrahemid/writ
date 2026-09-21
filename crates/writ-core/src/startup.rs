@@ -482,7 +482,7 @@ pub fn classify_data_dir(
 fn sync_refusal_message(root: &Path, service: &str) -> String {
     format!(
         "Writ's data folder is inside {}, which {} syncs. A synced folder can damage the database \
-         and lose notes, so Writ will not start there. Set WRIT_DATA_DIR to a folder outside {}, \
+         and lose text, so Writ will not start there. Set WRIT_DATA_DIR to a folder outside {}, \
          then start Writ again.",
         root.display(),
         service,
@@ -502,9 +502,9 @@ pub fn data_dir_refusal_message(verdict: &DataDirVerdict) -> String {
         }
         DataDirVerdict::InsideSyncContainer { name, root } => sync_refusal_message(root, name),
         DataDirVerdict::InsideNotesFolder { notes_root } => format!(
-            "Writ's data folder and your notes folder, {}, overlap. The database and your notes \
-             cannot share a folder. Set WRIT_DATA_DIR to a folder outside your notes folder, or \
-             pick another notes folder in Settings, then start Writ again.",
+            "Writ's data folder and your folder, {}, overlap. The database and your files \
+             cannot share a folder. Set WRIT_DATA_DIR to a folder outside your folder, or pick \
+             another folder in Settings, then start Writ again.",
             notes_root.display()
         ),
     }

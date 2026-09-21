@@ -31,7 +31,7 @@ use crate::workspace_search::build_walk;
 /// `extension`.
 ///
 /// `stem` is already sanitised ([`writ_core::notes::note_file_stem`]); the
-/// name is deduped Finder-style against what the folder holds. `extension` is
+/// name is deduped by counter against what the folder holds. `extension` is
 /// the caller's configured one ([`writ_core::config::FilesConfig`]) — this
 /// module reads no config, so every mint is told which format it is making
 /// (ADR-041 §2). The file exists on return, which is the whole point: a new
@@ -98,10 +98,14 @@ pub fn save_copy(
     )
 }
 
-/// Renames a note to `new_stem`, keeping its extension and its folder.
+/// Renames a note to `new_stem`, in its own folder.
 ///
-/// A file with no extension keeps none: the stem changes and nothing else,
-/// which is the rule for every rename (ADR-041 §2).
+/// A name that spells its own format takes it: `Untitled 9.md` on a `.txt`
+/// file is `Untitled 9.md`, because a name ending in a text extension
+/// ([`writ_core::notes::explicit_extension`]) answers the format question the
+/// config otherwise answers. Every other name keeps the file's own extension,
+/// and a file with no extension keeps none: `Draft.rtf` spells no format Writ
+/// mints, so it is a stem and a `.txt` file renamed to it is `Draft.rtf.txt`.
 ///
 /// `new_stem` is already sanitised. The move is refused rather than performed
 /// when the name is empty, when the folder already holds that name, or when
@@ -144,10 +148,15 @@ pub fn rename_note(
     let folder = from.parent().ok_or_else(|| StorageError::Consistency {
         message: format!("{} has no folder to be renamed inside", from.display()),
     })?;
-    let extension = from
-        .extension()
-        .map(|ext| ext.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let (new_stem, extension) = match writ_core::notes::explicit_extension(new_stem) {
+        Some((stem, extension)) => (stem.trim(), extension.to_string()),
+        None => (
+            new_stem,
+            from.extension()
+                .map(|ext| ext.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+        ),
+    };
     let name = join_name(new_stem, &extension);
     let to = folder.join(&name);
 

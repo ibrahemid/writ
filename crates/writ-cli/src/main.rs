@@ -23,7 +23,7 @@ use writ_cli::{is_failed_startup, resolve_gui_binary, GuiLaunch, GUI_BIN_ENV};
 #[cfg(target_os = "macos")]
 const MACOS_BUNDLE_ID: &str = "com.writ.editor";
 
-const ENV_HELP: &str = "Environment:\n  WRIT_GUI_BIN  Path to the Writ application binary. Read on Linux and Windows,\n                where it takes precedence over the binary installed next to\n                this one.\n  WRIT_NOTES_DIR  The notes folder to read and write, overriding the setting.\n  WRIT_DATA_DIR   The folder holding writ.db and config.toml.";
+const ENV_HELP: &str = "Environment:\n  WRIT_GUI_BIN  Path to the Writ application binary. Read on Linux and Windows,\n                where it takes precedence over the binary installed next to\n                this one.\n  WRIT_NOTES_DIR  The folder to read and write, overriding the setting.\n  WRIT_DATA_DIR   The folder holding writ.db and config.toml.";
 
 #[derive(Parser)]
 #[command(

@@ -38,13 +38,6 @@ pub mod write_origin;
 
 pub use write_origin::WriteOrigin;
 
-/// The stem of a file nobody has named yet.
-///
-/// A new file and the file the first launch opens are both this, deduped
-/// Finder-style against what the folder holds, so a second one is `Untitled 2`
-/// (ADR-041 §3). The date belongs to Today's Note and to nothing else.
-pub const UNTITLED_STEM: &str = "Untitled";
-
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -74,7 +67,7 @@ pub enum NotesRootError {
     NoHome,
     /// The path is relative, which would make the folder depend on the process
     /// working directory.
-    #[error("the notes folder path must be absolute: {path}")]
+    #[error("the folder path must be absolute: {path}")]
     NotAbsolute {
         /// The path as configured.
         path: String,
@@ -302,7 +295,7 @@ pub const NAME_IS_EMPTY: &str = "That name is empty.";
 /// What a folder that already holds `name` is answered with, said once for
 /// every surface that mints or renames a note.
 pub fn name_is_taken(name: &str) -> String {
-    format!("A note named \"{name}\" is already there.")
+    format!("A file named \"{name}\" is already there.")
 }
 
 /// The filename stem a typed name earns when renaming `current`, with the
@@ -343,6 +336,21 @@ pub fn rename_stem(current: &Path, typed: &str) -> Option<String> {
 /// user has not reached yet reads as a bug.
 pub fn date_stem(now: DateTime<Utc>) -> String {
     now.with_timezone(&Local).format("%Y-%m-%d").to_string()
+}
+
+/// The stem of a file nobody has named yet: `writ-<yymmdd>-<hhmm>` in the
+/// local clock, so `writ-260921-0748`.
+///
+/// A new file, the file the first launch opens and `writ new` with no name all
+/// mint this one, deduped against what the folder holds, so a second file in
+/// the same minute is `writ-260921-0748-2`. The name carries no space, so
+/// nothing Writ mints has one, and [`is_minted_title`] reads it back as a name
+/// nobody typed: the file's own first line may replace it. The dated name
+/// belongs to Today's File and to nothing else.
+pub fn minted_stem(now: DateTime<Utc>) -> String {
+    now.with_timezone(&Local)
+        .format("writ-%y%m%d-%H%M")
+        .to_string()
 }
 
 /// Whether `title` is one Writ minted rather than one a person typed.
@@ -457,7 +465,11 @@ pub fn note_location_from_link(target: &str, dated_from: DateTime<Utc>) -> NoteL
     }
 }
 
-/// Finder-style dedupe: `stem`, `stem 2`, `stem 3`, and so on.
+/// Dedupe by counter: `stem`, `stem-2`, `stem-3`, and so on.
+///
+/// The counter is hyphenated rather than spaced, because Writ introduces no
+/// space into a name it mints; a name the person typed keeps whatever spaces
+/// they typed.
 ///
 /// `taken` holds file *names* including their extension, in whatever case and
 /// whatever Unicode normalisation the folder listing gave them. Both sides go
@@ -475,7 +487,7 @@ pub fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) ->
 
     let mut counter: u64 = 2;
     loop {
-        let candidate = join_name(&format!("{stem} {counter}"), extension);
+        let candidate = join_name(&format!("{stem}-{counter}"), extension);
         if !taken.contains(&links::name_key(&candidate)) {
             return candidate;
         }

@@ -38,6 +38,9 @@ const BANNED: &[&str] = &[
     "MiB",
     "syntax highlighting",
     "typography",
+    // ADR-041 §1 and decision C1: Writ is a text app, so a message names a
+    // file. `word_forms` inflects the stem, so "notes" is this entry too.
+    "note",
 ];
 
 /// Where the messages are written. The first element is the path from
@@ -110,6 +113,114 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
         line: 111,
         word: "buffer",
         note: "row lookup error, release 0.6",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/chat.rs",
+        line: 423,
+        word: "note",
+        note: "model-facing system prompt, not app copy",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/chat.rs",
+        line: 432,
+        word: "note",
+        note: "model-facing body placeholder, not app copy",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/chat.rs",
+        line: 436,
+        word: "note",
+        note: "the body placeholder older conversations were written with",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/chat.rs",
+        line: 439,
+        word: "note",
+        note: "example path inside the model-facing prompt",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/chat.rs",
+        line: 453,
+        word: "note",
+        note: "model-facing offer instructions, not app copy",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/chat.rs",
+        line: 457,
+        word: "note",
+        note: "model-facing offer instructions, not app copy",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/chat.rs",
+        line: 477,
+        word: "note",
+        note: "model-facing offer instructions, not app copy",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/chat.rs",
+        line: 514,
+        word: "note",
+        note: "attachment tag the model reads; renaming it breaks parsing",
+    },
+    AllowedString {
+        file: "crates/writ-core/src/polish.rs",
+        line: 205,
+        word: "note",
+        note: "model-facing rewrite prompt: \"notes\" means asides in the answer",
+    },
+    AllowedString {
+        file: "crates/writ-mcp/src/server.rs",
+        line: 25,
+        word: "note",
+        note: "MCP server instructions, out of the copy sweep (decision C1)",
+    },
+    AllowedString {
+        file: "crates/writ-mcp/src/tools.rs",
+        line: 97,
+        word: "note",
+        note: "MCP tool error, read by a program rather than a person",
+    },
+    AllowedString {
+        file: "crates/writ-mcp/src/tools.rs",
+        line: 103,
+        word: "note",
+        note: "MCP tool error, read by a program rather than a person",
+    },
+    AllowedString {
+        file: "crates/writ-mcp/src/tools.rs",
+        line: 106,
+        word: "note",
+        note: "MCP tool error, read by a program rather than a person",
+    },
+    AllowedString {
+        file: "src-tauri/src/commands/chat.rs",
+        line: 976,
+        word: "note",
+        note: "debug_assert text, never rendered",
+    },
+    AllowedString {
+        file: "src-tauri/src/commands/notes.rs",
+        line: 1250,
+        word: "note",
+        note: "log line the prefix test misses inside a multi-line macro",
+    },
+    AllowedString {
+        file: "src-tauri/src/lib.rs",
+        line: 290,
+        word: "note",
+        note: "log line the prefix test misses inside a multi-line macro",
+    },
+    AllowedString {
+        file: "src-tauri/src/state.rs",
+        line: 415,
+        word: "note",
+        note: "log line the prefix test misses inside a multi-line macro",
+    },
+    AllowedString {
+        file: "src-tauri/src/state.rs",
+        line: 473,
+        word: "note",
+        note: "log line the prefix test misses inside a multi-line macro",
     },
 ];
 
@@ -410,11 +521,48 @@ fn word_forms(word: &str) -> Vec<String> {
     forms
 }
 
+/// The literal without its format placeholders.
+///
+/// `format!("{note} is not text.")` renders a file name, not the word: the
+/// name inside the braces is an identifier the reader never sees, and matching
+/// it reports a violation that does not exist. `{{` and `}}` are an escaped
+/// brace rather than a placeholder and stay.
+fn without_placeholders(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let bytes = value.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' if bytes.get(i + 1) == Some(&b'{') => {
+                out.push('{');
+                i += 2;
+            }
+            b'}' if bytes.get(i + 1) == Some(&b'}') => {
+                out.push('}');
+                i += 2;
+            }
+            b'{' => {
+                // An unclosed brace swallows the rest, which is what the
+                // formatter would refuse to compile in the first place.
+                let end = value[i..].find('}').map_or(bytes.len(), |at| i + at + 1);
+                out.push(' ');
+                i = end;
+            }
+            _ => {
+                let ch = value[i..].chars().next().expect("a char boundary");
+                out.push(ch);
+                i += ch.len_utf8();
+            }
+        }
+    }
+    out
+}
+
 /// A case-insensitive whole-word match against every form of the word:
 /// "Search buffers…", "refusing" and "syntax-highlighting" are the same
 /// violations as "buffer", "refuse" and "syntax highlighting".
 fn contains_banned_word(text: &str, word: &str) -> bool {
-    let hay: String = text
+    let hay: String = without_placeholders(text)
         .to_lowercase()
         .chars()
         .map(|c| if c == '-' { ' ' } else { c })

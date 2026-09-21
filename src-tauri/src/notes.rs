@@ -18,7 +18,7 @@ use writ_core::config::FileExtension;
 /// `extension`.
 ///
 /// Dated when the title names nothing, sanitised for all three platforms, and
-/// deduped Finder-style against what the folder already holds. `extension` is
+/// deduped by counter against what the folder already holds. `extension` is
 /// the configured one (ADR-041 §2), so a file that reaches its name here is
 /// the format every other mint makes. The file is not created: the save that
 /// follows writes it, and creating it here would leave an empty file behind
@@ -128,7 +128,7 @@ mod tests {
         let root = TempDir::new().unwrap();
         std::fs::write(root.path().join("Notes.txt"), "first").unwrap();
         let path = mint_note_path(root.path(), "Notes", day(), FileExtension::Txt);
-        assert_eq!(path, root.path().join("Notes 2.txt"));
+        assert_eq!(path, root.path().join("Notes-2.txt"));
     }
 
     #[test]

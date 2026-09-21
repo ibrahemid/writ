@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use writ_core::config::FileExtension;
 use writ_core::notes::links::Resolution;
 use writ_core::notes::{
-    name_is_taken, note_display_name, note_file_stem, rename_stem, WriteOrigin, NAME_IS_EMPTY,
-    UNTITLED_STEM,
+    minted_stem, name_is_taken, note_display_name, note_file_stem, rename_stem, WriteOrigin,
+    NAME_IS_EMPTY,
 };
 use writ_storage::database::migrations::binary_schema_version;
 use writ_storage::errors::StorageError;
@@ -106,16 +106,16 @@ pub fn usage() -> String {
     [
         "Usage: writ <verb> [arguments]",
         "",
-        "  writ links <note> [--json]        links written in a note",
-        "  writ backlinks <note> [--json]    links in other notes pointing at it",
-        "  writ properties <note> [--json]   the note's frontmatter properties",
-        "  writ tags [<note>] [--json]       a note's tags, or every tag in the notes folder",
-        "  writ new [<name>] [--json]        create a note in the notes folder",
-        "  writ rename <note> <new-name>     rename a note, keeping its folder",
-        "  writ trash <note>                 move a note to the trash",
+        "  writ links <file> [--json]        links written in a file",
+        "  writ backlinks <file> [--json]    links in other files pointing at it",
+        "  writ properties <file> [--json]   the file's frontmatter properties",
+        "  writ tags [<file>] [--json]       a file's tags, or every tag in the folder",
+        "  writ new [<name>] [--json]        create a file in your folder",
+        "  writ rename <file> <new-name>     rename a file, keeping its folder",
+        "  writ trash <file>                 move a file to the trash",
         "",
-        "A <note> is a path, or the name of a note in the notes folder.",
-        "rename does not yet rewrite links that name the note by its old name.",
+        "A <file> is a path, or the name of a file in your folder.",
+        "rename does not yet rewrite links that name the file by its old name.",
         "Exit codes: 0 read, 1 nothing to read or the operation failed, 2 bad arguments.",
         "",
         "Open a file instead: writ <path>",
@@ -172,7 +172,7 @@ fn parse_verb(name: &str, rest: &[OsString]) -> Result<Verb, UsageError> {
             if positional.len() > 1 {
                 return Err(too_many());
             }
-            let note = positional.pop().ok_or_else(|| missing("a note"))?;
+            let note = positional.pop().ok_or_else(|| missing("a file"))?;
             Ok(match name {
                 "links" => Verb::Links { note, json },
                 "backlinks" => Verb::Backlinks { note, json },
@@ -203,7 +203,7 @@ fn parse_verb(name: &str, rest: &[OsString]) -> Result<Verb, UsageError> {
                 return Err(too_many());
             }
             let mut args = positional.into_iter();
-            let note = args.next().ok_or_else(|| missing("a note"))?;
+            let note = args.next().ok_or_else(|| missing("a file"))?;
             let new_name = args.next().ok_or_else(|| missing("a new name"))?;
             Ok(Verb::Rename {
                 note,
@@ -307,22 +307,22 @@ impl std::fmt::Display for IndexError {
         match self {
             IndexError::Absent(path) => write!(
                 f,
-                "there is no note index at {}. Writ builds one the first time it runs.",
+                "there is no index at {}. Writ builds one the first time it runs.",
                 path.display()
             ),
             IndexError::Older { db, binary } => write!(
                 f,
-                "the note index is at version {db} and this writ reads version {binary}. \
+                "the index is at version {db} and this writ reads version {binary}. \
                  Writ brings it up to date the next time it runs."
             ),
             IndexError::Newer { db, binary } => write!(
                 f,
-                "the note index is at version {db}, past the version {binary} this writ reads. \
+                "the index is at version {db}, past the version {binary} this writ reads. \
                  It was written by a newer Writ."
             ),
             IndexError::Unreadable(path) => write!(
                 f,
-                "the file at {} could not be read as a note index.",
+                "the file at {} could not be read as an index.",
                 path.display()
             ),
         }
@@ -401,12 +401,12 @@ fn note_key(arg: &str, store: &NotesIndexStore, ctx: &Context) -> Result<String,
     }
     let candidates = store
         .candidate_paths(arg)
-        .map_err(|error| format!("the note index could not be read: {error}"))?;
+        .map_err(|error| format!("the index could not be read: {error}"))?;
     match candidates.len() {
-        0 => Err(format!("no note called {arg}")),
+        0 => Err(format!("nothing called {arg}")),
         1 => Ok(candidates.into_iter().next().unwrap_or_default()),
         _ => Err(format!(
-            "{arg} names more than one note:\n{}",
+            "{arg} names more than one file:\n{}",
             candidates
                 .iter()
                 .map(|path| format!("  {path}"))
@@ -447,11 +447,11 @@ fn read_verb(
         Ok(Some(indexed_by)) => indexed_by,
         Ok(None) => {
             return Outcome::failed(format!(
-                "the note index does not hold {key}. It picks the note up on the next pass over \
-                 the notes folder."
+                "the index does not hold {key}. It picks the file up on the next pass over \
+                 the folder."
             ))
         }
-        Err(error) => return Outcome::failed(format!("the note index could not be read: {error}")),
+        Err(error) => return Outcome::failed(format!("the index could not be read: {error}")),
     };
 
     let document = match build(&store, &key, indexed_by) {
@@ -479,7 +479,7 @@ fn read_verb(
 fn name_only_caveat(indexed_by: IndexedBy) -> Option<String> {
     match indexed_by {
         IndexedBy::Name => {
-            Some("this note has no data on this machine, so nothing was read out of it".to_string())
+            Some("this file has no data on this machine, so nothing was read out of it".to_string())
         }
         IndexedBy::Content => None,
     }
@@ -492,7 +492,7 @@ fn links_document(
 ) -> Result<Document, String> {
     let rows = store
         .links_from(key)
-        .map_err(|error| format!("the note index could not be read: {error}"))?;
+        .map_err(|error| format!("the index could not be read: {error}"))?;
 
     let mut human = String::new();
     let mut json = Vec::new();
@@ -504,7 +504,7 @@ fn links_document(
                 Ok(Resolution::Ambiguous(candidates)) => ("ambiguous", None, candidates),
                 Ok(Resolution::Missing) => ("unresolved", None, Vec::new()),
                 Err(error) => {
-                    return Err(format!("the note index could not be read: {error}"));
+                    return Err(format!("the index could not be read: {error}"));
                 }
             },
         };
@@ -546,7 +546,7 @@ fn backlinks_document(
 ) -> Result<Document, String> {
     let rows = store
         .backlinks(key)
-        .map_err(|error| format!("the note index could not be read: {error}"))?;
+        .map_err(|error| format!("the index could not be read: {error}"))?;
 
     let mut human = String::new();
     let mut json = Vec::new();
@@ -591,7 +591,7 @@ fn properties_document(
 ) -> Result<Document, String> {
     let facts = store
         .facts(key)
-        .map_err(|error| format!("the note index could not be read: {error}"))?;
+        .map_err(|error| format!("the index could not be read: {error}"))?;
 
     let mut human = String::new();
     let mut json = Vec::new();
@@ -618,7 +618,7 @@ fn note_tags_document(
 ) -> Result<Document, String> {
     let facts = store
         .facts(key)
-        .map_err(|error| format!("the note index could not be read: {error}"))?;
+        .map_err(|error| format!("the index could not be read: {error}"))?;
 
     let mut human = String::new();
     let mut json = Vec::new();
@@ -642,7 +642,7 @@ fn folder_tags(json: bool, ctx: &Context) -> Outcome {
     };
     let rows = match store.all_tags() {
         Ok(rows) => rows,
-        Err(error) => return Outcome::failed(format!("the note index could not be read: {error}")),
+        Err(error) => return Outcome::failed(format!("the index could not be read: {error}")),
     };
 
     if json {
@@ -725,7 +725,7 @@ fn plain_storage_reason(error: &StorageError) -> String {
         StorageError::NoteTrash { .. } => {
             "The operating system would not move it to the trash, so it is still there.".to_string()
         }
-        _ => "The note could not be changed.".to_string(),
+        _ => "The file could not be changed.".to_string(),
     }
 }
 
@@ -746,7 +746,7 @@ fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
 /// Creates an empty note in the notes folder and prints its path.
 ///
 /// `note_ops::create_note` does the work, so the file is minted by the code the
-/// app's New Note runs: one sanitiser, one Finder-style dedupe, and the atomic
+/// app's New Note runs: one sanitiser, one counter dedupe, and the atomic
 /// guarded write that is the only way a note reaches disk (ADR-028). A name
 /// that survives sanitising to nothing is dated, which is what an untitled note
 /// is called.
@@ -755,15 +755,15 @@ fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
 /// write back as somebody else's, and from another process there is nothing to
 /// suppress.
 ///
-/// A note nobody named is `Untitled`, deduped Finder-style, which is what the
-/// window's own New Note makes (ADR-041 §3, decision D-a). The date belongs to
-/// Today's Note, and a name that was given and survives sanitising to nothing
-/// still falls back to it.
+/// A file nobody named carries a minted name, `writ-<yymmdd>-<hhmm>` deduped
+/// by counter, which is what the window's own New File makes (ADR-041 §3). The
+/// date belongs to Today's File, and a name that was given and survives
+/// sanitising to nothing still falls back to it.
 fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
     let named = name.map(str::trim).filter(|name| !name.is_empty());
     let stem = match named {
         Some(name) => note_file_stem(name, ctx.now),
-        None => UNTITLED_STEM.to_string(),
+        None => minted_stem(ctx.now),
     };
     match note_ops::create_note(
         &ctx.notes_dir,
@@ -774,7 +774,7 @@ fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
     ) {
         Ok(path) => path_outcome(json, &path, None),
         Err(error) => Outcome::failed(format!(
-            "cannot create a note in {}: {}",
+            "cannot create a file in {}: {}",
             ctx.notes_dir.display(),
             plain_storage_reason(&error)
         )),
@@ -797,7 +797,7 @@ fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
 /// Links naming the note by its old name are not rewritten.
 fn rename_note(arg: &str, new_name: &str, json: bool, ctx: &Context) -> Outcome {
     let Some(from) = note_file(arg, ctx) else {
-        return Outcome::failed(format!("no note called {arg}"));
+        return Outcome::failed(format!("nothing called {arg}"));
     };
     let Some(stem) = rename_stem(&from, new_name) else {
         return Outcome::failed(NAME_IS_EMPTY.to_string());
@@ -815,7 +815,7 @@ fn rename_note(arg: &str, new_name: &str, json: bool, ctx: &Context) -> Outcome 
 /// Moves a note to the operating system's trash, where it stays recoverable.
 fn trash_note(arg: &str, json: bool, ctx: &Context) -> Outcome {
     let Some(path) = note_file(arg, ctx) else {
-        return Outcome::failed(format!("no note called {arg}"));
+        return Outcome::failed(format!("nothing called {arg}"));
     };
     match note_ops::trash_note(&path) {
         Ok(()) => path_outcome(json, &path, None),
@@ -942,7 +942,7 @@ mod tests {
             parse(&os(&["links"])).unwrap().unwrap_err(),
             UsageError::MissingArgument {
                 verb: "links".to_string(),
-                what: "a note".to_string()
+                what: "a file".to_string()
             }
         );
     }
@@ -1035,9 +1035,9 @@ mod tests {
         let unreadable = IndexError::Unreadable(PathBuf::from("/a/writ.db")).to_string();
         let stale = IndexError::Older { db: 0, binary: 42 }.to_string();
 
-        assert!(absent.contains("no note index"), "{absent}");
+        assert!(absent.contains("there is no index at"), "{absent}");
         assert!(
-            unreadable.contains("could not be read as a note index"),
+            unreadable.contains("could not be read as an index"),
             "{unreadable}"
         );
         assert!(

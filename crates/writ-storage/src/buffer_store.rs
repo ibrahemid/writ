@@ -400,7 +400,7 @@ impl BufferStore {
             .source_path
             .as_ref()
             .ok_or_else(|| StorageError::Consistency {
-                message: format!("note {id} has no file"),
+                message: format!("file {id} is on disk nowhere"),
             })?;
         Ok(std::fs::read(source_path)?)
     }
@@ -511,7 +511,7 @@ impl BufferStore {
         let doc = queries::get_buffer(&self.conn, id)?;
         if let Some(existing) = doc.source_path {
             return Err(StorageError::Consistency {
-                message: format!("note {id} already has a file at {existing}"),
+                message: format!("file {id} already has a file at {existing}"),
             });
         }
         queries::update_source_path(&self.conn, id, source_path)?;
@@ -628,14 +628,14 @@ impl BufferStore {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
             return Err(StorageError::Consistency {
-                message: format!("note {id} is read-only and cannot be saved"),
+                message: format!("file {id} is read-only and cannot be saved"),
             });
         }
         let source_path = doc
             .source_path
             .as_ref()
             .ok_or_else(|| StorageError::Consistency {
-                message: format!("note {id} has no file to save into"),
+                message: format!("file {id} has no file to save into"),
             })?
             .clone();
         let path = Path::new(&source_path);
@@ -710,14 +710,14 @@ impl BufferStore {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
             return Err(StorageError::Consistency {
-                message: format!("note {id} is read-only and cannot be saved"),
+                message: format!("file {id} is read-only and cannot be saved"),
             });
         }
         let source_path = doc
             .source_path
             .as_ref()
             .ok_or_else(|| StorageError::Consistency {
-                message: format!("note {id} has no file to save into"),
+                message: format!("file {id} has no file to save into"),
             })?
             .clone();
         let path = Path::new(&source_path);

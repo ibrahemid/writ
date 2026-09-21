@@ -266,7 +266,7 @@ fn a_link_target_that_names_a_folder_creates_the_note_inside_it() {
             .notes_root()
             .join("projects")
             .join("2026")
-            .join("Ideas 2.md"),
+            .join("Ideas-2.md"),
         "the second note of that name takes the next one in the same folder"
     );
 }
@@ -310,7 +310,7 @@ fn a_link_target_is_refused_when_its_folder_is_a_link_out_of_the_notes_folder() 
 
     let refusal = new_note_from_link_inner(&state, "projects/Ideas.md")
         .expect_err("a folder outside the notes folder is refused");
-    assert!(refusal.contains("outside the notes folder"), "{refusal}");
+    assert!(refusal.contains("points outside your folder"), "{refusal}");
     assert!(
         !outside.join("Ideas.md").exists(),
         "the note was written through the link anyway"
@@ -386,7 +386,8 @@ fn new_note_produces_a_file_on_disk_before_the_app_quits() {
         path.display()
     );
     assert!(path.starts_with(state.notes_root()), "{}", path.display());
-    assert_eq!(path, state.notes_root().join("Untitled.txt"));
+    let minted = writ_core::notes::minted_stem(chrono::Utc::now());
+    assert_eq!(path, state.notes_root().join(format!("{minted}.txt")));
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
     assert_eq!(doc.title, path.file_name().unwrap().to_string_lossy());
 
@@ -394,7 +395,10 @@ fn new_note_produces_a_file_on_disk_before_the_app_quits() {
     let second = new_note_inner(&state).expect("new note");
     let second_path =
         std::path::PathBuf::from(second.source_path.clone().expect("the note has no file"));
-    assert_eq!(second_path, state.notes_root().join("Untitled 2.txt"));
+    assert_eq!(
+        second_path,
+        state.notes_root().join(format!("{minted}-2.txt"))
+    );
     assert!(second_path.exists());
     assert!(path.exists(), "the first note was written over");
 }
@@ -439,6 +443,26 @@ fn rename_keeps_the_extension_a_typed_name_already_carries() {
 }
 
 #[test]
+fn rename_to_a_name_that_spells_a_format_changes_the_file_to_it() {
+    // A `.txt` file renamed to `….md` is Markdown, and the row and the tab
+    // follow the file to its new name rather than to `….md.txt`.
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "the text").expect("save");
+    let before = note_file(&state, &doc.id);
+    assert_eq!(before.extension(), Some("txt".as_ref()));
+
+    rename_note_inner(&state, &doc.id, "Grocery list.md").expect("rename");
+
+    let after = note_file(&state, &doc.id);
+    assert_eq!(after, state.notes_root().join("Grocery list.md"));
+    assert!(!before.exists(), "the old name is still there");
+    assert_eq!(std::fs::read_to_string(&after).expect("read"), "the text");
+    assert_eq!(title_of(&state, &doc.id), "Grocery list.md");
+}
+
+#[test]
 fn rename_to_a_name_already_in_the_folder_says_which_one() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
@@ -453,7 +477,7 @@ fn rename_to_a_name_already_in_the_folder_says_which_one() {
 
     let error = rename_note_inner(&state, &doc.id, "Grocery list").expect_err("collision");
 
-    assert_eq!(error, "A note named \"Grocery list.md\" is already there.");
+    assert_eq!(error, "A file named \"Grocery list.md\" is already there.");
     assert!(before.exists(), "the note was renamed anyway");
     assert_eq!(
         std::fs::read_to_string(state.notes_root().join("Grocery list.md")).expect("read"),
@@ -627,7 +651,7 @@ fn a_file_opened_from_elsewhere_is_never_moved_to_the_trash() {
 
     assert_eq!(
         error,
-        "Only notes in your notes folder can be moved to the Trash from here."
+        "Only files in your folder can be moved to the Trash from here."
     );
     assert!(elsewhere.exists(), "somebody else's file was deleted");
     assert_eq!(

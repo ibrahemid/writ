@@ -2,9 +2,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use writ_core::notes::{
-    conflict_file_name, date_stem, dedupe_file_name, display_path, recovered_file_name,
-    refuse_notes_root, resolve_notes_root, resolve_notes_root_from, sanitize_title,
-    sanitize_title_or, NotesRootError, NotesRootRefusal, NotesRootSources, DEFAULT_NOTES_FOLDER,
+    conflict_file_name, date_stem, dedupe_file_name, display_path, is_minted_title, minted_stem,
+    note_file_stem, recovered_file_name, refuse_notes_root, resolve_notes_root,
+    resolve_notes_root_from, sanitize_title, sanitize_title_or, NotesRootError, NotesRootRefusal,
+    NotesRootSources, DEFAULT_NOTES_FOLDER,
 };
 
 /// Absolute paths in these fixtures are spelled the Unix way; on Windows an
@@ -192,22 +193,63 @@ fn date_stem_is_iso_calendar_day() {
 }
 
 #[test]
-fn dedupe_appends_space_two_then_three() {
+fn minted_stem_is_writ_then_the_local_date_and_minute() {
+    let now = chrono::Utc::now();
+    let stem = minted_stem(now);
+
+    // `writ-260921-0748`: four ASCII digits of date and four of clock, no
+    // space anywhere, so nothing Writ mints carries one.
+    assert_eq!(stem.len(), "writ-260921-0748".len(), "{stem}");
+    assert!(!stem.contains(' '), "{stem}");
+    let digits: String = stem.trim_start_matches("writ-").replace('-', "");
+    assert_eq!(digits.len(), 10, "{stem}");
+    assert!(digits.chars().all(|c| c.is_ascii_digit()), "{stem}");
+    assert!(is_minted_title(&stem), "{stem}");
+}
+
+#[test]
+fn minted_stem_agrees_with_the_dated_stem_about_the_day() {
+    // One instant, the same local calendar day in both: the minted name is
+    // `date_stem`'s day without the century and its separators.
+    let now = chrono::DateTime::parse_from_rfc3339("2026-09-06T10:11:12Z")
+        .unwrap()
+        .with_timezone(&chrono::Utc);
+    let date = date_stem(now);
+    let day = format!("{}{}{}", &date[2..4], &date[5..7], &date[8..10]);
+
+    assert!(
+        minted_stem(now).starts_with(&format!("writ-{day}-")),
+        "{} does not carry {day}",
+        minted_stem(now)
+    );
+}
+
+#[test]
+fn a_minted_stem_is_not_a_title_and_falls_back_to_the_date() {
+    // The retitle watch turns on what `is_minted_title` answers, so a file
+    // still under its minted name must never mint that name a second time as
+    // if a person had typed it.
+    let now = chrono::Utc::now();
+    assert_eq!(note_file_stem(&minted_stem(now), now), date_stem(now));
+}
+
+#[test]
+fn dedupe_appends_hyphen_two_then_three() {
     let mut taken = HashSet::new();
     assert_eq!(dedupe_file_name("Notes", "md", &taken), "Notes.md");
 
     taken.insert("notes.md".to_string());
-    assert_eq!(dedupe_file_name("Notes", "md", &taken), "Notes 2.md");
+    assert_eq!(dedupe_file_name("Notes", "md", &taken), "Notes-2.md");
 
-    taken.insert("notes 2.md".to_string());
-    assert_eq!(dedupe_file_name("Notes", "md", &taken), "Notes 3.md");
+    taken.insert("notes-2.md".to_string());
+    assert_eq!(dedupe_file_name("Notes", "md", &taken), "Notes-3.md");
 }
 
 #[test]
 fn dedupe_is_case_insensitive() {
     let mut taken = HashSet::new();
     taken.insert("notes.md".to_string());
-    assert_eq!(dedupe_file_name("NOTES", "md", &taken), "NOTES 2.md");
+    assert_eq!(dedupe_file_name("NOTES", "md", &taken), "NOTES-2.md");
 }
 
 #[test]
@@ -217,13 +259,13 @@ fn dedupe_counts_a_decomposed_name_as_the_composed_one() {
     // and the write that follows is refused every time it is tried.
     let mut taken = HashSet::new();
     taken.insert("Cafe\u{301}.md".to_string());
-    assert_eq!(dedupe_file_name("Caf\u{e9}", "md", &taken), "Café 2.md");
+    assert_eq!(dedupe_file_name("Caf\u{e9}", "md", &taken), "Café-2.md");
 
     let mut taken = HashSet::new();
     taken.insert("Caf\u{e9}.md".to_string());
     assert_eq!(
         dedupe_file_name("Cafe\u{301}", "md", &taken),
-        "Cafe\u{301} 2.md"
+        "Cafe\u{301}-2.md"
     );
 }
 
@@ -233,7 +275,7 @@ fn dedupe_without_an_extension_keeps_the_bare_stem() {
     assert_eq!(dedupe_file_name("Notes", "", &taken), "Notes");
 
     taken.insert("notes".to_string());
-    assert_eq!(dedupe_file_name("Notes", "", &taken), "Notes 2");
+    assert_eq!(dedupe_file_name("Notes", "", &taken), "Notes-2");
 }
 
 #[test]
