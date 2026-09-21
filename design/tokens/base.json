@@ -109,6 +109,16 @@
           "value": 32,
           "unit": "px"
         }
+      },
+      "pad-x-em": {
+        "$type": "number",
+        "$description": "Horizontal gutter as a multiple of the reading font size, so the column's inset follows the editor zoom.",
+        "$value": 2.2
+      },
+      "pad-y-em": {
+        "$type": "number",
+        "$description": "Vertical gutter as a multiple of the reading font size, so the column's inset follows the editor zoom.",
+        "$value": 2.2
       }
     },
     "heading": {

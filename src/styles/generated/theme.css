@@ -20,6 +20,8 @@
   --writ-prose-measure: 704px;
   --writ-prose-pad-x: 32px;
   --writ-prose-pad-y: 32px;
+  --writ-prose-pad-x-em: 2.2;
+  --writ-prose-pad-y-em: 2.2;
   --writ-heading-color: inherit;
   --writ-heading-formatting: var(--writ-fg-faint);
   --writ-h1-size: 1.75em;

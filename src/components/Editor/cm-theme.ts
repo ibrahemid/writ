@@ -25,16 +25,19 @@ export const writThemeSpec = {
       fontSize: "var(--writ-editor-font-size)",
       lineHeight: cssVar(CSS_VAR.proseLineHeight),
       fontFamily: "var(--writ-font-prose)",
+      [CSS_VAR.prosePadX]: `calc(var(--writ-editor-font-size) * ${cssVar(CSS_VAR.prosePadXEm)})`,
+      [CSS_VAR.prosePadY]: `calc(var(--writ-editor-font-size) * ${cssVar(CSS_VAR.prosePadYEm)})`,
     },
     ".cm-scroller": {
       overflow: "auto",
+      minWidth: "0",
       lineHeight: cssVar(CSS_VAR.proseLineHeight),
       fontFamily: "var(--writ-font-prose)",
     },
-    // One reading column, centred, with the same measure and padding the
-    // rendered note uses.
+    // The column is the pane; only the gutters are drawn, in the same tokens
+    // the rendered note pads with.
     ".cm-content": {
-      maxWidth: `calc(${cssVar(CSS_VAR.proseMeasure)} + 2 * ${cssVar(CSS_VAR.prosePadX)})`,
+      maxWidth: "none",
       margin: "0 auto",
       padding: `var(${CSS_VAR.prosePadY}) var(${CSS_VAR.prosePadX})`,
       caretColor: cssVar(CSS_VAR.accent),

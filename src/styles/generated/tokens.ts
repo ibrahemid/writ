@@ -389,6 +389,8 @@ export const CSS_VAR = {
   proseMeasure: "--writ-prose-measure",
   prosePadX: "--writ-prose-pad-x",
   prosePadY: "--writ-prose-pad-y",
+  prosePadXEm: "--writ-prose-pad-x-em",
+  prosePadYEm: "--writ-prose-pad-y-em",
   headingColor: "--writ-heading-color",
   headingFormatting: "--writ-heading-formatting",
   rControl: "--writ-r-control",

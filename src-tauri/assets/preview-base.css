@@ -27,10 +27,11 @@ html {
 
 body {
   margin: 0 auto;
-  /* The reading column is the measure; the padding sits outside it, so the box
-     is the measure plus both gutters (ADR-030 decision 3). */
-  max-width: calc(var(--writ-preview-measure) + 2 * var(--writ-preview-pad-x));
-  padding: var(--writ-preview-pad-y) var(--writ-preview-pad-x);
+  /* The column is the pane; only the gutters are drawn, and they are multiples
+     of the base size so they follow the zoom (ADR-030 decision 3). */
+  max-width: none;
+  padding: calc(var(--writ-preview-fs-base) * var(--writ-preview-prose-pad-y-em))
+    calc(var(--writ-preview-fs-base) * var(--writ-preview-prose-pad-x-em));
   background: var(--writ-preview-bg);
   color: var(--writ-preview-fg);
   font-family: var(--writ-preview-font-sans);
