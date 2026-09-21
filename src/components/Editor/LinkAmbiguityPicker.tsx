@@ -84,7 +84,7 @@ export default function LinkAmbiguityPicker() {
             class="link-picker"
             role="dialog"
             aria-modal="true"
-            aria-label={`Notes called ${state().target}`}
+            aria-label={`Files called ${state().target}`}
             ref={panelRef}
             onClick={(event) => event.stopPropagation()}
           >
@@ -126,7 +126,7 @@ export default function LinkAmbiguityPicker() {
                       run();
                     }}
                   >
-                    <span class="link-picker-name">Create note</span>
+                    <span class="link-picker-name">Create file</span>
                     <span class="link-picker-folder">{state().target}.md</span>
                   </button>
                 )}

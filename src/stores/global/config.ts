@@ -3,6 +3,7 @@ import type {
   AiConfig,
   AppearanceConfig,
   CommandUsage,
+  FileExtension,
   SidebarSectionId,
   WritConfig,
 } from "../../types/config";
@@ -101,9 +102,10 @@ const DEFAULT_CONFIG: WritConfig = {
   theme: { preset: "writ-light", overrides: {} },
   appearance: DEFAULT_APPEARANCE,
   commands: { usage: {} },
+  files: { default_extension: "txt" },
   preview: {
     default_layout_html: "split",
-    default_layout_markdown: "split",
+    default_layout_markdown: "source",
     live_render_threshold_mb: 1,
     render_confirm_threshold_mb: 5,
     render_refuse_threshold_mb: 50,
@@ -127,6 +129,13 @@ const DEFAULT_CONFIG: WritConfig = {
 
 const PERSIST_DEBOUNCE_MS = 750;
 
+// A config written before Writ had a format to ask about carries no [files]
+// table, and one written by hand can carry a word that is neither extension.
+// Both answer the same way the first launch answers when nobody has chosen.
+function knownExtension(value: unknown): FileExtension {
+  return value === "md" || value === "txt" ? value : DEFAULT_CONFIG.files.default_extension;
+}
+
 function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
   return {
     ...incoming,
@@ -149,6 +158,9 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     },
     commands: {
       usage: incoming.commands?.usage ?? {},
+    },
+    files: {
+      default_extension: knownExtension(incoming.files?.default_extension),
     },
     workspace: { root: incoming.workspace?.root ?? null },
     inbox: {
@@ -392,6 +404,15 @@ function createConfigStore() {
     setConfig({ ...current, first_run: { ...current.first_run, hint_dismissed: true } });
   }
 
+  // The same catching-up as the line above: `finish_first_run` wrote the
+  // chosen format to disk with the rest of the config, and this copy follows
+  // so the next whole-config write does not carry the old answer back.
+  function noteDefaultExtension(extension: FileExtension) {
+    const current = config();
+    if (current.files.default_extension === extension) return;
+    setConfig({ ...current, files: { ...current.files, default_extension: extension } });
+  }
+
   function pruneCommandUsage(knownIds: ReadonlySet<string>) {
     const current = config();
     const pruned = pruneUsage(current.commands.usage, knownIds);
@@ -423,6 +444,7 @@ function createConfigStore() {
     clearCommandUsage,
     pruneCommandUsage,
     noteFirstRunHintDismissed,
+    noteDefaultExtension,
   };
 }
 

@@ -98,13 +98,13 @@ describe("the first launch's one line", () => {
 
   it("names the platform's own file manager, whichever platform this is", () => {
     expect(hintText("Finder")).toBe(
-      "Your notes are saved automatically to a folder you can open in Finder.",
+      "Your files are saved automatically to a folder you can open in Finder.",
     );
     expect(hintText("File Explorer")).toBe(
-      "Your notes are saved automatically to a folder you can open in File Explorer.",
+      "Your files are saved automatically to a folder you can open in File Explorer.",
     );
     expect(hintText("Files")).toBe(
-      "Your notes are saved automatically to a folder you can open in Files.",
+      "Your files are saved automatically to a folder you can open in Files.",
     );
   });
 

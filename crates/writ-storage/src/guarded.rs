@@ -53,7 +53,7 @@ pub enum ConflictPolicy {
 /// the caller says which one it means rather than the folder deciding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TakenName {
-    /// Mint `Launch 2.md` beside `Launch.md`. What a person who asked for a
+    /// Mint `Launch-2.md` beside `Launch.md`. What a person who asked for a
     /// new note wants: the note appears, and the note already there is left
     /// alone.
     Dedupe,
@@ -185,6 +185,10 @@ pub struct CreateNote<'a> {
     /// The sanitised filename stem
     /// ([`writ_core::notes::note_file_stem`]), before the dedupe.
     pub stem: &'a str,
+    /// The extension the file carries, without the dot: the caller's
+    /// configured one ([`writ_core::config::FilesConfig`]), or the extension
+    /// the file being copied already had.
+    pub extension: &'a str,
     /// The text the note starts with, empty for a blank one.
     pub content: &'a str,
     /// What asked for the note.
@@ -330,14 +334,11 @@ pub fn create_note_guarded(
         return Err(StorageError::NoteNameEmpty);
     }
     std::fs::create_dir_all(req.notes_root)?;
-    let asked_for = format!("{stem}.{}", crate::note_ops::NOTE_EXTENSION);
-    let name = writ_core::notes::dedupe_file_name(
-        stem,
-        crate::note_ops::NOTE_EXTENSION,
-        &taken_names(req.notes_root),
-    );
+    let asked_for = format!("{stem}.{}", req.extension);
+    let name =
+        writ_core::notes::dedupe_file_name(stem, req.extension, &taken_names(req.notes_root));
     // The name in the error is the one the caller asked for, not the one the
-    // dedupe would have picked: a caller told `Launch 2.md` is taken is being
+    // dedupe would have picked: a caller told `Launch-2.md` is taken is being
     // told about a name it never mentioned.
     if req.on_taken_name == TakenName::Refuse && name != asked_for {
         return Err(StorageError::NoteNameTaken {
@@ -474,7 +475,7 @@ fn refuse(
 ///
 /// This is what keeps a refused save from ending with the user's text nowhere
 /// (ADR-028 §5). The name comes from [`writ_core::notes::conflict_file_name`]
-/// and dedupes Finder-style, so two refusals inside the same second produce
+/// and dedupes by counter, so two refusals inside the same second produce
 /// two files rather than one overwriting the other.
 ///
 /// # Errors

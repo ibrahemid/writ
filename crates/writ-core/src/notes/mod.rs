@@ -67,7 +67,7 @@ pub enum NotesRootError {
     NoHome,
     /// The path is relative, which would make the folder depend on the process
     /// working directory.
-    #[error("the notes folder path must be absolute: {path}")]
+    #[error("the folder path must be absolute: {path}")]
     NotAbsolute {
         /// The path as configured.
         path: String,
@@ -295,7 +295,7 @@ pub const NAME_IS_EMPTY: &str = "That name is empty.";
 /// What a folder that already holds `name` is answered with, said once for
 /// every surface that mints or renames a note.
 pub fn name_is_taken(name: &str) -> String {
-    format!("A note named \"{name}\" is already there.")
+    format!("A file named \"{name}\" is already there.")
 }
 
 /// The filename stem a typed name earns when renaming `current`, with the
@@ -336,6 +336,21 @@ pub fn rename_stem(current: &Path, typed: &str) -> Option<String> {
 /// user has not reached yet reads as a bug.
 pub fn date_stem(now: DateTime<Utc>) -> String {
     now.with_timezone(&Local).format("%Y-%m-%d").to_string()
+}
+
+/// The stem of a file nobody has named yet: `writ-<yymmdd>-<hhmm>` in the
+/// local clock, so `writ-260921-0748`.
+///
+/// A new file, the file the first launch opens and `writ new` with no name all
+/// mint this one, deduped against what the folder holds, so a second file in
+/// the same minute is `writ-260921-0748-2`. The name carries no space, so
+/// nothing Writ mints has one, and [`is_minted_title`] reads it back as a name
+/// nobody typed: the file's own first line may replace it. The dated name
+/// belongs to Today's File and to nothing else.
+pub fn minted_stem(now: DateTime<Utc>) -> String {
+    now.with_timezone(&Local)
+        .format("writ-%y%m%d-%H%M")
+        .to_string()
 }
 
 /// Whether `title` is one Writ minted rather than one a person typed.
@@ -383,6 +398,34 @@ pub fn note_file_stem_from_link(target: &str, dated_from: DateTime<Utc>) -> Stri
     note_file_stem(links::strip_note_extension(target.trim()), dated_from)
 }
 
+/// The extensions a typed name may spell its own format with, the four the
+/// index reads as text.
+const TEXT_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text"];
+
+/// The name without the extension it spells for itself, and that extension as
+/// a file name carries it.
+///
+/// `[files] default_extension` is the rule for the format of a file nobody
+/// named one for (ADR-041 §2), and a name ending in a text extension names
+/// one: `Notes.md` asks for Markdown whatever the config holds, so minting
+/// `Notes.txt` from it answers a question the person already answered. A name
+/// ending in anything else — `Notes.rtf`, `Draft.2026` — spells no format Writ
+/// mints, so the whole name is the stem and the config decides.
+///
+/// The extension comes back lowercased, so `notes.TXT` mints `notes.txt`. A
+/// name that is nothing but an extension names no file and yields `None`.
+pub fn explicit_extension(name: &str) -> Option<(&str, &'static str)> {
+    let (stem, extension) = name.trim().rsplit_once('.')?;
+    if stem.trim().is_empty() {
+        return None;
+    }
+    let known = TEXT_EXTENSIONS
+        .iter()
+        .copied()
+        .find(|known| known.eq_ignore_ascii_case(extension))?;
+    Some((stem, known))
+}
+
 /// Where the note a link offers to create belongs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoteLocation {
@@ -422,7 +465,11 @@ pub fn note_location_from_link(target: &str, dated_from: DateTime<Utc>) -> NoteL
     }
 }
 
-/// Finder-style dedupe: `stem`, `stem 2`, `stem 3`, and so on.
+/// Dedupe by counter: `stem`, `stem-2`, `stem-3`, and so on.
+///
+/// The counter is hyphenated rather than spaced, because Writ introduces no
+/// space into a name it mints; a name the person typed keeps whatever spaces
+/// they typed.
 ///
 /// `taken` holds file *names* including their extension, in whatever case and
 /// whatever Unicode normalisation the folder listing gave them. Both sides go
@@ -440,7 +487,7 @@ pub fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) ->
 
     let mut counter: u64 = 2;
     loop {
-        let candidate = join_name(&format!("{stem} {counter}"), extension);
+        let candidate = join_name(&format!("{stem}-{counter}"), extension);
         if !taken.contains(&links::name_key(&candidate)) {
             return candidate;
         }
@@ -579,6 +626,30 @@ mod tests {
         assert_eq!(note_file_stem_from_link("Note.MD", moment()), "Note");
         assert_eq!(note_file_stem_from_link("Note", moment()), "Note");
         assert_eq!(note_file_stem_from_link("  Note.md  ", moment()), "Note");
+    }
+
+    // A name ending in a text extension spells its own format; the config
+    // decides for every other name (ADR-041 section 2).
+    #[test]
+    fn a_name_ending_in_a_text_extension_spells_its_own_format() {
+        assert_eq!(explicit_extension("Notes.md"), Some(("Notes", "md")));
+        assert_eq!(
+            explicit_extension("Notes.markdown"),
+            Some(("Notes", "markdown"))
+        );
+        assert_eq!(explicit_extension("notes.TXT"), Some(("notes", "txt")));
+        assert_eq!(explicit_extension("Notes.text"), Some(("Notes", "text")));
+        assert_eq!(explicit_extension("Log.md.md"), Some(("Log.md", "md")));
+        assert_eq!(explicit_extension("  Notes.md  "), Some(("Notes", "md")));
+    }
+
+    #[test]
+    fn a_name_ending_in_anything_else_leaves_the_format_to_the_config() {
+        assert_eq!(explicit_extension("Notes.rtf"), None);
+        assert_eq!(explicit_extension("Notes"), None);
+        assert_eq!(explicit_extension("Notes."), None);
+        assert_eq!(explicit_extension(".md"), None);
+        assert_eq!(explicit_extension(""), None);
     }
 
     // Only one extension comes off, which is the name parse_wikilink reads out

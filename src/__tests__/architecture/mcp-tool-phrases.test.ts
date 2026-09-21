@@ -54,17 +54,17 @@ describe("the tool table names every tool the server registers", () => {
 
   it("turns the server's lists into the sentences the row shows", () => {
     expect(describeReadTools(SERVER_READ)).toBe(
-      "list, search and open notes, and see their links, properties and tags",
+      "list, search and open files, and see their links, properties and tags",
     );
     expect(describeWriteTools(SERVER_WRITE)).toBe(
-      "replace a note's text, make a new note, rename a note",
+      "replace a file's text, make a new file, rename a file",
     );
   });
 
   it("keeps a tool it cannot name, rather than dropping it", () => {
-    expect(describeReadTools(["list_notes", "count_notes"])).toBe("list notes, and count_notes");
+    expect(describeReadTools(["list_notes", "count_notes"])).toBe("list files, and count_notes");
     expect(describeWriteTools(["create_note", "merge_notes"])).toBe(
-      "make a new note, merge_notes",
+      "make a new file, merge_notes",
     );
   });
 });

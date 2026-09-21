@@ -114,25 +114,26 @@ describe("TabBar — a download beside notes that are here", () => {
     const tabs = list.querySelectorAll('[role="tab"]');
     expect(tabs.length).toBe(3);
     expect([...tabs].map((tab) => tab.querySelector(".tab-title")!.textContent)).toEqual([
-      "first.md",
-      "second.md",
-      "away.md",
+      "first",
+      "second",
+      "away",
     ]);
     // The download is last and is the only one carrying a marker.
     expect(container.querySelectorAll(".tab-download").length).toBe(1);
     expect(container.querySelector(".tab-download-marker")!.textContent).toBe("downloading");
   });
 
-  it("keeps the strip up at one note when a download is pending", () => {
+  it("keeps the strip up at one file when a download is pending", () => {
     const { container } = mount([{ id: "1", title: "first.md" }], [AWAY]);
 
     expect(container.querySelector(".tabbar")).not.toBeNull();
     expect(container.querySelectorAll('[role="tab"]').length).toBe(2);
   });
 
-  it("hides the strip at one note with nothing pending", () => {
+  it("keeps the strip up at one file with nothing pending", () => {
     const { container } = mount([{ id: "1", title: "first.md" }], []);
 
-    expect(container.querySelector(".tabbar")).toBeNull();
+    expect(container.querySelector(".tabbar")).not.toBeNull();
+    expect(container.querySelectorAll('[role="tab"]').length).toBe(1);
   });
 });

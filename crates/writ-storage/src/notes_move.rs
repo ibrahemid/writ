@@ -254,7 +254,7 @@ pub struct ArchiveMoveOutcome {
 ///
 /// The archive is where a history row's text waits until the user asks for it
 /// (ADR-028 section 4 step 3), so this is that answer. A name the notes folder
-/// already holds is deduped Finder-style rather than refused: the user asked
+/// already holds is deduped by counter rather than refused: the user asked
 /// for these files to arrive, and forty of them stopping on one clash would
 /// leave the archive half empty with nothing to do about it.
 ///
@@ -366,7 +366,7 @@ fn owners_by_archived_path(store: &BufferStore) -> StorageResult<HashMap<String,
 fn extension(path: &Path) -> String {
     path.extension()
         .map(|ext| ext.to_string_lossy().into_owned())
-        .unwrap_or_else(|| crate::note_ops::NOTE_EXTENSION.to_string())
+        .unwrap_or_default()
 }
 
 fn file_stem(path: &Path) -> String {

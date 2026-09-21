@@ -136,7 +136,7 @@ export default function ChatTranscript() {
             fallback={<p class="chat-empty">Opening this chat.</p>}
           >
             <p class="chat-empty">
-              Ask about a note. Apply the change an answer offers, or discard it.
+              Ask about a file. Apply the change an answer offers, or discard it.
             </p>
           </Show>
         }

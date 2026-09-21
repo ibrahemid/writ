@@ -7,6 +7,7 @@ import {
 } from "./registry";
 import type { Command } from "../types/commands";
 import { isModalOpen } from "../lib/modal-stack";
+import { firstRunStore } from "../stores/global/first-run";
 
 let keybindingOverrides: Readonly<Record<string, string>> = {};
 
@@ -141,6 +142,11 @@ function isTextEntryFocused(): boolean {
 }
 
 export function handleKeyDown(e: KeyboardEvent): boolean {
+  // The first launch's question is the only thing the window can answer until
+  // it is answered: the palette, Settings and every tab chord would open
+  // behind the screen and take the focus the two options need. One gate here
+  // rather than a check in each command.
+  if (firstRunStore.step() !== null) return false;
   if (isModalOpen()) return false;
   // Composition and dead keys never match a chord: while an IME is composing,
   // the browser reports keyCode 229 and sets isComposing, and the pending key

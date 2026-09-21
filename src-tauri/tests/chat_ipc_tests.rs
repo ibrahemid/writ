@@ -282,7 +282,7 @@ fn chat_attached_sizes_refuses_a_path_outside_the_notes_folder() {
 
     let error = attached_sizes_in(&root, &NoOpenNotes, &[path.to_string_lossy().into_owned()])
         .expect_err("refused");
-    assert!(error.contains("notes folder"), "got: {error}");
+    assert!(error.contains("is not in your folder"), "got: {error}");
     // The sentence names the note and stops there: where the folder it was
     // looked for in sits on this machine is nobody's business, least of all a
     // model's, and on Windows that path arrives in its `\\?\` form.
@@ -350,7 +350,7 @@ fn chat_send_refuses_a_path_outside_the_notes_folder() {
     ] {
         let error = read_attached_in(&root, &NoOpenNotes, std::slice::from_ref(&path))
             .expect_err("refused");
-        assert!(error.contains("notes folder"), "got: {error}");
+        assert!(error.contains("is not in your folder"), "got: {error}");
     }
 }
 
@@ -553,7 +553,7 @@ fn chat_apply_proposal_refuses_a_path_outside_the_notes_folder() {
         |_, _, _| unreachable!(),
     )
     .expect_err("refused");
-    assert!(error.contains("notes folder"), "got: {error}");
+    assert!(error.contains("is not in your folder"), "got: {error}");
     assert_eq!(
         std::fs::read_to_string(&stranger).expect("read"),
         "not yours\n"
@@ -652,5 +652,5 @@ fn a_note_the_folder_does_not_hold_is_refused_without_naming_it_again() {
     let (notes, _writ) = folders();
     let root = root(&notes);
     let error = note_file_in(&root, "Nowhere.md").expect_err("refused");
-    assert_eq!(error, "This note is no longer there.");
+    assert_eq!(error, "This file is no longer there.");
 }

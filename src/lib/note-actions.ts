@@ -43,7 +43,7 @@ export async function renameNoteAndLinks(id: string, title: string): Promise<voi
   if (count > 0) {
     const answer = await requestChoice({
       title: linkCountQuestion(count),
-      message: "Links in other notes are rewritten to the new name.",
+      message: "Links in other files are rewritten to the new name.",
       confirmLabel: "Update links",
       cancelLabel: "Rename only",
     });
@@ -90,7 +90,7 @@ export function showInFileManagerLabel(): string {
 export async function confirmAndDeleteNote(id: string): Promise<void> {
   const name = noteName(id);
   if (!noteIsDeletable(id)) {
-    showToast("Only notes in your notes folder can be moved to the Trash from here.", "error");
+    showToast("Only files in your folder can be moved to the Trash from here.", "error");
     return;
   }
   const confirmed = await requestConfirm({

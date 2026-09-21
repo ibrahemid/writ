@@ -8,9 +8,9 @@ import Button from "../Button/Button";
 function failureLine(reason: DownloadFailure): string {
   switch (reason) {
     case "open":
-      return "The file downloaded but the note did not open. Open it again.";
+      return "The file downloaded but it did not open. Open it again.";
     case "listener":
-      return "Writ lost track of this download. Open the note again.";
+      return "Writ lost track of this download. Open the file again.";
     case "download":
       return "This file could not be downloaded.";
   }

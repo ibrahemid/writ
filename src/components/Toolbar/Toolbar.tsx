@@ -100,7 +100,7 @@ export default function Toolbar() {
       class="writ-toolbar"
       classList={{ "leads-lights": leadsLights() }}
       role="toolbar"
-      aria-label="Note actions"
+      aria-label="File actions"
       data-platform={platform}
       // The bar is the drag region on macOS, where the window has no title bar
       // of its own. `deep` so the wrappers and the gaps between controls move
@@ -121,14 +121,14 @@ export default function Toolbar() {
 
       {/* GNOME merges compose into the header bar with the window title. */}
       <Show when={!layout.composeInChrome}>
-        <Tooltip label={tip("New note", useEffectiveBinding("note.new", "CmdOrCtrl+N"))}>
+        <Tooltip label={tip("New file", useEffectiveBinding("note.new", "CmdOrCtrl+N"))}>
           <Button
             variant="ghost"
             class="writ-toolbar-compose"
             icon="note-pencil"
             onClick={() => executeCommand("note.new")}
           >
-            New note
+            New file
           </Button>
         </Tooltip>
 

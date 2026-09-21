@@ -5,9 +5,9 @@ import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import type { Platform } from "../../lib/platform";
 
-// The tab strip on the accepted baseline (ADR-030 §5): hidden at one note,
-// borderless tabs, and the open one carrying the canvas colour rather than an
-// accent-tinted pill.
+// The tab strip on the accepted baseline: up from the first file, borderless
+// tabs, and the open one carrying the canvas colour rather than an
+// accent-tinted pill. Names read without the extension of a text format.
 
 beforeAll(() => {
   Object.defineProperty(window, "matchMedia", {
@@ -167,23 +167,24 @@ afterEach(() => {
 });
 
 describe("tab strip visibility", () => {
-  it("is hidden with one open note", () => {
+  it("shows the name of the one open file", () => {
     open(1);
     const { container } = render(() => <TabBar />);
-    expect(container.querySelector(".tabbar")).toBeNull();
+    expect(container.querySelector(".tabbar")).not.toBeNull();
+    expect(labels(container).map((el) => el.textContent)).toEqual(["note-1"]);
   });
 
-  it("is hidden with no open note", () => {
+  it("is hidden with no open file", () => {
     open(0);
     const { container } = render(() => <TabBar />);
     expect(container.querySelector(".tabbar")).toBeNull();
   });
 
-  it("is shown with two open notes", () => {
+  it("is shown with two open files", () => {
     open(2);
     const { container } = render(() => <TabBar />);
     expect(container.querySelector(".tabbar")).not.toBeNull();
-    expect(labels(container).map((el) => el.textContent)).toEqual(["note-1.md", "note-2.md"]);
+    expect(labels(container).map((el) => el.textContent)).toEqual(["note-1", "note-2"]);
   });
 });
 
@@ -283,7 +284,7 @@ describe("tab strip accessibility", () => {
     const { container } = render(() => <TabBar />);
     const list = container.querySelector(".tabbar-tabs")!;
     expect(list.getAttribute("role")).toBe("tablist");
-    expect(list.getAttribute("aria-label")).toBe("Open notes");
+    expect(list.getAttribute("aria-label")).toBe("Open files");
     const tabs = labels(container);
     expect(tabs.map((el) => el.getAttribute("role"))).toEqual(["tab", "tab"]);
     expect(tabs.map((el) => el.getAttribute("aria-selected"))).toEqual(["true", "false"]);
@@ -348,7 +349,7 @@ describe("tab strip accessibility", () => {
     open(2);
     const { container } = render(() => <TabBar />);
     expect(container.querySelector("[title]")).toBeNull();
-    expect(container.querySelector(".tab-add")!.getAttribute("aria-label")).toBe("New note");
+    expect(container.querySelector(".tab-add")!.getAttribute("aria-label")).toBe("New file");
   });
 });
 
@@ -364,12 +365,26 @@ describe("closing a tab from the keyboard", () => {
     await settle();
     expect(h.closeTab).toHaveBeenCalledWith("buf-1");
     expect(document.activeElement).toBe(labels(container)[0]);
-    expect(labels(container)[0].textContent).toBe("note-2.md");
+    expect(labels(container)[0].textContent).toBe("note-2");
     expect(h.focusEditor).not.toHaveBeenCalled();
   });
 
-  it("hands focus to the note when the close takes the strip away", async () => {
+  it("keeps focus in the strip while a file is still open", async () => {
     open(2);
+    const { container } = render(() => <TabBar />);
+    const close = container.querySelector<HTMLButtonElement>(".tab-close")!;
+    h.closeTab.mockImplementation(async (id: string) => {
+      h.setTabs(h.tabs().filter((tab) => tab.id !== id));
+    });
+    fireEvent.keyDown(close, { key: " " });
+    await settle();
+    expect(h.closeTab).toHaveBeenCalledWith("buf-1");
+    expect(labels(container).map((el) => el.textContent)).toEqual(["note-2"]);
+    expect(h.focusEditor).not.toHaveBeenCalled();
+  });
+
+  it("hands focus to the editor when the close leaves no file open", async () => {
+    open(1);
     const { container } = render(() => <TabBar />);
     const close = container.querySelector<HTMLButtonElement>(".tab-close")!;
     h.closeTab.mockImplementation(async (id: string) => {
@@ -431,12 +446,24 @@ describe("renaming a tab", () => {
     return container.querySelector<HTMLInputElement>(".tab-rename-input")!;
   }
 
+  it("opens with the whole name and selects the stem", async () => {
+    open(2);
+    const { container } = render(() => <TabBar />);
+    const input = startRename(container);
+    await new Promise((done) => requestAnimationFrame(() => done(null)));
+    expect(input.value).toBe("note-1.md");
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe("note-1".length);
+    // The field is module state; leave it closed for the next test.
+    fireEvent.keyDown(input, { key: "Escape" });
+  });
+
   it("replaces the tab with the field rather than nesting one in the other", () => {
     open(2);
     const { container } = render(() => <TabBar />);
     const slot = container.querySelector<HTMLElement>(".tab")!;
     const input = startRename(container);
-    expect(input.getAttribute("aria-label")).toBe("Rename note");
+    expect(input.getAttribute("aria-label")).toBe("Rename file");
     expect(input.parentElement).toBe(slot);
     expect(input.closest("button")).toBeNull();
     // The tab it stands in for is gone while the field is up.

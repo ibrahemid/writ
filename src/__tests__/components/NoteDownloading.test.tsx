@@ -80,7 +80,7 @@ describe("NoteDownloading", () => {
       />
     ));
 
-    expect(getByText("The file downloaded but the note did not open. Open it again.")).toBeTruthy();
+    expect(getByText("The file downloaded but it did not open. Open it again.")).toBeTruthy();
     expect(queryByText("This file could not be downloaded.")).toBeNull();
   });
 
@@ -92,7 +92,7 @@ describe("NoteDownloading", () => {
       />
     ));
 
-    expect(getByText("Writ lost track of this download. Open the note again.")).toBeTruthy();
+    expect(getByText("Writ lost track of this download. Open the file again.")).toBeTruthy();
   });
 
   it("says what to do after the wait ran out", () => {

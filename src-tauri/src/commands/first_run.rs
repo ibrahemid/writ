@@ -1,9 +1,11 @@
-//! The first launch's IPC surface: what to show, and what a first line may do
-//! to the name of the note it was typed in.
+//! The first launch's IPC surface: what to show, what the screen's answer
+//! records, and what a first line may do to the name of the file it was typed
+//! in.
 
 use serde::Serialize;
 use tauri::State;
 use writ_core::buffer::document::BufferDocument;
+use writ_core::config::FileExtension;
 use writ_core::startup::{file_manager_name, RetitleAnswer};
 
 use crate::commands::config::persist_config;
@@ -61,6 +63,22 @@ pub fn dismiss_first_run_hint_inner(state: &AppState) -> Result<(), String> {
 #[tauri::command]
 pub fn dismiss_first_run_hint(state: State<'_, AppState>) -> Result<(), String> {
     dismiss_first_run_hint_inner(&state)
+}
+
+/// IPC: records the format the first-launch screen was answered with and
+/// opens the file that launch shows.
+///
+/// The answer is written to the config before anything is minted, so the file
+/// this hands back is in the format the config now names and a person who
+/// quits on the screen is asked again ([`crate::first_run::finish_first_run_inner`],
+/// ADR-041 §3). `None` on a launch that is not a first one, which writes
+/// nothing.
+#[tauri::command]
+pub fn finish_first_run(
+    state: State<'_, AppState>,
+    default_extension: FileExtension,
+) -> Result<Option<BufferDocument>, String> {
+    crate::first_run::finish_first_run_inner(&state, default_extension)
 }
 
 /// What the note's first line did to the note's file name.

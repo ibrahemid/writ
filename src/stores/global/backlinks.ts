@@ -10,7 +10,7 @@ import type { Backlink } from "../../services/tauri";
 export type { Backlink };
 
 /** Shown when the index cannot be read. The list keeps whatever it last had. */
-const READ_FAILED_MESSAGE = "Could not read the notes that link here.";
+const READ_FAILED_MESSAGE = "Could not read the files that link here.";
 
 interface Entry {
   rows: Accessor<Backlink[]>;

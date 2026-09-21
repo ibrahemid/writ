@@ -49,7 +49,7 @@ export default function MentionPopover(props: {
 
   return (
     <div class="chat-mention">
-      <div class="chat-mention-list" id={MENTION_LIST_ID} role="listbox" aria-label="Notes">
+      <div class="chat-mention-list" id={MENTION_LIST_ID} role="listbox" aria-label="Files">
         <For each={props.rows}>
           {(row, index) => (
             <div
@@ -94,7 +94,7 @@ export default function MentionPopover(props: {
         </For>
       </div>
       <Show when={props.rows.length === 0}>
-        <p class="chat-empty">No note by that name.</p>
+        <p class="chat-empty">No file by that name.</p>
       </Show>
     </div>
   );

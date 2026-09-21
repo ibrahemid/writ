@@ -50,7 +50,7 @@ describe("LinkAmbiguityPicker", () => {
     showMissingNote("New", onCreate);
 
     expect(await screen.findByText(/No note is called/)).toBeTruthy();
-    const create = screen.getByText("Create note");
+    const create = screen.getByText("Create file");
     fireEvent.click(create);
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(document.querySelector(".link-picker")).toBeNull();
@@ -70,9 +70,9 @@ describe("LinkAmbiguityPicker", () => {
   it("takes focus when it appears", async () => {
     render(() => <LinkAmbiguityPicker />);
     showMissingNote("New", vi.fn());
-    await screen.findByText("Create note");
+    await screen.findByText("Create file");
     await Promise.resolve();
-    expect(document.activeElement?.textContent).toContain("Create note");
+    expect(document.activeElement?.textContent).toContain("Create file");
   });
 
   it("keeps Tab inside the dialog it declares itself modal for", async () => {

@@ -1,6 +1,6 @@
 use writ_core::config::{
-    Accent, ClientApproval, CommandUsage, Polarity, ProseFace, SidebarPosition, SidebarSection,
-    WritConfig,
+    Accent, ClientApproval, CommandUsage, DefaultLayout, FileExtension, FilesConfig, Polarity,
+    ProseFace, SidebarPosition, SidebarSection, WritConfig,
 };
 
 #[test]
@@ -32,6 +32,13 @@ fn default_config_has_expected_values() {
     assert_eq!(config.history.max_entries, 500);
 
     assert_eq!(config.storage.path, "~/.writ");
+
+    // ADR-041: a new file is plain text, and Markdown opens in the editor.
+    assert_eq!(config.files.default_extension, FileExtension::Txt);
+    assert_eq!(
+        config.preview.default_layout_markdown,
+        DefaultLayout::Source
+    );
 }
 
 #[test]
@@ -46,6 +53,7 @@ fn config_serializes_to_toml() {
     assert!(toml_str.contains("[keybindings]"));
     assert!(toml_str.contains("[history]"));
     assert!(toml_str.contains("[storage]"));
+    assert!(toml_str.contains("[files]"), "{toml_str}");
     assert!(toml_str.contains("collapsed = []"), "{toml_str}");
     assert!(toml_str.contains("hidden = []"), "{toml_str}");
 }
@@ -455,4 +463,35 @@ fn the_carry_leaves_the_fields_a_settings_panel_owns() {
     assert!(incoming.first_run.hint_dismissed);
     assert_eq!(incoming.ai.provider, "deepseek");
     assert_eq!(incoming.ai.model, "deepseek-flash");
+}
+
+#[test]
+fn the_files_table_names_the_format_new_files_carry() {
+    let parsed: WritConfig =
+        toml::from_str("[files]\ndefault_extension = \"md\"\n").expect("deserialization failed");
+    assert_eq!(parsed.files.default_extension, FileExtension::Md);
+}
+
+#[test]
+fn a_config_with_no_files_table_reads_as_plain_text() {
+    let parsed: WritConfig =
+        toml::from_str("[sidebar]\nwidth = 300\n").expect("deserialization failed");
+    assert_eq!(parsed.files, FilesConfig::default());
+    assert_eq!(parsed.files.default_extension, FileExtension::Txt);
+}
+
+#[test]
+fn a_format_writ_does_not_mint_is_refused_rather_than_ignored() {
+    assert!(toml::from_str::<WritConfig>("[files]\ndefault_extension = \"rtf\"\n").is_err());
+}
+
+#[test]
+fn the_files_table_roundtrips_through_toml() {
+    let mut config = WritConfig::default();
+    config.files.default_extension = FileExtension::Md;
+    let restored: WritConfig =
+        toml::from_str(&toml::to_string(&config).expect("serialization failed"))
+            .expect("deserialization failed");
+    assert_eq!(restored.files.default_extension, FileExtension::Md);
+    assert_eq!(config, restored);
 }

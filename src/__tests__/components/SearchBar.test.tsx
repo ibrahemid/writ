@@ -59,6 +59,6 @@ describe("SearchBar wording", () => {
   it("names what the field searches", () => {
     const { container } = render(() => <SearchBar />);
     const input = container.querySelector<HTMLInputElement>("input.search-input");
-    expect(input?.placeholder).toBe("Search your notes");
+    expect(input?.placeholder).toBe("Search your files");
   });
 });

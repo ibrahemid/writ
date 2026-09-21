@@ -360,8 +360,9 @@ segment, and a single circular close button at the right from
   it, and the word count shows at the top right of the editor.
 - **The command palette** has no scrim: a shadowed sheet over the note, 640px
   wide, a 40px input, 32px rows.
-- **The tab strip is hidden at one note.** Tabs are borderless, 28px on a 36px
-  bar, and the active tab carries the canvas colour instead of an accent tint.
+- **The tab strip shows the file's name at one file** (ADR-041 reversed the
+  one-file hide: an editor names the file it holds). Tabs are borderless, 28px
+  on a 36px bar, and the active tab carries the canvas colour instead of an accent tint.
 - **The sidebar** is 240px, rows on a 28px pitch with a 26px fill, sections in
   sentence case at `--writ-ui-sm` with tracking 0, named as plain nouns (Open,
   Recent, Search results, and the folder's own name), selection as a neutral
@@ -449,7 +450,7 @@ Kept:
 
 ## Consequences
 
-- Writ opens light, with sans prose at 16px and no tab strip at one note. For
+- Writ opens light, with sans prose at 16px and the tab strip naming the one open file. For
   anyone used to the current build this is a different product on first paint.
   The Warp Dark preset restores the old reading closely enough that the change
   is reversible in Settings, and the four terminal presets are unchanged in

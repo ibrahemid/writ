@@ -278,10 +278,14 @@ fn write_note_source(
     removed: RemovedFile,
 ) -> Result<Option<String>, String> {
     wait_out_a_held_removal(state, id, removed)?;
+    // Read before the store lock, and unconditionally: the config lock is
+    // never taken under a held store lock, and finding out whether this write
+    // needs the format at all takes the store lock first.
+    let default_extension = state.default_extension();
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     if doc.read_only {
-        return Err(format!("{ERR_NOTE_READ_ONLY}: note {id} is read-only"));
+        return Err(format!("{ERR_NOTE_READ_ONLY}: file {id} is read-only"));
     }
     // A file the user deleted is not recreated by the next keystroke. The
     // write gate cannot answer this on its own: a path that is not there
@@ -289,14 +293,14 @@ fn write_note_source(
     // right everywhere except here (spec W4).
     if removed == RemovedFile::Refuse && state.is_removed_on_disk(id) {
         return Err(format!(
-            "{ERR_FILE_REMOVED_ON_DISK}: note {id} has no file on disk any more"
+            "{ERR_FILE_REMOVED_ON_DISK}: file {id} is on disk nowhere any more"
         ));
     }
 
     let source_path = match doc.source_path.as_deref() {
         Some(path) => path.to_string(),
         None if content.is_empty() => return Ok(None),
-        None => attach_new_note_file(state, &store, &doc)?,
+        None => attach_new_note_file(state, &store, &doc, default_extension)?,
     };
 
     crate::commands::file::authorize_source_write(state, &source_path)?;
@@ -346,7 +350,7 @@ fn write_note_source(
 fn wait_out_a_held_removal(state: &AppState, id: &str, removed: RemovedFile) -> Result<(), String> {
     match state.removal_holds.wait_for_answer(id) {
         Some(HoldAnswer::Removed) if removed == RemovedFile::Refuse => Err(format!(
-            "{ERR_FILE_REMOVED_ON_DISK}: note {id} has no file on disk any more"
+            "{ERR_FILE_REMOVED_ON_DISK}: file {id} is on disk nowhere any more"
         )),
         _ => Ok(()),
     }
@@ -382,8 +386,9 @@ pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
     }
 }
 
-/// Gives a note with no file the file the invariant requires: a dated `.md`
-/// in the notes folder, deduped Finder-style, writable by containment.
+/// Gives a note with no file the file the invariant requires: a dated file in
+/// the configured format, in the notes folder, deduped by counter, writable
+/// by containment.
 ///
 /// The write then falls through to the ordinary path, so exactly one code
 /// path writes a note's text.
@@ -391,10 +396,15 @@ pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
 /// The tab starts following the file here rather than in the caller: this is
 /// the moment the note gets one, and a note that reached its file this way and
 /// was never followed heard nothing about it for the rest of the session.
+///
+/// The format is handed in rather than read here: the caller holds the store
+/// lock, and taking the config lock under it is the nesting order to keep out
+/// of the file.
 fn attach_new_note_file(
     state: &AppState,
     store: &BufferStore,
     doc: &BufferDocument,
+    default_extension: writ_core::config::FileExtension,
 ) -> Result<String, String> {
     let path = crate::notes::attach_note_file(
         store,
@@ -402,6 +412,7 @@ fn attach_new_note_file(
         &doc.id,
         &doc.title,
         chrono::Utc::now(),
+        default_extension,
     )?;
     state.follow_note_path(&doc.id, Path::new(&path));
     Ok(path)
@@ -756,12 +767,12 @@ pub fn resolve_external_change_inner(
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;
         if doc.read_only {
-            return Err(format!("{ERR_NOTE_READ_ONLY}: note {id} is read-only"));
+            return Err(format!("{ERR_NOTE_READ_ONLY}: file {id} is read-only"));
         }
         let ending = doc.line_ending;
         let path = doc
             .source_path
-            .ok_or_else(|| format!("{ERR_FILE_MISSING}: note {id} has no file"))?;
+            .ok_or_else(|| format!("{ERR_FILE_MISSING}: file {id} is on disk nowhere"))?;
         (path, ending)
     };
     let path = Path::new(&source_path);

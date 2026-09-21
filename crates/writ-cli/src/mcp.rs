@@ -45,14 +45,14 @@ pub fn help() -> String {
     [
         "Usage: writ mcp",
         "",
-        "Serves the notes folder to an MCP client over stdin and stdout.",
+        "Serves your folder to an MCP client over stdin and stdout.",
         "The client launches this command; it opens no port.",
         "",
         "Turn it on in Writ's settings, under Connected programs, and",
         "approve the program there. Until then no tool call is answered.",
         "",
         "Environment:",
-        "  WRIT_NOTES_DIR  The notes folder to read, overriding the setting.",
+        "  WRIT_NOTES_DIR  The folder to read, overriding the setting.",
         "  WRIT_DATA_DIR   The folder holding writ.db and config.toml.",
     ]
     .join("\n")

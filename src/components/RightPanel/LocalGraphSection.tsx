@@ -35,7 +35,7 @@ export default function LocalGraphSection(props: Props) {
 
   return (
     <Show when={near().nodes.length > 0}>
-      <PanelSection section="graph" heading="Nearby notes">
+      <PanelSection section="graph" heading="Nearby files">
         <GraphCanvas
           nodes={near().nodes}
           edges={near().edges}

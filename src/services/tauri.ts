@@ -6,7 +6,13 @@ import type {
   FileOpenResult,
   ResolveOutcome,
 } from "../types/buffer";
-import type { AiConfig, AiWire, ClientApproval, WritConfig } from "../types/config";
+import type {
+  AiConfig,
+  AiWire,
+  ClientApproval,
+  FileExtension,
+  WritConfig,
+} from "../types/config";
 
 export type { ClientApproval };
 import type { TransformDescriptor } from "../types/transforms";
@@ -178,6 +184,19 @@ export async function firstRunState(): Promise<FirstRunState> {
 
 export async function dismissFirstRunHint(): Promise<void> {
   return invoke("dismiss_first_run_hint");
+}
+
+/**
+ * Records the format the first launch chose and answers with the note to open.
+ *
+ * Nothing is written before this call: a launch that quits on the screen is
+ * asked again. The note is null when the launch has tabs to restore, and on
+ * any launch that was not a first one.
+ */
+export async function finishFirstRun(
+  defaultExtension: FileExtension,
+): Promise<BufferDocument | null> {
+  return invoke("finish_first_run", { defaultExtension });
 }
 
 /**

@@ -1624,11 +1624,14 @@ fn should_index(path: &Path) -> bool {
     )
 }
 
-/// Whether `path` carries one of the [`TEXT_EXTENSIONS`].
+/// Whether `path` carries one of the extensions Writ indexes without sniffing
+/// the file: `md`, `markdown`, `txt`, `text`.
 ///
 /// The half of the kind question that answers from the name, which is the only
-/// half a file with no local data behind it can be asked.
-fn has_text_extension(path: &Path) -> bool {
+/// half a file with no local data behind it can be asked. Public so the
+/// first launch's read of the notes folder asks the same list the index does,
+/// rather than keeping a second one that drifts (ADR-041 §2).
+pub fn has_text_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|ext| TEXT_EXTENSIONS.iter().any(|t| t.eq_ignore_ascii_case(ext)))

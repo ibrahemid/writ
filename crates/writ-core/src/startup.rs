@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 
+use crate::config::FileExtension;
 use crate::notes::DEFAULT_NOTES_FOLDER;
 
 /// Title of the dialog shown when Writ cannot finish starting.
@@ -481,7 +482,7 @@ pub fn classify_data_dir(
 fn sync_refusal_message(root: &Path, service: &str) -> String {
     format!(
         "Writ's data folder is inside {}, which {} syncs. A synced folder can damage the database \
-         and lose notes, so Writ will not start there. Set WRIT_DATA_DIR to a folder outside {}, \
+         and lose text, so Writ will not start there. Set WRIT_DATA_DIR to a folder outside {}, \
          then start Writ again.",
         root.display(),
         service,
@@ -501,9 +502,9 @@ pub fn data_dir_refusal_message(verdict: &DataDirVerdict) -> String {
         }
         DataDirVerdict::InsideSyncContainer { name, root } => sync_refusal_message(root, name),
         DataDirVerdict::InsideNotesFolder { notes_root } => format!(
-            "Writ's data folder and your notes folder, {}, overlap. The database and your notes \
-             cannot share a folder. Set WRIT_DATA_DIR to a folder outside your notes folder, or \
-             pick another notes folder in Settings, then start Writ again.",
+            "Writ's data folder and your folder, {}, overlap. The database and your files \
+             cannot share a folder. Set WRIT_DATA_DIR to a folder outside your folder, or pick \
+             another folder in Settings, then start Writ again.",
             notes_root.display()
         ),
     }
@@ -533,15 +534,17 @@ pub fn is_first_run(config_exists: bool) -> bool {
     !config_exists
 }
 
-/// The file name of the note that belongs to the day `now` falls in locally.
+/// The file name of the note that belongs to the day `now` falls in locally,
+/// in `extension`.
 ///
-/// One date rule. The stem is [`crate::notes::date_stem`], so the note the
-/// first launch opens and the note "Today's Note" opens are the same file on
-/// the same day, and a day boundary moves both at once. `now` is UTC and is
-/// converted here rather than by the caller, because the day a person calls
-/// today is the one their own clock is in.
-pub fn dated_note_name(now: DateTime<Utc>) -> String {
-    format!("{}.md", crate::notes::date_stem(now))
+/// One date rule. The stem is [`crate::notes::date_stem`], so two calls on the
+/// same day name the same file and a day boundary moves both at once. `now` is
+/// UTC and is converted here rather than by the caller, because the day a
+/// person calls today is the one their own clock is in. `extension` is the
+/// configured one ([`crate::config::FilesConfig`]): the day's note is a file
+/// Writ mints, so it follows the rule every mint follows (ADR-041 §2).
+pub fn dated_note_name(now: DateTime<Utc>, extension: FileExtension) -> String {
+    format!("{}.{}", crate::notes::date_stem(now), extension.as_str())
 }
 
 /// The title a note's first line gives it, or `None` when the line names
@@ -777,16 +780,23 @@ mod tests {
     fn dated_note_name_names_the_new_day_just_after_local_midnight() {
         let before = local_instant(2026, 3, 17, 23, 59, 59);
         let after = local_instant(2026, 3, 18, 0, 0, 1);
-        assert_eq!(dated_note_name(before), "2026-03-17.md");
-        assert_eq!(dated_note_name(after), "2026-03-18.md");
+        assert_eq!(
+            dated_note_name(before, FileExtension::Txt),
+            "2026-03-17.txt"
+        );
+        assert_eq!(dated_note_name(after, FileExtension::Txt), "2026-03-18.txt");
     }
 
     #[test]
-    fn dated_note_name_is_the_stem_rule_with_the_note_extension() {
+    fn dated_note_name_carries_the_configured_extension() {
         let now = local_instant(2026, 3, 18, 12, 0, 0);
         assert_eq!(
-            dated_note_name(now),
+            dated_note_name(now, FileExtension::Md),
             format!("{}.md", crate::notes::date_stem(now))
+        );
+        assert_eq!(
+            dated_note_name(now, FileExtension::Txt),
+            format!("{}.txt", crate::notes::date_stem(now))
         );
     }
 

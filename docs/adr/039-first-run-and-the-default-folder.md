@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Accepted. Amended by [ADR-041](./041-writ-is-a-text-app.md) (section 3): the
+first launch asks which format new files carry, and opens an untitled file
+rather than today's note. Sections 1, 2, 4 and 5 stand.
 
 ## Context
 

@@ -245,7 +245,7 @@ fn the_conflict_copy_dedupes_when_one_exists() {
         .format("%Y-%m-%d %H.%M.%S");
     assert_eq!(
         second.file_name().unwrap().to_string_lossy(),
-        format!("Meeting notes (conflict {stamp}) 2.md")
+        format!("Meeting notes (conflict {stamp})-2.md")
     );
     assert_eq!(std::fs::read_to_string(&first).unwrap(), "first");
     assert_eq!(std::fs::read_to_string(&second).unwrap(), "second");

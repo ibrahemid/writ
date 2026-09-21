@@ -61,15 +61,29 @@ function createBufferRegistry() {
     return doc;
   }
 
+  // A note the tab bar has not seen yet, kept once: a row that is already in
+  // the set is left as it stands, because the caller that put it there is the
+  // one holding the note.
+  function hold(doc: BufferDocument): void {
+    setBuffers((prev) =>
+      prev.find((b) => b.id === doc.id) ? prev : [...prev, doc],
+    );
+  }
+
   // A new note is a file in the notes folder before anything else happens, so
   // it is in Finder immediately rather than on the first keystroke.
   async function newNote(): Promise<BufferDocument> {
     await flushAutosave();
     const doc = await api.newNote();
-    setBuffers((prev) =>
-      prev.find((b) => b.id === doc.id) ? prev : [...prev, doc],
-    );
+    hold(doc);
     return doc;
+  }
+
+  // A note another call already minted, taken into the set the tab bar reads.
+  // The first launch is the one caller: `finish_first_run` writes the file and
+  // answers with its row, so there is nothing left here but to hold it.
+  function adoptDocument(doc: BufferDocument): void {
+    hold(doc);
   }
 
   // One note a day: today's is opened when it is already there and made when
@@ -268,6 +282,7 @@ function createBufferRegistry() {
     load,
     createBuffer,
     newNote,
+    adoptDocument,
     todaysNote,
     deleteNote,
     saveCopy,

@@ -54,6 +54,7 @@ fn make_state(dir: &TempDir) -> AppState {
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
+        first_run_finished: std::sync::atomic::AtomicBool::new(false),
         retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),
@@ -340,8 +341,9 @@ fn first_save_of_a_new_note_creates_a_dated_file_in_the_notes_folder() {
     save_buffer_content_inner(&state, &doc.id, "just notes").expect("save");
 
     let expected = state.notes_root().join(format!(
-        "{}.md",
-        writ_core::notes::date_stem(doc.created_at)
+        "{}.{}",
+        writ_core::notes::date_stem(doc.created_at),
+        state.default_extension().as_str()
     ));
     assert_eq!(std::fs::read_to_string(&expected).unwrap(), "just notes");
     assert!(
@@ -362,17 +364,22 @@ fn the_dated_file_name_dedupes_when_todays_note_already_exists() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let day = writ_core::notes::date_stem(chrono::Utc::now());
-    std::fs::write(state.notes_root().join(format!("{day}.md")), "yesterday's").unwrap();
+    let extension = state.default_extension().as_str();
+    std::fs::write(
+        state.notes_root().join(format!("{day}.{extension}")),
+        "yesterday's",
+    )
+    .unwrap();
 
     let doc = new_note(&state);
     save_buffer_content_inner(&state, &doc.id, "today's").expect("save");
 
     assert_eq!(
-        std::fs::read_to_string(state.notes_root().join(format!("{day} 2.md"))).unwrap(),
+        std::fs::read_to_string(state.notes_root().join(format!("{day}-2.{extension}"))).unwrap(),
         "today's"
     );
     assert_eq!(
-        std::fs::read_to_string(state.notes_root().join(format!("{day}.md"))).unwrap(),
+        std::fs::read_to_string(state.notes_root().join(format!("{day}.{extension}"))).unwrap(),
         "yesterday's",
         "the note already there is never written over"
     );

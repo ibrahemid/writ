@@ -51,9 +51,9 @@ function archiveLine(outcome: MoveArchiveOutcome): string {
   const renamed = outcome.collided.length;
   if (renamed === 0) return moved;
   if (renamed === 1) {
-    return `${moved} One was renamed because your notes folder already had that name.`;
+    return `${moved} One was renamed because your folder already had that name.`;
   }
-  return `${moved} ${renamed} were renamed because your notes folder already had those names.`;
+  return `${moved} ${renamed} were renamed because your folder already had those names.`;
 }
 
 export default function NotesMigrationReport() {
@@ -125,7 +125,7 @@ export default function NotesMigrationReport() {
                 data-action="notes-report-archive"
                 onClick={() => void onMoveArchived()}
               >
-                Move them into your notes folder
+                Move them into your folder
               </Button>
             </div>
           </Show>
@@ -150,7 +150,7 @@ export default function NotesMigrationReport() {
             iconSize={16}
             class="notes-report-dismiss"
             data-action="notes-report-dismiss"
-            aria-label="Dismiss the notes report"
+            aria-label="Dismiss the report"
             onClick={() => void notesMigrationStore.dismiss()}
           />
         </div>

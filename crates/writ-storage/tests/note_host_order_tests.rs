@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use tempfile::TempDir;
+use writ_core::config::FileExtension;
 use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
 use writ_storage::note_history::NoteHistoryStore;
@@ -82,6 +83,7 @@ fn a_refused_write_with_a_history_store_keeps_no_version() {
             Capability::CreateNote,
             Capability::RenameNote,
         ]),
+        FileExtension::Md,
     )
     .expect("open the host")
     .with_history(Some(&store));
@@ -121,9 +123,14 @@ fn an_allowed_write_through_the_host_captures_a_version() {
     store.set_notes_root(fixture.notes.clone());
     let key = store.key_for(&note).expect("a key for the note");
 
-    let writing = NoteHostImpl::open(&fixture.notes, None, held(&[Capability::WriteNote]))
-        .expect("open the host")
-        .with_history(Some(&store));
+    let writing = NoteHostImpl::open(
+        &fixture.notes,
+        None,
+        held(&[Capability::WriteNote]),
+        FileExtension::Md,
+    )
+    .expect("open the host")
+    .with_history(Some(&store));
     writing
         .write_note("Launch.md", "after\n", None, WriteOrigin::Chat)
         .expect("the write lands");
@@ -146,9 +153,14 @@ fn a_minted_note_captures_no_version() {
     let store = NoteHistoryStore::open(&fixture.writ).expect("history store");
     store.set_notes_root(fixture.notes.clone());
 
-    let minting = NoteHostImpl::open(&fixture.notes, None, held(&[Capability::CreateNote]))
-        .expect("open the host")
-        .with_history(Some(&store));
+    let minting = NoteHostImpl::open(
+        &fixture.notes,
+        None,
+        held(&[Capability::CreateNote]),
+        FileExtension::Md,
+    )
+    .expect("open the host")
+    .with_history(Some(&store));
     minting
         .create_note("Ship it", "body\r\n", WriteOrigin::Chat)
         .expect("the note is minted");
@@ -177,8 +189,13 @@ fn the_check_precedes_resolution_the_index_and_the_stat() {
     std::fs::write(&outside, "not a note\n").expect("seed outside");
     let outside = outside.to_string_lossy().into_owned();
 
-    let nothing =
-        NoteHostImpl::open(&fixture.notes, None, PermissionSet::default()).expect("open the host");
+    let nothing = NoteHostImpl::open(
+        &fixture.notes,
+        None,
+        PermissionSet::default(),
+        FileExtension::Md,
+    )
+    .expect("open the host");
     assert!(!nothing.has_index());
 
     let refusals: Vec<(HostError, Capability)> = vec![

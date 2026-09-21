@@ -21,6 +21,13 @@ export interface PreviewConfig {
   run_scripts: boolean;
 }
 
+/** The extension a new file gets when nothing else names one. */
+export type FileExtension = "txt" | "md";
+
+export interface FilesConfig {
+  default_extension: FileExtension;
+}
+
 export interface InboxConfig {
   path: string | null;
   focus: boolean;
@@ -150,6 +157,7 @@ export interface WritConfig {
   appearance: AppearanceConfig;
   commands: CommandsConfig;
   preview: PreviewConfig;
+  files: FilesConfig;
   workspace: { root: string | null };
   inbox: InboxConfig;
   updater: UpdaterConfig;

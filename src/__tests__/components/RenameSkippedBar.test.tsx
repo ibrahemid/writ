@@ -42,7 +42,7 @@ describe("the notes a rename left alone", () => {
     const { container } = render(() => <RenameSkippedBar />);
 
     expect(container.querySelector(".editor-bar-heading")?.textContent).toBe(
-      "Left 2 notes unchanged:",
+      "Left 2 files unchanged:",
     );
     const lines = Array.from(
       container.querySelectorAll(".editor-bar-list li"),
@@ -58,7 +58,7 @@ describe("the notes a rename left alone", () => {
     const { container } = render(() => <RenameSkippedBar />);
 
     expect(container.querySelector(".editor-bar-heading")?.textContent).toBe(
-      "Left 1 note unchanged:",
+      "Left 1 file unchanged:",
     );
   });
 

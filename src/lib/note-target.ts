@@ -33,7 +33,7 @@ export function candidateName(path: string): string {
 /** What else the link could mean, named. */
 export function ambiguityMarker(candidates: string[]): string {
   const names = candidates.map(candidateName);
-  if (names.length === 0) return "Could name another note";
+  if (names.length === 0) return "Could name another file";
   if (names.length === 1) return `Could also mean ${names[0]}`;
   return `Could also mean ${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
 }

@@ -60,6 +60,7 @@ import type {
   AccentId,
   AppearanceConfig,
   DefaultLayout,
+  FileExtension,
   Polarity,
   ProseFaceId,
   SidebarSectionId,
@@ -602,13 +603,36 @@ function FilesSection() {
       return s !== undefined && s.status !== "unsupported";
     });
 
-  // Files holds nothing but this row, so the section renders only where the row
-  // can. The registry answers first: App probes it at startup, before Settings
-  // can open, while this section re-queries on every visit.
+  function onDefaultExtensionChange(raw: string) {
+    const extension = raw as FileExtension;
+    void patchConfig((prev) => ({ ...prev, files: { ...prev.files, default_extension: extension } }));
+  }
+
+  // The format row is every platform's, so the section is too. The file-types
+  // row is the one that can be missing: the registry answers first, App probes
+  // it at startup before Settings can open, and this section re-queries on
+  // every visit.
   return (
-    <Show when={hasSupportedDefaultAppTypes() || claimable().length > 0}>
-      <div data-section="files">
-        <SectionLabel section="files" />
+    <div data-section="files">
+      <SectionLabel section="files" />
+      <FolderRow />
+      <SettingsRow
+        id="files.default_extension"
+        label="Default format"
+        labelFor="setting-default-extension"
+      >
+        <select
+          id="setting-default-extension"
+          class="settings-select"
+          data-setting="default_extension"
+          value={configStore.config().files.default_extension}
+          onChange={(e) => onDefaultExtensionChange(e.currentTarget.value)}
+        >
+          <option value="txt">Plain text (.txt)</option>
+          <option value="md">Markdown (.md)</option>
+        </select>
+      </SettingsRow>
+      <Show when={hasSupportedDefaultAppTypes() || claimable().length > 0}>
         <SettingsRow id={DEFAULT_APP_SETTING_ID} label="Open these file types with Writ">
           <span class="settings-file-types">
             <For each={claimable()}>
@@ -626,13 +650,15 @@ function FilesSection() {
             </span>
           </span>
         </SettingsRow>
-      </div>
-    </Show>
+      </Show>
+      <CliRow />
+      <VersionsRow />
+    </div>
   );
 }
 
 /**
- * Says where the notes went when the folder in the settings could not be used.
+ * Says where the files went when the folder in the settings could not be used.
  *
  * The refused path is not named: it is the one the user typed or picked, it is
  * on the same row above this line, and repeating it says nothing the reader
@@ -641,7 +667,7 @@ function FilesSection() {
 function fallbackLine(displayPath: string, reason: NotesFallbackReason): string {
   const why =
     reason === "holds_writ_data" ? "holds Writ's own data" : "could not be used";
-  return `The folder in your settings ${why}, so notes are in ${displayPath}.`;
+  return `The folder in your settings ${why}, so files are in ${displayPath}.`;
 }
 
 /** Names the files a move would have written over, at most three of them. */
@@ -652,7 +678,14 @@ function collisionLine(names: string[]): string {
   return `That folder already has ${list}. Nothing moved.`;
 }
 
-function NotesSection() {
+/**
+ * The Files rows naming the folder Writ writes into.
+ *
+ * Its own component rather than inline in `FilesSection`: the move, the copy
+ * and the reveal each own state and a failure path, and the row reads as one
+ * thing next to the format and file-type rows.
+ */
+function FolderRow() {
   const folder = () => notesStore.folder();
 
   onMount(() => {
@@ -684,50 +717,116 @@ function NotesSection() {
         showToast(collisionLine(outcome.collided), "error");
         return;
       }
-      showToast(`Your notes are now in ${folder()?.display_path ?? outcome.new_root}.`, "success");
+      showToast(`Your files are now in ${folder()?.display_path ?? outcome.new_root}.`, "success");
     } catch {
-      showToast("Could not move the notes folder", "error");
-      logFailure("the notes folder could not be moved");
+      showToast("Could not move the folder", "error");
+      logFailure("the folder could not be moved");
     }
   }
 
   return (
-    <div data-section="notes">
-      <SectionLabel section="notes" />
-      <SettingsRow id="notes.folder" label="Notes folder">
-        <span class="settings-notes">
-          <span class="settings-notes-controls">
-            <Tooltip label={folder()?.path ?? ""}>
-              <span class="settings-notes-path" data-notes-path>
-                {folder()?.display_path ?? "…"}
-              </span>
-            </Tooltip>
-            <Button data-action="notes-show" onClick={() => void onShow()}>
-              {SHOW_IN_FILE_MANAGER}
-            </Button>
-            <Button data-action="notes-copy" onClick={() => void onCopy()}>
-              Copy path
-            </Button>
-            <Button data-action="notes-move" onClick={() => void onMove()}>
-              Move…
-            </Button>
-          </span>
-          <Show when={folder()?.fallback}>
-            {(fallback) => (
-              <span class="settings-notes-note" data-notes-fallback>
-                {fallbackLine(folder()?.display_path ?? "", fallback().reason)}
-              </span>
-            )}
-          </Show>
-          <NotesSyncNote provider={folder()?.sync_provider ?? null} />
+    <SettingsRow id="notes.folder" label="Folder">
+      <span class="settings-notes">
+        <span class="settings-notes-controls">
+          <Tooltip label={folder()?.path ?? ""}>
+            <span class="settings-notes-path" data-notes-path>
+              {folder()?.display_path ?? "…"}
+            </span>
+          </Tooltip>
+          <Button data-action="notes-show" onClick={() => void onShow()}>
+            {SHOW_IN_FILE_MANAGER}
+          </Button>
+          <Button data-action="notes-copy" onClick={() => void onCopy()}>
+            Copy path
+          </Button>
+          <Button data-action="notes-move" onClick={() => void onMove()}>
+            Move…
+          </Button>
         </span>
+        <Show when={folder()?.fallback}>
+          {(fallback) => (
+            <span class="settings-notes-note" data-notes-fallback>
+              {fallbackLine(folder()?.display_path ?? "", fallback().reason)}
+            </span>
+          )}
+        </Show>
+        <NotesSyncNote provider={folder()?.sync_provider ?? null} />
+      </span>
+    </SettingsRow>
+  );
+}
+
+/** What Writ keeps of a file's earlier versions. */
+function VersionsRow() {
+  return (
+    <SettingsRow id="notes.versions" label="Versions">
+      <span class="settings-notes-note" data-notes-retention>
+        Writ keeps a version each time a file is saved, for up to 30 days or 200 versions.
+      </span>
+    </SettingsRow>
+  );
+}
+
+/** The Files row installing the `writ` terminal command. */
+function CliRow() {
+  const [isInstallingCli, setIsInstallingCli] = createSignal(false);
+  const [cliInstalled, setCliInstalled] = createSignal(false);
+
+  function refreshCliStatus() {
+    void fetchCliStatus()
+      .then((s) => setCliInstalled(s.installed))
+      .catch(() => setCliInstalled(false));
+  }
+
+  onMount(() => {
+    refreshCliStatus();
+  });
+
+  async function onInstallCli() {
+    if (isInstallingCli()) return;
+    setIsInstallingCli(true);
+    try {
+      const result = await installCli();
+      setCliInstalled(true);
+      showToast(`writ installed at ${result.symlink_path}`, "success");
+    } catch {
+      showToast("Could not install the writ command", "error");
+      logFailure("the writ command could not be installed");
+      refreshCliStatus();
+    } finally {
+      setIsInstallingCli(false);
+    }
+  }
+
+  return (
+    <Show when={isSettingAvailable("files.cli")}>
+      <SettingsRow
+        id="files.cli"
+        label="Terminal command"
+        caution={
+          !cliInstalled() && IS_MAC
+            ? "macOS will ask for your password to install this."
+            : undefined
+        }
+      >
+        <Show
+          when={!cliInstalled()}
+          fallback={
+            <span class="settings-default-app-status settings-default-app-status-active">
+              writ command installed
+            </span>
+          }
+        >
+          <Button
+            data-action="install-cli"
+            disabled={isInstallingCli()}
+            onClick={() => void onInstallCli()}
+          >
+            {isInstallingCli() ? "Installing…" : "Install the writ command"}
+          </Button>
+        </Show>
       </SettingsRow>
-      <SettingsRow id="notes.versions" label="Versions">
-        <span class="settings-notes-note" data-notes-retention>
-          Writ keeps a version each time a note is saved, for up to 30 days or 200 versions.
-        </span>
-      </SettingsRow>
-    </div>
+    </Show>
   );
 }
 
@@ -1242,7 +1341,7 @@ function AiSection() {
       <Show when={hostedUnconsented()}>
         <div class="settings-ai-consent" role="note">
           <p class="settings-ai-consent-text">
-            The notes you attach and the text you rewrite are sent to {endpointHost()} with your API
+            The files you attach and the text you rewrite are sent to {endpointHost()} with your API
             key. Writ also sends the key on its own to check the host is reachable; nothing else
             leaves your machine.
           </p>
@@ -1397,12 +1496,12 @@ function AiSection() {
       <div class="settings-group">
         <SettingsRow
           id="ai.chat.enabled"
-          label="Chat about your notes"
-          description="A pane where you attach notes and the model can offer changes you apply."
+          label="Chat about your files"
+          description="A pane where you attach files and the model can offer changes you apply."
         >
           <ToggleSwitch
             setting="ai_chat_enabled"
-            label="Chat about your notes"
+            label="Chat about your files"
             checked={cfg().chat.enabled}
             onChange={() => patchChat({ enabled: !cfg().chat.enabled })}
           />
@@ -1650,7 +1749,7 @@ function AppearanceSection() {
 }
 
 const SIDEBAR_ROWS: { id: string; section: SidebarSectionId; title: string; setting: string }[] = [
-  { id: "sidebar.folder", section: "folder", title: "Show notes", setting: "sidebar_folder" },
+  { id: "sidebar.folder", section: "folder", title: "Show files", setting: "sidebar_folder" },
   { id: "sidebar.tags", section: "tags", title: "Show tags", setting: "sidebar_tags" },
   { id: "sidebar.inbox", section: "inbox", title: "Show watched folder", setting: "sidebar_inbox" },
   { id: "sidebar.recent", section: "recent", title: "Show recently closed", setting: "sidebar_recent" },
@@ -1701,42 +1800,14 @@ function ShortcutsSection() {
 }
 
 /**
- * The rows a writer never needs: the terminal command, the watched folder, the
- * two preview size limits and Writ's own data folder. Everything here answers a
- * question the panel above it does not raise.
+ * The rows a writer never needs: the watched folder, the two preview size
+ * limits and Writ's own data folder. Everything here answers a question the
+ * panel above it does not raise.
  */
 function AdvancedSection() {
   const preview = () => configStore.config().preview;
-  const [isInstallingCli, setIsInstallingCli] = createSignal(false);
-  const [cliInstalled, setCliInstalled] = createSignal(false);
   const watchedPath = () => inboxStore.path();
   const focusOnArrival = () => configStore.config().inbox.focus;
-
-  function refreshCliStatus() {
-    void fetchCliStatus()
-      .then((s) => setCliInstalled(s.installed))
-      .catch(() => setCliInstalled(false));
-  }
-
-  onMount(() => {
-    refreshCliStatus();
-  });
-
-  async function onInstallCli() {
-    if (isInstallingCli()) return;
-    setIsInstallingCli(true);
-    try {
-      const result = await installCli();
-      setCliInstalled(true);
-      showToast(`writ installed at ${result.symlink_path}`, "success");
-    } catch {
-      showToast("Could not install the writ command", "error");
-      logFailure("the writ command could not be installed");
-      refreshCliStatus();
-    } finally {
-      setIsInstallingCli(false);
-    }
-  }
 
   function onFocusToggle() {
     void patchConfig((prev) => ({ ...prev, inbox: { ...prev.inbox, focus: !prev.inbox.focus } }));
@@ -1768,34 +1839,6 @@ function AdvancedSection() {
   return (
     <div data-section="advanced">
       <SectionLabel section="advanced" />
-      <Show when={isSettingAvailable("files.cli")}>
-        <SettingsRow
-          id="files.cli"
-          label="Terminal command"
-          caution={
-            !cliInstalled() && IS_MAC
-              ? "macOS will ask for your password to install this."
-              : undefined
-          }
-        >
-          <Show
-            when={!cliInstalled()}
-            fallback={
-              <span class="settings-default-app-status settings-default-app-status-active">
-                writ command installed
-              </span>
-            }
-          >
-            <Button
-              data-action="install-cli"
-              disabled={isInstallingCli()}
-              onClick={() => void onInstallCli()}
-            >
-              {isInstallingCli() ? "Installing…" : "Install the writ command"}
-            </Button>
-          </Show>
-        </SettingsRow>
-      </Show>
       <SettingsRow id="files.inbox_folder" label="Folder to watch for new files">
         <Show
           when={watchedPath()}
@@ -1891,9 +1934,9 @@ export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
   note_properties: { group: "see", phrase: "properties" },
   note_tags: { group: "see", phrase: "tags" },
   folder_tags: { group: "see", phrase: "tags" },
-  write_note: { group: "write", phrase: "replace a note's text" },
-  create_note: { group: "write", phrase: "make a new note" },
-  rename_note: { group: "write", phrase: "rename a note" },
+  write_note: { group: "write", phrase: "replace a file's text" },
+  create_note: { group: "write", phrase: "make a new file" },
+  rename_note: { group: "write", phrase: "rename a file" },
 };
 
 export function describeReadTools(ids: readonly string[]): string {
@@ -1911,7 +1954,7 @@ export function describeReadTools(ids: readonly string[]): string {
     }
   }
   const clauses: string[] = [];
-  if (verbs.length > 0) clauses.push(`${joinAnd(verbs)} notes`);
+  if (verbs.length > 0) clauses.push(`${joinAnd(verbs)} files`);
   if (nouns.length > 0) clauses.push(`see their ${joinAnd(nouns)}`);
   return [...clauses, ...unnamed].join(", and ");
 }
@@ -1977,10 +2020,10 @@ function ProgramsSection() {
     <div data-section="programs">
       <SectionLabel section="programs" />
 
-      <SettingsRow id="mcp.enabled" label="Let other programs read and write your notes">
+      <SettingsRow id="mcp.enabled" label="Let other programs read and write your files">
         <ToggleSwitch
           setting="mcp_enabled"
-          label="Let other programs read and write your notes"
+          label="Let other programs read and write your files"
           checked={mcp().enabled}
           onChange={onEnableToggle}
         />
@@ -2003,7 +2046,7 @@ function ProgramsSection() {
         id="mcp.tools"
         label="What a program can do"
         align="start"
-        caution="Nothing deletes a note, and a rename leaves other notes pointing at the old name."
+        caution="Nothing deletes a file, and a rename leaves other files pointing at the old name."
       >
         <Show
           when={activityStore.tools()}
@@ -2040,7 +2083,7 @@ function ProgramsSection() {
                         Read
                         <ToggleSwitch
                           setting={`mcp_read_${client.name}`}
-                          label={`Let ${client.name} read your notes`}
+                          label={`Let ${client.name} read your files`}
                           checked={client.read || client.write}
                           disabled={client.write}
                           onChange={() => void onSetPermission(client.name, !client.read, false)}
@@ -2050,7 +2093,7 @@ function ProgramsSection() {
                         Write
                         <ToggleSwitch
                           setting={`mcp_write_${client.name}`}
-                          label={`Let ${client.name} write your notes`}
+                          label={`Let ${client.name} write your files`}
                           checked={client.write}
                           onChange={() => void onSetPermission(client.name, true, !client.write)}
                         />
@@ -2096,9 +2139,8 @@ function ProgramsSection() {
 function AllSections() {
   return (
     <>
-      <NotesSection />
-      <EditorSection />
       <FilesSection />
+      <EditorSection />
       <PreviewSection />
       <AiSection />
       <ProgramsSection />
@@ -2311,7 +2353,6 @@ export default function SettingsModal() {
                   when={isSearching()}
                   fallback={
                     <Switch>
-                      <Match when={activeSection() === "notes"}><NotesSection /></Match>
                       <Match when={activeSection() === "editor"}><EditorSection /></Match>
                       <Match when={activeSection() === "files"}><FilesSection /></Match>
                       <Match when={activeSection() === "preview"}><PreviewSection /></Match>

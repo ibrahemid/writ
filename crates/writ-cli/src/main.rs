@@ -7,8 +7,8 @@ use clap::Parser;
 use writ_cli::mcp;
 use writ_cli::verbs;
 use writ_cli::{
-    is_empty_payload, no_path_action, piped_note_path, read_notes_root_from_config,
-    resolve_notes_dir, resolve_targets, NoPathAction, OpenTarget,
+    is_empty_payload, no_path_action, piped_note_path, read_files_config,
+    read_notes_root_from_config, resolve_notes_dir, resolve_targets, NoPathAction, OpenTarget,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -23,7 +23,7 @@ use writ_cli::{is_failed_startup, resolve_gui_binary, GuiLaunch, GUI_BIN_ENV};
 #[cfg(target_os = "macos")]
 const MACOS_BUNDLE_ID: &str = "com.writ.editor";
 
-const ENV_HELP: &str = "Environment:\n  WRIT_GUI_BIN  Path to the Writ application binary. Read on Linux and Windows,\n                where it takes precedence over the binary installed next to\n                this one.\n  WRIT_NOTES_DIR  The notes folder to read and write, overriding the setting.\n  WRIT_DATA_DIR   The folder holding writ.db and config.toml.";
+const ENV_HELP: &str = "Environment:\n  WRIT_GUI_BIN  Path to the Writ application binary. Read on Linux and Windows,\n                where it takes precedence over the binary installed next to\n                this one.\n  WRIT_NOTES_DIR  The folder to read and write, overriding the setting.\n  WRIT_DATA_DIR   The folder holding writ.db and config.toml.";
 
 #[derive(Parser)]
 #[command(
@@ -104,7 +104,12 @@ fn main() {
                     process::exit(1);
                 }
 
-                let dest = piped_note_path(&notes_dir, title.as_deref(), chrono::Local::now());
+                let dest = piped_note_path(
+                    &notes_dir,
+                    title.as_deref(),
+                    chrono::Local::now(),
+                    read_files_config(&writ_paths().0).default_extension,
+                );
 
                 if let Err(e) = std::fs::write(&dest, &content) {
                     eprintln!("writ: cannot write to {}: {e}", dest.display());
@@ -242,6 +247,7 @@ fn run_verb(parsed: Result<verbs::Verb, verbs::UsageError>) -> ! {
         notes_dir,
         db_path: writ_dir.join("writ.db"),
         now: chrono::Utc::now(),
+        default_extension: read_files_config(&writ_dir).default_extension,
     };
 
     let outcome = verbs::run(verb, &context);

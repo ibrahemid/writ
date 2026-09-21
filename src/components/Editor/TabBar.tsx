@@ -7,6 +7,7 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
 import { showToast } from "../Notifications/Toast";
 import { abbreviateTitle } from "../../lib/buffer-name";
+import { displayFileName, renameSeed } from "../../lib/display-name";
 import { resolvePlatform } from "../../lib/platform";
 import {
   confirmAndDeleteNote,
@@ -135,8 +136,7 @@ export default function TabBar() {
 
   /**
    * A close from the keyboard has to leave focus somewhere. The next tab takes
-   * it; when the close drops the strip below two notes there is no strip left,
-   * so the note takes it instead.
+   * it; a close that leaves no tab at all hands focus to the editor.
    */
   async function closeFromKeyboard(tabId: string) {
     const ids = tabs().map((tab) => tab.id);
@@ -149,23 +149,23 @@ export default function TabBar() {
       tabEls.get(tabId)?.focus();
       return;
     }
-    if (remaining.length < 2 || successor === undefined) {
+    if (remaining.length === 0 || successor === undefined) {
       win.editor.focusEditor();
       return;
     }
     tabEls.get(successor)?.focus();
   }
 
-  // Hidden at one note (ADR-030 §5): a strip of one tab names what the window
-  // already shows. A note waiting on its bytes has a tab and no buffer, so the
-  // strip stays up for it however few notes are open.
+  // Up from the first tab: nothing else on screen carries the open file's
+  // name, so hiding the strip at one file left it unnamed. A file waiting on
+  // its bytes has a tab and no buffer, and the strip stays up for it too.
   return (
-    <Show when={tabs().length > 1 || win.downloads.pending().length > 0}>
+    <Show when={tabs().length > 0 || win.downloads.pending().length > 0}>
       <div class="tabbar" data-platform={platform}>
         {/* The tablist owns its tabs: the anchor and the slot around each one
             are out of the accessibility tree, and the add control is a sibling
             of the list rather than a stray child of it. */}
-        <div class="tabbar-tabs" role="tablist" aria-label="Open notes">
+        <div class="tabbar-tabs" role="tablist" aria-label="Open files">
           <For each={tabs()}>
             {(tab) => {
               const isActive = () => win.tabs.activeTabId() === tab.id;
@@ -200,20 +200,23 @@ export default function TabBar() {
                         onClick={() => win.tabs.setActiveTabId(tab.id)}
                         onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}
                       >
-                        <span class="tab-title">{abbreviateTitle(tab.title)}</span>
+                        <span class="tab-title">{abbreviateTitle(displayFileName(tab.title))}</span>
                       </button>
                     }>
                       <input
                         ref={(el) => {
+                          const seed = renameSeed(tab.title);
                           requestAnimationFrame(() => {
                             el.focus();
-                            el.select();
+                            // The stem only: typing over the selection keeps
+                            // the format the file already has.
+                            el.setSelectionRange(0, seed.selectionEnd);
                           });
                         }}
                         class="tab-rename-input"
                         data-writ-focus-silent
-                        aria-label="Rename note"
-                        value={tab.title}
+                        aria-label="Rename file"
+                        value={renameSeed(tab.title).value}
                         onBlur={(e) => handleRenameSubmit(tab.id, e.currentTarget.value)}
                         onKeyDown={(e) => handleRenameKeyDown(e, tab.id)}
                       />
@@ -259,7 +262,7 @@ export default function TabBar() {
                       tabIndex={isSelected() ? 0 : -1}
                       onClick={() => selectDownload(download.path)}
                     >
-                      <span class="tab-title">{abbreviateTitle(download.title)}</span>
+                      <span class="tab-title">{abbreviateTitle(displayFileName(download.title))}</span>
                       <span class="tab-download-marker">{markerFor(download.state)}</span>
                     </button>
                     <button
@@ -283,11 +286,11 @@ export default function TabBar() {
             }}
           </For>
         </div>
-        <Tooltip label="New note">
+        <Tooltip label="New file">
           <button
             type="button"
             class="tab-add"
-            aria-label="New note"
+            aria-label="New file"
             onClick={() => void win.tabs.newNote()}
           >
             <Icon name="plus" size={16} />

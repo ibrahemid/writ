@@ -63,10 +63,10 @@ describe("the status bar's way to the notes folder", () => {
     h.folderPath.current = "/Users/x/Notes";
   });
 
-  it("falls back to the word Notes when no folder is loaded yet", () => {
+  it("falls back to the word Files when no folder is loaded yet", () => {
     h.folderPath.current = null;
     const { container } = render(() => <StatusBar />);
-    expect(container.querySelector(".statusbar-folder")!.textContent).toBe("Notes");
+    expect(container.querySelector(".statusbar-folder")!.textContent).toBe("Files");
     h.folderPath.current = "/Users/x/Notes";
   });
 

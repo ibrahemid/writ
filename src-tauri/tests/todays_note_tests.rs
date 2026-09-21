@@ -3,6 +3,7 @@
 use std::sync::Mutex as StdMutex;
 
 use chrono::{DateTime, Local, TimeZone, Utc};
+use writ_core::config::FileExtension;
 use writ_core::startup::dated_note_name;
 use writ_storage::notes_index;
 use writ_tauri_lib::commands::notes::todays_note_inner;
@@ -21,6 +22,11 @@ fn launch(data_dir: &std::path::Path, notes_dir: &std::path::Path) -> AppState {
     std::env::remove_var("WRIT_DATA_DIR");
     std::env::remove_var("WRIT_NOTES_DIR");
     state
+}
+
+/// The dated name in the format a launch with no config mints in.
+fn dated_name(now: DateTime<Utc>) -> String {
+    dated_note_name(now, FileExtension::Txt)
 }
 
 /// A wall-clock time in the machine's own time zone, as an instant.
@@ -76,7 +82,7 @@ fn twice_in_one_day_opens_the_same_note_and_makes_no_second_file() {
     );
     assert_eq!(
         notes_folder_entries(&state),
-        vec![dated_note_name(now)],
+        vec![dated_name(now)],
         "one file for the day, not two"
     );
 }
@@ -112,7 +118,7 @@ fn the_file_name_is_the_date_whatever_the_locale_says() {
 
     assert_eq!(
         opened_path(&note).file_name().and_then(|n| n.to_str()),
-        Some("2026-03-18.md"),
+        Some("2026-03-18.txt"),
         "the file name sorts, so it is the date and nothing else"
     );
 }
@@ -132,7 +138,7 @@ fn a_minute_either_side_of_midnight_makes_two_notes() {
     assert_ne!(yesterday.id, today.id, "a new day is a new note");
     assert_eq!(
         notes_folder_entries(&state),
-        vec!["2026-03-17.md".to_string(), "2026-03-18.md".to_string()],
+        vec!["2026-03-17.txt".to_string(), "2026-03-18.txt".to_string()],
     );
 }
 
@@ -143,7 +149,7 @@ fn a_note_that_is_already_there_is_opened_and_keeps_every_word() {
     let state = launch(data.path(), notes.path());
     let now = local_instant(2026, 3, 18, 9, 30, 0);
 
-    let path = state.notes_root().join(dated_note_name(now));
+    let path = state.notes_root().join(dated_name(now));
     let written = "# Standup\n\n- shipped the index\n";
     std::fs::write(&path, written).expect("a note written before Writ asked");
 
@@ -161,7 +167,7 @@ fn a_note_that_is_already_there_is_opened_and_keeps_every_word() {
     );
     assert_eq!(
         notes_folder_entries(&state),
-        vec![dated_note_name(now)],
+        vec![dated_name(now)],
         "nothing was made beside it"
     );
 }
@@ -175,7 +181,7 @@ fn a_note_it_makes_is_in_the_index_with_no_walk_of_the_folder() {
 
     todays_note_inner(&state, now).expect("today's note");
 
-    let key = notes_index::index_key(&state.notes_root().join(dated_note_name(now)));
+    let key = notes_index::index_key(&state.notes_root().join(dated_name(now)));
     assert!(
         state
             .notes_index
@@ -193,7 +199,7 @@ fn a_folder_wearing_todays_name_is_reported_rather_than_worked_around() {
     let state = launch(data.path(), notes.path());
     let now = local_instant(2026, 3, 18, 9, 30, 0);
 
-    let name = dated_note_name(now);
+    let name = dated_name(now);
     std::fs::create_dir(state.notes_root().join(&name)).expect("a folder in the way");
 
     todays_note_inner(&state, now).expect_err("today's name is not free");
@@ -203,5 +209,79 @@ fn a_folder_wearing_todays_name_is_reported_rather_than_worked_around() {
         notes_folder_entries(&state),
         vec![name],
         "no second file for the day, however often it is asked for"
+    );
+}
+
+#[test]
+fn a_day_already_written_in_the_other_format_is_opened_rather_than_made_again() {
+    let data = tempfile::tempdir().expect("tempdir");
+    let notes = tempfile::tempdir().expect("tempdir");
+    let state = launch(data.path(), notes.path());
+    let now = local_instant(2026, 9, 21, 9, 30, 0);
+
+    // The config says plain text; the day already has a Markdown note, from
+    // before the format was changed.
+    assert_eq!(state.default_extension(), FileExtension::Txt);
+    let markdown = state
+        .notes_root()
+        .join(dated_note_name(now, FileExtension::Md));
+    std::fs::write(&markdown, "# Standup\n").expect("the day's note");
+
+    let note = todays_note_inner(&state, now).expect("today's note");
+
+    assert_eq!(
+        opened_path(&note).file_name().and_then(|n| n.to_str()),
+        Some("2026-09-21.md"),
+        "the day's note is the one that is there"
+    );
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec!["2026-09-21.md".to_string()],
+        "never two files for one day"
+    );
+}
+
+#[test]
+fn a_day_with_no_note_yet_is_minted_in_the_configured_format() {
+    let data = tempfile::tempdir().expect("tempdir");
+    let notes = tempfile::tempdir().expect("tempdir");
+    let state = launch(data.path(), notes.path());
+    let now = local_instant(2026, 9, 21, 9, 30, 0);
+
+    todays_note_inner(&state, now).expect("today's note");
+
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec!["2026-09-21.txt".to_string()]
+    );
+}
+
+#[test]
+fn a_folder_wearing_the_other_formats_name_blocks_nothing() {
+    let data = tempfile::tempdir().expect("tempdir");
+    let notes = tempfile::tempdir().expect("tempdir");
+    let state = launch(data.path(), notes.path());
+    let now = local_instant(2026, 9, 21, 9, 30, 0);
+
+    // The config says plain text, and something has left a folder at the
+    // Markdown name. That name is only somewhere to read the day from, so the
+    // day still gets its note.
+    std::fs::create_dir(
+        state
+            .notes_root()
+            .join(dated_note_name(now, FileExtension::Md)),
+    )
+    .expect("a folder in the way");
+
+    let note = todays_note_inner(&state, now).expect("today's note");
+
+    assert_eq!(
+        opened_path(&note).file_name().and_then(|n| n.to_str()),
+        Some("2026-09-21.txt")
+    );
+    assert_eq!(
+        notes_folder_entries(&state),
+        vec!["2026-09-21.md".to_string(), "2026-09-21.txt".to_string()],
+        "the folder in the way is still there and the day has its note"
     );
 }

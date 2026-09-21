@@ -60,6 +60,7 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         buffers_dir,
         notes_root: RwLock::new(notes_root),
         first_run: false,
+        first_run_finished: std::sync::atomic::AtomicBool::new(false),
         retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(fallback),
         watcher_ignore: create_ignore_set(),
@@ -367,12 +368,12 @@ fn move_archived_notes_dedupes_and_updates_rows() {
         "the note already in the folder is untouched"
     );
     assert_eq!(
-        std::fs::read_to_string(notes.join("Meeting 2.md")).expect("read"),
+        std::fs::read_to_string(notes.join("Meeting-2.md")).expect("read"),
         "archived one"
     );
     assert_eq!(
         source_path_of(&state, "meeting").as_deref(),
-        Some(notes.join("Meeting 2.md").to_string_lossy().as_ref())
+        Some(notes.join("Meeting-2.md").to_string_lossy().as_ref())
     );
     assert_eq!(
         source_path_of(&state, "ideas").as_deref(),
@@ -386,7 +387,7 @@ fn move_archived_notes_dedupes_and_updates_rows() {
         )
         .expect("migrated path")
         .as_deref(),
-        Some(notes.join("Meeting 2.md").to_string_lossy().as_ref()),
+        Some(notes.join("Meeting-2.md").to_string_lossy().as_ref()),
         "the record no longer names the archive"
     );
     assert!(
@@ -408,7 +409,7 @@ fn a_folder_inside_the_notes_folder_is_refused_whichever_way_it_is_spelled() {
     let inside = dir.path().join("Writ").join("deeper");
     let error = move_notes_folder_to(&state, &inside).expect_err("refused");
 
-    assert_eq!(error, "Pick a folder outside your notes folder.");
+    assert_eq!(error, "Pick a folder outside your current one.");
     assert!(state.notes_root().join("One.md").exists(), "nothing moved");
 }
 
@@ -423,7 +424,7 @@ fn a_folder_holding_writs_own_data_is_refused_whichever_way_it_is_spelled() {
 
     assert_eq!(
         error,
-        "Writ keeps its own data in that folder, so it cannot also be your notes folder."
+        "Writ keeps its own data in that folder, so it cannot also hold your files."
     );
     assert_eq!(state.notes_root(), before);
     assert!(before.join("One.md").exists(), "nothing moved");
@@ -441,7 +442,7 @@ fn a_folder_inside_writs_own_data_folder_is_refused_and_nothing_is_created() {
 
     assert_eq!(
         error,
-        "Writ keeps its own data in that folder, so it cannot also be your notes folder."
+        "Writ keeps its own data in that folder, so it cannot also hold your files."
     );
     assert_eq!(state.notes_root(), before);
     assert!(before.join("One.md").exists(), "nothing moved");
@@ -464,7 +465,7 @@ fn a_folder_that_does_not_exist_yet_under_the_data_folder_is_refused_before_it_i
 
     assert_eq!(
         error,
-        "Writ keeps its own data in that folder, so it cannot also be your notes folder."
+        "Writ keeps its own data in that folder, so it cannot also hold your files."
     );
     assert_eq!(state.notes_root(), before);
     assert!(before.join("One.md").exists(), "nothing moved");
@@ -706,9 +707,9 @@ fn a_destination_that_climbs_back_into_the_data_folder_creates_nothing() {
     // move is refused as uncheckable; Windows collapses it first and refuses
     // the data folder itself. Both stop before anything is created.
     assert!(
-        error == "That folder cannot be your notes folder."
+        error == "That folder cannot hold your files."
             || error
-                == "Writ keeps its own data in that folder, so it cannot also be your notes folder.",
+                == "Writ keeps its own data in that folder, so it cannot also hold your files.",
         "unexpected refusal: {error}"
     );
     assert_eq!(state.notes_root(), before);

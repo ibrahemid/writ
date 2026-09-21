@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted, 2026-08-28.
+Accepted, 2026-08-28. [ADR-041](./041-writ-is-a-text-app.md) supersedes the
+product direction this record sets; every mechanism it ships stands.
 
 Builds on [ADR-028](./028-files-are-the-only-copy.md), which makes the file on
 disk the only copy of a note's text, and on

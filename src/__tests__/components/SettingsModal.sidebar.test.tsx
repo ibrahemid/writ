@@ -194,6 +194,7 @@ function baseConfig(): WritConfig {
     theme: { preset: "warp-dark", overrides: {} },
     appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
+    files: { default_extension: "txt" },
     workspace: { root: null },
     inbox: { path: null, focus: true },
     updater: { auto_check: true },
@@ -300,7 +301,7 @@ describe("SettingsModal sidebar section", () => {
     expect(controls.map((c) => c.dataset.setting)).toEqual(SIDEBAR_SETTINGS);
     expect(controls.map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "true", "true", "true"]);
     expect(controls.map((c) => c.getAttribute("aria-label"))).toEqual([
-      "Show notes",
+      "Show files",
       "Show tags",
       "Show watched folder",
       "Show recently closed",

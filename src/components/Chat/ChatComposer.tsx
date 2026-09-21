@@ -104,7 +104,7 @@ function FolderChip(props: { row: Extract<ChipRow, { kind: "folder" }> }) {
       >
         <Icon name="x" size={10} />
       </button>
-      <ul class="chat-chip-notes" aria-label={`Notes in ${label()}`}>
+      <ul class="chat-chip-notes" aria-label={`Files in ${label()}`}>
         <For each={props.row.notes}>
           {(note) => (
             <li>
@@ -307,7 +307,7 @@ export default function ChatComposer(props: {
       <Show when={chatStore.attachments().length > 0 || props.openNote() !== "none"}>
         <div class="chat-chips-row">
           <Show when={chatStore.attachments().length > 0}>
-            <ul class="chat-chips" aria-label="Notes it can read">
+            <ul class="chat-chips" aria-label="Files it can read">
               <For each={chipRows(chatStore.attachments())}>
                 {(row) =>
                   row.kind === "folder" ? <FolderChip row={row} /> : <NoteChip note={row.note} />
@@ -324,7 +324,7 @@ export default function ChatComposer(props: {
               onClick={() => void chatStore.addOpenNote()}
             >
               <Icon name="plus" size={12} />
-              Add open note
+              Add open file
             </button>
           </Show>
         </div>
@@ -332,7 +332,7 @@ export default function ChatComposer(props: {
 
       <Show when={props.openNote() === "unsaved"}>
         <p class="chat-composer-note" id={ADD_REASON_ID}>
-          Save this note first
+          Save this file first
         </p>
       </Show>
 

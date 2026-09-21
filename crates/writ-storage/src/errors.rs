@@ -44,7 +44,7 @@ pub enum StorageError {
     AtomicWrite(#[from] crate::atomic::AtomicWriteError),
 
     /// A notes-index table was missing and could not be recreated.
-    #[error("notes index repair failed: {message}")]
+    #[error("index repair failed: {message}")]
     IndexRepair {
         /// Human-readable description of the repair failure.
         message: String,
@@ -144,7 +144,7 @@ pub enum StorageError {
     ///
     /// The wording here is for logs. What the editor says is written at the
     /// command that catches this (`src-tauri/src/commands/notes.rs`).
-    #[error("a note name cannot be empty")]
+    #[error("a file name cannot be empty")]
     NoteNameEmpty,
 
     /// A note cannot take a name the folder already holds (ADR-028 section 3).
@@ -165,7 +165,7 @@ pub enum StorageError {
     ///
     /// The two are distinct folders on every ordinary launch; this is what a
     /// hand-written config or an environment override can make of them.
-    #[error("the archive {} and the notes folder {} are not separate folders", archive.display(), notes.display())]
+    #[error("the archive {} and the folder {} are not separate folders", archive.display(), notes.display())]
     ArchiveHoldsNotes {
         /// The archive folder as resolved.
         archive: std::path::PathBuf,

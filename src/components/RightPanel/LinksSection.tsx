@@ -99,7 +99,7 @@ export default function LinksSection(props: Props) {
 
   return (
     <Show when={rows().length > 0}>
-      <PanelSection section="links" heading="Links from this note">
+      <PanelSection section="links" heading="Links from this file">
         <ul class="right-panel-list">
           <For each={rows()}>
             {(row) => (

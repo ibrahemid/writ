@@ -19,16 +19,16 @@ pub enum HostError {
         capability: Capability,
     },
     /// The path argument names something the notes folder does not hold.
-    #[error("{path} is not in the notes folder")]
+    #[error("{path} is not in your folder")]
     OutsideNotesFolder {
         /// The path as the caller wrote it.
         path: String,
     },
     /// The index is absent, unreadable, or at another version.
-    #[error("the note index is not readable")]
+    #[error("the index is not readable")]
     IndexUnavailable,
     /// Nothing is at the path.
-    #[error("there is no note at {path}")]
+    #[error("there is no file at {path}")]
     NotFound {
         /// The path as the caller wrote it.
         path: String,

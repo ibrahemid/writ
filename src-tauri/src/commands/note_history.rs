@@ -273,7 +273,7 @@ pub fn note_file_of(
     let root =
         crate::security::canonicalize_root(notes_root).unwrap_or_else(|_| notes_root.to_path_buf());
     let candidate = root.join(&slug);
-    let outside = || format!("{note} is not in the notes folder.");
+    let outside = || format!("{note} is not in your folder.");
     let resolved = crate::security::resolve_for_containment(&candidate).ok_or_else(outside)?;
     if !writ_core::notes::containment::is_inside(&root, Path::new(&resolved)) {
         return Err(outside());

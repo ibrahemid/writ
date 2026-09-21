@@ -409,7 +409,7 @@ fn history_rows_land_in_the_archive_and_nothing_is_written_to_the_notes_folder_f
 }
 
 #[test]
-fn two_rows_titled_notes_produce_notes_md_and_notes_2_md() {
+fn two_rows_titled_notes_produce_notes_md_and_notes_hyphen_2_md() {
     let fixture = Fixture::new();
     fixture.add_scratch("a", "Notes", b"first", BufferStatus::Active);
     fixture.add_scratch("b", "Notes", b"second", BufferStatus::Active);
@@ -418,10 +418,10 @@ fn two_rows_titled_notes_produce_notes_md_and_notes_2_md() {
 
     assert_eq!(
         names_in(&fixture.notes()),
-        HashSet::from(["Notes.md".to_string(), "Notes 2.md".to_string()])
+        HashSet::from(["Notes.md".to_string(), "Notes-2.md".to_string()])
     );
     let first = std::fs::read_to_string(fixture.notes().join("Notes.md")).unwrap();
-    let second = std::fs::read_to_string(fixture.notes().join("Notes 2.md")).unwrap();
+    let second = std::fs::read_to_string(fixture.notes().join("Notes-2.md")).unwrap();
     assert_eq!(
         HashSet::from([first, second]),
         HashSet::from(["first".to_string(), "second".to_string()]),
@@ -441,7 +441,7 @@ fn a_row_titled_writ_4_produces_a_date_named_file() {
     let created = local_day(day(2026, 7, 4));
     assert_eq!(
         names_in(&fixture.notes()),
-        HashSet::from([format!("{created}.md"), format!("{created} 2.md")]),
+        HashSet::from([format!("{created}.md"), format!("{created}-2.md")]),
         "a title Writ minted names nothing, so the note takes its date"
     );
 }

@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use writ_core::config::FileExtension;
 use writ_core::hash::{digest_hex, Sha256Digest};
 use writ_core::notes::containment::{resolve_for_containment, resolve_inside};
 use writ_core::notes::guard::{is_not_downloaded, DiskState};
@@ -47,6 +48,7 @@ pub struct NoteHostImpl<'a> {
     index: Option<Arc<NotesIndexStore>>,
     permissions: PermissionSet,
     history: Option<&'a NoteHistoryStore>,
+    default_extension: FileExtension,
 }
 
 impl std::fmt::Debug for NoteHostImpl<'_> {
@@ -56,6 +58,7 @@ impl std::fmt::Debug for NoteHostImpl<'_> {
             .field("index", &self.index.is_some())
             .field("permissions", &self.permissions)
             .field("history", &self.history.is_some())
+            .field("default_extension", &self.default_extension)
             .finish_non_exhaustive()
     }
 }
@@ -71,10 +74,16 @@ impl<'a> NoteHostImpl<'a> {
     ///
     /// The root is resolved once here so every containment check compares two
     /// paths the filesystem spells the same way.
+    ///
+    /// `default_extension` is the format [`NoteHost::create_note`] mints in.
+    /// A consumer reads it from its own config ([`writ_core::config::FilesConfig`]):
+    /// a note a connected program makes is a file Writ mints and follows the
+    /// same rule as the rest (ADR-041 §2).
     pub fn open(
         notes_root: &Path,
         db_path: Option<&Path>,
         permissions: PermissionSet,
+        default_extension: FileExtension,
     ) -> Result<Self, HostError> {
         let resolved = resolve_for_containment(notes_root)
             .filter(|root| root.is_dir())
@@ -86,6 +95,7 @@ impl<'a> NoteHostImpl<'a> {
             index: db_path.and_then(open_index).map(Arc::new),
             permissions,
             history: None,
+            default_extension,
         })
     }
 
@@ -96,6 +106,7 @@ impl<'a> NoteHostImpl<'a> {
             index: self.index.clone(),
             permissions,
             history: self.history,
+            default_extension: self.default_extension,
         }
     }
 
@@ -447,6 +458,7 @@ impl NoteHost for NoteHostImpl<'_> {
             CreateNote {
                 notes_root: &self.notes_root,
                 stem: &stem,
+                extension: self.default_extension.as_str(),
                 content,
                 origin,
                 on_taken_name: TakenName::Refuse,

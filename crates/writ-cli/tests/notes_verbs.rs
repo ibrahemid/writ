@@ -54,6 +54,14 @@ impl Fixture {
         self.data.join("writ.db")
     }
 
+    /// Writes the config that names Markdown as the format new files carry.
+    fn defaults_to_markdown(&self) {
+        write(
+            &self.data.join("config.toml"),
+            "[files]\ndefault_extension = \"md\"\n",
+        );
+    }
+
     /// Builds the database the way the app does, treating the files in
     /// `dataless` as placeholders with no local data.
     fn index(&self, dataless: &HashSet<PathBuf>) {
@@ -430,7 +438,7 @@ fn a_name_no_note_answers_to_fails_with_a_plain_line() {
     let output = fixture.indexed().run(&["links", "Nowhere"]);
 
     assert_eq!(code(&output), 1);
-    assert_eq!(stderr(&output), "writ: no note called Nowhere\n");
+    assert_eq!(stderr(&output), "writ: nothing called Nowhere\n");
     assert_eq!(stdout(&output), "");
 }
 
@@ -441,7 +449,7 @@ fn a_name_two_notes_answer_to_is_refused_with_both() {
 
     assert_eq!(code(&output), 1);
     let said = stderr(&output);
-    assert!(said.contains("names more than one note"), "{said}");
+    assert!(said.contains("names more than one file"), "{said}");
     assert_eq!(said.matches("Dup.md").count(), 2, "{said}");
 }
 
@@ -455,10 +463,7 @@ fn a_missing_index_is_one_plain_line_and_a_nonzero_exit() {
     assert_eq!(code(&output), 1);
     assert_eq!(stdout(&output), "");
     let said = stderr(&output);
-    assert!(
-        said.starts_with("writ: there is no note index at "),
-        "{said}"
-    );
+    assert!(said.starts_with("writ: there is no index at "), "{said}");
     assert!(
         !fixture.db_path().exists(),
         "the failed read created the database"
@@ -480,7 +485,7 @@ fn an_index_from_an_older_schema_is_refused() {
     let output = fixture.run(&["links", "One"]);
     assert_eq!(code(&output), 1);
     assert!(
-        stderr(&output).contains("the note index is at version"),
+        stderr(&output).contains("the index is at version"),
         "{}",
         stderr(&output)
     );
@@ -519,7 +524,7 @@ fn a_file_that_is_not_a_database_is_not_called_stale() {
     let output = fixture.run(&["tags"]);
     assert_eq!(code(&output), 1);
     let said = stderr(&output);
-    assert!(said.contains("could not be read as a note index"), "{said}");
+    assert!(said.contains("could not be read as an index"), "{said}");
     assert!(
         !said.contains("brings it up to date"),
         "a corrupt file was reported as one the app migrates: {said}"
@@ -539,7 +544,7 @@ fn an_empty_file_where_the_index_should_be_is_not_called_stale() {
     // An empty file is a valid empty database to SQLite, so it has no
     // schema_version table and reads as unreadable rather than as version 0.
     assert!(
-        stderr(&output).contains("could not be read as a note index"),
+        stderr(&output).contains("could not be read as an index"),
         "{}",
         stderr(&output)
     );
@@ -616,7 +621,7 @@ fn a_note_held_by_name_alone_says_so_rather_than_reading_as_empty() {
     assert_eq!(stdout(&output), "");
     assert_eq!(
         stderr(&output),
-        "writ: this note has no data on this machine, so nothing was read out of it\n"
+        "writ: this file has no data on this machine, so nothing was read out of it\n"
     );
 }
 
@@ -647,7 +652,7 @@ fn new_creates_a_note_in_the_notes_folder_and_prints_its_path() {
         path.canonicalize().expect("canonicalize"),
         fixture
             .notes
-            .join("Ideas.md")
+            .join("Ideas.txt")
             .canonicalize()
             .expect("canonicalize")
     );
@@ -665,9 +670,57 @@ fn new_needs_no_index() {
 #[test]
 fn new_dedupes_against_what_the_folder_already_holds() {
     let fixture = Fixture::new();
+    fixture.defaults_to_markdown();
     assert_eq!(
         PathBuf::from(stdout(&fixture.run(&["new", "One"])).trim()).file_name(),
-        fixture.notes.join("One 2.md").file_name()
+        fixture.notes.join("One-2.md").file_name()
+    );
+}
+
+#[test]
+fn new_follows_the_format_the_config_names() {
+    let fixture = Fixture::new();
+    fixture.defaults_to_markdown();
+    assert_eq!(
+        PathBuf::from(stdout(&fixture.run(&["new", "Ideas"])).trim()).file_name(),
+        fixture.notes.join("Ideas.md").file_name()
+    );
+}
+
+#[test]
+fn a_note_is_found_by_name_in_either_format() {
+    let fixture = Fixture::new();
+    write(&fixture.notes.join("Plain.txt"), "see [[Two]]\n");
+    fixture.indexed();
+
+    // The configured format first, then Markdown: `One.md` is still found by
+    // its bare name on an install that mints plain text.
+    let plain = fixture.run(&["links", "Plain"]);
+    assert_eq!(code(&plain), 0, "{}", stderr(&plain));
+    let markdown = fixture.run(&["links", "One"]);
+    assert_eq!(code(&markdown), 0, "{}", stderr(&markdown));
+}
+
+#[test]
+fn the_configured_format_is_tried_before_markdown() {
+    let fixture = Fixture::new();
+    write(&fixture.notes.join("Same.txt"), "see [[Alone]]\n");
+    write(&fixture.notes.join("Same.md"), "see [[Two]]\n");
+    fixture.indexed();
+
+    let plain = fixture.run(&["links", "Same"]);
+    assert!(
+        stdout(&plain).contains("Alone"),
+        "plain text is configured, so Same.txt answers: {}",
+        stdout(&plain)
+    );
+
+    fixture.defaults_to_markdown();
+    let markdown = fixture.run(&["links", "Same"]);
+    assert!(
+        stdout(&markdown).contains("Two"),
+        "Markdown is configured, so Same.md answers: {}",
+        stdout(&markdown)
     );
 }
 
@@ -678,6 +731,7 @@ fn new_beside_a_decomposed_name_mints_rather_than_refusing() {
     // composed name, which the filesystem then refuses: the note could never
     // be created, however many times it was asked for.
     let fixture = Fixture::new();
+    fixture.defaults_to_markdown();
     let decomposed = fixture.notes.join("Cafe\u{301}.md");
     std::fs::write(&decomposed, "first").expect("seed");
 
@@ -686,7 +740,7 @@ fn new_beside_a_decomposed_name_mints_rather_than_refusing() {
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     assert_eq!(
         PathBuf::from(stdout(&output).trim()).file_name(),
-        fixture.notes.join("Café 2.md").file_name()
+        fixture.notes.join("Café-2.md").file_name()
     );
     assert_eq!(
         std::fs::read_to_string(&decomposed).expect("read"),
@@ -695,10 +749,55 @@ fn new_beside_a_decomposed_name_mints_rather_than_refusing() {
     );
 }
 
+/// The file stem `writ new` printed a path to.
+fn printed_stem(output: &std::process::Output) -> String {
+    PathBuf::from(stdout(output).trim())
+        .file_stem()
+        .expect("a stem")
+        .to_string_lossy()
+        .into_owned()
+}
+
 #[test]
-fn new_with_no_name_dates_the_note() {
+fn new_with_no_name_mints_the_timestamped_name() {
     let fixture = Fixture::new();
     let output = fixture.run(&["new"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let stem = printed_stem(&output);
+    assert_eq!(
+        stem,
+        writ_core::notes::minted_stem(chrono::Utc::now()),
+        "the same name the window's own New File makes"
+    );
+    assert_eq!(
+        PathBuf::from(stdout(&output).trim()).extension(),
+        Some("txt".as_ref())
+    );
+}
+
+#[test]
+fn a_second_unnamed_file_is_deduped_rather_than_written_over() {
+    let fixture = Fixture::new();
+    let first = printed_stem(&fixture.run(&["new"]));
+    let output = fixture.run(&["new"]);
+
+    assert_eq!(code(&output), 0, "{}", stderr(&output));
+    let second = printed_stem(&output);
+    assert_ne!(second, first, "the second file landed on the first");
+    // Both mints are in the same minute unless the two runs straddled one, in
+    // which case the second is a fresh name rather than a deduped one.
+    if second.starts_with(&first) {
+        assert_eq!(second, format!("{first}-2"));
+    } else {
+        assert!(writ_core::notes::is_minted_title(&second), "{second}");
+    }
+}
+
+#[test]
+fn a_name_that_survives_to_nothing_still_falls_back_to_the_date() {
+    let fixture = Fixture::new();
+    let output = fixture.run(&["new", "///"]);
 
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     let stem = PathBuf::from(stdout(&output).trim())
@@ -922,7 +1021,7 @@ fn renaming_a_note_that_is_not_there_is_refused() {
     let output = fixture.run(&["rename", "Nowhere", "Somewhere"]);
 
     assert_eq!(code(&output), 1);
-    assert_eq!(stderr(&output), "writ: no note called Nowhere\n");
+    assert_eq!(stderr(&output), "writ: nothing called Nowhere\n");
 }
 
 #[test]
@@ -944,7 +1043,7 @@ fn trashing_a_note_that_is_not_there_is_refused() {
     let output = fixture.run(&["trash", "Nowhere"]);
 
     assert_eq!(code(&output), 1);
-    assert_eq!(stderr(&output), "writ: no note called Nowhere\n");
+    assert_eq!(stderr(&output), "writ: nothing called Nowhere\n");
 }
 
 // ----------------------------------------------------------------- usage
@@ -956,7 +1055,7 @@ fn a_verb_with_no_note_prints_usage_and_exits_two() {
 
     assert_eq!(code(&output), 2);
     let said = stderr(&output);
-    assert!(said.contains("writ links needs a note"), "{said}");
+    assert!(said.contains("writ links needs a file"), "{said}");
     assert!(said.contains("Usage: writ <verb>"), "{said}");
 }
 

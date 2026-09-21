@@ -37,6 +37,7 @@
 use std::path::{Path, PathBuf};
 
 use writ_core::activity::{ActivityRecord, Actor};
+use writ_core::config::{FileExtension, FilesConfig};
 use writ_core::hash::digest_from_hex;
 use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
@@ -48,9 +49,6 @@ use crate::consent::{ClientId, ConsentGate, Decision};
 /// Largest note a tool reads, in bytes (ADR-031 rule 4.8): the note host's
 /// ceiling, which every surface reading a whole note is held to.
 pub use writ_core::notes::host::MAX_NOTE_BYTES;
-
-/// The extension a minted note's file carries.
-const NOTE_EXTENSION: &str = "md";
 
 /// Most notes or hits one call answers with, whatever the caller asked for.
 pub const MAX_RESULTS: usize = 500;
@@ -233,6 +231,7 @@ pub struct ToolHost {
     writ_dir: PathBuf,
     host: NoteHostImpl<'static>,
     gate: Box<dyn ConsentGate>,
+    default_extension: FileExtension,
 }
 
 impl std::fmt::Debug for ToolHost {
@@ -241,6 +240,7 @@ impl std::fmt::Debug for ToolHost {
             .field("notes_root", &self.host.notes_root())
             .field("writ_dir", &self.writ_dir)
             .field("index", &self.host.has_index())
+            .field("default_extension", &self.default_extension)
             .finish_non_exhaustive()
     }
 }
@@ -262,14 +262,21 @@ impl ToolHost {
         writ_dir: &Path,
         gate: Box<dyn ConsentGate>,
     ) -> Result<Self, ToolError> {
-        let host = NoteHostImpl::open(notes_root, Some(db_path), PermissionSet::default())
-            .map_err(|_| ToolError::NotFound {
-                path: notes_root.display().to_string(),
-            })?;
+        let default_extension = read_default_extension(writ_dir);
+        let host = NoteHostImpl::open(
+            notes_root,
+            Some(db_path),
+            PermissionSet::default(),
+            default_extension,
+        )
+        .map_err(|_| ToolError::NotFound {
+            path: notes_root.display().to_string(),
+        })?;
         Ok(Self {
             writ_dir: writ_dir.to_path_buf(),
             host,
             gate,
+            default_extension,
         })
     }
 
@@ -444,7 +451,7 @@ impl ToolHost {
             client,
             "create_note",
             &created.as_ref().map_or_else(
-                |_| minted_slug(name),
+                |_| minted_slug(name, self.default_extension),
                 |receipt| self.logged_path(&receipt.path),
             ),
             Some(content.len() as u64),
@@ -649,13 +656,25 @@ fn decision_of<T>(result: &Result<T, ToolError>) -> Decision {
 /// The note a `create_note` call names, in the log's spelling.
 ///
 /// A refused call has no minted file to name, so the name is spelled the way
-/// the file would have been: the log says `Ship it.md` whether the note was
-/// minted or turned down, rather than a path one time and a bare name the
-/// next. A name that sanitises to nothing is left as it was written.
-fn minted_slug(name: &str) -> String {
+/// the file would have been, in the format the mint would have used: the log
+/// says `Ship it.txt` whether the note was minted or turned down, rather than
+/// a path one time and a bare name the next. A name that sanitises to nothing
+/// is left as it was written.
+fn minted_slug(name: &str, extension: FileExtension) -> String {
     writ_core::notes::sanitize_title(name)
-        .map(|stem| format!("{stem}.{NOTE_EXTENSION}"))
+        .map(|stem| format!("{stem}.{}", extension.as_str()))
         .unwrap_or_else(|| name.to_string())
+}
+
+/// The format a note this server mints carries, read from `<writ_dir>/config.toml`.
+///
+/// Read once at open, the way the gate reads `[mcp]`: a note a connected
+/// program makes is a file Writ mints and carries the format the person chose
+/// (ADR-041 §2). A config that is absent or unreadable leaves the default,
+/// which is what an install that has never been opened has.
+fn read_default_extension(writ_dir: &Path) -> FileExtension {
+    let text = std::fs::read_to_string(writ_dir.join("config.toml")).unwrap_or_default();
+    FilesConfig::from_config_text(&text).default_extension
 }
 
 /// A host refusal as the tool's own, naming the path the client wrote.
@@ -768,10 +787,21 @@ mod tests {
     /// are about what the user granted and about what the log then says, and a
     /// double that grants everything and records nothing answers neither.
     fn approved_host(fixture: &Fixture, read: bool, write: bool) -> ToolHost {
+        approved_host_minting(fixture, read, write, "md")
+    }
+
+    /// [`approved_host`] over a folder whose config names `extension` as the
+    /// format a new note carries.
+    fn approved_host_minting(
+        fixture: &Fixture,
+        read: bool,
+        write: bool,
+        extension: &str,
+    ) -> ToolHost {
         std::fs::write(
             fixture.writ.join("config.toml"),
             format!(
-                "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Test Client\"\nread = {read}\nwrite = {write}\n"
+                "[files]\ndefault_extension = \"{extension}\"\n\n[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Test Client\"\nread = {read}\nwrite = {write}\n"
             ),
         )
         .expect("seed the settings file");
@@ -1624,6 +1654,34 @@ mod tests {
             "# Ship it\n"
         );
         assert_eq!(receipt.bytes, "# Ship it\n".len() as u64);
+    }
+
+    #[test]
+    fn a_minted_note_carries_the_format_the_config_names() {
+        let fixture = fixture();
+        let host = approved_host_minting(&fixture, true, true, "txt");
+
+        let receipt = host
+            .create_note(&client(), "Ship it", "the text\n")
+            .expect("the note is minted");
+
+        let minted = fixture.notes.join("Ship it.txt");
+        assert!(
+            minted.is_file(),
+            "the folder holds {:?}",
+            notes_in(&fixture)
+        );
+        assert_eq!(receipt.path, key(&minted));
+
+        // The log spells a refused call the way the file would have been
+        // written, in the same format.
+        host.create_note(&client(), "Ship it", "again\n")
+            .expect_err("the name is taken");
+        let spelled: Vec<String> = records_a_tool_wrote(&fixture)
+            .into_iter()
+            .filter_map(|record| Some(record.path?.to_string_lossy().into_owned()))
+            .collect();
+        assert_eq!(spelled, vec!["Ship it.txt", "Ship it.txt"]);
     }
 
     #[test]

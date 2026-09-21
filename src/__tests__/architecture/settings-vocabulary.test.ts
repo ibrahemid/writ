@@ -14,8 +14,11 @@ import {
  * the same diff rather than passing quietly.
  */
 const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
-  ["notes.folder", "notes", "Notes folder", ["notes", "folder", "where are my notes", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"]],
-  ["notes.versions", "notes", "Versions", ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"]],
+  ["notes.folder", "files", "Folder", ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"]],
+  ["files.default_extension", "files", "Default format", ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"]],
+  ["files.default_app", "files", "Open these file types with Writ", ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"]],
+  ["files.cli", "files", "Terminal command", ["cli", "writ command", "terminal", "command line", "install"]],
+  ["notes.versions", "files", "Versions", ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"]],
   ["editor.font_size", "editor", "Font size", ["font", "size", "text", "zoom"]],
   ["editor.tab_size", "editor", "Tab size", ["tab", "indent", "spaces", "width"]],
   ["editor.word_wrap", "editor", "Word wrap", ["wrap", "word", "line", "soft wrap"]],
@@ -24,7 +27,6 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["editor.spelling", "editor", "Spell check", ["spell", "spelling", "check", "dictionary", "typos", "grammar"]],
   ["editor.spelling_dialect", "editor", "Spelling", ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"]],
   ["editor.status_bar", "editor", "Status bar", ["status bar", "line", "column", "encoding", "word count"]],
-  ["files.default_app", "files", "Open these file types with Writ", ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"]],
   ["preview.run_scripts", "preview", "Allow HTML files to run their scripts", ["scripts", "javascript", "html", "run", "safety"]],
   ["preview.layout_md", "preview", "When opening a Markdown file, show:", ["layout", "markdown", "md", "text", "preview", "split"]],
   ["preview.layout_html", "preview", "When opening an HTML file, show:", ["layout", "html", "text", "preview", "split"]],
@@ -34,9 +36,9 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["ai.model", "ai", "Model", ["ai", "model", "id"]],
   ["ai.connection", "ai", "Connection", ["ai", "connection", "check", "reachable", "status"]],
   ["ai.rewrite.enabled", "ai", "Rewrite selected text", ["ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"]],
-  ["ai.chat.enabled", "ai", "Chat about your notes", ["ai", "chat", "ask", "conversation", "attach", "enable"]],
+  ["ai.chat.enabled", "ai", "Chat about your files", ["ai", "chat", "ask", "conversation", "attach", "enable"]],
   ["ai.chat.model", "ai", "Use a different model for chat", ["ai", "chat", "model", "id", "different"]],
-  ["mcp.enabled", "programs", "Let other programs read and write your notes", ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"]],
+  ["mcp.enabled", "programs", "Let other programs read and write your files", ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"]],
   ["mcp.command", "programs", "Command to give a program", ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"]],
   ["mcp.tools", "programs", "What a program can do", ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"]],
   ["mcp.clients", "programs", "Programs you approved", ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"]],
@@ -47,14 +49,13 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["appearance.interface_text_size", "appearance", "Interface text size", ["interface", "text", "size", "ui", "font", "scale", "bigger", "smaller", "sidebar", "tabs"]],
   ["appearance.theme", "appearance", "Theme", ["theme", "color", "appearance", "preset", "dark", "light"]],
   ["appearance.custom_colors", "appearance", "Custom colors", ["theme", "colors", "custom", "palette"]],
-  ["sidebar.folder", "sidebar", "Show notes", ["sidebar", "notes", "folder", "files", "tree", "show", "hide"]],
+  ["sidebar.folder", "sidebar", "Show files", ["sidebar", "folder", "files", "tree", "show", "hide"]],
   ["sidebar.tags", "sidebar", "Show tags", ["sidebar", "tags", "show", "hide"]],
   ["sidebar.inbox", "sidebar", "Show watched folder", ["sidebar", "watch", "watched folder", "new files", "show", "hide"]],
   ["sidebar.recent", "sidebar", "Show recently closed", ["sidebar", "recent", "recently closed", "closed", "show", "hide"]],
   ["updates.auto_check", "updates", "Check for updates automatically", ["update", "auto", "check", "version"]],
   ["updates.check_now", "updates", "Check for updates now", ["update", "check", "now", "version"]],
   ["shortcuts.edit", "shortcuts", "Keyboard shortcuts", ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"]],
-  ["files.cli", "advanced", "Terminal command", ["cli", "writ command", "terminal", "command line", "install"]],
   ["files.inbox_folder", "advanced", "Folder to watch for new files", ["watch", "watched folder", "new files", "auto-open", "drop"]],
   ["files.inbox_focus", "advanced", "Bring Writ to the front when a new file arrives", ["watch", "focus", "window", "front", "new file"]],
   ["preview.live_threshold", "advanced", "Stop live preview above", ["preview", "live", "size", "mb", "large files"]],
@@ -93,9 +94,8 @@ describe("settings vocabulary", () => {
 
   it("settings_sections_are_named_and_ordered_as_pinned", () => {
     expect(SECTION_ORDER).toEqual([
-      "notes",
-      "editor",
       "files",
+      "editor",
       "preview",
       "ai",
       "programs",
@@ -106,9 +106,8 @@ describe("settings vocabulary", () => {
       "advanced",
     ]);
     expect(SECTION_ORDER.map((s) => SECTION_LABELS[s])).toEqual([
-      "Notes",
-      "Editor",
       "Files",
+      "Editor",
       "Preview",
       "AI",
       "Connected programs",
@@ -122,18 +121,18 @@ describe("settings vocabulary", () => {
 
   // The audience's own words, so the panel answers the question as asked.
   it("settings_search_answers_the_audiences_words", () => {
-    for (const term of ["notes", "folder", "where are my notes", "backup", "sync"]) {
+    for (const term of ["files", "folder", "where are my files", "backup", "sync"]) {
       expect(rankSettings(term).length, term).toBeGreaterThan(0);
     }
   });
 
-  it("where_are_my_notes_leads_with_the_notes_folder_row", () => {
-    expect(rankSettings("where are my notes")[0]?.id).toBe("notes.folder");
+  it("where_are_my_files_leads_with_the_folder_row", () => {
+    expect(rankSettings("where are my files")[0]?.id).toBe("notes.folder");
   });
 
   // `folder` is the term the panel and the command palette used to disagree on:
   // the palette lists rank order, so the watched-folder row led there.
-  it("folder_leads_with_the_notes_folder_row_not_the_watched_folder", () => {
+  it("folder_leads_with_the_folder_row_not_the_watched_folder", () => {
     const ranked = rankSettings("folder").map((e) => e.id);
     expect(ranked[0]).toBe("notes.folder");
     expect(ranked).toContain("files.inbox_folder");
@@ -143,7 +142,7 @@ describe("settings vocabulary", () => {
   // The exact-keyword tier reorders results; it must never change which rows
   // match, since a keyword equal to the query also contains it.
   it("claiming_a_term_exactly_reorders_results_without_changing_the_set", () => {
-    for (const term of ["notes", "folder", "backup", "sync", "theme", "font", "markdown"]) {
+    for (const term of ["files", "folder", "backup", "sync", "theme", "font", "markdown"]) {
       const byScore = new Set(rankSettings(term).map((e) => e.id));
       const byContains = SETTINGS_INDEX.filter(
         (e) =>
@@ -155,17 +154,17 @@ describe("settings vocabulary", () => {
     }
   });
 
-  // A `.db` path is never the answer to "where are my notes": the data folder
+  // A `.db` path is never the answer to "where are my files": the data folder
   // is a separate row, in Advanced, and its keywords must not compete.
-  it("the_data_folder_row_does_not_outrank_the_notes_folder", () => {
-    for (const term of ["notes", "folder", "where are my notes", "backup", "sync"]) {
+  it("the_data_folder_row_does_not_outrank_the_folder_row", () => {
+    for (const term of ["files", "folder", "where are my files", "backup", "sync"]) {
       expect(rankSettings(term)[0]?.id, term).toBe("notes.folder");
     }
     const dataFolder = SETTINGS_INDEX.find((e) => e.id === "storage.location")!;
     expect(dataFolder.section).toBe("advanced");
     expect(dataFolder.title).toBe("Writ's data folder");
     expect(dataFolder.title).not.toMatch(/\.db/);
-    for (const term of ["notes", "folder", "backup", "sync"]) {
+    for (const term of ["files", "folder", "backup", "sync"]) {
       expect(dataFolder.keywords, term).not.toContain(term);
     }
   });

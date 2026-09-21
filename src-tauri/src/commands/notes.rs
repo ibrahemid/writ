@@ -14,6 +14,7 @@ use tauri::State;
 use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
+use writ_core::config::FileExtension;
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::links;
 use writ_core::notes::{name_is_taken, rename_stem, NotesRootRefusal, WriteOrigin, NAME_IS_EMPTY};
@@ -40,7 +41,7 @@ pub(crate) fn note_name(path: &Path) -> String {
 fn note_path(doc: &BufferDocument) -> Result<String, String> {
     doc.source_path
         .clone()
-        .ok_or_else(|| format!("note {} has no file yet", doc.id))
+        .ok_or_else(|| format!("file {} is on disk nowhere yet", doc.id))
 }
 
 /// Renders a note operation's failure for the editor.
@@ -73,20 +74,39 @@ pub fn new_note_inner(state: &AppState) -> Result<BufferDocument, String> {
 /// [`writ_core::notes::note_file_stem_from_link`] sanitises it, which maps `/`
 /// and `\` to spaces, so a name carrying `..` or a separator loses what would
 /// make it walk anywhere and the note lands in the notes folder. A name
-/// nothing survives from falls back to the dated stem a `New Note` gets, so
-/// this never fails for want of a name.
+/// nothing survives from falls back to the dated stem, so this never fails
+/// for want of a name; a name nobody typed at all is
+/// [`writ_core::notes::minted_stem`], deduped by counter.
+///
+/// A name ending in a text extension is minted in that format rather than the
+/// configured one: `Notes.md` asks for Markdown, and the config is the rule
+/// for a file nobody named a format for (ADR-041 §2).
 ///
 /// A link target is not a title and does not come here:
 /// [`new_note_from_link_inner`] reads the folder a target names rather than
 /// flattening it.
 pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocument, String> {
-    let now = Utc::now();
-    let stem = writ_core::notes::note_file_stem_from_link(name, now);
-    let doc = create_note_at(state, &state.notes_root(), &stem)?;
-    // A note nobody named yet carries a date, and a date is the name the
-    // note's own first line may replace without being asked (spec O1). A note
-    // the person did name is already called what they called it.
-    if name.trim().is_empty() {
+    let typed = name.trim();
+    let unnamed = typed.is_empty();
+    let named = writ_core::notes::explicit_extension(typed);
+    let stem = if unnamed {
+        writ_core::notes::minted_stem(Utc::now())
+    } else if let Some((stem, _)) = named {
+        // The extension the name spelled is already off, so the strip
+        // `note_file_stem_from_link` does would take `Log.md.md` to `Log`.
+        writ_core::notes::note_file_stem(stem, Utc::now())
+    } else {
+        writ_core::notes::note_file_stem_from_link(typed, Utc::now())
+    };
+    let extension = match named {
+        Some((_, extension)) => extension,
+        None => state.default_extension().as_str(),
+    };
+    let doc = create_note_at_in(state, &state.notes_root(), &stem, extension)?;
+    // A file nobody named yet carries a minted name, and that is the name the
+    // file's own first line may replace without being asked (ADR-041 §3). A
+    // file the person did name is already called what they called it.
+    if unnamed {
         watch_for_retitle(state, &doc);
     }
     Ok(doc)
@@ -110,6 +130,24 @@ pub fn new_dated_note_inner(
     create_note_at(state, &state.notes_root(), &stem)
 }
 
+/// The two formats a dated name may already be on disk in, the configured one
+/// first.
+///
+/// Today's Note opens whichever of the two is there rather than minting a
+/// second file for the same day: somebody who changed the format still has
+/// yesterday's note, and the day the format changed does not end with two
+/// (ADR-041 §2, decision D-c).
+fn dated_name_candidates(now: DateTime<Utc>, configured: FileExtension) -> [String; 2] {
+    let other = match configured {
+        FileExtension::Txt => FileExtension::Md,
+        FileExtension::Md => FileExtension::Txt,
+    };
+    [
+        writ_core::startup::dated_note_name(now, configured),
+        writ_core::startup::dated_note_name(now, other),
+    ]
+}
+
 /// The note today's date names, and whether this call is what made it.
 pub struct DatedNote {
     /// The note, or `None` when the file is there and its bytes are not.
@@ -118,34 +156,40 @@ pub struct DatedNote {
     pub minted: bool,
 }
 
-/// Opens `<notes>/<YYYY-MM-DD>.md`, creating it only when it is not there
+/// Opens `<notes>/<YYYY-MM-DD>.<ext>`, creating it only when it is not there
 /// (spec D1).
 ///
-/// One file a day. A note that is already there is opened through the
-/// ordinary open, so nothing it holds is rewritten and a note already in a
-/// tab keeps that tab; the mint runs only when there is nothing to open, and
-/// it goes through [`create_note_at`], so the guard and the index see the file
-/// the same way they see every other new note.
-///
-/// Both the first launch and `Today's Note` come here, so one place answers
-/// which file today is and one place decides whether to write.
+/// One file a day. Both formats the dated name may be written in are looked
+/// for, the configured one first, so a day that already has a note keeps it
+/// whatever the format was when it was made; the mint runs only when neither
+/// is there, and it mints in the configured format. A file that is already
+/// there is opened through the ordinary open, so nothing it holds is
+/// rewritten and a note already in a tab keeps that tab; the mint goes through
+/// [`create_note_at`], so the guard and the index see the file the same way
+/// they see every other new note.
 pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<DatedNote, String> {
     let root = state.notes_root();
-    let name = writ_core::startup::dated_note_name(now);
-    let path = root.join(&name);
-    if path.is_file() {
-        let opened = crate::commands::file::open_file_from_path(state, &path.to_string_lossy())?;
-        return Ok(DatedNote {
-            doc: opened.doc,
-            minted: false,
-        });
+    let names = dated_name_candidates(now, state.default_extension());
+    for name in &names {
+        let path = root.join(name);
+        if path.is_file() {
+            let opened =
+                crate::commands::file::open_file_from_path(state, &path.to_string_lossy())?;
+            return Ok(DatedNote {
+                doc: opened.doc,
+                minted: false,
+            });
+        }
     }
-    // Today's name is already on something that is not a note file: a folder,
-    // or a link to one. Minting would dedupe around it and hand back a second
-    // file for the same day, one more on every ask, so the name is reported as
-    // taken instead.
-    if path.symlink_metadata().is_ok() {
-        return Err(name_is_taken(&name));
+    // The name about to be minted is already on something that is not a note
+    // file: a folder, or a link to one. Minting would dedupe around it and hand
+    // back a second file for the same day, one more on every ask, so the name
+    // is reported as taken instead. Only the configured name is asked about:
+    // the other one is somewhere to read the day from, never somewhere to
+    // write, so a folder wearing it blocks nothing.
+    let minting = root.join(&names[0]);
+    if minting.symlink_metadata().is_ok() {
+        return Err(name_is_taken(&names[0]));
     }
     let doc = new_dated_note_inner(state, now)?;
     Ok(DatedNote {
@@ -156,7 +200,7 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<D
 
 /// What today's note is answered with when its file is here and its text is
 /// still with the sync provider.
-const NOTE_IS_NOT_HERE_YET: &str = "That note is still being downloaded.";
+const NOTE_IS_NOT_HERE_YET: &str = "That file is still being downloaded.";
 
 /// [`open_or_mint_dated_note`] for the menu item and the command that share it.
 pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<BufferDocument, String> {
@@ -188,6 +232,9 @@ fn watch_for_retitle(state: &AppState, doc: &BufferDocument) {
 /// `target` arrives from the editor already parsed once — no alias, no
 /// heading, the extension left on — which is the shape
 /// [`writ_core::notes::note_location_from_link`] reads.
+///
+/// The one mint that does not follow the configured format: a link resolves to
+/// Markdown, so the note it makes is Markdown (ADR-041 §2).
 pub fn new_note_from_link_inner(state: &AppState, target: &str) -> Result<BufferDocument, String> {
     let now = Utc::now();
     let location = writ_core::notes::note_location_from_link(target, now);
@@ -197,12 +244,12 @@ pub fn new_note_from_link_inner(state: &AppState, target: &str) -> Result<Buffer
         folder.push(part);
     }
     let folder = folder_inside_notes(&root, folder)?;
-    create_note_at(state, &folder, &location.stem)
+    create_note_at_in(state, &folder, &location.stem, FileExtension::Md.as_str())
 }
 
 /// What a target is answered with when the folder it names is not in the notes
 /// folder after all.
-const FOLDER_IS_OUTSIDE: &str = "That link points outside the notes folder.";
+const FOLDER_IS_OUTSIDE: &str = "That link points outside your folder.";
 
 /// `folder` if it is inside the notes folder, refused otherwise.
 ///
@@ -237,9 +284,25 @@ fn folder_inside_notes(root: &Path, folder: PathBuf) -> Result<PathBuf, String> 
 /// promises: it is in Finder immediately, not on the first keystroke and not
 /// at quit (ADR-028 §3).
 fn create_note_at(state: &AppState, folder: &Path, stem: &str) -> Result<BufferDocument, String> {
+    create_note_at_in(state, folder, stem, state.default_extension().as_str())
+}
+
+/// [`create_note_at`] in a format the caller names rather than the configured
+/// one, `extension` without its dot.
+///
+/// Two callers name one: the note a `[[…]]` makes is Markdown, because links
+/// resolve to Markdown and a `.txt` target would be unreachable from the link
+/// that made it; and a typed name that spells its own extension is minted in
+/// that format (ADR-041 §2).
+fn create_note_at_in(
+    state: &AppState,
+    folder: &Path,
+    stem: &str,
+    extension: &str,
+) -> Result<BufferDocument, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let stamp = ignore_stamper(state);
-    let path = note_ops::create_note(folder, stem, WriteOrigin::Editor, Some(&stamp))
+    let path = note_ops::create_note(folder, stem, extension, WriteOrigin::Editor, Some(&stamp))
         .map_err(|e| note_failure_message(&e))?;
     let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
 
@@ -771,8 +834,7 @@ fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[Str
 
 /// What the editor says when a delete names a file the notes folder does not
 /// hold.
-const NOT_YOURS_TO_DELETE: &str =
-    "Only notes in your notes folder can be moved to the Trash from here.";
+const NOT_YOURS_TO_DELETE: &str = "Only files in your folder can be moved to the Trash from here.";
 
 /// Moves a note to the operating system's trash and drops its row.
 ///
@@ -819,14 +881,20 @@ pub fn delete_note(state: State<'_, AppState>, id: String) -> Result<(), String>
 /// without moving. The caller opens the returned path, which is inside the
 /// notes folder and so needs no further permission.
 pub fn save_note_copy_inner(state: &AppState, id: &str, content: &str) -> Result<String, String> {
+    // Read before the store lock: the config lock is never taken under a held
+    // store lock, and a copy of a note with no file of its own is the only
+    // case that reads it.
+    let default_extension = state.default_extension();
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     let stem = writ_core::notes::note_file_stem(&copy_stem(&doc), chrono::Utc::now());
+    let extension = copy_extension(&doc, default_extension);
 
     let stamp = ignore_stamper(state);
     let path = note_ops::save_copy(
         &state.notes_root(),
         &stem,
+        &extension,
         content,
         WriteOrigin::Editor,
         Some(&stamp),
@@ -835,6 +903,18 @@ pub fn save_note_copy_inner(state: &AppState, id: &str, content: &str) -> Result
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| format!("the file name {} cannot be recorded", path.display()))
+}
+
+/// The extension a copy carries: the file's own, so a copy reads the way the
+/// file it came from did. A note with no file yet has no extension to keep and
+/// takes the configured one.
+fn copy_extension(doc: &BufferDocument, configured: FileExtension) -> String {
+    doc.source_path
+        .as_deref()
+        .map(Path::new)
+        .and_then(Path::extension)
+        .map(|ext| ext.to_string_lossy().into_owned())
+        .unwrap_or_else(|| configured.as_str().to_string())
 }
 
 /// The name a copy starts from: the file's own stem when it has one, so
@@ -993,15 +1073,15 @@ pub struct MoveNotesOutcome {
 
 /// What Writ says when the folder picked would swallow its own data folder.
 const WOULD_HOLD_WRIT_DATA: &str =
-    "Writ keeps its own data in that folder, so it cannot also be your notes folder.";
+    "Writ keeps its own data in that folder, so it cannot also hold your files.";
 
 /// What Writ says when the folder picked is inside the one being moved.
-const WOULD_HOLD_ITSELF: &str = "Pick a folder outside your notes folder.";
+const WOULD_HOLD_ITSELF: &str = "Pick a folder outside your current one.";
 
 /// What Writ says when the folder picked cannot be resolved to a path it can
 /// ask questions about: it is written relative to a working directory, or it
 /// ends in a `..` that names no folder. The OS folder dialog yields neither.
-const CANNOT_BE_CHECKED: &str = "That folder cannot be your notes folder.";
+const CANNOT_BE_CHECKED: &str = "That folder cannot hold your files.";
 
 /// Writ's own data folder in the spelling a canonical path can be compared
 /// against.
@@ -1237,7 +1317,7 @@ pub async fn pick_notes_folder(app: tauri::AppHandle) -> Result<Option<MoveNotes
     let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
     app.dialog()
         .file()
-        .set_title("Choose a notes folder")
+        .set_title("Choose a folder")
         .pick_folder(move |path| {
             let _ = tx.send(path);
         });
@@ -1330,7 +1410,7 @@ mod tests {
         };
         assert_eq!(
             note_failure_message(&error),
-            "A note named \"Grocery list.md\" is already there."
+            "A file named \"Grocery list.md\" is already there."
         );
         // The command line says the same thing by reading the same function.
         assert_eq!(

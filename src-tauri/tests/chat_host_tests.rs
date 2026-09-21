@@ -37,7 +37,13 @@ fn a_write_through_the_context_set_is_refused_and_the_note_is_untouched() {
     let note = notes.join("Launch.md");
     std::fs::write(&note, "before\n").expect("seed a note");
 
-    let building = NoteHostImpl::open(&notes, None, context_permissions()).expect("open the host");
+    let building = NoteHostImpl::open(
+        &notes,
+        None,
+        context_permissions(),
+        writ_core::config::FileExtension::Txt,
+    )
+    .expect("open the host");
     let refused = building
         .write_note(
             "Launch.md",

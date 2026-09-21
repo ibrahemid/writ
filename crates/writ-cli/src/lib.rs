@@ -7,7 +7,7 @@
 //!
 //! The notes folder is resolved by `writ_core::notes::resolve_notes_root_from`,
 //! the function the app resolves it with. The launch path keeps its own
-//! Finder-style dedupe, which mirrors `writ_core::notes` rather than calling it;
+//! counter dedupe, which mirrors `writ_core::notes` rather than calling it;
 //! `writ_core::notes::sanitize_title` is the authority on what a title may
 //! become as a filename, the sanitiser here is the conservative subset the CLI
 //! has always applied, and the app re-sanitises anything it opens.
@@ -22,6 +22,7 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use writ_core::config::{FileExtension, FilesConfig};
 use writ_core::notes::{resolve_notes_root_from, NotesRootError, NotesRootSources};
 
 /// Environment variable naming the Writ application binary to launch.
@@ -243,9 +244,6 @@ pub fn sanitize_title(raw: &str) -> String {
 /// Mirrors `writ_core::notes::DEFAULT_NOTES_FOLDER`.
 pub const NOTES_FOLDER: &str = "Writ";
 
-/// Extension every note carries.
-const NOTE_EXTENSION: &str = "md";
-
 /// Reads `[notes] root` out of `<writ_dir>/config.toml`.
 ///
 /// Returns `None` when the file is absent, unreadable, not valid TOML, or the
@@ -261,6 +259,18 @@ pub fn read_notes_root_from_config(writ_dir: &Path) -> Option<PathBuf> {
     } else {
         Some(PathBuf::from(root))
     }
+}
+
+/// Reads `[files]` out of `<writ_dir>/config.toml`.
+///
+/// Tolerant the same way [`read_notes_root_from_config`] is: a config that is
+/// absent, unreadable or hand-edited into something that will not parse yields
+/// the default format rather than ending the run
+/// ([`FilesConfig::from_config_text`]). A file the `writ` command writes is a
+/// file Writ mints and carries the format the person chose (ADR-041 §2).
+pub fn read_files_config(writ_dir: &Path) -> FilesConfig {
+    let text = std::fs::read_to_string(writ_dir.join("config.toml")).unwrap_or_default();
+    FilesConfig::from_config_text(&text)
 }
 
 /// Resolves the notes folder the way the app does: `WRIT_NOTES_DIR`, then
@@ -312,16 +322,19 @@ pub fn resolve_notes_dir(
     })
 }
 
-/// The path a piped payload is written to: `<notes>/<title-or-date>.md`.
+/// The path a piped payload is written to:
+/// `<notes>/<title-or-date>.<extension>`.
 ///
 /// A payload with no title is named for the local calendar day, which is what
-/// the app names an untitled note. The name dedupes Finder-style against what
-/// the folder already holds, so piping twice on one day produces two notes
-/// rather than one overwriting the other.
+/// the app names an untitled note. `extension` is the configured one
+/// ([`read_files_config`]). The name dedupes against what the
+/// folder already holds, so piping twice on one day produces two notes rather
+/// than one overwriting the other.
 pub fn piped_note_path(
     notes_dir: &Path,
     title: Option<&str>,
     now: chrono::DateTime<chrono::Local>,
+    extension: FileExtension,
 ) -> PathBuf {
     let stem = title
         .map(sanitize_title)
@@ -329,12 +342,12 @@ pub fn piped_note_path(
         .unwrap_or_else(|| now.format("%Y-%m-%d").to_string());
     notes_dir.join(dedupe_file_name(
         &stem,
-        NOTE_EXTENSION,
+        extension.as_str(),
         &taken_names(notes_dir),
     ))
 }
 
-/// Finder-style dedupe: `stem.md`, `stem 2.md`, `stem 3.md`, and so on.
+/// Dedupe by counter: `stem.txt`, `stem-2.txt`, `stem-3.txt`, and so on.
 ///
 /// `taken` holds lowercased file names including the extension, so the check
 /// is case-insensitive the way APFS and NTFS are. Mirrors
@@ -346,7 +359,7 @@ fn dedupe_file_name(stem: &str, extension: &str, taken: &HashSet<String>) -> Str
     }
     let mut counter: u64 = 2;
     loop {
-        let candidate = format!("{stem} {counter}.{extension}");
+        let candidate = format!("{stem}-{counter}.{extension}");
         if !taken.contains(&candidate.to_lowercase()) {
             return candidate;
         }
@@ -523,8 +536,8 @@ mod tests {
             .expect("a configured absolute root resolves");
         assert_eq!(notes, configured);
         assert_eq!(
-            piped_note_path(&notes, Some("my notes"), noon()),
-            configured.join("my notes.md")
+            piped_note_path(&notes, Some("my notes"), noon(), FileExtension::Txt),
+            configured.join("my notes.txt")
         );
     }
 
@@ -537,38 +550,67 @@ mod tests {
             resolve_notes_dir(None, None, None, Some(dir.path())).expect("the default resolves");
         assert_eq!(notes, dir.path().join("Writ"));
         assert_eq!(
-            piped_note_path(&notes, None, noon()),
-            notes.join("2026-08-29.md")
+            piped_note_path(&notes, None, noon(), FileExtension::Txt),
+            notes.join("2026-08-29.txt")
         );
     }
 
     #[test]
     fn piped_note_path_dedupes() {
         let dir = TempDir::new().unwrap();
-        touch(&dir.path().join("my notes.md"));
-        touch(&dir.path().join("my notes 2.md"));
+        touch(&dir.path().join("my notes.txt"));
+        touch(&dir.path().join("my notes-2.txt"));
 
         assert_eq!(
-            piped_note_path(dir.path(), Some("my notes"), noon()),
-            dir.path().join("my notes 3.md")
+            piped_note_path(dir.path(), Some("my notes"), noon(), FileExtension::Txt),
+            dir.path().join("my notes-3.txt")
         );
     }
 
     #[test]
-    fn piped_note_is_markdown_not_txt() {
+    fn a_piped_note_carries_the_configured_format() {
         let dir = TempDir::new().unwrap();
-        let path = piped_note_path(dir.path(), Some("release notes"), noon());
-        assert_eq!(path.extension().and_then(|e| e.to_str()), Some("md"));
-        assert!(
-            path.starts_with(dir.path()),
-            "the note escaped the notes folder: {path:?}"
+        for (extension, expected) in [(FileExtension::Txt, "txt"), (FileExtension::Md, "md")] {
+            let path = piped_note_path(dir.path(), Some("release notes"), noon(), extension);
+            assert_eq!(path.extension().and_then(|e| e.to_str()), Some(expected));
+            assert!(
+                path.starts_with(dir.path()),
+                "the note escaped the notes folder: {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn read_files_config_reads_the_table_and_tolerates_everything_else() {
+        let dir = TempDir::new().unwrap();
+        assert_eq!(
+            read_files_config(dir.path()).default_extension,
+            FileExtension::Txt,
+            "a config that has never been written names the default"
+        );
+
+        std::fs::write(
+            dir.path().join("config.toml"),
+            "[notes]\nroot = '~/Writ'\n\n[files]\ndefault_extension = \"md\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_files_config(dir.path()).default_extension,
+            FileExtension::Md
+        );
+
+        std::fs::write(dir.path().join("config.toml"), "[files\nnot toml at all").unwrap();
+        assert_eq!(
+            read_files_config(dir.path()).default_extension,
+            FileExtension::Txt,
+            "a config nothing can parse never stops a pipe"
         );
     }
 
     #[test]
     fn a_title_that_would_escape_the_folder_cannot() {
         let dir = TempDir::new().unwrap();
-        let path = piped_note_path(dir.path(), Some("../escape"), noon());
+        let path = piped_note_path(dir.path(), Some("../escape"), noon(), FileExtension::Txt);
         assert!(
             path.starts_with(dir.path()),
             "the note escaped the notes folder: {path:?}"

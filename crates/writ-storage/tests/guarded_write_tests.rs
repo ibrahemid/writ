@@ -251,6 +251,7 @@ fn a_new_note_whose_name_is_already_on_disk_is_refused_without_truncating_it() {
         CreateNote {
             notes_root: root.path(),
             stem: "Notes",
+            extension: "md",
             content: "the new note\n",
             origin: WriteOrigin::Editor,
             on_taken_name: TakenName::Dedupe,
@@ -275,7 +276,7 @@ fn a_new_note_whose_name_is_already_on_disk_is_refused_without_truncating_it() {
 fn a_mint_that_refuses_a_taken_name_names_the_one_that_was_asked_for() {
     // The dedupe folds a name to NFC and lowercase, so `notes.md` holds the
     // name `Notes`, and a caller that wanted that name is told so rather than
-    // handed `Notes 2.md`.
+    // handed `Notes-2.md`.
     let root = TempDir::new().expect("temp dir");
     let taken = root.path().join("notes.md");
     std::fs::write(&taken, "what was already there\n").expect("seed");
@@ -284,6 +285,7 @@ fn a_mint_that_refuses_a_taken_name_names_the_one_that_was_asked_for() {
         CreateNote {
             notes_root: root.path(),
             stem: "Notes",
+            extension: "md",
             content: "the new note\n",
             origin: WriteOrigin::Cli,
             on_taken_name: TakenName::Refuse,
@@ -299,7 +301,7 @@ fn a_mint_that_refuses_a_taken_name_names_the_one_that_was_asked_for() {
         name, "Notes.md",
         "the name in the error is the one asked for"
     );
-    assert!(!root.path().join("Notes 2.md").exists());
+    assert!(!root.path().join("Notes-2.md").exists());
     assert_eq!(
         std::fs::read_to_string(&taken).expect("read"),
         "what was already there\n"
@@ -315,6 +317,7 @@ fn a_mint_that_dedupes_still_takes_the_name_beside_the_one_that_is_there() {
         CreateNote {
             notes_root: root.path(),
             stem: "Notes",
+            extension: "md",
             content: "the new note\n",
             origin: WriteOrigin::Editor,
             on_taken_name: TakenName::Dedupe,
@@ -324,7 +327,7 @@ fn a_mint_that_dedupes_still_takes_the_name_beside_the_one_that_is_there() {
     )
     .expect("create");
 
-    assert_eq!(path, root.path().join("Notes 2.md"));
+    assert_eq!(path, root.path().join("Notes-2.md"));
 }
 
 #[test]
@@ -337,6 +340,7 @@ fn a_new_note_is_minted_under_the_origin_that_asked_for_it() {
         CreateNote {
             notes_root: root.path(),
             stem: "Notes",
+            extension: "md",
             content: "the new note\n",
             origin: WriteOrigin::Cli,
             on_taken_name: TakenName::Dedupe,

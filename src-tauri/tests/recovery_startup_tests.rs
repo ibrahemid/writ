@@ -211,7 +211,7 @@ fn an_unclean_relaunch_keeps_what_arrived_while_writ_was_down_and_seeds_the_guar
     // The note that never reached a file: the same missing path, the opposite
     // answer. Nothing was ever there, so writing it creates the note rather
     // than putting anything back, and it goes at its own name, not beside it.
-    let minted = notes.path().join("Brand New.md");
+    let minted = notes.path().join("Brand New.txt");
     assert_eq!(
         std::fs::read_to_string(&minted).unwrap(),
         "typed and never saved",

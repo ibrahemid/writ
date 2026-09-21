@@ -293,6 +293,7 @@ function baseConfig(): WritConfig {
     theme: { preset: "warp-dark", overrides: {} },
     appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
     commands: { usage: {} },
+    files: { default_extension: "txt" },
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },
@@ -716,7 +717,9 @@ describe("SettingsModal", () => {
 
   describe("Files section — the file-types row", () => {
     async function openFilesNav(container: Element) {
-      openSettings();
+      // Another section first: Files is the panel's default, and mounting it
+      // with the panel would settle the status probe before the click.
+      openSettings("editor");
       await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
       const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
       const filesNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("files"));
@@ -750,48 +753,51 @@ describe("SettingsModal", () => {
 
     // Support can be withdrawn: a type the startup probe counted answers
     // unsupported here, which empties the registry and takes the row with it.
-    it("drops the Files heading when a known type turns out unclaimable", async () => {
+    // The heading stays, because the format row under it is every platform's.
+    it("drops the file-types row when a known type turns out unclaimable", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
       await probeDefaultAppSupport();
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
 
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
-      expect(container.querySelector("[data-section='files']")).not.toBeNull();
-      await waitFor(() => expect(container.querySelector("[data-section='files']")).toBeNull());
-      expect(filesHeading(container)).toBeUndefined();
+      expect(container.querySelector("[data-setting-id='files.default_app']")).not.toBeNull();
+      await waitFor(() =>
+        expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull(),
+      );
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
       expect(container.querySelector("[data-default-app-type]")).toBeNull();
     });
 
-    // A heading with nothing under it says less than no heading at all.
-    it("shows no Files heading when every type answers unsupported", async () => {
+    it("shows the format row alone when every type answers unsupported", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
       await waitFor(() => expect(mocks.fetchDefaultAppStatus).toHaveBeenCalled());
-      expect(filesHeading(container)).toBeUndefined();
-      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
-    // Opening Settings the instant the app starts: no heading appears and then
-    // leaves, because the list only ever grows as types report in.
-    it("shows no Files heading while the type probe is still pending", async () => {
+    // Opening Settings the instant the app starts: no file-types row appears
+    // and then leaves, because the list only ever grows as types report in.
+    it("shows no file-types row while the type probe is still pending", async () => {
       mocks.fetchDefaultAppTypes.mockReturnValue(new Promise(() => {}));
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
-      expect(filesHeading(container)).toBeUndefined();
-      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
-    it("shows no Files heading when the type probe fails", async () => {
+    it("shows no file-types row when the type probe fails", async () => {
       mocks.fetchDefaultAppTypes.mockRejectedValue(new Error("no IPC"));
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
       await waitFor(() => expect(mocks.fetchDefaultAppTypes).toHaveBeenCalled());
-      expect(filesHeading(container)).toBeUndefined();
-      expect(container.querySelector("[data-section='files']")).toBeNull();
+      expect(filesHeading(container)).toBeDefined();
+      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
@@ -1417,7 +1423,7 @@ describe("AI section", () => {
     const { container } = await openAiSection();
     await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
     expect(collapse(container.querySelector(".settings-ai-consent-text")!.textContent)).toBe(
-      "The notes you attach and the text you rewrite are sent to api.deepseek.com with your " +
+      "The files you attach and the text you rewrite are sent to api.deepseek.com with your " +
         "API key. Writ also sends the key on its own to check the host is reachable; nothing " +
         "else leaves your machine.",
     );
@@ -1504,7 +1510,7 @@ describe("AI section", () => {
 
 // The Notes section is the answer to "where are my notes" (ADR-028 §2), so it
 // leads the nav rail and its row carries the path plus the three actions.
-describe("Notes section", () => {
+describe("Files section — the folder row", () => {
   beforeEach(() => {
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.notesFolder
@@ -1528,7 +1534,7 @@ describe("Notes section", () => {
 
   async function openNotes() {
     const result = render(() => <SettingsModal />);
-    openSettings("notes");
+    openSettings("files");
     await waitFor(() =>
       expect(result.container.querySelector("[data-setting-id='notes.folder']")).not.toBeNull(),
     );
@@ -1538,7 +1544,7 @@ describe("Notes section", () => {
   it("leads the nav rail", async () => {
     const { container } = await openNotes();
     const first = container.querySelector(".settings-nav-item");
-    expect(first?.textContent).toBe("Notes");
+    expect(first?.textContent).toBe("Files");
   });
 
   it("shows the folder path with the home folder collapsed", async () => {
@@ -1581,7 +1587,7 @@ describe("Notes section", () => {
     });
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
-      "The folder in your settings could not be used, so notes are in ~/Writ.",
+      "The folder in your settings could not be used, so files are in ~/Writ.",
     );
   });
 
@@ -1593,7 +1599,7 @@ describe("Notes section", () => {
     });
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-fallback]")?.textContent).toBe(
-      "The folder in your settings holds Writ's own data, so notes are in ~/Writ.",
+      "The folder in your settings holds Writ's own data, so files are in ~/Writ.",
     );
   });
 
@@ -1613,7 +1619,7 @@ describe("Notes section", () => {
   it("says how to sync a folder that nothing syncs", async () => {
     const { container } = await openNotes();
     expect(container.querySelector("[data-notes-sync]")?.textContent).toBe(
-      "Writ has no sync. Put the notes folder in iCloud Drive, Dropbox, or Google Drive and your notes sync with it. Use one sync service per folder.",
+      "Writ has no sync. Put the folder in iCloud Drive, Dropbox, or Google Drive and your files sync with it. Use one sync service per folder.",
     );
   });
 });
@@ -1692,10 +1698,10 @@ describe("Connected programs section — the tool row", () => {
 
     await waitFor(() => expect(container.querySelector(".settings-tools")).not.toBeNull());
     expect(container.querySelector("[data-grant='read']")?.textContent).toBe(
-      "Reading: list, search and open notes, and see their links, properties and tags.",
+      "Reading: list, search and open files, and see their links, properties and tags.",
     );
     expect(container.querySelector("[data-grant='write']")?.textContent).toBe(
-      "Writing: replace a note's text, make a new note, rename a note.",
+      "Writing: replace a file's text, make a new file, rename a file.",
     );
   });
 
@@ -1902,7 +1908,7 @@ describe("Settings as a keyboard and a screen reader take it", () => {
   // link), and that one comes first in document order.
   it("never hangs a row's description on a control in the label column", async () => {
     const container = await openPanel();
-    for (const section of ["editor", "advanced", "notes"]) {
+    for (const section of ["editor", "advanced", "files"]) {
       await openSection(container, section);
       const described = container.querySelectorAll<HTMLElement>("[aria-describedby]");
       for (const control of described) {

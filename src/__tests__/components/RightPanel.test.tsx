@@ -255,7 +255,7 @@ describe("a note with nothing to show", () => {
       edges: [{ from_path: "/notes/Two.md", to_path: "/notes/Open.md", count: 1 }],
     };
     const { container } = mount();
-    expect(headings(container)).toEqual(["Nearby notes"]);
+    expect(headings(container)).toEqual(["Nearby files"]);
   });
 
   it("shows nothing for a note that has never been written to a file", () => {
@@ -401,7 +401,7 @@ describe("backlinks", () => {
       },
     ];
     const { container } = mount();
-    expect(headings(container)).toEqual(["Links to this note"]);
+    expect(headings(container)).toEqual(["Links to this file"]);
     const markers = [...container.querySelectorAll(".right-panel-row-marker")].map(
       (el) => el.textContent,
     );
@@ -532,9 +532,9 @@ describe("every section of a full panel", () => {
     const { container } = mount();
     expect(headings(container)).toEqual([
       "Outline",
-      "Links from this note",
-      "Links to this note",
-      "Nearby notes",
+      "Links from this file",
+      "Links to this file",
+      "Nearby files",
       "Properties",
     ]);
   });

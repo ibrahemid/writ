@@ -40,7 +40,7 @@ use writ_core::chat::{
     Conversation, Delta, ParsedProposals, ProposalFilter, ProposalStatus, Provider, RejectCode,
     RequestIdentity, Role, StoredProposal, MAX_CONVERSATION_BYTES,
 };
-use writ_core::config::AiConfig;
+use writ_core::config::{AiConfig, FileExtension};
 use writ_core::diff::{line_diff, Hunk};
 use writ_core::hash::digest_from_hex;
 use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
@@ -809,10 +809,10 @@ pub fn note_file_in(notes_root: &Path, path: &str) -> Result<PathBuf, String> {
     // The sentence goes under a chip or a card that already names the note,
     // so it says what is wrong and not, a second time, which note.
     if !file.exists() {
-        return Err("This note is no longer there.".to_string());
+        return Err("This file is no longer there.".to_string());
     }
     if !file.is_file() {
-        return Err("This is not a note.".to_string());
+        return Err("This is not a file.".to_string());
     }
     Ok(file)
 }
@@ -824,7 +824,7 @@ pub fn note_file_in(notes_root: &Path, path: &str) -> Result<PathBuf, String> {
 /// is not something a person needs from the sentence, and it is not something
 /// a model reading the pane should be handed either (ADR-031 rule 5.2).
 fn outside_notes(path: &str) -> String {
-    format!("{} is not in the notes folder.", file_name_only(path))
+    format!("{} is not in your folder.", file_name_only(path))
 }
 
 /// The note's path as the pane lists it and a proposal names it: relative to
@@ -917,10 +917,10 @@ pub fn resolve_context_file(
 /// they say what is wrong and not, a second time, which file.
 fn existing_file(file: &Path) -> Result<(), String> {
     if !file.exists() {
-        return Err("This note is no longer there.".to_string());
+        return Err("This file is no longer there.".to_string());
     }
     if !file.is_file() {
-        return Err("This is not a note.".to_string());
+        return Err("This is not a file.".to_string());
     }
     Ok(())
 }
@@ -955,6 +955,29 @@ pub struct AttachedSize {
     pub bytes: u64,
 }
 
+/// The format a host opened in this module would mint in.
+///
+/// The pane's two permission sets hold `ReadNote` and `WriteNote` and never
+/// `CreateNote`, so no host opened here can mint and the answer is never read.
+/// The default stands in rather than the configured format being threaded
+/// through every read the pane makes.
+const PANE_MINTS_NOTHING: FileExtension = FileExtension::Txt;
+
+/// The permission set a host in this module is opened with, checked to hold no
+/// `CreateNote`.
+///
+/// [`PANE_MINTS_NOTHING`] is only true while that holds. A set that gained the
+/// capability would mint in the default format whatever the config names, which
+/// is the one thing no reader of this file would look for, so the invariant is
+/// asserted where the set is handed over rather than written down beside it.
+fn mints_nothing(permissions: PermissionSet) -> PermissionSet {
+    debug_assert!(
+        !permissions.contains(Capability::CreateNote),
+        "a chat-pane host may not create notes: PANE_MINTS_NOTHING names the format it would mint in"
+    );
+    permissions
+}
+
 /// What the side a model's reply can influence may ask for.
 ///
 /// One capability. The pane attaches the tabs the user named and lists nothing,
@@ -979,8 +1002,13 @@ pub fn apply_permissions() -> PermissionSet {
 /// nothing, and the folder has already been resolved by the time this is asked
 /// for.
 fn context_host(notes_root: &Path, note_key: &str) -> Result<NoteHostImpl<'static>, String> {
-    NoteHostImpl::open(notes_root, None, context_permissions())
-        .map_err(|_| format!("{note_key} could not be read."))
+    NoteHostImpl::open(
+        notes_root,
+        None,
+        mints_nothing(context_permissions()),
+        PANE_MINTS_NOTHING,
+    )
+    .map_err(|_| format!("{note_key} could not be read."))
 }
 
 /// What the pane shows when a note it was told to attach does not come back.
@@ -1064,7 +1092,7 @@ pub fn attached_sizes_in(
 ) -> Result<Vec<AttachedSize>, String> {
     if paths.len() > MAX_ATTACHED_NOTES {
         return Err(format!(
-            "Attach at most {MAX_ATTACHED_NOTES} notes to one conversation."
+            "Attach at most {MAX_ATTACHED_NOTES} files to one conversation."
         ));
     }
     let mut sizes: Vec<AttachedSize> = Vec::with_capacity(paths.len());
@@ -1096,7 +1124,7 @@ pub fn read_attached_in(
 ) -> Result<Vec<AttachedNote>, String> {
     if paths.len() > MAX_ATTACHED_NOTES {
         return Err(format!(
-            "Attach at most {MAX_ATTACHED_NOTES} notes to one conversation."
+            "Attach at most {MAX_ATTACHED_NOTES} files to one conversation."
         ));
     }
     let mut notes: Vec<AttachedNote> = Vec::with_capacity(paths.len());
@@ -1191,9 +1219,14 @@ pub fn apply_proposal_inner(
     // Only the digest is handed over: the guard compares digests, never the
     // length or the modification time, neither of which the pane knew about the
     // text it showed.
-    let applier = NoteHostImpl::open(notes_root, None, apply_permissions())
-        .map_err(|_| format!("{note_key} was not written."))?
-        .with_history(history);
+    let applier = NoteHostImpl::open(
+        notes_root,
+        None,
+        mints_nothing(apply_permissions()),
+        PANE_MINTS_NOTHING,
+    )
+    .map_err(|_| format!("{note_key} was not written."))?
+    .with_history(history);
     let outcome = applier.write_note(path, new_content, Some(digest), WriteOrigin::Chat);
 
     match outcome {
@@ -2392,7 +2425,7 @@ mod tests {
 
         assert_eq!(
             read_attached_in(&notes, &NoOpenNotes, std::slice::from_ref(&given)),
-            Err("README.md is not in the notes folder.".to_string())
+            Err("README.md is not in your folder.".to_string())
         );
     }
 
@@ -2552,7 +2585,7 @@ mod tests {
 
         assert_eq!(
             read_attached_in(&notes, &NoOpenNotes, &[walked]),
-            Err("README.md is not in the notes folder.".to_string())
+            Err("README.md is not in your folder.".to_string())
         );
     }
 
@@ -2565,7 +2598,7 @@ mod tests {
         // The refusal names the link as it was given, not what it points at.
         assert_eq!(
             read_attached_in(&notes, &NoOpenNotes, &["Linked.md".to_string()]),
-            Err("Linked.md is not in the notes folder.".to_string())
+            Err("Linked.md is not in your folder.".to_string())
         );
     }
 
@@ -2580,7 +2613,8 @@ mod tests {
 
         // The boundary moved in the pane and nowhere else: the host answers a
         // file outside the folder the same way whether or not a tab holds it.
-        let host = NoteHostImpl::open(&notes, None, context_permissions()).expect("the host");
+        let host = NoteHostImpl::open(&notes, None, context_permissions(), PANE_MINTS_NOTHING)
+            .expect("the host");
         assert!(matches!(
             host.read_note(&given),
             Err(HostError::OutsideNotesFolder { .. })
@@ -2597,7 +2631,7 @@ mod tests {
         // one key: a path the root does not prefix is refused instead.
         assert_eq!(
             relative_key(Path::new("/notes"), Path::new("/elsewhere/Launch.md")),
-            Err("Launch.md is not in the notes folder.".to_string())
+            Err("Launch.md is not in your folder.".to_string())
         );
     }
 
@@ -2623,11 +2657,11 @@ mod tests {
         std::fs::create_dir(dir.path().join("Archive")).expect("folder");
         assert_eq!(
             note_file_in(dir.path(), "Launch.md"),
-            Err("This note is no longer there.".to_string())
+            Err("This file is no longer there.".to_string())
         );
         assert_eq!(
             note_file_in(dir.path(), "Archive"),
-            Err("This is not a note.".to_string())
+            Err("This is not a file.".to_string())
         );
     }
 
@@ -2636,7 +2670,7 @@ mod tests {
     fn a_refusal_names_a_windows_note_without_its_folder() {
         assert_eq!(
             outside_notes(r"C:\Users\someone\private\Secrets.md"),
-            "Secrets.md is not in the notes folder."
+            "Secrets.md is not in your folder."
         );
     }
 

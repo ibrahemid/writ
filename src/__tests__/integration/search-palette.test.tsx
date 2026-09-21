@@ -223,7 +223,7 @@ describe("SearchPalette", () => {
     await open();
     await type("zebra");
     await waitFor(() => {
-      expect(labels()).toEqual(["Zebra command", "zebra.md", "zebra.rs", "other.rs"]);
+      expect(labels()).toEqual(["Zebra command", "zebra", "zebra.rs", "other.rs"]);
     });
   });
 
@@ -291,7 +291,7 @@ describe("SearchPalette", () => {
       hits: [{ buffer_id: "a", title: "zebra.md", line: 9, snippet: [] }],
       total: 1,
     });
-    await waitFor(() => expect(sectionLabels("content")).toEqual(["zebra.md", "early.rs"]));
+    await waitFor(() => expect(sectionLabels("content")).toEqual(["zebra", "early.rs"]));
   });
 
   describe("prefix routing", () => {
@@ -484,7 +484,7 @@ describe("SearchPalette", () => {
     it("moves the selection across a section boundary", async () => {
       await open();
       await type("zebra");
-      await waitFor(() => expect(labels()).toEqual(["Zebra command", "zebra.md", "zebra.rs"]));
+      await waitFor(() => expect(labels()).toEqual(["Zebra command", "zebra", "zebra.rs"]));
       fireEvent.keyDown(input(), { key: "ArrowDown" });
       fireEvent.keyDown(input(), { key: "ArrowDown" });
       const selected = document.querySelector(".palette-item.is-selected");
@@ -554,7 +554,7 @@ describe("quick open", () => {
     expect(input().value).toBe("@");
 
     await type("@meeting");
-    await waitFor(() => expect(labels()).toEqual(["meeting-notes.md", "the-meeting.md"]));
+    await waitFor(() => expect(labels()).toEqual(["meeting-notes", "the-meeting"]));
     expect(h.searchNotesByName).toHaveBeenCalledWith("meeting");
 
     fireEvent.keyDown(input(), { key: "Enter" });
@@ -569,7 +569,7 @@ describe("quick open", () => {
 
     await openQuickOpen();
     await type("@meeting");
-    await waitFor(() => expect(labels()).toEqual(["meeting-notes.md"]));
+    await waitFor(() => expect(labels()).toEqual(["meeting-notes"]));
 
     fireEvent.keyDown(input(), { key: "Enter" });
 

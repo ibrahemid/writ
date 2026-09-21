@@ -23,9 +23,11 @@ sha2 = "0.11"
 unicode-normalization = "0.1"
 unicode-segmentation = "1"
 url = "2"
+# `FilesConfig::from_config_text` reads one table out of a whole config.toml
+# for the consumers that hold no `WritConfig`.
+toml = "1.1"
 
 [dev-dependencies]
-toml = "1.1"
 tempfile = "3"
 # Test-only. `frontmatter_divergence_tests` runs both splitters over one table.
 # writ-render depends on nothing in this crate, so this adds no cycle, and a

@@ -18,7 +18,7 @@ import type {
 export type { NoteFacts, NoteGraph, NoteHeading, NoteLink, NoteProperty, NoteTag, TagCount };
 
 /** Shown when the index cannot be read. Each list keeps whatever it last had. */
-const READ_FAILED_MESSAGE = "Could not read what the notes folder holds.";
+const READ_FAILED_MESSAGE = "Could not read what the folder holds.";
 
 /**
  * An empty list that stays empty. The constants below are shared by every note
