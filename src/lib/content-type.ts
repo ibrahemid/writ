@@ -40,3 +40,8 @@ export function contentTypeForBuffer(buffer: BufferDocument): string | null {
   }
   return recognizedExt(buffer.title) ?? recognizedExt(buffer.filename);
 }
+
+/** Whether a buffer is a Markdown file, by the same rule the preview uses. */
+export function isMarkdownBuffer(buffer: BufferDocument): boolean {
+  return contentTypeForBuffer(buffer) === "markdown";
+}

@@ -83,12 +83,14 @@ describe("EditorInstance: note language stays markdown", () => {
     cleanup();
   });
 
-  it("keeps an untitled note with a fenced shell block as markdown and registers the format commands", async () => {
+  it("keeps an untitled file with a fenced shell block as markdown", async () => {
     bufferContent.set("N1", "```sh\necho hi\n```\n");
     const language = await mount(mockBuffer("N1", "a1b2c3.txt", null));
 
     expect(language).toBe("markdown");
-    expect(getCommand("editor.toggleBold")).toBeDefined();
+    // The format commands follow the file's extension, not the detected
+    // language: a .txt name is not a Markdown file.
+    expect(getCommand("editor.toggleBold")).toBeUndefined();
   });
 
   it("honors a shebang on an untitled note", async () => {
@@ -105,12 +107,12 @@ describe("EditorInstance: note language stays markdown", () => {
     expect(language).toBe("shell");
   });
 
-  it("reports an empty untitled note as markdown", async () => {
+  it("reports an empty untitled file as markdown", async () => {
     bufferContent.set("N3", "");
     const language = await mount(mockBuffer("N3", "g7h8i9.txt", null));
 
     expect(language).toBe("markdown");
-    expect(getCommand("editor.toggleBold")).toBeDefined();
+    expect(getCommand("editor.toggleBold")).toBeUndefined();
   });
 
   // Deliberate boundary: a user-typed filename extension is a rename signal,

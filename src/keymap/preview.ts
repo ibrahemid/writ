@@ -1,6 +1,7 @@
 import { registerCommand } from "../commands/registry";
 import { bufferRegistry } from "../stores/global/buffer-registry";
 import { windowRegistry } from "../stores/global/window-registry";
+import { contentTypeForBuffer } from "../lib/content-type";
 import { toggleRunScripts } from "../lib/preview-actions";
 import {
   DEFAULT_RATIO,
@@ -21,9 +22,22 @@ function activeBufferId(): string | null {
   return activeWindow()?.tabs.activeTabId() ?? null;
 }
 
+function activeBufferOf(bufferId: string) {
+  return bufferRegistry.activeTabs().find((b) => b.id === bufferId) ?? null;
+}
+
 function bufferPath(bufferId: string): string | null {
-  const buf = bufferRegistry.activeTabs().find((b) => b.id === bufferId);
-  return buf?.source_path ?? null;
+  return activeBufferOf(bufferId)?.source_path ?? null;
+}
+
+function contentTypeOf(bufferId: string): string | null {
+  const buf = activeBufferOf(bufferId);
+  return buf ? contentTypeForBuffer(buf) : null;
+}
+
+/** The split commands have nothing to act on where a file has no split. */
+function hasSplitLayouts(bufferId: string): boolean {
+  return contentTypeOf(bufferId) !== "markdown";
 }
 
 /** Register the preview keymap + the run-scripts kill switch palette entry. */
@@ -31,7 +45,7 @@ export function registerPreviewKeymap(): void {
   registerCommand({
     id: "preview.cycleLayout",
     label: "Preview: Cycle layout",
-    description: "Source → Split → Preview → Source",
+    description: "Switch how the file is shown",
     keybinding: "CmdOrCtrl+Shift+V",
     scope: "app",
     global: true,
@@ -39,7 +53,7 @@ export function registerPreviewKeymap(): void {
       const w = activeWindow();
       const id = activeBufferId();
       if (!w || !id) return;
-      const next = nextCycleLayout(w.layout.get(id));
+      const next = nextCycleLayout(w.layout.get(id), contentTypeOf(id));
       w.layout.set(id, bufferPath(id), next);
     },
   });
@@ -64,7 +78,7 @@ export function registerPreviewKeymap(): void {
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
-      if (!w || !id) return;
+      if (!w || !id || !hasSplitLayouts(id)) return;
       const current = w.layout.get(id);
       const path = bufferPath(id);
       if (current.kind === "preview") {
@@ -85,7 +99,7 @@ export function registerPreviewKeymap(): void {
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
-      if (!w || !id) return;
+      if (!w || !id || !hasSplitLayouts(id)) return;
       if (w.layout.get(id).kind !== "preview") return;
       w.layout.restorePrevious(id, bufferPath(id));
     },
@@ -126,7 +140,7 @@ export function registerPreviewKeymap(): void {
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
-      if (!w || !id) return;
+      if (!w || !id || !hasSplitLayouts(id)) return;
       const current = w.layout.get(id);
       if (current.kind !== "split") {
         w.layout.set(id, bufferPath(id), defaultSplit());

@@ -131,6 +131,14 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
           max_safe_document_bytes: 50 * 1024 * 1024,
         },
       },
+      {
+        content_type: "markdown",
+        capabilities: {
+          supports_live_render: true,
+          supports_print: true,
+          max_safe_document_bytes: 50 * 1024 * 1024,
+        },
+      },
     ]);
   });
 
@@ -183,6 +191,26 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
       "light",
       1,
     );
+  });
+
+  it("re-resolves a markdown buffer to inline after the rename", async () => {
+    await bufferRegistry.load();
+
+    render(() => (
+      <WindowProvider windowId={9103}>
+        <EditorAreaLike />
+      </WindowProvider>
+    ));
+
+    const win = (await import("../../stores/global/window-registry")).windowRegistry.getActive();
+    win!.tabs.setActiveTabId("R1");
+    await Promise.resolve();
+
+    await bufferRegistry.renameBuffer("R1", "plan.md");
+
+    await waitFor(() => expect(win!.layout.get("R1")).toEqual({ kind: "inline" }), {
+      timeout: 2000,
+    });
   });
 
   it("drops the preview and reclaims editor width when test.html → untitled.txt", async () => {

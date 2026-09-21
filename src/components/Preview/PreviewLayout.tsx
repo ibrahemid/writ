@@ -61,15 +61,21 @@ export default function PreviewLayout(props: Props) {
       return;
     }
     if (buf.source_path) {
-      const persisted = await win.layout.hydrate(buf.source_path);
+      const persisted = await win.layout.hydrate(buf.source_path, ct);
       if (persisted) {
         win.layout.setLocal(buf.id, persisted);
         return;
       }
     }
     const cfg = configStore.config().preview;
-    const def =
-      ct === "markdown" ? cfg.default_layout_markdown : cfg.default_layout_html;
+    if (ct === "markdown") {
+      win.layout.setLocal(
+        buf.id,
+        cfg.default_layout_markdown === "source" ? { kind: "source" } : { kind: "inline" },
+      );
+      return;
+    }
+    const def = cfg.default_layout_html;
     const resolved: LayoutMode =
       def === "split" ? defaultSplit() : def === "preview" ? { kind: "preview" } : { kind: "source" };
     win.layout.setLocal(buf.id, resolved);

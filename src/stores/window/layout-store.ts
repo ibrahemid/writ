@@ -6,8 +6,7 @@ import {
 } from "../../lib/preview-layout";
 import { previewGetLayout, previewSetLayout } from "../../services/tauri";
 
-// Per-window active layout per buffer. Lean scope: LayoutMode is
-// Source | Split | Preview — detach is cut. The pure types + helpers live
+// Per-window active layout per buffer. The pure types + helpers live
 // in lib/preview-layout so components and keymap can reach them without
 // crossing the store layer; this store owns runtime per-window state and
 // persistence to writ-storage via the preview IPC.
@@ -47,11 +46,11 @@ export function createLayoutStore(deps: { windowId: number }) {
   }
 
   /** Load a source-backed buffer's persisted layout, if any. */
-  async function hydrate(path: string): Promise<LayoutMode | null> {
+  async function hydrate(path: string, contentType: string | null): Promise<LayoutMode | null> {
     try {
       const persisted = await previewGetLayout(path);
       if (!persisted) return null;
-      return layoutFromPersisted(persisted.layout, persisted.ratio);
+      return layoutFromPersisted(persisted.layout, persisted.ratio, contentType);
     } catch {
       return null;
     }

@@ -38,11 +38,21 @@ const HTML_BUFFER: BufferDocument = {
   line_ending: "lf",
 };
 
+const MD_BUFFER: BufferDocument = { ...HTML_BUFFER, id: "T2", title: "plan.md" };
+
 describe("PreviewLayoutToggle", () => {
   beforeEach(() => {
     rendererRegistry.setFromIpc([
       {
         content_type: "html",
+        capabilities: {
+          supports_live_render: true,
+          supports_print: true,
+          max_safe_document_bytes: 50 * 1024 * 1024,
+        },
+      },
+      {
+        content_type: "markdown",
         capabilities: {
           supports_live_render: true,
           supports_print: true,
@@ -79,7 +89,7 @@ describe("PreviewLayoutToggle", () => {
     expect(container.querySelector(".layout-toggle")).toBeNull();
   });
 
-  it("renders a radiogroup with three segments for a renderable buffer", async () => {
+  it("renders a radiogroup with three segments for an html buffer", async () => {
     const { container } = await mountWithActive(HTML_BUFFER);
     await waitFor(() => {
       expect(container.querySelector('[role="radiogroup"]')).not.toBeNull();
@@ -91,6 +101,40 @@ describe("PreviewLayoutToggle", () => {
       "Split",
       "Preview",
     ]);
+  });
+
+  it("renders nothing for a .txt buffer", async () => {
+    const { container } = await mountWithActive({
+      ...HTML_BUFFER,
+      id: "T3",
+      title: "plan.txt",
+    });
+    await waitFor(() => expect(windowRegistry.getActive()).not.toBeNull());
+    expect(container.querySelector(".layout-toggle")).toBeNull();
+  });
+
+  it("renders two segments for a markdown buffer", async () => {
+    const { container } = await mountWithActive(MD_BUFFER);
+    await waitFor(() => {
+      expect(container.querySelector('[role="radiogroup"]')).not.toBeNull();
+    });
+    const segs = container.querySelectorAll('[role="radio"]');
+    expect(Array.from(segs).map((s) => s.textContent)).toEqual(["Inline", "Source"]);
+  });
+
+  it("moves an arrow key between the two markdown segments only", async () => {
+    const { container } = await mountWithActive(MD_BUFFER);
+    await waitFor(() => expect(container.querySelector(".layout-toggle")).not.toBeNull());
+
+    const win = windowRegistry.getActive()!;
+    win.layout.setLocal("T2", { kind: "inline" });
+    const group = container.querySelector('[role="radiogroup"]')!;
+
+    fireEvent.keyDown(group, { key: "ArrowRight" });
+    await waitFor(() => expect(win.layout.get("T2")).toEqual({ kind: "source" }));
+
+    fireEvent.keyDown(group, { key: "ArrowRight" });
+    await waitFor(() => expect(win.layout.get("T2")).toEqual({ kind: "inline" }));
   });
 
   it("marks the active layout segment checked and switches on click", async () => {

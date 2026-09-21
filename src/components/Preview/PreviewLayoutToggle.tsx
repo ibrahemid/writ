@@ -6,16 +6,16 @@ import { contentTypeForBuffer } from "../../lib/content-type";
 import { defaultSplit, type LayoutKind, type LayoutMode } from "../../lib/preview-layout";
 import "./preview-layout-toggle.css";
 
-// A compact three-way segmented control for the active buffer's preview
-// layout: source-only, split, or preview-only. Lives in the StatusBar so it
-// is reachable from every layout mode (the in-pane chip vanishes in
-// source-only). Shown only when the active buffer has a registered renderer.
+// A segmented control for the active buffer's layout, per content type.
+// Lives in the StatusBar so it is reachable from every layout mode (the
+// in-pane chip vanishes in source-only). Shown only when the active buffer
+// has a registered renderer.
 //
 // Single-select → WAI-ARIA radiogroup: role=radio + aria-checked, roving
 // tabindex (only the active segment is tab-stoppable), arrow keys move the
 // selection.
 
-type Segment = { kind: LayoutKind; label: string; title: string };
+type Segment = { kind: LayoutKind; label: string; title?: string };
 
 const SEGMENTS: Segment[] = [
   { kind: "source", label: "Source", title: "Source only" },
@@ -23,11 +23,17 @@ const SEGMENTS: Segment[] = [
   { kind: "preview", label: "Preview", title: "Preview only" },
 ];
 
+const MARKDOWN_SEGMENTS: Segment[] = [
+  { kind: "inline", label: "Inline" },
+  { kind: "source", label: "Source" },
+];
+
 function SegmentIcon(props: { kind: LayoutKind }) {
-  // 14×14 line icons, currentColor. Source: text lines. Split: two panes.
-  // Preview: a single filled pane.
+  // 14×14 line icons, currentColor. Source: text lines. Inline: a heading bar
+  // over text lines. Split: two panes. Preview: a single filled pane.
   return (
     <Show when={props.kind === "source"} fallback={
+      <Show when={props.kind === "inline"} fallback={
       <Show when={props.kind === "split"} fallback={
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
           <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" fill="currentColor" opacity="0.9" />
@@ -36,6 +42,13 @@ function SegmentIcon(props: { kind: LayoutKind }) {
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
           <rect x="1.5" y="2.5" width="11" height="9" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none" />
           <line x1="7" y1="2.5" x2="7" y2="11.5" stroke="currentColor" stroke-width="1.2" />
+        </svg>
+      </Show>
+      }>
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+          <rect x="2.5" y="2.5" width="6" height="2.4" rx="0.6" fill="currentColor" />
+          <line x1="2.5" y1="8" x2="11.5" y2="8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+          <line x1="2.5" y1="11" x2="8.5" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
         </svg>
       </Show>
     }>
@@ -55,6 +68,11 @@ export default function PreviewLayoutToggle() {
   const renderable = createMemo(() => {
     const buf = activeBuffer();
     return buf ? rendererRegistry.hasRenderer(contentTypeForBuffer(buf)) : false;
+  });
+
+  const segments = createMemo<Segment[]>(() => {
+    const buf = activeBuffer();
+    return buf && contentTypeForBuffer(buf) === "markdown" ? MARKDOWN_SEGMENTS : SEGMENTS;
   });
 
   const currentKind = createMemo<LayoutKind>(() => {
@@ -82,22 +100,23 @@ export default function PreviewLayoutToggle() {
   const segmentRefs: HTMLButtonElement[] = [];
 
   function onKeyDown(e: KeyboardEvent) {
-    const idx = SEGMENTS.findIndex((s) => s.kind === currentKind());
+    const segs = segments();
+    const idx = segs.findIndex((s) => s.kind === currentKind());
     let nextIdx: number | null = null;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") nextIdx = (idx + 1) % SEGMENTS.length;
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") nextIdx = (idx - 1 + SEGMENTS.length) % SEGMENTS.length;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") nextIdx = (idx + 1) % segs.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") nextIdx = (idx - 1 + segs.length) % segs.length;
     else if (e.key === "Home") nextIdx = 0;
-    else if (e.key === "End") nextIdx = SEGMENTS.length - 1;
+    else if (e.key === "End") nextIdx = segs.length - 1;
     if (nextIdx === null) return;
     e.preventDefault();
-    select(SEGMENTS[nextIdx].kind);
+    select(segs[nextIdx].kind);
     segmentRefs[nextIdx]?.focus();
   }
 
   return (
     <Show when={renderable()}>
       <div class="layout-toggle" role="radiogroup" aria-label="Preview layout" onKeyDown={onKeyDown}>
-        <For each={SEGMENTS}>
+        <For each={segments()}>
           {(seg, index) => {
             const isActive = () => currentKind() === seg.kind;
             return (

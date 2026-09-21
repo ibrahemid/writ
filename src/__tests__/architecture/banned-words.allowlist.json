@@ -6,6 +6,12 @@
     "note": "layout segment title, release 0.6"
   },
   {
+    "file": "src/components/Preview/PreviewLayoutToggle.tsx",
+    "line": 28,
+    "word": "source",
+    "note": "markdown layout segment label, release 0.6"
+  },
+  {
     "file": "src/components/Preview/PreviewPane.tsx",
     "line": 387,
     "word": "source",
@@ -22,12 +28,6 @@
     "line": 14,
     "word": "inbox",
     "note": "sidebar section title, release 0.6"
-  },
-  {
-    "file": "src/keymap/preview.ts",
-    "line": 34,
-    "word": "source",
-    "note": "Cycle Layout command description, release 0.6"
   },
   {
     "file": "src/stores/global/inbox.ts",

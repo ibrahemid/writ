@@ -12,6 +12,7 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { search, highlightSelectionMatches } from "@codemirror/search";
 import { editorThemeFor, writCodeFace, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
+import { isMarkdownBuffer } from "../../lib/content-type";
 import { markdownTypographyPlugin } from "../../editor/markdown-typography";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { spellingExtension } from "../../editor/spelling";
@@ -97,6 +98,7 @@ const SPELLING_MAX_CHARS = 1_000_000;
 
 export default function EditorInstance(props: Props) {
   const win = useWindow();
+  const isMarkdown = createMemo(() => isMarkdownBuffer(props.buffer));
   let containerRef!: HTMLDivElement;
   let view: EditorView | undefined;
   let disposeEditorCommands: (() => void) | undefined;
@@ -265,9 +267,9 @@ export default function EditorInstance(props: Props) {
     }
   }
 
-  function typographyExtension(lang: string | null, mode: FileOpenMode): Extension {
+  function typographyExtension(markdown: boolean, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
-    if (lang === "markdown" && configStore.config().editor.markdown_typography) {
+    if (markdown && configStore.config().editor.markdown_typography) {
       return markdownTypographyPlugin;
     }
     return [];
@@ -280,12 +282,23 @@ export default function EditorInstance(props: Props) {
     return isCodeBuffer(lang) ? writCodeFace : [];
   }
 
-  function editingExtension(lang: string | null, mode: FileOpenMode): Extension {
+  function editingExtension(markdown: boolean, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
-    if (lang === "markdown" && configStore.config().editor.markdown_editing) {
+    if (markdown && configStore.config().editor.markdown_editing) {
       return markdownEditingExtension;
     }
     return [];
+  }
+
+  // A plain file still gets its urls clicked; the wikilink layers are Markdown's.
+  function linkExtensions(markdown: boolean): Extension {
+    return markdown
+      ? [
+          linkLayer(linkDeps),
+          wikilinkDecorationLayer(wikilinkDeps),
+          wikilinkCompletion(wikilinkCompleteDeps),
+        ]
+      : linkLayer(linkDeps);
   }
 
   function applyDetectedLanguage(lang: string) {
@@ -295,8 +308,8 @@ export default function EditorInstance(props: Props) {
     view.dispatch({
       effects: [
         languageCompartment.reconfigure(mode.kind === "Normal" ? languageExtension(lang) : []),
-        typographyCompartment.reconfigure(typographyExtension(lang, mode)),
-        editingCompartment.reconfigure(editingExtension(lang, mode)),
+        typographyCompartment.reconfigure(typographyExtension(isMarkdown(), mode)),
+        editingCompartment.reconfigure(editingExtension(isMarkdown(), mode)),
         // The face and the chrome follow the language only on a normal buffer.
         // A restricted one keeps what it mounted with (see surfaceFollowsLanguage).
         ...(surfaceFollowsLanguage(mode)
@@ -342,7 +355,7 @@ export default function EditorInstance(props: Props) {
     }
   }
 
-  function createExtensions(bufferId: string, initialLang: Extension, langId: string | null, mode: FileOpenMode): Extension[] {
+  function createExtensions(bufferId: string, initialLang: Extension, langId: string | null, markdown: boolean, mode: FileOpenMode): Extension[] {
     const isLarge =
       mode.kind === "LargeFile" || mode.kind === "LargeFileConfirm" || mode.kind === "LongLines";
     const isBinary = mode.kind === "Binary";
@@ -354,24 +367,16 @@ export default function EditorInstance(props: Props) {
 
     return [
       languageCompartment.of(isRestricted ? [] : initialLang),
-      typographyCompartment.of(isRestricted ? [] : typographyExtension(langId, mode)),
+      typographyCompartment.of(isRestricted ? [] : typographyExtension(markdown, mode)),
       codeFaceCompartment.of(isRestricted ? [] : codeFaceExtension(langId)),
       // A large or binary buffer is a file being inspected, not a note: it
       // wraps nothing and its language is never detected, so it keeps the
       // numbers that are the only way to navigate it.
       codeChromeCompartment.of(isRestricted ? codeChrome : codeChromeFor(langId)),
-      editingCompartment.of(isRestricted ? [] : editingExtension(langId, mode)),
+      editingCompartment.of(isRestricted ? [] : editingExtension(markdown, mode)),
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
-      linkCompartment.of(
-        isRestricted
-          ? []
-          : [
-              linkLayer(linkDeps),
-              wikilinkDecorationLayer(wikilinkDeps),
-              wikilinkCompletion(wikilinkCompleteDeps),
-            ],
-      ),
+      linkCompartment.of(isRestricted ? [] : linkExtensions(markdown)),
       contextMenuExtension,
       spellingMenuExtension,
       readOnlyCompartment.of(
@@ -510,13 +515,15 @@ export default function EditorInstance(props: Props) {
     if (name === appliedNameForLang && view) return;
     appliedNameForLang = name;
     const lang = detectLanguageForBuffer(buffer, content, name);
+    const markdown = isMarkdownBuffer(buffer);
     win.editor.setLanguage(lang);
     if (view) {
       view.dispatch({
         effects: [
           languageCompartment.reconfigure(languageExtension(lang)),
-          typographyCompartment.reconfigure(typographyExtension(lang, mode)),
-          editingCompartment.reconfigure(editingExtension(lang, mode)),
+          typographyCompartment.reconfigure(typographyExtension(markdown, mode)),
+          editingCompartment.reconfigure(editingExtension(markdown, mode)),
+          linkCompartment.reconfigure(linkExtensions(markdown)),
           codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
           codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         ],
@@ -575,7 +582,7 @@ export default function EditorInstance(props: Props) {
     const initialLang = lang ? languageExtension(lang) : [];
     const state = EditorState.create({
       doc: content,
-      extensions: createExtensions(buffer.id, initialLang, lang, mode),
+      extensions: createExtensions(buffer.id, initialLang, lang, isMarkdownBuffer(buffer), mode),
     });
 
     view = new EditorView({
@@ -724,17 +731,18 @@ export default function EditorInstance(props: Props) {
     const typographyEnabled = configStore.config().editor.markdown_typography;
     const editingEnabled = configStore.config().editor.markdown_editing;
     const lang = win.editor.language();
+    const markdown = isMarkdown();
     const mode = win.editor.largeFileMode();
     if (mode && mode.kind !== "Normal") return;
     view?.dispatch({
       effects: [
         typographyCompartment.reconfigure(
-          lang === "markdown" && typographyEnabled ? markdownTypographyPlugin : [],
+          markdown && typographyEnabled ? markdownTypographyPlugin : [],
         ),
         codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
         codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         editingCompartment.reconfigure(
-          lang === "markdown" && editingEnabled ? markdownEditingExtension : [],
+          markdown && editingEnabled ? markdownEditingExtension : [],
         ),
       ],
     });
@@ -791,7 +799,7 @@ export default function EditorInstance(props: Props) {
 
   createEffect(() => {
     const active =
-      win.editor.language() === "markdown" &&
+      isMarkdown() &&
       configStore.config().editor.markdown_editing &&
       !(win.editor.largeFileMode() && win.editor.largeFileMode()!.kind !== "Normal");
     if (active) {
