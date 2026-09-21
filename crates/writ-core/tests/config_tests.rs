@@ -1,6 +1,6 @@
 use writ_core::config::{
-    Accent, ClientApproval, CommandUsage, DefaultLayout, FileExtension, FilesConfig, Polarity,
-    ProseFace, SidebarPosition, SidebarSection, WritConfig,
+    Accent, ClientApproval, CommandUsage, DefaultLayout, FileExtension, FilesConfig,
+    MarkdownLayout, Polarity, ProseFace, SidebarPosition, SidebarSection, WritConfig,
 };
 
 #[test]
@@ -33,11 +33,11 @@ fn default_config_has_expected_values() {
 
     assert_eq!(config.storage.path, "~/.writ");
 
-    // ADR-041: a new file is plain text, and Markdown opens in the editor.
+    // ADR-041: a new file is plain text.
     assert_eq!(config.files.default_extension, FileExtension::Txt);
     assert_eq!(
         config.preview.default_layout_markdown,
-        DefaultLayout::Source
+        MarkdownLayout::Inline
     );
 }
 
@@ -494,4 +494,50 @@ fn the_files_table_roundtrips_through_toml() {
             .expect("deserialization failed");
     assert_eq!(restored.files.default_extension, FileExtension::Md);
     assert_eq!(config, restored);
+}
+
+#[test]
+fn a_markdown_layout_of_split_reads_as_inline() {
+    let config: WritConfig = toml::from_str("[preview]\ndefault_layout_markdown = \"split\"\n")
+        .expect("deserialization failed");
+    assert_eq!(
+        config.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+}
+
+#[test]
+fn a_markdown_layout_of_preview_reads_as_inline() {
+    let config: WritConfig = toml::from_str("[preview]\ndefault_layout_markdown = \"preview\"\n")
+        .expect("deserialization failed");
+    assert_eq!(
+        config.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+}
+
+#[test]
+fn a_markdown_layout_round_trips_as_inline_not_split() {
+    let config: WritConfig = toml::from_str("[preview]\ndefault_layout_markdown = \"split\"\n")
+        .expect("deserialization failed");
+    let toml_str = toml::to_string(&config).expect("serialization failed");
+    assert!(
+        toml_str.contains("default_layout_markdown = \"inline\""),
+        "{toml_str}"
+    );
+    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
+    assert_eq!(
+        restored.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+}
+
+#[test]
+fn markdown_layout_defaults_to_inline_and_html_keeps_split() {
+    let config = WritConfig::default();
+    assert_eq!(
+        config.preview.default_layout_markdown,
+        MarkdownLayout::Inline
+    );
+    assert_eq!(config.preview.default_layout_html, DefaultLayout::Split);
 }

@@ -11,9 +11,12 @@ export interface CommandsConfig {
 
 export type DefaultLayout = "source" | "split" | "preview";
 
+/** How a Markdown file is shown: rendered in the editor, or as its source. */
+export type MarkdownLayout = "inline" | "source";
+
 export interface PreviewConfig {
   default_layout_html: DefaultLayout;
-  default_layout_markdown: DefaultLayout;
+  default_layout_markdown: MarkdownLayout;
   live_render_threshold_mb: number;
   render_confirm_threshold_mb: number;
   render_refuse_threshold_mb: number;

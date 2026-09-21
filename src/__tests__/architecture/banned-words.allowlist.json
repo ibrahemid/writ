@@ -12,6 +12,12 @@
     "note": "too-large overlay text, release 0.6"
   },
   {
+    "file": "src/components/SettingsModal/SettingsModal.tsx",
+    "line": 909,
+    "word": "source",
+    "note": "markdown layout option label, release 0.6"
+  },
+  {
     "file": "src/components/Sidebar/InboxSection.tsx",
     "line": 14,
     "word": "inbox",

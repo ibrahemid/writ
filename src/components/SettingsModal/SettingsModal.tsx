@@ -61,6 +61,7 @@ import type {
   AppearanceConfig,
   DefaultLayout,
   FileExtension,
+  MarkdownLayout,
   Polarity,
   ProseFaceId,
   SidebarSectionId,
@@ -372,13 +373,6 @@ function EditorSection() {
     void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, tab_size: value } }));
   }
 
-  function onMarkdownTypographyToggle() {
-    void patchConfig((prev) => ({
-      ...prev,
-      editor: { ...prev.editor, markdown_typography: !prev.editor.markdown_typography },
-    }));
-  }
-
   function onMarkdownEditingToggle() {
     void patchConfig((prev) => ({
       ...prev,
@@ -439,17 +433,6 @@ function EditorSection() {
           label="Word wrap"
           checked={cfg().word_wrap}
           onChange={onWordWrapToggle}
-        />
-      </SettingsRow>
-      <SettingsRow
-        id="editor.markdown_typography"
-        label="Style headings and bold text as you type"
-      >
-        <ToggleSwitch
-          setting="markdown_typography"
-          label="Style headings and bold text as you type"
-          checked={cfg().markdown_typography}
-          onChange={onMarkdownTypographyToggle}
         />
       </SettingsRow>
       <SettingsRow id="editor.markdown_editing" label="Markdown shortcuts">
@@ -891,7 +874,7 @@ function PreviewSection() {
   }
 
   function onDefaultLayoutMarkdownChange(raw: string) {
-    const layout = raw as DefaultLayout;
+    const layout = raw as MarkdownLayout;
     void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, default_layout_markdown: layout } }));
   }
 
@@ -922,9 +905,8 @@ function PreviewSection() {
           value={cfg().default_layout_markdown}
           onChange={(e) => onDefaultLayoutMarkdownChange(e.currentTarget.value)}
         >
-          <option value="source">The text</option>
-          <option value="split">Text and preview</option>
-          <option value="preview">Preview</option>
+          <option value="inline">Inline</option>
+          <option value="source">Source</option>
         </select>
       </SettingsRow>
       <SettingsRow

@@ -8,7 +8,7 @@ import { configStore } from "../../stores/global/config";
 import type { BufferDocument } from "../../types/buffer";
 
 // Regression for #122: renaming a non-renderable scratch buffer to a
-// renderable extension (.txt → .md) must activate the preview WITHOUT a
+// renderable extension (.txt → .html) must activate the preview WITHOUT a
 // close+reopen cycle. The escape: PreviewLayout resolved its layout exactly
 // once per buffer id (the `initialized` guard) at open time. A scratch
 // buffer opens non-renderable, so it was pinned to {kind:"source"} and the
@@ -108,12 +108,10 @@ function scratchTxtBuffer(overrides: Partial<BufferDocument> = {}): BufferDocume
 
 describe("PreviewLayout — rename to renderable extension activates preview (regression #122)", () => {
   beforeEach(async () => {
-    // A Markdown file opens on its text by default, so the preview this
-    // regression is about is the one the split setting asks for.
     const held = configStore.config();
     await configStore.save({
       ...held,
-      preview: { ...held.preview, default_layout_markdown: "split" },
+      preview: { ...held.preview, default_layout_html: "split" },
     });
     mocks.forceRender.mockClear();
     mocks.renameNote.mockClear();
@@ -126,7 +124,7 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
     mocks.listActiveBuffers.mockResolvedValue([scratchTxtBuffer()]);
     rendererRegistry.setFromIpc([
       {
-        content_type: "markdown",
+        content_type: "html",
         capabilities: {
           supports_live_render: true,
           supports_print: true,
@@ -143,7 +141,7 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
     await bufferRegistry.load();
   });
 
-  it("mounts the preview iframe after renaming untitled → test.md (no close/reopen)", async () => {
+  it("mounts the preview iframe after renaming untitled → test.html (no close/reopen)", async () => {
     await bufferRegistry.load();
 
     const { container } = render(() => (
@@ -164,8 +162,8 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
     ).toMatch(/chrome\/blank$/);
 
     // Rename through the real store handler.
-    await bufferRegistry.renameBuffer("R1", "test.md");
-    expect(mocks.renameNote).toHaveBeenCalledWith("R1", "test.md");
+    await bufferRegistry.renameBuffer("R1", "test.html");
+    expect(mocks.renameNote).toHaveBeenCalledWith("R1", "test.html");
 
     // Preview must now activate without any close/reopen.
     await waitFor(
@@ -180,15 +178,15 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
     expect(mocks.forceRender).toHaveBeenCalledWith(
       9101,
       "R1",
-      "markdown",
+      "html",
       expect.any(String),
       "light",
       1,
     );
   });
 
-  it("drops the preview and reclaims editor width when test.md → untitled.txt", async () => {
-    mocks.listActiveBuffers.mockResolvedValue([scratchTxtBuffer({ title: "test.md" })]);
+  it("drops the preview and reclaims editor width when test.html → untitled.txt", async () => {
+    mocks.listActiveBuffers.mockResolvedValue([scratchTxtBuffer({ title: "test.html" })]);
     await bufferRegistry.load();
 
     const { container } = render(() => (
@@ -200,7 +198,7 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
     const win = (await import("../../stores/global/window-registry")).windowRegistry.getActive();
     win!.tabs.setActiveTabId("R1");
 
-    // Renderable .md scratch buffer: preview is active (split default).
+    // Renderable .html scratch buffer: preview is active (split default).
     await waitFor(
       () => expect(container.querySelector("iframe.preview-frame")).not.toBeNull(),
       { timeout: 2000 },

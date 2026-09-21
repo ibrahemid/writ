@@ -208,7 +208,7 @@ function baseConfig(): WritConfig {
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
       default_layout_html: "split",
-      default_layout_markdown: "split",
+      default_layout_markdown: "inline",
       live_render_threshold_mb: 1,
       render_confirm_threshold_mb: 5,
       render_refuse_threshold_mb: 50,

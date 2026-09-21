@@ -24,7 +24,7 @@ pub use ai::{AiChatConfig, AiConfig, AiConfigOnDisk, AiRewriteConfig};
 pub use files::{FileExtension, FilesConfig};
 pub use mcp::{ClientApproval, McpConfig};
 pub use notes::NotesConfig;
-pub use preview::{DefaultLayout, PreviewConfig};
+pub use preview::{DefaultLayout, MarkdownLayout, PreviewConfig};
 pub use spelling::SpellingConfig;
 
 use serde::de::IntoDeserializer;
