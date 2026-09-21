@@ -148,7 +148,7 @@ describe("NoteHistoryPanel", () => {
     const screen = render(() => <NoteHistoryPanel />);
     openNoteVersions(NOTE);
 
-    await waitFor(() => expect(screen.getByText("No versions of this note yet.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("No versions of this file yet.")).toBeTruthy());
     expect(screen.queryByText("Restore this version")).toBeNull();
   });
 

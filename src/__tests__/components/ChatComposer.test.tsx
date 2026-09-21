@@ -198,16 +198,16 @@ describe("the composer field", () => {
 describe("the chip row", () => {
   it("attaches the note in front, and says why it cannot", async () => {
     const ready = mount();
-    const add = ready.getByRole("button", { name: "Add open note" }) as HTMLButtonElement;
+    const add = ready.getByRole("button", { name: "Add open file" }) as HTMLButtonElement;
     expect(add.disabled).toBe(false);
     fireEvent.click(add);
     await waitFor(() => expect(mocks.addOpenNote).toHaveBeenCalledTimes(1));
     cleanup();
 
     const unsaved = mount({ openNote: "unsaved" });
-    const blocked = unsaved.getByRole("button", { name: "Add open note" }) as HTMLButtonElement;
+    const blocked = unsaved.getByRole("button", { name: "Add open file" }) as HTMLButtonElement;
     expect(blocked.disabled).toBe(true);
-    expect(unsaved.getByText("Save this note first")).toBeTruthy();
+    expect(unsaved.getByText("Save this file first")).toBeTruthy();
   });
 
   it("names a chip by the note and keeps its folder within reach", () => {
@@ -480,8 +480,8 @@ describe("the mention list", () => {
     el.value = "see @zz";
     fireEvent.input(el);
 
-    await waitFor(() => expect(container.textContent).toContain("No note by that name."));
+    await waitFor(() => expect(container.textContent).toContain("No file by that name."));
     const list = container.querySelector(".chat-mention-list") as HTMLElement;
-    expect(list.textContent).not.toContain("No note by that name.");
+    expect(list.textContent).not.toContain("No file by that name.");
   });
 });

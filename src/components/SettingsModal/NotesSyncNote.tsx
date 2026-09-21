@@ -12,7 +12,7 @@ export function NotesSyncNote(props: { provider: string | null }) {
     <span class="settings-notes-note" data-notes-sync>
       <Show
         when={props.provider}
-        fallback="Writ has no sync. Put the notes folder in iCloud Drive, Dropbox, or Google Drive and your notes sync with it. Use one sync service per folder."
+        fallback="Writ has no sync. Put the folder in iCloud Drive, Dropbox, or Google Drive and your files sync with it. Use one sync service per folder."
       >
         {(provider) => `${provider()} syncs this folder. Use one sync service per folder.`}
       </Show>

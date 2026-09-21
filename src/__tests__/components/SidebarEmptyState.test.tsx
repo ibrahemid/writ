@@ -84,7 +84,7 @@ describe("sidebar empty state", () => {
 
     const empty = container.querySelector(".sidebar-empty");
     expect(empty).toBeTruthy();
-    expect(container.textContent).toContain("No notes yet.");
+    expect(container.textContent).toContain("No files yet.");
     // The cold front door points at the two ways in.
     expect(container.querySelectorAll(".sidebar-empty .writ-btn")).toHaveLength(2);
     expect(container.querySelectorAll(".sidebar-empty .kbd-chord")).toHaveLength(1);

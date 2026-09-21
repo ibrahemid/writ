@@ -160,7 +160,7 @@ describe("the section beside a note with nothing around it", () => {
     const { queryByText, queryByRole, container } = render(() => (
       <LocalGraphSection path="Nothing.md" />
     ));
-    expect(queryByText("Nearby notes")).toBeNull();
+    expect(queryByText("Nearby files")).toBeNull();
     expect(queryByRole("img")).toBeNull();
     expect(container.querySelector("canvas")).toBeNull();
     expect(container.querySelector(".right-panel-section")).toBeNull();
@@ -193,8 +193,8 @@ describe("what the section holds while it is showing", () => {
 describe("the section beside a note with notes around it", () => {
   it("renders the drawing under its heading", () => {
     const { getByText, getByRole } = render(() => <LocalGraphSection path="Alpha.md" />);
-    expect(getByText("Nearby notes")).toBeTruthy();
-    expect(getByRole("img").getAttribute("aria-label")).toBe("Alpha and 2 notes it links with");
+    expect(getByText("Nearby files")).toBeTruthy();
+    expect(getByRole("img").getAttribute("aria-label")).toBe("Alpha and 2 files it links with");
   });
 
   it("names the note the pointer is over, and nothing once it leaves", () => {

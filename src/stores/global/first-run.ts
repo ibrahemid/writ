@@ -17,12 +17,12 @@ export type FirstRunStep = "format";
 
 /** The one line Writ shows under the cursor on a first launch. */
 export function hintText(fileManager: string): string {
-  return `Your notes are saved automatically to a folder you can open in ${fileManager}.`;
+  return `Your files are saved automatically to a folder you can open in ${fileManager}.`;
 }
 
 /** The question Writ asks when it may not rename a note without asking. */
 export function offerText(title: string): string {
-  return `Rename this note to "${title}"?`;
+  return `Rename this file to "${title}"?`;
 }
 
 /** Exported for tests: each launch reads the state once, so a test that

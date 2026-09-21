@@ -137,8 +137,8 @@ beforeEach(() => {
 describe("what the send dialog says", () => {
   it("names the host, how many notes and how many bytes", () => {
     const notice = sendNotice("api.example.com", NOTES);
-    expect(notice.title).toBe("Send notes to api.example.com?");
-    expect(notice.message).toContain("2 notes");
+    expect(notice.title).toBe("Send files to api.example.com?");
+    expect(notice.message).toContain("2 files");
     expect(notice.message).toContain("14 KB");
     expect(notice.message).toContain("api.example.com");
   });
@@ -179,8 +179,8 @@ describe("the blockers before a send", () => {
     expect(await clearBlockersBeforeSending(NOTES)).toBe(true);
     expect(mocks.consentHost).toHaveBeenCalledWith();
     const asked = mocks.requestConfirm.mock.calls[0][0];
-    expect(asked.title).toBe("Send notes to api.example.com?");
-    expect(asked.message).toContain("2 notes");
+    expect(asked.title).toBe("Send files to api.example.com?");
+    expect(asked.message).toContain("2 files");
     expect(asked.confirmLabel).toBe("Send");
   });
 

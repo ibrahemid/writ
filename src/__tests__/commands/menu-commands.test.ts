@@ -157,7 +157,7 @@ describe("AppMenu", () => {
     expect(items[0].separator).toBeFalsy();
     const dividedLabels = items.filter((item) => item.separator).map((item) => item.label);
     // The first item of each menu after the app menu opens a run.
-    expect(dividedLabels).toContain("New Note");
+    expect(dividedLabels).toContain("New File");
     expect(dividedLabels).toContain("Find");
     expect(dividedLabels).toContain("Toggle Sidebar");
   });

@@ -63,7 +63,7 @@ export default function StatusBar() {
   // folder's own name, the way the sidebar heads a folder with its basename.
   const folderName = createMemo(() => {
     const path = notesStore.folder()?.path ?? notesStore.root();
-    return (path ? basename(path) : "") || "Notes";
+    return (path ? basename(path) : "") || "Files";
   });
 
   const language = createMemo(() => languageLabel(win.editor.language()));

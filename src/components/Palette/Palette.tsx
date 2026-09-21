@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createEffect, createSignal, onCleanup, untrack } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { resolvePlatform } from "../../lib/platform";
+import { displayFileName } from "../../lib/display-name";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import Icon from "../Icon/Icon";
 import Kbd from "../Kbd/Kbd";
@@ -74,7 +75,7 @@ export default function Palette(props: PaletteProps) {
       case "line":
         return "Type a line number.";
       case "notes":
-        return "Type to search notes by name.";
+        return "Type to search files by name.";
       default:
         return null;
     }
@@ -342,7 +343,16 @@ export default function Palette(props: PaletteProps) {
                               {(name) => <Icon name={name()} />}
                             </Show>
                             <div class="palette-item-text">
-                              <span class="palette-item-label">{result.label}</span>
+                              <span
+                                class="palette-item-label"
+                                title={
+                                  displayFileName(result.label) === result.label
+                                    ? undefined
+                                    : result.label
+                                }
+                              >
+                                {displayFileName(result.label)}
+                              </span>
                               <Show when={result.snippet}>
                                 <span class="palette-item-snippet">
                                   <For each={result.snippet}>

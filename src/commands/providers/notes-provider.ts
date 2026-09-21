@@ -16,7 +16,7 @@ export interface NotesProviderOptions {
 export function createNotesProvider(options: NotesProviderOptions = {}): ResultProvider {
   return {
     id: "notes",
-    section: "Notes",
+    section: "Files",
     order: options.order ?? 1,
     cap: options.cap ?? 12,
     modes: ["notes"],

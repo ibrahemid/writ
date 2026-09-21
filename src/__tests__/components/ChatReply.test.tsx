@@ -204,7 +204,7 @@ describe("a proposal card", () => {
     ));
 
     expect(container.querySelector(".chat-proposal-stale")?.textContent).toBe(
-      "The note changed since this was offered.",
+      "The file changed since this was offered.",
     );
     expect(container.querySelectorAll(".chat-diff-row")).toHaveLength(4);
     expect(container.textContent).not.toContain("the whole text");

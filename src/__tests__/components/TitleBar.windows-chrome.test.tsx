@@ -218,11 +218,11 @@ describe("titlebar menu affordance carries the platforms with no menu bar", () =
     expect(container.querySelector(".headerbar-title")!.textContent).toBe("Writ");
   });
 
-  it("moves New note into the GNOME header bar, ahead of the menu", () => {
+  it("moves New file into the GNOME header bar, ahead of the menu", () => {
     const { container } = renderOn("linux");
     const compose = container.querySelector(".headerbar-compose");
     expect(compose).not.toBeNull();
-    expect(compose!.textContent).toContain("New note");
+    expect(compose!.textContent).toContain("New file");
     expect(
       compose!.compareDocumentPosition(container.querySelector(".titlebar-appmenu")!) &
         Node.DOCUMENT_POSITION_FOLLOWING,

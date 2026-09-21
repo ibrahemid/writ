@@ -99,7 +99,7 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
       </Show>
 
       <Show when={props.proposal.stale}>
-        <p class="chat-proposal-stale">The note changed since this was offered.</p>
+        <p class="chat-proposal-stale">The file changed since this was offered.</p>
       </Show>
 
       <Show when={rows().length > 0}>
@@ -156,8 +156,8 @@ function verdict(
   outcome: ChatProposalOutcome | null,
   stale: boolean,
 ): string {
-  if (outcome && !outcome.changed) return "The note already held this text.";
-  if (outcome) return `Applied. The note is now ${byteLabel(outcome.bytes)}.`;
+  if (outcome && !outcome.changed) return "The file already held this text.";
+  if (outcome) return `Applied. The file is now ${byteLabel(outcome.bytes)}.`;
   if (status === "applied") return "Applied.";
   if (status === "discarded") return "Discarded.";
   if (refusal) return refusal;

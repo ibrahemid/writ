@@ -59,11 +59,20 @@
   opacity: 1;
 }
 
-.file-tree-item-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* The name sits inside a tooltip anchor, so the row's free space and the
+   clipping the tip keys off both have to reach through it. */
+.file-tree-item > .writ-tooltip-anchor {
   flex: 1;
   min-width: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.file-tree-item-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .file-tree-children {

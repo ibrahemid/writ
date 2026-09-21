@@ -240,7 +240,7 @@ async function createNote(target: string): Promise<BufferDocument | null> {
     return doc;
   } catch (err) {
     showToast(
-      typeof err === "string" && err !== "" ? err : "Could not create the note.",
+      typeof err === "string" && err !== "" ? err : "Could not create the file.",
       "error",
     );
     return null;

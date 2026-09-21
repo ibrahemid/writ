@@ -134,7 +134,7 @@ export default function PreviewLayout(props: Props) {
           fallback={
             <Show
               when={win.downloads.selected()}
-              fallback={<div class="editor-empty">No note open</div>}
+              fallback={<div class="editor-empty">No file open</div>}
             >
               {(download) => (
                 <NoteDownloading

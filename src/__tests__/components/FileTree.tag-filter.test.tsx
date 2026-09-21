@@ -109,16 +109,16 @@ describe("the file tree under a tag", () => {
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md"]);
 
     const { container } = render(() => <FileTree />);
-    expect(names(container)).toEqual(["Pricing.md", "Recipes.md"]);
+    expect(names(container)).toEqual(["Pricing", "Recipes"]);
 
     sidebar.selectTag("idea");
     await settle();
-    expect(names(container)).toEqual(["Pricing.md"]);
+    expect(names(container)).toEqual(["Pricing"]);
     expect(mockedApi.notePathsForTag).toHaveBeenCalledWith("idea");
 
     sidebar.selectTag("idea");
     await settle();
-    expect(names(container)).toEqual(["Pricing.md", "Recipes.md"]);
+    expect(names(container)).toEqual(["Pricing", "Recipes"]);
   });
 
   it("keeps the folders holding a tagged note and opens them to it", async () => {
@@ -130,7 +130,7 @@ describe("the file tree under a tag", () => {
     sidebar.selectTag("idea");
     await settle();
 
-    expect(names(container)).toEqual(["Drafts", "launch.md"]);
+    expect(names(container)).toEqual(["Drafts", "launch"]);
   });
 
   it("redraws the filtered tree when a note gains the tag", async () => {
@@ -140,13 +140,13 @@ describe("the file tree under a tag", () => {
     const { container } = render(() => <FileTree />);
     sidebar.selectTag("idea");
     await settle();
-    expect(names(container)).toEqual(["Pricing.md"]);
+    expect(names(container)).toEqual(["Pricing"]);
 
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md", "/notes/Recipes.md"]);
     notesChanged()({ path: "/notes/Recipes.md", removed: false });
     await settle();
 
-    expect(names(container)).toEqual(["Pricing.md", "Recipes.md"]);
+    expect(names(container)).toEqual(["Pricing", "Recipes"]);
   });
 
   it("opening another folder clears the filter and lists what the folder holds", async () => {
@@ -157,13 +157,13 @@ describe("the file tree under a tag", () => {
     const { container } = render(() => <FileTree />);
     sidebar.selectTag("idea");
     await settle();
-    expect(names(container)).toEqual(["Pricing.md"]);
+    expect(names(container)).toEqual(["Pricing"]);
 
     h.setRoot("/other");
     await settle();
 
     expect(sidebar.selectedTag()).toBeNull();
-    expect(names(container)).toEqual(["Kitchen.md"]);
+    expect(names(container)).toEqual(["Kitchen"]);
   });
 
   it("clears the filter when the last note carrying the tag loses it", async () => {
@@ -180,7 +180,7 @@ describe("the file tree under a tag", () => {
     await settle();
     fireEvent.click(container.querySelector('.tags-row[role="treeitem"]')!);
     await settle();
-    expect(names(container)).toEqual(["Pricing.md"]);
+    expect(names(container)).toEqual(["Pricing"]);
 
     mockedApi.noteAllTags.mockResolvedValue([]);
     mockedApi.notePathsForTag.mockResolvedValue([]);
@@ -188,7 +188,7 @@ describe("the file tree under a tag", () => {
     await settle();
 
     expect(sidebar.selectedTag()).toBeNull();
-    expect(names(container)).toEqual(["Pricing.md", "Recipes.md"]);
+    expect(names(container)).toEqual(["Pricing", "Recipes"]);
   });
 
   it("keeps the filter when a change leaves the tag in the folder", async () => {
@@ -211,7 +211,7 @@ describe("the file tree under a tag", () => {
     await settle();
 
     expect(sidebar.selectedTag()).toBe("idea");
-    expect(names(container)).toEqual(["Pricing.md"]);
+    expect(names(container)).toEqual(["Pricing"]);
   });
 
   it("shows the whole family from one read when the parent tag is picked", async () => {
@@ -243,13 +243,13 @@ describe("the file tree under a tag", () => {
     fireEvent.click(project);
     await settle();
     expect(mockedApi.notePathsForTag.mock.calls.map(([tag]) => tag)).toEqual(["project"]);
-    expect(names(container)).toEqual(["Pricing.md", "Alpha.md"]);
+    expect(names(container)).toEqual(["Pricing", "Alpha"]);
 
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Alpha.md"]);
     fireEvent.click(alpha);
     await settle();
     expect(mockedApi.notePathsForTag).toHaveBeenLastCalledWith("project/alpha");
-    expect(names(container)).toEqual(["Alpha.md"]);
+    expect(names(container)).toEqual(["Alpha"]);
   });
 
   it("says so when no note in the folder carries the tag", async () => {
@@ -261,7 +261,7 @@ describe("the file tree under a tag", () => {
     await settle();
 
     expect(names(container)).toEqual([]);
-    expect(container.querySelector(".file-tree-empty")!.textContent).toBe("No notes with this tag");
+    expect(container.querySelector(".file-tree-empty")!.textContent).toBe("No files with this tag");
   });
 
   it("reads one tag's notes once however many rows the tree draws", async () => {
@@ -305,13 +305,13 @@ describe("the file tree under a tag", () => {
     const { container } = render(() => <FileTree />);
     sidebar.selectTag("idea");
     await settle();
-    expect(names(container)).toEqual(["Drafts", "launch.md"]);
+    expect(names(container)).toEqual(["Drafts", "launch"]);
 
     sidebar.selectTag("idea");
     await settle();
     expect(names(container)).toEqual(["Drafts"]);
 
     fireEvent.click(container.querySelector<HTMLElement>('[aria-level="1"]')!);
-    expect(names(container)).toEqual(["Drafts", "launch.md"]);
+    expect(names(container)).toEqual(["Drafts", "launch"]);
   });
 });

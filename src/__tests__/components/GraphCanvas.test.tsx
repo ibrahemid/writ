@@ -230,7 +230,7 @@ describe("the drawing's colours", () => {
 describe("what the drawing tells a reader", () => {
   it("names the note and how many notes are around it", () => {
     const { getByRole } = mount();
-    expect(getByRole("img").getAttribute("aria-label")).toBe("Alpha and 2 notes it links with");
+    expect(getByRole("img").getAttribute("aria-label")).toBe("Alpha and 2 files it links with");
   });
 
   // A focusable widget that opens a note on Enter is not a graphic: a reader
@@ -243,7 +243,7 @@ describe("what the drawing tells a reader", () => {
     expect(canvas.getAttribute("tabindex")).toBe("0");
     expect(canvas.getAttribute("role")).toBe("application");
     expect(canvas.getAttribute("aria-roledescription")).toBe("graph");
-    expect(canvas.getAttribute("aria-label")).toBe("Alpha and 2 notes it links with");
+    expect(canvas.getAttribute("aria-label")).toBe("Alpha and 2 files it links with");
   });
 
   it("stays a graphic where it is only drawn", () => {
@@ -262,7 +262,7 @@ describe("what the drawing tells a reader", () => {
         onOpen={() => {}}
       />
     ));
-    expect(getByRole("img").getAttribute("aria-label")).toBe("Alpha and 1 note it links with");
+    expect(getByRole("img").getAttribute("aria-label")).toBe("Alpha and 1 file it links with");
   });
 });
 

@@ -110,24 +110,24 @@ describe("CommandPalette settings results", () => {
     });
   });
 
-  // "Where are my notes" is the question the Notes section answers, and the
+  // "Where are my files" is the question the Files section answers, and the
   // palette is where a user who does not know Settings has a section asks it.
-  it("notes_folder_row_is_reachable_from_the_palette", async () => {
+  it("folder_row_is_reachable_from_the_palette", async () => {
     const user = userEvent.setup();
     const { container } = render(() => <CommandPalette />);
     openCommandPalette();
     await waitFor(() => expect(container.querySelector(".palette-input")).not.toBeNull());
-    await user.type(container.querySelector(".palette-input")!, "where are my notes");
+    await user.type(container.querySelector(".palette-input")!, "where are my files");
     await waitFor(() => {
       const settingsSection = container.querySelector(".palette-section-settings");
       expect(settingsSection).not.toBeNull();
-      expect(settingsSection!.textContent).toContain("Notes folder");
+      expect(settingsSection!.textContent).toContain("Folder");
     });
     const item = container.querySelector<HTMLButtonElement>(
       ".palette-section-settings .palette-item",
     );
     await user.click(item!);
-    expect(h.openSettings).toHaveBeenCalledWith("notes", "notes.folder");
+    expect(h.openSettings).toHaveBeenCalledWith("files", "notes.folder");
   });
 
   it("opens settings deep-linked and does not record usage when a setting is chosen", async () => {

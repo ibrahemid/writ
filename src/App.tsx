@@ -212,11 +212,11 @@ function AppShell() {
     registerCommand({
       id: "notes.showFolder",
       icon: "folder-open",
-      label: `Show notes folder in ${firstRunStore.fileManager()}`,
+      label: `Show folder in ${firstRunStore.fileManager()}`,
       scope: "app",
       execute: () => {
         void notesStore.showInFileManager().catch(() => {
-          showToast("Could not open the notes folder", "error");
+          showToast("Could not open the folder", "error");
         });
       },
     });
@@ -276,8 +276,8 @@ function AppShell() {
     if (restored.length > 0) {
       showToast(
         restored.length === 1
-          ? "Restored 1 note that could not be saved last time"
-          : `Restored ${restored.length} notes that could not be saved last time`,
+          ? "Restored 1 file that could not be saved last time"
+          : `Restored ${restored.length} files that could not be saved last time`,
         "info",
         6000,
       );
@@ -337,8 +337,8 @@ function AppShell() {
     registerCommand({
       id: "note.new",
       icon: "note-pencil",
-      label: "New note",
-      description: "Create a note in the notes folder",
+      label: "New file",
+      description: "Create a file in your folder",
       keybinding: "CmdOrCtrl+N",
       // The chord this command answered to before it was named for the note
       // rather than the buffer.
@@ -350,8 +350,8 @@ function AppShell() {
 
     registerCommand({
       id: "note.today",
-      label: "Today's note",
-      description: "Open the note dated today, or create it",
+      label: "Today's file",
+      description: "Open the file dated today, or create it",
       scope: "app",
       execute: () => void windowRegistry.getActive()?.tabs.todaysNote(),
     });
@@ -369,7 +369,7 @@ function AppShell() {
     registerCommand({
       id: "buffer.save",
       label: "Save",
-      description: "Write the active note to disk now",
+      description: "Write the active file to disk now",
       keybinding: "CmdOrCtrl+S",
       scope: "app",
       // Global: the editor holds focus while writing, so a focus-gated save
@@ -488,7 +488,7 @@ function AppShell() {
     registerCommand({
       id: "history.openRecent",
       label: "Open recent",
-      description: "Show the notes closed most recently",
+      description: "Show the files closed most recently",
       scope: "app",
       execute: () => windowRegistry.getActive()?.sidebar.showRecent(),
     });
@@ -513,7 +513,7 @@ function AppShell() {
       id: "panel.toggle",
       icon: "link-simple",
       label: "Toggle connections",
-      description: "Show or hide what links to this note, its outline and properties",
+      description: "Show or hide what links to this file, its outline and properties",
       keybinding: "CmdOrCtrl+Shift+\\",
       scope: "app",
       // Global, for the same reason the sidebar's toggle is: the editor holds
@@ -526,7 +526,7 @@ function AppShell() {
       id: "chat.toggle",
       icon: "chat-text",
       label: "Toggle chat",
-      description: "Ask a model about the notes you attach",
+      description: "Ask a model about the files you attach",
       keywords: ["chat", "ai", "ask", "model"],
       keybinding: "CmdOrCtrl+Shift+A",
       scope: "app",
@@ -542,7 +542,7 @@ function AppShell() {
       id: "folderGraph.open",
       icon: "folder-simple",
       label: "Open graph",
-      description: "Show every note in the folder and the links between them",
+      description: "Show every file in the folder and the links between them",
       scope: "app",
       // Global, like the two toggles above: the editor holds focus while you
       // write, and this is reached from there or from nowhere.
@@ -653,8 +653,8 @@ function AppShell() {
 
     registerCommand({
       id: "notes.quickOpen",
-      label: "Open note",
-      description: "Find a note by name and open it",
+      label: "Open file by name",
+      description: "Find a file by name and open it",
       keybinding: "CmdOrCtrl+Shift+O",
       scope: "app",
       global: true,
@@ -663,8 +663,8 @@ function AppShell() {
 
     registerCommand({
       id: "note.rename",
-      label: "Rename note…",
-      description: "Rename the active note and its file",
+      label: "Rename file…",
+      description: "Rename the active file",
       keybinding: "F2",
       keybindingAliases: ["CmdOrCtrl+Shift+S"],
       scope: "app",
@@ -674,7 +674,7 @@ function AppShell() {
     registerCommand({
       id: "note.versions",
       label: "Revert to…",
-      description: "Read earlier versions of this note, and put one back",
+      description: "Read earlier versions of this file, and put one back",
       scope: "app",
       isAvailable: () => activeNotePath() !== null,
       execute: () => {
@@ -686,7 +686,7 @@ function AppShell() {
     registerCommand({
       id: "note.undoRename",
       label: "Undo rename",
-      description: "Put the note's name back, and the links that were updated",
+      description: "Put the file's name back, and the links that were updated",
       scope: "app",
       isAvailable: () => renameLinksStore.canUndo(),
       execute: () => void renameLinksStore.undoRename(),
@@ -694,8 +694,8 @@ function AppShell() {
 
     registerCommand({
       id: "note.delete",
-      label: "Delete note",
-      description: "Move the active note to the Trash",
+      label: "Delete file",
+      description: "Move the active file to the Trash",
       scope: "app",
       isAvailable: () => {
         const id = windowRegistry.getActive()?.tabs.activeTabId();
@@ -710,7 +710,7 @@ function AppShell() {
     registerCommand({
       id: "note.saveCopy",
       label: "Save a copy…",
-      description: "Write a copy of the active note into the notes folder",
+      description: "Write a copy of the active file into your folder",
       scope: "app",
       execute: () => {
         const id = windowRegistry.getActive()?.tabs.activeTabId();
@@ -795,7 +795,7 @@ function AppShell() {
       id: "activity.open",
       icon: "list-bullets",
       label: "Activity",
-      description: "What connected programs did with your notes",
+      description: "What connected programs did with your files",
       scope: "app",
       execute: () => openActivity(),
     });

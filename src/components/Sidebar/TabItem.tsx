@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { abbreviateTitle } from "../../lib/buffer-name";
+import { displayFileName } from "../../lib/display-name";
 import Icon, { type IconName } from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
 import "./TabItem.css";
@@ -16,6 +17,8 @@ interface Props {
 }
 
 export default function TabItem(props: Props) {
+  const shown = () => abbreviateTitle(displayFileName(props.label));
+
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -34,8 +37,10 @@ export default function TabItem(props: Props) {
       <Show when={props.icon}>
         {(name) => <Icon name={name()} />}
       </Show>
-      <Tooltip label={props.label} requiresTruncation>
-        <span class="tab-item-title">{abbreviateTitle(props.label)}</span>
+      {/* The tip is unconditional once the row shows a stem: the extension it
+          drops is the part the reader came to the tip for. */}
+      <Tooltip label={props.label} requiresTruncation={shown() === props.label}>
+        <span class="tab-item-title">{shown()}</span>
       </Tooltip>
       {props.secondary && <span class="tab-item-secondary">{props.secondary}</span>}
       {props.trailing && <span class="tab-item-trailing">{props.trailing}</span>}

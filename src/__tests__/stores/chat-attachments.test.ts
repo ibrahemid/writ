@@ -217,7 +217,7 @@ describe("a folder the @ list offered", () => {
 
     const result = await chatStore.attachFolder(ARCHIVE);
 
-    expect(result).toEqual({ ok: false, reason: "That folder holds no notes." });
+    expect(result).toEqual({ ok: false, reason: "That folder holds no files." });
     expect(mocks.chatAttachedSizes).not.toHaveBeenCalled();
   });
 

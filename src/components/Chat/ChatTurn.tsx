@@ -18,19 +18,19 @@ export function dropLine(drop: ChatDroppedProposal): string {
   const subject = named ? `An offer for ${named}` : "An offer";
   switch (drop.reason) {
     case "unknown_note":
-      return `${subject} was not shown: that note is not attached.`;
+      return `${subject} was not shown: that file is not attached.`;
     case "ambiguous_note":
-      return `${subject} was not shown: more than one attached note has that name.`;
+      return `${subject} was not shown: more than one attached file has that name.`;
     case "truncated":
-      return `${subject} was not shown: the reply ended before the note did.`;
+      return `${subject} was not shown: the reply ended before the file did.`;
     case "unterminated_block":
       return `${subject} was not shown: its text was never closed.`;
     case "empty_body":
       return `${subject} was not shown: it held no text.`;
     case "placeholder":
-      return `${subject} was not shown: it repeated the example instead of the note.`;
+      return `${subject} was not shown: it repeated the example instead of the file.`;
     case "duplicate":
-      return `${subject} was not shown: the same note was offered twice.`;
+      return `${subject} was not shown: the same file was offered twice.`;
     default:
       return `${subject} was not shown.`;
   }
