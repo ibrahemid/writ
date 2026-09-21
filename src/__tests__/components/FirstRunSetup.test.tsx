@@ -161,7 +161,7 @@ describe("the format the first launch asks about", () => {
   });
 
   // A held Enter repeats inside one round trip. Two answers would leave the
-  // folder with an Untitled 2 nobody asked for.
+  // folder with a writ-<yymmdd>-<hhmm>-2 nobody asked for.
   it("takes one answer however many times Continue is pressed", async () => {
     await firstRunStore.load();
     let refuse: (reason: Error) => void = () => {};

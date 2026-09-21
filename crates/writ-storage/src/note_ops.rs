@@ -100,8 +100,8 @@ pub fn save_copy(
 
 /// Renames a note to `new_stem`, in its own folder.
 ///
-/// A name that spells its own format takes it: `Untitled 9.md` on a `.txt`
-/// file is `Untitled 9.md`, because a name ending in a text extension
+/// A name that spells its own format takes it: `Groceries.md` on a `.txt`
+/// file is `Groceries.md`, because a name ending in a text extension
 /// ([`writ_core::notes::explicit_extension`]) answers the format question the
 /// config otherwise answers. Every other name keeps the file's own extension,
 /// and a file with no extension keeps none: `Draft.rtf` spells no format Writ
