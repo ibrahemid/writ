@@ -759,3 +759,11 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* What an app brings once it is on, set in under its own row so the rows read
+   as that app's and the next app's row stands clear of them. */
+.settings-app-detail {
+  margin-left: var(--writ-space-4);
+  padding-left: var(--writ-space-4);
+  border-left: 1px solid var(--writ-border-soft);
+}

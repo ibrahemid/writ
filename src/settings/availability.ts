@@ -1,4 +1,5 @@
 import { hasSupportedDefaultAppTypes } from "../stores/global/default-app-support";
+import { configStore } from "../stores/global/config";
 import { detectPlatform } from "../lib/platform";
 import type { Platform } from "../lib/platform";
 import { DEFAULT_APP_SETTING_ID, SETTINGS_INDEX } from "./index";
@@ -16,14 +17,21 @@ const PLATFORMS_BY_SETTING: Readonly<Record<string, ReadonlyArray<Platform>>> = 
   [DEFAULT_APP_SETTING_ID]: ["mac"],
 };
 
+const ENTRIES_BY_ID: ReadonlyMap<string, (typeof SETTINGS_INDEX)[number]> = new Map(
+  SETTINGS_INDEX.map((entry) => [entry.id, entry]),
+);
+
 /**
- * Whether a setting can currently render on this platform. All settings are
- * available except the platform-gated rows: the default-app row, which needs at
- * least one claimable type the platform supports, and the rows listed above.
- * Reactive: reads the store signal, so callers in tracked scopes update as
- * support is discovered.
+ * Whether a setting can currently render. All settings are available except
+ * the platform-gated rows (the default-app row, which needs at least one
+ * claimable type the platform supports, and the rows listed above) and the
+ * rows of apps that are all off, which are not drawn. Reactive: reads the
+ * store signals, so callers in tracked scopes update as support is discovered
+ * and as apps are switched.
  */
 export function isSettingAvailable(id: string): boolean {
+  const requires = ENTRIES_BY_ID.get(id)?.requires;
+  if (requires && !requires.some((app) => configStore.isAppOn(app))) return false;
   const platforms = PLATFORMS_BY_SETTING[id];
   if (platforms && !platforms.includes(detectPlatform())) return false;
   if (id !== DEFAULT_APP_SETTING_ID) return true;

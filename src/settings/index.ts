@@ -1,9 +1,10 @@
+import type { AppId } from "../types/config";
+
 export type SettingsSection =
   | "editor"
   | "files"
+  | "apps"
   | "preview"
-  | "ai"
-  | "programs"
   | "appearance"
   | "sidebar"
   | "updates"
@@ -18,14 +19,16 @@ export interface SettingEntry {
   title: string;
   /** Extra terms that should surface this setting in a search. */
   keywords: string[];
+  /** Apps any one of which must be on for the row to be drawn. A row whose
+   * apps are all off is not found by search either. */
+  requires?: readonly AppId[];
 }
 
 export const SECTION_LABELS: Record<SettingsSection, string> = {
   files: "Files",
+  apps: "Apps",
   editor: "Editor",
   preview: "Preview",
-  ai: "AI",
-  programs: "Connected programs",
   appearance: "Appearance",
   sidebar: "Sidebar",
   updates: "Updates",
@@ -35,10 +38,9 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
 
 export const SECTION_ORDER: SettingsSection[] = [
   "files",
+  "apps",
   "editor",
   "preview",
-  "ai",
-  "programs",
   "appearance",
   "sidebar",
   "updates",
@@ -50,8 +52,8 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "notes.folder", section: "files", title: "Folder", keywords: ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"] },
   { id: "files.default_extension", section: "files", title: "Default format", keywords: ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"] },
   { id: "files.default_app", section: "files", title: "Open these file types with Writ", keywords: ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"] },
-  { id: "files.cli", section: "files", title: "Terminal command", keywords: ["cli", "writ command", "terminal", "command line", "install"] },
-  { id: "notes.versions", section: "files", title: "Versions", keywords: ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"] },
+  { id: "files.cli", section: "advanced", title: "Terminal command", keywords: ["cli", "writ command", "terminal", "command line", "install"] },
+  { id: "notes.versions", section: "advanced", title: "Versions", keywords: ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"] },
   { id: "editor.font_size", section: "editor", title: "Font size", keywords: ["font", "size", "text", "zoom"] },
   { id: "editor.tab_size", section: "editor", title: "Tab size", keywords: ["tab", "indent", "spaces", "width"] },
   { id: "editor.word_wrap", section: "editor", title: "Word wrap", keywords: ["wrap", "word", "line", "soft wrap"] },
@@ -60,22 +62,26 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "editor.spelling_dialect", section: "editor", title: "Spelling", keywords: ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"] },
   { id: "editor.status_bar", section: "editor", title: "Status bar", keywords: ["status bar", "line", "column", "encoding", "word count"] },
   { id: "editor.status_bar_counts", section: "editor", title: "Word, character and token counts", keywords: ["word count", "character count", "token", "counts", "status bar"] },
-  { id: "preview.run_scripts", section: "preview", title: "Allow HTML files to run their scripts", keywords: ["scripts", "javascript", "html", "run", "safety"] },
+  { id: "preview.run_scripts", section: "advanced", title: "Allow HTML files to run their scripts", keywords: ["scripts", "javascript", "html", "run", "safety"] },
   { id: "preview.layout_md", section: "preview", title: "When opening a Markdown file, show:", keywords: ["layout", "markdown", "md", "text", "preview", "inline"] },
-  { id: "preview.layout_html", section: "preview", title: "When opening an HTML file, show:", keywords: ["layout", "html", "text", "preview", "split"] },
-  { id: "ai.provider", section: "ai", title: "Provider", keywords: ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"] },
-  { id: "ai.base_url", section: "ai", title: "Base URL", keywords: ["ai", "base url", "endpoint", "host", "server"] },
-  { id: "ai.api_key", section: "ai", title: "API key", keywords: ["ai", "api key", "token", "secret", "credential"] },
-  { id: "ai.model", section: "ai", title: "Model", keywords: ["ai", "model", "id"] },
-  { id: "ai.connection", section: "ai", title: "Connection", keywords: ["ai", "connection", "check", "reachable", "status"] },
-  { id: "ai.rewrite.enabled", section: "ai", title: "Rewrite selected text", keywords: ["ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"] },
-  { id: "ai.chat.enabled", section: "ai", title: "Chat about your files", keywords: ["ai", "chat", "ask", "conversation", "attach", "enable"] },
-  { id: "ai.chat.model", section: "ai", title: "Use a different model for chat", keywords: ["ai", "chat", "model", "id", "different"] },
-  { id: "mcp.enabled", section: "programs", title: "Let other programs read and write your files", keywords: ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"] },
-  { id: "mcp.command", section: "programs", title: "Command to give a program", keywords: ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"] },
-  { id: "mcp.tools", section: "programs", title: "What a program can do", keywords: ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"] },
-  { id: "mcp.clients", section: "programs", title: "Programs you approved", keywords: ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"] },
-  { id: "mcp.activity", section: "programs", title: "Recent activity", keywords: ["activity", "log", "record", "calls", "what happened", "audit"] },
+  { id: "preview.layout_html", section: "advanced", title: "When opening an HTML file, show:", keywords: ["layout", "html", "text", "preview", "split"] },
+  { id: "ai.provider", section: "apps", title: "Provider", keywords: ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"], requires: ["chat", "rewrite"] },
+  { id: "ai.base_url", section: "apps", title: "Base URL", keywords: ["ai", "base url", "endpoint", "host", "server"], requires: ["chat", "rewrite"] },
+  { id: "ai.api_key", section: "apps", title: "API key", keywords: ["ai", "api key", "token", "secret", "credential"], requires: ["chat", "rewrite"] },
+  { id: "ai.model", section: "apps", title: "Model", keywords: ["ai", "model", "id"], requires: ["chat", "rewrite"] },
+  { id: "ai.connection", section: "apps", title: "Connection", keywords: ["ai", "connection", "check", "reachable", "status"], requires: ["chat", "rewrite"] },
+  { id: "ai.chat.enabled", section: "apps", title: "Chat", keywords: ["app", "ai", "chat", "ask", "conversation", "attach", "enable"] },
+  { id: "ai.rewrite.enabled", section: "apps", title: "Rewrite", keywords: ["app", "ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"] },
+  { id: "ai.chat.model", section: "apps", title: "Use a different model for chat", keywords: ["ai", "chat", "model", "id", "different"], requires: ["chat"] },
+  { id: "mcp.enabled", section: "apps", title: "Connected programs", keywords: ["app", "mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"] },
+  { id: "mcp.command", section: "apps", title: "Command to give a program", keywords: ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"], requires: ["programs"] },
+  { id: "mcp.tools", section: "apps", title: "What a program can do", keywords: ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"], requires: ["programs"] },
+  { id: "mcp.clients", section: "apps", title: "Programs you approved", keywords: ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"], requires: ["programs"] },
+  { id: "mcp.activity", section: "apps", title: "Recent activity", keywords: ["activity", "log", "record", "calls", "what happened", "audit"], requires: ["programs"] },
+  { id: "apps.connections", section: "apps", title: "Connections", keywords: ["app", "connections", "links", "backlinks", "outline", "properties", "panel"] },
+  { id: "apps.graph", section: "apps", title: "Graph", keywords: ["app", "graph", "map", "links", "nearby"] },
+  { id: "apps.tags", section: "apps", title: "Tags", keywords: ["app", "tags", "hashtag", "filter", "sidebar"] },
+  { id: "apps.screen", section: "apps", title: "Setup screen", keywords: ["apps", "setup", "choose", "screen", "start"] },
   { id: "appearance.polarity", section: "appearance", title: "Light and dark", keywords: ["appearance", "light", "dark", "system", "theme", "polarity", "follow system"] },
   { id: "appearance.accent", section: "appearance", title: "Accent color", keywords: ["accent", "color", "pine", "highlight"] },
   { id: "appearance.prose_face", section: "appearance", title: "Prose typeface", keywords: ["font", "typeface", "prose", "writing", "ia writer", "quattro"] },
@@ -83,8 +89,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "appearance.theme", section: "appearance", title: "Theme", keywords: ["theme", "color", "appearance", "preset", "dark", "light"] },
   { id: "appearance.custom_colors", section: "appearance", title: "Custom colors", keywords: ["theme", "colors", "custom", "palette"] },
   { id: "sidebar.folder", section: "sidebar", title: "Show files", keywords: ["sidebar", "folder", "files", "tree", "show", "hide"] },
-  { id: "sidebar.tags", section: "sidebar", title: "Show tags", keywords: ["sidebar", "tags", "show", "hide"] },
-  { id: "sidebar.inbox", section: "sidebar", title: "Show watched folder", keywords: ["sidebar", "watch", "watched folder", "new files", "show", "hide"] },
+  { id: "sidebar.inbox", section: "advanced", title: "Show watched folder", keywords: ["sidebar", "watch", "watched folder", "new files", "show", "hide"] },
   { id: "sidebar.recent", section: "sidebar", title: "Show recently closed", keywords: ["sidebar", "recent", "recently closed", "closed", "show", "hide"] },
   { id: "updates.auto_check", section: "updates", title: "Check for updates automatically", keywords: ["update", "auto", "check", "version"] },
   { id: "updates.check_now", section: "updates", title: "Check for updates now", keywords: ["update", "check", "now", "version"] },
