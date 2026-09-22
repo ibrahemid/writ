@@ -2,12 +2,13 @@ import { createSignal } from "solid-js";
 import {
   layoutFromPersisted,
   layoutRatio,
+  markdownDefaultLayout,
   type LayoutMode,
 } from "../../lib/preview-layout";
+import { configStore } from "../global/config";
 import { previewGetLayout, previewSetLayout } from "../../services/tauri";
 
-// Per-window active layout per buffer. Lean scope: LayoutMode is
-// Source | Split | Preview — detach is cut. The pure types + helpers live
+// Per-window active layout per buffer. The pure types + helpers live
 // in lib/preview-layout so components and keymap can reach them without
 // crossing the store layer; this store owns runtime per-window state and
 // persistence to writ-storage via the preview IPC.
@@ -26,9 +27,19 @@ export function createLayoutStore(deps: { windowId: number }) {
     setVersion((v) => v + 1);
   }
 
-  function get(bufferId: string): LayoutMode {
+  /**
+   * The buffer's layout. A markdown buffer nothing has resolved yet answers
+   * the configured default rather than source: the editor mounts with this,
+   * and resolving it a round trip later is a flash of raw markup.
+   */
+  function get(bufferId: string, contentType: string | null): LayoutMode {
     void version();
-    return layouts.get(bufferId) ?? DEFAULT_LAYOUT;
+    const resolved = layouts.get(bufferId);
+    if (resolved) return resolved;
+    if (contentType === "markdown") {
+      return markdownDefaultLayout(configStore.config().preview.default_layout_markdown);
+    }
+    return DEFAULT_LAYOUT;
   }
 
   function setLocal(bufferId: string, layout: LayoutMode): void {
@@ -47,11 +58,11 @@ export function createLayoutStore(deps: { windowId: number }) {
   }
 
   /** Load a source-backed buffer's persisted layout, if any. */
-  async function hydrate(path: string): Promise<LayoutMode | null> {
+  async function hydrate(path: string, contentType: string | null): Promise<LayoutMode | null> {
     try {
       const persisted = await previewGetLayout(path);
       if (!persisted) return null;
-      return layoutFromPersisted(persisted.layout, persisted.ratio);
+      return layoutFromPersisted(persisted.layout, persisted.ratio, contentType);
     } catch {
       return null;
     }

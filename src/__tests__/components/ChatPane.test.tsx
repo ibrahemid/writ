@@ -133,6 +133,7 @@ const DEFAULTS: WritConfig = {
     markdown_typography: true,
     markdown_editing: true,
     status_bar: false,
+    status_bar_counts: false,
   },
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
@@ -162,7 +163,7 @@ const DEFAULTS: WritConfig = {
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
   preview: {
     default_layout_html: "split",
-    default_layout_markdown: "split",
+    default_layout_markdown: "inline",
     live_render_threshold_mb: 1,
     render_confirm_threshold_mb: 5,
     render_refuse_threshold_mb: 50,

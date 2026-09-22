@@ -9,6 +9,15 @@ import {
   type PluginValue,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
+import {
+  imageReferenceAt,
+  inlineImageField,
+  InlineImageWidget,
+  type InlineImageDeps,
+  type InlineImageState,
+  inlineImages,
+} from "./markdown-images";
+import { fenceCollapse, fenceCollapsible } from "./markdown-fences";
 
 // Minimal structural types matching @lezer/common — avoids a direct import
 // of @lezer/common which is not in the direct dependency list.
@@ -52,6 +61,11 @@ const codeBlockSoleLine = Decoration.line({
 // right (an absolutely-positioned marker inside .cm-line does not).
 const hangLine = Decoration.line({ class: "cm-line-md-hang" });
 
+// Blocks the editor does not render: a table and an html block are styled
+// where they are written.
+const tableLine = Decoration.line({ class: "cm-md-table" });
+const htmlLine = Decoration.line({ class: "cm-md-html" });
+
 const markDecByNode: Record<string, Decoration> = {
   StrongEmphasis: Decoration.mark({ class: "cm-md-strong" }),
   Emphasis:       Decoration.mark({ class: "cm-md-em" }),
@@ -70,6 +84,7 @@ const listNumMark    = Decoration.mark({ class: "cm-md-list-num" });
 const markerDimMark  = Decoration.mark({ class: "cm-md-marker-dim" });
 const codeInfoMark   = Decoration.mark({ class: "cm-md-code-info" });
 const taskDoneMark   = Decoration.mark({ class: "cm-md-task-done" });
+const tableDelimiterMark = Decoration.mark({ class: "cm-md-table-delimiter" });
 
 // ─── Widgets ───────────────────────────────────────────────────────────────
 
@@ -170,12 +185,71 @@ const MARKER_NAMES = new Set([
 // deliberate narrowing of ADR-014's replace-on-inactive rule.
 const HUNG_MARKER_NAMES = new Set(["HeaderMark", "QuoteMark"]);
 
+/**
+ * The end of the address run of a link or image: its url, plus the optional
+ * quoted title that follows it inside the same parentheses. A title left on
+ * its own reads as stray prose, so it goes with the url. The run stops before
+ * the closing ')', which the marker rule replaces on its own.
+ *
+ * CommonMark lets the title sit on a later line than the url, and a plugin may
+ * not replace a line break, so a run that leaves `lineEnd` falls back to the
+ * url alone.
+ */
+function addressEndAfter(url: SyntaxNodeFull, lineEnd: number): number {
+  const title = url.nextSibling;
+  if (title === null || title.name !== "LinkTitle") return url.to;
+  const closing = title.nextSibling;
+  const end = closing !== null && closing.name === "LinkMark" ? closing.from : title.to;
+  return end <= lineEnd ? end : url.to;
+}
+
 // ─── Pure decoration builder ───────────────────────────────────────────────
 
 export interface DecorationSpec {
   from: number;
   to: number;
   decoration: Decoration;
+}
+
+const NO_IMAGES: ReadonlyMap<string, InlineImageState> = new Map();
+const NO_LINES: ReadonlySet<number> = new Set();
+
+/**
+ * The start of every line a selection touches, clipped to the visible range.
+ *
+ * A selection range covers whole lines, not two end points: a block selected
+ * from the middle of one line to the middle of another shows its markup on
+ * every line between them, not only on the two ends.
+ *
+ * The clip is not an optimisation. Without it, selecting a 2 MB document
+ * marks every line in it active and the builder walks the whole document to
+ * paint one screen.
+ */
+export function activeLineStarts(
+  ranges: readonly { from: number; to: number }[],
+  docLineAt: (pos: number) => { from: number; to: number; number: number },
+  visibleFrom: number,
+  visibleTo: number,
+): Set<number> {
+  const starts = new Set<number>();
+  for (const range of ranges) {
+    const from = Math.max(range.from, visibleFrom);
+    const to = Math.min(range.to, visibleTo);
+    if (from > to) continue;
+    let pos = from;
+    for (;;) {
+      let line: { from: number; to: number };
+      try {
+        line = docLineAt(pos);
+      } catch {
+        break;
+      }
+      starts.add(line.from);
+      if (line.to >= to) break;
+      pos = line.to + 1;
+    }
+  }
+  return starts;
 }
 
 /**
@@ -188,28 +262,22 @@ export interface DecorationSpec {
  * @param iterateTree  Calls the callback for each node in [from, to).
  * @param docLineAt    Returns the line at a document position.
  * @param docSlice     Returns the document text in [from, to).
- * @param cursorPositions  Set of cursor head positions; markers on lines
- *                         containing any cursor are revealed (not replaced).
+ * @param activeLineFroms  Start positions of the lines a selection touches;
+ *                         markers on those lines are revealed, not replaced.
+ *                         Built by {@link activeLineStarts}.
  * @param visibleFrom  Start of the visible range.
  * @param visibleTo    End of the visible range.
+ * @param images       What is known about each authored image reference.
  */
 export function buildMarkdownDecorations(
   iterateTree: (from: number, to: number, cb: (node: SyntaxNodeRef) => boolean | void) => void,
   docLineAt: (pos: number) => { from: number; to: number; number: number },
   docSlice: (from: number, to: number) => string,
-  cursorPositions: ReadonlySet<number>,
+  activeLineFroms: ReadonlySet<number>,
   visibleFrom: number,
   visibleTo: number,
+  images: ReadonlyMap<string, InlineImageState> = NO_IMAGES,
 ): DecorationSpec[] {
-  const activeLineFroms = new Set<number>();
-  for (const pos of cursorPositions) {
-    try {
-      activeLineFroms.add(docLineAt(pos).from);
-    } catch {
-      // pos out of range — skip
-    }
-  }
-
   const specs: DecorationSpec[] = [];
 
   // Tracks replaced [from,to) intervals to prevent overlaps.
@@ -242,6 +310,35 @@ export function buildMarkdownDecorations(
     specs.push({ from, to, decoration: dec });
   }
 
+  function addressRunEnd(url: SyntaxNodeFull): number {
+    try {
+      return addressEndAfter(url, docLineAt(url.from).to);
+    } catch {
+      return url.to;
+    }
+  }
+
+  // Which of a fenced block's own lines the fence field takes off screen.
+  // Empty for a block that keeps its fences: one that never closed, one that
+  // opens the document, and one whose fences are being edited.
+  function collapsedFenceLines(node: SyntaxNodeFull): ReadonlySet<number> {
+    if (node.name !== "FencedCode") return NO_LINES;
+    const fences = fenceCollapsible(node, docLineAt);
+    if (!fences) return NO_LINES;
+    if (activeLineFroms.has(fences.open.from) || activeLineFroms.has(fences.close.from)) {
+      return NO_LINES;
+    }
+    return new Set([fences.open.from, fences.close.from]);
+  }
+
+  function isCollapsedFenceLine(fence: SyntaxNodeFull, pos: number): boolean {
+    try {
+      return collapsedFenceLines(fence).has(docLineAt(pos).from);
+    } catch {
+      return false;
+    }
+  }
+
   iterateTree(visibleFrom, visibleTo, (nodeRef) => {
     const { from, to, name } = nodeRef;
 
@@ -265,11 +362,16 @@ export function buildMarkdownDecorations(
     // ── Fenced code: mono, one line decoration per line in the block ──────
     if (name === "FencedCode" || name === "CodeBlock") {
       try {
+        // A collapsed fence line is merged into the line above it, so a slab
+        // decoration for it would paint that line instead. The edges move
+        // onto the content lines, which are the whole block once the fences
+        // are gone.
+        const collapsed = collapsedFenceLines(nodeRef.node);
         const lines: Array<{ from: number }> = [];
         let pos = from;
         for (;;) {
           const line = docLineAt(pos);
-          lines.push({ from: line.from });
+          if (!collapsed.has(line.from)) lines.push({ from: line.from });
           if (line.to >= to) break;
           pos = line.to + 1;
         }
@@ -297,6 +399,7 @@ export function buildMarkdownDecorations(
     if (name === "CodeMark" && nodeRef.node.parent?.name === "FencedCode") {
       const active = isActiveLine(from);
       if (active !== false) return;
+      if (isCollapsedFenceLine(nodeRef.node.parent, from)) return;
       addMark(from, to, markerDimMark);
       return;
     }
@@ -304,7 +407,36 @@ export function buildMarkdownDecorations(
     if (name === "CodeInfo") {
       const active = isActiveLine(from);
       if (active !== false) return;
+      const fence = nodeRef.node.parent;
+      if (fence && isCollapsedFenceLine(fence, from)) return;
       addMark(from, to, codeInfoMark);
+      return;
+    }
+
+    // ── Blocks that stay as source ────────────────────────────────────────
+    // A table needs a column-width pass over the whole block and a replace
+    // spanning its line breaks per row, which leaves no way to edit the text
+    // inside it. Arbitrary html inside the editor webview would need a hole
+    // in the window's own policy, which is what the preview pane is for.
+    // Both are styled where they are written, pipes and tags included.
+    if (name === "Table" || name === "HTMLBlock") {
+      const lineClass = name === "Table" ? tableLine : htmlLine;
+      try {
+        let pos = from;
+        for (;;) {
+          const line = docLineAt(pos);
+          specs.push({ from: line.from, to: line.from, decoration: lineClass });
+          if (line.to >= to) break;
+          pos = line.to + 1;
+        }
+      } catch {
+        // skip un-parseable positions
+      }
+      return;
+    }
+
+    if (name === "TableDelimiter") {
+      addMark(from, to, tableDelimiterMark);
       return;
     }
 
@@ -337,7 +469,7 @@ export function buildMarkdownDecorations(
       let labelFrom = -1;
       let labelTo = -1;
       let urlFrom = -1;
-      let urlTo = -1;
+      let addressTo = -1;
       let inLabel = false;
 
       while (child) {
@@ -351,7 +483,7 @@ export function buildMarkdownDecorations(
           }
         } else if (child.name === "URL") {
           urlFrom = child.from;
-          urlTo = child.to;
+          addressTo = addressRunEnd(child);
         }
         child = child.nextSibling;
       }
@@ -359,15 +491,33 @@ export function buildMarkdownDecorations(
       if (labelFrom >= 0 && labelTo > labelFrom) {
         addMark(labelFrom, labelTo, linkTextMark);
       }
-      if (urlFrom >= 0 && urlTo > urlFrom) {
-        try {
-          const lineFr = docLineAt(urlFrom).from;
-          if (!activeLineFroms.has(lineFr)) {
-            addMark(urlFrom, urlTo, urlDimMark);
-          }
-        } catch {
-          // skip
-        }
+      if (urlFrom >= 0 && addressTo > urlFrom) {
+        // The label alone reads as the link, which is what makes the line
+        // prose rather than markup. The address comes back on the active line,
+        // dimmed, so it stays legible while it is being edited.
+        const active = isActiveLine(urlFrom);
+        if (active === false) addReplace(urlFrom, addressTo);
+        else if (active === true) addMark(urlFrom, addressTo, urlDimMark);
+      }
+      return;
+    }
+
+    // ── Image: the picture goes under the line, the source is hidden ──────
+    if (name === "Image") {
+      const reference = imageReferenceAt(nodeRef.node, docSlice);
+      if (reference === null) return;
+      try {
+        const line = docLineAt(from);
+        specs.push({
+          from: line.to,
+          to: line.to,
+          decoration: Decoration.widget({
+            widget: new InlineImageWidget(reference, images.get(reference) ?? { status: "pending" }),
+            side: 1,
+          }),
+        });
+      } catch {
+        // skip un-parseable positions
       }
       return;
     }
@@ -433,7 +583,13 @@ export function buildMarkdownDecorations(
     // handled by the Link branch above (label styling + dimming). ──────────
     if (name === "URL") {
       const parent = nodeRef.node.parent;
-      if (parent && (parent.name === "Link" || parent.name === "Image")) return;
+      if (parent && parent.name === "Link") return;
+      if (parent && parent.name === "Image") {
+        // The picture under the line says what the source is; the path above
+        // it says it twice.
+        if (isActiveLine(from) === false) addReplace(from, addressRunEnd(nodeRef.node));
+        return;
+      }
       addMark(from, to, linkTextMark);
       return;
     }
@@ -471,9 +627,7 @@ export function buildMarkdownDecorations(
 function buildDecorationSet(view: EditorView): DecorationSet {
   const { state } = view;
   const tree = syntaxTree(state);
-  const cursorPositions = new Set(
-    state.selection.ranges.flatMap((r) => [r.head, r.anchor]),
-  );
+  const images = state.field(inlineImageField, false) ?? NO_IMAGES;
   const allSpecs: DecorationSpec[] = [];
 
   for (const { from, to } of view.visibleRanges) {
@@ -481,9 +635,10 @@ function buildDecorationSet(view: EditorView): DecorationSet {
       (vf, vt, cb) => tree.iterate({ from: vf, to: vt, enter: cb }),
       (pos) => state.doc.lineAt(pos),
       (sliceFrom, sliceTo) => state.doc.sliceString(sliceFrom, sliceTo),
-      cursorPositions,
+      activeLineStarts(state.selection.ranges, (pos) => state.doc.lineAt(pos), from, to),
       from,
       to,
+      images,
     );
     allSpecs.push(...rangeSpecs);
   }
@@ -513,7 +668,11 @@ class MarkdownTypographyPlugin implements PluginValue {
       update.docChanged ||
       update.viewportChanged ||
       update.selectionSet ||
-      update.transactions.some((tr) => tr.reconfigured)
+      update.transactions.some((tr) => tr.reconfigured) ||
+      // Bytes for an image arrive in their own transaction, which changes
+      // neither the document nor the selection.
+      update.startState.field(inlineImageField, false) !==
+        update.state.field(inlineImageField, false)
     ) {
       this.decorations = buildDecorationSet(update.view);
     }
@@ -568,3 +727,14 @@ export const markdownTypographyPlugin: Extension = [
   ViewPlugin.fromClass(MarkdownTypographyPlugin, { decorations: (v) => v.decorations }),
   taskClickHandler,
 ];
+
+/**
+ * The markdown decorations plus the images they draw.
+ *
+ * One builder and one plugin: a second decoration source over the same
+ * ranges cannot see the first one's replaced ranges, and CodeMirror refuses
+ * overlapping replacements.
+ */
+export function markdownInlineExtension(deps: InlineImageDeps): Extension {
+  return [markdownTypographyPlugin, inlineImages(deps), fenceCollapse];
+}

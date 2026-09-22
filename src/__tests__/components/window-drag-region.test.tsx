@@ -37,7 +37,6 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       restoreFromHistory: vi.fn(),
     },
     rightPanel: { isOpen: () => false },
-    editor: { activeFormats: () => ({}) },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({
@@ -127,7 +126,7 @@ describe("the macOS drag region covers the whole chrome row", () => {
   it("drags from the wrappers inside the toolbar", () => {
     h.sidebarOpen = false;
     const { container } = render(() => <Toolbar />);
-    for (const selector of [".writ-toolbar", ".writ-toolbar-cluster"]) {
+    for (const selector of [".writ-toolbar", ".writ-toolbar-divider"]) {
       expect(dragsFrom(pick(container, selector)), selector).toBe(true);
     }
   });

@@ -37,6 +37,8 @@ const BASELINE_ROOT_TOKENS = [
   "--writ-prose-measure",
   "--writ-prose-pad-x",
   "--writ-prose-pad-y",
+  "--writ-prose-pad-x-em",
+  "--writ-prose-pad-y-em",
   "--writ-heading-color",
   "--writ-heading-formatting",
   "--writ-h1-size",

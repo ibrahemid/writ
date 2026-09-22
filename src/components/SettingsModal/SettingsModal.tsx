@@ -61,6 +61,7 @@ import type {
   AppearanceConfig,
   DefaultLayout,
   FileExtension,
+  MarkdownLayout,
   Polarity,
   ProseFaceId,
   SidebarSectionId,
@@ -372,13 +373,6 @@ function EditorSection() {
     void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, tab_size: value } }));
   }
 
-  function onMarkdownTypographyToggle() {
-    void patchConfig((prev) => ({
-      ...prev,
-      editor: { ...prev.editor, markdown_typography: !prev.editor.markdown_typography },
-    }));
-  }
-
   function onMarkdownEditingToggle() {
     void patchConfig((prev) => ({
       ...prev,
@@ -392,6 +386,13 @@ function EditorSection() {
     void patchConfig((prev) => ({
       ...prev,
       editor: { ...prev.editor, status_bar: !prev.editor.status_bar },
+    }));
+  }
+
+  function onStatusBarCountsToggle() {
+    void patchConfig((prev) => ({
+      ...prev,
+      editor: { ...prev.editor, status_bar_counts: !prev.editor.status_bar_counts },
     }));
   }
 
@@ -441,17 +442,6 @@ function EditorSection() {
           onChange={onWordWrapToggle}
         />
       </SettingsRow>
-      <SettingsRow
-        id="editor.markdown_typography"
-        label="Style headings and bold text as you type"
-      >
-        <ToggleSwitch
-          setting="markdown_typography"
-          label="Style headings and bold text as you type"
-          checked={cfg().markdown_typography}
-          onChange={onMarkdownTypographyToggle}
-        />
-      </SettingsRow>
       <SettingsRow id="editor.markdown_editing" label="Markdown shortcuts">
         <ToggleSwitch
           setting="markdown_editing"
@@ -466,6 +456,14 @@ function EditorSection() {
           label="Status bar"
           checked={cfg().status_bar}
           onChange={onStatusBarToggle}
+        />
+      </SettingsRow>
+      <SettingsRow id="editor.status_bar_counts" label="Word, character and token counts">
+        <ToggleSwitch
+          setting="status_bar_counts"
+          label="Word, character and token counts"
+          checked={cfg().status_bar_counts}
+          onChange={onStatusBarCountsToggle}
         />
       </SettingsRow>
       <SettingsRow id="editor.spelling" label="Spell check">
@@ -891,7 +889,7 @@ function PreviewSection() {
   }
 
   function onDefaultLayoutMarkdownChange(raw: string) {
-    const layout = raw as DefaultLayout;
+    const layout = raw as MarkdownLayout;
     void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, default_layout_markdown: layout } }));
   }
 
@@ -922,9 +920,8 @@ function PreviewSection() {
           value={cfg().default_layout_markdown}
           onChange={(e) => onDefaultLayoutMarkdownChange(e.currentTarget.value)}
         >
-          <option value="source">The text</option>
-          <option value="split">Text and preview</option>
-          <option value="preview">Preview</option>
+          <option value="inline">Inline</option>
+          <option value="source">Source</option>
         </select>
       </SettingsRow>
       <SettingsRow

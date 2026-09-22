@@ -69,11 +69,4 @@ describe("sidebar row boxes", () => {
     expect(rule(search, ".search-input")).toMatch(/text-overflow:\s*ellipsis/);
     expect(rule(search, ".search-input::placeholder")).toMatch(/text-overflow:\s*ellipsis/);
   });
-
-  it("sheds the status bar chips before the layout control is clipped", () => {
-    const bar = css("src/components/Editor/StatusBar.css");
-    expect(bar).toMatch(
-      /@container \(max-width: 32em\)\s*\{\s*\.spelling-chip,\s*\.scripts-toggle\s*\{\s*display:\s*none;/,
-    );
-  });
 });

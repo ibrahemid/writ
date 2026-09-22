@@ -11,9 +11,12 @@ export interface CommandsConfig {
 
 export type DefaultLayout = "source" | "split" | "preview";
 
+/** How a Markdown file is shown: rendered in the editor, or as its source. */
+export type MarkdownLayout = "inline" | "source";
+
 export interface PreviewConfig {
   default_layout_html: DefaultLayout;
-  default_layout_markdown: DefaultLayout;
+  default_layout_markdown: MarkdownLayout;
   live_render_threshold_mb: number;
   render_confirm_threshold_mb: number;
   render_refuse_threshold_mb: number;
@@ -148,7 +151,7 @@ export interface WritConfig {
   panel: PanelConfig;
   chat_panel: ChatPanelConfig;
   first_run: FirstRunConfig;
-  editor: { font_family: string; font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_typography: boolean; markdown_editing: boolean; status_bar: boolean };
+  editor: { font_family: string; font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_typography: boolean; markdown_editing: boolean; status_bar: boolean; status_bar_counts: boolean };
   window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };
   keybindings: Record<string, string>;
   history: { max_entries: number };

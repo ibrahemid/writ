@@ -5,6 +5,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree, syntaxHighlighting } from "@codemirror/language";
 import { writHighlight } from "../../components/Editor/cm-theme";
 import {
+  activeLineStarts,
   buildMarkdownDecorations,
   markdownTypographyPlugin,
   toggleTaskAt,
@@ -35,7 +36,12 @@ function buildForDoc(
 ): DecorationSpec[] {
   const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
   const tree = treeFor(state);
-  const cursors = new ReadonlySet(cursorPositions);
+  const cursors = activeLineStarts(
+    cursorPositions.map((pos) => ({ from: pos, to: pos })),
+    (pos) => state.doc.lineAt(pos),
+    0,
+    doc.length,
+  );
   return buildMarkdownDecorations(
     (from, to, cb) => tree.iterate({ from, to, enter: cb }),
     (pos) => state.doc.lineAt(pos),
@@ -561,13 +567,24 @@ describe("autolink decorations", () => {
 describe("inline link decorations", () => {
   const doc = "See [Writ](https://example.com) now\ncursor\n";
 
-  it("dims the url and styles only the label on an inactive line", () => {
+  it("replaces the url and styles only the label on an inactive line", () => {
     const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
     const label = specs.find((s) => classesOf(s).includes("cm-md-link-text"));
-    const url = specs.find((s) => classesOf(s).includes("cm-md-url-dim"));
+    const url = specs.find(
+      (s) =>
+        s.from === doc.indexOf("https://") &&
+        s.to === doc.indexOf("https://") + "https://example.com".length,
+    );
     expect(label).toEqual(
       expect.objectContaining({ from: doc.indexOf("Writ"), to: doc.indexOf("Writ") + 4 }),
     );
+    expect(classesOf(url!)).toEqual([]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-url-dim"))).toBe(false);
+  });
+
+  it("dims the url on the active line rather than replacing it", () => {
+    const specs = buildForDoc(doc, [0]);
+    const url = specs.find((s) => classesOf(s).includes("cm-md-url-dim"));
     expect(url).toEqual(
       expect.objectContaining({
         from: doc.indexOf("https://"),
@@ -576,19 +593,22 @@ describe("inline link decorations", () => {
     );
   });
 
-  it("stops dimming the url on the active line", () => {
-    const specs = buildForDoc(doc, [0]);
-    expect(specs.some((s) => classesOf(s).includes("cm-md-url-dim"))).toBe(false);
-  });
-
   it("wraps the highlighted url token so the dim ink wins the cascade", () => {
     // The grammar tags every Link descendant, url included, with tags.link, and
     // the theme paints that accent and underlined. The dim mark only shows if
-    // its span is the outer one.
-    const view = renderDoc(doc, doc.indexOf("cursor"));
+    // its span is the outer one. It only shows at all on the line being
+    // edited: elsewhere the address is replaced.
+    const view = renderDoc(doc, 0);
     const dim = view.contentDOM.querySelector(".cm-md-url-dim");
     expect(dim?.textContent).toBe("https://example.com");
     expect(dim!.querySelector("span")?.textContent).toBe("https://example.com");
+    expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Writ");
+    view.destroy();
+  });
+
+  it("leaves nothing of the url on screen on an inactive line", () => {
+    const view = renderDoc(doc, doc.indexOf("cursor"));
+    expect(view.contentDOM.textContent).not.toContain("https://example.com");
     expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Writ");
     view.destroy();
   });
@@ -601,6 +621,50 @@ describe("inline link decorations", () => {
     expect(marker!.querySelector("span")?.textContent).toBe(">");
     expect(view.contentDOM.querySelector(".cm-line")?.classList.contains("cm-line-md-hang")).toBe(true);
     view.destroy();
+  });
+});
+
+// ─── Link and image titles ────────────────────────────────────────────────
+
+describe("link title decorations", () => {
+  const linkDoc = 'See [Writ](https://example.com "The site") now\ncursor\n';
+
+  it("hides the title with the address on an inactive line", () => {
+    const view = renderDoc(linkDoc, linkDoc.indexOf("cursor"));
+    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe("See Writ now");
+    view.destroy();
+  });
+
+  it("shows the whole source of a titled link on the active line", () => {
+    const view = renderDoc(linkDoc, 0);
+    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe(
+      'See [Writ](https://example.com "The site") now',
+    );
+    view.destroy();
+  });
+
+  it("leaves a title that starts on the next line alone rather than replacing the break", () => {
+    // A replace range may not cross a line break when it comes from a plugin.
+    const wrapped = 'See [Writ](https://example.com\n"The site") now\ncursor\n';
+    const view = renderDoc(wrapped, wrapped.indexOf("cursor"));
+    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe("See Writ");
+    expect(view.contentDOM.textContent).not.toContain("https://example.com");
+    view.destroy();
+
+    const broken = 'See [Writ](https://example.com "The\nsite") now\ncursor\n';
+    const brokenView = renderDoc(broken, broken.indexOf("cursor"));
+    expect(brokenView.contentDOM.textContent).not.toContain("https://example.com");
+    brokenView.destroy();
+  });
+
+  it("replaces the title of an image with its source on an inactive line", () => {
+    const doc = 'Look ![alt](pic.png "Caption") here\ncursor\n';
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const source = specs.find((s) => s.from === doc.indexOf("pic.png"));
+    expect(source).toEqual(
+      expect.objectContaining({ to: doc.indexOf('"Caption"') + '"Caption"'.length }),
+    );
+    expect(classesOf(source!)).toEqual([]);
   });
 });
 

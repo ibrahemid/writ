@@ -25,7 +25,7 @@ const MOCK_CONFIG: WritConfig = {
   panel: { open: false, width: 240 },
   chat_panel: { open: false, width: 380 },
   first_run: { hint_dismissed: false },
-  editor: { font_family: "JetBrains Mono", font_size: 18, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_typography: true, markdown_editing: true, status_bar: false },
+  editor: { font_family: "JetBrains Mono", font_size: 18, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_typography: true, markdown_editing: true, status_bar: false, status_bar_counts: false },
   window: { width: 1200, height: 800, maximized: false },
   keybindings: {},
   history: { max_entries: 1000 },
@@ -42,7 +42,7 @@ const MOCK_CONFIG: WritConfig = {
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
   preview: {
     default_layout_html: "split",
-    default_layout_markdown: "split",
+    default_layout_markdown: "inline",
     live_render_threshold_mb: 1,
     render_confirm_threshold_mb: 5,
     render_refuse_threshold_mb: 50,
@@ -108,6 +108,7 @@ describe("configStore", () => {
       // Matches default_status_bar in writ-core: the fallback config and the
       // one the backend writes have to agree on what a first launch shows.
       expect(resetConfig.editor.status_bar).toBe(true);
+      expect(resetConfig.editor.status_bar_counts).toBe(false);
       consoleSpy.mockRestore();
     });
   });

@@ -61,8 +61,9 @@ export function createFirstRunStore() {
    * answer still on it, because the config it would have written is not there.
    *
    * One at a time. A held Enter repeats well inside one round trip, and two
-   * calls that both reach the mint leave the folder with an `Untitled 2`
-   * nobody asked for. `busy()` is what the button reads to say so.
+   * calls that both reach the mint leave the folder with a
+   * `writ-<yymmdd>-<hhmm>-2` nobody asked for. `busy()` is what the button
+   * reads to say so.
    */
   async function continueSetup(): Promise<void> {
     if (busy()) return;

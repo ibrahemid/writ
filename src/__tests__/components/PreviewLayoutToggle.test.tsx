@@ -38,11 +38,21 @@ const HTML_BUFFER: BufferDocument = {
   line_ending: "lf",
 };
 
+const MD_BUFFER: BufferDocument = { ...HTML_BUFFER, id: "T2", title: "plan.md" };
+
 describe("PreviewLayoutToggle", () => {
   beforeEach(() => {
     rendererRegistry.setFromIpc([
       {
         content_type: "html",
+        capabilities: {
+          supports_live_render: true,
+          supports_print: true,
+          max_safe_document_bytes: 50 * 1024 * 1024,
+        },
+      },
+      {
+        content_type: "markdown",
         capabilities: {
           supports_live_render: true,
           supports_print: true,
@@ -79,7 +89,7 @@ describe("PreviewLayoutToggle", () => {
     expect(container.querySelector(".layout-toggle")).toBeNull();
   });
 
-  it("renders a radiogroup with three segments for a renderable buffer", async () => {
+  it("renders a radiogroup with three segments for an html buffer", async () => {
     const { container } = await mountWithActive(HTML_BUFFER);
     await waitFor(() => {
       expect(container.querySelector('[role="radiogroup"]')).not.toBeNull();
@@ -91,6 +101,40 @@ describe("PreviewLayoutToggle", () => {
       "Split",
       "Preview",
     ]);
+  });
+
+  it("renders nothing for a .txt buffer", async () => {
+    const { container } = await mountWithActive({
+      ...HTML_BUFFER,
+      id: "T3",
+      title: "plan.txt",
+    });
+    await waitFor(() => expect(windowRegistry.getActive()).not.toBeNull());
+    expect(container.querySelector(".layout-toggle")).toBeNull();
+  });
+
+  it("renders two segments for a markdown buffer", async () => {
+    const { container } = await mountWithActive(MD_BUFFER);
+    await waitFor(() => {
+      expect(container.querySelector('[role="radiogroup"]')).not.toBeNull();
+    });
+    const segs = container.querySelectorAll('[role="radio"]');
+    expect(Array.from(segs).map((s) => s.textContent)).toEqual(["Inline", "Source"]);
+  });
+
+  it("moves an arrow key between the two markdown segments only", async () => {
+    const { container } = await mountWithActive(MD_BUFFER);
+    await waitFor(() => expect(container.querySelector(".layout-toggle")).not.toBeNull());
+
+    const win = windowRegistry.getActive()!;
+    win.layout.setLocal("T2", { kind: "inline" });
+    const group = container.querySelector('[role="radiogroup"]')!;
+
+    fireEvent.keyDown(group, { key: "ArrowRight" });
+    await waitFor(() => expect(win.layout.get("T2", "markdown")).toEqual({ kind: "source" }));
+
+    fireEvent.keyDown(group, { key: "ArrowRight" });
+    await waitFor(() => expect(win.layout.get("T2", "markdown")).toEqual({ kind: "inline" }));
   });
 
   it("marks the active layout segment checked and switches on click", async () => {
@@ -110,14 +154,14 @@ describe("PreviewLayoutToggle", () => {
 
     fireEvent.click(splitSeg);
     await waitFor(() => {
-      expect(win.layout.get("T1").kind).toBe("split");
+      expect(win.layout.get("T1", "html").kind).toBe("split");
       expect(splitSeg.getAttribute("aria-checked")).toBe("true");
       expect(splitSeg.tabIndex).toBe(0);
       expect(sourceSeg.tabIndex).toBe(-1);
     });
 
     fireEvent.click(previewSeg);
-    await waitFor(() => expect(win.layout.get("T1").kind).toBe("preview"));
+    await waitFor(() => expect(win.layout.get("T1", "html").kind).toBe("preview"));
   });
 
   it("preserves a dragged split ratio across a source round-trip", async () => {
@@ -136,10 +180,10 @@ describe("PreviewLayoutToggle", () => {
     // ratio is not remembered across a kind change (matches the cycle keymap
     // semantics). This pins that deliberate behavior.
     fireEvent.click(sourceSeg);
-    await waitFor(() => expect(win.layout.get("T1").kind).toBe("source"));
+    await waitFor(() => expect(win.layout.get("T1", "html").kind).toBe("source"));
     fireEvent.click(splitSeg);
     await waitFor(() => {
-      const l = win.layout.get("T1");
+      const l = win.layout.get("T1", "html");
       expect(l.kind).toBe("split");
       if (l.kind === "split") expect(l.ratio).toBe(DEFAULT_RATIO);
     });
@@ -155,7 +199,7 @@ describe("PreviewLayoutToggle", () => {
     const splitSeg = container.querySelectorAll<HTMLButtonElement>('[role="radio"]')[1];
     fireEvent.click(splitSeg);
     await waitFor(() => {
-      const l = win.layout.get("T1");
+      const l = win.layout.get("T1", "html");
       expect(l.kind === "split" && l.ratio).toBe(0.7);
     });
   });
@@ -169,17 +213,17 @@ describe("PreviewLayoutToggle", () => {
     const group = container.querySelector('[role="radiogroup"]')!;
 
     fireEvent.keyDown(group, { key: "ArrowRight" });
-    await waitFor(() => expect(win.layout.get("T1").kind).toBe("split"));
+    await waitFor(() => expect(win.layout.get("T1", "html").kind).toBe("split"));
 
     fireEvent.keyDown(group, { key: "ArrowRight" });
-    await waitFor(() => expect(win.layout.get("T1").kind).toBe("preview"));
+    await waitFor(() => expect(win.layout.get("T1", "html").kind).toBe("preview"));
 
     // Wraps around.
     fireEvent.keyDown(group, { key: "ArrowRight" });
-    await waitFor(() => expect(win.layout.get("T1").kind).toBe("source"));
+    await waitFor(() => expect(win.layout.get("T1", "html").kind).toBe("source"));
 
     fireEvent.keyDown(group, { key: "ArrowLeft" });
-    await waitFor(() => expect(win.layout.get("T1").kind).toBe("preview"));
+    await waitFor(() => expect(win.layout.get("T1", "html").kind).toBe("preview"));
   });
 
   // WCAG 2.5.3: "click Split" has to reach the segment that reads Split, so the
@@ -206,7 +250,7 @@ describe("PreviewLayoutToggle", () => {
     segs[0].focus();
 
     fireEvent.keyDown(group, { key: "ArrowRight" });
-    await waitFor(() => expect(win.layout.get("T1").kind).toBe("split"));
+    await waitFor(() => expect(win.layout.get("T1", "html").kind).toBe("split"));
     await waitFor(() =>
       expect(document.activeElement?.getAttribute("aria-checked")).toBe("true"),
     );

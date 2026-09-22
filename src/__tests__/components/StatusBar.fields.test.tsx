@@ -1,20 +1,30 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
+import type { BufferDocument } from "../../types/buffer";
 
-vi.mock("../../stores/global/save-status", () => ({
-  saveStatusStore: { forNote: () => ({ state: "clean" as const, fileName: "note.md" }) },
-}));
-vi.mock("../../commands/registry", () => ({ useCommand: () => undefined }));
-vi.mock("../../commands/keybindings", () => ({ useEffectiveBinding: () => null }));
-vi.mock("../../components/Kbd/Kbd", () => ({ default: () => null }));
-vi.mock("../../components/Editor/TokenEstimate", () => ({ default: () => null }));
-vi.mock("../../components/Preview/PreviewLayoutToggle", () => ({ default: () => null }));
-vi.mock("../../components/Preview/PreviewScriptsToggle", () => ({ default: () => null }));
-
+const [counts, setCounts] = createSignal(false);
+const [buffer, setBuffer] = createSignal<BufferDocument | null>(null);
 const [cursorLine, setCursorLine] = createSignal(1);
 const [cursorCol, setCursorCol] = createSignal(1);
-const [language, setLanguage] = createSignal<string | null>(null);
+
+vi.mock("../../stores/global/save-status", () => ({
+  saveStatusStore: { forNote: () => ({ state: "dirty" as const, fileName: "draft.txt" }) },
+}));
+vi.mock("../../stores/global/config", () => ({
+  configStore: { config: () => ({ editor: { status_bar_counts: counts() } }) },
+}));
+vi.mock("../../stores/global/window-registry", () => ({
+  windowRegistry: { getActive: () => null },
+}));
+vi.mock("../../stores/global/token-estimate", () => ({
+  tokenEstimateStore: { count: () => 42, request: vi.fn() },
+  formatTokenCount: (value: number) => String(value),
+}));
+vi.mock("../../stores/global/renderer-registry", () => ({
+  rendererRegistry: { hasRenderer: (type: string | null) => type !== null },
+}));
+vi.mock("../../lib/use-active-buffer", () => ({ useActiveBuffer: () => buffer }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
@@ -22,45 +32,97 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       largeFileMode: () => null,
       cursorLine,
       cursorCol,
-      language,
+      isUpdatedFromDisk: () => false,
       currentText: () => "one two three",
     },
-    tabs: { activeTabId: () => null },
+    tabs: { activeTabId: () => "tab-1" },
+    layout: { get: () => ({ kind: "inline" as const }), set: vi.fn() },
   }),
 }));
 
 import StatusBar from "../../components/Editor/StatusBar";
 
-describe("StatusBar document fields", () => {
-  afterEach(() => {
-    setCursorLine(1);
-    setCursorCol(1);
-    setLanguage(null);
-    cleanup();
-  });
+function fileNamed(name: string): BufferDocument {
+  return { id: "tab-1", title: name, filename: name, source_path: `/w/${name}` } as BufferDocument;
+}
 
-  it("renders language label, encoding, and cursor position", () => {
-    setLanguage("markdown");
+function right(container: HTMLElement): HTMLElement {
+  return container.querySelector<HTMLElement>(".statusbar-right")!;
+}
+
+afterEach(() => {
+  setCounts(false);
+  setBuffer(null);
+  setCursorLine(1);
+  setCursorCol(1);
+  cleanup();
+});
+
+describe("StatusBar fields", () => {
+  it("shows line, column, encoding and save state for a .txt buffer", () => {
+    setBuffer(fileNamed("draft.txt"));
     setCursorLine(12);
     setCursorCol(4);
     const { container } = render(() => <StatusBar />);
-    const text = container.querySelector(".statusbar-right")!.textContent ?? "";
-    expect(text).toContain("Markdown");
-    expect(text).toContain("UTF-8");
-    expect(text).toContain("Ln 12, Col 4");
+    expect(right(container).textContent).toContain("Ln 12, Col 4");
+    expect(right(container).textContent).toContain("UTF-8");
+    expect(container.querySelector(".statusbar-live")!.textContent).toContain(
+      "Unsaved changes in draft.txt",
+    );
+    expect(right(container).querySelector(".layout-toggle")).toBeNull();
   });
 
-  it("shows Plain Text when no language is detected", () => {
-    setLanguage(null);
+  it("adds the mode control for a .md buffer", () => {
+    setBuffer(fileNamed("draft.md"));
     const { container } = render(() => <StatusBar />);
-    expect(container.querySelector(".statusbar-right")!.textContent).toContain("Plain Text");
+    const toggle = right(container).querySelector(".layout-toggle")!;
+    expect(toggle).not.toBeNull();
+    expect([...toggle.querySelectorAll(".layout-toggle-label")].map((el) => el.textContent)).toEqual(
+      ["Inline", "Source"],
+    );
   });
 
-  it("tracks cursor movement reactively", () => {
+  it("hides the counts unless the counts switch is on", () => {
+    setBuffer(fileNamed("draft.md"));
     const { container } = render(() => <StatusBar />);
-    setCursorLine(99);
-    setCursorCol(7);
-    expect(container.querySelector(".statusbar-right")!.textContent).toContain("Ln 99, Col 7");
+    expect(right(container).querySelector(".statusbar-field--words")).toBeNull();
+    expect(right(container).querySelector(".statusbar-tokens")).toBeNull();
+  });
+
+  it("shows word, character and token counts when the counts switch is on", () => {
+    setCounts(true);
+    setBuffer(fileNamed("draft.md"));
+    const { container } = render(() => <StatusBar />);
+    expect(right(container).querySelector(".statusbar-field--words")!.textContent).toBe(
+      "3 words, 13 characters",
+    );
+    expect(right(container).querySelector(".statusbar-tokens")!.textContent).toContain("42 tokens");
+  });
+
+  it("carries the fields in reading order", () => {
+    setCounts(true);
+    setBuffer(fileNamed("draft.md"));
+    const { container } = render(() => <StatusBar />);
+    const classes = [...right(container).children].map((el) => el.className);
+    expect(classes).toEqual([
+      "statusbar-field statusbar-field--cursor",
+      "statusbar-field statusbar-field--words",
+      "statusbar-tokens",
+      "statusbar-field",
+      "layout-toggle",
+    ]);
+  });
+
+  it("shows no folder button, language label, spelling chip, rewrite chip, scripts toggle or palette hint", () => {
+    setCounts(true);
+    setBuffer(fileNamed("draft.md"));
+    const { container } = render(() => <StatusBar />);
+    for (const selector of [".statusbar-folder", ".spelling-chip", ".scripts-toggle", ".kbd-chord"]) {
+      expect(container.querySelector(selector), selector).toBeNull();
+    }
+    for (const word of ["Rewrite", "Command palette", "Markdown", "Plain Text"]) {
+      expect(container.textContent, word).not.toContain(word);
+    }
   });
 
   // The bar's own vocabulary: sentence case, and no em dash, which UI copy

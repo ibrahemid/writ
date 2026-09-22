@@ -18,6 +18,7 @@ export type { ClientApproval };
 import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
 import type { LinkVerdict } from "../types/link";
+import { isInlineImageFailure, type InlineImageFailure } from "../types/inline-image";
 import { logFailure } from "../lib/log";
 
 export async function listTransforms(): Promise<TransformDescriptor[]> {
@@ -1097,6 +1098,48 @@ export interface PersistedLayout {
 
 export async function previewGetLayout(path: string): Promise<PersistedLayout | null> {
   return invoke("preview_get_layout", { path });
+}
+
+/**
+ * A reference the host would not resolve to image bytes.
+ *
+ * `reason` is the host's own identifier, so the caller decides what to draw
+ * without reading a message.
+ */
+export class InlineImageResolveError extends Error {
+  constructor(readonly reason: InlineImageFailure) {
+    super(`inline image refused: ${reason}`);
+    this.name = "InlineImageResolveError";
+  }
+}
+
+type InlineImageResult =
+  | { kind: "ready"; data_url: string; mime: string; byte_len: number }
+  | { kind: "refused"; reason: string };
+
+function inlineImageFailureOf(reason: string): InlineImageFailure {
+  return isInlineImageFailure(reason) ? reason : "not_found";
+}
+
+/**
+ * Read one image referenced by an open file, encoded for an `img` element.
+ *
+ * Rejects with an [`InlineImageResolveError`] when the host refuses the
+ * reference; the size cap is applied to the file's metadata, so a file over
+ * it is never read.
+ */
+export async function previewInlineImage(
+  notePath: string | null,
+  reference: string,
+): Promise<{ dataUrl: string }> {
+  const result = await invoke<InlineImageResult>("preview_inline_image", {
+    notePath,
+    reference,
+  });
+  if (result.kind === "refused") {
+    throw new InlineImageResolveError(inlineImageFailureOf(result.reason));
+  }
+  return { dataUrl: result.data_url };
 }
 
 

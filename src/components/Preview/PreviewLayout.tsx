@@ -8,7 +8,11 @@ import { configStore } from "../../stores/global/config";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { contentTypeForBuffer } from "../../lib/content-type";
-import { defaultSplit, type LayoutMode } from "../../lib/preview-layout";
+import {
+  defaultSplit,
+  markdownDefaultLayout,
+  type LayoutMode,
+} from "../../lib/preview-layout";
 import "./preview-chrome.css";
 
 interface Props {
@@ -37,7 +41,7 @@ export default function PreviewLayout(props: Props) {
     return ct !== null && rendererRegistry.hasRenderer(ct);
   });
   const layout = createMemo<LayoutMode>(() =>
-    props.buffer ? win.layout.get(props.buffer.id) : SOURCE_LAYOUT,
+    props.buffer ? win.layout.get(props.buffer.id, contentType()) : SOURCE_LAYOUT,
   );
 
   // Resolve initial layout: persisted (source-backed) → content-type config
@@ -61,15 +65,18 @@ export default function PreviewLayout(props: Props) {
       return;
     }
     if (buf.source_path) {
-      const persisted = await win.layout.hydrate(buf.source_path);
+      const persisted = await win.layout.hydrate(buf.source_path, ct);
       if (persisted) {
         win.layout.setLocal(buf.id, persisted);
         return;
       }
     }
     const cfg = configStore.config().preview;
-    const def =
-      ct === "markdown" ? cfg.default_layout_markdown : cfg.default_layout_html;
+    if (ct === "markdown") {
+      win.layout.setLocal(buf.id, markdownDefaultLayout(cfg.default_layout_markdown));
+      return;
+    }
+    const def = cfg.default_layout_html;
     const resolved: LayoutMode =
       def === "split" ? defaultSplit() : def === "preview" ? { kind: "preview" } : { kind: "source" };
     win.layout.setLocal(buf.id, resolved);

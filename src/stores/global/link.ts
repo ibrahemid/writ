@@ -247,6 +247,19 @@ async function createNote(target: string): Promise<BufferDocument | null> {
   }
 }
 
+/**
+ * Image bytes for one reference written in a file, for the editor to draw.
+ *
+ * A pass-through: the refusal and the size cap are the host's, and the
+ * caller decides what a refusal looks like.
+ */
+async function inlineImage(
+  notePath: string | null,
+  reference: string,
+): Promise<{ dataUrl: string }> {
+  return tauri.previewInlineImage(notePath, reference);
+}
+
 /** Drops what is cached and stops listening. For tests and for a folder move. */
 async function reset(): Promise<void> {
   drop();
@@ -258,6 +271,7 @@ async function reset(): Promise<void> {
 
 export const linkStore = {
   openExternal,
+  inlineImage,
   classify,
   copyLink,
   resolveNoteLink,

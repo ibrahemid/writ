@@ -1,5 +1,5 @@
-/* Preview controls in the StatusBar — the layout segmented control and the
-   scripts toggle. Minimal, token-driven, coherent with Writ's chrome. */
+/* The layout segmented control in the StatusBar. Minimal, token-driven,
+   coherent with Writ's chrome. */
 
 .layout-toggle {
   display: inline-flex;
@@ -44,45 +44,4 @@
 
 .layout-toggle-label {
   white-space: nowrap;
-}
-
-/* Scripts kill-switch pill. */
-.scripts-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--writ-space-2-5);
-  padding: 3px 9px;
-  border: none;
-  border-radius: var(--writ-r-control);
-  background: var(--writ-bg-sidebar);
-  color: var(--writ-fg-muted);
-  font-family: var(--writ-font-ui);
-  font-size: var(--writ-ui-xs);
-  line-height: 1.4;
-  cursor: pointer;
-  transition: color var(--writ-motion), background var(--writ-motion);
-}
-
-.scripts-toggle:hover {
-  color: var(--writ-fg);
-  background: var(--writ-bg-hover);
-}
-
-
-.scripts-toggle-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--writ-accent);
-  box-shadow: 0 0 4px var(--writ-accent);
-  transition: background var(--writ-motion), box-shadow var(--writ-motion);
-}
-
-.scripts-toggle.is-off {
-  color: var(--writ-fg-muted);
-}
-
-.scripts-toggle.is-off .scripts-toggle-dot {
-  background: var(--writ-fg-faint);
-  box-shadow: none;
 }

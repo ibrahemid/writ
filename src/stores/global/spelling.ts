@@ -25,9 +25,6 @@ function createSpellingStore() {
   // Count of live decorations, published by the editor extension so it never
   // lags the visible underlines.
   const [count, setCount] = createSignal(0);
-  // Whether the active buffer can be checked (Normal mode, under the size cap).
-  // Drives the status-bar item's visibility independent of the on/off switch.
-  const [eligible, setEligible] = createSignal(false);
   let view: EditorView | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
@@ -44,10 +41,7 @@ function createSpellingStore() {
     view = next;
   }
 
-  /**
-   * Stops checking and clears the count/view without changing eligibility.
-   * Used when the buffer is eligible but the feature is switched off.
-   */
+  /** Stops checking and clears the count/view. Used when the feature is switched off. */
   function deactivate() {
     cancelTimer();
     generation += 1;
@@ -55,10 +49,9 @@ function createSpellingStore() {
     setCount(0);
   }
 
-  /** Full reset for buffer switch or editor teardown: also marks ineligible. */
+  /** Full reset for buffer switch or editor teardown. */
   function detach() {
     deactivate();
-    setEligible(false);
   }
 
   /** Called by the editor extension whenever the decoration set changes. */
@@ -165,8 +158,6 @@ function createSpellingStore() {
 
   return {
     count,
-    eligible,
-    setEligible,
     attach,
     detach,
     deactivate,

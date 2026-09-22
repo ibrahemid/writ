@@ -706,6 +706,7 @@ pub fn run() {
             commands::preview::preview_force_render,
             commands::preview::preview_set_layout,
             commands::preview::preview_get_layout,
+            commands::preview::preview_inline_image,
             commands::recovery::get_recovered_buffers,
             commands::workspace::pick_workspace_folder,
             commands::workspace::clear_workspace_root,

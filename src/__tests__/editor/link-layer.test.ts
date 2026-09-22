@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EditorState } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, ViewPlugin, keymap } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import {
@@ -30,6 +30,13 @@ function textOf(state: EditorState, range: LinkRange): string {
 
 function targets(state: EditorState): LinkRange[] {
   return findLinkTargets(state, 0, state.doc.length);
+}
+
+// Where a range leads. A markdown link yields two: its label, which carries
+// the destination because the address itself is replaced on an inactive
+// line, and the address.
+function destinationOf(state: EditorState, range: LinkRange): string {
+  return range.target ?? textOf(state, range);
 }
 
 // ─── Decoration targets ────────────────────────────────────────────────────
@@ -90,23 +97,34 @@ describe("findLinkTargets", () => {
   it("reads a markdown link destination from the syntax tree", () => {
     const state = markdownState("[the docs](https://example.com/docs) here");
     const found = targets(state);
-    expect(found).toHaveLength(1);
-    expect(textOf(state, found[0])).toBe("https://example.com/docs");
-    expect(found[0].kind).toBe("url");
+    expect(found).toHaveLength(2);
+    expect(found.map((r) => destinationOf(state, r))).toEqual([
+      "https://example.com/docs",
+      "https://example.com/docs",
+    ]);
+    expect(found.map((r) => r.kind)).toEqual(["url", "url"]);
+    // The label is first, and it is the part left on screen to click.
+    expect(textOf(state, found[0])).toBe("the docs");
   });
 
   it("classifies a schemeless markdown destination as a path", () => {
     const state = markdownState("[notes](./sub/notes.md)");
     const found = targets(state);
-    expect(found).toHaveLength(1);
-    expect(textOf(state, found[0])).toBe("./sub/notes.md");
-    expect(found[0].kind).toBe("path");
+    expect(found).toHaveLength(2);
+    expect(found.map((r) => destinationOf(state, r))).toEqual([
+      "./sub/notes.md",
+      "./sub/notes.md",
+    ]);
+    expect(found.map((r) => r.kind)).toEqual(["path", "path"]);
   });
 
   it("strips the delimiters of a pointy-bracket destination", () => {
     const state = markdownState("[notes](<./my notes.md>)");
     const found = targets(state);
-    expect(found.map((r) => textOf(state, r))).toEqual(["./my notes.md"]);
+    expect(found.map((r) => destinationOf(state, r))).toEqual([
+      "./my notes.md",
+      "./my notes.md",
+    ]);
     expect(found[0].kind).toBe("path");
   });
 
@@ -129,8 +147,12 @@ describe("findLinkTargets", () => {
   it("emits one range for a markdown link, not one per source", () => {
     const state = markdownState("[docs](https://example.com/docs)");
     const found = targets(state);
-    expect(found).toHaveLength(1);
-    expect(textOf(state, found[0])).toBe("https://example.com/docs");
+    // The tree scan and the bare-run scan both see the address; only one
+    // range covers it, beside the label range.
+    expect(
+      found.filter((r) => textOf(state, r) === "https://example.com/docs"),
+    ).toHaveLength(1);
+    expect(textOf(state, found[0])).toBe("docs");
   });
 
   it("finds nothing in a document without links", () => {
@@ -224,6 +246,7 @@ describe("findLinkTargets over wikilinks", () => {
     const found = targets(state);
     expect(found.map((r) => [textOf(state, r), r.kind])).toEqual([
       ["Note", "wikilink"],
+      ["label", "path"],
       ["./other.md", "path"],
     ]);
   });
@@ -291,22 +314,34 @@ describe("linkLayer", () => {
     openNoteLink: ReturnType<typeof vi.fn>;
   };
 
+  let layer: unknown[] = [];
+
   function mount(doc: string, extensions: unknown[] = []) {
     deps = {
       openUrl: vi.fn(),
       openWorkspaceFile: vi.fn(),
       openNoteLink: vi.fn().mockReturnValue(true),
     };
+    layer = linkLayer(deps as unknown as LinkDeps) as unknown[];
     const state = EditorState.create({
       doc,
       extensions: [
         EditorState.allowMultipleSelections.of(true),
         ...(extensions as never[]),
-        linkLayer(deps as unknown as LinkDeps),
+        layer as never[],
       ],
     });
     view = new EditorView({ state, parent: document.body });
     return view;
+  }
+
+  // The plugin rescans on an edit, a viewport move and a finished parse, so
+  // its ranges lag a tree that has just filled in. Emptying them is that lag.
+  function stalePluginRanges() {
+    const plugin = layer.find((e) => e instanceof ViewPlugin) as ViewPlugin<{
+      ranges: LinkRange[];
+    }>;
+    view.plugin(plugin)!.ranges = [];
   }
 
   function clickAt(pos: number | null, modifier: boolean): MouseEvent {
@@ -387,6 +422,13 @@ describe("linkLayer", () => {
     expect(modifierIsHeld(view.state)).toBe(false);
     clickAt(8, true);
     expect(deps.openUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a label whose destination the plugin's ranges have not caught up with", () => {
+    mount("[label](https://example.com/x)", [markdown({ base: markdownLanguage })]);
+    stalePluginRanges();
+    clickAt(3, true);
+    expect(deps.openUrl).toHaveBeenCalledWith("https://example.com/x");
   });
 
   it("routes a workspace-relative destination to the file dependency", () => {

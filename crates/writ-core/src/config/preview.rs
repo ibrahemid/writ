@@ -26,12 +26,26 @@ pub enum DefaultLayout {
     Preview,
 }
 
+/// Default layout a Markdown document opens in.
+///
+/// Separate from `DefaultLayout` so the retired `split` and `preview` values
+/// alias here only: `serde(alias)` is per variant, and HTML still offers both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MarkdownLayout {
+    /// Rendered in the editor.
+    #[serde(alias = "split", alias = "preview")]
+    Inline,
+    /// Raw Markdown source.
+    Source,
+}
+
 fn default_layout_html() -> DefaultLayout {
     DefaultLayout::Split
 }
 
-fn default_layout_markdown() -> DefaultLayout {
-    DefaultLayout::Source
+fn default_layout_markdown() -> MarkdownLayout {
+    MarkdownLayout::Inline
 }
 
 fn default_live_render_threshold_mb() -> u32 {
@@ -60,10 +74,9 @@ pub struct PreviewConfig {
     /// Default layout for HTML documents.
     #[serde(default = "default_layout_html")]
     pub default_layout_html: DefaultLayout,
-    /// Default layout for Markdown documents. Source: Writ opens a file in
-    /// the editor, and the rendered pane is one keystroke away (ADR-041 §4).
+    /// Default layout for Markdown documents.
     #[serde(default = "default_layout_markdown")]
-    pub default_layout_markdown: DefaultLayout,
+    pub default_layout_markdown: MarkdownLayout,
     /// Above this document size (MB) live re-render auto-disables and the
     /// surface offers manual refresh (Cmd+R).
     #[serde(default = "default_live_render_threshold_mb")]
@@ -111,7 +124,7 @@ mod tests {
     fn defaults_are_lean() {
         let c = PreviewConfig::default();
         assert_eq!(c.default_layout_html, DefaultLayout::Split);
-        assert_eq!(c.default_layout_markdown, DefaultLayout::Source);
+        assert_eq!(c.default_layout_markdown, MarkdownLayout::Inline);
         assert_eq!(c.live_render_threshold_mb, 1);
         assert_eq!(c.render_confirm_threshold_mb, 5);
         assert_eq!(c.render_refuse_threshold_mb, 50);
@@ -132,8 +145,19 @@ mod tests {
             toml::from_str("default_layout_html = \"source\"\ndebounce_ms = 50").unwrap();
         assert_eq!(c.default_layout_html, DefaultLayout::Source);
         assert_eq!(c.debounce_ms, 50);
-        assert_eq!(c.default_layout_markdown, DefaultLayout::Source);
+        assert_eq!(c.default_layout_markdown, MarkdownLayout::Inline);
         assert!(c.run_scripts);
+    }
+
+    #[test]
+    fn markdown_layout_aliases_the_old_values() {
+        let split: PreviewConfig = toml::from_str("default_layout_markdown = \"split\"").unwrap();
+        assert_eq!(split.default_layout_markdown, MarkdownLayout::Inline);
+        let preview: PreviewConfig =
+            toml::from_str("default_layout_markdown = \"preview\"").unwrap();
+        assert_eq!(preview.default_layout_markdown, MarkdownLayout::Inline);
+        let source: PreviewConfig = toml::from_str("default_layout_markdown = \"source\"").unwrap();
+        assert_eq!(source.default_layout_markdown, MarkdownLayout::Source);
     }
 
     #[test]

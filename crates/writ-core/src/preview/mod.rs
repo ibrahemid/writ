@@ -20,10 +20,15 @@
 //! at serve time (see the ADR-010/011 supersede notes). [`ContentRenderer`]
 //! mirrors ADR-006's loader-agnostic registry precedent.
 
+pub mod inline_image;
 pub mod protocol;
 pub mod registry;
 pub mod types;
 
+pub use inline_image::{
+    inline_image_data_url, resolve_inline_image, size_within_inline_limit, InlineImage,
+    InlineImageRefusal, INLINE_IMAGE_MAX_BYTES,
+};
 pub use protocol::{
     parse as parse_preview_url, AssetReference, AssetRequest, AssetRoot, ParsedRequest,
     PreviewScope, RefusalReason,

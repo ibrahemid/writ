@@ -285,7 +285,7 @@ function baseConfig(): WritConfig {
     panel: { open: false, width: 240 },
     chat_panel: { open: false, width: 380 },
     first_run: { hint_dismissed: false },
-    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false },
+    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false, status_bar_counts: false },
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
@@ -302,7 +302,7 @@ function baseConfig(): WritConfig {
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
       default_layout_html: "split",
-      default_layout_markdown: "split",
+      default_layout_markdown: "inline",
       live_render_threshold_mb: 1,
       render_confirm_threshold_mb: 5,
       render_refuse_threshold_mb: 50,
@@ -447,6 +447,31 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
     const saved = mocks.save.mock.calls[0][0] as WritConfig;
     expect(saved.editor.font_size).toBe(16);
+  });
+
+  it("offers inline and source for a markdown file and writes the choice", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings("preview");
+    await waitFor(() => expect(container.querySelector("[data-section='preview']")).not.toBeNull());
+    const select = container.querySelector<HTMLSelectElement>(
+      "[data-setting='default_layout_markdown']",
+    );
+    expect(select).not.toBeNull();
+    expect(Array.from(select!.options).map((o) => [o.value, o.text])).toEqual([
+      ["inline", "Inline"],
+      ["source", "Source"],
+    ]);
+    fireEvent.change(select!, { target: { value: "source" } });
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    const saved = mocks.save.mock.calls[0][0] as WritConfig;
+    expect(saved.preview.default_layout_markdown).toBe("source");
+  });
+
+  it("offers no markdown typography row", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings("editor");
+    await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
+    expect(container.querySelector("[data-setting='markdown_typography']")).toBeNull();
   });
 
   it("clamps font size to valid range", async () => {

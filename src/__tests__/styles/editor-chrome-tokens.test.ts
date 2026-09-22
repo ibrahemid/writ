@@ -45,7 +45,6 @@ describe("the chrome's informational fields", () => {
     ["find", ".find-count"],
     ["palette", ".palette-item-desc"],
     ["layoutToggle", ".layout-toggle-seg"],
-    ["layoutToggle", ".scripts-toggle.is-off"],
   ];
 
   for (const [sheet, selector] of INFORMATIONAL) {

@@ -17,7 +17,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use writ_core::preview::{
-    AssetScope, ContentTypeId, RenderError, RenderRequest, RendererCapabilities, ThemePolarity,
+    inline_image_data_url, resolve_inline_image, size_within_inline_limit, AssetScope,
+    ContentTypeId, InlineImageRefusal, RenderError, RenderRequest, RendererCapabilities,
+    ThemePolarity,
 };
 
 use writ_storage::layout_state::LayoutStateRecord;
@@ -307,4 +309,78 @@ pub fn preview_force_render(
         theme,
         zoom,
     )
+}
+
+/// Outcome of a request for one inline image.
+///
+/// A refusal is an outcome the editor draws as a caption, not an error: the
+/// file being missing or oversized is ordinary, and a toast for each one
+/// while scrolling would be noise. The `Err` arm is kept for the cases that
+/// mean the request itself could not be answered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum InlineImageResult {
+    /// The bytes, encoded for an `img` element.
+    Ready {
+        /// `data:<mime>;base64,…`.
+        data_url: String,
+        /// MIME type decided by the leading bytes.
+        mime: String,
+        /// Length of the file the URL holds.
+        byte_len: u64,
+    },
+    /// The image is not carried inline, and why.
+    Refused {
+        /// One of `outside_root`, `not_found`, `too_large`, `not_an_image`.
+        reason: String,
+    },
+}
+
+impl InlineImageResult {
+    fn refused(refusal: InlineImageRefusal) -> Self {
+        Self::Refused {
+            reason: refusal.as_str().to_string(),
+        }
+    }
+}
+
+/// Read one image referenced by an open file and answer with a data URL.
+///
+/// `note_path` is the file the reference was written in; a buffer with no
+/// file resolves against the notes folder alone. The size refusal is decided
+/// on the metadata, so a file over the cap is never read.
+#[tauri::command]
+pub fn preview_inline_image(
+    state: State<'_, AppState>,
+    note_path: Option<String>,
+    reference: String,
+) -> Result<InlineImageResult, String> {
+    let notes_root = state.notes_root();
+    let note_dir = note_path
+        .as_deref()
+        .map(std::path::Path::new)
+        .and_then(|path| path.parent())
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| notes_root.clone());
+
+    let path = match resolve_inline_image(&notes_root, &note_dir, &reference) {
+        Ok(path) => path,
+        Err(refusal) => return Ok(InlineImageResult::refused(refusal)),
+    };
+    let metadata = std::fs::metadata(&path).map_err(|err| err.to_string())?;
+    if !metadata.is_file() {
+        return Ok(InlineImageResult::refused(InlineImageRefusal::NotFound));
+    }
+    if let Err(refusal) = size_within_inline_limit(metadata.len()) {
+        return Ok(InlineImageResult::refused(refusal));
+    }
+    let bytes = std::fs::read(&path).map_err(|err| err.to_string())?;
+    match inline_image_data_url(&bytes) {
+        Ok(image) => Ok(InlineImageResult::Ready {
+            data_url: image.data_url,
+            mime: image.mime,
+            byte_len: image.byte_len,
+        }),
+        Err(refusal) => Ok(InlineImageResult::refused(refusal)),
+    }
 }

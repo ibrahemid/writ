@@ -102,9 +102,9 @@ impl RetitleWatch {
 /// Answered once. The command stays callable for the whole session, and a
 /// second call writes nothing and opens nothing: the file the first call
 /// minted is the file this launch opens, and a second one would be an empty
-/// `Untitled 2` beside it. The flag is set only after a run that got all the
-/// way through, so a run that could not record the config leaves the screen
-/// up with the answer still on it and may be answered again.
+/// `writ-<yymmdd>-<hhmm>-2` beside it. The flag is set only after a run that
+/// got all the way through, so a run that could not record the config leaves
+/// the screen up with the answer still on it and may be answered again.
 pub fn finish_first_run_inner(
     state: &AppState,
     default_extension: FileExtension,

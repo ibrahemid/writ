@@ -78,6 +78,13 @@ function under(tokens, ...prefix) {
   return tokens.filter((token) => prefix.every((segment, i) => token.path[i] === segment));
 }
 
+// The reading column's gutters are one token set for both surfaces (ADR-030):
+// the editor resolves them against --writ-editor-font-size, the rendered pane
+// against its own base size.
+function prosePadEm(tokens) {
+  return under(tokens, "base", "prose").filter((token) => token.path[2].endsWith("-em"));
+}
+
 // The eight UI type steps, which the CSS states as ratios of --writ-ui-size
 // rather than as pixels. `size` itself and `tracking` keep their own values.
 const UI_STEP_KEYS = new Set(["xs", "xs-lh", "sm", "sm-lh", "md", "md-lh", "lg", "lg-lh"]);
@@ -196,7 +203,7 @@ StyleDictionary.registerFormat({
     // the bridge flips an already-loaded document by setting the attribute, so
     // light has to be reachable that way and not only by its absence.
     return sheet([
-      block(":root", under(all, "preview", "light")),
+      block(":root", [...prosePadEm(all), ...under(all, "preview", "light")]),
       block('[data-writ-theme="light"]', under(all, "preview", "light")),
       block('[data-writ-theme="dark"]', under(all, "preview", "dark")),
     ]);
@@ -578,6 +585,8 @@ export const CSS_VAR = {
   proseMeasure: "--writ-prose-measure",
   prosePadX: "--writ-prose-pad-x",
   prosePadY: "--writ-prose-pad-y",
+  prosePadXEm: "--writ-prose-pad-x-em",
+  prosePadYEm: "--writ-prose-pad-y-em",
   headingColor: "--writ-heading-color",
   headingFormatting: "--writ-heading-formatting",
   rControl: "--writ-r-control",

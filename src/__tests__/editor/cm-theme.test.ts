@@ -70,11 +70,22 @@ describe("the editor theme", () => {
     expect(mixes, JSON.stringify(mixes)).toEqual([]);
   });
 
-  it("caps the content at the prose measure and centres it", () => {
+  it("lets the content fill the pane and pads it by name", () => {
     const content = writThemeSpec[".cm-content"];
-    expect(content.maxWidth).toContain("var(--writ-prose-measure)");
+    expect(content.maxWidth).toBe("none");
     expect(content.margin).toBe("0 auto");
     expect(content.padding).toBe("var(--writ-prose-pad-y) var(--writ-prose-pad-x)");
+    expect(writThemeSpec[".cm-scroller"].minWidth).toBe("0");
+  });
+
+  it("derives the gutters from the editor font size, so they follow the zoom", () => {
+    const root = writThemeSpec["&"] as Record<string, string>;
+    expect(root["--writ-prose-pad-x"]).toBe(
+      "calc(var(--writ-editor-font-size) * var(--writ-prose-pad-x-em))",
+    );
+    expect(root["--writ-prose-pad-y"]).toBe(
+      "calc(var(--writ-editor-font-size) * var(--writ-prose-pad-y-em))",
+    );
   });
 
   it("sets prose, not mono, as the writing face", () => {
