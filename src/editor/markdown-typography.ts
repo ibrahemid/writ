@@ -17,6 +17,7 @@ import {
   type InlineImageState,
   inlineImages,
 } from "./markdown-images";
+import { fenceCollapse, fenceCollapsible } from "./markdown-fences";
 
 // Minimal structural types matching @lezer/common — avoids a direct import
 // of @lezer/common which is not in the direct dependency list.
@@ -187,6 +188,7 @@ export interface DecorationSpec {
 }
 
 const NO_IMAGES: ReadonlyMap<string, InlineImageState> = new Map();
+const NO_LINES: ReadonlySet<number> = new Set();
 
 /**
  * Builds decoration specs for the given visible range of a markdown document.
@@ -254,6 +256,27 @@ export function buildMarkdownDecorations(
     specs.push({ from, to, decoration: dec });
   }
 
+  // Which of a fenced block's own lines the fence field takes off screen.
+  // Empty for a block that keeps its fences: one that never closed, one that
+  // opens the document, and one whose fences are being edited.
+  function collapsedFenceLines(node: SyntaxNodeFull): ReadonlySet<number> {
+    if (node.name !== "FencedCode") return NO_LINES;
+    const fences = fenceCollapsible(node, docLineAt);
+    if (!fences) return NO_LINES;
+    if (activeLineFroms.has(fences.open.from) || activeLineFroms.has(fences.close.from)) {
+      return NO_LINES;
+    }
+    return new Set([fences.open.from, fences.close.from]);
+  }
+
+  function isCollapsedFenceLine(fence: SyntaxNodeFull, pos: number): boolean {
+    try {
+      return collapsedFenceLines(fence).has(docLineAt(pos).from);
+    } catch {
+      return false;
+    }
+  }
+
   iterateTree(visibleFrom, visibleTo, (nodeRef) => {
     const { from, to, name } = nodeRef;
 
@@ -277,11 +300,16 @@ export function buildMarkdownDecorations(
     // ── Fenced code: mono, one line decoration per line in the block ──────
     if (name === "FencedCode" || name === "CodeBlock") {
       try {
+        // A collapsed fence line is merged into the line above it, so a slab
+        // decoration for it would paint that line instead. The edges move
+        // onto the content lines, which are the whole block once the fences
+        // are gone.
+        const collapsed = collapsedFenceLines(nodeRef.node);
         const lines: Array<{ from: number }> = [];
         let pos = from;
         for (;;) {
           const line = docLineAt(pos);
-          lines.push({ from: line.from });
+          if (!collapsed.has(line.from)) lines.push({ from: line.from });
           if (line.to >= to) break;
           pos = line.to + 1;
         }
@@ -309,6 +337,7 @@ export function buildMarkdownDecorations(
     if (name === "CodeMark" && nodeRef.node.parent?.name === "FencedCode") {
       const active = isActiveLine(from);
       if (active !== false) return;
+      if (isCollapsedFenceLine(nodeRef.node.parent, from)) return;
       addMark(from, to, markerDimMark);
       return;
     }
@@ -316,6 +345,8 @@ export function buildMarkdownDecorations(
     if (name === "CodeInfo") {
       const active = isActiveLine(from);
       if (active !== false) return;
+      const fence = nodeRef.node.parent;
+      if (fence && isCollapsedFenceLine(fence, from)) return;
       addMark(from, to, codeInfoMark);
       return;
     }
@@ -619,5 +650,5 @@ export const markdownTypographyPlugin: Extension = [
  * overlapping replacements.
  */
 export function markdownInlineExtension(deps: InlineImageDeps): Extension {
-  return [markdownTypographyPlugin, inlineImages(deps)];
+  return [markdownTypographyPlugin, inlineImages(deps), fenceCollapse];
 }

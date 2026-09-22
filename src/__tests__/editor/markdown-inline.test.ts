@@ -17,6 +17,7 @@ import {
   type InlineImageState,
 } from "../../editor/markdown-images";
 import { inlineLinkTargetAt, findLinkTargets } from "../../editor/link-layer";
+import { fenceCollapse } from "../../editor/markdown-fences";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -320,5 +321,110 @@ describe("the image widget inside a rendered view", () => {
     const widget = specs.find((s) => widgetOf(s) instanceof InlineImageWidget);
     expect((widget!.decoration as unknown as { block?: boolean }).block).toBeFalsy();
     expect(widget!.decoration).toBeInstanceOf(Decoration.widget({ widget: {} as never }).constructor);
+  });
+});
+
+// ─── Fenced code ──────────────────────────────────────────────────────────
+
+describe("fenced code fences", () => {
+  const doc = "intro\n```ts\nlet a = 1\n```\nafter\n";
+  const openLine = doc.indexOf("```ts");
+  const openEnd = openLine + "```ts".length;
+  const closeLine = doc.lastIndexOf("```");
+  const closeEnd = closeLine + 3;
+
+  function fencesFor(source: string, cursor: number | null): { from: number; to: number }[] {
+    const state = EditorState.create({
+      doc: source,
+      extensions: [
+        markdown({ base: markdownLanguage }),
+        fenceCollapse,
+      ] as never,
+      selection: cursor === null ? undefined : { anchor: cursor },
+    });
+    ensureSyntaxTree(state, source.length, PARSE_TIMEOUT_MS);
+    const ranges: { from: number; to: number }[] = [];
+    state.field(fenceCollapse).decorations.between(0, source.length, (from, to) => {
+      ranges.push({ from, to });
+    });
+    return ranges;
+  }
+
+  it("collapses the opening and closing fences of an inactive fenced block", () => {
+    expect(fencesFor(doc, doc.indexOf("after"))).toEqual([
+      { from: openLine - 1, to: openEnd },
+      { from: closeLine - 1, to: closeEnd },
+    ]);
+  });
+
+  it("reveals both fences when the selection touches the opening fence line", () => {
+    expect(fencesFor(doc, openLine + 1)).toEqual([]);
+  });
+
+  it("reveals both fences when the selection touches the closing fence line", () => {
+    expect(fencesFor(doc, closeLine + 1)).toEqual([]);
+  });
+
+  it("keeps the fences of a block the cursor sits inside", () => {
+    expect(fencesFor(doc, doc.indexOf("let a"))).toEqual([
+      { from: openLine - 1, to: openEnd },
+      { from: closeLine - 1, to: closeEnd },
+    ]);
+  });
+
+  it("falls back to dimmed fences when the block has no closing fence", () => {
+    const unclosed = "intro\n```ts\nlet a = 1\n";
+    expect(fencesFor(unclosed, 0)).toEqual([]);
+    const specs = buildForDoc(unclosed, [0]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-marker-dim"))).toBe(true);
+  });
+
+  it("falls back to dimmed fences when the block opens the document", () => {
+    const atStart = "```ts\nlet a = 1\n```\nafter\n";
+    expect(fencesFor(atStart, atStart.indexOf("after"))).toEqual([]);
+    const specs = buildForDoc(atStart, [atStart.indexOf("after")]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-marker-dim"))).toBe(true);
+  });
+
+  it("falls back to dimmed fences on a single-line block", () => {
+    const single = "intro\n``````\nafter\n";
+    expect(fencesFor(single, 0)).toEqual([]);
+  });
+
+  it("moves the slab edges onto the content lines when the fences collapse", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("after")]);
+    const slab = specs.filter((s) => classesOf(s).includes("cm-md-codeblock"));
+    expect(slab).toHaveLength(1);
+    expect(slab[0].from).toBe(doc.indexOf("let a = 1"));
+    expect(classesOf(slab[0])).toContain("cm-md-codeblock-first");
+    expect(classesOf(slab[0])).toContain("cm-md-codeblock-last");
+  });
+
+  it("keeps a slab line for every line of a block whose fences show", () => {
+    const specs = buildForDoc(doc, [openLine]);
+    expect(specs.filter((s) => classesOf(s).includes("cm-md-codeblock"))).toHaveLength(3);
+  });
+
+  it("takes the fence lines off the screen in a mounted view", () => {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        extensions: [markdown({ base: markdownLanguage }), fenceCollapse] as never,
+        selection: { anchor: doc.indexOf("after") },
+      }),
+      parent: document.body,
+    });
+    ensureSyntaxTree(view.state, doc.length, PARSE_TIMEOUT_MS);
+    view.dispatch({ selection: { anchor: doc.indexOf("after") } });
+    const text = view.contentDOM.textContent ?? "";
+    expect(text).toContain("let a = 1");
+    expect(text).not.toContain("```");
+    view.destroy();
+  });
+
+  it("leaves the fence text out of the decorated lines when it collapses", () => {
+    const specs = buildForDoc(doc, [doc.indexOf("after")]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-code-info"))).toBe(false);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-marker-dim"))).toBe(false);
   });
 });
