@@ -13,7 +13,8 @@ import { search, highlightSelectionMatches } from "@codemirror/search";
 import { editorThemeFor, writCodeFace, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { isMarkdownBuffer } from "../../lib/content-type";
-import { markdownTypographyPlugin } from "../../editor/markdown-typography";
+import { markdownInlineExtension } from "../../editor/markdown-typography";
+import type { InlineImageDeps } from "../../editor/markdown-images";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { spellingExtension } from "../../editor/spelling";
 import { linkLayer } from "../../editor/link-layer";
@@ -267,10 +268,17 @@ export default function EditorInstance(props: Props) {
     }
   }
 
+  // An image is read against the file that references it, so the path is
+  // taken when the request is made rather than when the extension is built.
+  const imageDeps: InlineImageDeps = {
+    resolve: (reference: string) =>
+      linkStore.inlineImage(props.buffer.source_path ?? null, reference),
+  };
+
   function typographyExtension(markdown: boolean, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
     if (markdown && configStore.config().editor.markdown_typography) {
-      return markdownTypographyPlugin;
+      return markdownInlineExtension(imageDeps);
     }
     return [];
   }
@@ -737,7 +745,7 @@ export default function EditorInstance(props: Props) {
     view?.dispatch({
       effects: [
         typographyCompartment.reconfigure(
-          markdown && typographyEnabled ? markdownTypographyPlugin : [],
+          markdown && typographyEnabled ? markdownInlineExtension(imageDeps) : [],
         ),
         codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
         codeChromeCompartment.reconfigure(codeChromeFor(lang)),

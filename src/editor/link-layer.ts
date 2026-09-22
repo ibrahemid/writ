@@ -26,7 +26,16 @@ interface SyntaxNodeRef {
   readonly name: string;
   readonly from: number;
   readonly to: number;
-  readonly node: { readonly parent: { readonly name: string } | null };
+  readonly node: SyntaxNodeFull;
+}
+
+interface SyntaxNodeFull {
+  readonly name: string;
+  readonly from: number;
+  readonly to: number;
+  readonly firstChild: SyntaxNodeFull | null;
+  readonly nextSibling: SyntaxNodeFull | null;
+  readonly parent: SyntaxNodeFull | null;
 }
 
 export type LinkKind = "url" | "path" | "wikilink";
@@ -35,6 +44,13 @@ export interface LinkRange {
   from: number;
   to: number;
   kind: LinkKind;
+  /**
+   * Where the range leads, when that is not the text under it.
+   *
+   * A `[label](url)` whose url is hidden is clicked on its label, so the
+   * destination cannot be read back off the document at `from`.
+   */
+  target?: string;
 }
 
 // The layer never reaches a service or a store. `EditorInstance` injects both
@@ -213,6 +229,63 @@ export function isInsideFrontmatter(state: EditorState, pos: number): boolean {
   return pos < frontmatterEndOf(state);
 }
 
+// The label of `[label](destination)` and where it leads, read off the tree.
+// Returns null for a link with no label text or no destination.
+function linkLabelRange(
+  link: SyntaxNodeFull,
+  sliceText: (from: number, to: number) => string,
+): LinkRange | null {
+  let labelFrom = -1;
+  let labelTo = -1;
+  let inLabel = false;
+  let destination: string | null = null;
+  let destinationFrom = -1;
+  let destinationTo = -1;
+
+  for (let child = link.firstChild; child; child = child.nextSibling) {
+    if (child.name === "LinkMark") {
+      if (!inLabel && labelFrom === -1) {
+        labelFrom = child.to;
+        inLabel = true;
+      } else if (inLabel) {
+        labelTo = child.from;
+        inLabel = false;
+      }
+    } else if (child.name === "URL" && destination === null) {
+      destinationFrom = child.from;
+      destinationTo = child.to;
+    }
+  }
+  if (labelFrom < 0 || labelTo <= labelFrom || destinationFrom < 0) return null;
+
+  let text = sliceText(destinationFrom, destinationTo);
+  // A pointy-bracket destination, `[label](<a b.md>)`, carries its
+  // delimiters in the node.
+  if (text.length > 1 && text.startsWith("<") && text.endsWith(">")) {
+    text = text.slice(1, -1);
+  }
+  if (text.length === 0) return null;
+  return { from: labelFrom, to: labelTo, kind: kindOf(text), target: text };
+}
+
+/**
+ * The link a position inside a label belongs to, and where it leads.
+ *
+ * The destination characters are replaced on an inactive line, so they have
+ * no box to click; the label is the only part of the link left on screen and
+ * therefore the only part a pointer can land on. Read from the tree rather
+ * than the text, because the text at `pos` is the label, not the address.
+ */
+export function inlineLinkTargetAt(state: EditorState, pos: number): LinkRange | null {
+  const resolved = syntaxTree(state).resolveInner(pos, 1) as unknown as SyntaxNodeFull | null;
+  let link: SyntaxNodeFull | null = resolved;
+  while (link && link.name !== "Link") link = link.parent;
+  if (!link) return null;
+  const range = linkLabelRange(link, (from, to) => state.doc.sliceString(from, to));
+  if (!range) return null;
+  return pos >= range.from && pos < range.to ? range : null;
+}
+
 // Link runs inside `[from, to)`, widened to whole lines so a URL straddling a
 // viewport edge is found in one piece rather than as two half-addresses.
 export function findLinkTargets(state: EditorState, from: number, to: number): LinkRange[] {
@@ -263,6 +336,15 @@ export function findLinkTargets(state: EditorState, from: number, to: number): L
     from: start,
     to: end,
     enter: (node: SyntaxNodeRef) => {
+      // The label carries the mark and the click, because the destination is
+      // replaced on every line the cursor is not on.
+      if (node.name === "Link") {
+        const label = linkLabelRange(node.node, (from, to) =>
+          state.doc.sliceString(from, to),
+        );
+        if (label) found.push(label);
+        return;
+      }
       if (node.name !== "URL") return;
       if (node.node.parent?.name === "Image") return;
       let { from: nodeFrom, to: nodeTo } = node;
@@ -414,7 +496,7 @@ export function linkLayer(deps: LinkDeps): Extension {
         const hit = linkClickTarget(instance.ranges, pos, isLinkModifier(event), event.button);
         if (!hit) return false;
         event.preventDefault();
-        const target = view.state.doc.sliceString(hit.from, hit.to);
+        const target = hit.target ?? view.state.doc.sliceString(hit.from, hit.to);
         if (hit.kind === "url") {
           deps.openUrl(target);
         } else if (hit.kind === "wikilink") {

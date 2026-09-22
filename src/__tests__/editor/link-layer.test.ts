@@ -32,6 +32,13 @@ function targets(state: EditorState): LinkRange[] {
   return findLinkTargets(state, 0, state.doc.length);
 }
 
+// Where a range leads. A markdown link yields two: its label, which carries
+// the destination because the address itself is replaced on an inactive
+// line, and the address.
+function destinationOf(state: EditorState, range: LinkRange): string {
+  return range.target ?? textOf(state, range);
+}
+
 // ─── Decoration targets ────────────────────────────────────────────────────
 
 describe("findLinkTargets", () => {
@@ -90,23 +97,34 @@ describe("findLinkTargets", () => {
   it("reads a markdown link destination from the syntax tree", () => {
     const state = markdownState("[the docs](https://example.com/docs) here");
     const found = targets(state);
-    expect(found).toHaveLength(1);
-    expect(textOf(state, found[0])).toBe("https://example.com/docs");
-    expect(found[0].kind).toBe("url");
+    expect(found).toHaveLength(2);
+    expect(found.map((r) => destinationOf(state, r))).toEqual([
+      "https://example.com/docs",
+      "https://example.com/docs",
+    ]);
+    expect(found.map((r) => r.kind)).toEqual(["url", "url"]);
+    // The label is first, and it is the part left on screen to click.
+    expect(textOf(state, found[0])).toBe("the docs");
   });
 
   it("classifies a schemeless markdown destination as a path", () => {
     const state = markdownState("[notes](./sub/notes.md)");
     const found = targets(state);
-    expect(found).toHaveLength(1);
-    expect(textOf(state, found[0])).toBe("./sub/notes.md");
-    expect(found[0].kind).toBe("path");
+    expect(found).toHaveLength(2);
+    expect(found.map((r) => destinationOf(state, r))).toEqual([
+      "./sub/notes.md",
+      "./sub/notes.md",
+    ]);
+    expect(found.map((r) => r.kind)).toEqual(["path", "path"]);
   });
 
   it("strips the delimiters of a pointy-bracket destination", () => {
     const state = markdownState("[notes](<./my notes.md>)");
     const found = targets(state);
-    expect(found.map((r) => textOf(state, r))).toEqual(["./my notes.md"]);
+    expect(found.map((r) => destinationOf(state, r))).toEqual([
+      "./my notes.md",
+      "./my notes.md",
+    ]);
     expect(found[0].kind).toBe("path");
   });
 
@@ -129,8 +147,12 @@ describe("findLinkTargets", () => {
   it("emits one range for a markdown link, not one per source", () => {
     const state = markdownState("[docs](https://example.com/docs)");
     const found = targets(state);
-    expect(found).toHaveLength(1);
-    expect(textOf(state, found[0])).toBe("https://example.com/docs");
+    // The tree scan and the bare-run scan both see the address; only one
+    // range covers it, beside the label range.
+    expect(
+      found.filter((r) => textOf(state, r) === "https://example.com/docs"),
+    ).toHaveLength(1);
+    expect(textOf(state, found[0])).toBe("docs");
   });
 
   it("finds nothing in a document without links", () => {
@@ -224,6 +246,7 @@ describe("findLinkTargets over wikilinks", () => {
     const found = targets(state);
     expect(found.map((r) => [textOf(state, r), r.kind])).toEqual([
       ["Note", "wikilink"],
+      ["label", "path"],
       ["./other.md", "path"],
     ]);
   });

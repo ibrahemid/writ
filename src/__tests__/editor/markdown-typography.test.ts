@@ -561,13 +561,24 @@ describe("autolink decorations", () => {
 describe("inline link decorations", () => {
   const doc = "See [Writ](https://example.com) now\ncursor\n";
 
-  it("dims the url and styles only the label on an inactive line", () => {
+  it("replaces the url and styles only the label on an inactive line", () => {
     const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
     const label = specs.find((s) => classesOf(s).includes("cm-md-link-text"));
-    const url = specs.find((s) => classesOf(s).includes("cm-md-url-dim"));
+    const url = specs.find(
+      (s) =>
+        s.from === doc.indexOf("https://") &&
+        s.to === doc.indexOf("https://") + "https://example.com".length,
+    );
     expect(label).toEqual(
       expect.objectContaining({ from: doc.indexOf("Writ"), to: doc.indexOf("Writ") + 4 }),
     );
+    expect(classesOf(url!)).toEqual([]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-url-dim"))).toBe(false);
+  });
+
+  it("dims the url on the active line rather than replacing it", () => {
+    const specs = buildForDoc(doc, [0]);
+    const url = specs.find((s) => classesOf(s).includes("cm-md-url-dim"));
     expect(url).toEqual(
       expect.objectContaining({
         from: doc.indexOf("https://"),
@@ -576,19 +587,22 @@ describe("inline link decorations", () => {
     );
   });
 
-  it("stops dimming the url on the active line", () => {
-    const specs = buildForDoc(doc, [0]);
-    expect(specs.some((s) => classesOf(s).includes("cm-md-url-dim"))).toBe(false);
-  });
-
   it("wraps the highlighted url token so the dim ink wins the cascade", () => {
     // The grammar tags every Link descendant, url included, with tags.link, and
     // the theme paints that accent and underlined. The dim mark only shows if
-    // its span is the outer one.
-    const view = renderDoc(doc, doc.indexOf("cursor"));
+    // its span is the outer one. It only shows at all on the line being
+    // edited: elsewhere the address is replaced.
+    const view = renderDoc(doc, 0);
     const dim = view.contentDOM.querySelector(".cm-md-url-dim");
     expect(dim?.textContent).toBe("https://example.com");
     expect(dim!.querySelector("span")?.textContent).toBe("https://example.com");
+    expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Writ");
+    view.destroy();
+  });
+
+  it("leaves nothing of the url on screen on an inactive line", () => {
+    const view = renderDoc(doc, doc.indexOf("cursor"));
+    expect(view.contentDOM.textContent).not.toContain("https://example.com");
     expect(view.contentDOM.querySelector(".cm-md-link-text")?.textContent).toBe("Writ");
     view.destroy();
   });

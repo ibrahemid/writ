@@ -9,6 +9,14 @@ import {
   type PluginValue,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
+import {
+  imageReferenceAt,
+  inlineImageField,
+  InlineImageWidget,
+  type InlineImageDeps,
+  type InlineImageState,
+  inlineImages,
+} from "./markdown-images";
 
 // Minimal structural types matching @lezer/common — avoids a direct import
 // of @lezer/common which is not in the direct dependency list.
@@ -178,6 +186,8 @@ export interface DecorationSpec {
   decoration: Decoration;
 }
 
+const NO_IMAGES: ReadonlyMap<string, InlineImageState> = new Map();
+
 /**
  * Builds decoration specs for the given visible range of a markdown document.
  *
@@ -192,6 +202,7 @@ export interface DecorationSpec {
  *                         containing any cursor are revealed (not replaced).
  * @param visibleFrom  Start of the visible range.
  * @param visibleTo    End of the visible range.
+ * @param images       What is known about each authored image reference.
  */
 export function buildMarkdownDecorations(
   iterateTree: (from: number, to: number, cb: (node: SyntaxNodeRef) => boolean | void) => void,
@@ -200,6 +211,7 @@ export function buildMarkdownDecorations(
   cursorPositions: ReadonlySet<number>,
   visibleFrom: number,
   visibleTo: number,
+  images: ReadonlyMap<string, InlineImageState> = NO_IMAGES,
 ): DecorationSpec[] {
   const activeLineFroms = new Set<number>();
   for (const pos of cursorPositions) {
@@ -360,14 +372,32 @@ export function buildMarkdownDecorations(
         addMark(labelFrom, labelTo, linkTextMark);
       }
       if (urlFrom >= 0 && urlTo > urlFrom) {
-        try {
-          const lineFr = docLineAt(urlFrom).from;
-          if (!activeLineFroms.has(lineFr)) {
-            addMark(urlFrom, urlTo, urlDimMark);
-          }
-        } catch {
-          // skip
-        }
+        // The label alone reads as the link, which is what makes the line
+        // prose rather than markup. The url comes back on the active line,
+        // dimmed, so it stays legible while it is being edited.
+        const active = isActiveLine(urlFrom);
+        if (active === false) addReplace(urlFrom, urlTo);
+        else if (active === true) addMark(urlFrom, urlTo, urlDimMark);
+      }
+      return;
+    }
+
+    // ── Image: the picture goes under the line, the source is hidden ──────
+    if (name === "Image") {
+      const reference = imageReferenceAt(nodeRef.node, docSlice);
+      if (reference === null) return;
+      try {
+        const line = docLineAt(from);
+        specs.push({
+          from: line.to,
+          to: line.to,
+          decoration: Decoration.widget({
+            widget: new InlineImageWidget(reference, images.get(reference) ?? { status: "pending" }),
+            side: 1,
+          }),
+        });
+      } catch {
+        // skip un-parseable positions
       }
       return;
     }
@@ -433,7 +463,13 @@ export function buildMarkdownDecorations(
     // handled by the Link branch above (label styling + dimming). ──────────
     if (name === "URL") {
       const parent = nodeRef.node.parent;
-      if (parent && (parent.name === "Link" || parent.name === "Image")) return;
+      if (parent && parent.name === "Link") return;
+      if (parent && parent.name === "Image") {
+        // The picture under the line says what the source is; the path above
+        // it says it twice.
+        if (isActiveLine(from) === false) addReplace(from, to);
+        return;
+      }
       addMark(from, to, linkTextMark);
       return;
     }
@@ -474,6 +510,7 @@ function buildDecorationSet(view: EditorView): DecorationSet {
   const cursorPositions = new Set(
     state.selection.ranges.flatMap((r) => [r.head, r.anchor]),
   );
+  const images = state.field(inlineImageField, false) ?? NO_IMAGES;
   const allSpecs: DecorationSpec[] = [];
 
   for (const { from, to } of view.visibleRanges) {
@@ -484,6 +521,7 @@ function buildDecorationSet(view: EditorView): DecorationSet {
       cursorPositions,
       from,
       to,
+      images,
     );
     allSpecs.push(...rangeSpecs);
   }
@@ -513,7 +551,11 @@ class MarkdownTypographyPlugin implements PluginValue {
       update.docChanged ||
       update.viewportChanged ||
       update.selectionSet ||
-      update.transactions.some((tr) => tr.reconfigured)
+      update.transactions.some((tr) => tr.reconfigured) ||
+      // Bytes for an image arrive in their own transaction, which changes
+      // neither the document nor the selection.
+      update.startState.field(inlineImageField, false) !==
+        update.state.field(inlineImageField, false)
     ) {
       this.decorations = buildDecorationSet(update.view);
     }
@@ -568,3 +610,14 @@ export const markdownTypographyPlugin: Extension = [
   ViewPlugin.fromClass(MarkdownTypographyPlugin, { decorations: (v) => v.decorations }),
   taskClickHandler,
 ];
+
+/**
+ * The markdown decorations plus the images they draw.
+ *
+ * One builder and one plugin: a second decoration source over the same
+ * ranges cannot see the first one's replaced ranges, and CodeMirror refuses
+ * overlapping replacements.
+ */
+export function markdownInlineExtension(deps: InlineImageDeps): Extension {
+  return [markdownTypographyPlugin, inlineImages(deps)];
+}
