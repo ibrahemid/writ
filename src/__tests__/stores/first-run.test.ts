@@ -71,12 +71,14 @@ describe("what the first launch asks", () => {
     const first = store();
     await first.load();
     first.setFormat("md");
+    first.continueFormat();
+    expect(first.step()).toBe("apps");
     expect(mocks.finishFirstRun).not.toHaveBeenCalled();
 
     mocks.finishFirstRun.mockResolvedValue(DOC);
-    await first.continueSetup();
+    await first.continueApps();
 
-    expect(mocks.finishFirstRun).toHaveBeenCalledWith("md");
+    expect(mocks.finishFirstRun).toHaveBeenCalledWith("md", []);
     expect(configStore.config().files.default_extension).toBe("md");
     expect(bufferRegistry.activeTabs().map((b) => b.id)).toContain(DOC.id);
     expect(first.step()).toBeNull();
@@ -88,7 +90,8 @@ describe("what the first launch asks", () => {
     await first.load();
     mocks.finishFirstRun.mockResolvedValue(null);
 
-    await first.continueSetup();
+    first.continueFormat();
+    await first.continueApps();
 
     expect(first.step()).toBeNull();
     expect(bufferRegistry.activeTabs().map((b) => b.id)).not.toContain("note-none");
@@ -98,12 +101,15 @@ describe("what the first launch asks", () => {
     const first = store();
     await first.load();
     first.setFormat("md");
+    first.continueFormat();
+    first.toggleApp("graph");
     mocks.finishFirstRun.mockRejectedValue(new Error("no IPC"));
 
-    await first.continueSetup();
+    await first.continueApps();
 
-    expect(first.step()).toBe("format");
+    expect(first.step()).toBe("apps");
     expect(first.format()).toBe("md");
+    expect(first.isAppChosen("graph")).toBe(true);
   });
 });
 

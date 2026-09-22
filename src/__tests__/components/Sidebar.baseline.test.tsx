@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import type { BufferDocument } from "../../types/buffer";
 
@@ -56,6 +56,13 @@ vi.mock("../../components/ContextMenu/ContextMenu", () => ({ showContextMenu: vi
 
 import HistorySection from "../../components/Sidebar/HistorySection";
 import FilesSection from "../../components/Sidebar/FilesSection";
+import { configStore } from "../../stores/global/config";
+
+// A fresh config hides the recently closed section (ADR-042 section 2); these
+// tests are about the section once somebody shows it.
+beforeEach(() => {
+  configStore.setSidebarSectionHidden("recent", false);
+});
 
 const TAB_ITEM_CSS = readFileSync(
   resolve(process.cwd(), "src/components/Sidebar/TabItem.css"),

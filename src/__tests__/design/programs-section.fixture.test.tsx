@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { render, cleanup, waitFor } from "@solidjs/testing-library";
-import { configStore } from "../../stores/global/config";
+import { configStore, isAppOnIn } from "../../stores/global/config";
 import type { WritConfig } from "../../types/config";
 
 const TEST_CLAIMABLE_TYPE = {
@@ -181,6 +181,8 @@ vi.mock("../../stores/global/theme", () => ({
 
 vi.spyOn(configStore, "save").mockImplementation(mocks.save);
 vi.spyOn(configStore, "config").mockImplementation(mocks.config);
+// An app is read from the config each test hands the panel.
+vi.spyOn(configStore, "isAppOn").mockImplementation((app) => isAppOnIn(mocks.config(), app));
 
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
 
@@ -205,6 +207,7 @@ function baseConfig(): WritConfig {
   updater: { auto_check: true },
   ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
   mcp: { enabled: false, approved_clients: [] },
+  apps: { connections: false, graph: false, tags: false },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
       default_layout_html: "split",
@@ -279,7 +282,9 @@ ${modal}
 }
 
 async function renderPrograms(): Promise<string> {
-  mocks.config.mockReset().mockReturnValue(baseConfig());
+  // The program rows are drawn while Connected programs is on (ADR-042).
+  const base = baseConfig();
+  mocks.config.mockReset().mockReturnValue({ ...base, mcp: { ...base.mcp, enabled: true } });
   mocks.polarity.mockReset().mockReturnValue("light");
   mocks.accentApplies.mockReset().mockReturnValue(true);
   mocks.activePresetId.mockReset().mockReturnValue("writ-light");
@@ -293,7 +298,7 @@ async function renderPrograms(): Promise<string> {
   });
 
   const { container } = render(() => <SettingsModal />);
-  openSettings("programs");
+  openSettings("apps");
   await waitFor(() =>
     expect(container.querySelector("[data-setting-id='mcp.clients'] .settings-program")).not.toBeNull(),
   );

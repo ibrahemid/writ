@@ -17,8 +17,8 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["notes.folder", "files", "Folder", ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"]],
   ["files.default_extension", "files", "Default format", ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"]],
   ["files.default_app", "files", "Open these file types with Writ", ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"]],
-  ["files.cli", "files", "Terminal command", ["cli", "writ command", "terminal", "command line", "install"]],
-  ["notes.versions", "files", "Versions", ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"]],
+  ["files.cli", "advanced", "Terminal command", ["cli", "writ command", "terminal", "command line", "install"]],
+  ["notes.versions", "advanced", "Versions", ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"]],
   ["editor.font_size", "editor", "Font size", ["font", "size", "text", "zoom"]],
   ["editor.tab_size", "editor", "Tab size", ["tab", "indent", "spaces", "width"]],
   ["editor.word_wrap", "editor", "Word wrap", ["wrap", "word", "line", "soft wrap"]],
@@ -27,22 +27,26 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["editor.spelling_dialect", "editor", "Spelling", ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"]],
   ["editor.status_bar", "editor", "Status bar", ["status bar", "line", "column", "encoding", "word count"]],
   ["editor.status_bar_counts", "editor", "Word, character and token counts", ["word count", "character count", "token", "counts", "status bar"]],
-  ["preview.run_scripts", "preview", "Allow HTML files to run their scripts", ["scripts", "javascript", "html", "run", "safety"]],
+  ["preview.run_scripts", "advanced", "Allow HTML files to run their scripts", ["scripts", "javascript", "html", "run", "safety"]],
   ["preview.layout_md", "preview", "When opening a Markdown file, show:", ["layout", "markdown", "md", "text", "preview", "inline"]],
-  ["preview.layout_html", "preview", "When opening an HTML file, show:", ["layout", "html", "text", "preview", "split"]],
-  ["ai.provider", "ai", "Provider", ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"]],
-  ["ai.base_url", "ai", "Base URL", ["ai", "base url", "endpoint", "host", "server"]],
-  ["ai.api_key", "ai", "API key", ["ai", "api key", "token", "secret", "credential"]],
-  ["ai.model", "ai", "Model", ["ai", "model", "id"]],
-  ["ai.connection", "ai", "Connection", ["ai", "connection", "check", "reachable", "status"]],
-  ["ai.rewrite.enabled", "ai", "Rewrite selected text", ["ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"]],
-  ["ai.chat.enabled", "ai", "Chat about your files", ["ai", "chat", "ask", "conversation", "attach", "enable"]],
-  ["ai.chat.model", "ai", "Use a different model for chat", ["ai", "chat", "model", "id", "different"]],
-  ["mcp.enabled", "programs", "Let other programs read and write your files", ["mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"]],
-  ["mcp.command", "programs", "Command to give a program", ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"]],
-  ["mcp.tools", "programs", "What a program can do", ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"]],
-  ["mcp.clients", "programs", "Programs you approved", ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"]],
-  ["mcp.activity", "programs", "Recent activity", ["activity", "log", "record", "calls", "what happened", "audit"]],
+  ["preview.layout_html", "advanced", "When opening an HTML file, show:", ["layout", "html", "text", "preview", "split"]],
+  ["ai.provider", "apps", "Provider", ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"]],
+  ["ai.base_url", "apps", "Base URL", ["ai", "base url", "endpoint", "host", "server"]],
+  ["ai.api_key", "apps", "API key", ["ai", "api key", "token", "secret", "credential"]],
+  ["ai.model", "apps", "Model", ["ai", "model", "id"]],
+  ["ai.connection", "apps", "Connection", ["ai", "connection", "check", "reachable", "status"]],
+  ["ai.chat.enabled", "apps", "Chat", ["app", "ai", "chat", "ask", "conversation", "attach", "enable"]],
+  ["ai.rewrite.enabled", "apps", "Rewrite", ["app", "ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"]],
+  ["ai.chat.model", "apps", "Use a different model for chat", ["ai", "chat", "model", "id", "different"]],
+  ["mcp.enabled", "apps", "Connected programs", ["app", "mcp", "programs", "clients", "connect", "claude", "editor", "assistant", "tools", "server", "enable"]],
+  ["mcp.command", "apps", "Command to give a program", ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"]],
+  ["mcp.tools", "apps", "What a program can do", ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"]],
+  ["mcp.clients", "apps", "Programs you approved", ["mcp", "programs", "approved", "clients", "permission", "read", "write", "revoke", "forget"]],
+  ["mcp.activity", "apps", "Recent activity", ["activity", "log", "record", "calls", "what happened", "audit"]],
+  ["apps.connections", "apps", "Connections", ["app", "connections", "links", "backlinks", "outline", "properties", "panel"]],
+  ["apps.graph", "apps", "Graph", ["app", "graph", "map", "links", "nearby"]],
+  ["apps.tags", "apps", "Tags", ["app", "tags", "hashtag", "filter", "sidebar"]],
+  ["apps.screen", "apps", "Setup screen", ["apps", "setup", "choose", "screen", "start"]],
   ["appearance.polarity", "appearance", "Light and dark", ["appearance", "light", "dark", "system", "theme", "polarity", "follow system"]],
   ["appearance.accent", "appearance", "Accent color", ["accent", "color", "pine", "highlight"]],
   ["appearance.prose_face", "appearance", "Prose typeface", ["font", "typeface", "prose", "writing", "ia writer", "quattro"]],
@@ -50,8 +54,7 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["appearance.theme", "appearance", "Theme", ["theme", "color", "appearance", "preset", "dark", "light"]],
   ["appearance.custom_colors", "appearance", "Custom colors", ["theme", "colors", "custom", "palette"]],
   ["sidebar.folder", "sidebar", "Show files", ["sidebar", "folder", "files", "tree", "show", "hide"]],
-  ["sidebar.tags", "sidebar", "Show tags", ["sidebar", "tags", "show", "hide"]],
-  ["sidebar.inbox", "sidebar", "Show watched folder", ["sidebar", "watch", "watched folder", "new files", "show", "hide"]],
+  ["sidebar.inbox", "advanced", "Show watched folder", ["sidebar", "watch", "watched folder", "new files", "show", "hide"]],
   ["sidebar.recent", "sidebar", "Show recently closed", ["sidebar", "recent", "recently closed", "closed", "show", "hide"]],
   ["updates.auto_check", "updates", "Check for updates automatically", ["update", "auto", "check", "version"]],
   ["updates.check_now", "updates", "Check for updates now", ["update", "check", "now", "version"]],
@@ -76,12 +79,19 @@ describe("settings vocabulary", () => {
     );
   });
 
-  // One connection serves rewriting and chat, so the section is no longer
-  // named after one of them (ADR-040 section 1).
-  it("names the section after what it holds, not after one feature", () => {
-    expect(SECTION_LABELS.ai).toBe("AI");
-    for (const entry of SETTINGS_INDEX.filter((e) => e.section === "ai")) {
+  // One connection serves rewriting and chat, so its rows are named for the
+  // connection, not after one of them (ADR-040 section 1), and are drawn while
+  // either is on (ADR-042 section 4).
+  it("names the connection rows after what they hold, not after one feature", () => {
+    expect(SECTION_LABELS.apps).toBe("Apps");
+    const connection = SETTINGS_INDEX.filter((e) => e.id.startsWith("ai.") && e.requires);
+    expect(connection.map((e) => e.id)).toEqual(expect.arrayContaining(["ai.provider", "ai.model"]));
+    for (const entry of connection) {
+      expect(entry.section, entry.id).toBe("apps");
       expect(entry.keywords, entry.id).toContain("ai");
+    }
+    for (const entry of connection.filter((e) => e.id !== "ai.chat.model")) {
+      expect(entry.requires, entry.id).toEqual(["chat", "rewrite"]);
     }
   });
 
@@ -95,10 +105,9 @@ describe("settings vocabulary", () => {
   it("settings_sections_are_named_and_ordered_as_pinned", () => {
     expect(SECTION_ORDER).toEqual([
       "files",
+      "apps",
       "editor",
       "preview",
-      "ai",
-      "programs",
       "appearance",
       "sidebar",
       "updates",
@@ -107,10 +116,9 @@ describe("settings vocabulary", () => {
     ]);
     expect(SECTION_ORDER.map((s) => SECTION_LABELS[s])).toEqual([
       "Files",
+      "Apps",
       "Editor",
       "Preview",
-      "AI",
-      "Connected programs",
       "Appearance",
       "Sidebar",
       "Updates",

@@ -82,7 +82,7 @@ describe("setting availability", () => {
         "files",
         "editor",
         "preview",
-        "ai",
+        "apps",
         "appearance",
         "updates",
         "shortcuts",

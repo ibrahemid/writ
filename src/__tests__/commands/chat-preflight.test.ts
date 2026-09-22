@@ -61,7 +61,10 @@ vi.mock("../../stores/global/chat", async (importOriginal) => {
 });
 
 vi.mock("../../stores/global/config", () => ({
-  configStore: { config: mocks.config },
+  configStore: {
+    config: mocks.config,
+    isAppOn: (app: string) => app === "chat" && mocks.config().ai.chat.enabled === true,
+  },
 }));
 
 // Consent goes through the connection both features share: the command is
@@ -195,19 +198,19 @@ describe("the blockers before a send", () => {
   it("stops on a switch that is off", async () => {
     mocks.endpointState.mockResolvedValue(endpoint({ enabled: false }));
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.chat.enabled");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.chat.enabled");
   });
 
   it("stops on a base URL the guard refuses", async () => {
     mocks.endpointState.mockResolvedValue(endpoint({ is_allowed: false }));
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.provider");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.provider");
   });
 
   it("stops when no model is set", async () => {
     mocks.endpointState.mockResolvedValue(endpoint({ model: "  " }));
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.model");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.model");
   });
 
   it("stops when a hosted endpoint has no key", async () => {
@@ -215,7 +218,7 @@ describe("the blockers before a send", () => {
       endpoint({ key_state: { is_set: false, memory_only: false } }),
     );
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.api_key");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.api_key");
   });
 
   it("asks nothing of a local endpoint", async () => {
@@ -308,12 +311,11 @@ describe("the blockers before a send", () => {
 describe("the pane's own command", () => {
   it("opens the settings that would give it a pane when chat is off", async () => {
     mocks.config.mockReturnValue({ ai: { chat: { enabled: false } } });
-    mocks.requestConfirm.mockResolvedValue(true);
 
     await toggleChat();
 
-    expect(mocks.requestConfirm.mock.calls[0][0].title).toBe("Chat is turned off");
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.chat.enabled");
+    expect(mocks.requestConfirm).not.toHaveBeenCalled();
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.chat.enabled");
   });
 
   it("asks nothing when chat is on", async () => {

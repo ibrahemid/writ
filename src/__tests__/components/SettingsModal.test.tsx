@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { configStore } from "../../stores/global/config";
+import { configStore, isAppOnIn } from "../../stores/global/config";
 import type { WritConfig } from "../../types/config";
 
 const TEST_CLAIMABLE_TYPE = {
@@ -266,6 +266,8 @@ vi.mock("../../stores/global/theme", () => ({
 
 vi.spyOn(configStore, "save").mockImplementation(mocks.save);
 vi.spyOn(configStore, "config").mockImplementation(mocks.config);
+// An app is read from the config each test hands the panel.
+vi.spyOn(configStore, "isAppOn").mockImplementation((app) => isAppOnIn(mocks.config(), app));
 
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
 import { aiConnectionStore } from "../../stores/global/ai-connection";
@@ -299,6 +301,7 @@ function baseConfig(): WritConfig {
   updater: { auto_check: true },
   ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
   mcp: { enabled: false, approved_clients: [] },
+  apps: { connections: false, graph: false, tags: false },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
       default_layout_html: "split",
@@ -724,14 +727,14 @@ describe("SettingsModal", () => {
     expect(saved.editor.status_bar).toBe(true);
   });
 
-  it("saves preview run_scripts toggle from Preview section", async () => {
+  it("saves preview run_scripts toggle from Advanced section", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
-    const previewNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("preview"));
-    fireEvent.click(previewNav!);
-    await waitFor(() => expect(container.querySelector("[data-section='preview']")).not.toBeNull());
+    const advancedNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("advanced"));
+    fireEvent.click(advancedNav!);
+    await waitFor(() => expect(container.querySelector("[data-section='advanced']")).not.toBeNull());
     const scriptsToggle = container.querySelector<HTMLButtonElement>("[data-setting='run_scripts']");
     expect(scriptsToggle).not.toBeNull();
     fireEvent.click(scriptsToggle!);
@@ -1115,7 +1118,7 @@ describe("SettingsModal", () => {
   describe("deep link", () => {
     it("opens the target section and highlights the row", async () => {
       const { container } = render(() => <SettingsModal />);
-      openSettings("preview", "preview.run_scripts");
+      openSettings("advanced", "preview.run_scripts");
       await waitFor(() => {
         const row = container.querySelector("[data-setting-id='preview.run_scripts']");
         expect(row).not.toBeNull();
@@ -1141,10 +1144,18 @@ describe("SettingsModal", () => {
       // Two AI rows are conditional: the base URL belongs to a custom server
       // and the key row is hidden for a provider on this machine. `custom` is
       // the one provider that shows both, so the parity check can see them.
+      // The AI and program rows are drawn while their apps are on (ADR-042),
+      // so every app that owns rows is switched on.
       const base = baseConfig();
       mocks.config.mockReturnValue({
         ...base,
-        ai: { ...base.ai, provider: "custom" },
+        ai: {
+          ...base.ai,
+          provider: "custom",
+          rewrite: { ...base.ai.rewrite, enabled: true },
+          chat: { ...base.ai.chat, enabled: true },
+        },
+        mcp: { ...base.mcp, enabled: true },
       });
       const { container } = render(() => <SettingsModal />);
       openSettings();
@@ -1182,7 +1193,8 @@ describe("AI section", () => {
       base_url: "",
       model: "deepseek-chat",
       consented_hosts: [] as string[],
-      rewrite: { enabled: false },
+      // The connection rows are drawn while Chat or Rewrite is on (ADR-042).
+      rewrite: { enabled: true },
       chat: { enabled: false, model: "", model_provider: "" },
       ...overrides,
     };
@@ -1191,7 +1203,7 @@ describe("AI section", () => {
   async function openAiSection(overrides: Record<string, unknown> = {}) {
     mocks.config.mockReturnValue({ ...baseConfig(), ai: aiConfig(overrides) });
     const result = render(() => <SettingsModal />);
-    openSettings("ai");
+    openSettings("apps");
     await waitFor(() =>
       expect(result.container.querySelector('[data-setting-id="ai.provider"]')).not.toBeNull(),
     );
@@ -1688,8 +1700,11 @@ function injectSettingsCss(): HTMLStyleElement {
 }
 
 async function openPrograms() {
+  // The program rows are drawn while Connected programs is on (ADR-042).
+  const base = mocks.config();
+  mocks.config.mockReturnValue({ ...base, mcp: { ...base.mcp, enabled: true } });
   const result = render(() => <SettingsModal />);
-  openSettings("programs");
+  openSettings("apps");
   await waitFor(() =>
     expect(result.container.querySelector("[data-setting-id='mcp.tools']")).not.toBeNull(),
   );

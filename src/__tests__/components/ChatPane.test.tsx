@@ -160,6 +160,7 @@ const DEFAULTS: WritConfig = {
     chat: { enabled: true, model: "llama3", model_provider: "" },
   },
   mcp: { enabled: false, approved_clients: [] },
+  apps: { connections: false, graph: false, tags: false },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
   preview: {
     default_layout_html: "split",

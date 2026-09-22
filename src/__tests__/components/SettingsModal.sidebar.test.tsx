@@ -200,6 +200,7 @@ function baseConfig(): WritConfig {
     updater: { auto_check: true },
     ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
     mcp: { enabled: false, approved_clients: [] },
+    apps: { connections: false, graph: false, tags: false },
     spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
       default_layout_html: "split",
@@ -213,7 +214,9 @@ function baseConfig(): WritConfig {
   };
 }
 
-const SIDEBAR_SETTINGS = ["sidebar_folder", "sidebar_tags", "sidebar_inbox", "sidebar_recent"];
+// Tags is an app with its switch under Apps, and the watched folder's switch
+// sits under Advanced with the folder it shows (ADR-042 section 4).
+const SIDEBAR_SETTINGS = ["sidebar_folder", "sidebar_recent"];
 
 /** The switches read and write the real store; `save` only seeds it. */
 async function seedConfig(config: WritConfig) {
@@ -299,43 +302,52 @@ describe("SettingsModal sidebar section", () => {
     await openSidebarSection(container);
     const controls = switches(container);
     expect(controls.map((c) => c.dataset.setting)).toEqual(SIDEBAR_SETTINGS);
-    expect(controls.map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "true", "true", "true"]);
+    expect(controls.map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "true"]);
     expect(controls.map((c) => c.getAttribute("aria-label"))).toEqual([
       "Show files",
-      "Show tags",
-      "Show watched folder",
       "Show recently closed",
     ]);
   });
 
+  it("keeps the watched folder's switch under Advanced", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings("advanced");
+    await waitFor(() => expect(container.querySelector("[data-section='advanced']")).not.toBeNull());
+    const inbox = container.querySelector<HTMLButtonElement>(
+      "[data-section='advanced'] [data-setting='sidebar_inbox']",
+    );
+    expect(inbox?.getAttribute("aria-checked")).toBe("true");
+    expect(inbox?.getAttribute("aria-label")).toBe("Show watched folder");
+  });
+
   it("follows the sidebar's order", () => {
-    expect(SIDEBAR_SETTINGS).toEqual(SIDEBAR_SECTIONS.map((id) => `sidebar_${id}`));
+    expect(SIDEBAR_SETTINGS).toEqual(
+      SIDEBAR_SECTIONS.filter((id) => id !== "tags" && id !== "inbox").map((id) => `sidebar_${id}`),
+    );
   });
 
   it("reads a hidden section as off", async () => {
     const base = baseConfig();
-    await seedConfig({ ...base, sidebar: { ...base.sidebar, hidden: ["tags"] } });
+    await seedConfig({ ...base, sidebar: { ...base.sidebar, hidden: ["recent"] } });
     const { container } = render(() => <SettingsModal />);
     await openSidebarSection(container);
     const byId = new Map(switches(container).map((c) => [c.dataset.setting, c.getAttribute("aria-checked")]));
-    expect(byId.get("sidebar_tags")).toBe("false");
+    expect(byId.get("sidebar_recent")).toBe("false");
     expect(byId.get("sidebar_folder")).toBe("true");
-    expect(byId.get("sidebar_inbox")).toBe("true");
-    expect(byId.get("sidebar_recent")).toBe("true");
   });
 
   it("hides a section on click and flips the switch", async () => {
     const { container } = render(() => <SettingsModal />);
     await openSidebarSection(container);
-    const tags = container.querySelector<HTMLButtonElement>("[data-setting='sidebar_tags']")!;
-    fireEvent.click(tags);
-    expect(setHidden).toHaveBeenCalledWith("tags", true);
-    await waitFor(() => expect(tags.getAttribute("aria-checked")).toBe("false"));
-    expect(configStore.isSidebarSectionHidden("tags")).toBe(true);
+    const recent = container.querySelector<HTMLButtonElement>("[data-setting='sidebar_recent']")!;
+    fireEvent.click(recent);
+    expect(setHidden).toHaveBeenCalledWith("recent", true);
+    await waitFor(() => expect(recent.getAttribute("aria-checked")).toBe("false"));
+    expect(configStore.isSidebarSectionHidden("recent")).toBe(true);
 
-    fireEvent.click(tags);
-    expect(setHidden).toHaveBeenLastCalledWith("tags", false);
-    await waitFor(() => expect(tags.getAttribute("aria-checked")).toBe("true"));
+    fireEvent.click(recent);
+    expect(setHidden).toHaveBeenLastCalledWith("recent", false);
+    await waitFor(() => expect(recent.getAttribute("aria-checked")).toBe("true"));
   });
 
   it("surfaces the recently closed row in search", async () => {

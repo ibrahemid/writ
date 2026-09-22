@@ -50,7 +50,12 @@ vi.mock("../../stores/global/config", async () => {
     );
   return {
     ...actual,
-    configStore: { config: () => ({ panel: h.panel }), setPanelWidth: h.setPanelWidth },
+    // Connections and Graph on: these tests are about the panel they draw.
+    configStore: {
+      config: () => ({ panel: h.panel }),
+      setPanelWidth: h.setPanelWidth,
+      isAppOn: () => true,
+    },
   };
 });
 

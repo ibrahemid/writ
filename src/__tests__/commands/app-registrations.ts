@@ -25,6 +25,34 @@ function field(literal: string, name: string): string {
   return match ? match[2].trim() : "";
 }
 
+/**
+ * The object literals in each `defineAppCommands(app, [ … ])` array. Those
+ * commands enter the registry while their app is on (ADR-042 section 3), so
+ * they are registrations as much as a `registerCommand` call is.
+ */
+function appCommandLiterals(text: string): string[] {
+  const literals: string[] = [];
+  const marker = "defineAppCommands(";
+  let at = text.indexOf(marker);
+  while (at !== -1) {
+    let i = text.indexOf("[", at + marker.length);
+    let depth = 0;
+    for (; i < text.length; i += 1) {
+      if (text[i] === "[") depth += 1;
+      else if (text[i] === "]") {
+        depth -= 1;
+        if (depth === 0) break;
+      } else if (text[i] === "{" && depth === 1) {
+        const literal = objectLiteral(text, i);
+        literals.push(literal);
+        i += literal.length + 1;
+      }
+    }
+    at = text.indexOf(marker, at + marker.length);
+  }
+  return literals;
+}
+
 /** Strips the quotes, and the escaping a TypeScript literal needs. */
 export function literalText(raw: string): string {
   return raw.replace(/^["'`]|["'`]$/g, "").replace(/\\\\/g, "\\");
@@ -46,6 +74,14 @@ export interface Registration {
   aliases: string[];
 }
 
+function registrationOf(literal: string): Registration {
+  return {
+    label: literalText(field(literal, "label")),
+    keybinding: literalText(field(literal, "keybinding")),
+    aliases: literalList(field(literal, "keybindingAliases")),
+  };
+}
+
 /** Every command `App.tsx` registers, by id, as written in the file. */
 function registrations(): Map<string, Registration> {
   const found = new Map<string, Registration>();
@@ -54,14 +90,12 @@ function registrations(): Map<string, Registration> {
   while (at !== -1) {
     const literal = objectLiteral(APP_TSX, at + marker.length - 1);
     const id = literalText(field(literal, "id"));
-    if (id) {
-      found.set(id, {
-        label: literalText(field(literal, "label")),
-        keybinding: literalText(field(literal, "keybinding")),
-        aliases: literalList(field(literal, "keybindingAliases")),
-      });
-    }
+    if (id) found.set(id, registrationOf(literal));
     at = APP_TSX.indexOf(marker, at + marker.length);
+  }
+  for (const literal of appCommandLiterals(APP_TSX)) {
+    const id = literalText(field(literal, "id"));
+    if (id) found.set(id, registrationOf(literal));
   }
   return found;
 }
@@ -74,7 +108,12 @@ export const APP_REGISTRATIONS = registrations();
  * between these numbers and what `APP_REGISTRATIONS` holds.
  */
 export const APP_TSX_COUNTS = {
-  registerCommandCalls: (APP_TSX.match(/registerCommand\(\{/g) ?? []).length,
+  registerCommandCalls:
+    (APP_TSX.match(/registerCommand\(\{/g) ?? []).length +
+    (APP_TSX.match(/defineAppCommands\("[a-z]+", \[[\s\S]*?\n {4}\]\);/g) ?? []).reduce(
+      (sum, block) => sum + (block.match(/\bid:\s*"/g) ?? []).length,
+      0,
+    ),
   keybindingFields: (APP_TSX.match(/\bkeybinding:\s*"/g) ?? []).length,
   aliasFields: (APP_TSX.match(/\bkeybindingAliases:/g) ?? []).length,
 };

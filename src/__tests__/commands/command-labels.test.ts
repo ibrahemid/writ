@@ -67,6 +67,28 @@ function registrations(): Registration[] {
       });
       at = text.indexOf(marker, at + marker.length);
     }
+    // An app's commands enter the registry while the app is on (ADR-042).
+    const appMarker = "defineAppCommands(";
+    at = text.indexOf(appMarker);
+    while (at !== -1) {
+      let depth = 0;
+      for (let i = text.indexOf("[", at + appMarker.length); i < text.length; i += 1) {
+        if (text[i] === "[") depth += 1;
+        else if (text[i] === "]") {
+          depth -= 1;
+          if (depth === 0) break;
+        } else if (text[i] === "{" && depth === 1) {
+          const literal = objectLiteral(text, i);
+          found.push({
+            file: relative(ROOT, file),
+            id: field(literal, "id"),
+            label: field(literal, "label"),
+          });
+          i += literal.length + 1;
+        }
+      }
+      at = text.indexOf(appMarker, at + appMarker.length);
+    }
   }
   return found;
 }

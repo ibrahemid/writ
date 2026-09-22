@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import type { Platform } from "../../lib/platform";
 
@@ -48,6 +48,13 @@ vi.mock("../../components/Sidebar/SidebarEmpty", () => ({ default: () => null })
 import Toolbar from "../../components/Toolbar/Toolbar";
 import Sidebar from "../../components/Sidebar/Sidebar";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
+import { configStore } from "../../stores/global/config";
+
+// The connections control is the Connections app's, drawn while it is on
+// (ADR-042 section 3).
+beforeEach(() => {
+  configStore.noteAppsOn(["connections"]);
+});
 
 const FORMAT_COMMANDS = [
   ["editor.toggleBold", "Bold"],

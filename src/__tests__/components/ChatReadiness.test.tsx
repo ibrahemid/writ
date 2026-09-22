@@ -29,7 +29,7 @@ vi.mock("../../components/SettingsModal/SettingsModal", () => ({
 
 import ChatReadiness from "../../components/Chat/ChatReadiness";
 
-const SETTINGS = { kind: "settings", section: "ai", setting: "ai.provider" } as const;
+const SETTINGS = { kind: "settings", section: "apps", setting: "ai.provider" } as const;
 
 const CASES: { readiness: Readiness; text: string; action: string }[] = [
   {
@@ -127,6 +127,6 @@ describe("the readiness line", () => {
     mocks.readiness.mockReturnValue(CASES[1].readiness);
     const { getByText } = render(() => <ChatReadiness />);
     fireEvent.click(getByText("Open settings"));
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.provider");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.provider");
   });
 });

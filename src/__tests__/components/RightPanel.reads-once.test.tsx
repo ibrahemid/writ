@@ -31,6 +31,8 @@ vi.mock("../../stores/global/config", async () => {
     configStore: {
       config: () => ({ panel: { open: true, width: 240 } }),
       setPanelWidth: vi.fn(),
+      // Connections and Graph on, so all three sections read.
+      isAppOn: () => true,
     },
   };
 });
