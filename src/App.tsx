@@ -13,7 +13,7 @@ import SearchPalette, { toggleSearchPalette } from "./components/SearchPalette/S
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
-import ActivityPanel, { closeActivity, openActivity } from "./components/Activity/ActivityPanel";
+import ActivityPanel, { openActivity } from "./components/Activity/ActivityPanel";
 import NoteHistoryPanel, { openNoteVersions } from "./components/NoteHistory/NoteHistoryPanel";
 import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
@@ -55,9 +55,9 @@ import { openContentSearch } from "./commands/search";
 import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerPromptCommands } from "./commands/prompt";
-import { registerAiCommands, unregisterAiCommands } from "./commands/ai";
 import { toggleChat } from "./commands/chat";
-import { defineAppCommands, definedAppCommandIds, syncAppCommands } from "./commands/app-commands";
+import { defineAppCommands, definedAppCommandIds } from "./commands/app-commands";
+import { followAppSwitches } from "./commands/app-switches";
 import { chatStore } from "./stores/global/chat";
 import { aiRewriteStore } from "./stores/global/ai-rewrite";
 import AiRewriteOverlay from "./components/AiRewrite/AiRewriteOverlay";
@@ -967,32 +967,8 @@ function AppShell() {
     if (focusAfterSidebarChange(win.sidebar.isOpen()) === "editor") win.editor.focusEditor();
   });
 
-  // An app's commands exist only while the app is on (ADR-042 section 3).
-  createEffect(() => syncAppCommands((app) => configStore.isAppOn(app)));
-
-  // Rewrite commands exist in the palette only while the feature is on.
-  createEffect(() => {
-    if (configStore.config().ai.rewrite.enabled) registerAiCommands();
-    else unregisterAiCommands();
-  });
-
-  // A pane turned off while it was showing takes its column with it.
-  createEffect(() => {
-    if (!configStore.isAppOn("chat")) win.chatPanel.hide();
-  });
-
-  // An app switched off closes what it had open, and keeps what it holds on
-  // disk for the next time it is on (ADR-042 section 3). The connections
-  // panel is left to its own render gate, so its open state comes back with it.
-  createEffect(() => {
-    if (!configStore.isAppOn("graph")) win.folderGraph.close();
-  });
-  createEffect(() => {
-    if (!configStore.isAppOn("programs")) closeActivity();
-  });
-  createEffect(() => {
-    if (!configStore.isAppOn("tags")) win.sidebar.selectTag(null);
-  });
+  // Commands come and go, and panels close, with the app switches.
+  followAppSwitches(win);
 
   return (
     <AppFrame>
@@ -1001,9 +977,7 @@ function AppShell() {
       <div class="app-body">
         <Sidebar />
         <EditorArea />
-        <Show when={configStore.isAppOn("connections")}>
-          <RightPanel />
-        </Show>
+        <RightPanel />
         <ChatPane />
         <FirstRunHint />
         {/* Last in the row and over both panes: the lights sit at the window's

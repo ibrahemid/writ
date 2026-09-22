@@ -34,6 +34,16 @@ import "./RightPanel.css";
  * blank column, and so does a panel opened with no note in front of it.
  */
 export default function RightPanel() {
+  // The panel is the Connections app: while it is off nothing of it mounts,
+  // and its open state is kept for when it is on again (ADR-042 section 3).
+  return (
+    <Show when={configStore.isAppOn("connections")}>
+      <ConnectionsPanel />
+    </Show>
+  );
+}
+
+function ConnectionsPanel() {
   const win = useWindow();
 
   /**
