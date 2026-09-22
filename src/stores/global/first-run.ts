@@ -119,7 +119,7 @@ export function createFirstRunStore() {
       await configStore.save(next);
     } catch {
       logFailure("the apps could not be saved");
-      showToast("Could not save your apps", "error");
+      showToast("Could not save the app switches", "error");
       return;
     } finally {
       setBusy(false);

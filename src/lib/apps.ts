@@ -21,13 +21,13 @@ export const APPS: readonly AppEntry[] = [
   {
     id: "rewrite",
     label: "Rewrite",
-    detail: "Proofread, rephrase or polish selected text from the right-click menu and the command palette.",
+    detail: "Proofread, rephrase and polish actions for selected text, in the right-click menu and the palette.",
     settingId: "ai.rewrite.enabled",
   },
   {
     id: "programs",
     label: "Connected programs",
-    detail: "Lets programs you approve read and write the files in your folder.",
+    detail: "Read and write access to your folder for programs you approve.",
     settingId: "mcp.enabled",
   },
   {
