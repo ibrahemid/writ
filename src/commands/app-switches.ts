@@ -1,6 +1,6 @@
 import { createEffect } from "solid-js";
-import { syncAppCommands } from "./app-commands";
-import { registerAiCommands, unregisterAiCommands } from "./ai";
+import { defineAppCommands, syncAppCommands } from "./app-commands";
+import { rewriteCommands } from "./ai";
 import { closeActivity } from "../components/Activity/ActivityPanel";
 import { configStore } from "../stores/global/config";
 import type { WindowState } from "../stores/window/createWindowState";
@@ -17,12 +17,8 @@ type SwitchedWindow = Pick<WindowState, "chatPanel" | "folderGraph" | "sidebar">
  * Called once from the window's owner; every effect is disposed with it.
  */
 export function followAppSwitches(win: SwitchedWindow): void {
+  defineAppCommands("rewrite", rewriteCommands());
   createEffect(() => syncAppCommands((app) => configStore.isAppOn(app)));
-
-  createEffect(() => {
-    if (configStore.isAppOn("rewrite")) registerAiCommands();
-    else unregisterAiCommands();
-  });
 
   createEffect(() => {
     if (!configStore.isAppOn("chat")) win.chatPanel.hide();

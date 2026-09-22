@@ -67,6 +67,7 @@ import { appMenuItems } from "../../components/TitleBar/AppMenu";
 import { MENU_COMMANDS } from "../../commands/menu-commands";
 import { toggleChat } from "../../commands/chat";
 import { REWRITE_COMMAND_IDS } from "../../commands/rewrite-actions";
+import { handleKeyDown, rebuildKeyMap, setKeybindingOverrides } from "../../commands/keybindings";
 import type { AppId } from "../../types/config";
 import type { PaletteResult } from "../../components/Palette/types";
 import Sidebar from "../../components/Sidebar/Sidebar";
@@ -181,6 +182,18 @@ describe("Rewrite", () => {
     for (const id of REWRITE_COMMAND_IDS) expect(paletteIds()).toContain(id);
     await turn("rewrite", false);
     for (const id of REWRITE_COMMAND_IDS) expect(paletteIds()).not.toContain(id);
+  });
+
+  it("answers a chord bound to it as soon as it is switched on", async () => {
+    const id = REWRITE_COMMAND_IDS[0];
+    setKeybindingOverrides({ [id]: "CmdOrCtrl+Alt+P" });
+    rebuildKeyMap();
+    const chord = () =>
+      handleKeyDown(new KeyboardEvent("keydown", { key: "p", metaKey: true, altKey: true }));
+    expect(chord()).toBe(false);
+    await turn("rewrite", true);
+    expect(chord()).toBe(true);
+    setKeybindingOverrides({});
   });
 
   it("has no menu item to take away", () => {

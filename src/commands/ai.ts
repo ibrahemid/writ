@@ -1,4 +1,3 @@
-import { registerCommand, unregisterCommand } from "./registry";
 import { windowRegistry } from "../stores/global/window-registry";
 import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
 import { showToast } from "../components/Notifications/Toast";
@@ -6,7 +5,8 @@ import { openSettings } from "../components/SettingsModal/SettingsModal";
 import { aiRewriteStore, type AnchoredRange } from "../stores/global/ai-rewrite";
 import { aiConnectionStore } from "../stores/global/ai-connection";
 import { configStore } from "../stores/global/config";
-import { REWRITE_ACTIONS, REWRITE_COMMAND_IDS } from "./rewrite-actions";
+import { REWRITE_ACTIONS } from "./rewrite-actions";
+import type { Command } from "../types/commands";
 import type { AiEndpointState } from "../stores/global/ai-rewrite";
 import type { AiAction } from "../services/tauri";
 
@@ -125,26 +125,15 @@ export async function runRewriteAction(action: AiAction, presetRange?: AnchoredR
   aiRewriteStore.start(action, range);
 }
 
-let registered = false;
-
-export function registerAiCommands() {
-  if (registered) return;
-  registered = true;
-
-  for (const action of REWRITE_ACTIONS) {
-    registerCommand({
-      id: action.commandId,
-      label: action.label,
-      description: action.description,
-      keywords: action.keywords,
-      scope: "app",
-      execute: () => void runRewriteAction(action.id),
-    });
-  }
-}
-
-export function unregisterAiCommands() {
-  if (!registered) return;
-  registered = false;
-  for (const id of REWRITE_COMMAND_IDS) unregisterCommand(id);
+/** The rewrite commands, one per action. They enter the registry through
+ * `defineAppCommands`, so they follow the Rewrite switch like every app's. */
+export function rewriteCommands(): Command[] {
+  return REWRITE_ACTIONS.map((action) => ({
+    id: action.commandId,
+    label: action.label,
+    description: action.description,
+    keywords: action.keywords,
+    scope: "app",
+    execute: () => void runRewriteAction(action.id),
+  }));
 }

@@ -3,7 +3,8 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { getAllCommands, unregisterCommand } from "../../commands/registry";
 import { registerEditorCommands, EDITOR_COMMANDS } from "../../editor/editor-commands";
-import { registerAiCommands, unregisterAiCommands } from "../../commands/ai";
+import { rewriteCommands } from "../../commands/ai";
+import { registerCommand as registerRewrite, unregisterCommand as unregisterRewrite } from "../../commands/registry";
 import { REWRITE_ACTIONS } from "../../commands/rewrite-actions";
 import { MENU_COMMANDS } from "../../commands/menu-commands";
 
@@ -105,7 +106,7 @@ function literalText(label: string): string | null {
 }
 
 afterEach(() => {
-  unregisterAiCommands();
+  rewriteCommands().forEach((c) => unregisterRewrite(c.id));
   for (const spec of EDITOR_COMMANDS) unregisterCommand(spec.id);
 });
 
@@ -136,7 +137,7 @@ describe("command labels", () => {
 
   it("labels every command the palette would list", () => {
     registerEditorCommands(() => null);
-    registerAiCommands();
+    rewriteCommands().forEach(registerRewrite);
     const commands = getAllCommands();
     expect(commands.length).toBeGreaterThan(0);
     for (const command of commands) expect(command.label.trim(), command.id).not.toBe("");

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { registerAiCommands, unregisterAiCommands } from "../../commands/ai";
+import { rewriteCommands } from "../../commands/ai";
+import { registerCommand as registerRewrite, unregisterCommand as unregisterRewrite } from "../../commands/registry";
 import { getAllCommands } from "../../commands/registry";
 import { REWRITE_ACTIONS, REWRITE_COMMAND_IDS } from "../../commands/rewrite-actions";
 
@@ -8,10 +9,10 @@ import { REWRITE_ACTIONS, REWRITE_COMMAND_IDS } from "../../commands/rewrite-act
 const AI_IDS = [...REWRITE_COMMAND_IDS].sort();
 
 describe("rewrite command registration", () => {
-  afterEach(() => unregisterAiCommands());
+  afterEach(() => rewriteCommands().forEach((c) => unregisterRewrite(c.id)));
 
   it("registers every rewrite command in the table", () => {
-    registerAiCommands();
+    rewriteCommands().forEach(registerRewrite);
     const ids = getAllCommands()
       .filter((c) => c.id.startsWith("ai."))
       .map((c) => c.id)
@@ -34,7 +35,7 @@ describe("rewrite command registration", () => {
   it("registers them app-scoped so the command palette lists them", () => {
     // The palette only shows commands with scope === "app" (see CommandPalette).
     // Editor-scoped commands would register but never appear — the smoke bug.
-    registerAiCommands();
+    rewriteCommands().forEach(registerRewrite);
     const paletteVisible = getAllCommands().filter((c) => c.scope === "app");
     for (const id of AI_IDS) {
       expect(paletteVisible.some((c) => c.id === id)).toBe(true);
@@ -42,8 +43,8 @@ describe("rewrite command registration", () => {
   });
 
   it("unregisters live so disabling removes them from the palette", () => {
-    registerAiCommands();
-    unregisterAiCommands();
+    rewriteCommands().forEach(registerRewrite);
+    rewriteCommands().forEach((c) => unregisterRewrite(c.id));
     const remaining = getAllCommands().filter((c) => c.id.startsWith("ai."));
     expect(remaining).toEqual([]);
   });
