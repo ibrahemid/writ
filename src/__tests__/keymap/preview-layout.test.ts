@@ -89,10 +89,10 @@ describe("preview layout keymap", () => {
     win.layout.setLocal("K1", { kind: "inline" });
 
     run("preview.cycleLayout");
-    expect(win.layout.get("K1")).toEqual({ kind: "source" });
+    expect(win.layout.get("K1", "markdown")).toEqual({ kind: "source" });
 
     run("preview.cycleLayout");
-    expect(win.layout.get("K1")).toEqual({ kind: "inline" });
+    expect(win.layout.get("K1", "markdown")).toEqual({ kind: "inline" });
   });
 
   it("leaves the html cycle unchanged", () => {
@@ -100,13 +100,13 @@ describe("preview layout keymap", () => {
     win.layout.setLocal("K2", { kind: "source" });
 
     run("preview.cycleLayout");
-    expect(win.layout.get("K2").kind).toBe("split");
+    expect(win.layout.get("K2", "html").kind).toBe("split");
 
     run("preview.cycleLayout");
-    expect(win.layout.get("K2")).toEqual({ kind: "preview" });
+    expect(win.layout.get("K2", "html")).toEqual({ kind: "preview" });
 
     run("preview.cycleLayout");
-    expect(win.layout.get("K2")).toEqual({ kind: "source" });
+    expect(win.layout.get("K2", "html")).toEqual({ kind: "source" });
   });
 
   it("swap orientation is a no-op on an inline markdown buffer", () => {
@@ -114,7 +114,7 @@ describe("preview layout keymap", () => {
     win.layout.setLocal("K3", { kind: "inline" });
 
     run("preview.swapOrientation");
-    expect(win.layout.get("K3")).toEqual({ kind: "inline" });
+    expect(win.layout.get("K3", "markdown")).toEqual({ kind: "inline" });
   });
 
   it("swap orientation still flips an html split", () => {
@@ -122,7 +122,7 @@ describe("preview layout keymap", () => {
     win.layout.setLocal("K4", defaultSplit());
 
     run("preview.swapOrientation");
-    const flipped = win.layout.get("K4");
+    const flipped = win.layout.get("K4", "html");
     expect(flipped.kind === "split" && flipped.orientation).toBe("horizontal");
   });
 
@@ -131,13 +131,13 @@ describe("preview layout keymap", () => {
     win.layout.setLocal("K5", { kind: "inline" });
 
     run("preview.toggleFullscreen");
-    expect(win.layout.get("K5")).toEqual({ kind: "inline" });
+    expect(win.layout.get("K5", "markdown")).toEqual({ kind: "inline" });
 
     run("preview.exitFullscreen");
-    expect(win.layout.get("K5")).toEqual({ kind: "inline" });
+    expect(win.layout.get("K5", "markdown")).toEqual({ kind: "inline" });
 
     run("preview.resetRatio");
-    expect(win.layout.get("K5")).toEqual({ kind: "inline" });
+    expect(win.layout.get("K5", "markdown")).toEqual({ kind: "inline" });
   });
 
   it("reset ratio still re-derives an html split", () => {
@@ -145,6 +145,6 @@ describe("preview layout keymap", () => {
     win.layout.setLocal("K6", { kind: "source" });
 
     run("preview.resetRatio");
-    expect(win.layout.get("K6")).toEqual(defaultSplit());
+    expect(win.layout.get("K6", "html")).toEqual(defaultSplit());
   });
 });

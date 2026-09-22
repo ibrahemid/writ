@@ -3,6 +3,7 @@ import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
+import { configStore } from "../../stores/global/config";
 import type { LayoutMode } from "../../lib/preview-layout";
 import { getCommand } from "../../commands/registry";
 import { WIKILINK_CLASS } from "../../editor/wikilink-decorations";
@@ -64,12 +65,15 @@ function HoldLayout(props: { bufferId: string; layout: LayoutMode }) {
   return null;
 }
 
-async function mount(buffer: BufferDocument, layout: LayoutMode = { kind: "inline" }) {
+// `layout` null leaves the buffer unresolved, which is what an open really
+// looks like: PreviewLayout hydrates off an async read and the editor mounts
+// before it answers.
+async function mount(buffer: BufferDocument, layout: LayoutMode | null = { kind: "inline" }) {
   const EditorInstance = (await import("../../components/Editor/EditorInstance")).default;
   const [buf] = createSignal(buffer);
   const result = render(() => (
     <WindowProvider windowId={9501}>
-      <HoldLayout bufferId={buffer.id} layout={layout} />
+      {layout ? <HoldLayout bufferId={buffer.id} layout={layout} /> : null}
       <EditorInstance buffer={buf()} />
     </WindowProvider>
   ));
@@ -85,6 +89,31 @@ describe("EditorInstance: the markdown extensions load for a markdown file", () 
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function markdownDefault(setting: "inline" | "source") {
+    const held = configStore.config();
+    vi.spyOn(configStore, "config").mockReturnValue({
+      ...held,
+      preview: { ...held.preview, default_layout_markdown: setting },
+    });
+  }
+
+  it("decorates a .md buffer whose layout has not resolved yet", async () => {
+    markdownDefault("inline");
+    bufferContent.set("G8", MD_SOURCE);
+    const { container } = await mount(mockBuffer("G8", "plan.md", "/files/plan.md"), null);
+
+    expect(container.querySelector(".cm-line-md-h1")).not.toBeNull();
+  });
+
+  it("leaves a .md buffer undecorated where the default layout is source", async () => {
+    markdownDefault("source");
+    bufferContent.set("G9", MD_SOURCE);
+    const { container } = await mount(mockBuffer("G9", "plan.md", "/files/plan.md"), null);
+
+    expect(container.querySelector(".cm-line-md-h1")).toBeNull();
   });
 
   it("loads the markdown extensions for a .md buffer", async () => {

@@ -53,7 +53,8 @@ export function registerPreviewKeymap(): void {
       const w = activeWindow();
       const id = activeBufferId();
       if (!w || !id) return;
-      const next = nextCycleLayout(w.layout.get(id), contentTypeOf(id));
+      const contentType = contentTypeOf(id);
+      const next = nextCycleLayout(w.layout.get(id, contentType), contentType);
       w.layout.set(id, bufferPath(id), next);
     },
   });
@@ -79,7 +80,7 @@ export function registerPreviewKeymap(): void {
       const w = activeWindow();
       const id = activeBufferId();
       if (!w || !id || !hasSplitLayouts(id)) return;
-      const current = w.layout.get(id);
+      const current = w.layout.get(id, contentTypeOf(id));
       const path = bufferPath(id);
       if (current.kind === "preview") {
         w.layout.restorePrevious(id, path);
@@ -100,7 +101,7 @@ export function registerPreviewKeymap(): void {
       const w = activeWindow();
       const id = activeBufferId();
       if (!w || !id || !hasSplitLayouts(id)) return;
-      if (w.layout.get(id).kind !== "preview") return;
+      if (w.layout.get(id, contentTypeOf(id)).kind !== "preview") return;
       w.layout.restorePrevious(id, bufferPath(id));
     },
   });
@@ -118,7 +119,7 @@ export function registerPreviewKeymap(): void {
       const w = activeWindow();
       const id = activeBufferId();
       if (!w || !id) return;
-      const current = w.layout.get(id);
+      const current = w.layout.get(id, contentTypeOf(id));
       if (current.kind !== "split") return;
       const swapped: LayoutMode = {
         ...current,
@@ -141,7 +142,7 @@ export function registerPreviewKeymap(): void {
       const w = activeWindow();
       const id = activeBufferId();
       if (!w || !id || !hasSplitLayouts(id)) return;
-      const current = w.layout.get(id);
+      const current = w.layout.get(id, contentTypeOf(id));
       if (current.kind !== "split") {
         w.layout.set(id, bufferPath(id), defaultSplit());
         return;

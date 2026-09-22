@@ -208,7 +208,7 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
 
     await bufferRegistry.renameBuffer("R1", "plan.md");
 
-    await waitFor(() => expect(win!.layout.get("R1")).toEqual({ kind: "inline" }), {
+    await waitFor(() => expect(win!.layout.get("R1", "markdown")).toEqual({ kind: "inline" }), {
       timeout: 2000,
     });
   });

@@ -3,6 +3,8 @@
 // without crossing the store-layer boundary — the runtime store state still
 // lives in layout-store.
 
+import type { MarkdownLayout } from "../types/config";
+
 export type SplitOrientation = "vertical" | "horizontal";
 
 export type LayoutMode =
@@ -22,6 +24,11 @@ export const DEFAULT_RATIO = 0.5;
 /** Default split for content types that combine authoring with preview. */
 export function defaultSplit(): LayoutMode {
   return { kind: "split", ratio: DEFAULT_RATIO, orientation: "vertical" };
+}
+
+/** The layout a markdown buffer takes before a persisted one resolves. */
+export function markdownDefaultLayout(setting: MarkdownLayout): LayoutMode {
+  return setting === "source" ? { kind: "source" } : { kind: "inline" };
 }
 
 /**

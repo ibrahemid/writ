@@ -2,8 +2,10 @@ import { createSignal } from "solid-js";
 import {
   layoutFromPersisted,
   layoutRatio,
+  markdownDefaultLayout,
   type LayoutMode,
 } from "../../lib/preview-layout";
+import { configStore } from "../global/config";
 import { previewGetLayout, previewSetLayout } from "../../services/tauri";
 
 // Per-window active layout per buffer. The pure types + helpers live
@@ -25,9 +27,19 @@ export function createLayoutStore(deps: { windowId: number }) {
     setVersion((v) => v + 1);
   }
 
-  function get(bufferId: string): LayoutMode {
+  /**
+   * The buffer's layout. A markdown buffer nothing has resolved yet answers
+   * the configured default rather than source: the editor mounts with this,
+   * and resolving it a round trip later is a flash of raw markup.
+   */
+  function get(bufferId: string, contentType: string | null): LayoutMode {
     void version();
-    return layouts.get(bufferId) ?? DEFAULT_LAYOUT;
+    const resolved = layouts.get(bufferId);
+    if (resolved) return resolved;
+    if (contentType === "markdown") {
+      return markdownDefaultLayout(configStore.config().preview.default_layout_markdown);
+    }
+    return DEFAULT_LAYOUT;
   }
 
   function setLocal(bufferId: string, layout: LayoutMode): void {

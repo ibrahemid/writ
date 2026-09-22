@@ -20,7 +20,7 @@ export default function PreviewScriptsToggle() {
   const visible = createMemo(() => {
     const buf = activeBuffer();
     if (!buf || !rendererRegistry.hasRenderer(contentTypeForBuffer(buf))) return false;
-    const kind = win.layout.get(buf.id).kind;
+    const kind = win.layout.get(buf.id, contentTypeForBuffer(buf)).kind;
     return kind === "split" || kind === "preview";
   });
 

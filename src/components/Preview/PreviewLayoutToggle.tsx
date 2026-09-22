@@ -77,13 +77,13 @@ export default function PreviewLayoutToggle() {
 
   const currentKind = createMemo<LayoutKind>(() => {
     const buf = activeBuffer();
-    return buf ? win.layout.get(buf.id).kind : "source";
+    return buf ? win.layout.get(buf.id, contentTypeForBuffer(buf)).kind : "source";
   });
 
   function select(kind: LayoutKind) {
     const buf = activeBuffer();
     if (!buf) return;
-    const current = win.layout.get(buf.id);
+    const current = win.layout.get(buf.id, contentTypeForBuffer(buf));
     let next: LayoutMode;
     if (kind === "split") {
       // Preserve an existing ratio; otherwise default to 50/50.

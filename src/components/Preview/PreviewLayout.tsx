@@ -8,7 +8,11 @@ import { configStore } from "../../stores/global/config";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { contentTypeForBuffer } from "../../lib/content-type";
-import { defaultSplit, type LayoutMode } from "../../lib/preview-layout";
+import {
+  defaultSplit,
+  markdownDefaultLayout,
+  type LayoutMode,
+} from "../../lib/preview-layout";
 import "./preview-chrome.css";
 
 interface Props {
@@ -37,7 +41,7 @@ export default function PreviewLayout(props: Props) {
     return ct !== null && rendererRegistry.hasRenderer(ct);
   });
   const layout = createMemo<LayoutMode>(() =>
-    props.buffer ? win.layout.get(props.buffer.id) : SOURCE_LAYOUT,
+    props.buffer ? win.layout.get(props.buffer.id, contentType()) : SOURCE_LAYOUT,
   );
 
   // Resolve initial layout: persisted (source-backed) → content-type config
@@ -69,10 +73,7 @@ export default function PreviewLayout(props: Props) {
     }
     const cfg = configStore.config().preview;
     if (ct === "markdown") {
-      win.layout.setLocal(
-        buf.id,
-        cfg.default_layout_markdown === "source" ? { kind: "source" } : { kind: "inline" },
-      );
+      win.layout.setLocal(buf.id, markdownDefaultLayout(cfg.default_layout_markdown));
       return;
     }
     const def = cfg.default_layout_html;

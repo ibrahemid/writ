@@ -279,7 +279,7 @@ export default function EditorInstance(props: Props) {
   // buffer of another type has no markdown to render.
   function typographyExtension(markdown: boolean, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
-    if (markdown && win.layout.get(props.buffer.id).kind === "inline") {
+    if (markdown && win.layout.get(props.buffer.id, "markdown").kind === "inline") {
       return markdownInlineExtension(imageDeps);
     }
     return [];
@@ -756,7 +756,7 @@ export default function EditorInstance(props: Props) {
   // it: switching a markdown buffer between inline and source swaps the
   // extension without reloading the buffer.
   createEffect(on(
-    () => win.layout.get(props.buffer.id).kind,
+    () => win.layout.get(props.buffer.id, isMarkdown() ? "markdown" : null).kind,
     () => {
       const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
       view?.dispatch({
