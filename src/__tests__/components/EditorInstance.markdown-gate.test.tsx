@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
-import WindowProvider from "../../components/WindowProvider/WindowProvider";
+import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
+import type { LayoutMode } from "../../lib/preview-layout";
 import { getCommand } from "../../commands/registry";
 import { WIKILINK_CLASS } from "../../editor/wikilink-decorations";
 
 // The Markdown extensions load for a Markdown file, keyed on the file's
 // extension rather than on the detected language: a scratch buffer with no
-// extension detects as markdown but is not a Markdown file.
+// extension detects as markdown but is not a Markdown file. The decorations
+// additionally need the inline layout, which PreviewLayout resolves in the
+// app and this harness sets directly.
 
 const bufferContent = new Map<string, string>();
 
@@ -54,11 +57,19 @@ async function flushMicrotasks(n = 20) {
   for (let i = 0; i < n; i++) await Promise.resolve();
 }
 
-async function mount(buffer: BufferDocument) {
+// Renders before the editor, so the layout is in place by the time the view
+// is built. PreviewLayout does this in the app, off an async read.
+function HoldLayout(props: { bufferId: string; layout: LayoutMode }) {
+  useWindow().layout.setLocal(props.bufferId, props.layout);
+  return null;
+}
+
+async function mount(buffer: BufferDocument, layout: LayoutMode = { kind: "inline" }) {
   const EditorInstance = (await import("../../components/Editor/EditorInstance")).default;
   const [buf] = createSignal(buffer);
   const result = render(() => (
     <WindowProvider windowId={9501}>
+      <HoldLayout bufferId={buffer.id} layout={layout} />
       <EditorInstance buffer={buf()} />
     </WindowProvider>
   ));
@@ -83,6 +94,42 @@ describe("EditorInstance: the markdown extensions load for a markdown file", () 
     expect(container.querySelector(".cm-line-md-h1")).not.toBeNull();
     expect(container.querySelector(`.${WIKILINK_CLASS}`)).not.toBeNull();
     expect(getCommand("editor.toggleInlineCode")).toBeDefined();
+  });
+
+  it("loads no markdown decorations for a markdown buffer laid out as source", async () => {
+    bufferContent.set("G6", MD_SOURCE);
+    const { container } = await mount(mockBuffer("G6", "plan.md", "/files/plan.md"), {
+      kind: "source",
+    });
+
+    expect(container.querySelector(".cm-line-md-h1")).toBeNull();
+    // The wikilink layer is the file type's, not the layout's.
+    expect(container.querySelector(`.${WIKILINK_CLASS}`)).not.toBeNull();
+  });
+
+  it("puts the decorations back when the layout returns to inline", async () => {
+    bufferContent.set("G7", MD_SOURCE);
+    const buffer = mockBuffer("G7", "plan.md", "/files/plan.md");
+    const EditorInstance = (await import("../../components/Editor/EditorInstance")).default;
+    const [buf] = createSignal(buffer);
+    let setLayout: ((layout: LayoutMode) => void) | null = null;
+    function Harness() {
+      const win = useWindow();
+      win.layout.setLocal(buffer.id, { kind: "source" });
+      setLayout = (layout) => win.layout.setLocal(buffer.id, layout);
+      return null;
+    }
+    const { container } = render(() => (
+      <WindowProvider windowId={9501}>
+        <Harness />
+        <EditorInstance buffer={buf()} />
+      </WindowProvider>
+    ));
+    await flushMicrotasks();
+    expect(container.querySelector(".cm-line-md-h1")).toBeNull();
+    setLayout!({ kind: "inline" });
+    await flushMicrotasks();
+    expect(container.querySelector(".cm-line-md-h1")).not.toBeNull();
   });
 
   it("loads no markdown extension for a .txt buffer", async () => {

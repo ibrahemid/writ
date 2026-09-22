@@ -1,5 +1,17 @@
-import { StateField, type EditorState } from "@codemirror/state";
-import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
+import {
+  StateEffect,
+  StateField,
+  type EditorState,
+  type Extension,
+} from "@codemirror/state";
+import {
+  Decoration,
+  EditorView,
+  ViewPlugin,
+  type DecorationSet,
+  type PluginValue,
+  type ViewUpdate,
+} from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 
 // Minimal structural types matching @lezer/common, mirroring the shape used
@@ -111,19 +123,35 @@ export function collapsibleFences(
   return found;
 }
 
-function fencesOf(state: EditorState): FenceLines[] {
+/** The stretch of the document the fences are known for. */
+export interface FenceWindow {
+  from: number;
+  to: number;
+}
+
+/**
+ * Widens the window the fences are scanned for.
+ *
+ * Dispatched by the companion view plugin: a state field cannot see the
+ * viewport, and scanning a whole 2 MB document on every keystroke costs more
+ * than a frame.
+ */
+export const setFenceWindow = StateEffect.define<FenceWindow>();
+
+function fencesOf(state: EditorState, window: FenceWindow): FenceLines[] {
   const tree = syntaxTree(state);
   return collapsibleFences(
     (from, to, cb) => tree.iterate({ from, to, enter: cb }),
     (pos) => state.doc.lineAt(pos),
-    0,
-    state.doc.length,
+    window.from,
+    window.to,
   );
 }
 
 const fenceReplace = Decoration.replace({});
 
 interface FenceState {
+  window: FenceWindow;
   fences: FenceLines[];
   decorations: DecorationSet;
 }
@@ -150,23 +178,43 @@ function decorationsFor(
 /**
  * Takes the fence lines of a closed fenced block off the screen.
  *
- * A state field rather than a part of the markdown view plugin: a decoration
- * that replaces a line break may not come from a plugin, which is also why
- * this one is not scoped to the viewport. The scan stops at every inline
- * node, so the walk is over block nodes only.
+ * A state field rather than a part of the markdown view plugin, because a
+ * decoration that replaces a line break may not come from a plugin. The
+ * viewport reaches it as an effect instead: scanning a 2 MB document on
+ * every keystroke costs more than a frame, and only what is on screen has a
+ * fence to hide.
+ *
+ * Until the first window arrives the field scans what the parser has
+ * reached, which on a large document is its opening and on a small one is
+ * all of it.
  */
-export const fenceCollapse: StateField<FenceState> = StateField.define<FenceState>({
+export const fenceCollapseField: StateField<FenceState> = StateField.define<FenceState>({
   create(state) {
-    const fences = fencesOf(state);
-    return { fences, decorations: decorationsFor(fences, state.selection) };
+    const window = { from: 0, to: Math.min(syntaxTree(state).length, state.doc.length) };
+    const fences = fencesOf(state, window);
+    return { window, fences, decorations: decorationsFor(fences, state.selection) };
   },
   update(value, tr) {
-    if (tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
-      const fences = fencesOf(tr.state);
-      return { fences, decorations: decorationsFor(fences, tr.state.selection) };
+    let window = value.window;
+    for (const effect of tr.effects) {
+      if (effect.is(setFenceWindow)) window = effect.value;
+    }
+    const moved = window !== value.window;
+    if (moved || tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
+      if (!moved) {
+        // The window's positions are the old document's; a change under them
+        // moves the text they name.
+        window = {
+          from: tr.changes.mapPos(window.from, -1),
+          to: tr.changes.mapPos(window.to, 1),
+        };
+      }
+      const fences = fencesOf(tr.state, window);
+      return { window, fences, decorations: decorationsFor(fences, tr.state.selection) };
     }
     if (!tr.startState.selection.eq(tr.state.selection)) {
       return {
+        window,
         fences: value.fences,
         decorations: decorationsFor(value.fences, tr.state.selection),
       };
@@ -175,3 +223,44 @@ export const fenceCollapse: StateField<FenceState> = StateField.define<FenceStat
   },
   provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
 });
+
+/**
+ * Tells the field which stretch of the document is on screen.
+ *
+ * Dispatched after the update it reads, because CodeMirror refuses a
+ * dispatch from inside one, and only when the window actually moved, so the
+ * pair cannot feed each other.
+ */
+class FenceWindowPlugin implements PluginValue {
+  private destroyed = false;
+
+  constructor(private readonly view: EditorView) {
+    this.publish();
+  }
+
+  update(update: ViewUpdate) {
+    if (update.viewportChanged || update.docChanged) this.publish();
+  }
+
+  destroy() {
+    this.destroyed = true;
+  }
+
+  private publish() {
+    const ranges = this.view.visibleRanges;
+    if (ranges.length === 0) return;
+    const next = { from: ranges[0].from, to: ranges[ranges.length - 1].to };
+    const held = this.view.state.field(fenceCollapseField, false)?.window;
+    if (held && held.from === next.from && held.to === next.to) return;
+    queueMicrotask(() => {
+      if (this.destroyed) return;
+      this.view.dispatch({ effects: setFenceWindow.of(next) });
+    });
+  }
+}
+
+/** The fence collapse: the field that hides them and the window it reads. */
+export const fenceCollapse: Extension = [
+  fenceCollapseField,
+  ViewPlugin.define((view) => new FenceWindowPlugin(view)),
+];

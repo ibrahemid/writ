@@ -228,3 +228,23 @@
   color: var(--writ-fg-muted);
   font-size: 0.875em;
 }
+
+/* Tables and html blocks are styled where they are written, never rendered.
+   A rendered table needs a column-width pass over the whole block and a
+   replacement spanning its line breaks, which leaves no way to edit the text
+   inside it; arbitrary html inside the editor webview would need a hole in
+   the window's own policy, which is what the preview pane is for. Mono with
+   tabular figures keeps the pipes of a table in one column. */
+.cm-editor .cm-md-table {
+  font-family: var(--writ-font-mono);
+  font-size: 0.875em;
+  font-variant-numeric: tabular-nums;
+}
+.cm-editor .cm-md-table-delimiter,
+.cm-editor .cm-md-table-delimiter span {
+  color: var(--writ-fg-muted);
+}
+.cm-editor .cm-md-html {
+  font-family: var(--writ-font-mono);
+  font-size: 0.875em;
+}

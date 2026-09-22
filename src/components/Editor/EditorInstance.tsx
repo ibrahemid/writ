@@ -275,9 +275,12 @@ export default function EditorInstance(props: Props) {
       linkStore.inlineImage(props.buffer.source_path ?? null, reference),
   };
 
+  // The layout decides. A markdown buffer laid out inline is the only one
+  // that carries the decorations; its source layout is the raw text, and a
+  // buffer of another type has no markdown to render.
   function typographyExtension(markdown: boolean, mode: FileOpenMode): Extension {
     if (mode.kind !== "Normal") return [];
-    if (markdown && configStore.config().editor.markdown_typography) {
+    if (markdown && win.layout.get(props.buffer.id).kind === "inline") {
       return markdownInlineExtension(imageDeps);
     }
     return [];
@@ -732,11 +735,9 @@ export default function EditorInstance(props: Props) {
     { defer: true },
   ));
 
-  // Reapply the typography and editing compartments whenever the config flags
-  // or detected language change at runtime, so the open buffer responds
-  // instantly.
+  // Reapply the editing compartment whenever the config flag or the detected
+  // language changes at runtime, so the open buffer responds instantly.
   createEffect(() => {
-    const typographyEnabled = configStore.config().editor.markdown_typography;
     const editingEnabled = configStore.config().editor.markdown_editing;
     const lang = win.editor.language();
     const markdown = isMarkdown();
@@ -744,9 +745,6 @@ export default function EditorInstance(props: Props) {
     if (mode && mode.kind !== "Normal") return;
     view?.dispatch({
       effects: [
-        typographyCompartment.reconfigure(
-          markdown && typographyEnabled ? markdownInlineExtension(imageDeps) : [],
-        ),
         codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
         codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         editingCompartment.reconfigure(
@@ -755,6 +753,20 @@ export default function EditorInstance(props: Props) {
       ],
     });
   });
+
+  // The layout is what turns the decorations on, so the compartment follows
+  // it: switching a markdown buffer between inline and source swaps the
+  // extension without reloading the buffer.
+  createEffect(on(
+    () => win.layout.get(props.buffer.id).kind,
+    () => {
+      const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
+      view?.dispatch({
+        effects: typographyCompartment.reconfigure(typographyExtension(isMarkdown(), mode)),
+      });
+    },
+    { defer: true },
+  ));
 
   // Re-apply spell check when the master switch or dialect changes. Buffer
   // switches and file-mode changes are handled in loadBuffer.

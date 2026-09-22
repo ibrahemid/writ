@@ -5,6 +5,7 @@ import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree, syntaxHighlighting } from "@codemirror/language";
 import { writHighlight } from "../../components/Editor/cm-theme";
 import {
+  activeLineStarts,
   buildMarkdownDecorations,
   markdownTypographyPlugin,
   toggleTaskAt,
@@ -35,7 +36,12 @@ function buildForDoc(
 ): DecorationSpec[] {
   const state = EditorState.create({ doc, extensions: [markdown({ base: markdownLanguage })] });
   const tree = treeFor(state);
-  const cursors = new ReadonlySet(cursorPositions);
+  const cursors = activeLineStarts(
+    cursorPositions.map((pos) => ({ from: pos, to: pos })),
+    (pos) => state.doc.lineAt(pos),
+    0,
+    doc.length,
+  );
   return buildMarkdownDecorations(
     (from, to, cb) => tree.iterate({ from, to, enter: cb }),
     (pos) => state.doc.lineAt(pos),

@@ -35,6 +35,11 @@ command -v "${PNPM}" >/dev/null 2>&1 || fail "pnpm not found; set PNPM to its pa
 WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
     src/__tests__/services/language-detect.test.ts
 
+step "perf gate: inline markdown decorations (frontend)"
+WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
+    --disable-console-intercept \
+    src/__tests__/editor/markdown-inline-perf.test.ts
+
 step "perf gate: storage budget (writ-storage, release)"
 WRIT_PERF_GATE=1 cargo test \
     --release \

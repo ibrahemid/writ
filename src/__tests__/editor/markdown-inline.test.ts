@@ -4,9 +4,11 @@ import { EditorView, Decoration } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { ensureSyntaxTree } from "@codemirror/language";
 import {
+  activeLineStarts,
   buildMarkdownDecorations,
   type DecorationSpec,
 } from "../../editor/markdown-typography";
+import { buildMarkdownCorpus } from "./fixtures/markdown-corpus";
 import {
   InlineImageWidget,
   imageLabel,
@@ -17,7 +19,11 @@ import {
   type InlineImageState,
 } from "../../editor/markdown-images";
 import { inlineLinkTargetAt, findLinkTargets } from "../../editor/link-layer";
-import { fenceCollapse } from "../../editor/markdown-fences";
+import {
+  fenceCollapse,
+  fenceCollapseField,
+  setFenceWindow,
+} from "../../editor/markdown-fences";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -49,7 +55,12 @@ function buildForDoc(
     (from, to, cb) => tree.iterate({ from, to, enter: cb }),
     (pos) => state.doc.lineAt(pos),
     (from, to) => state.doc.sliceString(from, to),
-    new Set(cursorPositions),
+    activeLineStarts(
+      cursorPositions.map((pos) => ({ from: pos, to: pos })),
+      (pos) => state.doc.lineAt(pos),
+      0,
+      doc.length,
+    ),
     0,
     doc.length,
     images,
@@ -344,7 +355,7 @@ describe("fenced code fences", () => {
     });
     ensureSyntaxTree(state, source.length, PARSE_TIMEOUT_MS);
     const ranges: { from: number; to: number }[] = [];
-    state.field(fenceCollapse).decorations.between(0, source.length, (from, to) => {
+    state.field(fenceCollapseField).decorations.between(0, source.length, (from, to) => {
       ranges.push({ from, to });
     });
     return ranges;
@@ -422,9 +433,210 @@ describe("fenced code fences", () => {
     view.destroy();
   });
 
+  it("scans only the window the view publishes", () => {
+    const state = EditorState.create({
+      doc,
+      extensions: [markdown({ base: markdownLanguage }), fenceCollapseField] as never,
+      selection: { anchor: doc.indexOf("after") },
+    });
+    ensureSyntaxTree(state, doc.length, PARSE_TIMEOUT_MS);
+    const narrowed = state.update({
+      effects: setFenceWindow.of({ from: 0, to: openLine - 1 }),
+    }).state;
+    const ranges: { from: number; to: number }[] = [];
+    narrowed
+      .field(fenceCollapseField)
+      .decorations.between(0, doc.length, (from, to) => void ranges.push({ from, to }));
+    expect(ranges).toEqual([]);
+
+    const widened = narrowed.update({
+      effects: setFenceWindow.of({ from: 0, to: doc.length }),
+    }).state;
+    widened
+      .field(fenceCollapseField)
+      .decorations.between(0, doc.length, (from, to) => void ranges.push({ from, to }));
+    expect(ranges).toEqual([
+      { from: openLine - 1, to: openEnd },
+      { from: closeLine - 1, to: closeEnd },
+    ]);
+  });
+
+  it("publishes the visible range from a mounted view", async () => {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        extensions: [markdown({ base: markdownLanguage }), fenceCollapse] as never,
+        selection: { anchor: doc.indexOf("after") },
+      }),
+      parent: document.body,
+    });
+    for (let tick = 0; tick < 4; tick++) await Promise.resolve();
+    expect(view.state.field(fenceCollapseField).window).toEqual({
+      from: view.visibleRanges[0].from,
+      to: view.visibleRanges[view.visibleRanges.length - 1].to,
+    });
+    view.destroy();
+  });
+
   it("leaves the fence text out of the decorated lines when it collapses", () => {
     const specs = buildForDoc(doc, [doc.indexOf("after")]);
     expect(specs.some((s) => classesOf(s).includes("cm-md-code-info"))).toBe(false);
     expect(specs.some((s) => classesOf(s).includes("cm-md-marker-dim"))).toBe(false);
+  });
+});
+
+// ─── The active lines of a selection ──────────────────────────────────────
+
+describe("activeLineStarts", () => {
+  const doc = "one\ntwo\nthree\nfour\nfive\n";
+  const state = EditorState.create({ doc });
+  const lineAt = (pos: number) => state.doc.lineAt(pos);
+
+  it("reveals every line a multi-line selection touches", () => {
+    const starts = activeLineStarts(
+      [{ from: doc.indexOf("two") + 1, to: doc.indexOf("four") + 1 }],
+      lineAt,
+      0,
+      doc.length,
+    );
+    expect([...starts].sort((a, b) => a - b)).toEqual([
+      doc.indexOf("two"),
+      doc.indexOf("three"),
+      doc.indexOf("four"),
+    ]);
+  });
+
+  it("reveals the line of an empty selection", () => {
+    expect([...activeLineStarts([{ from: 5, to: 5 }], lineAt, 0, doc.length)]).toEqual([
+      doc.indexOf("two"),
+    ]);
+  });
+
+  it("reveals a line for every range of a multiple selection", () => {
+    const starts = activeLineStarts(
+      [
+        { from: 1, to: 1 },
+        { from: doc.indexOf("five"), to: doc.indexOf("five") },
+      ],
+      lineAt,
+      0,
+      doc.length,
+    );
+    expect([...starts].sort((a, b) => a - b)).toEqual([0, doc.indexOf("five")]);
+  });
+
+  it("clips the active-line set to the visible range", () => {
+    const starts = activeLineStarts(
+      [{ from: 0, to: doc.length }],
+      lineAt,
+      doc.indexOf("three"),
+      doc.indexOf("four") - 1,
+    );
+    expect([...starts].sort((a, b) => a - b)).toEqual([doc.indexOf("three")]);
+  });
+
+  it("names no line for a selection that ends before the visible range", () => {
+    expect(activeLineStarts([{ from: 0, to: 3 }], lineAt, doc.indexOf("five"), doc.length).size)
+      .toBe(0);
+  });
+});
+
+// ─── Tables, html and math stay as source ─────────────────────────────────
+
+describe("blocks that stay as styled source", () => {
+  it("keeps a table as styled source", () => {
+    // A table runs to the next blank line, which is where it ends here.
+    const doc = "| a | b |\n|---|---|\n| 1 | 2 |\n\ncursor\n";
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const lines = specs.filter((s) => classesOf(s).includes("cm-md-table"));
+    expect(lines.map((s) => s.from)).toEqual([0, doc.indexOf("|---"), doc.indexOf("| 1")]);
+    // Every pipe is still there to be edited.
+    expect(specs.some((s) => isReplace(s))).toBe(false);
+  });
+
+  it("keeps an html block as styled source", () => {
+    const doc = 'intro\n\n<div class="x">\n  hi\n</div>\n\ncursor\n';
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const lines = specs.filter((s) => classesOf(s).includes("cm-md-html"));
+    expect(lines.map((s) => s.from)).toEqual([
+      doc.indexOf("<div"),
+      doc.indexOf("  hi"),
+      doc.indexOf("</div>"),
+    ]);
+  });
+
+  it("keeps a display math block as styled source", () => {
+    // The grammar has no math node, so the block is prose to the tree and
+    // nothing touches it. Recognising it would take a second parser.
+    const doc = "intro\n\n$$\nx = 1\n$$\ncursor\n";
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    expect(specs.filter((s) => s.from >= doc.indexOf("$$") && s.to <= doc.lastIndexOf("$$") + 2))
+      .toEqual([]);
+  });
+
+  it("leaves a mermaid fence as a fenced block", () => {
+    const doc = "intro\n```mermaid\ngraph TD\n```\ncursor\n";
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-codeblock"))).toBe(true);
+  });
+});
+
+// ─── Viewport scoping ─────────────────────────────────────────────────────
+
+describe("visible range scoping on a large document", () => {
+  const corpus = buildMarkdownCorpus(64 * 1024);
+  const state = EditorState.create({
+    doc: corpus,
+    extensions: [markdown({ base: markdownLanguage })] as never,
+  });
+  const tree = ensureSyntaxTree(state, corpus.length, PARSE_TIMEOUT_MS)!;
+  const middle = state.doc.lineAt(Math.floor(corpus.length / 2));
+  const visibleFrom = middle.from;
+  const visibleTo = state.doc.line(Math.min(middle.number + 60, state.doc.lines)).to;
+
+  function buildWindow(selection: { from: number; to: number }[], spy?: typeof tree.iterate) {
+    const iterate = spy
+      ? (from: number, to: number, cb: (node: never) => boolean | void) =>
+          spy({ from, to, enter: cb })
+      : (from: number, to: number, cb: (node: never) => boolean | void) =>
+          tree.iterate({ from, to, enter: cb });
+    return buildMarkdownDecorations(
+      iterate as never,
+      (pos) => state.doc.lineAt(pos),
+      (from, to) => state.doc.sliceString(from, to),
+      activeLineStarts(selection, (pos) => state.doc.lineAt(pos), visibleFrom, visibleTo),
+      visibleFrom,
+      visibleTo,
+    );
+  }
+
+  it("emits no decoration outside the visible range", () => {
+    const specs = buildWindow([{ from: visibleFrom, to: visibleFrom }]);
+    expect(specs.length).toBeGreaterThan(0);
+    expect(specs.every((s) => s.from >= visibleFrom && s.to <= visibleTo)).toBe(true);
+  });
+
+  it("iterates the tree only over the visible range", () => {
+    const calls: { from: number; to: number }[] = [];
+    buildWindow([{ from: visibleFrom, to: visibleFrom }], ((spec: {
+      from: number;
+      to: number;
+      enter: (node: never) => boolean | void;
+    }) => {
+      calls.push({ from: spec.from, to: spec.to });
+      return tree.iterate(spec);
+    }) as never);
+    expect(calls).toEqual([{ from: visibleFrom, to: visibleTo }]);
+  });
+
+  it("marks only visible lines active when the selection spans the document", () => {
+    const starts = activeLineStarts(
+      [{ from: 0, to: corpus.length }],
+      (pos) => state.doc.lineAt(pos),
+      visibleFrom,
+      visibleTo,
+    );
+    expect(starts.size).toBeLessThanOrEqual(61);
+    expect(starts.size).toBeGreaterThan(0);
   });
 });

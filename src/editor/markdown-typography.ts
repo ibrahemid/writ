@@ -61,6 +61,11 @@ const codeBlockSoleLine = Decoration.line({
 // right (an absolutely-positioned marker inside .cm-line does not).
 const hangLine = Decoration.line({ class: "cm-line-md-hang" });
 
+// Blocks the editor does not render: a table and an html block are styled
+// where they are written.
+const tableLine = Decoration.line({ class: "cm-md-table" });
+const htmlLine = Decoration.line({ class: "cm-md-html" });
+
 const markDecByNode: Record<string, Decoration> = {
   StrongEmphasis: Decoration.mark({ class: "cm-md-strong" }),
   Emphasis:       Decoration.mark({ class: "cm-md-em" }),
@@ -79,6 +84,7 @@ const listNumMark    = Decoration.mark({ class: "cm-md-list-num" });
 const markerDimMark  = Decoration.mark({ class: "cm-md-marker-dim" });
 const codeInfoMark   = Decoration.mark({ class: "cm-md-code-info" });
 const taskDoneMark   = Decoration.mark({ class: "cm-md-task-done" });
+const tableDelimiterMark = Decoration.mark({ class: "cm-md-table-delimiter" });
 
 // ─── Widgets ───────────────────────────────────────────────────────────────
 
@@ -191,6 +197,44 @@ const NO_IMAGES: ReadonlyMap<string, InlineImageState> = new Map();
 const NO_LINES: ReadonlySet<number> = new Set();
 
 /**
+ * The start of every line a selection touches, clipped to the visible range.
+ *
+ * A selection range covers whole lines, not two end points: a block selected
+ * from the middle of one line to the middle of another shows its markup on
+ * every line between them, not only on the two ends.
+ *
+ * The clip is not an optimisation. Without it, selecting a 2 MB document
+ * marks every line in it active and the builder walks the whole document to
+ * paint one screen.
+ */
+export function activeLineStarts(
+  ranges: readonly { from: number; to: number }[],
+  docLineAt: (pos: number) => { from: number; to: number; number: number },
+  visibleFrom: number,
+  visibleTo: number,
+): Set<number> {
+  const starts = new Set<number>();
+  for (const range of ranges) {
+    const from = Math.max(range.from, visibleFrom);
+    const to = Math.min(range.to, visibleTo);
+    if (from > to) continue;
+    let pos = from;
+    for (;;) {
+      let line: { from: number; to: number };
+      try {
+        line = docLineAt(pos);
+      } catch {
+        break;
+      }
+      starts.add(line.from);
+      if (line.to >= to) break;
+      pos = line.to + 1;
+    }
+  }
+  return starts;
+}
+
+/**
  * Builds decoration specs for the given visible range of a markdown document.
  *
  * Pure function: takes syntax tree iteration and document queries, returns an
@@ -200,8 +244,9 @@ const NO_LINES: ReadonlySet<number> = new Set();
  * @param iterateTree  Calls the callback for each node in [from, to).
  * @param docLineAt    Returns the line at a document position.
  * @param docSlice     Returns the document text in [from, to).
- * @param cursorPositions  Set of cursor head positions; markers on lines
- *                         containing any cursor are revealed (not replaced).
+ * @param activeLineFroms  Start positions of the lines a selection touches;
+ *                         markers on those lines are revealed, not replaced.
+ *                         Built by {@link activeLineStarts}.
  * @param visibleFrom  Start of the visible range.
  * @param visibleTo    End of the visible range.
  * @param images       What is known about each authored image reference.
@@ -210,20 +255,11 @@ export function buildMarkdownDecorations(
   iterateTree: (from: number, to: number, cb: (node: SyntaxNodeRef) => boolean | void) => void,
   docLineAt: (pos: number) => { from: number; to: number; number: number },
   docSlice: (from: number, to: number) => string,
-  cursorPositions: ReadonlySet<number>,
+  activeLineFroms: ReadonlySet<number>,
   visibleFrom: number,
   visibleTo: number,
   images: ReadonlyMap<string, InlineImageState> = NO_IMAGES,
 ): DecorationSpec[] {
-  const activeLineFroms = new Set<number>();
-  for (const pos of cursorPositions) {
-    try {
-      activeLineFroms.add(docLineAt(pos).from);
-    } catch {
-      // pos out of range — skip
-    }
-  }
-
   const specs: DecorationSpec[] = [];
 
   // Tracks replaced [from,to) intervals to prevent overlaps.
@@ -348,6 +384,33 @@ export function buildMarkdownDecorations(
       const fence = nodeRef.node.parent;
       if (fence && isCollapsedFenceLine(fence, from)) return;
       addMark(from, to, codeInfoMark);
+      return;
+    }
+
+    // ── Blocks that stay as source ────────────────────────────────────────
+    // A table needs a column-width pass over the whole block and a replace
+    // spanning its line breaks per row, which leaves no way to edit the text
+    // inside it. Arbitrary html inside the editor webview would need a hole
+    // in the window's own policy, which is what the preview pane is for.
+    // Both are styled where they are written, pipes and tags included.
+    if (name === "Table" || name === "HTMLBlock") {
+      const lineClass = name === "Table" ? tableLine : htmlLine;
+      try {
+        let pos = from;
+        for (;;) {
+          const line = docLineAt(pos);
+          specs.push({ from: line.from, to: line.from, decoration: lineClass });
+          if (line.to >= to) break;
+          pos = line.to + 1;
+        }
+      } catch {
+        // skip un-parseable positions
+      }
+      return;
+    }
+
+    if (name === "TableDelimiter") {
+      addMark(from, to, tableDelimiterMark);
       return;
     }
 
@@ -538,9 +601,6 @@ export function buildMarkdownDecorations(
 function buildDecorationSet(view: EditorView): DecorationSet {
   const { state } = view;
   const tree = syntaxTree(state);
-  const cursorPositions = new Set(
-    state.selection.ranges.flatMap((r) => [r.head, r.anchor]),
-  );
   const images = state.field(inlineImageField, false) ?? NO_IMAGES;
   const allSpecs: DecorationSpec[] = [];
 
@@ -549,7 +609,7 @@ function buildDecorationSet(view: EditorView): DecorationSet {
       (vf, vt, cb) => tree.iterate({ from: vf, to: vt, enter: cb }),
       (pos) => state.doc.lineAt(pos),
       (sliceFrom, sliceTo) => state.doc.sliceString(sliceFrom, sliceTo),
-      cursorPositions,
+      activeLineStarts(state.selection.ranges, (pos) => state.doc.lineAt(pos), from, to),
       from,
       to,
       images,
