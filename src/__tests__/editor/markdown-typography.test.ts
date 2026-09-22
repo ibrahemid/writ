@@ -624,6 +624,50 @@ describe("inline link decorations", () => {
   });
 });
 
+// ─── Link and image titles ────────────────────────────────────────────────
+
+describe("link title decorations", () => {
+  const linkDoc = 'See [Writ](https://example.com "The site") now\ncursor\n';
+
+  it("hides the title with the address on an inactive line", () => {
+    const view = renderDoc(linkDoc, linkDoc.indexOf("cursor"));
+    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe("See Writ now");
+    view.destroy();
+  });
+
+  it("shows the whole source of a titled link on the active line", () => {
+    const view = renderDoc(linkDoc, 0);
+    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe(
+      'See [Writ](https://example.com "The site") now',
+    );
+    view.destroy();
+  });
+
+  it("leaves a title that starts on the next line alone rather than replacing the break", () => {
+    // A replace range may not cross a line break when it comes from a plugin.
+    const wrapped = 'See [Writ](https://example.com\n"The site") now\ncursor\n';
+    const view = renderDoc(wrapped, wrapped.indexOf("cursor"));
+    expect(view.contentDOM.querySelector(".cm-line")?.textContent).toBe("See Writ");
+    expect(view.contentDOM.textContent).not.toContain("https://example.com");
+    view.destroy();
+
+    const broken = 'See [Writ](https://example.com "The\nsite") now\ncursor\n';
+    const brokenView = renderDoc(broken, broken.indexOf("cursor"));
+    expect(brokenView.contentDOM.textContent).not.toContain("https://example.com");
+    brokenView.destroy();
+  });
+
+  it("replaces the title of an image with its source on an inactive line", () => {
+    const doc = 'Look ![alt](pic.png "Caption") here\ncursor\n';
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const source = specs.find((s) => s.from === doc.indexOf("pic.png"));
+    expect(source).toEqual(
+      expect.objectContaining({ to: doc.indexOf('"Caption"') + '"Caption"'.length }),
+    );
+    expect(classesOf(source!)).toEqual([]);
+  });
+});
+
 // ─── Fenced code ──────────────────────────────────────────────────────────
 
 describe("fenced code decorations", () => {

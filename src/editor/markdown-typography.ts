@@ -185,6 +185,24 @@ const MARKER_NAMES = new Set([
 // deliberate narrowing of ADR-014's replace-on-inactive rule.
 const HUNG_MARKER_NAMES = new Set(["HeaderMark", "QuoteMark"]);
 
+/**
+ * The end of the address run of a link or image: its url, plus the optional
+ * quoted title that follows it inside the same parentheses. A title left on
+ * its own reads as stray prose, so it goes with the url. The run stops before
+ * the closing ')', which the marker rule replaces on its own.
+ *
+ * CommonMark lets the title sit on a later line than the url, and a plugin may
+ * not replace a line break, so a run that leaves `lineEnd` falls back to the
+ * url alone.
+ */
+function addressEndAfter(url: SyntaxNodeFull, lineEnd: number): number {
+  const title = url.nextSibling;
+  if (title === null || title.name !== "LinkTitle") return url.to;
+  const closing = title.nextSibling;
+  const end = closing !== null && closing.name === "LinkMark" ? closing.from : title.to;
+  return end <= lineEnd ? end : url.to;
+}
+
 // ─── Pure decoration builder ───────────────────────────────────────────────
 
 export interface DecorationSpec {
@@ -290,6 +308,14 @@ export function buildMarkdownDecorations(
   function addMark(from: number, to: number, dec: Decoration) {
     if (from >= to) return;
     specs.push({ from, to, decoration: dec });
+  }
+
+  function addressRunEnd(url: SyntaxNodeFull): number {
+    try {
+      return addressEndAfter(url, docLineAt(url.from).to);
+    } catch {
+      return url.to;
+    }
   }
 
   // Which of a fenced block's own lines the fence field takes off screen.
@@ -443,7 +469,7 @@ export function buildMarkdownDecorations(
       let labelFrom = -1;
       let labelTo = -1;
       let urlFrom = -1;
-      let urlTo = -1;
+      let addressTo = -1;
       let inLabel = false;
 
       while (child) {
@@ -457,7 +483,7 @@ export function buildMarkdownDecorations(
           }
         } else if (child.name === "URL") {
           urlFrom = child.from;
-          urlTo = child.to;
+          addressTo = addressRunEnd(child);
         }
         child = child.nextSibling;
       }
@@ -465,13 +491,13 @@ export function buildMarkdownDecorations(
       if (labelFrom >= 0 && labelTo > labelFrom) {
         addMark(labelFrom, labelTo, linkTextMark);
       }
-      if (urlFrom >= 0 && urlTo > urlFrom) {
+      if (urlFrom >= 0 && addressTo > urlFrom) {
         // The label alone reads as the link, which is what makes the line
-        // prose rather than markup. The url comes back on the active line,
+        // prose rather than markup. The address comes back on the active line,
         // dimmed, so it stays legible while it is being edited.
         const active = isActiveLine(urlFrom);
-        if (active === false) addReplace(urlFrom, urlTo);
-        else if (active === true) addMark(urlFrom, urlTo, urlDimMark);
+        if (active === false) addReplace(urlFrom, addressTo);
+        else if (active === true) addMark(urlFrom, addressTo, urlDimMark);
       }
       return;
     }
@@ -561,7 +587,7 @@ export function buildMarkdownDecorations(
       if (parent && parent.name === "Image") {
         // The picture under the line says what the source is; the path above
         // it says it twice.
-        if (isActiveLine(from) === false) addReplace(from, to);
+        if (isActiveLine(from) === false) addReplace(from, addressRunEnd(nodeRef.node));
         return;
       }
       addMark(from, to, linkTextMark);
