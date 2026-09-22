@@ -37,7 +37,6 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       restoreFromHistory: vi.fn(),
     },
     rightPanel: { isOpen: () => false },
-    editor: { activeFormats: () => ({}) },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({

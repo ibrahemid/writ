@@ -10,7 +10,6 @@ import {
   wrapOnType,
   toggleBulletList,
   toggleTaskList,
-  activeFormats,
 } from "../../commands/markdown-format";
 
 function stateWith(doc: string, anchor: number, head?: number): EditorState {
@@ -300,30 +299,5 @@ describe("toggleTaskList", () => {
   it("starts a task on an empty line", () => {
     const next = apply(stateWith("", 0), toggleTaskList);
     expect(next.doc.toString()).toBe("- [ ] ");
-  });
-});
-
-describe("activeFormats", () => {
-  it("reports nothing under a caret in plain prose", () => {
-    expect(activeFormats(stateWith("hello world", 3))).toEqual({
-      bold: false,
-      italic: false,
-      code: false,
-      bullet: false,
-      task: false,
-    });
-  });
-
-  it("reports the inline construct the caret sits inside", () => {
-    expect(activeFormats(stateWith("**hello**", 4)).bold).toBe(true);
-    expect(activeFormats(stateWith("*hello*", 3)).italic).toBe(true);
-    expect(activeFormats(stateWith("`hello`", 3)).code).toBe(true);
-  });
-
-  it("reports the list marker of the caret's own line", () => {
-    expect(activeFormats(stateWith("- one", 4)).bullet).toBe(true);
-    expect(activeFormats(stateWith("- one", 4)).task).toBe(false);
-    expect(activeFormats(stateWith("- [x] one", 8)).task).toBe(true);
-    expect(activeFormats(stateWith("- [x] one", 8)).bullet).toBe(false);
   });
 });

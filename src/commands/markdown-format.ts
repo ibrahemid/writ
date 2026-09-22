@@ -6,7 +6,6 @@ import {
   type TransactionSpec,
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
-import type { ActiveFormats } from "../types/editor";
 
 interface InlineFormat {
   marker: string;
@@ -280,20 +279,3 @@ function toggleListLines(kind: ListKind): StateCommand {
 
 export const toggleBulletList: StateCommand = toggleListLines("bullet");
 export const toggleTaskList: StateCommand = toggleListLines("task");
-
-/**
- * Which markdown constructs the main selection sits inside, for the toolbar's
- * pressed states. Read from the parsed tree and the caret's own line, so it
- * costs a resolve and a regex rather than a scan.
- */
-export function activeFormats(state: EditorState): ActiveFormats {
-  const range = state.selection.main;
-  const marker = readListMarker(state.doc.lineAt(range.head).text);
-  return {
-    bold: findEnclosing(state, range.from, range.to, BOLD.nodeName) !== null,
-    italic: findEnclosing(state, range.from, range.to, ITALIC.nodeName) !== null,
-    code: findEnclosing(state, range.from, range.to, CODE.nodeName) !== null,
-    bullet: marker.kind === "bullet",
-    task: marker.kind === "task",
-  };
-}

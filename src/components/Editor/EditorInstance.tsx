@@ -47,11 +47,9 @@ import {
   insertLink,
   toggleBulletList,
   toggleTaskList,
-  activeFormats,
 } from "../../commands/markdown-format";
 import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
-import { NO_ACTIVE_FORMATS } from "../../types/editor";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { findStore } from "../../stores/global/find-store";
@@ -236,8 +234,9 @@ export default function EditorInstance(props: Props) {
   });
 
   // A buffer can be checked when it is in Normal mode and under the size cap,
-  // independent of whether the feature is switched on. This drives the
-  // status-bar item's visibility so the switch is reachable from the bar.
+  // independent of whether the feature is switched on: the switch itself lives
+  // in Settings and on the spelling.toggle palette command, and eligibility
+  // only decides whether the checker attaches.
   function spellingIsEligible(): boolean {
     if (!view) return false;
     const mode = win.editor.largeFileMode();
@@ -462,7 +461,6 @@ export default function EditorInstance(props: Props) {
         win.editor.setCursorLine(line.number);
         win.editor.setCursorCol(pos - line.from + 1);
         win.editor.setSelectionCount(sel.ranges.length);
-        win.editor.setActiveFormats(activeFormats(update.state));
       }),
       EditorView.domEventHandlers({
         paste: () => {
@@ -867,7 +865,6 @@ export default function EditorInstance(props: Props) {
       }
     }
     clearRestrictedContentPublish();
-    win.editor.setActiveFormats(NO_ACTIVE_FORMATS);
     win.editor.setLargeFileMode(null);
     win.editor.registerView(null);
     win.editor.setCurrentBufferId(null);
