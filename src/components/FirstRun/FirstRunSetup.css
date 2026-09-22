@@ -86,3 +86,103 @@
 .first-run-setup-continue {
   align-self: flex-start;
 }
+
+/* One raised list rather than six cards: the six answers are one question,
+   so they share an edge and a hairline divides them. */
+.first-run-apps {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+}
+
+.first-run-app {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-4);
+  padding: var(--writ-space-4) var(--writ-space-5);
+  cursor: pointer;
+}
+
+.first-run-app + .first-run-app {
+  border-top: 1px solid var(--writ-border-soft);
+}
+
+.first-run-app-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-1);
+}
+
+.first-run-app-label {
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  font-weight: 500;
+  color: var(--writ-fg);
+}
+
+.first-run-app-detail {
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}
+
+/* The Settings switch, drawn here so the screen does not lean on the settings
+   stylesheet: 32 x 18 track, 14px knob. */
+.first-run-app-switch {
+  position: relative;
+  flex: none;
+  width: 32px;
+  min-height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--writ-r-pill);
+  background: transparent;
+  cursor: pointer;
+}
+
+.first-run-app-switch::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 32px;
+  height: 18px;
+  margin-top: -9px;
+  border-radius: var(--writ-r-pill);
+  background: var(--writ-switch-off);
+  transition: background var(--writ-motion);
+}
+
+.first-run-app-switch.is-on::before {
+  background: var(--writ-accent);
+}
+
+.first-run-app-knob {
+  position: absolute;
+  top: 50%;
+  left: var(--writ-space-1);
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  border-radius: var(--writ-r-pill);
+  background: var(--writ-switch-knob);
+  box-shadow: var(--writ-shadow-chip);
+  transition: transform var(--writ-motion);
+}
+
+.first-run-app-switch.is-on .first-run-app-knob {
+  transform: translateX(14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .first-run-app-switch::before,
+  .first-run-app-knob {
+    transition: none;
+  }
+}
