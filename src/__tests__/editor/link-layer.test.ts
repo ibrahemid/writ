@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EditorState } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, ViewPlugin, keymap } from "@codemirror/view";
 import { defaultKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import {
@@ -314,22 +314,34 @@ describe("linkLayer", () => {
     openNoteLink: ReturnType<typeof vi.fn>;
   };
 
+  let layer: unknown[] = [];
+
   function mount(doc: string, extensions: unknown[] = []) {
     deps = {
       openUrl: vi.fn(),
       openWorkspaceFile: vi.fn(),
       openNoteLink: vi.fn().mockReturnValue(true),
     };
+    layer = linkLayer(deps as unknown as LinkDeps) as unknown[];
     const state = EditorState.create({
       doc,
       extensions: [
         EditorState.allowMultipleSelections.of(true),
         ...(extensions as never[]),
-        linkLayer(deps as unknown as LinkDeps),
+        layer as never[],
       ],
     });
     view = new EditorView({ state, parent: document.body });
     return view;
+  }
+
+  // The plugin rescans on an edit, a viewport move and a finished parse, so
+  // its ranges lag a tree that has just filled in. Emptying them is that lag.
+  function stalePluginRanges() {
+    const plugin = layer.find((e) => e instanceof ViewPlugin) as ViewPlugin<{
+      ranges: LinkRange[];
+    }>;
+    view.plugin(plugin)!.ranges = [];
   }
 
   function clickAt(pos: number | null, modifier: boolean): MouseEvent {
@@ -410,6 +422,13 @@ describe("linkLayer", () => {
     expect(modifierIsHeld(view.state)).toBe(false);
     clickAt(8, true);
     expect(deps.openUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a label whose destination the plugin's ranges have not caught up with", () => {
+    mount("[label](https://example.com/x)", [markdown({ base: markdownLanguage })]);
+    stalePluginRanges();
+    clickAt(3, true);
+    expect(deps.openUrl).toHaveBeenCalledWith("https://example.com/x");
   });
 
   it("routes a workspace-relative destination to the file dependency", () => {

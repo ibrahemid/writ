@@ -493,7 +493,15 @@ export function linkLayer(deps: LinkDeps): Extension {
         const instance = view.plugin(linkPlugin);
         if (!instance) return false;
         const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
-        const hit = linkClickTarget(instance.ranges, pos, isLinkModifier(event), event.button);
+        const modifierHeld = isLinkModifier(event);
+        // The tree first: it answers from the document as parsed, where the
+        // plugin's ranges answer from its last scan.
+        const fromTree =
+          pos !== null && modifierHeld && event.button === 0
+            ? inlineLinkTargetAt(view.state, pos)
+            : null;
+        const hit =
+          fromTree ?? linkClickTarget(instance.ranges, pos, modifierHeld, event.button);
         if (!hit) return false;
         event.preventDefault();
         const target = hit.target ?? view.state.doc.sliceString(hit.from, hit.to);
