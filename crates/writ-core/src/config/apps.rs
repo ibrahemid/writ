@@ -80,12 +80,9 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_config_hides_the_inbox_and_recent_sections() {
+    fn a_fresh_config_hides_the_recent_section() {
         let fresh = WritConfig::default();
-        assert_eq!(
-            fresh.sidebar.hidden,
-            vec![SidebarSection::Inbox, SidebarSection::Recent]
-        );
+        assert_eq!(fresh.sidebar.hidden, vec![SidebarSection::Recent]);
     }
 
     #[test]

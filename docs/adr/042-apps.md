@@ -42,8 +42,10 @@ has one switch. It runs on every read and is idempotent.
 Tags alone. Connections and the graph had no switch to carry over; they read
 as on.
 
-A fresh config also hides the inbox and recently closed sections, so the
-sidebar shows the file tree and search. That list is set in
+A fresh config also hides the recently closed section, so the sidebar shows
+the file tree and search. The watched folder's section stays on: it draws
+nothing until a watched folder is set under Advanced, and then it is what the
+person set it for. That list is set in
 `WritConfig::default()` rather than `SidebarConfig::default()`, because a file
 with no `[sidebar]` table reads the latter and was written by somebody who saw
 every section.

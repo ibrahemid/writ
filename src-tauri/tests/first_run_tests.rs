@@ -570,7 +570,7 @@ fn a_launch_answered_with_no_apps_writes_every_app_off_and_a_quiet_sidebar() {
     assert!(on_disk.apps_on().is_empty(), "{written}");
     assert_eq!(
         on_disk.sidebar.hidden,
-        vec![SidebarSection::Inbox, SidebarSection::Recent],
+        vec![SidebarSection::Recent],
         "the sidebar is the file tree and search"
     );
 }

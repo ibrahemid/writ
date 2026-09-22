@@ -90,7 +90,7 @@ const DEFAULT_CONFIG: WritConfig = {
     width: SIDEBAR_WIDTH_DEFAULT,
     collapsed: [],
     // Rust's `WritConfig::default`: the file tree and search (ADR-042).
-    hidden: ["inbox", "recent"],
+    hidden: ["recent"],
   },
   // Closed on a first launch: the window opens on a cursor and nothing else.
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },

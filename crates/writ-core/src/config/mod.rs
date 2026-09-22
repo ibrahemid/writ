@@ -804,7 +804,7 @@ impl WritConfig {
     /// here rather than in [`SidebarConfig::default`], which is also what a
     /// file with no `[sidebar]` table reads.
     fn fresh_sidebar(mut self) -> Self {
-        self.sidebar.hidden = vec![SidebarSection::Inbox, SidebarSection::Recent];
+        self.sidebar.hidden = vec![SidebarSection::Recent];
         self
     }
 
@@ -1212,10 +1212,7 @@ mod tests {
     fn the_default_config_writes_its_section_lists() {
         let serialized = toml::to_string(&WritConfig::default()).unwrap();
         assert!(serialized.contains("collapsed = []"), "{serialized}");
-        assert!(
-            serialized.contains("hidden = [\"inbox\", \"recent\"]"),
-            "{serialized}"
-        );
+        assert!(serialized.contains("hidden = [\"recent\"]"), "{serialized}");
     }
 
     #[test]
