@@ -245,13 +245,11 @@ export default function EditorInstance(props: Props) {
     return true;
   }
 
-  // Publishes eligibility, then reconfigures the spelling compartment: when the
-  // buffer is eligible and the feature is on, attach the store and kick a first
-  // lint; otherwise clear decorations while keeping eligibility so the item
-  // stays visible in its "off" state.
+  // Reconfigures the spelling compartment: when the buffer is eligible and the
+  // feature is on, attach the store and kick a first lint; otherwise clear the
+  // decorations.
   function applySpelling() {
     const eligible = spellingIsEligible();
-    spellingStore.setEligible(eligible);
     if (!view) return;
     const active = eligible && configStore.config().spelling.enabled;
     view.dispatch({
