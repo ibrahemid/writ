@@ -68,6 +68,7 @@ import { MENU_COMMANDS } from "../../commands/menu-commands";
 import { toggleChat } from "../../commands/chat";
 import { REWRITE_COMMAND_IDS } from "../../commands/rewrite-actions";
 import type { AppId } from "../../types/config";
+import type { PaletteResult } from "../../components/Palette/types";
 import Sidebar from "../../components/Sidebar/Sidebar";
 import Toolbar from "../../components/Toolbar/Toolbar";
 
@@ -117,9 +118,8 @@ function stand(): void {
 
 function paletteIds(): string[] {
   const provider = createCommandProvider({ listOnEmptyQuery: true });
-  return provider
-    .query("", new AbortController().signal, "commands")
-    .map((row) => row.id.replace(/^command:/, ""));
+  const rows = provider.query("", new AbortController().signal, "commands") as PaletteResult[];
+  return rows.map((row) => row.id.replace(/^command:/, ""));
 }
 
 function menuLabels(): string[] {

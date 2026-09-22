@@ -1,5 +1,6 @@
 import data from "./menu-commands.json";
 import type { Platform } from "../lib/platform";
+import type { AppId } from "../types/config";
 
 // The one list of commands both menus carry: the macOS menu bar built in
 // `src-tauri/src/menu.rs` and the titlebar menu button `AppMenu.tsx` opens on
@@ -28,6 +29,9 @@ export interface MenuCommandEntry {
   /** Items of one group sit together; a divider is drawn between groups. */
   group: number;
   platforms: readonly Platform[];
+  /** The app the item belongs to; the macOS menu bar leaves it out while that
+   * app is off (`src-tauri/src/menu.rs`). */
+  app?: AppId;
 }
 
 export const MENU_COMMANDS: readonly MenuCommandEntry[] = data as readonly MenuCommandEntry[];
