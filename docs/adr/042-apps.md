@@ -58,16 +58,19 @@ section, toolbar button or panel.
   `menu.rs` answers which items a set of apps offers; the entries in
   `menu-commands.json` carry the app they belong to.
 - The Windows and Linux menu is built from the command registry each time it
-  opens, and skips a command that is not available.
-- Connections, Graph and Connected programs register their commands while on
-  and unregister them while off, and the key map is rebuilt with them.
-- Chat's command stays registered while chat is off, unavailable, so the
-  palette and both menus leave it out. Its chord then opens Settings, Apps
-  with the Chat row marked, which is where the answer to "where is chat" is.
-- Turning an app off closes what it had open (the chat pane, the connections
-  panel, the graph, the Activity panel, the tag filter). It deletes nothing:
-  chat history, approved programs and panel widths are kept for the next time
-  it is on.
+  opens, and skips a command whose app is off.
+- Rewrite, Connections, Graph and Connected programs register their commands
+  while on and unregister them while off (`defineAppCommands`), and the key
+  map is rebuilt with them.
+- Chat's command stays registered while chat is off and names its app, so the
+  palette, both menus and the shortcut editor leave it out. Its chord then
+  opens Settings, Apps with the Chat row marked, which is where the answer to
+  "where is chat" is.
+- Turning an app off closes what it had open (the chat pane, the graph, the
+  Activity panel, the tag filter); the connections panel does not mount while
+  off and comes back as it was. It deletes nothing: chat history, approved
+  programs, panel widths, command usage and custom shortcuts are kept for the
+  next time it is on.
 
 ### 4. Settings, Apps
 
@@ -78,6 +81,10 @@ Connected programs keeps its command, its per-program switches and Forget, and
 the Activity link under its own row while it is on. Settings search finds only
 rows that are drawn.
 
+Rows a fresh install needs for neither an app nor its format move under
+Advanced: the terminal command, how long versions are kept, the two HTML rows
+and the watched folder's sidebar row. The tags sidebar row is the Tags switch.
+
 ### 5. The first launch has two steps
 
 `FirstRunStep` is `"format" | "apps"`. The format step's Continue moves to the
@@ -85,7 +92,8 @@ Apps step without writing; the Apps step lists the six apps with their sentence
 and a switch each, all off, and its Continue writes the format and the
 switches in one config write and opens the first file. A person who quits on
 either step is asked both again. Settings, Apps opens the same screen later;
-there its Continue writes the switches and opens nothing.
+there its Continue writes the switches and opens nothing, and Cancel or Escape
+leaves them as they were.
 
 ## Consequences
 

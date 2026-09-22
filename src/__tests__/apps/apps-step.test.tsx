@@ -91,6 +91,7 @@ describe("the Apps step", () => {
     }
     const controls = getByRole("dialog").querySelectorAll("button, input, select, [role='radio']");
     expect(controls.length).toBe(APPS.length + 1);
+    expect(container.querySelector("[data-action='cancel-apps']")).toBeNull();
   });
 
   it("puts the reader on the first switch", () => {
@@ -151,5 +152,15 @@ describe("the Apps step", () => {
     expect(firstRunStore.step()).toBeNull();
     expect(mocks.updateConfig).not.toHaveBeenCalled();
     expect(configStore.isAppOn("rewrite")).toBe(false);
+  });
+
+  it("and Cancel does the same, where a first launch has no Cancel at all", () => {
+    firstRunStore.showApps();
+    const { container } = mount();
+    fireEvent.click(switchFor(container, "connections"));
+    fireEvent.click(container.querySelector("[data-action='cancel-apps']")!);
+    expect(firstRunStore.step()).toBeNull();
+    expect(mocks.updateConfig).not.toHaveBeenCalled();
+    expect(configStore.isAppOn("connections")).toBe(false);
   });
 });

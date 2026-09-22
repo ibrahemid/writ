@@ -1,4 +1,4 @@
-import { For, Match, Switch, onCleanup, onMount } from "solid-js";
+import { For, Match, Show, Switch, onCleanup, onMount } from "solid-js";
 import { firstRunStore } from "../../stores/global/first-run";
 import type { FileExtension } from "../../types/config";
 import Button from "../Button/Button";
@@ -235,15 +235,22 @@ function AppsStep() {
           }}
         </For>
       </ul>
-      <Button
-        variant="primary"
-        class="first-run-setup-continue"
-        disabled={firstRunStore.busy()}
-        aria-busy={firstRunStore.busy()}
-        onClick={submit}
-      >
-        Continue
-      </Button>
+      <div class="first-run-setup-actions">
+        <Button
+          variant="primary"
+          class="first-run-setup-continue"
+          disabled={firstRunStore.busy()}
+          aria-busy={firstRunStore.busy()}
+          onClick={submit}
+        >
+          Continue
+        </Button>
+        <Show when={firstRunStore.revisiting()}>
+          <Button data-action="cancel-apps" onClick={() => firstRunStore.cancelApps()}>
+            Cancel
+          </Button>
+        </Show>
+      </div>
     </div>
   );
 }

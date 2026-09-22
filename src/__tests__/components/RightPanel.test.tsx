@@ -10,6 +10,7 @@ import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 
 const h = vi.hoisted(() => ({
   panel: { open: true, width: 240 },
+  appsOff: new Set<string>(),
   first_run: { hint_dismissed: false },
   isOpen: true,
   collapsed: new Set<string>(),
@@ -54,7 +55,7 @@ vi.mock("../../stores/global/config", async () => {
     configStore: {
       config: () => ({ panel: h.panel }),
       setPanelWidth: h.setPanelWidth,
-      isAppOn: () => true,
+      isAppOn: (app: string) => !h.appsOff.has(app),
     },
   };
 });
@@ -137,6 +138,7 @@ function headings(container: HTMLElement): string[] {
 
 beforeEach(() => {
   h.panel = { open: true, width: 240 };
+  h.appsOff = new Set();
   h.isOpen = true;
   h.collapsed = new Set();
   h.activeTabId = "buf-1";
@@ -261,6 +263,25 @@ describe("a note with nothing to show", () => {
     };
     const { container } = mount();
     expect(headings(container)).toEqual(["Nearby files"]);
+  });
+
+  it("draws no nearby files while Graph is off", () => {
+    h.graph = {
+      nodes: [
+        { path: "/notes/Open.md", name: "Open", folder: "" },
+        { path: "/notes/Two.md", name: "Two", folder: "" },
+      ],
+      edges: [{ from_path: "/notes/Two.md", to_path: "/notes/Open.md", count: 1 }],
+    };
+    h.appsOff = new Set(["graph"]);
+    const { container } = mount();
+    expect(headings(container)).not.toContain("Nearby files");
+  });
+
+  it("mounts nothing at all while Connections is off", () => {
+    h.appsOff = new Set(["connections"]);
+    const { container } = mount();
+    expect(container.querySelector(".right-panel")).toBeNull();
   });
 
   it("shows nothing for a note that has never been written to a file", () => {

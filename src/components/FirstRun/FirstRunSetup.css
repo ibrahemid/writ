@@ -186,3 +186,8 @@
     transition: none;
   }
 }
+
+.first-run-setup-actions {
+  display: flex;
+  gap: var(--writ-space-3);
+}

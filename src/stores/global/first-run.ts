@@ -9,6 +9,7 @@ import type { AppId, FileExtension } from "../../types/config";
 import type { BufferDocument } from "../../types/buffer";
 import { logFailure } from "../../lib/log";
 import { APPS } from "../../lib/apps";
+import { showToast } from "../../components/Notifications/Toast";
 
 /** What the first launch is asking, in order. Null once it has nothing left
  * to ask. The Apps step is also opened later from Settings, Apps. */
@@ -118,6 +119,7 @@ export function createFirstRunStore() {
       await configStore.save(next);
     } catch {
       logFailure("the apps could not be saved");
+      showToast("Could not save your apps", "error");
       return;
     } finally {
       setBusy(false);

@@ -18,6 +18,7 @@ vi.mock("../../../stores/global/config", () => ({
       hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     }),
     save: h.saveConfig,
+    isAppOn: () => false,
   },
 }));
 
@@ -198,5 +199,45 @@ describe("the editor's own words", () => {
 
     await waitFor(() => expect(h.showToast).toHaveBeenCalled());
     expect(h.showToast).toHaveBeenCalledWith("Could not save the shortcuts", "error");
+  });
+});
+
+describe("a command whose app is off", () => {
+  function chatAndNew() {
+    registerCommand({
+      id: "chat.toggle",
+      label: "Toggle chat",
+      keybinding: "CmdOrCtrl+Shift+A",
+      scope: "app",
+      app: "chat",
+      execute: vi.fn(),
+    });
+    registerCommand({
+      id: "note.new",
+      label: "New note",
+      keybinding: "CmdOrCtrl+N",
+      scope: "app",
+      execute: vi.fn(),
+    });
+    h.keybindings = { "chat.toggle": "CmdOrCtrl+Alt+C" };
+  }
+
+  it("is not listed, and leaving with nothing edited asks nothing", async () => {
+    chatAndNew();
+    const screen = render(both);
+    openShortcutEditor();
+    expect(screen.queryByText("Toggle chat")).toBeNull();
+    fireEvent.click(screen.container.querySelector(".shortcut-editor-overlay")!);
+    await waitFor(() => expect(screen.container.querySelector(".shortcut-editor")).toBeNull());
+    expect(screen.container.querySelector(".confirm-dialog")).toBeNull();
+  });
+
+  it("keeps its saved chord when the editor saves", async () => {
+    chatAndNew();
+    const screen = render(both);
+    openShortcutEditor();
+    fireEvent.click(screen.container.querySelector("[data-action='save-shortcuts']")!);
+    await waitFor(() => expect(h.saveConfig).toHaveBeenCalled());
+    expect(h.saveConfig.mock.calls[0][0].keybindings).toEqual({ "chat.toggle": "CmdOrCtrl+Alt+C" });
   });
 });
