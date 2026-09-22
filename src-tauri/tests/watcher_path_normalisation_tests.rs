@@ -57,6 +57,7 @@ fn make_state(dir: &TempDir) -> AppState {
         notes_root: RwLock::new(notes_root),
         first_run: false,
         first_run_finished: std::sync::atomic::AtomicBool::new(false),
+        menu_apps: std::sync::Mutex::new(None),
         retitle_watch: std::sync::Arc::new(writ_tauri_lib::first_run::RetitleWatch::new()),
         notes_root_fallback: RwLock::new(None),
         watcher_ignore: create_ignore_set(),

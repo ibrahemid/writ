@@ -4,7 +4,7 @@
 
 use std::sync::Mutex as StdMutex;
 
-use writ_core::config::FileExtension;
+use writ_core::config::{AppId, FileExtension, SidebarSection, WritConfig};
 use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
 use writ_tauri_lib::commands::first_run::{
     auto_retitle_note_inner, dismiss_first_run_hint_inner, first_run_state_inner, RetitleOutcome,
@@ -40,7 +40,7 @@ fn launch_with_notes(data_dir: &std::path::Path, notes_dir: &std::path::Path) ->
 
 /// Answers the first-launch screen with plain text, which is its default.
 fn finish(state: &AppState) -> Option<writ_core::buffer::document::BufferDocument> {
-    finish_first_run_inner(state, FileExtension::Txt).expect("the screen is answered")
+    finish_first_run_inner(state, FileExtension::Txt, &[]).expect("the screen is answered")
 }
 
 /// The config file a launch writes for itself.
@@ -141,7 +141,7 @@ fn the_format_the_screen_was_answered_with_is_written_and_is_what_gets_minted() 
     let dir = tempfile::tempdir().expect("tempdir");
     let state = launch(dir.path());
 
-    let note = finish_first_run_inner(&state, FileExtension::Md)
+    let note = finish_first_run_inner(&state, FileExtension::Md, &[])
         .expect("the screen is answered")
         .expect("the first launch opens a file");
 
@@ -174,8 +174,8 @@ fn answering_the_screen_twice_mints_one_file_and_records_one_answer() {
     let first = finish(&state).expect("the first launch opens a file");
     let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
 
-    let second =
-        finish_first_run_inner(&state, FileExtension::Md).expect("the second call is answered");
+    let second = finish_first_run_inner(&state, FileExtension::Md, &[])
+        .expect("the second call is answered");
 
     assert!(
         second.is_none(),
@@ -208,14 +208,14 @@ fn a_run_that_could_not_record_the_answer_can_be_answered_again() {
     // retry once the way is clear.
     let config = config_file(dir.path());
     std::fs::create_dir_all(&config).expect("a folder where the config goes");
-    assert!(finish_first_run_inner(&state, FileExtension::Md).is_err());
+    assert!(finish_first_run_inner(&state, FileExtension::Md, &[]).is_err());
     assert!(
         notes_folder_entries(&state).is_empty(),
         "a run that recorded nothing mints nothing"
     );
     std::fs::remove_dir_all(&config).expect("the way is clear");
 
-    let note = finish_first_run_inner(&state, FileExtension::Md)
+    let note = finish_first_run_inner(&state, FileExtension::Md, &[])
         .expect("the screen is answered")
         .expect("the retry opens a file");
 
@@ -234,7 +234,7 @@ fn a_later_launch_records_nothing_and_leaves_the_format_alone() {
     assert!(!second.first_run);
     let before = std::fs::read_to_string(config_file(dir.path())).expect("the config");
 
-    assert!(finish_first_run_inner(&second, FileExtension::Md)
+    assert!(finish_first_run_inner(&second, FileExtension::Md, &[])
         .expect("a later launch answers with nothing")
         .is_none());
     assert_eq!(
@@ -311,7 +311,7 @@ fn a_first_line_renames_the_file_it_was_typed_in_and_keeps_its_format() {
 fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
     let dir = tempfile::tempdir().expect("tempdir");
     let state = launch(dir.path());
-    let note = finish_first_run_inner(&state, FileExtension::Md)
+    let note = finish_first_run_inner(&state, FileExtension::Md, &[])
         .expect("the screen is answered")
         .expect("a file");
     let path = opened_path(&note);
@@ -532,5 +532,45 @@ fn a_launch_that_finds_open_tabs_leaves_them_to_the_frontend() {
         notes_folder_entries(&second),
         vec!["Other.md".to_string()],
         "nothing was minted"
+    );
+}
+
+#[test]
+fn the_apps_the_screen_was_answered_with_are_written_with_the_format() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state = launch(dir.path());
+
+    finish_first_run_inner(&state, FileExtension::Txt, &[AppId::Chat, AppId::Tags])
+        .expect("the screen is answered");
+
+    let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
+    let on_disk = WritConfig::parse(&written).expect("the config parses");
+    assert_eq!(
+        on_disk.apps_on().into_iter().collect::<Vec<_>>(),
+        vec![AppId::Chat, AppId::Tags],
+        "the two apps switched on are on, and nothing else"
+    );
+    let live = state.config.lock().expect("config").clone();
+    assert_eq!(
+        live.apps_on(),
+        on_disk.apps_on(),
+        "and the running copy agrees"
+    );
+}
+
+#[test]
+fn a_launch_answered_with_no_apps_writes_every_app_off_and_a_quiet_sidebar() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let state = launch(dir.path());
+
+    finish(&state);
+
+    let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
+    let on_disk = WritConfig::parse(&written).expect("the config parses");
+    assert!(on_disk.apps_on().is_empty(), "{written}");
+    assert_eq!(
+        on_disk.sidebar.hidden,
+        vec![SidebarSection::Inbox, SidebarSection::Recent],
+        "the sidebar is the file tree and search"
     );
 }

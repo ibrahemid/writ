@@ -16,7 +16,12 @@ fn default_config_has_expected_values() {
     assert_eq!(config.sidebar.position, SidebarPosition::Left);
     assert_eq!(config.sidebar.width, 240);
     assert!(config.sidebar.collapsed.is_empty());
-    assert!(config.sidebar.hidden.is_empty());
+    // ADR-042: a fresh sidebar is the file tree and search.
+    assert_eq!(
+        config.sidebar.hidden,
+        vec![SidebarSection::Inbox, SidebarSection::Recent]
+    );
+    assert!(config.apps_on().is_empty());
 
     assert_eq!(config.editor.font_family, "monospace");
     assert_eq!(config.editor.font_size, 16);
@@ -55,7 +60,11 @@ fn config_serializes_to_toml() {
     assert!(toml_str.contains("[storage]"));
     assert!(toml_str.contains("[files]"), "{toml_str}");
     assert!(toml_str.contains("collapsed = []"), "{toml_str}");
-    assert!(toml_str.contains("hidden = []"), "{toml_str}");
+    assert!(
+        toml_str.contains("hidden = [\"inbox\", \"recent\"]"),
+        "{toml_str}"
+    );
+    assert!(toml_str.contains("[apps]"), "{toml_str}");
 }
 
 #[test]

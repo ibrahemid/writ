@@ -7,6 +7,8 @@
 
 /// The AI connection and its two feature switches (`[ai]`).
 pub mod ai;
+/// The apps list and the switches of the apps without a section (`[apps]`).
+pub mod apps;
 /// The extension every file Writ mints carries (`[files]`).
 pub mod files;
 /// Keybinding conflict reporting types.
@@ -21,6 +23,7 @@ pub mod preview;
 pub mod spelling;
 
 pub use ai::{AiChatConfig, AiConfig, AiConfigOnDisk, AiRewriteConfig};
+pub use apps::{AppId, AppsConfig};
 pub use files::{FileExtension, FilesConfig};
 pub use mcp::{ClientApproval, McpConfig};
 pub use notes::NotesConfig;
@@ -749,6 +752,10 @@ pub struct WritConfig {
     /// Spell-check configuration.
     #[serde(default)]
     pub spelling: SpellingConfig,
+    /// Switches for the apps that have no section of their own. A file
+    /// without the table predates it and reads as all on (ADR-042 section 2).
+    #[serde(default = "AppsConfig::existing")]
+    pub apps: AppsConfig,
 }
 
 impl Default for WritConfig {
@@ -776,11 +783,77 @@ impl Default for WritConfig {
             ai: AiConfig::default(),
             mcp: McpConfig::default(),
             spelling: SpellingConfig::default(),
+            apps: AppsConfig::default(),
         }
+        .fresh_sidebar()
     }
 }
 
 impl WritConfig {
+    /// Parses a config file's text and settles the apps it carries
+    /// ([`WritConfig::settle_apps`]). Every reader of a file goes through
+    /// this rather than `toml::from_str`, so a file written before `[apps]`
+    /// reads the same everywhere.
+    pub fn parse(text: &str) -> Result<Self, toml::de::Error> {
+        let mut config: WritConfig = toml::from_str(text)?;
+        config.settle_apps();
+        Ok(config)
+    }
+
+    /// A fresh install's sidebar shows the file tree and search only. Set
+    /// here rather than in [`SidebarConfig::default`], which is also what a
+    /// file with no `[sidebar]` table reads.
+    fn fresh_sidebar(mut self) -> Self {
+        self.sidebar.hidden = vec![SidebarSection::Inbox, SidebarSection::Recent];
+        self
+    }
+
+    /// Moves a hidden tags section onto the Tags switch, so tags has one
+    /// switch. Idempotent: once moved, `sidebar.hidden` holds no `tags`.
+    pub fn settle_apps(&mut self) {
+        if let Some(at) = self
+            .sidebar
+            .hidden
+            .iter()
+            .position(|section| *section == SidebarSection::Tags)
+        {
+            self.sidebar.hidden.remove(at);
+            self.apps.tags = false;
+        }
+    }
+
+    /// Whether `app` is on.
+    pub fn is_app_on(&self, app: AppId) -> bool {
+        match app {
+            AppId::Chat => self.ai.chat.enabled,
+            AppId::Rewrite => self.ai.rewrite.enabled,
+            AppId::Programs => self.mcp.enabled,
+            AppId::Connections => self.apps.connections,
+            AppId::Graph => self.apps.graph,
+            AppId::Tags => self.apps.tags,
+        }
+    }
+
+    /// Turns `app` on or off, on the key that app has always been read from.
+    pub fn set_app(&mut self, app: AppId, on: bool) {
+        match app {
+            AppId::Chat => self.ai.chat.enabled = on,
+            AppId::Rewrite => self.ai.rewrite.enabled = on,
+            AppId::Programs => self.mcp.enabled = on,
+            AppId::Connections => self.apps.connections = on,
+            AppId::Graph => self.apps.graph = on,
+            AppId::Tags => self.apps.tags = on,
+        }
+    }
+
+    /// The apps that are on, in Settings order.
+    pub fn apps_on(&self) -> std::collections::BTreeSet<AppId> {
+        AppId::ALL
+            .into_iter()
+            .filter(|app| self.is_app_on(*app))
+            .collect()
+    }
+
     /// Carries the fields only Rust writes onto a copy that may predate them.
     ///
     /// The frontend holds the whole config and sends the whole of it back on
@@ -1077,12 +1150,12 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_sections_start_neither_folded_nor_hidden() {
+    fn a_file_without_a_sidebar_table_folds_and_hides_nothing() {
         let sidebar = SidebarConfig::default();
         assert!(sidebar.collapsed.is_empty());
         assert!(sidebar.hidden.is_empty());
-        let fresh: WritConfig = toml::from_str("").unwrap();
-        assert_eq!(fresh.sidebar, sidebar);
+        let existing: WritConfig = toml::from_str("").unwrap();
+        assert_eq!(existing.sidebar, sidebar);
     }
 
     #[test]
@@ -1136,10 +1209,13 @@ mod tests {
     }
 
     #[test]
-    fn the_default_config_writes_empty_section_lists() {
+    fn the_default_config_writes_its_section_lists() {
         let serialized = toml::to_string(&WritConfig::default()).unwrap();
         assert!(serialized.contains("collapsed = []"), "{serialized}");
-        assert!(serialized.contains("hidden = []"), "{serialized}");
+        assert!(
+            serialized.contains("hidden = [\"inbox\", \"recent\"]"),
+            "{serialized}"
+        );
     }
 
     #[test]
