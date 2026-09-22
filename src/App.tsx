@@ -13,7 +13,7 @@ import SearchPalette, { toggleSearchPalette } from "./components/SearchPalette/S
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
-import ActivityPanel, { openActivity } from "./components/Activity/ActivityPanel";
+import ActivityPanel, { closeActivity, openActivity } from "./components/Activity/ActivityPanel";
 import NoteHistoryPanel, { openNoteVersions } from "./components/NoteHistory/NoteHistoryPanel";
 import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
@@ -57,6 +57,7 @@ import { registerTransformCommands } from "./commands/transforms";
 import { registerPromptCommands } from "./commands/prompt";
 import { registerAiCommands, unregisterAiCommands } from "./commands/ai";
 import { toggleChat } from "./commands/chat";
+import { defineAppCommands, definedAppCommandIds, syncAppCommands } from "./commands/app-commands";
 import { chatStore } from "./stores/global/chat";
 import { aiRewriteStore } from "./stores/global/ai-rewrite";
 import AiRewriteOverlay from "./components/AiRewrite/AiRewriteOverlay";
@@ -509,18 +510,20 @@ function AppShell() {
       execute: () => windowRegistry.getActive()?.sidebar.toggle(),
     });
 
-    registerCommand({
-      id: "panel.toggle",
-      icon: "link-simple",
-      label: "Toggle connections",
-      description: "Show or hide what links to this file, its outline and properties",
-      keybinding: "CmdOrCtrl+Shift+\\",
-      scope: "app",
-      // Global, for the same reason the sidebar's toggle is: the editor holds
-      // focus almost all the time, so a focus-gated chord would never reach it.
-      global: true,
-      execute: () => windowRegistry.getActive()?.rightPanel.toggle(),
-    });
+    defineAppCommands("connections", [
+      {
+        id: "panel.toggle",
+        icon: "link-simple",
+        label: "Toggle connections",
+        description: "Show or hide what links to this file, its outline and properties",
+        keybinding: "CmdOrCtrl+Shift+\\",
+        scope: "app",
+        // Global, for the same reason the sidebar's toggle is: the editor holds
+        // focus almost all the time, so a focus-gated chord would never reach it.
+        global: true,
+        execute: () => windowRegistry.getActive()?.rightPanel.toggle(),
+      },
+    ]);
 
     registerCommand({
       id: "chat.toggle",
@@ -533,22 +536,25 @@ function AppShell() {
       // Global, for the reason the two toggles above it are: the editor holds
       // focus almost all the time.
       global: true,
-      execute: () => {
-        void toggleChat();
-      },
+      // Registered while chat is off so its chord can open the switch; its
+      // app keeps it out of the palette and both menus.
+      app: "chat",
+      execute: () => toggleChat(),
     });
 
-    registerCommand({
-      id: "folderGraph.open",
-      icon: "folder-simple",
-      label: "Open graph",
-      description: "Show every file in the folder and the links between them",
-      scope: "app",
-      // Global, like the two toggles above: the editor holds focus while you
-      // write, and this is reached from there or from nowhere.
-      global: true,
-      execute: () => windowRegistry.getActive()?.folderGraph.open(),
-    });
+    defineAppCommands("graph", [
+      {
+        id: "folderGraph.open",
+        icon: "folder-simple",
+        label: "Open graph",
+        description: "Show every file in the folder and the links between them",
+        scope: "app",
+        // Global, like the two toggles above: the editor holds focus while you
+        // write, and this is reached from there or from nowhere.
+        global: true,
+        execute: () => windowRegistry.getActive()?.folderGraph.open(),
+      },
+    ]);
 
     registerCommand({
       id: "search.openContent",
@@ -791,14 +797,16 @@ function AppShell() {
       execute: () => openShortcutEditor(),
     });
 
-    registerCommand({
-      id: "activity.open",
-      icon: "list-bullets",
-      label: "Activity",
-      description: "What connected programs did with your files",
-      scope: "app",
-      execute: () => openActivity(),
-    });
+    defineAppCommands("programs", [
+      {
+        id: "activity.open",
+        icon: "list-bullets",
+        label: "Activity",
+        description: "What connected programs did with your files",
+        scope: "app",
+        execute: () => openActivity(),
+      },
+    ]);
 
     registerCommand({
       id: "settings.open",
@@ -860,7 +868,9 @@ function AppShell() {
     registerPreviewKeymap();
 
     setExecuteListener((id) => configStore.recordCommandUse(id));
-    configStore.pruneCommandUsage(new Set(getAllCommands().map((c) => c.id)));
+    configStore.pruneCommandUsage(
+      new Set([...getAllCommands().map((c) => c.id), ...definedAppCommandIds()]),
+    );
 
     // Resolve default-app platform support up front so settings search and the
     // command palette can offer those rows before the Settings modal mounts.
@@ -957,6 +967,9 @@ function AppShell() {
     if (focusAfterSidebarChange(win.sidebar.isOpen()) === "editor") win.editor.focusEditor();
   });
 
+  // An app's commands exist only while the app is on (ADR-042 section 3).
+  createEffect(() => syncAppCommands((app) => configStore.isAppOn(app)));
+
   // Rewrite commands exist in the palette only while the feature is on.
   createEffect(() => {
     if (configStore.config().ai.rewrite.enabled) registerAiCommands();
@@ -965,7 +978,20 @@ function AppShell() {
 
   // A pane turned off while it was showing takes its column with it.
   createEffect(() => {
-    if (!configStore.config().ai.chat.enabled) win.chatPanel.hide();
+    if (!configStore.isAppOn("chat")) win.chatPanel.hide();
+  });
+
+  // An app switched off closes what it had open, and keeps what it holds on
+  // disk for the next time it is on (ADR-042 section 3). The connections
+  // panel is left to its own render gate, so its open state comes back with it.
+  createEffect(() => {
+    if (!configStore.isAppOn("graph")) win.folderGraph.close();
+  });
+  createEffect(() => {
+    if (!configStore.isAppOn("programs")) closeActivity();
+  });
+  createEffect(() => {
+    if (!configStore.isAppOn("tags")) win.sidebar.selectTag(null);
   });
 
   return (
@@ -975,7 +1001,9 @@ function AppShell() {
       <div class="app-body">
         <Sidebar />
         <EditorArea />
-        <RightPanel />
+        <Show when={configStore.isAppOn("connections")}>
+          <RightPanel />
+        </Show>
         <ChatPane />
         <FirstRunHint />
         {/* Last in the row and over both panes: the lights sit at the window's

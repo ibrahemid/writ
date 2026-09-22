@@ -25,7 +25,8 @@ export default function FirstRunHint() {
   const sidebarWidth = () =>
     win.sidebar.isOpen() ? clampSidebarWidth(configStore.config().sidebar.width) : 0;
   const panelWidth = () =>
-    win.rightPanel.isOpen() ? clampPanelWidth(win.rightPanel.width()) : 0;
+    configStore.isAppOn("connections") && win.rightPanel.isOpen()
+      ? clampPanelWidth(win.rightPanel.width()) : 0;
   const sidebarOnLeft = () => configStore.config().sidebar.position !== "right";
 
   const leftInset = () => (sidebarOnLeft() ? sidebarWidth() : 0);

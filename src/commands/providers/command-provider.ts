@@ -1,4 +1,5 @@
 import { getAllCommands } from "../registry";
+import { isCommandOffered } from "../app-commands";
 import { effectiveBinding } from "../keybindings";
 import { partitionEmptyQuery, rankWithQuery } from "../ranking";
 import { configStore } from "../../stores/global/config";
@@ -58,6 +59,7 @@ export function createCommandProvider(options: CommandProviderOptions = {}): Res
       (cmd) =>
         (cmd.scope === "app" || cmd.scope === "editor") &&
         !excluded.has(cmd.id) &&
+        isCommandOffered(cmd) &&
         (cmd.isAvailable?.() ?? true),
     );
   }

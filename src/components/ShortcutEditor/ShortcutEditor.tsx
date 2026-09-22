@@ -9,6 +9,7 @@ import {
   Show,
 } from "solid-js";
 import { useAllCommands } from "../../commands/registry";
+import { isCommandOffered } from "../../commands/app-commands";
 import {
   effectiveBinding,
   rebuildKeyMap,
@@ -69,7 +70,7 @@ export default function ShortcutEditor() {
 
   const commands = createMemo<Command[]>(() =>
     useAllCommands()
-      .filter((c) => c.scope === "app" || c.scope === "editor")
+      .filter((c) => (c.scope === "app" || c.scope === "editor") && isCommandOffered(c))
       .slice()
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
   );

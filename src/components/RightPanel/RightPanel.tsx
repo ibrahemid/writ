@@ -10,6 +10,7 @@ import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { noteFactsStore } from "../../stores/global/note-facts";
 import { backlinksStore } from "../../stores/global/backlinks";
 import {
+  configStore,
   PANEL_WIDTH_DEFAULT,
   PANEL_WIDTH_MAX,
   PANEL_WIDTH_MIN,
@@ -181,7 +182,9 @@ export default function RightPanel() {
                 </Show>
                 <LinksSection path={note().path} />
                 <BacklinksSection path={note().path} />
-                <LocalGraphSection path={note().path} />
+                <Show when={configStore.isAppOn("graph")}>
+                  <LocalGraphSection path={note().path} />
+                </Show>
                 <Show when={facts()}>{(read) => <PropertiesSection facts={read()} />}</Show>
               </>
             )}

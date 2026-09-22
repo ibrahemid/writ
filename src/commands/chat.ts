@@ -71,10 +71,10 @@ export async function clearBlockersBeforeSending(
   if (!endpoint.enabled) {
     const open = await requestConfirm({
       title: "Chat is turned off",
-      message: "Turn it on in AI settings.",
+      message: "Turn it on in Settings, Apps.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.chat.enabled");
+    if (open) openSettings("apps", "ai.chat.enabled");
     return false;
   }
 
@@ -84,7 +84,7 @@ export async function clearBlockersBeforeSending(
       message: "Use https, or http only for a server on this machine.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.provider");
+    if (open) openSettings("apps", "ai.provider");
     return false;
   }
 
@@ -94,7 +94,7 @@ export async function clearBlockersBeforeSending(
       message: "No model is set.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.model");
+    if (open) openSettings("apps", "ai.model");
     return false;
   }
 
@@ -108,7 +108,7 @@ export async function clearBlockersBeforeSending(
       message: `${endpoint.provider} does not list it. Choose one it has.`,
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.model");
+    if (open) openSettings("apps", "ai.model");
     return false;
   }
 
@@ -134,7 +134,7 @@ export async function clearBlockersBeforeSending(
       message: "The key is kept in your keychain, never in config.toml.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.api_key");
+    if (open) openSettings("apps", "ai.api_key");
     return false;
   }
 
@@ -165,21 +165,15 @@ export function toggleChatPane() {
   windowRegistry.getActive()?.chatPanel.toggle();
 }
 
-/** Shows the pane, or says where to turn it on.
+/** Shows the pane, or opens the switch that would make one.
  *
- * The command is registered whether chat is on or not, so the shortcut editor
- * lists its chord and the View menu item routes somewhere. With chat off there
- * is no pane to show, and the one thing to offer is the setting that would
- * make one. */
-export async function toggleChat() {
-  if (configStore.config().ai.chat.enabled) {
+ * The command stays registered while chat is off, unavailable, so the palette
+ * and both menus leave it out while its chord still answers: with no pane to
+ * show, the chord lands on the Chat row in Settings, Apps (ADR-042 section 3). */
+export function toggleChat() {
+  if (configStore.isAppOn("chat")) {
     toggleChatPane();
     return;
   }
-  const open = await requestConfirm({
-    title: "Chat is turned off",
-    message: "Turn it on in AI settings.",
-    confirmLabel: "Open settings",
-  });
-  if (open) openSettings("ai", "ai.chat.enabled");
+  openSettings("apps", "ai.chat.enabled");
 }

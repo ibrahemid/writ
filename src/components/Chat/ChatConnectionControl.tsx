@@ -281,7 +281,7 @@ export default function ChatConnectionControl() {
             class="chat-menu-row chat-menu-settings"
             onClick={() => {
               close(false);
-              openSettings("ai", "ai.provider");
+              openSettings("apps", "ai.provider");
             }}
           >
             <span class="chat-menu-mark" aria-hidden="true" />

@@ -38,7 +38,7 @@ async function clearBlockersBeforeSending(): Promise<boolean> {
       message: "Use https, or http only for a server on this machine.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.base_url");
+    if (open) openSettings("apps", "ai.base_url");
     return false;
   }
 
@@ -64,7 +64,7 @@ async function clearBlockersBeforeSending(): Promise<boolean> {
       message: "The key is kept in your keychain, never in config.toml.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.api_key");
+    if (open) openSettings("apps", "ai.api_key");
     return false;
   }
 
@@ -85,7 +85,7 @@ export async function runRewriteAction(action: AiAction, presetRange?: AnchoredR
       message: "No model is set.",
       confirmLabel: "Open settings",
     });
-    if (open) openSettings("ai", "ai.model");
+    if (open) openSettings("apps", "ai.model");
     return;
   }
   // The last probe found the endpoint but not this model — say so instead of

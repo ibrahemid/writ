@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { getCommand, executeCommand } from "../../commands/registry";
+import { isCommandOffered } from "../../commands/app-commands";
 import { showAnchoredMenu, type MenuItem } from "../ContextMenu/ContextMenu";
 import { formatKeybinding } from "../../lib/keybinding-format";
 import { MENU_SECTIONS, menuCommandsFor } from "../../commands/menu-commands";
@@ -25,7 +26,7 @@ export function appMenuItems(): MenuItem[] {
 
     for (const entry of entries) {
       const command = getCommand(entry.id);
-      if (!command) continue;
+      if (!command || !isCommandOffered(command)) continue;
       // A section always opens a run, so its first item divides from the one
       // above it as a group change does.
       const dividesFromPrevious = lastGroup === null || lastGroup !== entry.group;

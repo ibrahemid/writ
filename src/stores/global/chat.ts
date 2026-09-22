@@ -322,7 +322,7 @@ export type ReadinessState =
 
 /** What pressing the readiness line does. */
 export type ReadinessAction =
-  | { kind: "settings"; section: "ai"; setting: string }
+  | { kind: "settings"; section: "apps"; setting: string }
   | { kind: "check" };
 
 export type Readiness =
@@ -892,7 +892,7 @@ function createChatStore() {
       return {
         state: "off",
         message: "Chat is turned off.",
-        action: { kind: "settings", section: "ai", setting: "ai.chat.enabled" },
+        action: { kind: "settings", section: "apps", setting: "ai.chat.enabled" },
       };
     }
     const model = chatModel().trim();
@@ -900,7 +900,7 @@ function createChatStore() {
       return {
         state: "no_model",
         message: "No model is set.",
-        action: { kind: "settings", section: "ai", setting: "ai.model" },
+        action: { kind: "settings", section: "apps", setting: "ai.model" },
       };
     }
     const probe = aiConnectionStore.status();
@@ -908,14 +908,14 @@ function createChatStore() {
       return {
         state: "unconsented",
         message: `${probe.detail} has not been allowed yet.`,
-        action: { kind: "settings", section: "ai", setting: "ai.provider" },
+        action: { kind: "settings", section: "apps", setting: "ai.provider" },
       };
     }
     if (probe?.kind === "key_required") {
       return {
         state: "no_key",
         message: "Add an API key to use this connection.",
-        action: { kind: "settings", section: "ai", setting: "ai.api_key" },
+        action: { kind: "settings", section: "apps", setting: "ai.api_key" },
       };
     }
     if (probe?.kind === "refused" && aiConnectionStore.isLocal()) {
@@ -930,7 +930,7 @@ function createChatStore() {
       return {
         state: "model_unavailable",
         message: `${model} is not available on ${aiProvidersStore.byId(catalog.provider)?.label ?? catalog.provider}.`,
-        action: { kind: "settings", section: "ai", setting: "ai.model" },
+        action: { kind: "settings", section: "apps", setting: "ai.model" },
       };
     }
     return { state: "ready" };

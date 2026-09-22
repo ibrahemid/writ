@@ -1,4 +1,5 @@
 import type { IconName } from "../components/Icon/sprite.generated";
+import type { AppId } from "./config";
 
 export type CommandScope = "app" | "editor";
 
@@ -32,6 +33,14 @@ export interface Command {
    * which is every command that does not depend on what is open.
    */
   isAvailable?: () => boolean;
+  /**
+   * The app the command belongs to. While that app is off the command is left
+   * out of the palette, both menus and the shortcut editor, and stays
+   * registered so its chord can still answer (ADR-042 section 3). An app whose
+   * commands should not answer at all while off registers them through
+   * `defineAppCommands` instead.
+   */
+  app?: AppId;
   /**
    * Returns `false` when the command declined to act (no view, read-only, or a
    * no-op), so the dispatcher lets the keystroke fall through to CodeMirror and
