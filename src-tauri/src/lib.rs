@@ -1,3 +1,4 @@
+pub mod app_menu;
 pub mod commands;
 pub mod events;
 pub mod first_run;
@@ -93,11 +94,6 @@ pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
     }
 }
 
-/// The Quit item's id. Not in the shared command list: quitting is the exit
-/// path's own business, not an action forwarded to the frontend.
-#[cfg(target_os = "macos")]
-const QUIT_MENU_ID: &str = "app.quit";
-
 /// Canonicalize and authorize OS-dropped paths into the set we will open.
 ///
 /// Returns an empty vec when nothing survives, which is exactly what a nil or
@@ -112,138 +108,6 @@ fn dropped_paths_to_open(
         .filter_map(|p| p.to_str().map(String::from))
         .collect();
     startup::authorize_and_canonicalize(authorized, &raw_paths)
-}
-
-/// Adds one menu's commands from the shared list, with a separator between
-/// groups.
-#[cfg(target_os = "macos")]
-fn fill_section<'m>(
-    app: &'m tauri::App,
-    builder: tauri::menu::SubmenuBuilder<'m, tauri::Wry, tauri::App>,
-    section: menu::MenuSection,
-) -> Result<tauri::menu::SubmenuBuilder<'m, tauri::Wry, tauri::App>, Box<dyn std::error::Error>> {
-    use tauri::menu::MenuItemBuilder;
-
-    let mut builder = builder;
-    let mut last_group: Option<u8> = None;
-    for command in menu::commands_in(section, menu::MenuPlatform::Mac) {
-        if last_group.is_some_and(|group| group != command.group) {
-            builder = builder.separator();
-        }
-        last_group = Some(command.group);
-
-        let mut item = MenuItemBuilder::with_id(command.id.clone(), &command.label);
-        if let Some(accelerator) = &command.accelerator {
-            item = item.accelerator(accelerator);
-        }
-        builder = builder.item(&item.build(app)?);
-    }
-    Ok(builder)
-}
-
-/// Builds the native macOS menu bar from the shared command list
-/// (`src/commands/menu-commands.json`, read here through [`menu`]).
-///
-/// macOS-only by design: it hosts the system menu bar that macOS apps are
-/// expected to provide, and its `CmdOrCtrl` accelerators are correct there. On
-/// Windows/Linux the window runs with `decorations: false`, so this menu would
-/// be invisible chrome while its accelerators collide with the platform
-/// translator. Every command in the list is offered on all three platforms —
-/// `AppMenu.tsx` carries the same list into the titlebar menu button — so
-/// gating this off those platforms removes chrome, never an action.
-#[cfg(target_os = "macos")]
-fn build_app_menu(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-    use writ_core::events::bus::WritEvent;
-
-    // Not `PredefinedMenuItem::quit`: muda maps that to AppKit's `terminate:`,
-    // which tears the process down without ever reaching the event loop, so no
-    // exit request is raised and nothing gets a chance to write. A plain item
-    // that calls `AppHandle::exit` goes the long way round, through
-    // `RunEvent::ExitRequested` and the flush handshake.
-    let quit_item = MenuItemBuilder::with_id(QUIT_MENU_ID, "Quit Writ")
-        .accelerator("CmdOrCtrl+Q")
-        .build(app)?;
-
-    // About sits above the list's app section, so the licences the list opens
-    // read as part of what About says about this build.
-    let app_menu = SubmenuBuilder::new(app, "Writ").item(&PredefinedMenuItem::about(
-        app,
-        Some("About Writ"),
-        None,
-    )?);
-    let app_menu = fill_section(app, app_menu, menu::MenuSection::App)?
-        .separator()
-        .item(&quit_item)
-        .build()?;
-
-    let file_menu = fill_section(
-        app,
-        SubmenuBuilder::new(app, "File"),
-        menu::MenuSection::File,
-    )?
-    .build()?;
-
-    let edit_menu = SubmenuBuilder::new(app, "Edit")
-        .undo()
-        .redo()
-        .separator()
-        .cut()
-        .copy()
-        .paste()
-        .select_all()
-        .separator();
-    let edit_menu = fill_section(app, edit_menu, menu::MenuSection::Edit)?.build()?;
-
-    let view_menu = fill_section(
-        app,
-        SubmenuBuilder::new(app, "View"),
-        menu::MenuSection::View,
-    )?
-    .build()?;
-
-    // Chrome macOS expects of every app, built from the predefined item rather
-    // than from the shared list: minimizing is a window operation the OS
-    // performs, not a Writ command, and there is nothing for the Windows and
-    // Linux menu to carry in its place — those titlebars have their own
-    // minimize button.
-    let window_menu = SubmenuBuilder::new(app, "Window").minimize().build()?;
-
-    let help_menu = fill_section(
-        app,
-        SubmenuBuilder::new(app, "Help"),
-        menu::MenuSection::Help,
-    )?
-    .build()?;
-
-    let menu = MenuBuilder::new(app)
-        .items(&[
-            &app_menu,
-            &file_menu,
-            &edit_menu,
-            &view_menu,
-            &window_menu,
-            &help_menu,
-        ])
-        .build()?;
-
-    app.set_menu(menu)?;
-
-    app.on_menu_event(move |app_handle, event| {
-        let id = event.id().0.as_str();
-        if id == QUIT_MENU_ID {
-            app_handle.exit(0);
-            return;
-        }
-        if let Some(action) = menu::menu_action_for_id(id) {
-            let state = app_handle.state::<AppState>();
-            state.event_bus.emit(WritEvent::MenuAction {
-                action: action.command_id().to_string(),
-            });
-        }
-    });
-
-    Ok(())
 }
 
 /// Walks the notes folder and brings the index in line with it, on a thread of
@@ -779,7 +643,9 @@ pub fn run() {
                 let reload_handle = handle.clone();
                 state.event_bus.subscribe(move |event| {
                     if let WritEvent::ConfigChanged { .. } = event {
-                        reload_handle.state::<AppState>().reload_config_from_disk();
+                        if reload_handle.state::<AppState>().reload_config_from_disk() {
+                            app_menu::sync(&reload_handle);
+                        }
                     }
                 });
             }
@@ -947,9 +813,7 @@ pub fn run() {
             }
 
             #[cfg(target_os = "macos")]
-            if let Err(e) = build_app_menu(app) {
-                tracing::warn!(error = %e, "failed to build application menu");
-            }
+            app_menu::install(&handle);
 
             // The Dock, an Apple Event quit and a logout all reach the app
             // through `terminate:`, which never raises an exit request.
@@ -1357,7 +1221,7 @@ mod tests {
     #[test]
     fn the_quit_item_is_not_forwarded_to_the_frontend() {
         assert_eq!(
-            menu::menu_action_for_id(QUIT_MENU_ID),
+            menu::menu_action_for_id(app_menu::QUIT_MENU_ID),
             None,
             "quit must reach the exit path, not the frontend's menu handler"
         );

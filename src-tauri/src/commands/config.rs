@@ -56,8 +56,14 @@ fn merge_into_live(live: &mut WritConfig, incoming: WritConfig) -> WritConfig {
     merged
 }
 
+/// IPC: takes the frontend's whole config, writes it, and draws the menu bar
+/// again when the write turned an app on or off (ADR-042 section 3).
 #[tauri::command]
-pub fn update_config(state: State<'_, AppState>, config: WritConfig) -> Result<(), String> {
+pub fn update_config(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    config: WritConfig,
+) -> Result<(), String> {
     let (merged, previous) = {
         let mut current = state.config.lock().map_err(|e| e.to_string())?;
         let previous = current.clone();
@@ -75,6 +81,7 @@ pub fn update_config(state: State<'_, AppState>, config: WritConfig) -> Result<(
         *current = restored;
         return Err(reason);
     }
+    crate::app_menu::sync(&app);
     Ok(())
 }
 
