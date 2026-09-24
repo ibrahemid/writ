@@ -291,6 +291,14 @@ function isProse(value: string): boolean {
 }
 
 /**
+ * A literal that reads as a whole sentence: it opens with a capital or an `@`,
+ * holds a space, and ends the way a sentence does.
+ */
+function isSentence(value: string): boolean {
+  return /^[A-Z@]/.test(value) && /\s/.test(value) && /[.?…]$/.test(value);
+}
+
+/**
  * The attribute or property name a literal is the value of, or `null`. Handles
  * a bare key (`label: "x"`, `label="x"`, `title={"x"}`) and a quoted one
  * (`"aria-label": "x"`), whose own body the lexer has already blanked, so the
@@ -357,6 +365,13 @@ function domStrings(file: string, text: string): Candidate[] {
     if (key !== null && TEXT_KEYS.includes(key)) {
       candidates.push({ index: literal.start, text: literal.value });
     }
+  }
+
+  // A finished sentence is read wherever it sits: a branch of a ternary in a
+  // spoken attribute or a JSX child, a `??` fallback, a constant a helper
+  // returns later. Log lines start lower case and stay out.
+  for (const literal of literals) {
+    if (isSentence(literal.value)) candidates.push({ index: literal.start, text: literal.value });
   }
 
   for (const match of masked.matchAll(/\bshowToast\s*\(/g)) {
@@ -426,6 +441,27 @@ function collectOffenders(): Offender[] {
 function keyOf(record: { file: string; line: number; word: string }): string {
   return `${record.file}:${record.line}:${record.word}`;
 }
+
+describe("the strings the guard reads", () => {
+  const read = (source: string) => domStrings("probe.tsx", source).map((candidate) => candidate.text);
+
+  it("reads a sentence in either branch of a ternary inside a spoken attribute", () => {
+    expect(read('<textarea placeholder={a ? "Ask about it. Then more." : "Pick one first."} />')).toEqual(
+      expect.arrayContaining(["Ask about it. Then more.", "Pick one first."]),
+    );
+  });
+
+  it("reads a sentence in a JSX child expression and in a constant returned later", () => {
+    expect(read('<p>{open ? "Nothing here yet." : x ?? "It could not be read."}</p>')).toEqual(
+      expect.arrayContaining(["Nothing here yet.", "It could not be read."]),
+    );
+    expect(read('const FAILED = "The file could not be renamed.";')).toContain("The file could not be renamed.");
+  });
+
+  it("leaves log lines, ids and class names alone", () => {
+    expect(read('logFailure("the file could not be renamed"); const id = "note.versions"; <p class="right-panel-empty" />')).toEqual([]);
+  });
+});
 
 describe("banned words", () => {
   it("banned_words_have_no_new_violations_in_dom_strings", () => {

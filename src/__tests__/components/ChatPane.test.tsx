@@ -517,11 +517,11 @@ describe("the chat column", () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
     const composer = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
-    expect(composer.placeholder).toBe("Ask about the attached notes. @ attaches another.");
+    expect(composer.placeholder).toBe("Ask about the attached files. @ attaches another.");
 
     fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
 
-    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a note or a folder."));
+    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a file or a folder."));
   });
 
   it("shows a proposal as the lines it would change", async () => {

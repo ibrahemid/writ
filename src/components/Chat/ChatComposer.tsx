@@ -339,7 +339,7 @@ export default function ChatComposer(props: {
       <For each={unreadable()}>
         {(note) => (
           <p class="chat-composer-note" role="status">
-            {noteKeyLabel(note)}: {note.reason ?? "This note could not be read."}
+            {noteKeyLabel(note)}: {note.reason ?? "This file could not be read."}
           </p>
         )}
       </For>
@@ -362,8 +362,8 @@ export default function ChatComposer(props: {
           spellcheck={false}
           placeholder={
             chatStore.attachments().length > 0
-              ? "Ask about the attached notes. @ attaches another."
-              : "@ attaches a note or a folder."
+              ? "Ask about the attached files. @ attaches another."
+              : "@ attaches a file or a folder."
           }
           aria-label="Message"
           role="combobox"

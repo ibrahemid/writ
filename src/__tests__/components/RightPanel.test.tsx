@@ -172,7 +172,7 @@ describe("a note with nothing to show", () => {
   it("says the note has nothing around it rather than opening blank", () => {
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Nothing links to this note yet.",
+      "Nothing links to this file yet.",
     );
   });
 
@@ -180,7 +180,7 @@ describe("a note with nothing to show", () => {
     h.activeTabId = null;
     const { container } = mount();
     expect(headings(container)).toEqual([]);
-    expect(container.querySelector(".right-panel-empty")!.textContent).toBe("No note open.");
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe("No file open.");
   });
 
   // Both reads start empty and fill asynchronously, so a line about what the
@@ -202,7 +202,7 @@ describe("a note with nothing to show", () => {
     h.tabs = [{ id: "buf-1", source_path: null }];
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Nothing links to this note yet.",
+      "Nothing links to this file yet.",
     );
   });
 
@@ -212,7 +212,7 @@ describe("a note with nothing to show", () => {
     h.factsError = "Could not read what the notes folder holds.";
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Could not read this note's connections.",
+      "Could not read this file's connections.",
     );
   });
 
@@ -220,7 +220,7 @@ describe("a note with nothing to show", () => {
     h.backlinksError = "Could not read what the notes folder holds.";
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Could not read this note's connections.",
+      "Could not read this file's connections.",
     );
   });
 
