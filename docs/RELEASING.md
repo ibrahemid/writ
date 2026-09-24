@@ -154,10 +154,11 @@ The push triggers `.github/workflows/release.yml`.
    - `macos-latest`  universal binary (`aarch64` + `x86_64` merged), producing
      `Writ_<version>_universal.pkg` (with quit/relaunch scripts),
      `Writ_<version>_universal.dmg` (drag-to-Applications), and
-     `Writ_universal.app.tar.gz` + `.sig`. Both the `.pkg` and the `.dmg` ship
+     `Writ_<version>_universal.app.tar.gz` and
+     `Writ_<version>_universal.app.tar.gz.sig`. Both the `.pkg` and the `.dmg` ship
      on every release; the `.pkg` is the default recommendation and the source
      for the Homebrew cask. The in-app updater consumes neither: it downloads
-     `Writ_universal.app.tar.gz`, verifies the `.sig` against the embedded
+     `Writ_<version>_universal.app.tar.gz`, verifies the `.sig` against the embedded
      minisign public key, and swaps the `.app` in place.
    - `windows-latest`  x64, producing `Writ_<version>_x64_en-US.msi` + `.sig`.
    - `ubuntu-22.04`  x64, producing `Writ_<version>_amd64.deb` + `.sig` and
@@ -261,7 +262,8 @@ sha256sum --check SHA256SUMS.txt
 Verify `latest.json` parses and points at real asset URLs:
 
 ```bash
-curl -fsSL https://github.com/ibrahemid/writ/releases/download/v0.1.0/latest.json | jq .
+VERSION="$(jq -r .version site/package.json)"
+curl -fsSL "https://github.com/ibrahemid/writ/releases/download/v${VERSION}/latest.json" | jq .
 ```
 
 ### 2.6 Publish the release
@@ -352,8 +354,9 @@ clear the Apple / Windows secrets to fall back to unsigned builds.
 ### 5.2 `latest.json` has an empty `platforms` object
 
 The finalize step identifies an updater payload by the `.sig` beside it, so an
-empty or partial `platforms` means one of `Writ_universal.app.tar.gz`, `.msi`,
-`.AppImage`, or `.deb` reached the release without its `.sig`.
+empty or partial `platforms` means one of `Writ_<version>_universal.app.tar.gz`,
+`Writ_<version>_x64_en-US.msi`, `Writ_<version>_amd64.AppImage`, or
+`Writ_<version>_amd64.deb` reached the release without its `.sig`.
 `build_latest_json.py` requires all five keys (`darwin-aarch64`,
 `darwin-x86_64`, `windows-x86_64`, `linux-x86_64`, `linux-x86_64-deb`) and
 fails the job naming the ones it could not fill instead of publishing a partial
