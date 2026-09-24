@@ -18,7 +18,8 @@ Writ is a text editor for macOS, Windows and Linux that opens any text file and 
 ## Install
 
 ```sh
-brew install --cask ibrahemid/writ/writ                              # macOS 12 or later
+brew trust ibrahemid/writ                                            # macOS 12 or later
+brew install --cask ibrahemid/writ/writ
 winget install -e --id ibrahemid.Writ                                # Windows
 curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh # Linux
 yay -S writ-bin                                                      # Arch
