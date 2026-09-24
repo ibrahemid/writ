@@ -1,6 +1,6 @@
 import type { ContentHit, FileHit, SnippetSegment } from "../../../src/types/search";
 import { scoreFuzzyMatch } from "../naming";
-import type { Answer, CommandTable, DemoState } from "../state";
+import { refuse, type Answer, type CommandTable, type DemoState } from "../state";
 import { basename, stem } from "../vfs";
 
 const CONTENT_HIT_CAP = 12;
@@ -22,15 +22,17 @@ function buildSnippet(line: string, query: string): SnippetSegment[] {
 export function createSearchCommands(state: DemoState): CommandTable {
   const { folder, index, buffers } = state;
 
-  const searchContent = (query: string): { hits: ContentHit[]; scanned: number } => {
+  /** workspace_grep::relative_display: hits are named relative to the workspace root. */
+  const searchContent = (root: string, query: string): { hits: ContentHit[]; scanned: number } => {
     const hits: ContentHit[] = [];
-    const paths = state.listFolderNotes();
+    const prefix = `${root}/`;
+    const paths = state.listFolderNotes().filter((path) => path.startsWith(prefix));
     const needle = query.toLowerCase();
     for (const path of paths) {
       const lines = folder.read(path).split("\n");
       for (let i = 0; i < lines.length && hits.length < CONTENT_HIT_CAP; i += 1) {
         if (lines[i].toLowerCase().includes(needle)) {
-          hits.push({ path, line: i + 1, snippet: buildSnippet(lines[i].trim(), query) });
+          hits.push({ path: path.slice(prefix.length), line: i + 1, snippet: buildSnippet(lines[i].trim(), query) });
         }
       }
     }
@@ -47,7 +49,9 @@ export function createSearchCommands(state: DemoState): CommandTable {
         .sort((a, b) => b.score - a.score);
     },
     search_workspace_content: (args) => {
-      const { hits, scanned } = searchContent(String(args.query));
+      const root = state.config.workspace.root;
+      if (!root) return refuse("no workspace folder is open");
+      const { hits, scanned } = searchContent(root, String(args.query));
       const channel = args.onBatch as { id: number };
       state.bridge.send(channel, 0, {
         generation: 0,

@@ -58,6 +58,22 @@ describe("the demo backend", () => {
     expect(batch.outcome.cancelled).toBe(false);
   });
 
+  it("names content hits relative to the workspace root, as workspace_grep does", async () => {
+    const { handle, sent } = backend();
+    await handle("search_workspace_content", { query: "compost", onBatch: { id: 1 } });
+    const batch = sent[0] as { hits: { path: string }[] };
+    expect(batch.hits.length).toBeGreaterThan(0);
+    expect(batch.hits.every((h) => !h.path.startsWith("/"))).toBe(true);
+  });
+
+  it("refuses a content search with no workspace folder open", async () => {
+    const { handle } = backend();
+    await handle("clear_workspace_root", {});
+    await expect(handle("search_workspace_content", { query: "compost", onBatch: { id: 1 } })).rejects.toBe(
+      "no workspace folder is open",
+    );
+  });
+
   it("resolves a wikilink by file name", async () => {
     const { handle } = backend();
     const answer = (await handle("resolve_note_link", { fromPath: "", target: "Seed order" })) as { status: string; path: string };
