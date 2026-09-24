@@ -219,7 +219,10 @@ as where this command was pointed rather than as where a tag was found.
 you give goes through the app's sanitiser (`writ_core::notes::note_file_stem`),
 and one that sanitises to nothing is named for today's date. Either way the name
 is deduped against the folder with a hyphenated counter, so a second file in the
-same minute is `writ-260921-0748-2` (`dedupe_file_name`). The extension is the
+same minute is `writ-260921-0748-2` (`dedupe_file_name`). A name ending in
+`.md`, `.markdown`, `.txt` or `.text` sets the extension, so `writ new
+Groceries.md` makes a Markdown file whatever the config says
+(`writ_core::notes::explicit_extension`); otherwise the extension is the
 configured one, `[files] default_extension`, `txt` or `md`. The file is created
 empty. `new` needs no index.
 
