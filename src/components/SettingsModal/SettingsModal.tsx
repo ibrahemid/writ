@@ -1860,7 +1860,6 @@ function AdvancedSection() {
         id="preview.live_threshold"
         label="Stop live preview above"
         labelFor="setting-live-limit"
-        description="Writ keeps this under the size it will not preview."
       >
         <span class="settings-inbox-controls">
           <input
