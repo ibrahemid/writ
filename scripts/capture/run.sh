@@ -12,6 +12,7 @@
 #   --scene <name>    one scene (repeatable); names are listed under SCENES
 #                     and REPORT_SCENES
 #   --all             every scene in SCENES, the two shell heroes included
+#                     (REPORT_SCENES only run when named)
 #   --theme           light | dark | both (default both)
 #   --shell           mac | win | linux (default mac; win and linux run a dev
 #                     instance built with VITE_WRIT_PLATFORM, so they are slower)
@@ -22,6 +23,9 @@
 # Every key and click waits until this instance is the frontmost app and the
 # machine has been idle for 45 s; the run refuses to start while any other
 # Writ process exists.
+#
+# Every scene's config switches on only the apps that scene shows (apps_on);
+# the rest are off, as in a fresh config.
 #
 # The chat scene also records its window while the pane is driven and encodes
 # the take to site/public/media/chat-<theme>.mp4 and .webm, the pair
@@ -75,7 +79,7 @@ while [ $# -gt 0 ]; do
       case "$2" in 1280x800|1440x900) SIZE="$2"; SIZE_GIVEN=1 ;; *) echo "--size takes 1280x800 or 1440x900" >&2; exit 2 ;; esac
       shift 2 ;;
     --no-build) NO_BUILD=1; shift ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "unknown flag $1" >&2; exit 2 ;;
   esac
 done
@@ -84,7 +88,7 @@ if [ ${#WANTED[@]} -eq 0 ]; then
   exit 2
 fi
 for scene in "${WANTED[@]}"; do
-  case " ${SCENES[*]} ${SHELL_SCENES[*]} " in
+  case " ${SCENES[*]} ${SHELL_SCENES[*]} ${REPORT_SCENES[*]} " in
     *" $scene "*) ;;
     *) echo "unknown scene $scene" >&2; exit 2 ;;
   esac
@@ -185,7 +189,17 @@ SIDEBAR_OPEN=true
 COLLAPSED='[]'
 PANEL_OPEN=false
 CHAT_OPEN=false
-LAYOUT=source
+LAYOUT=inline
+DEFAULT_EXTENSION=txt
+APP_CHAT=false
+APP_REWRITE=false
+APP_PROGRAMS=false
+APP_CONNECTIONS=false
+APP_GRAPH=false
+APP_TAGS=false
+AI_PROVIDER=ollama
+AI_BASE_URL=""
+AI_MODEL=""
 EXTRA_CONFIG=""
 APPEARANCE_EXTRA=""
 SEED_CONFIG=1
@@ -197,8 +211,29 @@ WORKSPACE=1
 reset_state() {
   W=${SIZE%x*}; H=${SIZE#*x}
   set -- $THEMES; POLARITY=$1
-  SIDEBAR_OPEN=true; COLLAPSED='[]'; PANEL_OPEN=false; CHAT_OPEN=false; LAYOUT=source
+  SIDEBAR_OPEN=true; COLLAPSED='[]'; PANEL_OPEN=false; CHAT_OPEN=false; LAYOUT=inline
+  DEFAULT_EXTENSION=txt
+  APP_CHAT=false; APP_REWRITE=false; APP_PROGRAMS=false
+  APP_CONNECTIONS=false; APP_GRAPH=false; APP_TAGS=false
+  AI_PROVIDER=ollama; AI_BASE_URL=""; AI_MODEL=""
   EXTRA_CONFIG=""; APPEARANCE_EXTRA=""; SEED_CONFIG=1; EMPTY_NOTES=0; PRESEED=0; WORKSPACE=1
+}
+
+# apps_on <app>...: the apps a scene shows, by their Settings ids (chat,
+# rewrite, programs, connections, graph, tags). Every other app stays off.
+apps_on() {
+  local app
+  for app in "$@"; do
+    case "$app" in
+      chat) APP_CHAT=true ;;
+      rewrite) APP_REWRITE=true ;;
+      programs) APP_PROGRAMS=true ;;
+      connections) APP_CONNECTIONS=true ;;
+      graph) APP_GRAPH=true ;;
+      tags) APP_TAGS=true ;;
+      *) echo "apps_on: unknown app $app" >&2; exit 2 ;;
+    esac
+  done
 }
 
 write_config() {
@@ -241,6 +276,30 @@ width = 380
 [preview]
 default_layout_markdown = "$LAYOUT"
 
+[files]
+default_extension = "$DEFAULT_EXTENSION"
+
+[apps]
+connections = $APP_CONNECTIONS
+graph = $APP_GRAPH
+tags = $APP_TAGS
+
+[ai]
+provider = "$AI_PROVIDER"
+base_url = "$AI_BASE_URL"
+model = "$AI_MODEL"
+consented_hosts = []
+
+[ai.rewrite]
+enabled = $APP_REWRITE
+
+[ai.chat]
+enabled = $APP_CHAT
+model = ""
+
+[mcp]
+enabled = $APP_PROGRAMS
+
 [spelling]
 enabled = false
 
@@ -253,7 +312,7 @@ $EXTRA_CONFIG
 CFG
 }
 
-# Modification times a folder of notes would carry, so Finder and the
+# Modification times a folder of files would carry, so Finder and the
 # sidebar show a week of writing rather than one copy.
 date_fixture() {
   local root=$1
@@ -586,7 +645,6 @@ hero_suffix() { case "$SHELL_KIND" in mac) echo "" ;; *) echo "-$SHELL_KIND" ;; 
 scene_hero_window() {
   reset_state
   if [ "$SIZE_GIVEN" -eq 0 ]; then W=1440; H=900; fi
-  COLLAPSED='["tags"]'; PANEL_OPEN=true; LAYOUT=source
   begin "hero-window$(hero_suffix)"
   open_note "Garden committee 10 Sep"
   shoot "hero-window$(hero_suffix)"
@@ -607,6 +665,7 @@ scene_notes_folder() {
 
 scene_connections() {
   reset_state
+  apps_on connections
   SIDEBAR_OPEN=false; PANEL_OPEN=true
   begin connections
   open_note "Lisbon in October"
@@ -616,6 +675,7 @@ scene_connections() {
 
 scene_graph_folder() {
   reset_state
+  apps_on graph
   begin graph-folder
   open_note "Garden plan"
   run_command "Open graph"
@@ -628,6 +688,7 @@ scene_graph_folder() {
 
 scene_graph_local() {
   reset_state
+  apps_on connections graph
   PANEL_OPEN=true
   begin graph-local
   open_note "Garden plan"
@@ -650,7 +711,7 @@ scene_search() {
 
 scene_preview_rich() {
   reset_state
-  SIDEBAR_OPEN=false; LAYOUT="split"
+  SIDEBAR_OPEN=false
   begin preview-rich
   open_note "Sourdough notes"
   sleep 3
@@ -659,26 +720,12 @@ scene_preview_rich() {
 }
 
 scene_chat() {
-  local config theme bounds x y w h composer apply
-  reset_state
-  config="
-[ai]
-provider = \"custom\"
-base_url = \"http://127.0.0.1:$STUB_PORT/v1\"
-model = \"local-model\"
-consented_hosts = []
-
-[ai.rewrite]
-enabled = false
-
-[ai.chat]
-enabled = true
-model = \"\"
-"
+  local theme bounds x y w h composer apply
   start_stub
   for theme in $THEMES; do
     reset_state
-    EXTRA_CONFIG="$config"
+    apps_on chat
+    AI_PROVIDER=custom; AI_BASE_URL="http://127.0.0.1:$STUB_PORT/v1"; AI_MODEL=local-model
     POLARITY="$theme"
     begin chat
     open_note "Birthday ideas"
@@ -732,10 +779,8 @@ scene_versions() {
 
 scene_activity() {
   reset_state
+  apps_on programs
   EXTRA_CONFIG='
-[mcp]
-enabled = true
-
 [[mcp.approved_clients]]
 name = "Scribe CLI"
 first_seen = "2026-09-11T09:12:00Z"
@@ -769,9 +814,6 @@ scene_settings_appearance() {
 scene_settings_programs() {
   local clients size theme
   clients='
-[mcp]
-enabled = true
-
 [[mcp.approved_clients]]
 name = "Scribe CLI"
 first_seen = "2026-09-11T09:12:00Z"
@@ -786,6 +828,7 @@ write = false
 '
   for size in 12 16 22; do
     reset_state
+    apps_on programs
     APPEARANCE_EXTRA="interface_text_size = $size"
     EXTRA_CONFIG="$clients"
     begin "settings-programs-$size"
@@ -800,6 +843,7 @@ write = false
   done
 
   reset_state
+  apps_on programs
   W=720; H=600
   APPEARANCE_EXTRA="interface_text_size = 22"
   EXTRA_CONFIG="$clients"
@@ -816,6 +860,7 @@ write = false
 
 scene_obsidian_folder() {
   reset_state
+  apps_on connections
   PANEL_OPEN=true
   begin obsidian-folder
   open_note "Moving house"
@@ -842,6 +887,7 @@ scene_today() {
 
 scene_tags() {
   reset_state
+  apps_on tags
   begin tags
   open_note "Garden plan"
   shoot tags
