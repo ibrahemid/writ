@@ -1,0 +1,28 @@
+---
+import Prose from '../../layouts/Prose.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Prose title="Writ and Obsidian on one folder" description="Open the folder Obsidian uses in Writ. Both apps read the same Markdown files, and Writ never writes to .obsidian/. What each app does with the folder." path="/guides/obsidian/" lead="Both apps read Markdown files from a folder, so both can open the same one. This page lists what each does there.">
+  <h2>One folder</h2>
+  <p>Point Settings, Files, Folder at the folder Obsidian uses and the files open where they are. Writ skips <code>.obsidian/</code> and never writes to it, so Obsidian keeps working from the same folder. The <a href={`${base}/guides/obsidian-vault-files/`}>setup guide</a> lists what carries over and what stays as written.</p>
+  <h2>The same folder in each app</h2>
+  <table>
+    <tbody>
+    <tr><th></th><th>Obsidian</th><th>Writ</th></tr>
+    <tr><td>Files</td><td>Markdown in the folder.</td><td>The same Markdown, plus any other text file you open from anywhere on disk.</td></tr>
+    <tr><td>Links</td><td><code>[[Wikilinks]]</code>, backlinks, graph.</td><td>The same <code>[[links]]</code> in Markdown files. Backlinks and the graph are the Connections and Graph apps, switched on in Settings, Apps.</td></tr>
+    <tr><td>Properties and tags</td><td>Frontmatter and <code>#tags</code>.</td><td>Read from the same frontmatter and the same <code>#tags</code>.</td></tr>
+    <tr><td>Rendering</td><td>Live Preview and Reading view.</td><td>Inline and Source. Callouts, embeds, Mermaid and math show as written.</td></tr>
+    <tr><td>Plugins</td><td>Community plugins, installed per folder.</td><td>None. Chat, rewriting and an MCP server for other programs are apps in Settings.</td></tr>
+    <tr><td>Mobile and sync</td><td>Apps on every platform, paid sync.</td><td>Desktop only. Sync is whatever you do with the folder.</td></tr>
+    <tr><td>Price</td><td>Free for personal use; sync and publish are paid.</td><td>Free. MIT.</td></tr>
+  </tbody>
+  </table>
+  <h2>What stays in Obsidian</h2>
+  <p>Canvas, block references, templates, community plugins, Sync and Publish. A file a plugin wrote shows the text it holds in Writ.</p>
+  <div class="ctas">
+    <a href={`${base}/download/`} class="btn btn-primary">Download Writ</a>
+    <a href={`${base}/docs/`} class="btn btn-text">How Writ works</a>
+  </div>
+</Prose>
