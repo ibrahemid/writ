@@ -315,6 +315,13 @@ button {
   opacity: 1;
 }
 
+/* Once the app has faded in, the still under it goes: a shell that draws its
+   own shadow margin (GNOME) would otherwise show the still through it. */
+.live-window.is-live .window {
+  visibility: hidden;
+  transition: visibility 0s linear var(--writ-site-motion-crossfade);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .live-frame {
     transition: none;

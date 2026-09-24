@@ -23,6 +23,11 @@ describe('the live window', () => {
     expect(CSS).toContain('.live-window.is-live .live-frame {\n  opacity: 1;');
   });
 
+  it('takes the still out of sight and out of the accessibility tree once the app is up', () => {
+    expect(CSS).toMatch(/\.live-window\.is-live \.window \{\n  visibility: hidden;/);
+    expect(COMPONENT).toContain("root.querySelector('.window')?.setAttribute('aria-hidden', 'true')");
+  });
+
   it('scales a frame the size of the hero capture to the column', () => {
     expect(COMPONENT).toContain('const FRAME_WIDTH = 1440;');
     expect(COMPONENT).toContain('const FRAME_HEIGHT = 900;');

@@ -42,7 +42,9 @@ const FRAME_HEIGHT = 900;
     new ResizeObserver(fit).observe(root);
     window.addEventListener('message', (event) => {
       if (event.source !== frame.contentWindow || event.origin !== location.origin) return;
-      if (event.data?.type === 'writ-demo-ready') root.classList.add('is-live');
+      if (event.data?.type !== 'writ-demo-ready') return;
+      root.classList.add('is-live');
+      root.querySelector('.window')?.setAttribute('aria-hidden', 'true');
     });
     root.append(frame);
   }
