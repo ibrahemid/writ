@@ -8,9 +8,6 @@ export default defineConfig({
   root: fileURLToPath(new URL("./demo", import.meta.url)),
   base: "/demo/",
   plugins: [solidPlugin()],
-  define: {
-    "import.meta.env.VITE_WRIT_PLATFORM": JSON.stringify("mac"),
-  },
   server: {
     port: 1430,
     strictPort: true,

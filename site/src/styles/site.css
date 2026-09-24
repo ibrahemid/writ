@@ -635,6 +635,12 @@ button {
   .dl-row {
     grid-template-columns: 1fr;
   }
+
+  .footer-in {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    gap: var(--writ-space-4) var(--writ-space-6);
+  }
 }
 
 @media (max-width: 880px) {
