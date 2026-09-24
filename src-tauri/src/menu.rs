@@ -8,7 +8,9 @@
 //! tested — on every target.
 
 use serde::Deserialize;
+use std::collections::BTreeSet;
 use std::sync::OnceLock;
+use writ_core::config::AppId;
 
 const MENU_COMMANDS_JSON: &str = include_str!("../../src/commands/menu-commands.json");
 
@@ -141,11 +143,20 @@ pub struct MenuCommand {
     /// Items of one group sit together; a separator is drawn between groups.
     pub group: u8,
     pub platforms: Vec<MenuPlatform>,
+    /// The app the item belongs to, absent for an item every install has.
+    /// An item whose app is off is left out of the menu (ADR-042 section 3).
+    #[serde(default)]
+    pub app: Option<AppId>,
 }
 
 impl MenuCommand {
     pub fn is_offered_on(&self, platform: MenuPlatform) -> bool {
         self.platforms.contains(&platform)
+    }
+
+    /// Whether the item belongs in a menu drawn while `apps` are on.
+    pub fn is_offered_with(&self, apps: &BTreeSet<AppId>) -> bool {
+        self.app.is_none_or(|app| apps.contains(&app))
     }
 }
 
@@ -161,14 +172,16 @@ pub fn menu_commands() -> &'static [MenuCommand] {
     })
 }
 
-/// The commands one menu carries on one platform, in list order.
+/// The commands one menu carries on one platform while `apps` are on, in
+/// list order.
 pub fn commands_in(
     section: MenuSection,
     platform: MenuPlatform,
-) -> impl Iterator<Item = &'static MenuCommand> {
-    menu_commands()
-        .iter()
-        .filter(move |command| command.menu == section && command.is_offered_on(platform))
+    apps: &BTreeSet<AppId>,
+) -> impl Iterator<Item = &'static MenuCommand> + '_ {
+    menu_commands().iter().filter(move |command| {
+        command.menu == section && command.is_offered_on(platform) && command.is_offered_with(apps)
+    })
 }
 
 /// The action a menu item id forwards to the frontend, or `None` for an id
@@ -291,9 +304,54 @@ mod tests {
             MenuSection::Help,
         ] {
             assert!(
-                commands_in(section, MenuPlatform::Mac).next().is_some(),
+                commands_in(section, MenuPlatform::Mac, &BTreeSet::new())
+                    .next()
+                    .is_some(),
                 "{section:?} is empty"
             );
         }
+    }
+
+    fn view_ids(apps: &BTreeSet<AppId>) -> Vec<&'static str> {
+        commands_in(MenuSection::View, MenuPlatform::Mac, apps)
+            .map(|command| command.id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn an_app_that_is_off_has_no_menu_item() {
+        assert_eq!(view_ids(&BTreeSet::new()), ["sidebar.toggle"]);
+    }
+
+    #[test]
+    fn an_app_that_is_on_brings_its_item_back() {
+        let chat: BTreeSet<AppId> = [AppId::Chat].into();
+        assert_eq!(view_ids(&chat), ["sidebar.toggle", "chat.toggle"]);
+        let all: BTreeSet<AppId> = AppId::ALL.into();
+        assert_eq!(
+            view_ids(&all),
+            [
+                "sidebar.toggle",
+                "panel.toggle",
+                "chat.toggle",
+                "folderGraph.open"
+            ]
+        );
+    }
+
+    #[test]
+    fn items_that_belong_to_an_app_name_the_right_one() {
+        let apps: Vec<(&str, AppId)> = menu_commands()
+            .iter()
+            .filter_map(|command| command.app.map(|app| (command.id.as_str(), app)))
+            .collect();
+        assert_eq!(
+            apps,
+            [
+                ("panel.toggle", AppId::Connections),
+                ("chat.toggle", AppId::Chat),
+                ("folderGraph.open", AppId::Graph),
+            ]
+        );
     }
 }

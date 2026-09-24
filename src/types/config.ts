@@ -145,6 +145,17 @@ export interface SidebarConfig {
   hidden: SidebarSectionId[];
 }
 
+/** The six apps, in the order Settings lists them (ADR-042). */
+export type AppId = "chat" | "rewrite" | "programs" | "connections" | "graph" | "tags";
+
+/** Switches for the apps that have no section of their own. Chat, Rewrite
+ * and Connected programs are read from `ai.chat`, `ai.rewrite` and `mcp`. */
+export interface AppsConfig {
+  connections: boolean;
+  graph: boolean;
+  tags: boolean;
+}
+
 export interface WritConfig {
   hotkey: { toggle: string };
   sidebar: SidebarConfig;
@@ -167,4 +178,5 @@ export interface WritConfig {
   ai: AiConfig;
   mcp: McpConfig;
   spelling: SpellingConfig;
+  apps: AppsConfig;
 }

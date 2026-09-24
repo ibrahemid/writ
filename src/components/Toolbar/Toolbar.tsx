@@ -30,7 +30,9 @@ export default function Toolbar() {
   const [focusIndex, setFocusIndex] = createSignal(0);
   let barRef: HTMLDivElement | undefined;
 
-  const chatControl = createMemo(() => configStore.config().ai.chat.enabled);
+  const appControls = createMemo(
+    () => `${configStore.isAppOn("connections")}:${configStore.isAppOn("chat")}`,
+  );
 
   /**
    * The roving stops: the search field keeps its own tab stop and its arrows,
@@ -41,10 +43,10 @@ export default function Toolbar() {
     return Array.from(barRef.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
   }
 
-  // One tab stop for the bar. Re-runs when the chat control comes or goes,
+  // One tab stop for the bar. Re-runs when an app's control comes or goes,
   // because a control that is not rendered is not a stop.
   createEffect(() => {
-    chatControl();
+    appControls();
     const items = stops();
     if (items.length === 0) return;
     const active = Math.min(focusIndex(), items.length - 1);
@@ -107,21 +109,21 @@ export default function Toolbar() {
         <div class="writ-toolbar-divider" role="separator" aria-orientation="vertical" />
       </Show>
 
-      <Tooltip label={tip("Connections", useEffectiveBinding("panel.toggle", "CmdOrCtrl+Shift+\\"))}>
-        <Button
-          variant="ghost"
-          class="writ-toolbar-btn"
-          icon="link-simple"
-          aria-label="Connections"
-          pressed={win.rightPanel.isOpen()}
-          onClick={() => executeCommand("panel.toggle")}
-        />
-      </Tooltip>
+      <Show when={configStore.isAppOn("connections")}>
+        <Tooltip label={tip("Connections", useEffectiveBinding("panel.toggle", "CmdOrCtrl+Shift+\\"))}>
+          <Button
+            variant="ghost"
+            class="writ-toolbar-btn"
+            icon="link-simple"
+            aria-label="Connections"
+            pressed={win.rightPanel.isOpen()}
+            onClick={() => executeCommand("panel.toggle")}
+          />
+        </Tooltip>
+      </Show>
 
-      {/* The command is registered whether chat is on or not, so the shortcut
-          editor lists it and the View menu routes somewhere. The button is
-          here only while the pane it opens exists. */}
-      <Show when={configStore.config().ai.chat.enabled}>
+      {/* Each button is here only while its app is on (ADR-042 section 3). */}
+      <Show when={configStore.isAppOn("chat")}>
         <Tooltip label={tip("Chat", useEffectiveBinding(CHAT_TOGGLE_COMMAND_ID, undefined))}>
           <Button
             variant="ghost"

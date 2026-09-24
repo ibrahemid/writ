@@ -21,9 +21,9 @@
   { "id": "editor.replace", "label": "Replace", "accelerator": "CmdOrCtrl+Alt+F", "menu": "edit", "group": 0, "platforms": ["mac", "win", "linux"] },
 
   { "id": "sidebar.toggle", "label": "Toggle Sidebar", "accelerator": "CmdOrCtrl+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"] },
-  { "id": "panel.toggle", "label": "Toggle Connections", "accelerator": "CmdOrCtrl+Shift+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"] },
-  { "id": "chat.toggle", "label": "Toggle Chat", "accelerator": "CmdOrCtrl+Shift+A", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"] },
-  { "id": "folderGraph.open", "label": "Open Graph", "menu": "view", "group": 1, "platforms": ["mac", "win", "linux"] },
+  { "id": "panel.toggle", "label": "Toggle Connections", "accelerator": "CmdOrCtrl+Shift+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"], "app": "connections" },
+  { "id": "chat.toggle", "label": "Toggle Chat", "accelerator": "CmdOrCtrl+Shift+A", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"], "app": "chat" },
+  { "id": "folderGraph.open", "label": "Open Graph", "menu": "view", "group": 1, "platforms": ["mac", "win", "linux"], "app": "graph" },
 
   { "id": "palette.open", "label": "Command Palette", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] },
   { "id": "shortcuts.customize", "label": "Customize Shortcuts…", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] }

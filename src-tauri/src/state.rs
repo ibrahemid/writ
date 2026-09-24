@@ -115,6 +115,9 @@ pub struct AppState {
     /// `finish_first_run` a no-op rather than a second mint. A run that failed
     /// leaves it clear, so the screen that is still up can be answered again.
     pub first_run_finished: AtomicBool,
+    /// The apps whose items the macOS menu bar was last drawn with, `None`
+    /// before the first draw ([`crate::app_menu::sync`]).
+    pub menu_apps: Mutex<Option<std::collections::BTreeSet<writ_core::config::AppId>>>,
     /// What has happened to each note Writ minted and has not yet retitled
     /// from its first line.
     pub retitle_watch: Arc<crate::first_run::RetitleWatch>,
@@ -534,6 +537,7 @@ impl AppState {
             notes_root: RwLock::new(notes_root),
             first_run,
             first_run_finished: AtomicBool::new(false),
+            menu_apps: Mutex::new(None),
             retitle_watch: Arc::new(crate::first_run::RetitleWatch::new()),
             notes_root_fallback: RwLock::new(notes_root_fallback),
             watcher_ignore,

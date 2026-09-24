@@ -25,7 +25,7 @@ impl ConfigStore {
             return Ok(WritConfig::default());
         }
         let contents = std::fs::read_to_string(&self.path)?;
-        let config: WritConfig = toml::from_str(&contents)?;
+        let config = WritConfig::parse(&contents)?;
         Ok(config)
     }
 

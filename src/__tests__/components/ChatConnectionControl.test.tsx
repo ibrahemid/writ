@@ -210,7 +210,7 @@ describe("the connection control", () => {
   it("opens the settings section from the last row", async () => {
     const { getByText } = await openMenu();
     fireEvent.click(getByText("AI settings"));
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.provider");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.provider");
   });
 
   it("walks the rows and gives focus back on Escape", async () => {

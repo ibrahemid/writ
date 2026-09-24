@@ -53,6 +53,7 @@ vi.mock("../../services/tauri", () => ({
   searchBuffers: vi.fn(async () => [] as string[]),
   // The tag list reads the index the moment the sidebar mounts.
   noteAllTags: vi.fn(async () => []),
+  updateConfig: vi.fn(async () => {}),
 }));
 vi.mock("../../services/events", () => ({
   onEvent: vi.fn().mockResolvedValue(() => {}),
@@ -68,6 +69,10 @@ async function renderSidebar(windowId: number) {
   const { bufferRegistry } = await import("../../stores/global/buffer-registry");
   const WindowProvider = (await import("../../components/WindowProvider/WindowProvider")).default;
   const Sidebar = (await import("../../components/Sidebar/Sidebar")).default;
+  const { configStore } = await import("../../stores/global/config");
+  // A fresh config hides the recently closed section (ADR-042 section 2); these
+  // tests are about the section once somebody shows it.
+  configStore.setSidebarSectionHidden("recent", false);
   await bufferRegistry.load();
   return render(() => (
     <WindowProvider windowId={windowId}>

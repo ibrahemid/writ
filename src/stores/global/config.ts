@@ -1,5 +1,6 @@
 import { createSignal, createRoot } from "solid-js";
 import type {
+  AppId,
   AiConfig,
   AppearanceConfig,
   CommandUsage,
@@ -88,7 +89,8 @@ const DEFAULT_CONFIG: WritConfig = {
     open: true,
     width: SIDEBAR_WIDTH_DEFAULT,
     collapsed: [],
-    hidden: [],
+    // Rust's `WritConfig::default`: the file tree and search (ADR-042).
+    hidden: ["recent"],
   },
   // Closed on a first launch: the window opens on a cursor and nothing else.
   panel: { open: false, width: PANEL_WIDTH_DEFAULT },
@@ -125,6 +127,7 @@ const DEFAULT_CONFIG: WritConfig = {
   },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
+  apps: { connections: false, graph: false, tags: false },
 };
 
 const PERSIST_DEBOUNCE_MS = 750;
@@ -134,6 +137,40 @@ const PERSIST_DEBOUNCE_MS = 750;
 // Both answer the same way the first launch answers when nobody has chosen.
 function knownExtension(value: unknown): FileExtension {
   return value === "md" || value === "txt" ? value : DEFAULT_CONFIG.files.default_extension;
+}
+
+/** Whether `app` is on in `config`. */
+export function isAppOnIn(config: WritConfig, app: AppId): boolean {
+  switch (app) {
+    case "chat":
+      return config.ai.chat.enabled;
+    case "rewrite":
+      return config.ai.rewrite.enabled;
+    case "programs":
+      return config.mcp.enabled;
+    case "connections":
+      return config.apps.connections;
+    case "graph":
+      return config.apps.graph;
+    case "tags":
+      return config.apps.tags;
+  }
+}
+
+/** `config` with `app` switched, on the key that app is read from. */
+export function withApp(config: WritConfig, app: AppId, on: boolean): WritConfig {
+  switch (app) {
+    case "chat":
+      return { ...config, ai: { ...config.ai, chat: { ...config.ai.chat, enabled: on } } };
+    case "rewrite":
+      return { ...config, ai: { ...config.ai, rewrite: { ...config.ai.rewrite, enabled: on } } };
+    case "programs":
+      return { ...config, mcp: { ...config.mcp, enabled: on } };
+    case "connections":
+    case "graph":
+    case "tags":
+      return { ...config, apps: { ...config.apps, [app]: on } };
+  }
 }
 
 function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
@@ -193,6 +230,11 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     mcp: {
       enabled: incoming.mcp?.enabled ?? false,
       approved_clients: incoming.mcp?.approved_clients ?? [],
+    },
+    apps: {
+      connections: incoming.apps?.connections ?? false,
+      graph: incoming.apps?.graph ?? false,
+      tags: incoming.apps?.tags ?? false,
     },
     spelling: {
       enabled: incoming.spelling?.enabled ?? false,
@@ -407,6 +449,26 @@ function createConfigStore() {
   // The same catching-up as the line above: `finish_first_run` wrote the
   // chosen format to disk with the rest of the config, and this copy follows
   // so the next whole-config write does not carry the old answer back.
+  /** Whether `app` is on, read from the key that app has always used
+   * (`WritConfig::is_app_on` in Rust). Reactive. */
+  function isAppOn(app: AppId): boolean {
+    return isAppOnIn(config(), app);
+  }
+
+  /** Turns an app on or off and writes the config at once, so the menu bar
+   * Rust draws from the file follows the switch. */
+  async function setAppOn(app: AppId, on: boolean): Promise<void> {
+    const current = config();
+    if (isAppOnIn(current, app) === on) return;
+    await save(withApp(current, app, on));
+  }
+
+  /** Puts apps Rust has already switched on (the first launch) into the
+   * running copy, so the next whole-config write keeps them. */
+  function noteAppsOn(apps: readonly AppId[]) {
+    setConfig((held) => apps.reduce((next, app) => withApp(next, app, true), held));
+  }
+
   function noteDefaultExtension(extension: FileExtension) {
     const current = config();
     if (current.files.default_extension === extension) return;
@@ -445,6 +507,9 @@ function createConfigStore() {
     pruneCommandUsage,
     noteFirstRunHintDismissed,
     noteDefaultExtension,
+    isAppOn,
+    setAppOn,
+    noteAppsOn,
   };
 }
 

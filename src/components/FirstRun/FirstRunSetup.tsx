@@ -1,8 +1,9 @@
-import { For, onCleanup, onMount } from "solid-js";
+import { For, Match, Show, Switch, onCleanup, onMount } from "solid-js";
 import { firstRunStore } from "../../stores/global/first-run";
 import type { FileExtension } from "../../types/config";
 import Button from "../Button/Button";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { APPS } from "../../lib/apps";
 import "./FirstRunSetup.css";
 
 interface FormatOption {
@@ -21,18 +22,45 @@ const FORMATS: readonly FormatOption[] = [
 ];
 
 const HEADING_ID = "first-run-format-heading";
+const APPS_HEADING_ID = "first-run-apps-heading";
 
 /**
- * The one question a first launch asks, on the window it is about to fill.
+ * The questions a first launch asks, one step at a time, on the window it is
+ * about to fill.
  *
  * It stands on the editor's own background rather than over a scrim: there is
  * no note behind it yet, and a dimmed window would be dimming nothing. The
- * screen leaves on Continue, which is also the moment anything is written.
+ * screen leaves on the last Continue, which is also the moment anything is
+ * written.
  */
 export default function FirstRunSetup() {
+  return (
+    <div class="first-run-setup">
+      <Switch>
+        <Match when={firstRunStore.step() === "format"}>
+          <FormatStep />
+        </Match>
+        <Match when={firstRunStore.step() === "apps"}>
+          <AppsStep />
+        </Match>
+      </Switch>
+    </div>
+  );
+}
+
+/** Enter answers a step from wherever the reader is on it, because each step
+ * asks one question and Continue is its answer. A button's own Enter is left
+ * to the button, so a switch toggles and the answer is not taken twice. */
+function answerOnEnter(event: KeyboardEvent, submit: () => void): void {
+  if (event.key !== "Enter") return;
+  if (event.target instanceof HTMLButtonElement) return;
+  event.preventDefault();
+  submit();
+}
+
+function FormatStep() {
   const options: HTMLDivElement[] = [];
   let panel: HTMLDivElement | undefined;
-  let confirm: HTMLButtonElement | undefined;
 
   // The answer is reachable from the keyboard the moment the screen appears,
   // and the reader is put on the option that is already chosen.
@@ -49,7 +77,7 @@ export default function FirstRunSetup() {
   });
 
   function submit(): void {
-    void firstRunStore.continueSetup();
+    firstRunStore.continueFormat();
   }
 
   function choose(index: number): void {
@@ -80,25 +108,14 @@ export default function FirstRunSetup() {
     event.preventDefault();
   }
 
-  // Enter answers the screen from wherever the reader is on it, because the
-  // screen asks one question and Continue is its only answer. The button's own
-  // Enter is left to the button, so the answer is not taken twice.
-  function onPanelKeyDown(event: KeyboardEvent): void {
-    if (event.key !== "Enter") return;
-    if (event.target === confirm) return;
-    event.preventDefault();
-    submit();
-  }
-
   return (
-    <div class="first-run-setup">
-      <div
+    <div
         class="first-run-setup-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby={HEADING_ID}
         ref={panel}
-        onKeyDown={onPanelKeyDown}
+        onKeyDown={(event) => answerOnEnter(event, submit)}
       >
         <h1 class="first-run-setup-heading" id={HEADING_ID}>
           Default format
@@ -131,7 +148,95 @@ export default function FirstRunSetup() {
           </For>
         </div>
         <Button
-          ref={(el) => (confirm = el)}
+          variant="primary"
+          class="first-run-setup-continue"
+          onClick={submit}
+        >
+          Continue
+        </Button>
+    </div>
+  );
+}
+
+/**
+ * The six apps, each off until switched on (ADR-042 section 5). A first
+ * launch reaches this after the format; Settings, Apps opens it again, and
+ * there Continue writes the switches and opens nothing.
+ */
+function AppsStep() {
+  let panel: HTMLDivElement | undefined;
+  const switches: HTMLButtonElement[] = [];
+
+  // Opened from Settings, Escape leaves the switches as they were; a first
+  // launch has nothing to go back to, so there it does nothing.
+  onMount(() => {
+    if (panel) {
+      onCleanup(
+        installFocusTrap(panel, {
+          onEscape: () => {
+            if (firstRunStore.revisiting()) firstRunStore.cancelApps();
+          },
+        }),
+      );
+    }
+    switches[0]?.focus();
+  });
+
+  function submit(): void {
+    void firstRunStore.continueApps();
+  }
+
+  return (
+    <div
+      class="first-run-setup-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={APPS_HEADING_ID}
+      ref={panel}
+      onKeyDown={(event) => answerOnEnter(event, submit)}
+    >
+      <h1 class="first-run-setup-heading" id={APPS_HEADING_ID}>
+        Apps
+      </h1>
+      <ul class="first-run-apps" aria-labelledby={APPS_HEADING_ID}>
+        <For each={APPS}>
+          {(app, index) => {
+            const on = () => firstRunStore.isAppChosen(app.id);
+            const labelId = `first-run-app-${app.id}`;
+            const detailId = `first-run-app-${app.id}-detail`;
+            return (
+              <li class="first-run-app" data-app={app.id} onClick={() => firstRunStore.toggleApp(app.id)}>
+                <span class="first-run-app-text">
+                  <span class="first-run-app-label" id={labelId}>
+                    {app.label}
+                  </span>
+                  <span class="first-run-app-detail" id={detailId}>
+                    {app.detail}
+                  </span>
+                </span>
+                <button
+                  ref={(el) => (switches[index()] = el)}
+                  type="button"
+                  class="first-run-app-switch"
+                  classList={{ "is-on": on() }}
+                  role="switch"
+                  aria-checked={on()}
+                  aria-labelledby={labelId}
+                  aria-describedby={detailId}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    firstRunStore.toggleApp(app.id);
+                  }}
+                >
+                  <span class="first-run-app-knob" />
+                </button>
+              </li>
+            );
+          }}
+        </For>
+      </ul>
+      <div class="first-run-setup-actions">
+        <Button
           variant="primary"
           class="first-run-setup-continue"
           disabled={firstRunStore.busy()}
@@ -140,6 +245,11 @@ export default function FirstRunSetup() {
         >
           Continue
         </Button>
+        <Show when={firstRunStore.revisiting()}>
+          <Button data-action="cancel-apps" onClick={() => firstRunStore.cancelApps()}>
+            Cancel
+          </Button>
+        </Show>
       </div>
     </div>
   );

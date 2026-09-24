@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 
 const h = await vi.hoisted(async () => {
@@ -18,6 +18,13 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 }));
 
 import InboxSection from "../../components/Sidebar/InboxSection";
+import { configStore } from "../../stores/global/config";
+
+// A fresh config hides the watched-folder section (ADR-042 section 2); these
+// tests are about the section once somebody shows it.
+beforeEach(() => {
+  configStore.setSidebarSectionHidden("inbox", false);
+});
 
 afterEach(() => {
   h.setPath(null);

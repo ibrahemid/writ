@@ -16,7 +16,7 @@ use std::sync::Mutex;
 
 use tracing::info;
 use writ_core::buffer::document::BufferDocument;
-use writ_core::config::FileExtension;
+use writ_core::config::{AppId, FileExtension};
 use writ_core::startup::{retitle_answer, RetitleAnswer, RetitleFacts};
 
 use crate::poison::recover_poison;
@@ -108,11 +108,12 @@ impl RetitleWatch {
 pub fn finish_first_run_inner(
     state: &AppState,
     default_extension: FileExtension,
+    apps: &[AppId],
 ) -> Result<Option<BufferDocument>, String> {
     if !state.first_run || state.first_run_finished.load(Ordering::SeqCst) {
         return Ok(None);
     }
-    remember_the_launch(state, default_extension)?;
+    remember_the_launch(state, default_extension, apps)?;
     let note = first_note(state)?;
     state.first_run_finished.store(true, Ordering::SeqCst);
     info!(opened = note.is_some(), "first launch");
@@ -191,8 +192,8 @@ fn is_note_file(path: &Path) -> bool {
     writ_storage::notes_index::has_text_extension(path) && !hidden
 }
 
-/// Writes the config this launch found no trace of, carrying the format it was
-/// answered with, so the next launch is a later one and mints what was asked
+/// Writes the config this launch found no trace of, carrying the format and
+/// the apps it was answered with (ADR-042 section 5), so the next launch is a later one and mints what was asked
 /// for.
 ///
 /// It goes through the same [`crate::commands::config::persist_config`] every
@@ -204,9 +205,16 @@ fn is_note_file(path: &Path) -> bool {
 /// A failure stops the launch here rather than minting: a file made in a
 /// format the config does not record is the one file the person cannot explain
 /// afterwards, and a launch that wrote nothing simply asks again.
-fn remember_the_launch(state: &AppState, default_extension: FileExtension) -> Result<(), String> {
+fn remember_the_launch(
+    state: &AppState,
+    default_extension: FileExtension,
+    apps: &[AppId],
+) -> Result<(), String> {
     let mut config = recover_poison(state.config.lock(), "first_run::remember_the_launch").clone();
     config.files.default_extension = default_extension;
+    for app in apps {
+        config.set_app(*app, true);
+    }
     crate::commands::config::persist_config(state, &config).map_err(|error| {
         tracing::warn!(
             %error,

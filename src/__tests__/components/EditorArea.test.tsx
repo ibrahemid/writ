@@ -97,6 +97,7 @@ function configWith(statusBar: boolean): WritConfig {
       chat: { enabled: false, model: "", model_provider: "" },
     },
     mcp: { enabled: false, approved_clients: [] },
+    apps: { connections: false, graph: false, tags: false },
     spelling: { enabled: false, dialect: "american", ignored_words: [] },
   };
 }

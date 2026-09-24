@@ -10,6 +10,7 @@ import type {
   AiConfig,
   AiWire,
   ClientApproval,
+  AppId,
   FileExtension,
   WritConfig,
 } from "../types/config";
@@ -196,8 +197,9 @@ export async function dismissFirstRunHint(): Promise<void> {
  */
 export async function finishFirstRun(
   defaultExtension: FileExtension,
+  apps: readonly AppId[],
 ): Promise<BufferDocument | null> {
-  return invoke("finish_first_run", { defaultExtension });
+  return invoke("finish_first_run", { defaultExtension, apps });
 }
 
 /**

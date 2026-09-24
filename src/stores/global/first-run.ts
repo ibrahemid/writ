@@ -3,14 +3,17 @@ import * as api from "../../services/tauri";
 import { onAutosaveSuccess } from "../../services/autosave";
 import { bufferRegistry } from "./buffer-registry";
 import { renameLinksStore } from "./rename-links";
-import { configStore } from "./config";
+import { configStore, withApp } from "./config";
 import { windowRegistry } from "./window-registry";
-import type { FileExtension } from "../../types/config";
+import type { AppId, FileExtension } from "../../types/config";
 import type { BufferDocument } from "../../types/buffer";
 import { logFailure } from "../../lib/log";
+import { APPS } from "../../lib/apps";
+import { showToast } from "../../components/Notifications/Toast";
 
-/** What the first launch is asking. Null once it has nothing left to ask. */
-export type FirstRunStep = "format";
+/** What the first launch is asking, in order. Null once it has nothing left
+ * to ask. The Apps step is also opened later from Settings, Apps. */
+export type FirstRunStep = "format" | "apps";
 
 // Singleton state — Writ is single-window. What the first launch shows is
 // read once and answered once, and the answer outlives the window.
@@ -25,6 +28,8 @@ export function offerText(title: string): string {
   return `Rename this file to "${title}"?`;
 }
 
+const APP_IDS: readonly AppId[] = APPS.map((app) => app.id);
+
 /** Exported for tests: each launch reads the state once, so a test that
  * needs a second launch needs a second store. */
 export function createFirstRunStore() {
@@ -34,6 +39,10 @@ export function createFirstRunStore() {
   const [fileManager, setFileManager] = createSignal("Finder");
   const [offer, setOffer] = createSignal<{ id: string; title: string } | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [apps, setApps] = createSignal<ReadonlySet<AppId>>(new Set());
+  // The Apps step opened from Settings writes the switches and opens nothing;
+  // the one a first launch reaches finishes that launch.
+  const [revisiting, setRevisiting] = createSignal(false);
   let loaded = false;
   const asked = new Set<string>();
 
@@ -52,13 +61,81 @@ export function createFirstRunStore() {
     }
   }
 
+  /** The format step's Continue: on to the Apps step, writing nothing yet, so
+   * a person who quits there is asked both questions again. */
+  function continueFormat(): void {
+    if (step() !== "format") return;
+    setStep("apps");
+  }
+
+  function isAppChosen(app: AppId): boolean {
+    return apps().has(app);
+  }
+
+  function toggleApp(app: AppId): void {
+    setApps((held) => {
+      const next = new Set(held);
+      if (next.has(app)) next.delete(app);
+      else next.add(app);
+      return next;
+    });
+  }
+
+  /** Opens the Apps step from Settings, with each switch where it is now. */
+  function showApps(): void {
+    if (step() !== null) return;
+    setApps(new Set(APP_IDS.filter((app) => configStore.isAppOn(app))));
+    setRevisiting(true);
+    setStep("apps");
+  }
+
+  /** Leaves the Apps step opened from Settings without writing. */
+  function cancelApps(): void {
+    if (!revisiting()) return;
+    setRevisiting(false);
+    setStep(null);
+  }
+
+  /** The Apps step's Continue. */
+  async function continueApps(): Promise<void> {
+    if (revisiting()) {
+      await saveApps();
+      return;
+    }
+    await continueSetup();
+  }
+
+  /** Writes the switches the revisited screen holds, in one config write, and
+   * leaves. A write that fails keeps the screen up with the answer on it. */
+  async function saveApps(): Promise<void> {
+    if (busy()) return;
+    setBusy(true);
+    const chosen = apps();
+    try {
+      const next = APP_IDS.reduce(
+        (config, app) => withApp(config, app, chosen.has(app)),
+        configStore.config(),
+      );
+      await configStore.save(next);
+    } catch {
+      logFailure("the apps could not be saved");
+      showToast("Could not save the app switches", "error");
+      return;
+    } finally {
+      setBusy(false);
+    }
+    setRevisiting(false);
+    setStep(null);
+  }
+
   /**
-   * Takes the answer and leaves the screen.
+   * Takes both answers and leaves the screen.
    *
-   * Nothing on disk has moved until this call: Rust writes the format into the
-   * config and answers with the note to open, which is null on a launch that
-   * has tabs to restore. A call that fails leaves the screen up with the
-   * answer still on it, because the config it would have written is not there.
+   * Nothing on disk has moved until this call: Rust writes the format and the
+   * apps into the config in one write and answers with the note to open,
+   * which is null on a launch that has tabs to restore. A call that fails
+   * leaves the screen up with the answers still on it, because the config it
+   * would have written is not there.
    *
    * One at a time. A held Enter repeats well inside one round trip, and two
    * calls that both reach the mint leave the folder with a
@@ -69,9 +146,10 @@ export function createFirstRunStore() {
     if (busy()) return;
     setBusy(true);
     const extension = format();
+    const chosen = APP_IDS.filter((app) => apps().has(app));
     let doc: BufferDocument | null;
     try {
-      doc = await api.finishFirstRun(extension);
+      doc = await api.finishFirstRun(extension, chosen);
     } catch {
       logFailure("the first launch could not be finished");
       return;
@@ -79,6 +157,7 @@ export function createFirstRunStore() {
       setBusy(false);
     }
     configStore.noteDefaultExtension(extension);
+    configStore.noteAppsOn(chosen);
     // The screen leaves before the note arrives. While it is up it holds the
     // rest of the window inert, and an editor that mounts under that never
     // takes the focus it asks for, which would end the first launch on a note
@@ -150,7 +229,13 @@ export function createFirstRunStore() {
     step,
     format,
     setFormat,
-    continueSetup,
+    continueFormat,
+    isAppChosen,
+    toggleApp,
+    showApps,
+    continueApps,
+    cancelApps,
+    revisiting,
     busy,
     showHint,
     fileManager,

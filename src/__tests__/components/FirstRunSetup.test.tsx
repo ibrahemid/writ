@@ -28,10 +28,33 @@ vi.mock("../../services/tauri", () => ({
   updateConfig: vi.fn().mockResolvedValue(undefined),
 }));
 
+// The store is the app's singleton and reads the launch once, and the Apps
+// step has no way back to the format step. Each test gets a store of its own
+// behind the singleton's name, so every one starts on the format step.
+vi.mock("../../stores/global/first-run", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../stores/global/first-run")>();
+  const { createRoot } = await import("solid-js");
+  let current = createRoot(actual.createFirstRunStore);
+  const firstRunStore = new Proxy({} as typeof current, {
+    get: (_target, key) => current[key as keyof typeof current],
+  });
+  return {
+    ...actual,
+    firstRunStore,
+    renewFirstRunStore: () => {
+      current = createRoot(actual.createFirstRunStore);
+    },
+  };
+});
+
 import FirstRunSetup from "../../components/FirstRun/FirstRunSetup";
-import { firstRunStore } from "../../stores/global/first-run";
+import * as firstRun from "../../stores/global/first-run";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { configStore } from "../../stores/global/config";
+
+const { firstRunStore } = firstRun;
+const renewFirstRunStore = (firstRun as unknown as { renewFirstRunStore: () => void })
+  .renewFirstRunStore;
 
 const DOC = {
   id: "note-first",
@@ -59,6 +82,21 @@ function mount() {
   ));
 }
 
+function continueButton(container: Element): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll("button")).find(
+    (el) => el.textContent === "Continue",
+  );
+  if (!button) throw new Error("no Continue");
+  return button;
+}
+
+/** The format step's Continue, which moves to the Apps step and writes nothing. */
+async function continueToApps(container: Element): Promise<void> {
+  fireEvent.click(continueButton(container));
+  await waitFor(() => expect(firstRunStore.step()).toBe("apps"));
+  expect(mocks.finishFirstRun).not.toHaveBeenCalled();
+}
+
 function option(container: Element, format: string): HTMLElement {
   const el = container.querySelector<HTMLElement>(`[data-format='${format}']`);
   if (!el) throw new Error(`no ${format} option`);
@@ -73,16 +111,22 @@ describe("the format the first launch asks about", () => {
       file_manager: "Finder",
     });
     mocks.finishFirstRun.mockReset().mockResolvedValue(null);
+    renewFirstRunStore();
     win = null;
   });
 
   afterEach(() => cleanup());
 
-  it("stays off the screen while the launch has nothing to ask", () => {
-    const step = vi.spyOn(firstRunStore, "step").mockReturnValue(null);
+  it("stays off the screen while the launch has nothing to ask", async () => {
+    mocks.firstRunState.mockResolvedValue({
+      first_run: false,
+      hint_dismissed: false,
+      file_manager: "Finder",
+    });
+    await firstRunStore.load();
     const { container } = mount();
+    expect(firstRunStore.step()).toBeNull();
     expect(container.querySelector(".first-run-setup")).toBeNull();
-    step.mockRestore();
   });
 
   it("offers the two formats with plain text already chosen", async () => {
@@ -122,10 +166,13 @@ describe("the format the first launch asks about", () => {
     const { container } = mount();
 
     fireEvent.click(option(container, "md"));
-    fireEvent.click(container.querySelector("button")!);
+    await continueToApps(container);
+    fireEvent.click(continueButton(container));
 
-    await waitFor(() => expect(mocks.finishFirstRun).toHaveBeenCalledWith("md"));
+    await waitFor(() => expect(mocks.finishFirstRun).toHaveBeenCalledWith("md", []));
     expect(container.querySelector(".first-run-setup")).not.toBeNull();
+    expect(firstRunStore.step()).toBe("apps");
+    expect(firstRunStore.format()).toBe("md");
     consoleSpy.mockRestore();
   });
 
@@ -143,20 +190,26 @@ describe("the format the first launch asks about", () => {
 
   it("selects the focused option with Space and answers with Enter", async () => {
     await firstRunStore.load();
-    // The answer is refused, so the screen stays up and the launch is still a
-    // first one for the tests that follow.
+    // The answer is refused, so the screen stays up.
     mocks.finishFirstRun.mockRejectedValue(new Error("no IPC"));
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { container } = mount();
 
+    // The options rove: focus sits on the chosen one, so an arrow puts the
+    // reader on Markdown and Space keeps it.
+    fireEvent.keyDown(option(container, "txt"), { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(option(container, "md")));
     fireEvent.keyDown(option(container, "md"), { key: " " });
     await waitFor(() => expect(option(container, "md").getAttribute("aria-checked")).toBe("true"));
+    expect(option(container, "txt").getAttribute("aria-checked")).toBe("false");
     expect(mocks.finishFirstRun).not.toHaveBeenCalled();
 
     fireEvent.keyDown(option(container, "md"), { key: "Enter" });
-    await waitFor(() => expect(mocks.finishFirstRun).toHaveBeenCalledWith("md"));
+    await waitFor(() => expect(firstRunStore.step()).toBe("apps"));
+    expect(mocks.finishFirstRun).not.toHaveBeenCalled();
 
-    firstRunStore.setFormat("txt");
+    fireEvent.keyDown(container.querySelector(".first-run-apps")!, { key: "Enter" });
+    await waitFor(() => expect(mocks.finishFirstRun).toHaveBeenCalledWith("md", []));
     consoleSpy.mockRestore();
   });
 
@@ -173,13 +226,14 @@ describe("the format the first launch asks about", () => {
     );
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { container } = mount();
-    const button = container.querySelector("button")!;
+    await continueToApps(container);
+    const button = continueButton(container);
 
     fireEvent.click(button);
     await waitFor(() => expect(button.getAttribute("aria-busy")).toBe("true"));
     expect(button.hasAttribute("disabled")).toBe(true);
     fireEvent.click(button);
-    fireEvent.keyDown(option(container, "txt"), { key: "Enter" });
+    fireEvent.keyDown(container.querySelector(".first-run-apps")!, { key: "Enter" });
 
     refuse(new Error("no IPC"));
     await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
@@ -194,10 +248,11 @@ describe("the format the first launch asks about", () => {
     const { container } = mount();
 
     fireEvent.click(option(container, "md"));
-    fireEvent.click(container.querySelector("button")!);
+    await continueToApps(container);
+    fireEvent.click(continueButton(container));
 
     await waitFor(() => expect(container.querySelector(".first-run-setup")).toBeNull());
-    expect(mocks.finishFirstRun).toHaveBeenCalledWith("md");
+    expect(mocks.finishFirstRun).toHaveBeenCalledWith("md", []);
     expect(configStore.config().files.default_extension).toBe("md");
     expect(bufferRegistry.activeTabs().map((b) => b.id)).toContain(DOC.id);
     expect(win!.tabs.activeTabId()).toBe(DOC.id);

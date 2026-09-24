@@ -120,14 +120,14 @@ describe("nothing is sent until every blocker is cleared", () => {
     );
     await runRewriteAction("polish");
     expect(mocks.start).not.toHaveBeenCalled();
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.api_key");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.api_key");
   });
 
   it("stops at a disallowed base URL", async () => {
     mocks.endpointState.mockResolvedValue(endpoint({ is_allowed: false }));
     await runRewriteAction("polish");
     expect(mocks.start).not.toHaveBeenCalled();
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.base_url");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.base_url");
   });
 
   it("asks for consent and the key in one pass, not two failures", async () => {
@@ -141,7 +141,7 @@ describe("nothing is sent until every blocker is cleared", () => {
     );
     await runRewriteAction("polish");
     expect(mocks.consentHost).toHaveBeenCalledTimes(1);
-    expect(mocks.openSettings).toHaveBeenCalledWith("ai", "ai.api_key");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.api_key");
     expect(mocks.start).not.toHaveBeenCalled();
   });
 

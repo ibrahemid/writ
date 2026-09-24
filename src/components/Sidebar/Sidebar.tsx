@@ -71,7 +71,9 @@ export default function Sidebar() {
             <div class="sidebar-scroll">
               <Show when={hasContent()} fallback={<SidebarEmpty />}>
                 <FilesSection />
-                <TagsSection />
+                <Show when={configStore.isAppOn("tags")}>
+                  <TagsSection />
+                </Show>
                 <InboxSection />
                 <HistorySection />
               </Show>

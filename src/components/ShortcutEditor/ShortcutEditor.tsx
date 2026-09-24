@@ -9,6 +9,7 @@ import {
   Show,
 } from "solid-js";
 import { useAllCommands } from "../../commands/registry";
+import { isCommandOffered } from "../../commands/app-commands";
 import {
   effectiveBinding,
   rebuildKeyMap,
@@ -69,7 +70,7 @@ export default function ShortcutEditor() {
 
   const commands = createMemo<Command[]>(() =>
     useAllCommands()
-      .filter((c) => c.scope === "app" || c.scope === "editor")
+      .filter((c) => (c.scope === "app" || c.scope === "editor") && isCommandOffered(c))
       .slice()
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
   );
@@ -205,9 +206,15 @@ export default function ShortcutEditor() {
     setDrafts(next);
   }
 
-  /** What a save would write: the rows that differ from the shipped chord. */
+  /** What a save would write: the rows that differ from the shipped chord,
+   * and every saved chord of a command the editor does not list, such as one
+   * whose app is off, so switching an app off never costs its shortcuts. */
   function pendingOverrides(): Record<string, string> {
+    const listed = new Set(commands().map((cmd) => cmd.id));
     const next: Record<string, string> = {};
+    for (const [id, binding] of Object.entries(configStore.config().keybindings)) {
+      if (!listed.has(id)) next[id] = binding;
+    }
     for (const cmd of commands()) {
       const draft = drafts()[cmd.id];
       if (!draft) continue;

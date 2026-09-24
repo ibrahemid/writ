@@ -44,6 +44,7 @@ vi.mock("../../services/tauri", () => ({
   clearHistory: vi.fn(async () => {}),
   renameBuffer: vi.fn(async () => {}),
   createBuffer: vi.fn(),
+  updateConfig: vi.fn(async () => {}),
 }));
 
 afterEach(() => {
@@ -58,6 +59,10 @@ describe("sidebar: restoring a note from history", () => {
     const { windowRegistry } = await import("../../stores/global/window-registry");
     const WindowProvider = (await import("../../components/WindowProvider/WindowProvider")).default;
     const HistorySection = (await import("../../components/Sidebar/HistorySection")).default;
+    const { configStore } = await import("../../stores/global/config");
+    // A fresh config hides the recently closed section (ADR-042 section 2); these
+    // tests are about the section once somebody shows it.
+    configStore.setSidebarSectionHidden("recent", false);
 
     await bufferRegistry.load();
 

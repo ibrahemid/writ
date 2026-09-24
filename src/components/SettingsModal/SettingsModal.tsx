@@ -58,6 +58,7 @@ import { openActivity } from "../Activity/ActivityPanel";
 import type { StorageInfo } from "../../stores/global/storage";
 import type {
   AccentId,
+  AppId,
   AppearanceConfig,
   DefaultLayout,
   FileExtension,
@@ -90,6 +91,8 @@ import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
 import { ACCENTS, TYPE } from "../../styles/generated/tokens";
 import { resolvePlatform } from "../../lib/platform";
+import { APPS, type AppEntry } from "../../lib/apps";
+import { firstRunStore } from "../../stores/global/first-run";
 import "./SettingsModal.css";
 
 // Singleton state — Writ is single-window
@@ -649,8 +652,6 @@ function FilesSection() {
           </span>
         </SettingsRow>
       </Show>
-      <CliRow />
-      <VersionsRow />
     </div>
   );
 }
@@ -879,15 +880,6 @@ function DataFolderRow() {
 function PreviewSection() {
   const cfg = () => configStore.config().preview;
 
-  function onRunScriptsToggle() {
-    void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, run_scripts: !prev.preview.run_scripts } }));
-  }
-
-  function onDefaultLayoutHtmlChange(raw: string) {
-    const layout = raw as DefaultLayout;
-    void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, default_layout_html: layout } }));
-  }
-
   function onDefaultLayoutMarkdownChange(raw: string) {
     const layout = raw as MarkdownLayout;
     void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, default_layout_markdown: layout } }));
@@ -896,18 +888,6 @@ function PreviewSection() {
   return (
     <div data-section="preview">
       <SectionLabel section="preview" />
-      <SettingsRow
-        id="preview.run_scripts"
-        label="Allow HTML files to run their scripts"
-        caution="Off is safer."
-      >
-        <ToggleSwitch
-          setting="run_scripts"
-          label="Allow HTML files to run their scripts"
-          checked={cfg().run_scripts}
-          onChange={onRunScriptsToggle}
-        />
-      </SettingsRow>
       <SettingsRow
         id="preview.layout_md"
         label="When opening a Markdown file, show"
@@ -923,6 +903,38 @@ function PreviewSection() {
           <option value="inline">Inline</option>
           <option value="source">Source</option>
         </select>
+      </SettingsRow>
+    </div>
+  );
+}
+
+/** The two HTML rows. A fresh install writes plain text or Markdown, so they
+ * sit under Advanced. */
+function HtmlRows() {
+  const cfg = () => configStore.config().preview;
+
+  function onRunScriptsToggle() {
+    void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, run_scripts: !prev.preview.run_scripts } }));
+  }
+
+  function onDefaultLayoutHtmlChange(raw: string) {
+    const layout = raw as DefaultLayout;
+    void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, default_layout_html: layout } }));
+  }
+
+  return (
+    <>
+      <SettingsRow
+        id="preview.run_scripts"
+        label="Allow HTML files to run their scripts"
+        caution="Off is safer."
+      >
+        <ToggleSwitch
+          setting="run_scripts"
+          label="Allow HTML files to run their scripts"
+          checked={cfg().run_scripts}
+          onChange={onRunScriptsToggle}
+        />
       </SettingsRow>
       <SettingsRow
         id="preview.layout_html"
@@ -941,7 +953,7 @@ function PreviewSection() {
           <option value="preview">Preview</option>
         </select>
       </SettingsRow>
-    </div>
+    </>
   );
 }
 
@@ -978,11 +990,6 @@ function UpdatesSection() {
   );
 }
 
-/** Where a rewrite can be started, named for the description under its row:
- * the status-bar chip, the editor's context menu and the palette commands. */
-const REWRITE_SURFACES =
-  "Adds a Rewrite button to the status bar, and rewrite actions to the right-click menu and the command palette.";
-
 const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
 
 /** The one-line help under a local runtime that did not answer its port. The
@@ -993,11 +1000,12 @@ const LOCAL_HELP: Record<string, string> = {
   lmstudio: "Writ could not reach LM Studio on port 1234. Start its server in the Developer tab.",
 };
 
-/** One connection, then the two features that use it (ADR-040 section 1).
+/** The one connection Chat and Rewrite share (ADR-040 section 1), drawn under
+ * Apps while either is on (ADR-042 section 4).
  *
  * Every row reads the provider table `writ-core` owns, so the base URL, the
  * key page, the default model and the probe port are never spelled out here. */
-function AiSection() {
+function AiConnectionRows() {
   const cfg = () => configStore.config().ai;
   const [keyState, setKeyState] = createSignal<AiKeyState | null>(null);
   const [keyInput, setKeyInput] = createSignal("");
@@ -1178,13 +1186,6 @@ function AiSection() {
     void patchConfig((prev) => ({ ...prev, ai: { ...prev.ai, model: value } }));
   }
 
-  function patchChat(next: Partial<{ enabled: boolean }>) {
-    void patchConfig((prev) => ({
-      ...prev,
-      ai: { ...prev.ai, chat: { ...prev.ai.chat, ...next } },
-    }));
-  }
-
   function onChatModelDisclosure() {
     if (chatModelOpen()) {
       setChatModelOpen(false);
@@ -1256,9 +1257,7 @@ function AiSection() {
   }
 
   return (
-    <div data-section="ai">
-      <SectionLabel section="ai" />
-
+    <div class="settings-app-detail" data-app-detail="ai-connection">
       <SettingsRow
         id="ai.provider"
         label="Provider"
@@ -1416,7 +1415,7 @@ function AiSection() {
       <SettingsRow
         id="ai.model"
         label="Model"
-        description="Used for rewriting and chat."
+        description="Used by Chat and Rewrite."
         labelFor="setting-ai-model"
       >
         <div class="settings-model-picker">
@@ -1475,35 +1474,7 @@ function AiSection() {
         </span>
       </SettingsRow>
 
-      <div class="settings-group">
-        <SettingsRow
-          id="ai.rewrite.enabled"
-          label="Rewrite selected text"
-          description={REWRITE_SURFACES}
-        >
-          <ToggleSwitch
-            setting="ai_rewrite_enabled"
-            label="Rewrite selected text"
-            checked={cfg().rewrite.enabled}
-            onChange={() => patchRewrite(!cfg().rewrite.enabled)}
-          />
-        </SettingsRow>
-      </div>
-
-      <div class="settings-group">
-        <SettingsRow
-          id="ai.chat.enabled"
-          label="Chat about your files"
-          description="A pane where you attach files and the model can offer changes you apply."
-        >
-          <ToggleSwitch
-            setting="ai_chat_enabled"
-            label="Chat about your files"
-            checked={cfg().chat.enabled}
-            onChange={() => patchChat({ enabled: !cfg().chat.enabled })}
-          />
-        </SettingsRow>
-
+      <Show when={configStore.isAppOn("chat")}>
         <SettingsRow
           id="ai.chat.model"
           label="Use a different model for chat"
@@ -1537,16 +1508,9 @@ function AiSection() {
             </Show>
           </span>
         </SettingsRow>
-      </div>
+      </Show>
     </div>
   );
-}
-
-function patchRewrite(enabled: boolean) {
-  void patchConfig((prev) => ({
-    ...prev,
-    ai: { ...prev.ai, rewrite: { ...prev.ai.rewrite, enabled } },
-  }));
 }
 
 const POLARITY_OPTIONS: { id: Polarity; label: string }[] = [
@@ -1745,34 +1709,50 @@ function AppearanceSection() {
   );
 }
 
-const SIDEBAR_ROWS: { id: string; section: SidebarSectionId; title: string; setting: string }[] = [
+interface SidebarRow {
+  id: string;
+  section: SidebarSectionId;
+  title: string;
+  setting: string;
+}
+
+// Tags is an app with its own switch under Apps; the watched folder's row sits
+// with the folder it shows, under Advanced.
+const SIDEBAR_ROWS: readonly SidebarRow[] = [
   { id: "sidebar.folder", section: "folder", title: "Show files", setting: "sidebar_folder" },
-  { id: "sidebar.tags", section: "tags", title: "Show tags", setting: "sidebar_tags" },
-  { id: "sidebar.inbox", section: "inbox", title: "Show watched folder", setting: "sidebar_inbox" },
   { id: "sidebar.recent", section: "recent", title: "Show recently closed", setting: "sidebar_recent" },
 ];
+
+const SIDEBAR_INBOX_ROW: SidebarRow = {
+  id: "sidebar.inbox",
+  section: "inbox",
+  title: "Show watched folder",
+  setting: "sidebar_inbox",
+};
+
+function SidebarSectionRow(props: { row: SidebarRow }) {
+  return (
+    <SettingsRow id={props.row.id} label={props.row.title}>
+      <ToggleSwitch
+        setting={props.row.setting}
+        label={props.row.title}
+        checked={!configStore.isSidebarSectionHidden(props.row.section)}
+        onChange={() =>
+          configStore.setSidebarSectionHidden(
+            props.row.section,
+            !configStore.isSidebarSectionHidden(props.row.section),
+          )
+        }
+      />
+    </SettingsRow>
+  );
+}
 
 function SidebarSettingsSection() {
   return (
     <div data-section="sidebar">
       <SectionLabel section="sidebar" />
-      <For each={SIDEBAR_ROWS}>
-        {(row) => (
-          <SettingsRow id={row.id} label={row.title}>
-            <ToggleSwitch
-              setting={row.setting}
-              label={row.title}
-              checked={!configStore.isSidebarSectionHidden(row.section)}
-              onChange={() =>
-                configStore.setSidebarSectionHidden(
-                  row.section,
-                  !configStore.isSidebarSectionHidden(row.section),
-                )
-              }
-            />
-          </SettingsRow>
-        )}
-      </For>
+      <For each={SIDEBAR_ROWS}>{(row) => <SidebarSectionRow row={row} />}</For>
     </div>
   );
 }
@@ -1797,7 +1777,8 @@ function ShortcutsSection() {
 }
 
 /**
- * The rows a writer never needs: the watched folder, the two preview size
+ * The rows a fresh install does not need: the terminal command, how long
+ * versions are kept, the HTML rows, the watched folder, the two preview size
  * limits and Writ's own data folder. Everything here answers a question the
  * panel above it does not raise.
  */
@@ -1836,6 +1817,9 @@ function AdvancedSection() {
   return (
     <div data-section="advanced">
       <SectionLabel section="advanced" />
+      <CliRow />
+      <VersionsRow />
+      <HtmlRows />
       <SettingsRow id="files.inbox_folder" label="Folder to watch for new files">
         <Show
           when={watchedPath()}
@@ -1871,6 +1855,7 @@ function AdvancedSection() {
           onChange={onFocusToggle}
         />
       </SettingsRow>
+      <SidebarSectionRow row={SIDEBAR_INBOX_ROW} />
       <SettingsRow
         id="preview.live_threshold"
         label="Stop live preview above"
@@ -1975,18 +1960,12 @@ export function describeWriteTools(ids: readonly string[]): string {
  * The grants read as sentences: the server reports the tool ids it registers,
  * and TOOL_PHRASES turns them into the words under each grant.
  */
-function ProgramsSection() {
-  const mcp = () => configStore.config().mcp;
-
+function ProgramsRows() {
   onMount(() => {
     void activityStore.refreshClients();
     void activityStore.loadCommand();
     void activityStore.loadTools();
   });
-
-  function onEnableToggle() {
-    void patchConfig((prev) => ({ ...prev, mcp: { ...prev.mcp, enabled: !prev.mcp.enabled } }));
-  }
 
   async function onCopyCommand() {
     try {
@@ -2014,18 +1993,7 @@ function ProgramsSection() {
   }
 
   return (
-    <div data-section="programs">
-      <SectionLabel section="programs" />
-
-      <SettingsRow id="mcp.enabled" label="Let other programs read and write your files">
-        <ToggleSwitch
-          setting="mcp_enabled"
-          label="Let other programs read and write your files"
-          checked={mcp().enabled}
-          onChange={onEnableToggle}
-        />
-      </SettingsRow>
-
+    <div class="settings-app-detail" data-app-detail="programs">
       <SettingsRow id="mcp.command" label="Command to give a program">
         <span class="settings-inbox-controls">
           <Tooltip label={activityStore.serverCommand()?.command ?? ""}>
@@ -2133,14 +2101,75 @@ function ProgramsSection() {
   );
 }
 
+function AppRow(props: { app: AppEntry }) {
+  const on = () => configStore.isAppOn(props.app.id);
+
+  async function onToggle() {
+    try {
+      await configStore.setAppOn(props.app.id, !on());
+    } catch {
+      showToast("Could not save your settings", "error");
+    }
+  }
+
+  return (
+    <SettingsRow id={props.app.settingId} label={props.app.label} description={props.app.detail}>
+      <ToggleSwitch
+        setting={`app_${props.app.id}`}
+        label={props.app.label}
+        checked={on()}
+        onChange={() => void onToggle()}
+      />
+    </SettingsRow>
+  );
+}
+
+/**
+ * One row per app, a switch and a sentence (ADR-042 section 4). The AI
+ * connection is drawn under Rewrite while Chat or Rewrite is on, and a
+ * connected program's grants under its own row while that app is on.
+ */
+function AppsSection() {
+  const app = (id: AppId): AppEntry => APPS.find((entry) => entry.id === id)!;
+  const aiOn = () => configStore.isAppOn("chat") || configStore.isAppOn("rewrite");
+
+  return (
+    <div data-section="apps">
+      <SectionLabel section="apps" />
+      <AppRow app={app("chat")} />
+      <AppRow app={app("rewrite")} />
+      <Show when={aiOn()}>
+        <AiConnectionRows />
+      </Show>
+      <AppRow app={app("programs")} />
+      <Show when={configStore.isAppOn("programs")}>
+        <ProgramsRows />
+      </Show>
+      <AppRow app={app("connections")} />
+      <AppRow app={app("graph")} />
+      <AppRow app={app("tags")} />
+      <SettingsRow id="apps.screen" label="Setup screen">
+        <Button
+          data-action="open-apps-screen"
+          onClick={() => {
+            closeSettings();
+            firstRunStore.showApps();
+          }}
+        >
+          Open
+        </Button>
+      </SettingsRow>
+    </div>
+  );
+}
+
 function AllSections() {
   return (
     <>
       <FilesSection />
+      <AppsSection />
       <EditorSection />
       <PreviewSection />
-      <AiSection />
-      <ProgramsSection />
       <AppearanceSection />
       <SidebarSettingsSection />
       <UpdatesSection />
@@ -2353,8 +2382,7 @@ export default function SettingsModal() {
                       <Match when={activeSection() === "editor"}><EditorSection /></Match>
                       <Match when={activeSection() === "files"}><FilesSection /></Match>
                       <Match when={activeSection() === "preview"}><PreviewSection /></Match>
-                      <Match when={activeSection() === "ai"}><AiSection /></Match>
-                      <Match when={activeSection() === "programs"}><ProgramsSection /></Match>
+                      <Match when={activeSection() === "apps"}><AppsSection /></Match>
                       <Match when={activeSection() === "appearance"}><AppearanceSection /></Match>
                       <Match when={activeSection() === "sidebar"}><SidebarSettingsSection /></Match>
                       <Match when={activeSection() === "updates"}><UpdatesSection /></Match>
