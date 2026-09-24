@@ -16,5 +16,5 @@
     "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "demo"]
 }
