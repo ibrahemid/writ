@@ -1,6 +1,7 @@
 ---
 import Prose from '../layouts/Prose.astro';
 import Capture from '../components/Capture.astro';
+import Loop from '../components/Loop.astro';
 // The frozen sheet, not the app's live table. See `site/src/data/shortcuts.json`.
 import editorShortcuts from '../data/shortcuts.json';
 import { keybindingSegments } from '../../../src/lib/keybinding-format';
@@ -102,7 +103,7 @@ make test 2>&1 | writ --title tests</code></pre>
     <li><strong>Rewrite.</strong> Select text, right-click, Rewrite: proofread, rephrase, polish, or your own instruction. The result shows as a diff you apply or discard. Only the selection is sent.</li>
     <li><strong>Connected programs.</strong> An MCP server for a client such as Claude Code or Cursor. The first call from a program waits until you approve it, and reading and writing are approved separately. Recent activity lists every call without the file's text. The <a href={`${base}/guides/agent-output/`}>guide</a> walks through the setup.</li>
   </ul>
-  <Capture name="chat" alt="The chat pane beside a file: the attached files as chips, a reply, and a proposed edit shown as a diff" />
+  <Loop name="chat" poster="chat" alt="The chat pane beside a file: a file attached with @, a question, a reply, and a proposed edit shown as a diff and applied" />
   <p>Chat and Rewrite share one connection, shown under Apps while either is on: a provider, a key and a model. Ollama and LM Studio run on your machine and need no key. Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together and Fireworks take your own key, kept in the system keychain on macOS and Windows; OpenRouter can also connect from a button that opens your browser. Any other OpenAI-compatible endpoint works by URL. Before anything reaches a host off your machine, Writ asks once, naming the host.</p>
 
   <h2 id="obsidian">A folder written in Obsidian</h2>
