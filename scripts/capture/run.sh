@@ -24,8 +24,8 @@
 # machine has been idle for 45 s; the run refuses to start while any other
 # Writ process exists.
 #
-# A run that captures hero-window, text-file, markdown-inline or search also
-# copies those stills to docs/media for the README (README_MEDIA).
+# A run that captures hero-window also copies it to docs/media for the README
+# (README_MEDIA).
 #
 # Every scene's config switches on only the apps that scene shows (apps_on);
 # the rest are off, as in a fresh config.
@@ -111,6 +111,7 @@ REC_T_END=0
 FINDER_WINDOW=""
 PATH_BAR_HIDDEN=0
 SYSTEM_DARK_BEFORE=""
+HIDPI_PID=""
 CAPTURED=()
 
 cleanup() {
@@ -120,6 +121,7 @@ cleanup() {
   stop_stub || true
   close_finder || true
   restore_system_appearance || true
+  stop_hidpi || true
   if [ "$status" -ne 0 ]; then
     log "failed (exit $status); scratch kept at $WORK"
   fi
@@ -154,7 +156,34 @@ preflight() {
   # watcher matches the event path against the config path it was given, so
   # both have to be the resolved one or a theme switch is never seen.
   WORK=$(cd "$WORK" && pwd -P)
+  start_hidpi
   wait_idle
+}
+
+# Stills are 2x. On a machine whose main display is 1x (the headless M1's
+# fallback display is one), the run adds a display drawn at 2x for its own
+# length and puts every window on it. CAPTURE_HIDPI=0 keeps the display as it is.
+HIDPI_SIZE=(1680 1050)
+start_hidpi() {
+  local x y w h waited=0
+  [ "${CAPTURE_HIDPI:-1}" != 0 ] || return 0
+  [ "$("$DRIVE" scale)" = 1 ] || return 0
+  "$DRIVE" hidpi "${HIDPI_SIZE[@]}" >"$WORK/hidpi.out" 2>"$WORK/hidpi.err" &
+  HIDPI_PID=$!
+  until [ -s "$WORK/hidpi.out" ]; do
+    kill -0 "$HIDPI_PID" 2>/dev/null || { echo "the 2x display did not start: $(cat "$WORK/hidpi.err")" >&2; exit 1; }
+    [ "$waited" -lt 60 ] || { echo "the 2x display did not come on" >&2; exit 1; }
+    sleep 0.5; waited=$((waited + 1))
+  done
+  read -r x y w h <"$WORK/hidpi.out"
+  WIN_X=$((x + WIN_X)); WIN_Y=$((y + WIN_Y))
+  log "2x display ${w}x${h} at $x,$y for this run"
+}
+stop_hidpi() {
+  [ -n "$HIDPI_PID" ] || return 0
+  kill "$HIDPI_PID" 2>/dev/null || true
+  wait "$HIDPI_PID" 2>/dev/null || true
+  HIDPI_PID=""
 }
 
 wait_idle() {
@@ -793,9 +822,11 @@ scene_chat() {
     record_start "$WORK/chat-$theme.mov"
     REC_T_OPEN=$(now)
     key a cmd,shift
-    if ! composer=$(wait_for_element AXTextArea Message 10); then
+    # The composer is a textarea with role="combobox" (it lists @ mentions),
+    # so the accessibility tree names it a combo box.
+    if ! composer=$(wait_for_element AXComboBox Message 10); then
       key a cmd,shift
-      composer=$(wait_for_element AXTextArea Message 10) \
+      composer=$(wait_for_element AXComboBox Message 10) \
         || { echo "the chat pane did not open" >&2; exit 1; }
     fi
     click_element "$composer"
@@ -986,9 +1017,6 @@ run_scene() {
 README_MEDIA=(
   "hero-window-light.png:hero-light.png"
   "hero-window-dark.png:hero-dark.png"
-  "text-file-light.png:text-file-light.png"
-  "markdown-inline-light.png:markdown-inline-light.png"
-  "search-light.png:search-light.png"
 )
 README_MEDIA_LIMIT=1258291
 

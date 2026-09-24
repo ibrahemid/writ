@@ -17,7 +17,9 @@ Each scene writes its own `config.toml`: `[files] default_extension = "txt"`, Ma
 
 The run builds the CLI sidecar and the app (`CARGO_PROFILE_RELEASE_STRIP=false`, no updater artifact) and logs the bundle path. It refuses to start while any other Writ process exists, and every key and click waits until the instance is the frontmost app and the machine has been idle for 45 s, so leave it alone once it is going. The Finder still and the `first-run` still follow the system appearance; the run flips it for the dark take and puts it back.
 
-Output: `site/src/assets/captures/<scene>-<theme>.png`, at most 2880 px wide and 1.2 MB each (`shrink.mjs`), plus a contact sheet at `.status/v2/shots/captures-contact.png`. A run that captures `hero-window`, `text-file`, `markdown-inline` or `search` also copies `hero-light.png`, `hero-dark.png`, `text-file-light.png`, `markdown-inline-light.png` and `search-light.png` to `docs/media/` for the README. `Capture.astro` picks a still up by name, so a page references `<Capture name="search" />` and the theme pair follows.
+Stills are 2x. When the main display draws at 1x, as the headless M1's fallback display does, the run adds a 1680x1050 display drawn at 2x (`drive hidpi`, through `CGVirtualDisplay`) for its own length and places every window on it; on a machine with no display attached, that display stands in for the fallback one until the run ends, so a remote view of the machine changes size meanwhile. `CAPTURE_HIDPI=0` keeps the display as it is and takes 1x stills.
+
+Output: `site/src/assets/captures/<scene>-<theme>.png`, at most 2880 px wide and 1.2 MB each (`shrink.mjs`), plus a contact sheet at `.status/v2/shots/captures-contact.png`. A run that captures `hero-window` also copies it to `docs/media/hero-light.png` and `hero-dark.png` for the README. `Capture.astro` picks a still up by name, so a page references `<Capture name="search" />` and the theme pair follows.
 
 ## Scenes
 
@@ -26,7 +28,7 @@ Output: `site/src/assets/captures/<scene>-<theme>.png`, at most 2880 px wide and
 | `hero-window` | The file tree and search in the sidebar, the garden committee file open in Inline mode with the cursor on a list line, so that line shows its markup | none | 1440x900 |
 | `hero-window-win`, `hero-window-linux` | The same frame in the Windows and GNOME shells (`VITE_WRIT_PLATFORM`, dev instance) | none | 1440x900 |
 | `text-file` | `To do.txt` in the plain editor, with the status bar a `.txt` file gets | none | 1280x800 |
-| `markdown-inline` | `Sourdough notes.md` in Inline mode: a callout, a table, checkboxes and a code block | none | 1280x800 |
+| `markdown-inline` | `Sourdough notes.md` in Inline mode: a callout, a table shown as styled source, checkboxes and a code block | none | 1280x800 |
 | `search` | Search everywhere with matches across `.txt` and `.md` files | none | 1280x800 |
 | `apps` | Settings, Apps, with Graph on and the other five off | Graph | 1280x800 |
 | `first-run` | No config and an empty folder: the format step, Plain text or Markdown | none written | 1280x800 |
