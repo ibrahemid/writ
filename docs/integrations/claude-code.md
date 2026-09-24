@@ -53,13 +53,13 @@ To capture only failing runs:
 ```json
 {
   "hooks": {
-    "PostToolUse": [
+    "PostToolUseFailure": [
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r 'select(.tool_response.exit_code != 0) | .tool_response.stderr // .tool_response.stdout // empty' | writ --title \"error\""
+            "command": "jq -r '.error // empty' | writ --title \"error\""
           }
         ]
       }
@@ -102,7 +102,7 @@ A `Stop` hook lets you capture the final assistant message as a buffer for revie
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.assistant_message // empty' | writ --title \"session summary\""
+            "command": "jq -r '.last_assistant_message // empty' | writ --title \"session summary\""
           }
         ]
       }
