@@ -1,0 +1,62 @@
+---
+import Capture from './Capture.astro';
+
+interface Props {
+  alt: string;
+}
+
+const { alt } = Astro.props;
+
+// The frame the hero capture was taken at. The app runs at this size and is
+// scaled to the column, so the page at rest shows the same pixels as the still.
+const FRAME_WIDTH = 1440;
+const FRAME_HEIGHT = 900;
+---
+<div class="live-window" data-live-window data-frame-width={FRAME_WIDTH} data-frame-height={FRAME_HEIGHT}>
+  <Capture name="hero-window" alt={alt} loading="eager" fetchpriority="high" />
+</div>
+
+<script>
+  // Swaps the still for the app itself, built from src/ into /demo/ with an
+  // in-memory folder, once the page is idle and the column is wide enough to
+  // read it. Phones and readers without JS keep the still.
+  const host = document.querySelector<HTMLElement>('[data-live-window]');
+  const bp = getComputedStyle(document.documentElement).getPropertyValue('--writ-site-bp-lg').trim();
+  const wide = bp ? window.matchMedia(`(min-width: ${bp})`) : null;
+
+  function mount(root: HTMLElement): void {
+    if (root.querySelector('iframe')) return;
+    const width = Number(root.dataset.frameWidth);
+    const height = Number(root.dataset.frameHeight);
+    const frame = document.createElement('iframe');
+    frame.src = '/demo/';
+    frame.title = 'Writ, running in this page';
+    frame.width = String(width);
+    frame.height = String(height);
+    frame.className = 'live-frame';
+    frame.setAttribute('loading', 'eager');
+    const fit = () => {
+      frame.style.transform = `scale(${root.clientWidth / width})`;
+    };
+    fit();
+    new ResizeObserver(fit).observe(root);
+    window.addEventListener('message', (event) => {
+      if (event.source !== frame.contentWindow || event.origin !== location.origin) return;
+      if (event.data?.type === 'writ-demo-ready') root.classList.add('is-live');
+    });
+    root.append(frame);
+  }
+
+  if (host && wide) {
+    const start = () => {
+      if (wide.matches) mount(host);
+    };
+    const whenIdle = (fn: () => void): void => {
+      if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(fn, { timeout: 2000 });
+      else window.setTimeout(fn, 200);
+    };
+    if (document.readyState === 'complete') whenIdle(start);
+    else window.addEventListener('load', () => whenIdle(start), { once: true });
+    wide.addEventListener('change', start);
+  }
+</script>

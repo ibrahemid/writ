@@ -232,36 +232,6 @@ button {
   line-height: var(--writ-site-lh-display);
 }
 
-.br-sm {
-  display: none;
-}
-
-.noun-slot {
-  display: inline-block;
-  white-space: nowrap;
-}
-
-.noun-slot:not(.is-live) .noun:not(.is-on) {
-  display: none;
-}
-
-.noun-slot.is-live {
-  display: inline-grid;
-  vertical-align: baseline;
-  transition: width var(--writ-site-motion-crossfade) var(--writ-ease);
-}
-
-.noun-slot.is-live .noun {
-  grid-area: 1 / 1;
-  width: max-content;
-  opacity: 0;
-  transition: opacity var(--writ-site-motion-crossfade) var(--writ-ease);
-}
-
-.noun-slot.is-live .noun.is-on {
-  opacity: 1;
-}
-
 .hero-sub {
   max-width: var(--writ-site-measure);
   margin: var(--writ-space-6) auto 0;
@@ -307,6 +277,48 @@ button {
 
 .owed {
   aspect-ratio: 16 / 10;
+}
+
+/* The hero window: the still until the app itself loads over it */
+
+.live-window {
+  position: relative;
+  overflow: hidden;
+  border: var(--writ-site-hairline) solid var(--writ-border);
+  border-radius: var(--writ-r-window);
+  box-shadow: var(--writ-site-shadow-window);
+}
+
+.live-window .window {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.live-window img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.live-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  transform-origin: 0 0;
+  opacity: 0;
+  transition: opacity var(--writ-site-motion-crossfade) var(--writ-ease);
+}
+
+.live-window.is-live .live-frame {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-frame {
+    transition: none;
+  }
 }
 
 /* Feature sections */
@@ -600,10 +612,6 @@ button {
 @media (max-width: 640px) {
   :root {
     --writ-site-gutter: var(--writ-space-5);
-  }
-
-  .br-sm {
-    display: inline;
   }
 
   .nav-in {

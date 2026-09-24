@@ -4,7 +4,9 @@ import sitemap from '@astrojs/sitemap';
 export default defineConfig({
   site: 'https://writ.ibrahemid.com',
   trailingSlash: 'ignore',
-  integrations: [sitemap()],
+  // /vs/obsidian/ is a refresh to /guides/obsidian/, and /demo/ is the app
+  // the hero loads.
+  integrations: [sitemap({ filter: (page) => !/\/(vs\/obsidian|demo)\/$/.test(page) })],
   build: {
     format: 'directory',
   },

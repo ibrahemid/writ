@@ -1,12 +1,11 @@
 ---
 import Site from '../layouts/Site.astro';
-import Capture from '../components/Capture.astro';
+import LiveWindow from '../components/LiveWindow.astro';
 import Feature from '../components/Feature.astro';
 import DownloadRows from '../components/DownloadRows.astro';
 import release from '../data/release.json';
 
 const repo = 'https://github.com/ibrahemid/writ';
-const NOUNS = ['note', 'scratchpad', 'Markdown editor', 'journal', 'to-do list'];
 const mb = (n: number | undefined): string => (n ? `${Math.round(n / 1048576)}\u00a0MB` : '');
 const detail = [`v${release.version}`, 'macOS 12+', 'Windows 10+', 'Linux', mb(release.platforms.mac.size_pkg)]
   .filter(Boolean)
@@ -14,18 +13,14 @@ const detail = [`v${release.version}`, 'macOS 12+', 'Windows 10+', 'Linux', mb(r
 const p = release.platforms;
 ---
 <Site
-  title="The only note app you need"
-  description="Notes as Markdown files in a folder you can open, with links, a graph and an MCP server built in. Free, offline, for macOS, Windows and Linux."
+  title="The only text app you need"
+  description="Writ opens any text file and searches every file in its folder. A Markdown file renders inline as you type. Free, for macOS, Windows and Linux."
   path="/"
 >
   <main id="content">
     <section class="hero wrap">
-      <h1 class="hero-h1">
-        The only <br class="br-sm" /><span class="noun-slot" data-noun-slot>{NOUNS.map((n, i) => (
-          <span class:list={['noun', { 'is-on': i === 0 }]}>{n}</span>
-        ))}</span><br /> app you need
-      </h1>
-      <p class="hero-sub">Markdown files in a folder you can open, with links, a graph and an MCP server built in.</p>
+      <h1 class="hero-h1">The only text app you need</h1>
+      <p class="hero-sub">Writ opens any text file and searches every file in its folder. A Markdown file renders inline as you type.</p>
       <div class="hero-ctas">
         <a
           href={p.mac.pkg}
@@ -43,27 +38,27 @@ const p = release.platforms;
       <p class="hero-detail">{detail}</p>
     </section>
     <div class="hero-media wrap-media">
-      <Capture name="hero-window" alt="The Writ window: the notes folder in the sidebar, a note open with its rendered preview beside it" loading="eager" fetchpriority="high" />
+      <LiveWindow alt="The Writ window: the folder in the sidebar and a Markdown file rendered inline, the line being edited showing its markup" />
     </div>
 
-    <Feature id="files" title="Every note is a file" capture="notes-folder" alt="The notes folder in Finder, one Markdown file per note">
-      <p>Notes are plain Markdown files in a folder you can open, <code>~/Writ</code> unless you move it. The folder is the only copy: the database holds an index and window state and can be deleted without losing a note.</p>
+    <Feature id="any-file" title="Any file" capture="text-file" alt="A plain text to-do list open in Writ">
+      <p>A <code>.txt</code>, a log, a config or a Markdown file opens from your file manager or the <code>writ</code> command and saves back to its own path.</p>
     </Feature>
 
-    <Feature id="links" title="Links and Connections" capture="connections" alt="A note with the Connections panel beside it: the notes that link here, the outline and the properties" flip>
-      <p>Write <code>[[Name]]</code> to link a note by name. The Connections panel lists the notes that link back, the outline and the properties, and renaming a note offers to rewrite the links that point at it.</p>
+    <Feature id="markdown" title="Markdown, inline" capture="markdown-inline" alt="A Markdown file in Writ with headings, checkboxes and a code block rendered in place" flip>
+      <p>Headings, lists, links and checkboxes render in place, and the line you are editing shows its markup.</p>
     </Feature>
 
-    <Feature id="graph" title="Graph" capture="graph-folder" alt="Graph view of a whole notes folder, one color per folder">
-      <p>Nearby notes draws the ones linked around the note you have open. Graph view draws the whole folder, and tags sit in the sidebar.</p>
+    <Feature id="search" title="Search" capture="search" alt="Writ's search listing every file in the folder that mentions compost, with the matching line">
+      <p>One query matches file names and the text inside them.</p>
     </Feature>
 
-    <Feature id="programs" title="Programs" capture="chat" loop="chat" alt="The chat pane beside a note: the attached notes as chips, a rendered reply, and a proposed edit shown as a diff" flip>
-      <p>Writ ships an MCP server, off by default: approve each program by name, reading and writing separately, and every call is listed in the Activity panel without the note's text. The chat pane, also off by default, runs on a local model or your own key, sends only the notes you attach, and shows each edit it proposes as a diff you apply or discard.</p>
+    <Feature id="apps" title="Apps" capture="apps" alt="Writ's Settings on the Apps section, with Graph switched on" flip>
+      <p>Connections, the graph, tags, chat, rewriting and connected programs are switches in Settings, and each adds nothing to the window until it is on.</p>
     </Feature>
 
-    <Feature id="versions" title="Earlier versions" capture="versions" alt="The earlier versions of a note listed beside it, with Revert To on one of them">
-      <p>Writ keeps a version each time a note is saved, for thirty days, in its own data folder and never inside the notes folder. Revert To puts one back.</p>
+    <Feature id="versions" title="Earlier versions" capture="versions" alt="The earlier versions of a file listed beside it, with Revert To on one of them">
+      <p>Writ keeps a version each time a file is saved, for 30 days, outside the folder, and Revert To puts one back.</p>
     </Feature>
 
     <section class="download wrap" id="download">
@@ -72,34 +67,6 @@ const p = release.platforms;
     </section>
   </main>
 </Site>
-
-<script is:inline>
-  // The noun in the H1 crossfades through the list every 2.4 s. Without JS,
-  // or under prefers-reduced-motion, the first noun is the whole line.
-  (function () {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    var slot = document.querySelector('[data-noun-slot]');
-    if (!slot) return;
-    var nouns = Array.prototype.slice.call(slot.querySelectorAll('.noun'));
-    if (nouns.length < 2) return;
-    // The bundler may rewrite 2400ms as 2.4s, so the unit is read, not assumed.
-    var raw = getComputedStyle(slot).getPropertyValue('--writ-site-motion-noun-interval').trim();
-    var interval = (parseFloat(raw) || 2.4) * (/ms$/.test(raw) ? 1 : 1000);
-    var i = 0;
-    slot.classList.add('is-live');
-    function fit() {
-      slot.style.width = nouns[i].offsetWidth + 'px';
-    }
-    fit();
-    window.addEventListener('resize', fit);
-    window.setInterval(function () {
-      nouns[i].classList.remove('is-on');
-      i = (i + 1) % nouns.length;
-      nouns[i].classList.add('is-on');
-      fit();
-    }, interval);
-  })();
-</script>
 
 <script is:inline>
   // The primary button names the visitor's OS and links to its build; the

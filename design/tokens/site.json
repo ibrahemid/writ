@@ -49,8 +49,7 @@
     },
     "motion": {
       "$type": "duration",
-      "crossfade": { "$value": { "value": 350, "unit": "ms" } },
-      "noun-interval": { "$value": { "value": 2400, "unit": "ms" } }
+      "crossfade": { "$value": { "value": 350, "unit": "ms" } }
     },
     "bp": {
       "$type": "dimension",

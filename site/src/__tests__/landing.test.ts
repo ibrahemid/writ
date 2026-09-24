@@ -8,31 +8,20 @@ const CSS = readFileSync(join(SITE, 'src', 'styles', 'site.css'), 'utf8');
 
 /** The words on the landing page are decided; these pin them. */
 describe('the landing page', () => {
-  it('carries the five nouns in order, the first one static', () => {
-    expect(INDEX).toMatch(/const NOUNS = \['note', 'scratchpad', 'Markdown editor', 'journal', 'to-do list'\]/);
-    expect(INDEX).toMatch(/'is-on': i === 0/);
-    expect(INDEX).toContain('title="The only note app you need"');
+  it('carries the headline as the page title and the H1', () => {
+    expect(INDEX).toContain('title="The only text app you need"');
+    expect(INDEX).toContain('<h1 class="hero-h1">The only text app you need</h1>');
   });
 
-  it('rotates the noun from one inline script under forty lines, gated on reduced motion', () => {
-    const scripts = [...INDEX.matchAll(/<script is:inline>([\s\S]*?)<\/script>/g)].map((m) => m[1] ?? '');
-    const noun = scripts.find((s) => s.includes('data-noun-slot'));
-    expect(noun, 'the noun script').toBeDefined();
-    expect(noun!.split('\n').filter((l) => l.trim() !== '').length).toBeLessThan(40);
-    expect(noun).toContain("prefers-reduced-motion: reduce");
+  it('runs no script of its own beyond inline ones, and the hero is the live window', () => {
     expect(INDEX).not.toMatch(/<script(?![^>]*is:inline)/);
     expect(INDEX).not.toMatch(/IntersectionObserver|typewriter|client:/);
-  });
-
-  it('crossfades on the tokenised interval and falls back to the first noun without JS', () => {
-    expect(CSS).toContain('.noun-slot:not(.is-live) .noun:not(.is-on) {\n  display: none;');
-    expect(CSS).toMatch(/transition: opacity var\(--writ-site-motion-crossfade\)/);
-    expect(readFileSync(join(SITE, 'src', 'styles', 'tokens.css'), 'utf8')).toContain('--writ-site-motion-noun-interval: 2400ms');
+    expect(INDEX).toMatch(/<LiveWindow alt="[^"]+" \/>/);
   });
 
   it('keeps the sections in the decided order', () => {
     const ids = [...INDEX.matchAll(/<Feature id="([a-z-]+)"/g)].map((m) => m[1]);
-    expect(ids).toEqual(['files', 'links', 'graph', 'programs', 'versions']);
+    expect(ids).toEqual(['any-file', 'markdown', 'search', 'apps', 'versions']);
     expect(INDEX).toContain('<section class="download wrap" id="download">');
   });
 
