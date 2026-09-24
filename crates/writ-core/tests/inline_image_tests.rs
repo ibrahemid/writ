@@ -42,12 +42,11 @@ fn resolves_a_reference_beside_the_file() {
     write_png(&f.note_dir.join("shot.png"));
     let resolved = resolve_inline_image(&f.notes, &f.note_dir, "shot.png").unwrap();
     assert_eq!(resolved.file_name().unwrap(), "shot.png");
-    assert!(resolved.starts_with(
-        std::fs::canonicalize(&f.notes)
-            .unwrap_or_else(|_| f.notes.clone())
-            .parent()
-            .unwrap()
-    ));
+    // Both sides go through `canonicalize` so the comparison holds on Windows,
+    // where the resolver strips the `\\?\` prefix that `canonicalize` adds.
+    let resolved = std::fs::canonicalize(&resolved).unwrap();
+    let notes = std::fs::canonicalize(&f.notes).unwrap();
+    assert!(resolved.starts_with(notes.parent().unwrap()));
 }
 
 #[test]
