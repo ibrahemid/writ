@@ -496,6 +496,39 @@ describe("renaming a tab", () => {
     expect(h.renameNoteAndLinks).toHaveBeenCalledWith("buf-1", "Pricing draft");
   });
 
+  // Removing the focused field makes the browser blur it, and the field
+  // commits on blur, so Enter and Escape are each followed by one. jsdom does
+  // not blur a removed node, so the tests fire it.
+  it("commits once when Enter is followed by the blur of the field going away", () => {
+    open(2);
+    const { container } = render(() => <TabBar />);
+    const input = startRename(container);
+    input.value = "Pricing draft";
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.blur(input);
+    expect(h.renameNoteAndLinks).toHaveBeenCalledTimes(1);
+    expect(h.renameNoteAndLinks).toHaveBeenCalledWith("buf-1", "Pricing draft");
+  });
+
+  it("renames nothing on Escape, whatever the blur that follows carries", () => {
+    open(2);
+    const { container } = render(() => <TabBar />);
+    const input = startRename(container);
+    input.value = "Pricing draft";
+    fireEvent.keyDown(input, { key: "Escape" });
+    fireEvent.blur(input);
+    expect(h.renameNoteAndLinks).not.toHaveBeenCalled();
+  });
+
+  it("still commits when the field loses focus to a click elsewhere", () => {
+    open(2);
+    const { container } = render(() => <TabBar />);
+    const input = startRename(container);
+    input.value = "Pricing draft";
+    fireEvent.blur(input);
+    expect(h.renameNoteAndLinks).toHaveBeenCalledTimes(1);
+  });
+
   it("says so when the rename is refused", async () => {
     open(2);
     h.renameNoteAndLinks.mockImplementation(() => Promise.reject(new Error("refused")));

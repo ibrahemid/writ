@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   isLive: vi.fn(),
   stop: vi.fn(),
   open: vi.fn(),
+  rename: vi.fn(),
 }));
 
 vi.mock("../../stores/global/chat", async () => {
@@ -24,7 +25,7 @@ vi.mock("../../stores/global/chat", async () => {
       isLive: mocks.isLive,
       stop: mocks.stop,
       open: mocks.open,
-      rename: vi.fn(),
+      rename: mocks.rename,
       remove: vi.fn(),
     },
   };
@@ -48,6 +49,7 @@ beforeEach(() => {
   mocks.isLive.mockReset().mockImplementation((id: string) => id === "c-1");
   mocks.stop.mockReset();
   mocks.open.mockReset();
+  mocks.rename.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -63,5 +65,29 @@ describe("the chat list", () => {
 
     fireEvent.click(getByRole("button", { name: "Stop Launch" }));
     expect(mocks.stop).toHaveBeenCalledWith("c-1");
+  });
+
+  // Removing the focused field makes the browser blur it, and the field
+  // commits on blur, so Enter and Escape are each followed by one. jsdom does
+  // not blur a removed node, so the tests fire it.
+  it("renames once on Enter, and not again on the blur that follows", () => {
+    const { getByRole } = render(() => <ConversationList onPick={() => undefined} />);
+    fireEvent.click(getByRole("button", { name: "Rename Launch" }));
+    const field = getByRole("textbox", { name: "Rename Launch" }) as HTMLInputElement;
+    field.value = "Launch plan";
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.blur(field);
+    expect(mocks.rename).toHaveBeenCalledTimes(1);
+    expect(mocks.rename).toHaveBeenCalledWith("c-1", "Launch plan");
+  });
+
+  it("renames nothing on Escape, whatever the blur that follows carries", () => {
+    const { getByRole } = render(() => <ConversationList onPick={() => undefined} />);
+    fireEvent.click(getByRole("button", { name: "Rename Launch" }));
+    const field = getByRole("textbox", { name: "Rename Launch" }) as HTMLInputElement;
+    field.value = "Launch plan";
+    fireEvent.keyDown(field, { key: "Escape" });
+    fireEvent.blur(field);
+    expect(mocks.rename).not.toHaveBeenCalled();
   });
 });

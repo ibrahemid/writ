@@ -59,7 +59,12 @@ export default function TabBar() {
   // name, a name the folder already holds, a file something else rewrote. The
   // backend decides all three, and the answer has to reach the person who
   // typed the name rather than being dropped on the floor.
+  //
+  // Enter and Escape both close the field, and a focused field that goes away
+  // is blurred, which lands here too. Only a field still open for this tab
+  // commits, so Enter renames once and Escape renames nothing.
   function handleRenameSubmit(tabId: string, value: string) {
+    if (editingTabId() !== tabId) return;
     setEditingTabId(null);
     void renameNoteAndLinks(tabId, value).catch((error) => {
       logFailure("a note could not be renamed");

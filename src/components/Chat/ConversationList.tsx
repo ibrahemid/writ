@@ -35,7 +35,10 @@ export default function ConversationList(props: { onPick: () => void }) {
     await chatStore.remove(row.id);
   }
 
+  // Enter and Escape both close the field, and the blur of a field that goes
+  // away lands here too; only a field still open for this row commits.
   async function commitRename(row: ChatConversationSummary, title: string) {
+    if (renaming() !== row.id) return;
     setRenaming(null);
     const next = title.trim();
     if (!next || next === row.title) return;

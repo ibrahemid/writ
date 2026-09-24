@@ -97,7 +97,10 @@ export default function ChatPane() {
 
   const title = () => chatStore.current()?.title ?? "Chat";
 
+  // Enter and Escape both close the field, and the blur of a field that goes
+  // away lands here too; only a field that is still open commits.
   function commitTitle(next: string) {
+    if (!renamingTitle()) return;
     setRenamingTitle(false);
     const id = chatStore.current()?.id;
     const trimmed = next.trim();
