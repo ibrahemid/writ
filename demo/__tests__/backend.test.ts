@@ -68,4 +68,91 @@ describe("the demo backend", () => {
     const { handle } = backend();
     expect(() => handle("no_such_command", {})).toThrow(DemoCommandError);
   });
+
+  it("answers the notes index from the folder: facts, backlinks, graph and tags", async () => {
+    const { handle } = backend();
+    const seed = `${NOTES_ROOT}/Garden/Seed order.md`;
+    const facts = (await handle("note_facts", { path: seed })) as { properties: { key: string }[]; tags: { tag: string }[] };
+    expect(facts.properties.map((p) => p.key)).toContain("supplier");
+    expect(facts.tags.map((t) => t.tag)).toContain("project/garden");
+    const backlinks = (await handle("note_backlinks", { path: seed })) as { from_name: string }[];
+    expect(backlinks.map((b) => b.from_name)).toContain("Garden committee 10 Sep");
+    const graph = (await handle("note_graph", {})) as { nodes: { path: string }[]; edges: unknown[] };
+    expect(graph.nodes.every((n) => n.path.endsWith(".md"))).toBe(true);
+    expect(graph.edges.length).toBeGreaterThan(0);
+    const tags = (await handle("note_all_tags", {})) as { tag: string; count: number }[];
+    expect(tags[0].count).toBeGreaterThanOrEqual(tags[tags.length - 1].count);
+  });
+
+  it("renames a note and rewrites the links that reached it", async () => {
+    const { handle } = backend();
+    const plan = `${NOTES_ROOT}/Garden/Garden plan.md`;
+    expect(await handle("count_links_to", { path: plan })).toBeGreaterThan(0);
+    const outcome = (await handle("rename_note_with_links", { path: plan, newName: "Allotment", updateLinks: true })) as {
+      renamed_path: string;
+      updated_paths: string[];
+    };
+    expect(outcome.renamed_path).toBe(`${NOTES_ROOT}/Garden/Allotment.md`);
+    const [first] = outcome.updated_paths;
+    const doc = (await handle("open_file", { path: first })) as { doc: { id: string } };
+    const bytes = (await handle("read_buffer_content", { id: doc.doc.id })) as ArrayBuffer;
+    expect(new TextDecoder().decode(bytes)).toContain("Allotment");
+    expect(await handle("count_links_to", { path: `${NOTES_ROOT}/Garden/Allotment.md` })).toBe(outcome.updated_paths.length);
+  });
+
+  it("rejects a taken name with the app's own sentence", async () => {
+    const { handle } = backend();
+    const [doc] = (await handle("list_active_buffers", {})) as { id: string }[];
+    await expect(handle("rename_note", { id: doc.id, title: "Birthday ideas" })).rejects.toBe('A file named "Birthday ideas.md" is already there.');
+  });
+
+  it("keeps versions of a saved note and restores one", async () => {
+    const { handle, emitted } = backend();
+    const [doc] = (await handle("list_active_buffers", {})) as { id: string; source_path: string }[];
+    await handle("save_buffer_content", { id: doc.id, content: "changed" });
+    const versions = (await handle("note_versions", { path: doc.source_path })) as { id: number }[];
+    expect(versions).toHaveLength(2);
+    const original = versions[1];
+    expect(await handle("note_version_content", { versionId: original.id })).toContain("Garden committee");
+    await handle("restore_note_version", { versionId: original.id });
+    expect(emitted.some((e) => e.event === "writ://buffer-external")).toBe(true);
+    await expect(handle("note_version_content", { versionId: 999 })).rejects.toBe("That version is not here any more.");
+  });
+
+  it("reports the connection honestly: nothing local answers, no key is held", async () => {
+    const { handle } = backend();
+    expect(await handle("ai_probe_local", {})).toEqual({ ollama: false, lmstudio: false });
+    expect(await handle("ai_has_api_key", { provider: "anthropic" })).toEqual({ is_set: false, memory_only: false });
+    expect(((await handle("ai_check_connection", {})) as { kind: string }).kind).toBe("refused");
+    await expect(handle("ai_rewrite", { requestId: "r1", action: "polish", text: "x" })).rejects.toBe("Rewriting is turned off.");
+    await expect(handle("ai_consent_host", {})).rejects.toBe("This endpoint is on your machine; nothing is sent.");
+  });
+
+  it("holds chats for the page and fails a send the way an offline server does", async () => {
+    const { handle, emitted } = backend();
+    const config = (await handle("get_config", {})) as { ai: { chat: { enabled: boolean }; model: string } };
+    config.ai.chat.enabled = true;
+    config.ai.model = "qwen3:4b";
+    await handle("update_config", { config });
+    const chat = (await handle("chat_new", {})) as { id: string };
+    await handle("chat_send", { conversationId: chat.id, text: "What is due?", contextPaths: [], requestId: "q1" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const frame = emitted.find((e) => e.event === "writ://ai-chat")?.payload as { payload: { error: { kind: string } } };
+    expect(frame.payload.error.kind).toBe("local_server_offline");
+    const list = (await handle("chat_list", {})) as { title: string; turns: number }[];
+    expect(list).toEqual([expect.objectContaining({ title: "What is due?", turns: 1 })]);
+    await handle("chat_delete", { id: chat.id });
+    await expect(handle("chat_open", { id: chat.id })).rejects.toBe("This chat no longer exists.");
+  });
+
+  it("creates the note a missing link names, and today's note once", async () => {
+    const { handle } = backend();
+    const made = (await handle("new_note_from_link", { target: "Ideas/Seed swap.md" })) as { source_path: string };
+    expect(made.source_path).toBe(`${NOTES_ROOT}/Ideas/Seed swap.md`);
+    const today = (await handle("todays_note", {})) as { id: string; source_path: string };
+    const again = (await handle("todays_note", {})) as { id: string };
+    expect(again.id).toBe(today.id);
+    expect(today.source_path).toMatch(/\/\d{4}-\d{2}-\d{2}\.txt$/);
+  });
 });
+

@@ -50,3 +50,20 @@ export function dedupe(stem: string, taken: (candidate: string) => boolean): str
     if (!taken(candidate)) return candidate;
   }
 }
+
+/** Subsequence match over the name, closer and earlier letters scoring higher. */
+export function fuzzyScore(name: string, query: string): number | null {
+  const hay = name.toLowerCase();
+  const needle = query.toLowerCase().replace(/\s+/g, "");
+  if (!needle) return null;
+  let score = 0;
+  let last = -1;
+  for (const ch of needle) {
+    const at = hay.indexOf(ch, last + 1);
+    if (at === -1) return null;
+    score += at === last + 1 ? 3 : 1;
+    last = at;
+  }
+  if (hay.startsWith(needle)) score += 10;
+  return score;
+}
