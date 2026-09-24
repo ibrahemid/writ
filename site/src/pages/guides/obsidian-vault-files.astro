@@ -10,7 +10,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   <p>Backlinks, the graph and the tag list are apps in Writ, off until you switch them on in Settings, Apps: Connections for the files that link here, the outline and the properties; Graph for the map of the folder; Tags for the tag list in the sidebar.</p>
   <h2>3. What carries over</h2>
   <ul>
-    <li>Folders, file names and the Markdown itself. The files stay where they are.</li>
+    <li>Folders, file names and the Markdown itself.</li>
     <li><code>[[File]]</code>, <code>[[Folder/File]]</code>, <code>[[File|a label]]</code> and <code>[[File#Heading]]</code> all open the file. When two files share a name, both are offered; Writ never picks one for you.</li>
     <li>Frontmatter <code>key: value</code> pairs are properties, listed in the Connections panel. A nested map is kept as written and shown as text.</li>
     <li><code>#tag</code> in the text, and <code>tags:</code> in the frontmatter as a list or one line. <code>#project/alpha</code> is one tag, listed under <code>project</code>. Tags fold to lowercase, so <code>#Project</code> and <code>#project</code> are one. A tag inside a code fence is left alone.</li>

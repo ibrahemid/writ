@@ -3,7 +3,7 @@ import Prose from '../../layouts/Prose.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<Prose title="Writ and Obsidian on one folder" description="Open the folder Obsidian uses in Writ. Both apps read the same Markdown files, and Writ never writes to .obsidian/. What each app does with the folder." path="/guides/obsidian/" lead="Both apps read Markdown files from a folder, so both can open the same one. This page lists what each does there.">
+<Prose title="Writ and Obsidian on one folder" description="Open the folder Obsidian uses in Writ. Both apps read the same Markdown files, and Writ never writes to .obsidian/. What each app does with the folder." path="/guides/obsidian/" lead="Both apps read Markdown files from a folder, so both can open the same one.">
   <h2>One folder</h2>
   <p>Point Settings, Files, Folder at the folder Obsidian uses and the files open where they are. Writ skips <code>.obsidian/</code> and never writes to it, so Obsidian keeps working from the same folder. The <a href={`${base}/guides/obsidian-vault-files/`}>setup guide</a> lists what carries over and what stays as written.</p>
   <h2>The same folder in each app</h2>
