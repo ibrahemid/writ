@@ -113,7 +113,7 @@ Notes now live as Markdown files in a notes folder (`~/Writ` by default). The fi
 - The inbox header no longer reads "Inbox · Inbox" when the folder is named inbox.
 - The AI connection row in Settings hides while a search filters to other sections.
 
-## [0.3.4] - 2026-08-22
+## [0.3.4] - 2026-08-23
 
 ### Fixed
 
@@ -137,7 +137,7 @@ Notes now live as Markdown files in a notes folder (`~/Writ` by default). The fi
 
 - Arabic and right-to-left writing. Each editor line takes its direction from its first strong character, so Arabic reads right-to-left and Latin left-to-right within the same document. Preview paragraphs, headings, lists, and tables resolve their direction the same way, while code blocks stay left-to-right. Arabic text renders in the platform's Arabic fonts instead of fallback glyphs.
 
-## [0.3.1] - 2026-08-03
+## [0.3.1] - 2026-08-09
 
 ### Added
 
@@ -207,7 +207,7 @@ Notes now live as Markdown files in a notes folder (`~/Writ` by default). The fi
 - The AUR package installs the desktop entry and icons.
 - The CLI install status no longer reports a dangling `writ` link as installed.
 
-## [0.1.0] - 2026-07-05
+## [0.1.0] - 2026-07-06
 
 ### Added
 

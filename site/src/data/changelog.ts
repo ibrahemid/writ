@@ -50,7 +50,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.3.4",
-    date: "2026-08-22",
+    date: "2026-08-23",
     notes: [
       { kind: 'fixed', text: "the database no longer grows without limit: recovery snapshots write only on change, and a bloated database is compacted once at startup." },
       { kind: 'fixed', text: "a save that fails keeps the text queued and retries; closing the tab asks before discarding it, and the message names the file and the reason." },
@@ -76,7 +76,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.3.1",
-    date: "2026-08-03",
+    date: "2026-08-09",
     notes: [
       { kind: 'added', text: "a Writ menu on the Windows and Linux titlebar: open file, new tab, close tab, the command palette, and the update check, each with its shortcut." },
       { kind: 'added', text: "Windows 11 snap layouts open from the maximize button." },
@@ -125,7 +125,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.1.0",
-    date: "2026-07-05",
+    date: "2026-07-06",
     label: "first release",
     notes: [
       { kind: 'added', text: "split-pane live preview renders Markdown, HTML, Mermaid diagrams, and KaTeX math from bundled offline runtimes, with source and preview scroll in sync and find inside the preview." },
