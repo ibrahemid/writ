@@ -47,7 +47,7 @@ DEV_PORT=1450
 WIN_X=120
 WIN_Y=100
 
-SCENES=(hero-window notes-folder connections graph-folder graph-local search preview-rich chat versions activity settings-appearance obsidian-folder today tags)
+SCENES=(hero-window text-file markdown-inline search apps first-run notes-folder connections graph-folder graph-local preview-rich chat versions activity settings-appearance obsidian-folder tags)
 # Named only: report stills, not site assets.
 REPORT_SCENES=(settings-programs)
 SHELL_SCENES=(hero-window-win hero-window-linux)
@@ -335,6 +335,9 @@ date_fixture() {
 202609081215|Birthday ideas.md
 202609071120|From Obsidian/Moving house.md
 202609112230|From Obsidian/Packing list.md
+202609121930|To do.txt
+202609051745|Camping kit.txt
+202609120831|Server log.txt
 202609011905|Recipes
 202609111805|Garden
 202609122200|Weekly
@@ -447,6 +450,12 @@ run_command() {
   key f cmd,shift; sleep 0.5
   typetext "> $1"; sleep 0.8
   key return; sleep 1.2
+}
+# go_to_line <n>: the cursor to the start of line n of the active file.
+go_to_line() {
+  key f cmd,shift; sleep 0.5
+  typetext ":$1"; sleep 0.8
+  key return; sleep 1
 }
 open_setting() {
   key f cmd,shift; sleep 0.5
@@ -642,12 +651,34 @@ capture_finder() {
 
 hero_suffix() { case "$SHELL_KIND" in mac) echo "" ;; *) echo "-$SHELL_KIND" ;; esac; }
 
+# The file tree and search in the sidebar, no app, and the cursor on a list
+# line with a link so that line shows its markup and the rest renders.
 scene_hero_window() {
   reset_state
   if [ "$SIZE_GIVEN" -eq 0 ]; then W=1440; H=900; fi
   begin "hero-window$(hero_suffix)"
   open_note "Garden committee 10 Sep"
+  go_to_line 14
   shoot "hero-window$(hero_suffix)"
+  quit_app
+}
+
+scene_text_file() {
+  reset_state
+  begin text-file
+  open_note "To do"
+  shoot text-file
+  quit_app
+}
+
+# The blank line under the title holds the cursor, so every block renders.
+scene_markdown_inline() {
+  reset_state
+  begin markdown-inline
+  open_note "Sourdough notes"
+  go_to_line 6
+  sleep 2
+  shoot markdown-inline
   quit_app
 }
 
@@ -698,8 +729,9 @@ scene_graph_local() {
 
 scene_search() {
   reset_state
-  # With the notes folder also open as the workspace, every hit lists twice
-  # (once from the note index, once from the folder search).
+  # With the folder also open as the workspace, every hit lists twice (once
+  # from the file index, once from the folder search). Two .txt files and
+  # eight .md files mention compost.
   SIDEBAR_OPEN=false; WORKSPACE=0
   begin search
   open_note "Garden plan"
@@ -716,6 +748,19 @@ scene_preview_rich() {
   open_note "Sourdough notes"
   sleep 3
   shoot preview-rich
+  quit_app
+}
+
+# Settings, Apps with Graph on and the other five off. "nearby" is a search
+# word only the Graph row carries, so the palette's first row opens it.
+scene_apps() {
+  reset_state
+  apps_on graph
+  begin apps
+  open_note "Garden plan"
+  open_setting "nearby"
+  sleep 1
+  shoot apps
   quit_app
 }
 
@@ -873,15 +918,16 @@ scene_obsidian_folder() {
   quit_app
 }
 
-scene_today() {
+# No config file and an empty folder: the format step, before any file.
+scene_first_run() {
   reset_state
   SEED_CONFIG=0; EMPTY_NOTES=1
   remember_system_appearance
   set_system_dark false
-  begin today
+  begin first-run
   "$DRIVE" place "$APP_PID" "$WIN_X" "$WIN_Y" "$W" "$H"
   sleep 1
-  shoot_system today capture_window
+  shoot_system first-run capture_window
   quit_app
 }
 
@@ -899,6 +945,9 @@ run_scene() {
     hero-window) scene_hero_window ;;
     hero-window-win) SHELL_KIND=win scene_hero_window; SHELL_KIND=mac ;;
     hero-window-linux) SHELL_KIND=linux scene_hero_window; SHELL_KIND=mac ;;
+    text-file) scene_text_file ;;
+    markdown-inline) scene_markdown_inline ;;
+    apps) scene_apps ;;
     notes-folder) scene_notes_folder ;;
     connections) scene_connections ;;
     graph-folder) scene_graph_folder ;;
@@ -911,8 +960,9 @@ run_scene() {
     settings-appearance) scene_settings_appearance ;;
     settings-programs) scene_settings_programs ;;
     obsidian-folder) scene_obsidian_folder ;;
-    today) scene_today ;;
+    first-run) scene_first_run ;;
     tags) scene_tags ;;
+    *) echo "no scene function for $1" >&2; exit 2 ;;
   esac
 }
 
