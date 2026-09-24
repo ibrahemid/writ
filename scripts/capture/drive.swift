@@ -237,7 +237,7 @@ func holdHiDPIDisplay(width: UInt, height: UInt) -> Never {
   // chosen, and both take a moment to come on.
   let options = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
   let deadline = Date().addingTimeInterval(15)
-  var chosen = false
+  var isChosen = false
   while Date() < deadline {
     RunLoop.main.run(until: Date().addingTimeInterval(0.25))
     if let current = CGDisplayCopyDisplayMode(id), current.width == Int(width), current.pixelWidth == Int(width) * 2 {
@@ -250,13 +250,13 @@ func holdHiDPIDisplay(width: UInt, height: UInt) -> Never {
       terminate.resume()
       withExtendedLifetime(display) { dispatchMain() }
     }
-    if chosen { continue }
+    if isChosen { continue }
     let modes = (CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode]) ?? []
     guard let hidpi = modes.first(where: { $0.width == Int(width) && $0.pixelWidth == Int(width) * 2 }) else { continue }
     var config: CGDisplayConfigRef?
     guard CGBeginDisplayConfiguration(&config) == .success else { continue }
     CGConfigureDisplayWithDisplayMode(config, id, hidpi, nil)
-    chosen = CGCompleteDisplayConfiguration(config, .forSession) == .success
+    isChosen = CGCompleteDisplayConfiguration(config, .forSession) == .success
   }
   fail("the virtual display did not come on at 2x")
 }
