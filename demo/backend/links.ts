@@ -70,11 +70,11 @@ function splitInclusive(text: string): string[] {
 }
 
 /** Rust's `str::lines`: split on `\n`, a trailing `\r` dropped, no final empty line. */
-function rustLines(text: string): string[] {
+function splitRustLines(text: string): string[] {
   return splitInclusive(text).map((line) => line.replace(/\n$/, "").replace(/\r$/, ""));
 }
 
-function charCount(text: string): number {
+function countChars(text: string): number {
   let count = 0;
   for (const _ of text) count += 1;
   return count;
@@ -101,7 +101,7 @@ export function splitFrontmatter(text: string): [string | null, string] {
   return [null, text];
 }
 
-function indentColumns(raw: string): number {
+function countIndentColumns(raw: string): number {
   let columns = 0;
   for (const ch of raw) {
     if (ch === " ") columns += 1;
@@ -132,15 +132,15 @@ function isFence(trimmed: string, expect: string | null): [string, number] | nul
 }
 
 /** links::body_lines: every line outside the frontmatter and every code block. */
-function bodyLines(text: string): BodyLine[] {
+function listBodyLines(text: string): BodyLine[] {
   const [frontmatter] = splitFrontmatter(text);
   const skipUntil = frontmatter?.length ?? 0;
   const out: BodyLine[] = [];
   let offset = 0;
   let fence: [string, number] | null = null;
-  let indentedCode = false;
-  let afterBlank = true;
-  let inList = false;
+  let isInIndentedCode = false;
+  let isAfterBlank = true;
+  let isInList = false;
 
   splitInclusive(text).forEach((piece, index) => {
     const start = offset;
@@ -159,19 +159,19 @@ function bodyLines(text: string): BodyLine[] {
       return;
     }
     if (trimmed === "") {
-      afterBlank = true;
+      isAfterBlank = true;
       out.push(body);
       return;
     }
-    const indented = indentColumns(raw) >= 4;
-    if (indented && (indentedCode || (afterBlank && !inList))) {
-      indentedCode = true;
-      afterBlank = false;
+    const isIndented = countIndentColumns(raw) >= 4;
+    if (isIndented && (isInIndentedCode || (isAfterBlank && !isInList))) {
+      isInIndentedCode = true;
+      isAfterBlank = false;
       return;
     }
-    indentedCode = false;
-    afterBlank = false;
-    if (!indented) inList = opensAListItem(trimmed);
+    isInIndentedCode = false;
+    isAfterBlank = false;
+    if (!isIndented) isInList = opensAListItem(trimmed);
     const opened = isFence(trimmed, null);
     if (opened) fence = opened;
     else out.push(body);
@@ -186,7 +186,7 @@ function trimMatchesEnd(text: string, ch: string): string {
 }
 
 /** links::code_free_segments: the stretches of a line outside inline code spans. */
-function codeFreeSegments(raw: string): [number, string][] {
+function findCodeFreeSegments(raw: string): [number, string][] {
   if (!raw.includes("`")) return [[0, raw]];
   const out: [number, string][] = [];
   let cursor = 0;
@@ -225,8 +225,8 @@ function codeFreeSegments(raw: string): [number, string][] {
 /** links::scan: every `[[…]]` and every `[label](path)` naming a note. */
 export function scanLinks(text: string): RawLink[] {
   const out: RawLink[] = [];
-  for (const line of bodyLines(text)) {
-    for (const [offset, segment] of codeFreeSegments(line.raw)) scanSegment(line, offset, segment, out);
+  for (const line of listBodyLines(text)) {
+    for (const [offset, segment] of findCodeFreeSegments(line.raw)) scanSegment(line, offset, segment, out);
   }
   return out;
 }
@@ -245,25 +245,25 @@ function scanSegment(line: BodyLine, offset: number, segment: string, out: RawLi
       const inner = segment.slice(index + 2, found);
       const end = found + 2;
       const target = parseWikilink(inner);
-      if (target.name) out.push(build(line, offset, index, end, "wikilink", target));
+      if (target.name) out.push(buildRawLink(line, offset, index, end, "wikilink", target));
       index = end;
       continue;
     }
-    const link = markdownLink(segment, index);
+    const link = parseMarkdownLink(segment, index);
     if (!link) {
       index += 1;
       continue;
     }
     const [destEnd, [from, to]] = link;
     if (!isImage) {
-      const target = noteDestination(segment.slice(from, to));
-      if (target) out.push(build(line, offset, index, destEnd, "markdown", target));
+      const target = parseNoteDestination(segment.slice(from, to));
+      if (target) out.push(buildRawLink(line, offset, index, destEnd, "markdown", target));
     }
     index = destEnd;
   }
 }
 
-function build(
+function buildRawLink(
   line: BodyLine,
   offset: number,
   start: number,
@@ -278,13 +278,13 @@ function build(
     alias: target.alias,
     heading: target.heading,
     line: line.line,
-    col: charCount(line.raw.slice(0, inLine)),
+    col: countChars(line.raw.slice(0, inLine)),
     range: [line.start + inLine, line.start + offset + end],
   };
 }
 
 /** links::markdown_link: the end of a `[label](dest)` at `open`, and its destination range. */
-function markdownLink(segment: string, open: number): [number, [number, number]] | null {
+function parseMarkdownLink(segment: string, open: number): [number, [number, number]] | null {
   let index = open + 1;
   let depth = 1;
   while (index < segment.length) {
@@ -316,7 +316,7 @@ function markdownLink(segment: string, open: number): [number, [number, number]]
   return [cursor + 1, [start, cursor]];
 }
 
-function noteDestination(inside: string): WikilinkTarget | null {
+function parseNoteDestination(inside: string): WikilinkTarget | null {
   const dest = splitDestination(inside.trim());
   if (!dest || dest.startsWith("#")) return null;
   if (dest.includes("://") || hasScheme(dest)) return null;
@@ -324,7 +324,7 @@ function noteDestination(inside: string): WikilinkTarget | null {
   const hash = dest.indexOf("#");
   const rawPath = hash === -1 ? dest : dest.slice(0, hash);
   const heading = hash === -1 ? null : dest.slice(hash + 1);
-  const path = percentDecode(rawPath);
+  const path = decodePercent(rawPath);
   const name = path.split(/[/\\]/).pop() ?? "";
   const dot = name.lastIndexOf(".");
   if (dot !== -1) {
@@ -333,14 +333,14 @@ function noteDestination(inside: string): WikilinkTarget | null {
   }
   const target = parseTarget(path);
   if (!target.name) return null;
-  const decoded = heading === null ? "" : percentDecode(heading).trim();
+  const decoded = heading === null ? "" : decodePercent(heading).trim();
   target.heading = decoded || null;
   return target;
 }
 
 function splitDestination(inside: string): string {
-  const unbracketed = () => inside.split(/\s+/).find((part) => part !== "") ?? "";
-  if (!inside.startsWith("<")) return unbracketed();
+  const findUnbracketed = () => inside.split(/\s+/).find((part) => part !== "") ?? "";
+  if (!inside.startsWith("<")) return findUnbracketed();
   const chars = [...inside.slice(1)];
   let out = "";
   for (let i = 0; i < chars.length; i += 1) {
@@ -356,7 +356,7 @@ function splitDestination(inside: string): string {
       out += ch;
     }
   }
-  return unbracketed();
+  return findUnbracketed();
 }
 
 function hasScheme(dest: string): boolean {
@@ -366,19 +366,19 @@ function hasScheme(dest: string): boolean {
   return /^[A-Za-z]/.test(scheme) && /^[A-Za-z0-9+.-]*$/.test(scheme);
 }
 
-function percentDecode(text: string): string {
+function decodePercent(text: string): string {
   if (!text.includes("%")) return text;
   const bytes = new TextEncoder().encode(text);
   const out: number[] = [];
-  const hex = (b: number | undefined) => {
+  const parseHexDigit = (b: number | undefined) => {
     if (b === undefined) return null;
     const value = parseInt(String.fromCharCode(b), 16);
     return Number.isNaN(value) ? null : value;
   };
   for (let i = 0; i < bytes.length; ) {
     if (bytes[i] === 0x25) {
-      const high = hex(bytes[i + 1]);
-      const low = hex(bytes[i + 2]);
+      const high = parseHexDigit(bytes[i + 1]);
+      const low = parseHexDigit(bytes[i + 2]);
       if (high !== null && low !== null) {
         out.push(high * 16 + low);
         i += 3;
@@ -416,7 +416,7 @@ export function parseTarget(path: string): WikilinkTarget {
 }
 
 /** links::stored_target: a target already parsed once, split without a second strip. */
-export function storedTarget(target: string): WikilinkTarget {
+export function parseStoredTarget(target: string): WikilinkTarget {
   const [folder, name] = splitTarget(target);
   return { name, folder, heading: null, alias: null };
 }
@@ -438,67 +438,67 @@ export function stripNoteExtension(name: string): string {
 }
 
 /** links::name_key: NFC, then lowercase. */
-export function nameKey(text: string): string {
+export function toNameKey(text: string): string {
   return text.normalize("NFC").toLowerCase();
 }
 
 /** links::candidate_name_keys: the stem without a note extension, and the whole name. */
-export function candidateNameKeys(path: string): string[] {
+export function listCandidateNameKeys(path: string): string[] {
   const name = path.split(/[/\\]/).pop() ?? "";
-  const stem = nameKey(stripNoteExtension(name));
-  const full = nameKey(name);
+  const stem = toNameKey(stripNoteExtension(name));
+  const full = toNameKey(name);
   return full === stem ? [stem] : [stem, full];
 }
 
-function segments(path: string): string[] {
+function splitSegments(path: string): string[] {
   return path.split(/[/\\]/).filter((s) => s !== "");
 }
 
-function folderMatches(path: string, wanted: string[]): boolean {
-  const all = segments(path);
+function isFolderMatch(path: string, wanted: string[]): boolean {
+  const all = splitSegments(path);
   if (all.length === 0) return wanted.length === 0;
   const folders = all.slice(0, -1);
   if (wanted.length > folders.length) return false;
-  const tail = folders.slice(folders.length - wanted.length).map(nameKey);
+  const tail = folders.slice(folders.length - wanted.length).map(toNameKey);
   return tail.every((segment, i) => segment === wanted[i]);
 }
 
-function sharedPrefix(left: string[], right: string[]): number {
+function countSharedPrefix(left: string[], right: string[]): number {
   let count = 0;
-  while (count < left.length && count < right.length && nameKey(left[count]) === nameKey(right[count])) {
+  while (count < left.length && count < right.length && toNameKey(left[count]) === toNameKey(right[count])) {
     count += 1;
   }
   return count;
 }
 
-const byteOrder = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const compareBytes = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** links::resolve: fewest segments, then deepest shared ancestor; a tie is ambiguous. */
 export function resolveTarget(target: WikilinkTarget, from: string, candidates: readonly string[]): Resolution {
-  const wanted = nameKey(target.name);
-  const folder = target.folder === null ? null : segments(target.folder).map(nameKey);
+  const wanted = toNameKey(target.name);
+  const folder = target.folder === null ? null : splitSegments(target.folder).map(toNameKey);
   let matched = candidates.filter(
-    (path) => candidateNameKeys(path).includes(wanted) && (folder === null || folderMatches(path, folder)),
+    (path) => listCandidateNameKeys(path).includes(wanted) && (folder === null || isFolderMatch(path, folder)),
   );
   if (matched.length === 0) return { status: "missing" };
 
-  const fromSegments = segments(from);
-  const rank = (path: string): [number, number] => {
-    const own = segments(path);
-    return [own.length, -sharedPrefix(own, fromSegments)];
+  const fromSegments = splitSegments(from);
+  const rankCandidate = (path: string): [number, number] => {
+    const own = splitSegments(path);
+    return [own.length, -countSharedPrefix(own, fromSegments)];
   };
-  const best = matched.map(rank).reduce((a, b) => (b[0] < a[0] || (b[0] === a[0] && b[1] < a[1]) ? b : a));
+  const best = matched.map(rankCandidate).reduce((a, b) => (b[0] < a[0] || (b[0] === a[0] && b[1] < a[1]) ? b : a));
   matched = [...new Set(matched.filter((path) => {
-    const r = rank(path);
+    const r = rankCandidate(path);
     return r[0] === best[0] && r[1] === best[1];
-  }))].sort(byteOrder);
+  }))].sort(compareBytes);
   return matched.length === 1
     ? { status: "resolved", path: matched[0] }
     : { status: "ambiguous", candidates: matched };
 }
 
 /** links::heading_slug: lowercased, letters digits `-` `_` kept, whitespace to `-`. */
-export function headingSlug(text: string): string {
+export function slugifyHeading(text: string): string {
   let out = "";
   for (const ch of text.normalize("NFC")) {
     for (const lower of ch.toLowerCase()) {
@@ -527,7 +527,7 @@ function disambiguate(slug: string, taken: Set<string>): string {
 export function extractHeadings(text: string): Heading[] {
   const taken = new Set<string>();
   const out: Heading[] = [];
-  for (const line of bodyLines(text)) {
+  for (const line of listBodyLines(text)) {
     const trimmed = line.raw.trimStart();
     if (line.raw.length - trimmed.length > 3 || !trimmed.startsWith("#")) continue;
     const rest = trimmed.replace(/^#+/, "");
@@ -535,7 +535,7 @@ export function extractHeadings(text: string): Heading[] {
     if (level < 1 || level > 6) continue;
     if (rest !== "" && !rest.startsWith(" ") && !rest.startsWith("\t")) continue;
     const heading = trimMatchesEnd(rest.trim(), "#").trim();
-    out.push({ level, text: heading, line: line.line, slug: disambiguate(headingSlug(heading), taken) });
+    out.push({ level, text: heading, line: line.line, slug: disambiguate(slugifyHeading(heading), taken) });
   }
   return out;
 }
@@ -550,13 +550,13 @@ function splitKey(line: string): [string, string] | null {
   return [trimMatchesChars(key, "\"'"), line.slice(colon + 1)];
 }
 
-function blockScalar(rest: string): "|" | ">" | null {
+function parseBlockScalar(rest: string): "|" | ">" | null {
   const marker = rest[0];
   if (marker !== "|" && marker !== ">") return null;
   return /^[-+0-9]*$/.test(rest.slice(1)) ? marker : null;
 }
 
-function indentChars(line: string): number {
+function countIndentChars(line: string): number {
   let count = 0;
   for (const ch of line) {
     if (!isWhitespace(ch)) break;
@@ -573,8 +573,8 @@ function dropIndent(line: string, indent: number): string {
   return chars.slice(indent).join("");
 }
 
-function blockText(marker: "|" | ">", block: string[]): string {
-  const indents = block.filter((line) => line.trim() !== "").map(indentChars);
+function foldBlockText(marker: "|" | ">", block: string[]): string {
+  const indents = block.filter((line) => line.trim() !== "").map(countIndentChars);
   const indent = indents.length ? Math.min(...indents) : 0;
   const lines = block.map((line) => dropIndent(line, indent));
   if (marker === "|") return JSON.stringify(lines.join("\n"));
@@ -614,19 +614,19 @@ const I64_MIN = -(2n ** 63n);
 const RUST_FLOAT = /^[+-]?(?:\d+\.?\d*(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)$/;
 
 /** serde_json's text for a finite f64. */
-function floatJson(value: number): string {
+function formatFloatJson(value: number): string {
   if (Number.isInteger(value) && Math.abs(value) < 1e16) return `${value}.0`;
   return String(value).replace("e+", "e");
 }
 
 /** facts::scalar, as the JSON serde_json writes for it. */
-function scalarJson(raw: string): string {
+function formatScalarJson(raw: string): string {
   const text = raw.trim();
   if (!text || text === "~" || text.toLowerCase() === "null") return "null";
   if (text.startsWith("[") && text.endsWith("]")) {
     const items = splitFlow(text.slice(1, -1))
       .filter((item) => item.trim() !== "")
-      .map(scalarJson);
+      .map(formatScalarJson);
     return `[${items.join(",")}]`;
   }
   if (text.length >= 2) {
@@ -641,7 +641,7 @@ function scalarJson(raw: string): string {
   }
   if (RUST_FLOAT.test(text)) {
     const value = Number(text);
-    if (Number.isFinite(value)) return floatJson(value);
+    if (Number.isFinite(value)) return formatFloatJson(value);
   }
   return JSON.stringify(text);
 }
@@ -652,7 +652,7 @@ const startsWithAny = (line: string, chars: string) => line !== "" && chars.incl
 export function extractProperties(text: string): [string, string][] {
   const [block] = splitFrontmatter(text);
   if (block === null) return [];
-  const all = rustLines(block).slice(1);
+  const all = splitRustLines(block).slice(1);
   const closing = all.findIndex((line) => line.trimEnd() === "---");
   const inner = closing === -1 ? all : all.slice(0, closing);
 
@@ -667,18 +667,18 @@ export function extractProperties(text: string): [string, string][] {
     if (!split) continue;
     const [key, restRaw] = split;
     const rest = restRaw.trim();
-    const marker = blockScalar(rest);
+    const marker = parseBlockScalar(rest);
     if (marker) {
       const start = index;
       while (index < inner.length && (inner[index].trim() === "" || startsWithAny(inner[index], " \t"))) {
         index += 1;
       }
       while (index > start && inner[index - 1].trim() === "") index -= 1;
-      out.push([key, blockText(marker, inner.slice(start, index))]);
+      out.push([key, foldBlockText(marker, inner.slice(start, index))]);
       continue;
     }
     if (rest) {
-      out.push([key, scalarJson(rest)]);
+      out.push([key, formatScalarJson(rest)]);
       continue;
     }
     const start = index;
@@ -686,7 +686,7 @@ export function extractProperties(text: string): [string, string][] {
     const lines = inner.slice(start, index);
     if (lines.length === 0) out.push([key, "null"]);
     else if (lines.every((l) => l.trimStart().startsWith("- "))) {
-      const items = lines.map((l) => scalarJson(l.trimStart().replace(/^(- )+/, "").trim()));
+      const items = lines.map((l) => formatScalarJson(l.trimStart().replace(/^(- )+/, "").trim()));
       out.push([key, `[${items.join(",")}]`]);
     } else {
       out.push([key, JSON.stringify(lines.join("\n"))]);
@@ -715,18 +715,18 @@ function opensATag(before: string): boolean {
   return isWhitespace(previous) || previous === "[" || previous === "{" || previous === ">";
 }
 
-function repeats(body: string): boolean {
+function isRepeating(body: string): boolean {
   for (let unit = 1; unit <= Math.floor(body.length / 2); unit += 1) {
     if (body.length % unit !== 0) continue;
     const head = body.slice(0, unit);
-    let all = true;
+    let isEveryUnitSame = true;
     for (let i = 0; i < body.length; i += unit) {
       if (body.slice(i, i + unit) !== head) {
-        all = false;
+        isEveryUnitSame = false;
         break;
       }
     }
-    if (all) return true;
+    if (isEveryUnitSame) return true;
   }
   return false;
 }
@@ -734,11 +734,11 @@ function repeats(body: string): boolean {
 function isColour(body: string, before: string, after: string | undefined): boolean {
   if (![3, 4, 6, 8].includes(body.length) || !/^[0-9A-Fa-f]+$/.test(body)) return false;
   const lead = before.trimEnd();
-  const styled = /[:"']$/.test(lead) || after === ";" || after === "}";
-  return styled || repeats(body) || (body.length > 3 && /[0-9]/.test(body));
+  const isStyled = /[:"']$/.test(lead) || after === ";" || after === "}";
+  return isStyled || isRepeating(body) || (body.length > 3 && /[0-9]/.test(body));
 }
 
-function withoutComment(value: string): string {
+function stripComment(value: string): string {
   let from = 0;
   for (;;) {
     const at = value.indexOf("#", from);
@@ -765,12 +765,12 @@ function pushTags(out: [string, number][], raw: string, written: TagValue, line:
   }
 }
 
-function frontmatterTags(text: string): [string, number][] {
+function extractFrontmatterTags(text: string): [string, number][] {
   const [block] = splitFrontmatter(text);
   if (block === null) return [];
   const out: [string, number][] = [];
-  let inTagList = false;
-  const lines = rustLines(block);
+  let isInTagList = false;
+  const lines = splitRustLines(block);
   for (let index = 1; index < lines.length; index += 1) {
     const line = lines[index];
     const number = index + 1;
@@ -778,22 +778,22 @@ function frontmatterTags(text: string): [string, number][] {
     const trimmed = line.trim();
     if (!trimmed) continue;
     if (trimmed.startsWith("-")) {
-      if (inTagList) pushTags(out, withoutComment(trimmed.slice(1)), "item", number);
+      if (isInTagList) pushTags(out, stripComment(trimmed.slice(1)), "item", number);
       continue;
     }
     if (startsWithAny(line, " \t")) continue;
     const split = splitKey(trimmed);
     if (!split) {
-      inTagList = false;
+      isInTagList = false;
       continue;
     }
     const [key, restRaw] = split;
     if (!TAG_KEYS.includes(key.toLowerCase())) {
-      inTagList = false;
+      isInTagList = false;
       continue;
     }
-    const rest = withoutComment(restRaw).trim();
-    inTagList = rest === "";
+    const rest = stripComment(restRaw).trim();
+    isInTagList = rest === "";
     if (rest.startsWith("[") && rest.endsWith("]") && rest.length >= 2) {
       for (const item of splitFlow(rest.slice(1, -1))) pushTags(out, item, "listed", number);
     } else if (rest) {
@@ -805,9 +805,9 @@ function frontmatterTags(text: string): [string, number][] {
 
 /** facts::tags: frontmatter tags first, then body `#tags`, each lowercased with its line. */
 export function extractTags(text: string): [string, number][] {
-  const out = frontmatterTags(text);
-  for (const line of bodyLines(text)) {
-    for (const [offset, segment] of codeFreeSegments(line.raw)) {
+  const out = extractFrontmatterTags(text);
+  for (const line of listBodyLines(text)) {
+    for (const [offset, segment] of findCodeFreeSegments(line.raw)) {
       let at = 0;
       while (at < segment.length) {
         if (segment[at] !== "#" || !opensATag(line.raw.slice(0, offset + at))) {
@@ -835,7 +835,7 @@ export function extractTags(text: string): [string, number][] {
 const SNIPPET_MAX_CHARS = 320;
 const TERMINATORS = [".", "!", "?", "؟"];
 
-function sentenceBounds(line: string, relative: number): [number, number] {
+function findSentenceBounds(line: string, relative: number): [number, number] {
   let start = 0;
   for (let index = 0; index < line.length; index += 1) {
     if (!TERMINATORS.includes(line[index])) continue;
@@ -850,16 +850,16 @@ function sentenceBounds(line: string, relative: number): [number, number] {
   return [start, line.length];
 }
 
-function snippetWindow(sentence: string, relative: number): string {
+function findSnippetWindow(sentence: string, relative: number): string {
   const chars = [...sentence];
   if (chars.length <= SNIPPET_MAX_CHARS) return sentence;
-  const at = charCount(sentence.slice(0, Math.min(relative, sentence.length)));
+  const at = countChars(sentence.slice(0, Math.min(relative, sentence.length)));
   const start = Math.min(Math.max(at - SNIPPET_MAX_CHARS / 2, 0), chars.length - SNIPPET_MAX_CHARS);
   return chars.slice(start, start + SNIPPET_MAX_CHARS).join("");
 }
 
 /** snippet::sentence_at: the sentence around `offset`, never across a line break. */
-export function sentenceAt(text: string, offset: number): string {
+export function findSentenceAt(text: string, offset: number): string {
   if (!text) return "";
   const at = Math.min(offset, text.length);
   const lineStart = at === 0 ? 0 : text.lastIndexOf("\n", at - 1) + 1;
@@ -868,22 +868,22 @@ export function sentenceAt(text: string, offset: number): string {
   const line = text.slice(lineStart, lineEnd).replace(/\r+$/, "");
   const relative = Math.min(at - lineStart, line.length);
 
-  const [start, end] = sentenceBounds(line, relative);
+  const [start, end] = findSentenceBounds(line, relative);
   const raw = line.slice(start, end);
   const lead = raw.length - raw.trimStart().length;
   const sentence = raw.trim();
   if (!sentence) {
     const lineLead = line.length - line.trimStart().length;
-    return snippetWindow(line.trim(), Math.max(relative - lineLead, 0));
+    return findSnippetWindow(line.trim(), Math.max(relative - lineLead, 0));
   }
-  return snippetWindow(sentence, Math.max(relative - (start + lead), 0));
+  return findSnippetWindow(sentence, Math.max(relative - (start + lead), 0));
 }
 
 // --- Rewriting a renamed note's links ---------------------------------------
 
 export type Escaping = "plain" | "percent" | "angle";
 
-function trimmedRange(text: string, [from, to]: [number, number]): [number, number] {
+function findTrimmedRange(text: string, [from, to]: [number, number]): [number, number] {
   const slice = text.slice(from, to);
   const start = from + (slice.length - slice.trimStart().length);
   const end = to - (slice.length - slice.trimEnd().length);
@@ -895,17 +895,17 @@ function cutAt(text: string, [from, to]: [number, number], sep: string): [number
   return at === -1 ? [from, to] : [from, from + at];
 }
 
-function noteNameRange(text: string, path: [number, number]): [number, number] {
-  const trimmed = trimmedRange(text, path);
+function findNoteNameRange(text: string, path: [number, number]): [number, number] {
+  const trimmed = findTrimmedRange(text, path);
   const slice = text.slice(trimmed[0], trimmed[1]);
   const slash = Math.max(slice.lastIndexOf("/"), slice.lastIndexOf("\\"));
-  const segment = trimmedRange(text, slash === -1 ? trimmed : [trimmed[0] + slash + 1, trimmed[1]]);
+  const segment = findTrimmedRange(text, slash === -1 ? trimmed : [trimmed[0] + slash + 1, trimmed[1]]);
   const name = text.slice(segment[0], segment[1]);
   return [segment[0], segment[0] + stripNoteExtension(name).length];
 }
 
-function destinationSpan(link: string, inside: [number, number]): [[number, number], Escaping] {
-  const range = trimmedRange(link, inside);
+function findDestinationSpan(link: string, inside: [number, number]): [[number, number], Escaping] {
+  const range = findTrimmedRange(link, inside);
   const text = link.slice(range[0], range[1]);
   if (text.startsWith("<")) {
     let cursor = 1;
@@ -920,17 +920,17 @@ function destinationSpan(link: string, inside: [number, number]): [[number, numb
 }
 
 /** links::name_span: where one link's text names its note. */
-export function nameSpan(link: string): { range: [number, number]; escaping: Escaping } | null {
+export function findNameSpan(link: string): { range: [number, number]; escaping: Escaping } | null {
   if (link.startsWith("[[")) {
     const close = link.indexOf("]]", 2);
     if (close === -1) return null;
     const path = cutAt(link, cutAt(link, [2, close], "|"), "#");
-    return { range: noteNameRange(link, path), escaping: "plain" };
+    return { range: findNoteNameRange(link, path), escaping: "plain" };
   }
-  const found = markdownLink(link, 0);
+  const found = parseMarkdownLink(link, 0);
   if (!found) return null;
-  const [dest, escaping] = destinationSpan(link, found[1]);
-  return { range: noteNameRange(link, cutAt(link, dest, "#")), escaping };
+  const [dest, escaping] = findDestinationSpan(link, found[1]);
+  return { range: findNoteNameRange(link, cutAt(link, dest, "#")), escaping };
 }
 
 const PERCENT: Record<string, string> = {
@@ -963,11 +963,11 @@ export function rewriteLinks(
   if (!name || !target) return null;
   const edits: [number, number, string][] = [];
   for (const link of scanLinks(text)) {
-    const written: WikilinkTarget = { ...storedTarget(link.target), heading: link.heading, alias: link.alias };
+    const written: WikilinkTarget = { ...parseStoredTarget(link.target), heading: link.heading, alias: link.alias };
     const resolution = resolveTarget(written, from, candidates);
     if (resolution.status !== "resolved" || resolution.path !== target) continue;
     const slice = text.slice(link.range[0], link.range[1]);
-    const span = nameSpan(slice);
+    const span = findNameSpan(slice);
     if (!span) continue;
     const start = link.range[0] + span.range[0];
     const end = link.range[0] + span.range[1];
@@ -982,7 +982,7 @@ export function rewriteLinks(
 }
 
 /** notes::note_display_name: the file name without a note extension. */
-export function noteDisplayName(path: string): string {
+export function getNoteDisplayName(path: string): string {
   const name = path.split(/[/\\]/).pop() ?? path;
   const stem = stripNoteExtension(name);
   if (!stem || /^\.+$/.test(stem)) return name;

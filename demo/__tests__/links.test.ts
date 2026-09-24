@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  candidateNameKeys,
+  listCandidateNameKeys,
   extractHeadings,
   extractProperties,
   extractTags,
-  headingSlug,
-  nameSpan,
-  noteDisplayName,
+  slugifyHeading,
+  findNameSpan,
+  getNoteDisplayName,
   parseTarget,
   parseWikilink,
   resolveTarget,
   rewriteLinks,
   scanLinks,
-  sentenceAt,
+  findSentenceAt,
   splitFrontmatter,
-  storedTarget,
+  parseStoredTarget,
 } from "../backend/links";
 
 // Vectors ported from the Rust test modules of writ_core::notes::{links, facts,
@@ -39,7 +39,7 @@ describe("scanLinks", () => {
   it("names the note a stored link names the way the written one does", () => {
     for (const inner of ["Note", "Note.md", "Note.md.md", "Note.markdown.md", "a.b.md", "list.txt", "folder/Note.md", "folder\\Note.md.md", "Note.md#Heading", "Note.md|alias"]) {
       const [link] = scanLinks(`[[${inner}]]\n`);
-      const stored = storedTarget(link.target);
+      const stored = parseStoredTarget(link.target);
       const written = parseWikilink(inner);
       expect([stored.name, stored.folder, link.heading, link.alias]).toEqual([written.name, written.folder, written.heading, written.alias]);
     }
@@ -93,8 +93,8 @@ describe("parsing and resolving a target", () => {
   it("folds case and unicode normalisation", () => {
     expect(resolveTarget(parseTarget("weekly review"), "/n/From.md", ["/n/Weekly Review.md"])).toEqual({ status: "resolved", path: "/n/Weekly Review.md" });
     expect(resolveTarget(parseTarget("Café"), "/n/From.md", ["/n/Café.md"])).toEqual({ status: "resolved", path: "/n/Café.md" });
-    expect(candidateNameKeys("/n/Note.md")).toEqual(["note", "note.md"]);
-    expect(candidateNameKeys("/n/list.txt")).toEqual(["list.txt"]);
+    expect(listCandidateNameKeys("/n/Note.md")).toEqual(["note", "note.md"]);
+    expect(listCandidateNameKeys("/n/list.txt")).toEqual(["list.txt"]);
   });
 });
 
@@ -181,14 +181,14 @@ describe("headings", () => {
   });
 
   it("slugs the way GitHub does", () => {
-    expect(headingSlug("Some Heading")).toBe("some-heading");
-    expect(headingSlug("What's next?")).toBe("whats-next");
-    expect(headingSlug("Café أهلا")).toBe("café-أهلا");
+    expect(slugifyHeading("Some Heading")).toBe("some-heading");
+    expect(slugifyHeading("What's next?")).toBe("whats-next");
+    expect(slugifyHeading("Café أهلا")).toBe("café-أهلا");
   });
 });
 
-describe("sentenceAt", () => {
-  const at = (text: string) => sentenceAt(text, text.indexOf("[["));
+describe("findSentenceAt", () => {
+  const at = (text: string) => findSentenceAt(text, text.indexOf("[["));
 
   it("takes the sentence around the link and never crosses a line", () => {
     expect(at("First one. Second holds [[Note]] here. Third one.")).toBe("Second holds [[Note]] here.");
@@ -207,8 +207,8 @@ describe("sentenceAt", () => {
     expect(long).toContain("[[Note]]");
     const tail = at(`${"x".repeat(640)} [[Note]]`);
     expect(tail.endsWith("[[Note]]")).toBe(true);
-    expect(sentenceAt("", 0)).toBe("");
-    expect(sentenceAt("First line.\nLast line.", 999)).toBe("Last line.");
+    expect(findSentenceAt("", 0)).toBe("");
+    expect(findSentenceAt("First line.\nLast line.", 999)).toBe("Last line.");
   });
 });
 
@@ -228,12 +228,12 @@ describe("rewriteLinks", () => {
   });
 
   it("locates the name inside one link", () => {
-    expect(nameSpan("[[a/Note.md#h|x]]")?.range).toEqual([4, 8]);
-    expect(nameSpan("[l](a/My%20Note.md)")).toEqual({ range: [6, 15], escaping: "percent" });
+    expect(findNameSpan("[[a/Note.md#h|x]]")?.range).toEqual([4, 8]);
+    expect(findNameSpan("[l](a/My%20Note.md)")).toEqual({ range: [6, 15], escaping: "percent" });
   });
 
   it("names a note by its file name without a note extension", () => {
-    expect(noteDisplayName("/n/Plan.md")).toBe("Plan");
-    expect(noteDisplayName("/n/list.txt")).toBe("list.txt");
+    expect(getNoteDisplayName("/n/Plan.md")).toBe("Plan");
+    expect(getNoteDisplayName("/n/list.txt")).toBe("list.txt");
   });
 });

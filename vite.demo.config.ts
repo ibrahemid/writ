@@ -2,8 +2,6 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import solidPlugin from "vite-plugin-solid";
 
-// The app's own frontend, answered by the in-memory backend in demo/, built
-// into the site as /demo/.
 export default defineConfig({
   root: fileURLToPath(new URL("./demo", import.meta.url)),
   base: "/demo/",

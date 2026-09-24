@@ -2,20 +2,20 @@ import { describe, expect, it } from "vitest";
 import type { AiConfig } from "../../src/types/config";
 import {
   AiRefusal,
-  chatRefusal,
-  chatState,
-  chatTransportFrame,
+  findChatRefusal,
+  getChatState,
+  buildChatTransportFrame,
   checkConnection,
   consentHost,
-  endpointState,
+  getEndpointState,
   listModels,
-  mcpServerCommand,
+  getMcpServerCommand,
   MCP_TOOLS,
   PROVIDERS,
   resolveEndpoint,
-  rewriteRefusal,
-  rewriteStreamError,
-  withProvider,
+  findRewriteRefusal,
+  getRewriteStreamError,
+  applyProvider,
 } from "../backend/ai";
 import { DEMO_CONFIG } from "../backend/config";
 
@@ -45,7 +45,7 @@ describe("the provider table and endpoint rules", () => {
   });
 
   it("reports a local endpoint as needing no consent and no key", () => {
-    expect(endpointState(base(), { is_set: true, memory_only: true })).toEqual({
+    expect(getEndpointState(base(), { is_set: true, memory_only: true })).toEqual({
       host: "localhost",
       host_port: "localhost:11434",
       is_hosted: false,
@@ -54,7 +54,7 @@ describe("the provider table and endpoint rules", () => {
       provider: "ollama",
       key_state: NO_KEY,
     });
-    expect(chatState(base(), NO_KEY)).toMatchObject({ enabled: false, model: "", is_consented: true });
+    expect(getChatState(base(), NO_KEY)).toMatchObject({ enabled: false, model: "", is_consented: true });
   });
 });
 
@@ -74,23 +74,23 @@ describe("what a page answers when nothing is reachable", () => {
   });
 
   it("refuses a rewrite for the reason the app gives, and fails a sent one as unreachable", () => {
-    expect(rewriteRefusal(base(), "proofread", "text", null, false)).toBe("Rewriting is turned off.");
+    expect(findRewriteRefusal(base(), "proofread", "text", null, false)).toBe("Rewriting is turned off.");
     const on = { ...base(), rewrite: { enabled: true } };
-    expect(rewriteRefusal(on, "custom", "text", " ", false)).toBe("a custom rewrite needs an instruction");
-    expect(rewriteRefusal(on, "proofread", "  ", null, false)).toBe("there is no text to rewrite");
-    expect(rewriteRefusal(on, "proofread", "text", null, false)).toBe("Choose a model in AI settings.");
-    expect(rewriteRefusal(hosted(false), "polish", "text", null, false)).toBe("Confirm sending text to api.anthropic.com first.");
-    expect(rewriteRefusal(hosted(true), "polish", "text", null, false)).toBe("Add an API key for api.anthropic.com first.");
-    expect(rewriteRefusal({ ...on, model: "qwen3:4b" }, "polish", "text", null, false)).toBeNull();
-    expect(rewriteStreamError(on)).toBe("Could not reach the local model server. Is Ollama running?");
+    expect(findRewriteRefusal(on, "custom", "text", " ", false)).toBe("a custom rewrite needs an instruction");
+    expect(findRewriteRefusal(on, "proofread", "  ", null, false)).toBe("there is no text to rewrite");
+    expect(findRewriteRefusal(on, "proofread", "text", null, false)).toBe("Choose a model in AI settings.");
+    expect(findRewriteRefusal(hosted(false), "polish", "text", null, false)).toBe("Confirm sending text to api.anthropic.com first.");
+    expect(findRewriteRefusal(hosted(true), "polish", "text", null, false)).toBe("Add an API key for api.anthropic.com first.");
+    expect(findRewriteRefusal({ ...on, model: "qwen3:4b" }, "polish", "text", null, false)).toBeNull();
+    expect(getRewriteStreamError(on)).toBe("Could not reach the local model server. Is Ollama running?");
   });
 
   it("refuses or fails a chat send the way the chat command does", () => {
     const chat = { ...base(), chat: { enabled: true, model: "", model_provider: "" } };
-    expect(chatRefusal(base(), "hi", false)).toBe("Chat is turned off.");
-    expect(chatRefusal(chat, "hi", false)).toBe("Choose a chat model in AI settings.");
-    expect(chatRefusal(hosted(false), "hi", true)).toBe("Confirm sending your files to api.anthropic.com first.");
-    expect(chatTransportFrame({ ...chat, model: "qwen3:4b" })).toEqual({
+    expect(findChatRefusal(base(), "hi", false)).toBe("Chat is turned off.");
+    expect(findChatRefusal(chat, "hi", false)).toBe("Choose a chat model in AI settings.");
+    expect(findChatRefusal(hosted(false), "hi", true)).toBe("Confirm sending your files to api.anthropic.com first.");
+    expect(buildChatTransportFrame({ ...chat, model: "qwen3:4b" })).toEqual({
       kind: "local_server_offline",
       message: "Ollama is not running at localhost:11434.",
       provider: "ollama",
@@ -108,16 +108,16 @@ describe("changing the connection", () => {
   });
 
   it("switches provider, drops a model the old one owned and refuses an unknown row", () => {
-    const switched = withProvider({ ...base(), model: "qwen3:4b", chat: { enabled: true, model: "qwen3:8b", model_provider: "ollama" } }, "openai");
+    const switched = applyProvider({ ...base(), model: "qwen3:4b", chat: { enabled: true, model: "qwen3:8b", model_provider: "ollama" } }, "openai");
     expect(switched).toMatchObject({ provider: "openai", model: "", chat: { enabled: true, model: "", model_provider: "" } });
-    expect(withProvider({ ...base(), model: "mine" }, "custom").model).toBe("mine");
-    expect(() => withProvider(base(), "nope")).toThrow("That provider is not one this version knows.");
+    expect(applyProvider({ ...base(), model: "mine" }, "custom").model).toBe("mine");
+    expect(() => applyProvider(base(), "nope")).toThrow("That provider is not one this version knows.");
   });
 });
 
 describe("connected programs", () => {
   it("hands out the bundled binary's command and the static tool list", () => {
-    expect(mcpServerCommand()).toEqual({
+    expect(getMcpServerCommand()).toEqual({
       path: "/Applications/Writ.app/Contents/MacOS/writ",
       command: '"/Applications/Writ.app/Contents/MacOS/writ" mcp',
     });

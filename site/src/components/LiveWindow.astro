@@ -17,9 +17,6 @@ const FRAME_HEIGHT = 900;
 </div>
 
 <script>
-  // Swaps the still for the app itself, built from src/ into /demo/ with an
-  // in-memory folder, once the page is idle and the column is wide enough to
-  // read it. Phones and readers without JS keep the still.
   const host = document.querySelector<HTMLElement>('[data-live-window]');
   const bp = getComputedStyle(document.documentElement).getPropertyValue('--writ-site-bp-lg').trim();
   const wide = bp ? window.matchMedia(`(min-width: ${bp})`) : null;

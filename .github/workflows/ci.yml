@@ -237,8 +237,6 @@ jobs:
             pnpm-lock.yaml
             site/pnpm-lock.yaml
 
-      # The hero runs the app's own frontend, built from src/ into
-      # site/public/demo before the site builds.
       - name: Install app dependencies
         working-directory: .
         run: pnpm install --frozen-lockfile

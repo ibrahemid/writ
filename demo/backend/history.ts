@@ -28,7 +28,8 @@ export class VersionMissingError extends Error {
   }
 }
 
-const byteLength = (text: string) => new TextEncoder().encode(text).length;
+/** The length in UTF-8 bytes, the unit the host counts file sizes in. */
+export const countUtf8Bytes = (text: string) => new TextEncoder().encode(text).length;
 
 export class NoteHistory {
   private readonly entries: Entry[] = [];
@@ -36,23 +37,23 @@ export class NoteHistory {
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  private newest(path: string): Entry | undefined {
+  private findNewest(path: string): Entry | undefined {
     return this.entries
       .filter((entry) => entry.path === path)
       .sort((a, b) => b.atMs - a.atMs || b.id - a.id)[0];
   }
 
-  private record(path: string, text: string, atMs: number, window: boolean): void {
-    if (byteLength(text) > MAX_NOTE_BYTES) return;
-    const newest = this.newest(path);
-    const lastAt = window && newest?.merges ? newest.atMs : null;
-    const same = newest?.text === text;
-    const capture = !same && (lastAt === null || atMs - lastAt >= MERGE_WINDOW_MS);
-    if (!capture) {
-      if (window && newest?.merges && !same) newest.text = text;
+  private record(path: string, text: string, atMs: number, shouldMerge: boolean): void {
+    if (countUtf8Bytes(text) > MAX_NOTE_BYTES) return;
+    const newest = this.findNewest(path);
+    const lastAt = shouldMerge && newest?.merges ? newest.atMs : null;
+    const isSame = newest?.text === text;
+    const shouldCapture = !isSame && (lastAt === null || atMs - lastAt >= MERGE_WINDOW_MS);
+    if (!shouldCapture) {
+      if (shouldMerge && newest?.merges && !isSame) newest.text = text;
       return;
     }
-    this.entries.push({ id: this.nextId++, path, atMs, text, merges: window });
+    this.entries.push({ id: this.nextId++, path, atMs, text, merges: shouldMerge });
   }
 
   /** One write of `path`: what it replaced, then what landed. */
@@ -67,14 +68,14 @@ export class NoteHistory {
     for (const entry of this.entries) if (entry.path === from) entry.path = to;
   }
 
-  versions(path: string): NoteVersion[] {
+  listVersions(path: string): NoteVersion[] {
     return this.entries
       .filter((entry) => entry.path === path)
       .sort((a, b) => b.atMs - a.atMs || b.id - a.id)
-      .map((entry) => ({ id: entry.id, at_ms: entry.atMs, bytes: byteLength(entry.text) }));
+      .map((entry) => ({ id: entry.id, at_ms: entry.atMs, bytes: countUtf8Bytes(entry.text) }));
   }
 
-  entry(versionId: number): { path: string; text: string } {
+  getEntry(versionId: number): { path: string; text: string } {
     const found = this.entries.find((entry) => entry.id === versionId);
     if (!found) throw new VersionMissingError(versionId);
     return { path: found.path, text: found.text };

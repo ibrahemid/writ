@@ -3,12 +3,20 @@ import type { WorkspaceEntry } from "../../src/types/workspace";
 export const HOME = "/Users/you";
 export const NOTES_ROOT = `${HOME}/Notes`;
 
+/** What stopped a file operation: no file at the path, or one already at the destination. */
+export type DemoFileErrorKind = "missing" | "taken";
+
+const FILE_ERROR_REASONS: Record<DemoFileErrorKind, string> = {
+  missing: "no such file",
+  taken: "a file already has that name",
+};
+
 export class DemoFileError extends Error {
   constructor(
     readonly path: string,
-    readonly reason: string,
+    readonly kind: DemoFileErrorKind,
   ) {
-    super(`${reason}: ${path}`);
+    super(`${FILE_ERROR_REASONS[kind]}: ${path}`);
     this.name = "DemoFileError";
   }
 }
@@ -35,7 +43,7 @@ export class VirtualFolder {
 
   read(path: string): string {
     const record = this.files.get(path);
-    if (!record) throw new DemoFileError(path, "no such file");
+    if (!record) throw new DemoFileError(path, "missing");
     return record.content;
   }
 
@@ -44,18 +52,18 @@ export class VirtualFolder {
   }
 
   remove(path: string): void {
-    if (!this.files.delete(path)) throw new DemoFileError(path, "no such file");
+    if (!this.files.delete(path)) throw new DemoFileError(path, "missing");
   }
 
   move(from: string, to: string): void {
-    if (this.files.has(to)) throw new DemoFileError(to, "a file already has that name");
+    if (this.files.has(to)) throw new DemoFileError(to, "taken");
     const record = this.files.get(from);
-    if (!record) throw new DemoFileError(from, "no such file");
+    if (!record) throw new DemoFileError(from, "missing");
     this.files.delete(from);
     this.files.set(to, record);
   }
 
-  paths(): string[] {
+  listPaths(): string[] {
     return [...this.files.keys()].sort((a, b) => a.localeCompare(b));
   }
 
@@ -71,15 +79,15 @@ export class VirtualFolder {
       if (slash === -1) files.push(rest);
       else dirs.add(rest.slice(0, slash));
     }
-    const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
+    const compareByName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" });
     return [
-      ...[...dirs].sort(byName).map((name) => ({
+      ...[...dirs].sort(compareByName).map((name) => ({
         name,
         path: `${prefix}${name}`,
         is_dir: true,
         conflict_copy: null,
       })),
-      ...files.sort(byName).map((name) => ({
+      ...files.sort(compareByName).map((name) => ({
         name,
         path: `${prefix}${name}`,
         is_dir: false,

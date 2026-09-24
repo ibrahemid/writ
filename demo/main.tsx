@@ -25,18 +25,18 @@ HTMLIFrameElement.prototype.setAttribute = function (name: string, value: string
 // Inside the site's hero the app is a guest on the page until the visitor
 // clicks or types in it: nothing in it takes focus, and a wheel over it
 // scrolls the page rather than the file. The parent hears when it is ready.
-const embedded = window.parent !== window;
-let engaged = !embedded;
-if (embedded) {
+const isEmbedded = window.parent !== window;
+let isEngaged = !isEmbedded;
+if (isEmbedded) {
   const engage = () => {
-    engaged = true;
+    isEngaged = true;
   };
   window.addEventListener("pointerdown", engage, { capture: true, once: true });
   window.addEventListener("keydown", engage, { capture: true, once: true });
 
   const focus = HTMLElement.prototype.focus;
   HTMLElement.prototype.focus = function (options?: FocusOptions) {
-    if (engaged) focus.call(this, options);
+    if (isEngaged) focus.call(this, options);
   };
 
   const LINE_PX = 16;
@@ -44,7 +44,7 @@ if (embedded) {
     "wheel",
     (event) => {
       // A pinch or Ctrl+wheel is the browser's zoom, not a scroll.
-      if (engaged || event.ctrlKey) return;
+      if (isEngaged || event.ctrlKey) return;
       event.preventDefault();
       const unit =
         event.deltaMode === WheelEvent.DOM_DELTA_LINE
@@ -59,7 +59,7 @@ if (embedded) {
 }
 
 function announceReady(): void {
-  if (embedded) window.parent.postMessage({ type: "writ-demo-ready" }, window.location.origin);
+  if (isEmbedded) window.parent.postMessage({ type: "writ-demo-ready" }, window.location.origin);
 }
 
 const { default: App } = await import("../src/App");

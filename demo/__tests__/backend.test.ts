@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { IpcBridge } from "../ipc";
+import { formatRenameError } from "../../src/lib/save-error";
 import { createBackend, DemoCommandError } from "../backend/backend";
 import { NOTES_ROOT } from "../backend/vfs";
 
@@ -69,6 +70,24 @@ describe("the demo backend", () => {
     expect(() => handle("no_such_command", {})).toThrow(DemoCommandError);
   });
 
+  it("rejects an id no tab holds in the words the store uses, sync or async", async () => {
+    const { handle } = backend();
+    await expect(handle("get_buffer", { id: "demo-999" })).rejects.toBe("consistency error: buffer not found: demo-999");
+    await expect(handle("note_disk_state", { id: "demo-999" })).rejects.toBe(
+      "consistency error: buffer not found: demo-999",
+    );
+  });
+
+  it("finds files by fuzzy name, best match first, and only in the notes folder", async () => {
+    const { handle } = backend();
+    const hits = (await handle("search_workspace_files", { query: "seed" })) as { path: string; name: string; score: number }[];
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0].name).toBe("Seed order.md");
+    expect(hits.every((hit) => hit.path.startsWith(`${NOTES_ROOT}/`))).toBe(true);
+    expect(hits.map((hit) => hit.score)).toEqual([...hits.map((hit) => hit.score)].sort((a, b) => b - a));
+    expect(await handle("search_workspace_files", { query: "qqqq" })).toEqual([]);
+  });
+
   it("answers the notes index from the folder: facts, backlinks, graph and tags", async () => {
     const { handle } = backend();
     const seed = `${NOTES_ROOT}/Garden/Seed order.md`;
@@ -104,6 +123,17 @@ describe("the demo backend", () => {
     const { handle } = backend();
     const [doc] = (await handle("list_active_buffers", {})) as { id: string }[];
     await expect(handle("rename_note", { id: doc.id, title: "Birthday ideas" })).rejects.toBe('A file named "Birthday ideas.md" is already there.');
+  });
+
+  it("refuses a rename of a file that is gone with the code the app words itself", async () => {
+    const { handle } = backend();
+    const refusal = await (handle("rename_note_with_links", {
+      path: `${NOTES_ROOT}/Gone.md`,
+      newName: "Back",
+      updateLinks: false,
+    }) as Promise<unknown>).catch((reason: unknown) => reason);
+    expect(refusal).toMatch(/^ERR_FILE_MISSING: /);
+    expect(formatRenameError(refusal)).toBe("The file could not be renamed: the folder this file was in is no longer there.");
   });
 
   it("keeps versions of a saved note and restores one", async () => {

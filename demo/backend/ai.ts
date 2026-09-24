@@ -44,7 +44,7 @@ export const MCP_TOOLS: McpTools = {
 };
 
 /** activity::server_command_for over the `writ` binary bundled beside the app on macOS. */
-export function mcpServerCommand(): McpServerCommand {
+export function getMcpServerCommand(): McpServerCommand {
   const path = "/Applications/Writ.app/Contents/MacOS/writ";
   return { path, command: `"${path}" mcp` };
 }
@@ -57,7 +57,7 @@ export class AiRefusal extends Error {
   }
 }
 
-export function provider(id: string): AiProviderInfo | undefined {
+export function findProvider(id: string): AiProviderInfo | undefined {
   return PROVIDERS.find((row) => row.id === id);
 }
 
@@ -90,15 +90,15 @@ export function resolveEndpoint(baseUrl: string): EndpointTarget | null {
 }
 
 /** AiConfig::effective_base_url: the row's own address, or the typed one for `custom`. */
-export function effectiveBaseUrl(ai: AiConfig): string {
-  const row = provider(ai.provider);
+export function getEffectiveBaseUrl(ai: AiConfig): string {
+  const row = findProvider(ai.provider);
   return row && row.base_url ? row.base_url : ai.base_url;
 }
 
 /** AiConfig::chat_model: the chat's own pick for this provider, else the shared model. */
-export function chatModel(ai: AiConfig): string {
-  const own = ai.chat.model && ai.chat.model_provider && ai.chat.model_provider === ai.provider;
-  return own ? ai.chat.model : ai.model;
+export function getChatModel(ai: AiConfig): string {
+  const isOwnPick = Boolean(ai.chat.model && ai.chat.model_provider && ai.chat.model_provider === ai.provider);
+  return isOwnPick ? ai.chat.model : ai.model;
 }
 
 const isConsented = (ai: AiConfig, host: string) => ai.consented_hosts.includes(host);
@@ -106,8 +106,8 @@ const isConsented = (ai: AiConfig, host: string) => ai.consented_hosts.includes(
 const NO_KEY: AiKeyState = { is_set: false, memory_only: false };
 
 /** ai::endpoint_state_from; a local endpoint never reports a key. */
-export function endpointState(ai: AiConfig, key: AiKeyState): AiEndpointState {
-  const target = resolveEndpoint(effectiveBaseUrl(ai));
+export function getEndpointState(ai: AiConfig, key: AiKeyState): AiEndpointState {
+  const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   if (!target) {
     return { host: null, host_port: null, is_hosted: false, is_allowed: false, is_consented: false, provider: ai.provider, key_state: key };
   }
@@ -123,12 +123,12 @@ export function endpointState(ai: AiConfig, key: AiKeyState): AiEndpointState {
 }
 
 /** chat::endpoint_state_from. */
-export function chatState(ai: AiConfig, key: AiKeyState): ChatEndpointState {
-  const state = endpointState(ai, key);
+export function getChatState(ai: AiConfig, key: AiKeyState): ChatEndpointState {
+  const state = getEndpointState(ai, key);
   return {
     enabled: ai.chat.enabled,
     provider: ai.provider,
-    model: chatModel(ai),
+    model: getChatModel(ai),
     host: state.host,
     host_port: state.host_port,
     is_hosted: state.is_hosted,
@@ -140,7 +140,7 @@ export function chatState(ai: AiConfig, key: AiKeyState): ChatEndpointState {
 
 /** ai_consent_host: the config with the connection's host recorded, or the refusal. */
 export function consentHost(ai: AiConfig): AiConfig {
-  const target = resolveEndpoint(effectiveBaseUrl(ai));
+  const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   if (!target) throw new AiRefusal("The base URL is not a valid URL.");
   if (!target.is_allowed) throw new AiRefusal("This base URL is not allowed. Use https, or http for localhost.");
   if (!target.is_hosted) throw new AiRefusal("This endpoint is on your machine; nothing is sent.");
@@ -149,50 +149,50 @@ export function consentHost(ai: AiConfig): AiConfig {
 }
 
 /** AiConfig::with_provider, seeded with no model: a page never holds a live list. */
-export function withProvider(ai: AiConfig, id: string): AiConfig {
-  const row = provider(id);
+export function applyProvider(ai: AiConfig, id: string): AiConfig {
+  const row = findProvider(id);
   if (!row) throw new AiRefusal("That provider is not one this version knows.");
-  const keepsModel = row.group === "custom";
-  const chatKeeps = Boolean(ai.chat.model && ai.chat.model_provider && ai.chat.model_provider === id);
+  const shouldKeepModel = row.group === "custom";
+  const shouldKeepChatModel = Boolean(ai.chat.model && ai.chat.model_provider && ai.chat.model_provider === id);
   return {
     ...ai,
     provider: id,
-    model: keepsModel ? ai.model : "",
+    model: shouldKeepModel ? ai.model : "",
     chat: {
       enabled: ai.chat.enabled,
-      model: chatKeeps ? ai.chat.model : "",
-      model_provider: chatKeeps ? ai.chat.model_provider : "",
+      model: shouldKeepChatModel ? ai.chat.model : "",
+      model_provider: shouldKeepChatModel ? ai.chat.model_provider : "",
     },
   };
 }
 
-function modelsUrl(ai: AiConfig, baseUrl: string): string | null {
-  const row = provider(ai.provider);
+function getModelsUrl(ai: AiConfig, baseUrl: string): string | null {
+  const row = findProvider(ai.provider);
   if (!row) return null;
   return row.models_url || `${baseUrl.replace(/\/+$/, "")}/models`;
 }
 
 /** ModelCatalog::fallback: the row's suggestions, stamped with why the list could not be read. */
-function fallback(id: string, error: ModelListError): ModelCatalog {
-  const curated = [...(provider(id)?.curated_models ?? [])];
+function buildFallbackCatalog(id: string, error: ModelListError): ModelCatalog {
+  const curated = [...(findProvider(id)?.curated_models ?? [])];
   return { provider: id, models: curated, source: curated.length ? "curated" : "none", error };
 }
 
 /** ai_list_models: the gate first, then the request, which nothing answers. */
 export function listModels(ai: AiConfig): ModelCatalog {
-  const baseUrl = effectiveBaseUrl(ai);
+  const baseUrl = getEffectiveBaseUrl(ai);
   const base = resolveEndpoint(baseUrl);
-  const url = modelsUrl(ai, baseUrl);
+  const url = getModelsUrl(ai, baseUrl);
   const list = url === null ? null : resolveEndpoint(url);
-  if (!base?.is_allowed || !list?.is_allowed) return fallback(ai.provider, { kind: "unreachable" });
+  if (!base?.is_allowed || !list?.is_allowed) return buildFallbackCatalog(ai.provider, { kind: "unreachable" });
   for (const reached of [base, list]) {
-    if (reached.is_hosted && !isConsented(ai, reached.host)) return fallback(ai.provider, { kind: "consent_required" });
+    if (reached.is_hosted && !isConsented(ai, reached.host)) return buildFallbackCatalog(ai.provider, { kind: "consent_required" });
   }
-  return fallback(ai.provider, { kind: "unreachable" });
+  return buildFallbackCatalog(ai.provider, { kind: "unreachable" });
 }
 
-const status = (reachable: boolean, kind: string, detail: string): AiConnectionStatus => ({
-  reachable,
+const buildConnectionStatus = (isReachable: boolean, kind: string, detail: string): AiConnectionStatus => ({
+  reachable: isReachable,
   model_listed: null,
   kind,
   detail,
@@ -201,18 +201,18 @@ const status = (reachable: boolean, kind: string, detail: string): AiConnectionS
 
 /** ai_check_connection, in its gate order; a request that leaves is refused. */
 export function checkConnection(ai: AiConfig, hasKey: boolean): AiConnectionStatus {
-  const baseUrl = effectiveBaseUrl(ai);
+  const baseUrl = getEffectiveBaseUrl(ai);
   const target = resolveEndpoint(baseUrl);
-  if (!target?.is_allowed) return status(false, "invalid_url", "");
-  if (target.is_hosted && !isConsented(ai, target.host)) return status(false, "consent_required", target.host);
-  if (target.is_hosted && !hasKey) return status(false, "key_required", target.host);
-  const url = modelsUrl(ai, baseUrl);
-  if (url === null || !resolveEndpoint(url)?.is_allowed) return status(false, "invalid_url", "");
-  return status(false, "refused", target.host_port);
+  if (!target?.is_allowed) return buildConnectionStatus(false, "invalid_url", "");
+  if (target.is_hosted && !isConsented(ai, target.host)) return buildConnectionStatus(false, "consent_required", target.host);
+  if (target.is_hosted && !hasKey) return buildConnectionStatus(false, "key_required", target.host);
+  const url = getModelsUrl(ai, baseUrl);
+  if (url === null || !resolveEndpoint(url)?.is_allowed) return buildConnectionStatus(false, "invalid_url", "");
+  return buildConnectionStatus(false, "refused", target.host_port);
 }
 
 /** ai::prepare_request's refusals, in its order. Null when the request would be sent. */
-export function rewriteRefusal(
+export function findRewriteRefusal(
   ai: AiConfig,
   action: string,
   text: string,
@@ -225,7 +225,7 @@ export function rewriteRefusal(
   }
   if (action === "custom" && !instruction?.trim()) return "a custom rewrite needs an instruction";
   if (!text.trim()) return "there is no text to rewrite";
-  const target = resolveEndpoint(effectiveBaseUrl(ai));
+  const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   if (!target) return "The base URL is not a valid URL.";
   if (!target.is_allowed) return "This base URL is not allowed. Use https, or http for localhost.";
   if (!ai.model.trim()) return "Choose a model in AI settings.";
@@ -235,37 +235,37 @@ export function rewriteRefusal(
 }
 
 /** ai::connection_error_message for a request nothing answered. */
-export function rewriteStreamError(ai: AiConfig): string {
-  const target = resolveEndpoint(effectiveBaseUrl(ai));
+export function getRewriteStreamError(ai: AiConfig): string {
+  const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   return target && !target.is_hosted
     ? "Could not reach the local model server. Is Ollama running?"
     : "error sending request for url (<redacted-url>)";
 }
 
 /** chat::prepare_chat's refusals, in its order. Null when the request would be sent. */
-export function chatRefusal(ai: AiConfig, text: string, hasKey: boolean): string | null {
+export function findChatRefusal(ai: AiConfig, text: string, hasKey: boolean): string | null {
   if (!ai.chat.enabled) return "Chat is turned off.";
   if (!text.trim()) return "there is nothing to send";
-  const target = resolveEndpoint(effectiveBaseUrl(ai));
+  const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   if (!target) return "The chat base URL is not a valid URL.";
   if (!target.is_allowed) return "This base URL is not allowed. Use https, or http for localhost.";
-  if (!chatModel(ai).trim()) return "Choose a chat model in AI settings.";
+  if (!getChatModel(ai).trim()) return "Choose a chat model in AI settings.";
   if (target.is_hosted && !isConsented(ai, target.host)) return `Confirm sending your files to ${target.host} first.`;
   if (target.is_hosted && !hasKey) return `Add an API key for ${target.host} first.`;
   return null;
 }
 
 /** The connection a chat request is frozen against. */
-export function requestIdentity(ai: AiConfig): RequestIdentity {
-  return { provider: ai.provider, model: chatModel(ai), host: resolveEndpoint(effectiveBaseUrl(ai))?.host ?? "" };
+export function getRequestIdentity(ai: AiConfig): RequestIdentity {
+  return { provider: ai.provider, model: getChatModel(ai), host: resolveEndpoint(getEffectiveBaseUrl(ai))?.host ?? "" };
 }
 
 /** chat::transport_frame for a request nothing answered. */
-export function chatTransportFrame(ai: AiConfig): ChatErrorFrame {
-  const identity = requestIdentity(ai);
-  const target = resolveEndpoint(effectiveBaseUrl(ai));
+export function buildChatTransportFrame(ai: AiConfig): ChatErrorFrame {
+  const identity = getRequestIdentity(ai);
+  const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   if (target && !target.is_hosted) {
-    const label = provider(ai.provider)?.label ?? ai.provider;
+    const label = findProvider(ai.provider)?.label ?? ai.provider;
     return {
       kind: "local_server_offline",
       message: `${label} is not running at ${target.host_port}.`,
