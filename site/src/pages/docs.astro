@@ -73,7 +73,7 @@ curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</code></pr
 
   <h2 id="versions">Versions</h2>
   <Capture name="versions" alt="Revert To listing earlier versions of a file" />
-  <p>Writ keeps a version of a file in the folder each time it is saved. A run of saves inside ten seconds is one version. Versions are kept for thirty days, at most two hundred per file and 250 MB in all, in Writ's own data folder and never in the folder itself. Revert To, in the File menu, puts one back, and the restore is kept as a version too.</p>
+  <p>Writ keeps a version of a file in the folder each time it is saved. A run of saves inside ten seconds is one version. Versions are kept for thirty days, at most two hundred per file and 250 MB in all, in Writ's own data folder and never in the folder itself. A file over 2 MB is not versioned. Revert To, in the File menu, puts one back, and the restore is kept as a version too.</p>
 
   <h2 id="default-app">Default app</h2>
   <p>On macOS, Settings, Files, Open these file types with Writ has a box per group: Plain text &amp; logs, Markdown, Config &amp; data, Source code. macOS keeps the choice per file type. The guide on <a href={`${base}/guides/default-md-app/`}>making Writ the app for .md and .txt</a> covers Windows and Linux.</p>

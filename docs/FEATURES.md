@@ -12,7 +12,7 @@ What Writ does, at the level of detail that answers "does it do X".
 - Tabs, the file list and the palette show a name without its `.md` or `.txt`. Other extensions stay visible.
 - Autosave writes one second after the last keystroke, and at once when the window loses focus or hides. A save that would overwrite a newer version on disk is refused, and your text is written beside the file as a dated conflict copy.
 - When a file changes outside Writ, a tab with no unsaved edits takes the new text in one undoable step. A tab with unsaved edits asks which side to keep.
-- Writ keeps a version each time a file is saved, for up to 30 days or 200 versions, outside the folder. File > Revert To puts one back.
+- Writ keeps a version of a file in its folder each time it is saved, for up to 30 days or 200 versions, outside that folder. A file over 2 MB is not versioned. File > Revert To puts one back.
 - Open tabs and unsaved text come back after a restart or a crash.
 - Binary files open as hex. Large files open with syntax colouring off.
 - On macOS, Writ can register as the app that opens text, config, data and source files (Settings, Files).
