@@ -24,6 +24,9 @@
 # machine has been idle for 45 s; the run refuses to start while any other
 # Writ process exists.
 #
+# A run that captures hero-window, text-file, markdown-inline or search also
+# copies those stills to docs/media for the README (README_MEDIA).
+#
 # Every scene's config switches on only the apps that scene shows (apps_on);
 # the rest are off, as in a fresh config.
 #
@@ -79,7 +82,7 @@ while [ $# -gt 0 ]; do
       case "$2" in 1280x800|1440x900) SIZE="$2"; SIZE_GIVEN=1 ;; *) echo "--size takes 1280x800 or 1440x900" >&2; exit 2 ;; esac
       shift 2 ;;
     --no-build) NO_BUILD=1; shift ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,35p' "$0"; exit 0 ;;
     *) echo "unknown flag $1" >&2; exit 2 ;;
   esac
 done
@@ -966,6 +969,34 @@ run_scene() {
   esac
 }
 
+# ---------------------------------------------------------- readme media ----
+
+# The README's stills, copied from this run's captures; a scene not run this
+# time leaves its README file as it was.
+README_MEDIA=(
+  "hero-window-light.png:hero-light.png"
+  "hero-window-dark.png:hero-dark.png"
+  "text-file-light.png:text-file-light.png"
+  "markdown-inline-light.png:markdown-inline-light.png"
+  "search-light.png:search-light.png"
+)
+README_MEDIA_LIMIT=1258291
+
+copy_readme_media() {
+  local pair from to size captured
+  mkdir -p "$ROOT/docs/media"
+  for pair in "${README_MEDIA[@]}"; do
+    from="$OUT/${pair%%:*}"; to="$ROOT/docs/media/${pair#*:}"
+    for captured in "${CAPTURED[@]+"${CAPTURED[@]}"}"; do
+      [ "$captured" = "$from" ] || continue
+      size=$(stat -f%z "$from")
+      [ "$size" -le "$README_MEDIA_LIMIT" ] || { echo "$from is $size bytes, over $README_MEDIA_LIMIT" >&2; exit 1; }
+      /bin/cp -f "$from" "$to"
+      log "readme: $to ($(( size / 1024 )) KB)"
+    done
+  done
+}
+
 # ------------------------------------------------------------------ main ----
 
 preflight
@@ -983,6 +1014,7 @@ fi
 for scene in "${WANTED[@]}"; do
   run_scene "$scene"
 done
+copy_readme_media
 
 # The contact sheet covers every scene on disk, not only this run's.
 SHEET=()
