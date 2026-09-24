@@ -153,6 +153,22 @@ describe('built output', () => {
   });
 });
 
+describe('the app the hero loads', () => {
+  const demo = join(DIST, 'demo', 'index.html');
+
+  it('ships at /demo/ and keeps it out of search', () => {
+    expect(existsSync(demo), 'run pnpm build:demo in the repo root before the site build').toBe(true);
+    expect(readFileSync(demo, 'utf8')).toMatch(/<meta name="robots" content="noindex"\s*\/?>/);
+  });
+
+  it('is absent from the sitemap, as the refresh from /vs/obsidian/ is', () => {
+    const sitemap = readFileSync(join(DIST, 'sitemap-0.xml'), 'utf8');
+    expect(sitemap).not.toContain('/demo/');
+    expect(sitemap).not.toContain('/vs/obsidian/');
+    expect(sitemap).toContain('/guides/obsidian/');
+  });
+});
+
 describe('site source', () => {
   it('writes nothing to the console', () => {
     const noisy: string[] = [];
