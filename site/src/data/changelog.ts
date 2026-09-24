@@ -76,7 +76,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.3.1",
-    date: "2026-08-09",
+    date: "2026-08-03",
     notes: [
       { kind: 'added', text: "a Writ menu on the Windows and Linux titlebar: open file, new tab, close tab, the command palette, and the update check, each with its shortcut." },
       { kind: 'added', text: "Windows 11 snap layouts open from the maximize button." },
@@ -108,7 +108,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.2.0",
-    date: "2026-07-23",
+    date: "2026-07-24",
     notes: [
       { kind: 'added', text: "local spell check: wavy underlines on likely misspellings, with fix all and a per-word preview from the status bar. off by default, and code, URLs, and links stay unflagged." },
       { kind: 'added', text: "rewrite a selection to proofread, rephrase, or polish it, streamed into a side-by-side view you approve before it applies. off until you turn it on, with a local model by default or a hosted provider whose key stays in the OS keychain." },
@@ -125,7 +125,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.1.0",
-    date: "2026-07-07",
+    date: "2026-07-05",
     label: "first release",
     notes: [
       { kind: 'added', text: "split-pane live preview renders Markdown, HTML, Mermaid diagrams, and KaTeX math from bundled offline runtimes, with source and preview scroll in sync and find inside the preview." },

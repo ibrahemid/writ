@@ -2,7 +2,7 @@
   "frozenThrough": "0.4.0",
   "keys": [
     { "id": "editor.duplicateLine", "label": "Duplicate Line", "keybinding": "CmdOrCtrl+D" },
-    { "id": "editor.deleteLine", "label": "Delete Line", "keybinding": "CmdOrCtrl+E", "aliases": ["CmdOrCtrl+Shift+K"] },
+    { "id": "editor.deleteLine", "label": "Delete Line", "keybinding": "CmdOrCtrl+Shift+K" },
     { "id": "editor.moveLineUp", "label": "Move Line Up", "keybinding": "Shift+Alt+ArrowUp" },
     { "id": "editor.moveLineDown", "label": "Move Line Down", "keybinding": "Shift+Alt+ArrowDown" },
     { "id": "editor.toggleComment", "label": "Toggle Comment", "keybinding": "CmdOrCtrl+/", "aliases": ["CmdOrCtrl+Shift+/"] },
