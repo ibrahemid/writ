@@ -74,7 +74,7 @@ jobs:
                 *) code=true ;;
               esac
               case "${file}" in
-                site/*|.github/workflows/ci.yml|src/styles/generated/*|src/lib/keybinding-format.ts) site=true ;;
+                site/*|.github/workflows/ci.yml|src/*|demo/*|scripts/capture/fixtures/*|vite.demo.config.ts|package.json|pnpm-lock.yaml) site=true ;;
               esac
             done <<< "${files}"
           fi
@@ -233,7 +233,19 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: site/pnpm-lock.yaml
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            site/pnpm-lock.yaml
+
+      # The hero runs the app's own frontend, built from src/ into
+      # site/public/demo before the site builds.
+      - name: Install app dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the app for the hero
+        working-directory: .
+        run: pnpm build:demo
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-workspace
