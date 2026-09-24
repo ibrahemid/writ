@@ -2,7 +2,7 @@
     "name": "writ",
     "private": true,
     "version": "0.4.0",
-    "description": "A lightweight, always-ready text editor for developers.",
+    "description": "Light text editor for any text file, with full-text search and inline Markdown",
     "license": "MIT",
     "packageManager": "pnpm@10.13.1",
     "repository": {

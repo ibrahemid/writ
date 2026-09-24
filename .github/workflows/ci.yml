@@ -188,6 +188,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: python3 -m unittest discover -s .github/scripts -t .github/scripts
 
+      - name: Packaging script tests
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 -m unittest discover -s scripts -p 'test_packaging*.py'
+
       - name: Security audit
         if: matrix.os == 'ubuntu-latest'
         run: cargo audit

@@ -6,7 +6,7 @@ cask "writ" do
       verified: "github.com/ibrahemid/writ/"
 
   name "Writ"
-  desc "Lightweight, always-ready text editor for developers"
+  desc "Light text editor for any text file, with full-text search and inline Markdown"
   homepage "https://github.com/ibrahemid/writ"
 
   livecheck do

@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Bump the winget manifests to a new version.
-
-Copies the highest existing version folder to `VERSION` if needed, then rewrites
-version, installer URL, installer SHA256, release date, and release notes URL.
-"""
+"""Bump the winget manifests to a new version."""
 
 from __future__ import annotations
 
@@ -14,6 +10,18 @@ import shutil
 import sys
 
 MANIFEST_ROOT = pathlib.Path("packaging/winget/manifests/i/ibrahemid/Writ")
+SHORT_DESCRIPTION = "Light text editor for any text file, with full-text search and inline Markdown"
+DESCRIPTION = (
+    "Writ opens any text file and searches every file in its folder. A Markdown file renders "
+    "inline as you type, with the markup shown on the line you are editing. Chat, rewriting, "
+    "connected programs, connections, the graph and tags are apps, each switched on in Settings. "
+    "Writ needs no account and sends no telemetry."
+)
+TAGS = ("text-editor", "editor", "markdown", "plain-text", "search", "tauri")
+
+
+class ManifestFormatError(ValueError):
+    """The source locale does not contain every field the release must replace."""
 
 
 def get_env(name: str) -> str:
@@ -27,6 +35,41 @@ def get_env(name: str) -> str:
 def version_key(name: str) -> tuple[int, ...]:
     parts = re.findall(r"\d+", name)
     return tuple(int(p) for p in parts) if parts else (0,)
+
+
+def rewrite_locale(text: str, release_notes_url: str) -> str:
+    text, short_count = re.subn(
+        r"^ShortDescription: .*$",
+        f"ShortDescription: {SHORT_DESCRIPTION}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    text, description_count = re.subn(
+        r"^Description: \|-\n(?:  .*\n)+(?=Moniker:)",
+        "Description: |-\n  " + DESCRIPTION + "\n",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    tags = "Tags:\n" + "".join(f"  - {tag}\n" for tag in TAGS)
+    text, tags_count = re.subn(
+        r"^Tags:\n(?:  - .*\n)+(?=ReleaseNotesUrl:)",
+        tags,
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    text, notes_count = re.subn(
+        r"^ReleaseNotesUrl: https://github\.com/ibrahemid/writ/releases/tag/v.*$",
+        f"ReleaseNotesUrl: {release_notes_url}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if (short_count, description_count, tags_count, notes_count) != (1, 1, 1, 1):
+        raise ManifestFormatError("winget locale is missing a required description field")
+    return text
 
 
 def main() -> None:
@@ -87,11 +130,7 @@ def main() -> None:
                 flags=re.MULTILINE,
             )
         if path.name.endswith("locale.en-US.yaml"):
-            text = re.sub(
-                r"ReleaseNotesUrl: https://github\.com/ibrahemid/writ/releases/tag/v.*",
-                f"ReleaseNotesUrl: {release_notes_url}",
-                text,
-            )
+            text = rewrite_locale(text, release_notes_url)
         path.write_text(text)
         print(f"Rewrote {path}")
 
