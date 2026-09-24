@@ -7,6 +7,28 @@ starter: rye, fed weekly
 > [!note] Hydration
 > Everything below is 75%. Wetter loaves spread on this oven's stone.
 
+## Ratios
+
+| Part | Grams | Baker's % |
+|---|---|---|
+| Flour | 500 | 100 |
+| Water | 375 | 75 |
+| Starter | 100 | 20 |
+| Salt | 10 | 2 |
+
+## Next bake
+
+- [x] Feed the starter on Friday night
+- [ ] Buy a bag of dark rye
+- [ ] Try 78% with the new flour
+
+```text
+08:00  feed the starter
+13:00  mix, rest 30 min
+13:30  four folds, one every 30 min
+16:00  shape, into the fridge
+```
+
 ## The day
 
 ```mermaid
@@ -17,15 +39,6 @@ flowchart LR
 $$
 H = \frac{375 + 50}{500 + 50} \approx 0.77
 $$
-
-## Ratios
-
-| Part | Grams | Baker's % |
-|---|---|---|
-| Flour | 500 | 100 |
-| Water | 375 | 75 |
-| Starter | 100 | 20 |
-| Salt | 10 | 2 |
 
 ## What changed things
 

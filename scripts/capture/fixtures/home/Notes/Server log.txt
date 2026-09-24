@@ -1,0 +1,12 @@
+2026-09-12 07:58:01 INFO  backup-job   starting nightly snapshot of /srv/shared
+2026-09-12 07:58:03 INFO  backup-job   2,418 files queued, 3.1 GB
+2026-09-12 08:04:47 WARN  backup-job   slow write to disk2 (412 ms), retrying
+2026-09-12 08:04:48 INFO  backup-job   retry succeeded
+2026-09-12 08:11:20 INFO  backup-job   snapshot complete in 13m19s
+2026-09-12 08:15:02 INFO  web        GET /status 200 4 ms from 192.0.2.41
+2026-09-12 08:15:09 INFO  web        GET /calendar 200 38 ms from 192.0.2.41
+2026-09-12 08:16:33 ERROR web        GET /photos/upload 502 upstream timed out after 30 s
+2026-09-12 08:16:34 INFO  web        upstream photo-worker restarted by supervisor
+2026-09-12 08:16:51 INFO  web        GET /photos/upload 200 212 ms from 192.0.2.41
+2026-09-12 08:30:00 INFO  cron       disk usage: disk1 61%, disk2 78%
+2026-09-12 08:30:00 WARN  cron       disk2 above 75%, oldest snapshots will be pruned tonight
