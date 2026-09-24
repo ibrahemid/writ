@@ -130,6 +130,12 @@ preflight() {
   for tool in cargo node sqlite3 swiftc screencapture ffmpeg ffprobe osascript shasum; do
     command -v "$tool" >/dev/null || { echo "missing tool: $tool" >&2; exit 1; }
   done
+  # The Tauri CLI comes from cargo-tauri where it is installed, else from the
+  # project's own @tauri-apps/cli.
+  if cargo tauri --version >/dev/null 2>&1; then TAURI=(cargo tauri)
+  elif (cd "$ROOT" && npx --no-install tauri --version) >/dev/null 2>&1; then TAURI=(npx --no-install tauri)
+  else echo "missing tool: the Tauri CLI (cargo-tauri or node_modules/.bin/tauri)" >&2; exit 1
+  fi
   case "$WORK" in
     "$HOME/.writ"*|"$HOME/Writ"*) echo "scratch dir must not be under ~/.writ or ~/Writ" >&2; exit 1 ;;
   esac
@@ -144,6 +150,10 @@ preflight() {
     swiftc -O -o "$DRIVE" "$HERE/drive.swift" 2>&1 | grep -i ' error' && exit 1
   fi
   mkdir -p "$OUT" "$SHOTS" "$PROGRAMS_OUT" "$WORK"
+  # macOS TMPDIR sits under /var, a link to /private/var. The app's config
+  # watcher matches the event path against the config path it was given, so
+  # both have to be the resolved one or a theme switch is never seen.
+  WORK=$(cd "$WORK" && pwd -P)
   wait_idle
 }
 
@@ -173,7 +183,7 @@ build_release() {
   mkdir -p "$ROOT/src-tauri/binaries"
   /bin/cp -f "$TARGET_DIR/release/writ" "$ROOT/src-tauri/binaries/writ-$TRIPLE"
   log "building the release app"
-  (cd "$ROOT" && CARGO_PROFILE_RELEASE_STRIP=false cargo tauri build --bundles app \
+  (cd "$ROOT" && CARGO_PROFILE_RELEASE_STRIP=false "${TAURI[@]}" build --bundles app \
       --config '{"bundle":{"createUpdaterArtifacts":false}}' >"$WORK/build-app.log" 2>&1) \
     || { echo "release build failed, see $WORK/build-app.log" >&2; exit 1; }
   [ -x "$APP_BIN" ] || { echo "no app at $APP after the build" >&2; exit 1; }
@@ -368,7 +378,7 @@ begin() {
   else
     set -m
     (cd "$ROOT" && WRIT_DATA_DIR="$DATA" WRIT_NOTES_DIR="$NOTES" VITE_WRIT_PLATFORM="$SHELL_KIND" \
-      WRIT_DEV_PORT="$DEV_PORT" cargo tauri dev --no-watch \
+      WRIT_DEV_PORT="$DEV_PORT" "${TAURI[@]}" dev --no-watch \
       --config "{\"build\":{\"devUrl\":\"http://localhost:$DEV_PORT\"}}") >"$dir/app.log" 2>&1 &
     DEV_PID=$!
     set +m
