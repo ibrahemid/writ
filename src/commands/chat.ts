@@ -131,7 +131,8 @@ export async function clearBlockersBeforeSending(
   if (endpoint.is_hosted && !endpoint.key_state.is_set) {
     const open = await requestConfirm({
       title: `Add an API key for ${endpoint.host}`,
-      message: "The key is kept in your keychain, never in config.toml.",
+      message:
+        "The key goes in your keychain, or in memory for this session when the keychain is unavailable. It is never written to config.toml.",
       confirmLabel: "Open settings",
     });
     if (open) openSettings("apps", "ai.api_key");

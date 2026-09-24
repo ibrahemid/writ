@@ -46,7 +46,7 @@ async function clearBlockersBeforeSending(): Promise<boolean> {
     const confirmed = await requestConfirm({
       title: `Send text to ${endpoint.host_port ?? endpoint.host}?`,
       message:
-        "The text you rewrite is sent with your API key. Writ also sends the key on its own to check the host is reachable; nothing else leaves your machine.",
+        "The text you rewrite is sent with your API key. Writ also sends the key on its own to check the host is reachable. The check sends no text.",
       confirmLabel: "Send",
     });
     if (!confirmed) return false;
@@ -61,7 +61,8 @@ async function clearBlockersBeforeSending(): Promise<boolean> {
   if (endpoint.is_hosted && !endpoint.key_state.is_set) {
     const open = await requestConfirm({
       title: `Add an API key for ${endpoint.host}`,
-      message: "The key is kept in your keychain, never in config.toml.",
+      message:
+        "The key goes in your keychain, or in memory for this session when the keychain is unavailable. It is never written to config.toml.",
       confirmLabel: "Open settings",
     });
     if (open) openSettings("apps", "ai.api_key");
