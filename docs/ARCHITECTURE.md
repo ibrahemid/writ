@@ -1,8 +1,12 @@
 # Writ Architecture
 
-Writ is a lightweight text editor built with Tauri v2, SolidJS, and CodeMirror 6. The design
-prioritizes a minimal binary footprint, compiler-enforced separation between business logic and
-framework code, and typed contracts across every layer of the stack.
+Writ is a text editor that opens any text file, edits and searches every file in its folder, and
+renders Markdown inline when the file is Markdown. Chat, rewrite, connected programs (the MCP
+server), connections, the graph and tags are apps switched on in Settings (ADR-041, ADR-042).
+
+It is built with Tauri v2, SolidJS and CodeMirror 6. The design keeps the binary small, separates
+business logic from framework code at the compiler level, and types the contract across every
+layer of the stack.
 
 ## System Diagram
 
