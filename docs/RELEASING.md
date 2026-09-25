@@ -84,14 +84,18 @@ No further one-time code change is required.
 Trigger the `Bump version` workflow from the Actions tab and supply the new
 semver (e.g. `0.1.0`, `0.2.0-rc.1`). The workflow updates:
 
-- `Cargo.toml` (workspace package version)
+- `Cargo.toml` (workspace package version) and `Cargo.lock` (the workspace
+  crates only)
 - `src-tauri/tauri.conf.json` (top-level `version`)
 - `package.json` (top-level `version`)
 - `site/package.json` (top-level `version`)
+- `site/src/data/release.json` (version, tag and download URLs; the artifact
+  fields are cleared)
 
-It opens a PR against `main` by default. Review, merge. If you prefer a direct
-push, uncheck `create_pr` when dispatching, but PR is recommended for the audit
-trail.
+It opens a PR against `main` by default. A PR the workflow opens does not start
+CI, so the changelog commit from §2.2, pushed to the same branch, is what runs
+the required checks. If you prefer a direct push, uncheck `create_pr` when
+dispatching, but PR is recommended for the audit trail.
 
 ### 2.2 Update the changelogs
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -95,6 +96,29 @@ class BumpReleaseJsonTest(unittest.TestCase):
 
         with self.assertRaises(bump_version.BumpError):
             self.bump(data=data)
+
+
+WORKFLOW = pathlib.Path(__file__).resolve().parent.parent / "workflows" / "bump-version.yml"
+
+
+class BumpWorkflowTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.text = WORKFLOW.read_text()
+
+    def test_each_commit_stages_every_file_the_bump_writes_and_the_lockfile(self) -> None:
+        staged = [
+            set(match.group(1).split())
+            for match in re.finditer(r"^\s*git add (.+)$", self.text, re.MULTILINE)
+        ]
+        expected = {relative for relative, _fn in bump_version.TARGETS} | {"Cargo.lock"}
+        self.assertEqual(len(staged), 2)
+        for paths in staged:
+            self.assertEqual(paths, expected)
+
+    def test_the_lockfile_moves_after_the_bump_and_before_the_commit(self) -> None:
+        refresh = self.text.index("cargo update --workspace")
+        self.assertLess(self.text.index("bump_version.py"), refresh)
+        self.assertLess(refresh, self.text.index("git commit"))
 
 
 if __name__ == "__main__":
