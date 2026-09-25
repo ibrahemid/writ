@@ -193,8 +193,8 @@ describe('the landing page', () => {
     expect(stage.trimEnd().endsWith('</div>')).toBe(true);
   });
 
-  it('gives every section its own loop, anchors Markdown to the bottom and Apps and Earlier versions to the centre', () => {
-    const anchors: Record<string, string> = { markdown: 'bottom', apps: 'center', versions: 'center' };
+  it('gives every section its own loop, and anchors Markdown to the bottom and the rest to the top', () => {
+    const anchors: Record<string, string> = { markdown: 'bottom' };
     for (const id of SECTIONS) {
       const tag = featureTag(id);
       expect(tag).toContain(`loop="${id}"`);
