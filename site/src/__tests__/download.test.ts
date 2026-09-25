@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { detectOs, type NavigatorLike, type OsKey } from '../scripts/platform';
-import { COPY_STATUS_MS, copyFallbackMessage, startDownloadGroups, type DownloadEnv } from '../scripts/download';
+import { COPY_STATUS_MS, getCopyFallbackMessage, startDownloadGroups, type DownloadEnv } from '../scripts/download';
 
 const SITE = process.cwd();
 const INDEX = readFileSync(join(SITE, 'src', 'pages', 'index.astro'), 'utf8');
@@ -173,28 +173,61 @@ describe('startDownloadGroups', () => {
     expect(group('win').status.textContent).toBe('Copied');
   });
 
-  it('selects the command and names the keys when the clipboard refuses', async () => {
+  it("names the visitor's copy keys", () => {
+    expect(getCopyFallbackMessage('mac')).toBe('Selected, press ⌘C');
+    expect(getCopyFallbackMessage('win')).toBe('Selected, press Ctrl+C');
+    expect(getCopyFallbackMessage('linux')).toBe('Selected, press Ctrl+C');
+    expect(getCopyFallbackMessage(null)).toBe('Selected, press Ctrl+C');
+  });
+
+  it("selects the command and names the visitor's keys when the clipboard refuses, whichever group it is", async () => {
+    const refuse = async (): Promise<void> => {
+      throw new DOMException('Write permission denied.', 'NotAllowedError');
+    };
+    const onWindows = setup({ nav: { platform: 'Win32' }, writeText: refuse });
+    onWindows.group('mac').button.click();
+    onWindows.group('linux').button.click();
+    await settle();
+    expect(onWindows.selected).toEqual([onWindows.group('mac').code, onWindows.group('linux').code]);
+    expect(onWindows.group('mac').status.textContent).toBe('Selected, press Ctrl+C');
+    expect(onWindows.group('linux').status.textContent).toBe('Selected, press Ctrl+C');
+
+    const onMac = setup({ nav: { platform: 'MacIntel' }, writeText: refuse });
+    onMac.group('win').button.click();
+    onMac.group('linux').button.click();
+    await settle();
+    expect(onMac.group('win').status.textContent).toBe('Selected, press ⌘C');
+    expect(onMac.group('linux').status.textContent).toBe('Selected, press ⌘C');
+  });
+
+  it('lets an error other than a refused write through, leaving the command unselected', async () => {
+    const failure = new TypeError('writeText is not a function');
+    let caught: unknown;
+    const onRejection = (reason: unknown): void => {
+      caught = reason;
+    };
+    process.once('unhandledRejection', onRejection);
     const { group, selected } = setup({
       writeText: async () => {
-        throw new DOMException('Write permission denied.', 'NotAllowedError');
+        throw failure;
       },
     });
     group('mac').button.click();
-    group('linux').button.click();
     await settle();
-    expect(selected).toEqual([group('mac').code, group('linux').code]);
-    expect(group('mac').status.textContent).toBe(copyFallbackMessage('mac'));
-    expect(group('linux').status.textContent).toBe(copyFallbackMessage('linux'));
-    expect(copyFallbackMessage('mac')).toContain('⌘C');
-    expect(copyFallbackMessage('win')).toContain('Ctrl+C');
+    await settle();
+    process.off('unhandledRejection', onRejection);
+    expect(caught).toBe(failure);
+    expect(selected).toEqual([]);
+    expect(group('mac').status.textContent).toBe('');
   });
 
   it('selects the command when the page has no clipboard API', async () => {
-    const { group, selected } = setup({ noClipboard: true });
+    const { group, selected, written } = setup({ nav: { platform: 'MacIntel' }, noClipboard: true });
     group('win').button.click();
     await settle();
     expect(selected).toEqual([group('win').code]);
-    expect(group('win').status.textContent).toBe(copyFallbackMessage('win'));
+    expect(written).toEqual([]);
+    expect(group('win').status.textContent).toBe('Selected, press ⌘C');
   });
 });
 

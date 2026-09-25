@@ -1,14 +1,7 @@
-import { detectOs, OS_KEYS, type NavigatorLike, type OsKey } from './platform';
+import { detectOs, type NavigatorLike, type OsKey } from './platform';
 
 /** How long a copy result stays on screen before the status line clears. */
 export const COPY_STATUS_MS = 2400;
-
-export class ClipboardUnavailableError extends Error {
-  constructor() {
-    super('This page has no clipboard API: an insecure context or a browser without navigator.clipboard.');
-    this.name = 'ClipboardUnavailableError';
-  }
-}
 
 export interface DownloadEnv {
   nav: NavigatorLike;
@@ -19,12 +12,9 @@ export interface DownloadEnv {
   clearTimeout(id: number): void;
 }
 
-export function copyFallbackMessage(os: OsKey | undefined): string {
-  return os === 'mac' ? 'Selected, press ⌘C' : 'Selected, press Ctrl+C';
-}
-
-function isOsKey(value: string | undefined): value is OsKey {
-  return (OS_KEYS as readonly (string | undefined)[]).includes(value);
+/** Names the copy keys of the visitor's own keyboard, whichever group's command they chose. */
+export function getCopyFallbackMessage(visitor: OsKey | null): string {
+  return visitor === 'mac' ? 'Selected, press ⌘C' : 'Selected, press Ctrl+C';
 }
 
 /**
@@ -44,7 +34,6 @@ export function startDownloadGroups(container: HTMLElement, env: DownloadEnv): v
     const code = group.querySelector<HTMLElement>('[data-copy-text]');
     const status = group.querySelector<HTMLElement>('[data-copy-status]');
     if (!button || !code || !status) continue;
-    const os = isOsKey(group.dataset.os) ? group.dataset.os : undefined;
     let clearTimer: number | null = null;
 
     const say = (message: string): void => {
@@ -56,17 +45,26 @@ export function startDownloadGroups(container: HTMLElement, env: DownloadEnv): v
       }, COPY_STATUS_MS);
     };
 
+    const selectInstead = (): void => {
+      env.selectText(code);
+      say(getCopyFallbackMessage(visitor));
+    };
+
     const copy = async (): Promise<void> => {
       const text = (code.textContent ?? '').trim();
       status.textContent = '';
-      try {
-        if (!env.clipboard) throw new ClipboardUnavailableError();
-        await env.clipboard.writeText(text);
-        say('Copied');
-      } catch {
-        env.selectText(code);
-        say(copyFallbackMessage(os));
+      if (!env.clipboard) {
+        selectInstead();
+        return;
       }
+      try {
+        await env.clipboard.writeText(text);
+      } catch (err) {
+        if (!(err instanceof DOMException)) throw err;
+        selectInstead();
+        return;
+      }
+      say('Copied');
     };
 
     button.addEventListener('click', () => {

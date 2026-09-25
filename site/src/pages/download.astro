@@ -26,7 +26,7 @@ const sums: [string, string][] = [
         <tbody>
           <tr><th>macOS</th><td>Signed and notarized by Apple, so there is no warning to click through.</td></tr>
           <tr><th>Windows</th><td>The .msi is not code-signed yet, so SmartScreen shows a warning on first run: More info, then Run anyway. The checksum below is how to verify it instead.</td></tr>
-          <tr><th>Linux</th><td>The AppImage requires FUSE.</td></tr>
+          <tr><th>Linux</th><td>The AppImage needs FUSE 2: install libfuse2t64 on Ubuntu 24.04 or later and Debian 13 or later, or libfuse2 on earlier releases.</td></tr>
         </tbody>
       </table>
       <h2>Verify a download</h2>

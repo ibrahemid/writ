@@ -51,7 +51,7 @@ const groups: Group[] = [
     req: 'Windows 10 or later, 64-bit',
     primary: { name: 'Installer (.msi)', href: p.win.msi, size: p.win.size_msi },
     others: [],
-    tool: 'winget, in Terminal',
+    tool: 'winget, in PowerShell',
     toolName: 'winget',
     command: 'winget install -e --id ibrahemid.Writ',
   },
@@ -61,8 +61,8 @@ const groups: Group[] = [
     req: '64-bit Intel or AMD (x86_64)',
     primary: { name: 'Single-file app (.AppImage)', href: p.linux.appImage, size: p.linux.size_appImage },
     others: [{ name: 'Debian and Ubuntu package (.deb)', href: p.linux.deb, size: p.linux.size_deb }],
-    tool: 'Arch Linux, from the AUR',
-    toolName: 'Arch Linux',
+    tool: 'Arch User Repository (AUR), in a terminal',
+    toolName: 'AUR',
     command: 'yay -S writ-bin',
   },
 ];
@@ -74,20 +74,24 @@ const describeFile = (file: DownloadFile): string => [file.name, mb(file.size)].
 <div class="dl-groups" data-dl-groups>
   {groups.map((g) => (
     <section class="dl-group" data-os={g.os} aria-labelledby={`dl-${g.os}`}>
-      <Heading class="dl-os" id={`dl-${g.os}`}>{g.name}</Heading>
-      <p class="dl-req">{g.req}</p>
-      <a class="btn btn-primary dl-primary" href={isShipped(g.primary.href) ? g.primary.href : releaseUrl}>Download for {g.name}</a>
-      <p class="dl-file">{describeFile(g.primary)}</p>
-      <p class="dl-others">
-        {g.others.filter((f) => isShipped(f.href)).map((f) => <a href={f.href}>{describeFile(f)}</a>)}
-      </p>
-      <div class="dl-tool">
-        <span class="dl-tool-name">{g.tool}</span>
-        <span class="dl-status" role="status" data-copy-status></span>
-        <button type="button" class="dl-copy" data-copy hidden aria-label={`Copy the ${g.toolName} command`}>Copy</button>
+      <div class="dl-files">
+        <Heading class="dl-os" id={`dl-${g.os}`}>{g.name}</Heading>
+        <p class="dl-req">{g.req}</p>
+        <a class="btn btn-primary dl-primary" href={isShipped(g.primary.href) ? g.primary.href : releaseUrl}>Download for {g.name}</a>
+        <p class="dl-file">{describeFile(g.primary)}</p>
+        <p class="dl-others">
+          {g.others.filter((f) => isShipped(f.href)).map((f) => <a href={f.href}>{describeFile(f)}</a>)}
+        </p>
       </div>
-      <code class="dl-cmd" data-copy-text>{g.command.split(' ').map((word, i) => <Fragment>{i > 0 && ' '}<span>{word}</span></Fragment>)}</code>
-      <a class="dl-sha" href={sumsUrl}>SHA256 checksums</a>
+      <div class="dl-manager">
+        <div class="dl-tool">
+          <span class="dl-tool-name">{g.tool}</span>
+          <span class="dl-status" role="status" data-copy-status></span>
+          <button type="button" class="dl-copy" data-copy hidden aria-label={`Copy the ${g.toolName} command`}>Copy</button>
+        </div>
+        <code class="dl-cmd" data-copy-text>{g.command.split(' ').map((word, i) => <Fragment>{i > 0 && ' '}<span>{word}</span></Fragment>)}</code>
+        <a class="dl-sha" href={sumsUrl}>Verify the file (SHA256 checksums)</a>
+      </div>
     </section>
   ))}
 </div>

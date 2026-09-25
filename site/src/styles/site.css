@@ -565,12 +565,22 @@ button {
 }
 
 .dl-group {
+  display: grid;
+  min-width: 0;
+  padding-top: var(--writ-space-5);
+  border-top: var(--writ-site-hairline) solid var(--writ-border);
+}
+
+.dl-files {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   min-width: 0;
-  padding-top: var(--writ-space-5);
-  border-top: var(--writ-site-hairline) solid var(--writ-border);
+}
+
+.dl-manager {
+  min-width: 0;
+  margin-top: var(--writ-space-6);
 }
 
 .dl-os {
@@ -611,9 +621,7 @@ button {
   display: flex;
   align-items: center;
   gap: var(--writ-space-3);
-  align-self: stretch;
   min-height: var(--writ-space-7);
-  margin-top: var(--writ-space-6);
   font-size: var(--writ-site-text-sm);
 }
 
@@ -626,6 +634,7 @@ button {
 .dl-status {
   font-size: var(--writ-site-text-xs);
   color: var(--writ-fg-muted);
+  white-space: nowrap;
 }
 
 .dl-copy {
@@ -653,21 +662,22 @@ button {
 
 .dl-cmd {
   display: block;
-  align-self: stretch;
   margin-top: var(--writ-space-2);
   padding: var(--writ-space-3) var(--writ-space-4);
   background: var(--writ-bg-sunken);
   border-radius: var(--writ-r-window);
   font-size: var(--writ-site-text-xs);
   line-height: var(--writ-site-lh-body);
+  white-space: nowrap;
 }
 
-/* A command wraps between its words, never inside one such as --cask. */
+/* On a phone a command wraps between its words, never inside one such as --cask. */
 .dl-cmd span {
   white-space: nowrap;
 }
 
 .dl-sha {
+  display: inline-block;
   margin-top: var(--writ-space-4);
   font-size: var(--writ-site-text-xs);
 }
@@ -903,6 +913,33 @@ button {
     grid-template-columns: repeat(3, max-content);
     gap: var(--writ-space-4) var(--writ-space-6);
   }
+
+  .dl-cmd {
+    white-space: normal;
+  }
+
+  /* No room beside the label for a status, so it covers the label while it shows. */
+  .dl-tool {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .dl-tool-name,
+  .dl-status {
+    grid-area: 1 / 1;
+  }
+
+  .dl-status {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    align-self: stretch;
+    pointer-events: none;
+  }
+
+  .dl-status:not(:empty) {
+    background: var(--writ-bg-canvas);
+  }
 }
 
 @media (max-width: 360px) {
@@ -928,25 +965,24 @@ button {
     font-size: var(--writ-site-text-h1-md);
   }
 
-  /* Side by side, the groups share their rows, so each part lines up with
-     the same part of its neighbours whatever the others above it hold. */
+  /* One row per group. The command column is as wide as the longest command,
+     so each stays on one line, and the groups share it so the columns line up. */
   .dl-groups {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    row-gap: 0;
+    grid-template-columns: minmax(0, 1fr) max-content;
   }
 
   .dl-group {
-    display: grid;
-    grid-row: span 8;
-    grid-template-rows: subgrid;
-    justify-items: start;
-    align-content: start;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
   }
 
-  .dl-tool,
-  .dl-cmd {
-    align-self: start;
-    justify-self: stretch;
+  .dl-manager {
+    margin-top: 0;
+  }
+
+  /* The label and status wrap inside the column and never widen it. */
+  .dl-tool {
+    contain: inline-size;
   }
 }
 
