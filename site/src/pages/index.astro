@@ -4,7 +4,19 @@ import LiveWindow from '../components/LiveWindow.astro';
 import Feature from '../components/Feature.astro';
 import DownloadRows from '../components/DownloadRows.astro';
 import release from '../data/release.json';
+import tokensCss from '../styles/tokens.css?raw';
 
+class MissingTokenError extends Error {
+  constructor(token: string) {
+    super(`site/src/styles/tokens.css declares no ${token}; run pnpm tokens:build at the repository root.`);
+    this.name = 'MissingTokenError';
+  }
+}
+
+const writTourBp = /--writ-site-bp-lg:\s*([^;]+);/.exec(tokensCss)?.[1]?.trim();
+if (!writTourBp) throw new MissingTokenError('--writ-site-bp-lg');
+
+const NOUNS = ['text', 'note', 'scratchpad', 'Markdown editor', 'journal', 'to-do list'];
 const repo = 'https://github.com/ibrahemid/writ';
 const mb = (n: number | undefined): string => (n ? `${Math.round(n / 1048576)}\u00a0MB` : '');
 const detail = [`v${release.version}`, 'macOS 12+', 'Windows 10+', 'Linux', mb(release.platforms.mac.size_pkg)]
@@ -17,9 +29,23 @@ const p = release.platforms;
   description="Writ opens any text file and searches every file in its folder. A Markdown file renders inline as you type. Free, for macOS, Windows and Linux."
   path="/"
 >
+  <Fragment slot="head">
+    <script is:inline define:vars={{ writTourBp }}>
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        document.documentElement.setAttribute('data-writ-intro', '');
+        if (window.matchMedia('(min-width: ' + writTourBp + ')').matches) {
+          document.documentElement.setAttribute('data-writ-tour', '');
+        }
+      }
+    </script>
+  </Fragment>
   <main id="content">
     <section class="hero wrap">
-      <h1 class="hero-h1">The only text app you need</h1>
+      <h1 class="hero-h1">
+        The only <br class="br-sm" /><span class="noun-slot" data-noun-slot>{NOUNS.map((n, i) => (
+          <span class:list={['noun', { 'is-on': i === 0 }]} aria-hidden={i === 0 ? undefined : 'true'}>{n}</span>
+        ))}</span><br /> app you need
+      </h1>
       <p class="hero-sub">Writ opens any text file and searches every file in its folder. A Markdown file renders inline as you type.</p>
       <div class="hero-ctas">
         <a
@@ -37,29 +63,31 @@ const p = release.platforms;
       </div>
       <p class="hero-detail">{detail}</p>
     </section>
-    <div class="hero-media wrap-media">
-      <LiveWindow alt="The Writ window: the folder in the sidebar and a Markdown file rendered inline, the line being edited showing its markup" />
+    <div class="stage">
+      <div class="hero-media wrap-media">
+        <LiveWindow alt="The Writ window: the folder in the sidebar and a Markdown file rendered inline, the line being edited showing its markup" />
+      </div>
+
+      <Feature id="any-file" loop="any-file" title="Any file" capture="text-file" alt="A plain text to-do list open in Writ">
+        <p>A <code>.txt</code>, a log, a config or a Markdown file opens from your file manager or the <code>writ</code> command and saves back to its own path.</p>
+      </Feature>
+
+      <Feature id="markdown" loop="markdown" title="Markdown, inline" capture="markdown-inline" alt="A Markdown file in Writ with headings, checkboxes and a code block rendered in place" flip>
+        <p>Headings, lists, links and checkboxes render in place, and the line you are editing shows its markup.</p>
+      </Feature>
+
+      <Feature id="search" loop="search" title="Search" capture="search" alt="Writ's search listing every file in the folder that mentions compost, with the matching line">
+        <p>One query matches file names and the text inside them.</p>
+      </Feature>
+
+      <Feature id="apps" loop="apps" anchor="bottom" title="Apps" capture="apps" alt="Writ's Settings on the Apps section, with Graph switched on" flip>
+        <p>Connections, the graph, tags, chat, rewriting and connected programs are switches in Settings, and each adds nothing to the window until it is on.</p>
+      </Feature>
+
+      <Feature id="versions" loop="versions" anchor="bottom" title="Earlier versions" capture="versions" alt="The earlier versions of a file listed by time, one open beside the list with Restore this version under it">
+        <p>Writ keeps a version of a file in its folder each time it is saved, for up to 30 days, stored outside that folder. Revert To, in the File menu, lists them and restores the one you pick.</p>
+      </Feature>
     </div>
-
-    <Feature id="any-file" title="Any file" capture="text-file" alt="A plain text to-do list open in Writ">
-      <p>A <code>.txt</code>, a log, a config or a Markdown file opens from your file manager or the <code>writ</code> command and saves back to its own path.</p>
-    </Feature>
-
-    <Feature id="markdown" title="Markdown, inline" capture="markdown-inline" alt="A Markdown file in Writ with headings, checkboxes and a code block rendered in place" flip>
-      <p>Headings, lists, links and checkboxes render in place, and the line you are editing shows its markup.</p>
-    </Feature>
-
-    <Feature id="search" title="Search" capture="search" alt="Writ's search listing every file in the folder that mentions compost, with the matching line">
-      <p>One query matches file names and the text inside them.</p>
-    </Feature>
-
-    <Feature id="apps" title="Apps" capture="apps" alt="Writ's Settings on the Apps section, with Graph switched on" flip>
-      <p>Connections, the graph, tags, chat, rewriting and connected programs are switches in Settings, and each adds nothing to the window until it is on.</p>
-    </Feature>
-
-    <Feature id="versions" title="Earlier versions" capture="versions" alt="The earlier versions of a file listed by time, one open beside the list with Restore this version under it">
-      <p>Writ keeps a version of a file in its folder each time it is saved, for up to 30 days, stored outside that folder. Revert To, in the File menu, lists them and restores the one you pick.</p>
-    </Feature>
 
     <section class="download wrap" id="download">
       <h2>Download</h2>
@@ -67,6 +95,37 @@ const p = release.platforms;
     </section>
   </main>
 </Site>
+
+<script is:inline>
+  (function () {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var slot = document.querySelector('[data-noun-slot]');
+    if (!slot) return;
+    var nouns = Array.prototype.slice.call(slot.querySelectorAll('.noun'));
+    if (nouns.length < 2) return;
+    // The bundler may rewrite 2400ms as 2.4s, so the unit is read, not assumed.
+    var raw = getComputedStyle(slot).getPropertyValue('--writ-site-motion-noun-interval').trim();
+    var interval = (parseFloat(raw) || 2.4) * (/ms$/.test(raw) ? 1 : 1000);
+    var i = 0;
+    slot.classList.add('is-live');
+    function fit() {
+      slot.style.width = nouns[i].offsetWidth + 'px';
+    }
+    fit();
+    if (document.fonts) document.fonts.ready.then(fit);
+    window.addEventListener('resize', fit);
+    window.setInterval(function () {
+      nouns.forEach(function (noun) {
+        noun.classList.remove('is-out');
+      });
+      nouns[i].classList.remove('is-on');
+      nouns[i].classList.add('is-out');
+      i = (i + 1) % nouns.length;
+      nouns[i].classList.add('is-on');
+      fit();
+    }, interval);
+  })();
+</script>
 
 <script is:inline>
   // The primary button names the visitor's OS and links to its build; the

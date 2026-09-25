@@ -145,6 +145,17 @@
   --writ-site-space-11: 128px;
   --writ-site-shadow-window: 0 40px 80px -24px rgba(0, 0, 0, .25);
   --writ-site-motion-crossfade: 350ms;
+  --writ-site-motion-noun-interval: 2400ms;
+  --writ-site-motion-arrive: 480ms;
+  --writ-site-motion-arrive-stagger: 60ms;
+  --writ-site-motion-arrive-window: 640ms;
+  --writ-site-motion-arrive-window-delay: 240ms;
+  --writ-site-motion-camera: 600ms;
+  --writ-site-noun-drift: 0.18em;
+  --writ-site-arrive-rise-text: 12px;
+  --writ-site-arrive-rise-window: 24px;
+  --writ-site-tour-band: 144px;
+  --writ-site-tour-fade: 48px;
   --writ-site-bp-sm: 640px;
   --writ-site-bp-md: 880px;
   --writ-site-bp-lg: 1200px;
@@ -155,6 +166,13 @@
     --writ-motion-fast: 0ms;
     --writ-motion-duration: 0ms;
     --writ-motion-slow: 0ms;
+    --writ-motion-ambient: 0ms;
     --writ-site-motion-crossfade: 0ms;
+    --writ-site-motion-noun-interval: 0ms;
+    --writ-site-motion-arrive: 0ms;
+    --writ-site-motion-arrive-stagger: 0ms;
+    --writ-site-motion-arrive-window: 0ms;
+    --writ-site-motion-arrive-window-delay: 0ms;
+    --writ-site-motion-camera: 0ms;
   }
 }

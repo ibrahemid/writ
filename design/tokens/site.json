@@ -49,7 +49,24 @@
     },
     "motion": {
       "$type": "duration",
-      "crossfade": { "$value": { "value": 350, "unit": "ms" } }
+      "crossfade": { "$value": { "value": 350, "unit": "ms" } },
+      "noun-interval": { "$value": { "value": 2400, "unit": "ms" } },
+      "arrive": { "$value": { "value": 480, "unit": "ms" } },
+      "arrive-stagger": { "$value": { "value": 60, "unit": "ms" } },
+      "arrive-window": { "$value": { "value": 640, "unit": "ms" } },
+      "arrive-window-delay": { "$value": { "value": 240, "unit": "ms" } },
+      "camera": { "$value": { "value": 600, "unit": "ms" } }
+    },
+    "noun-drift": { "$type": "dimension", "$value": { "value": 0.18, "unit": "em" } },
+    "arrive-rise": {
+      "$type": "dimension",
+      "text": { "$value": { "value": 12, "unit": "px" } },
+      "window": { "$value": { "value": 24, "unit": "px" } }
+    },
+    "tour": {
+      "$type": "dimension",
+      "band": { "$value": { "value": 144, "unit": "px" } },
+      "fade": { "$value": { "value": 48, "unit": "px" } }
     },
     "bp": {
       "$type": "dimension",

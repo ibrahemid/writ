@@ -161,11 +161,47 @@ describe('the app the hero loads', () => {
     expect(readFileSync(demo, 'utf8')).toMatch(/<meta name="robots" content="noindex"\s*\/?>/);
   });
 
+  it('ships the module script its page loads', () => {
+    const html = readFileSync(demo, 'utf8');
+    const scripts = [...html.matchAll(/<script\b[^>]*type="module"[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1] ?? '');
+    expect(scripts.length, 'the demo page names no module script').toBeGreaterThan(0);
+    for (const src of scripts) {
+      const url = new URL(src, `${SITE_ORIGIN}/demo/`).pathname;
+      expect(resolvesOnDisk(url), `demo module script ${src}`).toBe(true);
+    }
+  });
+
   it('is absent from the sitemap, as the refresh from /vs/obsidian/ is', () => {
     const sitemap = readFileSync(join(DIST, 'sitemap-0.xml'), 'utf8');
     expect(sitemap).not.toContain('/demo/');
     expect(sitemap).not.toContain('/vs/obsidian/');
     expect(sitemap).toContain('/guides/obsidian/');
+  });
+});
+
+describe('recorded media', () => {
+  const REPO = resolve(ROOT, '..');
+  const runSh = readFileSync(join(REPO, 'scripts', 'capture', 'run.sh'), 'utf8');
+  const limit = Number(/^WEBM_LIMIT=(\d+)$/m.exec(runSh)?.[1]);
+  const GIF_LIMIT = 1_258_291;
+
+  it('keeps every loop within the limit the capture harness encodes to', () => {
+    expect(Number.isInteger(limit) && limit > 0, 'WEBM_LIMIT is missing from scripts/capture/run.sh').toBe(true);
+    const media = join(DIST, 'media');
+    const loops = existsSync(media) ? readdirSync(media).filter((name) => name.endsWith('.webm')) : [];
+    const over = loops
+      .map((name) => ({ name, size: statSync(join(media, name)).size }))
+      .filter(({ size }) => size > limit)
+      .map(({ name, size }) => `${name}: ${size} bytes`);
+    expect(over, `loops over ${limit} bytes:\n${over.join('\n')}`).toEqual([]);
+  });
+
+  it('ships the README hero as a light and a dark GIF, each within the size limit', () => {
+    for (const theme of ['light', 'dark']) {
+      const gif = join(REPO, 'docs', 'media', `hero-${theme}.gif`);
+      expect(existsSync(gif), `docs/media/hero-${theme}.gif is missing`).toBe(true);
+      if (existsSync(gif)) expect(statSync(gif).size, `docs/media/hero-${theme}.gif`).toBeLessThanOrEqual(GIF_LIMIT);
+    }
   });
 });
 

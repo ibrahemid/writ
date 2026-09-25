@@ -13,16 +13,32 @@ const FRAME_WIDTH = 1440;
 const FRAME_HEIGHT = 900;
 ---
 <div class="live-window" data-live-window data-frame-width={FRAME_WIDTH} data-frame-height={FRAME_HEIGHT}>
-  <Capture name="hero-window" alt={alt} loading="eager" fetchpriority="high" />
+  <div class="live-camera" data-live-camera>
+    <Capture name="hero-window" alt={alt} loading="eager" fetchpriority="high" />
+  </div>
 </div>
 
 <script>
+  import { isFrameMessage, readFrameMessage, startTour, type Tour } from '../scripts/tour';
+
   const host = document.querySelector<HTMLElement>('[data-live-window]');
   const bp = getComputedStyle(document.documentElement).getPropertyValue('--writ-site-bp-lg').trim();
   const wide = bp ? window.matchMedia(`(min-width: ${bp})`) : null;
+  const tour: Tour | null =
+    host && bp
+      ? startTour(host, bp, {
+          doc: document,
+          matchMedia: (query) => window.matchMedia(query),
+          IntersectionObserver,
+          ResizeObserver,
+          getComputedStyle: (element) => getComputedStyle(element),
+          viewport: window,
+        })
+      : null;
 
   function mount(root: HTMLElement): void {
     if (root.querySelector('iframe')) return;
+    const camera = root.querySelector<HTMLElement>('[data-live-camera]') ?? root;
     const width = Number(root.dataset.frameWidth);
     const height = Number(root.dataset.frameHeight);
     const frame = document.createElement('iframe');
@@ -38,12 +54,20 @@ const FRAME_HEIGHT = 900;
     fit();
     new ResizeObserver(fit).observe(root);
     window.addEventListener('message', (event) => {
-      if (event.source !== frame.contentWindow || event.origin !== location.origin) return;
-      if (event.data?.type !== 'writ-demo-ready') return;
-      root.classList.add('is-live');
-      root.querySelector('.window')?.setAttribute('aria-hidden', 'true');
+      if (!isFrameMessage(event, frame.contentWindow, location.origin)) return;
+      const message = readFrameMessage(event.data);
+      if (!message) return;
+      if (message.type === 'writ-demo-ready') {
+        root.classList.add('is-live');
+        root.querySelector('.window')?.setAttribute('aria-hidden', 'true');
+        tour?.ready((name) => frame.contentWindow?.postMessage({ type: 'writ-demo-scene', name }, location.origin));
+      } else if (message.type === 'writ-demo-engaged') {
+        tour?.engaged();
+      } else {
+        root.dataset.scene = `${message.name}:${message.state}`;
+      }
     });
-    root.append(frame);
+    camera.append(frame);
   }
 
   if (host && wide) {

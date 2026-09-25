@@ -56,6 +56,7 @@ const fontFace = `@font-face{font-family:"Inter";font-style:normal;font-weight:4
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content={COLORS.light.bgCanvas} />
+    <slot name="head" />
     <title>{title} | Writ</title>
     <meta name="description" content={description} />
     {unlisted ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}

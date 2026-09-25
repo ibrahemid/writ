@@ -216,6 +216,9 @@ StyleDictionary.registerFormat({
   // light colour layer alone, plus the site's own layout and type tokens.
   format: ({ dictionary }) => {
     const all = dictionary.allTokens;
+    const durations = [...under(all, "base"), ...under(all, "site")].filter(
+      (token) => (token.$type ?? token.type) === "duration",
+    );
     return sheet([
       block(":root", [
         ...under(all, "base"),
@@ -225,10 +228,7 @@ StyleDictionary.registerFormat({
       ]),
       "@media (prefers-reduced-motion: reduce) {\n" +
         "  :root {\n" +
-        "    --writ-motion-fast: 0ms;\n" +
-        "    --writ-motion-duration: 0ms;\n" +
-        "    --writ-motion-slow: 0ms;\n" +
-        "    --writ-site-motion-crossfade: 0ms;\n" +
+        durations.map((token) => `    ${token.name}: 0ms;\n`).join("") +
         "  }\n" +
         "}\n",
     ]);

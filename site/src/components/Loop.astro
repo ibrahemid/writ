@@ -43,6 +43,12 @@ const still = src ? await getImage({ src, format: 'webp', width: 1320 }) : undef
         }
         if (!seen.has(video)) {
           seen.add(video);
+          const figure = video.parentElement;
+          if (figure && video.poster) {
+            figure.style.setProperty('--writ-loop-poster', `url("${video.poster}")`);
+            figure.dataset.fade = '';
+            video.addEventListener('playing', () => figure.classList.add('is-playing'), { once: true });
+          }
           video.load();
         }
         void video.play().catch(() => {});

@@ -18,7 +18,7 @@ describe('the live window', () => {
   });
 
   it('shows the app only when it says it is ready, from its own window and origin', () => {
-    expect(COMPONENT).toContain('event.source !== frame.contentWindow || event.origin !== location.origin');
+    expect(COMPONENT).toContain('if (!isFrameMessage(event, frame.contentWindow, location.origin)) return;');
     expect(COMPONENT).toContain("'writ-demo-ready'");
     expect(CSS).toContain('.live-window.is-live .live-frame {\n  opacity: 1;');
   });
@@ -32,5 +32,28 @@ describe('the live window', () => {
     expect(COMPONENT).toContain('const FRAME_WIDTH = 1440;');
     expect(COMPONENT).toContain('const FRAME_HEIGHT = 900;');
     expect(COMPONENT).toContain('scale(${root.clientWidth / width})');
+  });
+
+  it('moves a camera around the still and the frame, so its translate never meets the frame scale', () => {
+    expect(COMPONENT).toMatch(
+      /<div class="live-camera" data-live-camera>\s*<Capture name="hero-window"[^>]*\/>\s*<\/div>\s*<\/div>/,
+    );
+    expect(COMPONENT).toContain("const camera = root.querySelector<HTMLElement>('[data-live-camera]') ?? root;");
+    expect(COMPONENT).toContain('camera.append(frame);');
+    expect(COMPONENT).not.toContain('root.append(frame)');
+    expect(CSS).toMatch(/\[data-writ-tour\] \.stage\[data-anchor="bottom"\] \.live-camera \{\n  transform: translateY\(min\(0%, /);
+    expect(CSS).not.toMatch(/\.live-frame[^{]*\{[^}]*translate/);
+  });
+
+  it('starts the tour and hands it the ready and engaged messages', () => {
+    expect(COMPONENT).toContain("import { isFrameMessage, readFrameMessage, startTour, type Tour } from '../scripts/tour';");
+    expect(COMPONENT).toContain('startTour(host, bp, {');
+    expect(COMPONENT).toMatch(/tour\?\.ready\(\(name\) => frame\.contentWindow\?\.postMessage\(\{ type: 'writ-demo-scene', name \}, location\.origin\)\)/);
+    expect(COMPONENT).toContain("message.type === 'writ-demo-engaged'");
+    expect(COMPONENT).toContain('tour?.engaged();');
+  });
+
+  it('records the scene the app last acknowledged on the window', () => {
+    expect(COMPONENT).toContain('root.dataset.scene = `${message.name}:${message.state}`;');
   });
 });
