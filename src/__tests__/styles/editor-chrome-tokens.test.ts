@@ -137,4 +137,10 @@ describe("the editor's own measures", () => {
     expect(paddings.length).toBeGreaterThan(0);
     for (const padding of paddings) expect(padding).not.toMatch(/\d+px/);
   });
+
+  it("clears the link underline the highlight style draws under a callout marker", () => {
+    expect(rule(CSS.markdown, ".cm-editor .cm-md-callout-marker span")).toMatch(
+      /text-decoration:\s*none/,
+    );
+  });
 });

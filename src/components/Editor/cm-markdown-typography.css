@@ -92,6 +92,13 @@
   color: var(--writ-fg-muted);
 }
 
+/* The '[!type]' that opens a callout. The grammar reads it as a link and the
+   highlight style underlines it; it is quoted text. */
+.cm-editor .cm-md-callout-marker,
+.cm-editor .cm-md-callout-marker span {
+  text-decoration: none;
+}
+
 /* Link text — underlined accent. The URL span is dimmed via cm-md-url-dim on
    inactive lines, where the brackets collapse and the two would otherwise
    abut. */
