@@ -7,7 +7,7 @@ const INDEX = readFileSync(join(SITE, 'src', 'pages', 'index.astro'), 'utf8');
 const CSS = readFileSync(join(SITE, 'src', 'styles', 'site.css'), 'utf8');
 const TOKENS = readFileSync(join(SITE, 'src', 'styles', 'tokens.css'), 'utf8');
 
-const SECTIONS = ['any-file', 'markdown', 'search', 'apps', 'versions'];
+const SECTIONS = ['any-file', 'markdown', 'search', 'apps', 'graph', 'versions'];
 
 interface Rule {
   selector: string;

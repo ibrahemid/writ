@@ -1,65 +1,119 @@
 ---
 import release from '../data/release.json';
+import type { OsKey } from '../scripts/platform';
+
+interface Props {
+  /** Each OS name's heading level: 3 under the landing page's H2, 2 under the download page's H1. */
+  level?: 2 | 3;
+}
+
+const { level = 3 } = Astro.props;
+const Heading = level === 2 ? 'h2' : 'h3';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = 'https://github.com/ibrahemid/writ';
+const releaseUrl = `${repo}/releases/tag/${release.tag}`;
 const sumsUrl = `${repo}/releases/download/${release.tag}/SHA256SUMS.txt`;
-const mb = (n: number | undefined): string => (n ? `${Math.round(n / 1048576)}\u00a0MB` : '');
+const mb = (n: number | undefined): string => (n ? `${Math.round(n / 1048576)} MB` : '');
 const p = release.platforms;
 
-interface Link {
-  label: string;
+interface DownloadFile {
+  name: string;
   href: string;
   size: number;
 }
 
-const rows: { os: string; req: string; links: Link[] }[] = [
+interface Group {
+  os: OsKey;
+  name: string;
+  req: string;
+  primary: DownloadFile;
+  others: DownloadFile[];
+  tool: string;
+  toolName: string;
+  command: string;
+}
+
+const groups: Group[] = [
   {
-    os: 'macOS',
-    req: '12 or later, Apple silicon and Intel',
-    links: [
-      { label: '.pkg', href: p.mac.pkg, size: p.mac.size_pkg },
-      { label: '.dmg', href: p.mac.dmg, size: p.mac.size_dmg },
-    ],
+    os: 'mac',
+    name: 'macOS',
+    req: 'macOS 12 or later, Apple silicon and Intel',
+    primary: { name: 'Installer (.pkg)', href: p.mac.pkg, size: p.mac.size_pkg },
+    others: [{ name: 'Disk image (.dmg)', href: p.mac.dmg, size: p.mac.size_dmg }],
+    tool: 'Homebrew, in Terminal',
+    toolName: 'Homebrew',
+    command: 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ',
   },
   {
-    os: 'Windows',
-    req: '10 or later, 64-bit',
-    links: [{ label: '.msi', href: p.win.msi, size: p.win.size_msi }],
+    os: 'win',
+    name: 'Windows',
+    req: 'Windows 10 or later, 64-bit',
+    primary: { name: 'Installer (.msi)', href: p.win.msi, size: p.win.size_msi },
+    others: [],
+    tool: 'winget, in Terminal',
+    toolName: 'winget',
+    command: 'winget install -e --id ibrahemid.Writ',
   },
   {
-    os: 'Linux',
-    req: 'x86_64',
-    links: [
-      { label: '.AppImage', href: p.linux.appImage, size: p.linux.size_appImage },
-      { label: '.deb', href: p.linux.deb, size: p.linux.size_deb },
-    ],
+    os: 'linux',
+    name: 'Linux',
+    req: '64-bit Intel or AMD (x86_64)',
+    primary: { name: 'Single-file app (.AppImage)', href: p.linux.appImage, size: p.linux.size_appImage },
+    others: [{ name: 'Debian and Ubuntu package (.deb)', href: p.linux.deb, size: p.linux.size_deb }],
+    tool: 'Arch Linux, from the AUR',
+    toolName: 'Arch Linux',
+    command: 'yay -S writ-bin',
   },
 ];
 
-const lines = [
-  'brew trust ibrahemid/writ',
-  'brew install --cask ibrahemid/writ/writ',
-  'winget install -e --id ibrahemid.Writ',
-  'yay -S writ-bin',
-];
+// site.yml writes "#" for a file the release did not ship.
+const isShipped = (href: string): boolean => href !== '' && href !== '#';
+const describeFile = (file: DownloadFile): string => [file.name, mb(file.size)].filter(Boolean).join(' · ');
 ---
-<div class="dl-rows">
-  {rows.map((r) => (
-    <div class="dl-row">
-      <span><span class="dl-os">{r.os}</span><span class="dl-req">{r.req}</span></span>
-      <span class="dl-links">
-        {r.links.filter((l) => l.href !== '#').map((l) => (
-          <a href={l.href}>{l.label}{mb(l.size) && ` · ${mb(l.size)}`}</a>
-        ))}
-      </span>
-      <a class="dl-sha" href={sumsUrl}>SHA256</a>
-    </div>
+<div class="dl-groups" data-dl-groups>
+  {groups.map((g) => (
+    <section class="dl-group" data-os={g.os} aria-labelledby={`dl-${g.os}`}>
+      <Heading class="dl-os" id={`dl-${g.os}`}>{g.name}</Heading>
+      <p class="dl-req">{g.req}</p>
+      <a class="btn btn-primary dl-primary" href={isShipped(g.primary.href) ? g.primary.href : releaseUrl}>Download for {g.name}</a>
+      <p class="dl-file">{describeFile(g.primary)}</p>
+      <p class="dl-others">
+        {g.others.filter((f) => isShipped(f.href)).map((f) => <a href={f.href}>{describeFile(f)}</a>)}
+      </p>
+      <div class="dl-tool">
+        <span class="dl-tool-name">{g.tool}</span>
+        <span class="dl-status" role="status" data-copy-status></span>
+        <button type="button" class="dl-copy" data-copy hidden aria-label={`Copy the ${g.toolName} command`}>Copy</button>
+      </div>
+      <code class="dl-cmd" data-copy-text>{g.command.split(' ').map((word, i) => <Fragment>{i > 0 && ' '}<span>{word}</span></Fragment>)}</code>
+      <a class="dl-sha" href={sumsUrl}>SHA256 checksums</a>
+    </section>
   ))}
-</div>
-<div class="dl-code">
-  {lines.map((l) => <code>{l}</code>)}
 </div>
 <p class="dl-privacy">
   Chat, Rewrite and Connected programs are apps you switch on in Settings, Apps. Until then, Writ contacts only GitHub, to check for updates and to download one you install, and the automatic check can be turned off (<a href={`${base}/privacy/`}>privacy</a>).
 </p>
+
+<script>
+  import { startDownloadGroups } from '../scripts/download';
+
+  function selectText(node: Node): void {
+    const selection = window.getSelection();
+    if (!selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  for (const container of document.querySelectorAll<HTMLElement>('[data-dl-groups]')) {
+    startDownloadGroups(container, {
+      nav: navigator,
+      clipboard: navigator.clipboard,
+      selectText,
+      setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+      clearTimeout: (id) => window.clearTimeout(id),
+    });
+  }
+</script>

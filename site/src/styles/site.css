@@ -59,7 +59,6 @@ a {
 .btn,
 .footer a,
 .toc a,
-.dl-links a,
 .dl-sha,
 .prose h2 a {
   text-decoration: none;
@@ -68,7 +67,6 @@ a {
 .nav-links a:hover,
 .footer a:hover,
 .toc a:hover,
-.dl-links a:hover,
 .dl-sha:hover,
 .prose h2 a:hover {
   text-decoration: underline;
@@ -560,61 +558,134 @@ button {
   line-height: var(--writ-site-lh-tight);
 }
 
-.dl-rows {
+.dl-groups {
+  display: grid;
+  gap: var(--writ-space-7);
   margin-top: var(--writ-space-6);
+}
+
+.dl-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding-top: var(--writ-space-5);
   border-top: var(--writ-site-hairline) solid var(--writ-border);
 }
 
-.dl-row {
-  font-variant-numeric: tabular-nums;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: baseline;
-  gap: var(--writ-space-3) var(--writ-space-6);
-  padding: var(--writ-space-4) 0;
-  border-bottom: var(--writ-site-hairline) solid var(--writ-border);
-}
-
 .dl-os {
-  font-weight: 500;
+  font-size: var(--writ-site-text-h3);
+  font-weight: 600;
+  letter-spacing: var(--writ-site-tracking-heading);
+  line-height: var(--writ-site-lh-tight);
 }
 
 .dl-req {
-  margin-left: var(--writ-space-3);
+  margin-top: var(--writ-space-2);
   font-size: var(--writ-site-text-sm);
   color: var(--writ-fg-muted);
 }
 
-.dl-links {
+.dl-primary {
+  margin-top: var(--writ-space-5);
+}
+
+.dl-file {
+  margin-top: var(--writ-space-2);
+  font-size: var(--writ-site-text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--writ-fg-muted);
+}
+
+.dl-others {
+  font-size: var(--writ-site-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-others a {
+  display: inline-block;
+  margin-top: var(--writ-space-3);
+}
+
+.dl-tool {
   display: flex;
-  gap: var(--writ-space-5);
+  align-items: center;
+  gap: var(--writ-space-3);
+  align-self: stretch;
+  min-height: var(--writ-space-7);
+  margin-top: var(--writ-space-6);
+  font-size: var(--writ-site-text-sm);
+}
+
+.dl-tool-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.dl-status {
+  font-size: var(--writ-site-text-xs);
+  color: var(--writ-fg-muted);
+}
+
+.dl-copy {
+  flex: none;
+  height: var(--writ-space-7);
+  padding: 0 var(--writ-space-4);
+  border: var(--writ-site-hairline) solid var(--writ-border);
+  border-radius: var(--writ-r-window);
+  background: var(--writ-bg-canvas);
+  color: var(--writ-fg);
+  font: inherit;
+  font-size: var(--writ-site-text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--writ-motion);
+}
+
+.dl-copy:hover {
+  background: var(--writ-bg-hover);
+}
+
+.dl-copy[hidden] {
+  display: none;
+}
+
+.dl-cmd {
+  display: block;
+  align-self: stretch;
+  margin-top: var(--writ-space-2);
+  padding: var(--writ-space-3) var(--writ-space-4);
+  background: var(--writ-bg-sunken);
+  border-radius: var(--writ-r-window);
+  font-size: var(--writ-site-text-xs);
+  line-height: var(--writ-site-lh-body);
+}
+
+/* A command wraps between its words, never inside one such as --cask. */
+.dl-cmd span {
   white-space: nowrap;
 }
 
 .dl-sha {
+  margin-top: var(--writ-space-4);
   font-size: var(--writ-site-text-xs);
-}
-
-.dl-code {
-  display: grid;
-  gap: var(--writ-space-3);
-  margin-top: var(--writ-space-6);
-}
-
-.dl-code code {
-  display: block;
-  padding: var(--writ-space-3) var(--writ-space-4);
-  overflow-x: auto;
-  background: var(--writ-bg-sunken);
-  border-radius: var(--writ-r-window);
-  font-size: var(--writ-site-text-xs);
-  white-space: nowrap;
 }
 
 .dl-privacy {
   max-width: var(--writ-site-measure);
   margin-top: var(--writ-space-6);
   color: var(--writ-fg-muted);
+}
+
+/* Download page: the groups span the column, the notes keep the prose measure. */
+
+.download-page {
+  padding-top: var(--writ-site-space-9);
+}
+
+.download-page + .prose {
+  padding-top: 0;
 }
 
 /* Footer */
@@ -646,7 +717,8 @@ button {
   padding: var(--writ-site-space-9) 0 var(--writ-site-space-10);
 }
 
-.prose h1 {
+.prose h1,
+.download-page h1 {
   font-size: var(--writ-site-text-h1);
   font-weight: 600;
   letter-spacing: var(--writ-site-tracking-display);
@@ -826,10 +898,6 @@ button {
     padding-top: var(--writ-site-space-9);
   }
 
-  .dl-row {
-    grid-template-columns: 1fr;
-  }
-
   .footer-in {
     display: grid;
     grid-template-columns: repeat(3, max-content);
@@ -858,6 +926,27 @@ button {
 @media (min-width: 880px) {
   .hero-h1 {
     font-size: var(--writ-site-text-h1-md);
+  }
+
+  /* Side by side, the groups share their rows, so each part lines up with
+     the same part of its neighbours whatever the others above it hold. */
+  .dl-groups {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 0;
+  }
+
+  .dl-group {
+    display: grid;
+    grid-row: span 8;
+    grid-template-rows: subgrid;
+    justify-items: start;
+    align-content: start;
+  }
+
+  .dl-tool,
+  .dl-cmd {
+    align-self: start;
+    justify-self: stretch;
   }
 }
 
