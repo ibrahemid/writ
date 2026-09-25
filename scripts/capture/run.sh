@@ -1162,8 +1162,6 @@ loop_markdown_take() {
   click_element "$LAYOUT_INLINE"
   pointer_away; sleep 1
 }
-# The README's hero GIFs come from these takes as soon as they are encoded, so
-# a later scene failing does not cost them.
 scene_loop_markdown() {
   loop_take markdown loop_markdown_setup loop_markdown_take 1320 30 32 20 12
   readme_gifs
@@ -1174,7 +1172,6 @@ loop_search_setup() {
   begin "$1"
   open_note "Garden plan"
 }
-# The Garden committee hit is the fourth row, as in the search still.
 loop_search_take() {
   key f cmd,shift; sleep 0.6
   type_human "compost"; sleep 1.4
@@ -1183,14 +1180,9 @@ loop_search_take() {
 }
 
 loop_apps_setup() {
-  apps_on connections
-  PANEL_OPEN=true
   begin "$1"
   open_note "Garden plan"
 }
-# Graph on adds Nearby files to the open Connections panel. A switch missing
-# from the accessibility tree is flipped in the config instead, which the app
-# applies live, as it does a theme change.
 loop_apps_take() {
   local rect
   take_palette f "nearby"; sleep 0.4
@@ -1202,7 +1194,9 @@ loop_apps_take() {
   fi
   sleep 1
   pointer_away
-  key escape; sleep 1.6
+  key escape; sleep 1
+  take_palette f "> Open graph"
+  sleep 1.6
 }
 
 loop_versions_setup() {
