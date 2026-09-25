@@ -233,14 +233,23 @@ describe('site source', () => {
     const layout = readFileSync(join(SRC, 'layouts', 'Site.astro'), 'utf8');
     expect(layout).not.toMatch(/<script[^>]+src="https:\/\//);
     // The privacy page names the endpoint in prose; only a script tag counts.
-    const withTag = pages.filter((p) =>
-      /<script[^>]+src="https?:\/\/[^"]*stats\.ibrahemid\.com/.test(readFileSync(p, 'utf8')),
-    );
-    // All or nothing, whatever the endpoint was: a tag on some pages and not
-    // others is a bug however the build was configured. This holds without the
-    // environment being plumbed through to the checking step.
-    expect(withTag.length === 0 || withTag.length === pages.length).toBe(true);
+    const hasTag = (p: string) =>
+      /<script[^>]+src="https?:\/\/[^"]*stats\.ibrahemid\.com/.test(readFileSync(p, 'utf8'));
+    // The app the hero loads and a refresh stub never carry the tag: the app's
+    // visit is the landing page's, and a stub hands off at once to the page
+    // that counts. Every other page is a site page.
+    const demo = join(DIST, 'demo', 'index.html');
+    const isStub = (p: string) => /<meta http-equiv="refresh"/.test(readFileSync(p, 'utf8'));
+    const untagged = pages.filter((p) => p === demo || isStub(p));
+    expect(untagged.filter(hasTag), 'a tag on the app page or a refresh stub').toEqual([]);
+    const sitePages = pages.filter((p) => !untagged.includes(p));
+    expect(sitePages.length).toBeGreaterThan(0);
+    const withTag = sitePages.filter(hasTag);
+    // All or nothing, whatever the endpoint was: a tag on some site pages and
+    // not others is a bug however the build was configured. This holds without
+    // the environment being plumbed through to the checking step.
+    expect(withTag.length === 0 || withTag.length === sitePages.length).toBe(true);
     // And when the endpoint is known here, it has to match what shipped.
-    if (process.env.PUBLIC_UMAMI_SRC) expect(withTag.length).toBe(pages.length);
+    if (process.env.PUBLIC_UMAMI_SRC) expect(withTag.length).toBe(sitePages.length);
   });
 });
