@@ -37,7 +37,7 @@ struct Cli {
     #[arg(value_name = "PATH")]
     paths: Vec<OsString>,
 
-    /// Title for the piped stdin buffer tab.
+    /// Name of the file piped stdin is saved to.
     #[arg(long, value_name = "TITLE")]
     title: Option<String>,
 }

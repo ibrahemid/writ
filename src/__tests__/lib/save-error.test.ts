@@ -223,13 +223,13 @@ describe("formatRenameError", () => {
     // case rather than the odd one. A code must never reach a person as
     // itself, and the save sentence for these is true of a rename too.
     expect(formatRenameError("ERR_PERMISSION_DENIED: rename failed (os error 13)")).toBe(
-      "The note could not be renamed: you do not have permission to change this file.",
+      "The file could not be renamed: you do not have permission to change this file.",
     );
     expect(formatRenameError("ERR_FILE_IN_USE: io error (os error 32)")).toBe(
-      "The note could not be renamed: another program has the file open.",
+      "The file could not be renamed: another program has the file open.",
     );
     expect(formatRenameError("ERR_SOMETHING_ELSE: the file is busy")).toBe(
-      "The note could not be renamed.",
+      "The file could not be renamed.",
     );
   });
 
@@ -241,7 +241,7 @@ describe("formatRenameError", () => {
   });
 
   it("a_failure_that_says_nothing_still_says_something", () => {
-    expect(formatRenameError("")).toBe("The note could not be renamed.");
-    expect(formatRenameError(null)).toBe("The note could not be renamed.");
+    expect(formatRenameError("")).toBe("The file could not be renamed.");
+    expect(formatRenameError(null)).toBe("The file could not be renamed.");
   });
 });

@@ -21,7 +21,7 @@ const sums: [string, string][] = [
     <tbody>
       <tr><th>macOS</th><td>Signed and notarized by Apple, so there is no warning to click through.</td></tr>
       <tr><th>Windows</th><td>The .msi is not code-signed yet, so SmartScreen shows a warning on first run: More info, then Run anyway. The checksum below is how to verify it instead.</td></tr>
-      <tr><th>Linux</th><td>The AppImage runs anywhere with FUSE; the .deb targets Debian and Ubuntu. Arch has <code>writ-bin</code> on the AUR.</td></tr>
+      <tr><th>Linux</th><td>The AppImage requires FUSE; the .deb targets Debian and Ubuntu on x86_64. Arch has <code>writ-bin</code> on the AUR.</td></tr>
     </tbody>
   </table>
   <h2>Verify a download</h2>
@@ -38,11 +38,11 @@ const sums: [string, string][] = [
   <h2>First open on macOS</h2>
   <ol>
     <li>Open the <code>.pkg</code> and follow the installer.</li>
-    <li>Launch Writ once from Applications. It keeps running after you switch away.</li>
+    <li>Launch Writ from Applications, choose the format for new files and the apps to switch on, then Continue. Writ keeps running after you switch away.</li>
     <li>Press <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> from any app to bring it up, and again to put it away.</li>
   </ol>
   <h2>Updates</h2>
-  <p>Writ checks GitHub Releases on start and offers the new version; nothing installs without a click. The check verifies a signed manifest and can be turned off in Settings. Package-manager installs update through the package manager instead.</p>
+  <p>Writ checks GitHub Releases shortly after launch, at most once a day, and offers the new version; nothing installs without a click. The check verifies a signed manifest and can be turned off in Settings. Package-manager installs update through the package manager instead.</p>
   <h2>Uninstall</h2>
-  <p>Delete the app. Your notes stay in the notes folder, and Writ's own data stays in <code>~/.writ</code> until you delete that folder too.</p>
+  <p>Delete the app. Your files stay where they are, including Writ's folder, and Writ's own data stays in <code>~/.writ</code> until you delete that folder too.</p>
 </Prose>

@@ -1461,8 +1461,8 @@ describe("AI section", () => {
     await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
     expect(collapse(container.querySelector(".settings-ai-consent-text")!.textContent)).toBe(
       "The files you attach and the text you rewrite are sent to api.deepseek.com with your " +
-        "API key. Writ also sends the key on its own to check the host is reachable; nothing " +
-        "else leaves your machine.",
+        "API key. Writ also sends the key on its own to check the host is reachable. The check " +
+        "sends no text.",
     );
     expect(container.querySelector('[data-action="ai-consent"]')!.textContent).toBe("Allow");
   });

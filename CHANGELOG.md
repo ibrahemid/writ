@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Notes link to each other, and Writ reads the folder to show what connects them. `[[Name]]` links a note by name, a panel called Connections lists the notes that link back, and a Graph view draws the whole folder. Other programs reach notes through an MCP server, one approved client at a time, and a chat pane whose edits arrive as proposals. Nothing leaves the machine unless the client the user chose sends it. The app opens light by default with six accent colours and one menu bar on every platform.
+Writ opens any text file, and a new file is plain text or Markdown, whichever the setup screen or Settings names. A Markdown file renders inline, with the markup shown on the line being edited. Chat, rewrite, connected programs, connections, the graph and tags are apps, each switched on under Settings, Apps, and all off in a fresh config. `[[Name]]` links one Markdown file to another, and the index behind links, tags and the `writ` command follows the folder as it changes. Nothing leaves the machine unless the client the user chose sends it. The app opens light with six accent colours and one menu bar on every platform.
 
 ### Added
 
@@ -15,9 +15,13 @@ Notes link to each other, and Writ reads the folder to show what connects them. 
 - Connections, a panel beside the note (Cmd+Shift+\): the notes that link here with the sentence each link sits in, the outline of headings, and the note's properties.
 - Tags in the sidebar with counts. Nested tags group under their parent, and selecting a tag filters the notes list. A colour in pasted CSS and an anchor in pasted HTML are not read as tags.
 - A graph of the notes around the open one, and a Graph view over the whole folder with search and one colour per top-level folder. Positions hold from one opening to the next.
-- Preview renders callouts, notes embedded with `![[Note]]` or `![[Note#Heading]]` up to three deep, and a note's own images and attachments, beside the tables, math and Mermaid diagrams it already drew offline.
+- Inline Markdown. A Markdown file opens with headings at heading sizes, bold, italic, strikethrough and inline code styled, links with the address hidden, images under their line, task lists as checkboxes and fenced code highlighted in its language; the line being edited shows its markup. An Inline | Source switch in the status bar shows the raw text, and Settings, Preview sets which one a Markdown file opens in. Split and Preview stay for HTML and Mermaid files.
+- The status bar shows the fields that fit the file type. Word, character and token counts sit behind a switch in Settings, Editor.
 - A folder written in Obsidian opens as it is. Links by name, path, alias and heading, properties, tags and callouts carry over, and `.obsidian` and `.trash` contribute nothing. `docs/importing-from-obsidian.md` lists what carries over and what does not.
-- First launch. The notes folder is `~/Writ`, a note named for today opens, and one line under the cursor says where the notes are. Nothing is asked. File > Today's Note opens the same note on any later day.
+- A default format for new files. `[files] default_extension` is `txt` or `md`, and a new file (Cmd+N), Today's File, piped input to the `writ` command, `writ new` and a file a connected program creates all take it. The setup screen asks for it as its first step, and Settings, Files, Default format changes it later. The folder is `~/Writ`, and one line under the cursor says where it is.
+- A file nobody named is called `writ-<yymmdd>-<hhmm>`, with `-2` for a second one in the same minute. A name that ends in `.md`, `.markdown`, `.txt` or `.text` sets the format, on a file named in the app and on a rename. Tabs, the file list and the palette hide `.md` and `.txt`; other extensions stay visible.
+- An Apps section in Settings with one switch each for Chat, Rewrite, Connected programs, Connections, Graph and Tags. A fresh config has all six off; a config written before this keeps what it had, and a tags section hidden in the sidebar becomes Tags switched off. An app that is off has no menu item, palette command, shortcut, sidebar section or panel, and turning one on or off takes effect without a restart. Turning one off deletes nothing.
+- An Apps step after the format step in the setup screen lists the six apps with a switch each. Settings, Apps opens the same screen later.
 - One menu bar on macOS, Windows and Linux from a single command list, with Show Notes Folder, Recently Closed and Open Graph. The window hotkey can be changed in Settings; Save asks the OS first and reports the chord it actually holds.
 - Interface text size in Settings, 12 to 22 px, scaling the sidebar, tabs, status bar, palette and settings together. The editor's own zoom stays separate.
 - A light default that follows the system, with six accents (pine is the default) and the terminal presets kept as choices. The status bar is on by default. Sidebar, toolbar, tabs, palette, settings and dialogs are redrawn to one design, with the title bar drawn per platform.
@@ -41,7 +45,7 @@ Notes link to each other, and Writ reads the folder to show what connects them. 
 - Settings rows are named in plain words and grouped by what people look for: Notes folder first, the data folder, watched folder and preview limits under Advanced. The sidebar search field says what it searches, and the history section is Recently closed.
 - Delete Line moves to Cmd+Shift+K and Replace to Cmd+Option+F, freeing the chords macOS claims. Cmd+Option+S joins Cmd+\ for the sidebar. The preview split swap is Cmd+Shift+H.
 - Choosing a light or dark preset pins that side; the System option in Settings is the way back to following the OS.
-- The settings section "AI rewriting" is now "AI": one connection block, then the switches "Rewrite selected text" and "Chat about your notes", each row with a line saying what it does. An existing rewrite or chat setup carries over, and a key that either feature stored now serves both.
+- The settings section "AI rewriting" is replaced by one AI connection under Settings, Apps, shown while Chat or Rewrite is on. An existing rewrite or chat setup carries over, and a key that either feature stored now serves both.
 - Rewriting speaks to Anthropic as well as to OpenAI-compatible hosts, so every provider serves both features.
 
 ### Fixed
@@ -109,7 +113,7 @@ Notes now live as Markdown files in a notes folder (`~/Writ` by default). The fi
 - The inbox header no longer reads "Inbox · Inbox" when the folder is named inbox.
 - The AI connection row in Settings hides while a search filters to other sections.
 
-## [0.3.4] - 2026-08-22
+## [0.3.4] - 2026-08-23
 
 ### Fixed
 
@@ -133,7 +137,7 @@ Notes now live as Markdown files in a notes folder (`~/Writ` by default). The fi
 
 - Arabic and right-to-left writing. Each editor line takes its direction from its first strong character, so Arabic reads right-to-left and Latin left-to-right within the same document. Preview paragraphs, headings, lists, and tables resolve their direction the same way, while code blocks stay left-to-right. Arabic text renders in the platform's Arabic fonts instead of fallback glyphs.
 
-## [0.3.1] - 2026-08-03
+## [0.3.1] - 2026-08-09
 
 ### Added
 
@@ -203,7 +207,7 @@ Notes now live as Markdown files in a notes folder (`~/Writ` by default). The fi
 - The AUR package installs the desktop entry and icons.
 - The CLI install status no longer reports a dangling `writ` link as installed.
 
-## [0.1.0] - 2026-07-05
+## [0.1.0] - 2026-07-06
 
 ### Added
 

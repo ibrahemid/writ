@@ -59,7 +59,7 @@ describe('site source carries no literal colour or length', () => {
     expect(hits, `pixel literals outside a media query:\n${hits.join('\n')}`).toEqual([]);
   });
 
-  it('uses the three breakpoints the tokens declare and no other', () => {
+  it('uses the breakpoints the tokens declare and no other', () => {
     const css = readFileSync(SITE_CSS, 'utf8');
     const used = new Set([...css.matchAll(/@media \((?:min|max)-width: (\d+)px\)/g)].map((m) => m[1]));
     const tokens = readFileSync(TOKENS, 'utf8');

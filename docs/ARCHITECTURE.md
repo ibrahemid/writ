@@ -1,8 +1,12 @@
 # Writ Architecture
 
-Writ is a lightweight text editor built with Tauri v2, SolidJS, and CodeMirror 6. The design
-prioritizes a minimal binary footprint, compiler-enforced separation between business logic and
-framework code, and typed contracts across every layer of the stack.
+Writ is a text editor that opens any text file, edits and searches every file in its folder, and
+renders Markdown inline when the file is Markdown. Chat, rewrite, connected programs (the MCP
+server), connections, the graph and tags are apps switched on in Settings (ADR-041, ADR-042).
+
+It is built with Tauri v2, SolidJS and CodeMirror 6. The design keeps the binary small, separates
+business logic from framework code at the compiler level, and types the contract across every
+layer of the stack.
 
 ## System Diagram
 
@@ -225,6 +229,63 @@ and diffing ([ADR-030](./adr/030-design-system-tokens.md)).
 
 4. **No speculative complexity** — features are added when needed. The plugin crate exists to
    define a boundary, not to ship a full extension runtime on day one.
+
+## Decisions in short
+
+Each of these is recorded in [`docs/adr/`](./adr/).
+
+- **Files are the only copy of the text.** A file lives in the Writ folder or wherever it was opened from, and saves back to its own path. `writ.db` holds what Writ works out from the files: the search index, links, tags, properties and window state. Delete it and Writ rebuilds it from the files.
+- **Resident, not launched.** The app starts hidden and keeps running, so the global hotkey shows a window instead of starting a program.
+- **Keyboard first.** Every command, setting and file is reachable from the command palette.
+- **The preview trusts nothing.** Markdown, HTML, Mermaid and KaTeX render from runtimes bundled into the app, and the preview blocks all network access.
+- **The core does not know Tauri exists.** `writ-core`, `writ-storage`, `writ-render`, `writ-lint`, `writ-mcp` and `writ-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter, and the build enforces the boundary.
+- **One guarded write.** The editor, the `writ` command, a rename, a link rewrite, a connected program and a chat proposal all write a file through the same path, which refuses to overwrite a newer file and leaves a conflict copy beside it.
+- **Files from anywhere.** The CLI, the watched folder, default-app registration and the MCP server let another program make or read a file that Writ then opens, renders and searches.
+
+```mermaid
+flowchart LR
+    classDef entry fill:#2f5d50,color:#fff,stroke:none
+    classDef data fill:#1f3a33,color:#e6efeb,stroke:none
+    classDef crate fill:#eef4f1,color:#14231e,stroke:#b9d0c6
+    classDef zone fill:none,stroke:#6f9a8b,stroke-dasharray:3 3
+
+    HK([global hotkey]):::entry
+    CLI([writ CLI]):::entry
+    MCP([writ mcp, stdio]):::entry
+    ASSOC([default app for .md, .log, .toml]):::entry
+
+    subgraph FRONT [frontend · SolidJS]
+        direction LR
+        UI[components] --> ST[stores] --> SV[services]
+    end
+
+    subgraph SHELL [src-tauri · thin adapter]
+        direction LR
+        CMD[IPC commands]
+        EVT[event emitter]
+        FSW[file watcher]
+    end
+
+    subgraph CORE [pure Rust · no Tauri imports]
+        direction LR
+        WC[writ-core<br>policy]:::crate
+        WR[writ-render<br>markdown · mermaid · katex]:::crate
+        WS[writ-storage<br>guarded writes · index]:::crate
+    end
+
+    HK & CLI & ASSOC --> SHELL
+    MCP --> WS
+    SV -- invoke --> CMD
+    EVT -. events .-> SV
+    FSW -. fs changes .-> EVT
+    CMD --> WC
+    WC --> WR --> PV[offline preview<br>network blocked]
+    WC --> WS
+    WS --> DB[(SQLite index<br>FTS5 · links · tags)]:::data
+    WS --> FS[(Writ folder<br>.txt and .md files)]:::data
+
+    class FRONT,SHELL,CORE zone
+```
 
 ## Architecture Decision Records
 

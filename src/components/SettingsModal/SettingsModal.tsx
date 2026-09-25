@@ -1338,8 +1338,8 @@ function AiConnectionRows() {
         <div class="settings-ai-consent" role="note">
           <p class="settings-ai-consent-text">
             The files you attach and the text you rewrite are sent to {endpointHost()} with your API
-            key. Writ also sends the key on its own to check the host is reachable; nothing else
-            leaves your machine.
+            key. Writ also sends the key on its own to check the host is reachable. The check sends
+            no text.
           </p>
           <Button data-action="ai-consent" onClick={() => void onConsent()}>
             Allow
@@ -1357,7 +1357,7 @@ function AiConnectionRows() {
         <SettingsRow
           id="ai.api_key"
           label="API key"
-          description="Kept in your system keychain."
+          description="Kept in your system keychain when it is available."
           labelAside={
             <Show when={keyPageUrl()}>
               <button

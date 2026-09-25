@@ -1,6 +1,6 @@
 # Writ Distribution Channels
 
-This directory holds everything the Writ project needs to publish releases across platform-specific package managers.
+This directory documents Writ's package-manager release channels and holds their manifests.
 
 ## Install paths
 
@@ -29,16 +29,16 @@ packaging/
 
 Each subdirectory has its own README covering the channel-specific submission process. Start there if you are publishing a channel for the first time.
 
-## Current status (v0.2.0)
+## Channel status
 
 | Channel | Status | Notes |
 |---|---|---|
-| Homebrew (self-hosted tap) | Live | Tap at `github.com/ibrahemid/homebrew-writ` serves 0.2.0. Each release still needs the cask copied over after the bump PR merges. |
-| Homebrew upstream | Deferred | Eligible after a stability window on the 0.2.x line. Notarization is live. |
-| winget | Live | `ibrahemid.Writ` 0.2.0 merged into `microsoft/winget-pkgs`. Each new version needs another upstream PR. |
-| AUR `writ-bin` | Live | https://aur.archlinux.org/packages/writ-bin serves 0.2.0-1. Each release is a `git push` of `PKGBUILD` and `.SRCINFO` to `ssh://aur@aur.archlinux.org/writ-bin.git`. |
-| Flatpak | Deferred | Flathub submission requires a stable release line and a Flatpak manifest (`org.writ.Writ.yaml`) tracked separately. Revisit once Linux distribution feedback justifies the maintenance cost. |
-| Snap | Deferred | Snap requires a `snapcraft.yaml` and a Snapcraft store account. Lower priority than Flatpak because most Arch and Debian users prefer AUR and AppImage respectively. |
+| Homebrew (self-hosted tap) | Live | Each release needs the cask copied to `github.com/ibrahemid/homebrew-writ` after the bump PR merges. |
+| Homebrew upstream | Not submitted | The self-hosted tap is the Homebrew channel. |
+| winget | Live | Each release needs a new manifest PR in `microsoft/winget-pkgs`. |
+| AUR `writ-bin` | Live | Each release needs `PKGBUILD` and `.SRCINFO` pushed to `ssh://aur@aur.archlinux.org/writ-bin.git`. |
+| Flatpak | Not configured | The repository has no Flatpak manifest. |
+| Snap | Not configured | The repository has no `snapcraft.yaml`. |
 
 ## Artifact names (source of truth)
 
@@ -51,7 +51,7 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 | Windows x64 MSI | `Writ_<version>_x64_en-US.msi` (and `.sig`) |
 | Linux AppImage | `Writ_<version>_amd64.AppImage` (and `.sig`) |
 | Linux deb | `Writ_<version>_amd64.deb` (and `.sig`) |
-| macOS updater bundle | `Writ_universal.app.tar.gz` (and `.sig`) |
+| macOS updater bundle | `Writ_<version>_universal.app.tar.gz` (and `.sig`) |
 | Checksums | `SHA256SUMS.txt` |
 | Tauri updater manifest | `latest.json` |
 | macOS signing outcomes | `release-meta.json` |
@@ -62,7 +62,7 @@ with the `.sig` beside them. There is no `.msi.zip` and no `.AppImage.tar.gz`.
 
 The `.pkg` is the recommended *first-install* path: it ships pre-install and post-install scripts so the installer quits a running Writ, swaps the bundle, and relaunches the new version. No manual quit needed. The Homebrew cask consumes the `.pkg`.
 
-The in-app updater does **not** consume the `.pkg`. It consumes the signed `Writ_universal.app.tar.gz` (the "macOS updater bundle" row above), verifies its `.sig` against the embedded minisign public key, and swaps the `.app` in place. The `.pkg` and the `.app.tar.gz` are produced by separate steps in `release.yml` and are not interchangeable.
+The in-app updater does **not** consume the `.pkg`. It consumes the signed `Writ_<version>_universal.app.tar.gz` (the "macOS updater bundle" row above), verifies its `.sig` against the embedded minisign public key, and swaps the `.app` in place. The `.pkg` and the `.app.tar.gz` are produced by separate steps in `release.yml` and are not interchangeable.
 
 On Linux the updater consumes the artifact matching how Writ was installed: `Writ_<version>_amd64.AppImage` for AppImage installs, `Writ_<version>_amd64.deb` for deb installs. `latest.json` carries both, under `linux-x86_64` and `linux-x86_64-deb`.
 

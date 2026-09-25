@@ -3,11 +3,11 @@ import Prose from '../../layouts/Prose.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
-<Prose title="Make Writ the app for .md files" description="Register Writ as the default app for markdown and text on macOS, Windows and Linux, so a double-click opens the file here." path="/guides/default-md-app/" lead="Once, per file type. After that a double-click in Finder or Explorer opens the file in Writ, rendered.">
+<Prose title="Make Writ the app for .md and .txt" description="Register Writ as the default app for Markdown and plain text on macOS, Windows and Linux, so a double-click opens the file in Writ." path="/guides/default-md-app/" lead="Once per file type. After that a double-click in Finder or Explorer opens the file in Writ.">
   <h2>macOS</h2>
   <ol>
-    <li>Open Settings (<kbd class="kc">⌘</kbd><kbd class="kc">,</kbd>), Files. Each group has its own row with a Make default button: Markdown, Plain text &amp; logs, Config &amp; data, Source code. Press it for the groups you want; the row then reads "Writ is the default".</li>
-    <li>macOS keeps the choice per type, so claiming Markdown does not change what opens <code>.txt</code>. If a row will not take, Finder's Get Info on one file, Open with: Writ, Change All does the same thing by hand.</li>
+    <li>Open Settings (<kbd class="kc">⌘</kbd><kbd class="kc">,</kbd>), Files. Open these file types with Writ has a box per group: Plain text &amp; logs, Markdown, Config &amp; data, Source code. Tick the groups you want; a ticked box stays ticked while Writ holds the type.</li>
+    <li>macOS keeps the choice per type, so claiming Markdown does not change what opens <code>.txt</code>. To hand a type to another app, pick that app in Finder: Get Info on one file, Open with, Change All.</li>
   </ol>
   <h2>Windows</h2>
   <ol>
@@ -21,6 +21,6 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 xdg-mime default Writ.desktop text/plain</code></pre>
   <p>With the AppImage, register it first with AppImageLauncher (or any integrator that writes a desktop entry), then run the same commands with the name it created.</p>
   <h2>What opening a file means</h2>
-  <p>The file opens in a tab under its own name. Edits stay in Writ until <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> writes them back, and if the file changes on disk while it is open the status bar says so first. Closing the tab never deletes or changes the file. The note also goes into history, so <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">F</kbd> finds it later even if the file has moved.</p>
+  <p>The file opens in a tab under its own name and is saved back to its own path as you edit. If the file changes on disk while it has unsaved edits, Writ asks before replacing them. Closing the tab never deletes or changes the file.</p>
   <p>Related: <a href={`${base}/docs/#default-app`}>the default app in the docs</a>.</p>
 </Prose>

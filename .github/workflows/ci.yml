@@ -74,7 +74,7 @@ jobs:
                 *) code=true ;;
               esac
               case "${file}" in
-                site/*|.github/workflows/ci.yml|src/styles/generated/*|src/lib/keybinding-format.ts) site=true ;;
+                site/*|.github/workflows/ci.yml|src/*|demo/*|scripts/capture/fixtures/*|vite.demo.config.ts|package.json|pnpm-lock.yaml) site=true ;;
               esac
             done <<< "${files}"
           fi
@@ -188,6 +188,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: python3 -m unittest discover -s .github/scripts -t .github/scripts
 
+      - name: Packaging script tests
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 -m unittest discover -s scripts -p 'test_packaging*.py'
+
       - name: Security audit
         if: matrix.os == 'ubuntu-latest'
         run: cargo audit
@@ -229,7 +233,17 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: site/pnpm-lock.yaml
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            site/pnpm-lock.yaml
+
+      - name: Install app dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the app for the hero
+        working-directory: .
+        run: pnpm build:demo
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-workspace

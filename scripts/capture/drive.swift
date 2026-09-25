@@ -10,7 +10,7 @@ import IOKit
 // queue; clicks go through the HID tap and so need the app frontmost.
 //
 //   drive front                        -> "<pid>\t<name>" of the frontmost app
-//   drive idle                         -> seconds since the last HID event
+//   drive idle                         -> seconds since the last key, button, scroll or drag
 //   drive away                         -> exits 0 when nobody has touched the machine for IDLE_FLOOR s
 //   drive stamp                        -> records that the harness itself just produced an event
 //   drive windows <pid>                -> "<windowid>\t<x> <y> <w> <h>\t<title>" per on-screen window
@@ -23,6 +23,9 @@ import IOKit
 //   drive drag <pid> <x1> <y1> <x2> <y2> -> press, move, release
 //   drive place <pid> <x> <y> <w> <h>   -> move and size the app's main window (accessibility API)
 //   drive find <pid> <role> <name>     -> "<x> <y> <w> <h>" of the first element with that AX role and name
+//   drive scale                        -> pixels per point of the main display
+//   drive hidpi <w> <h>                -> adds a <w>x<h> point display drawn at 2x, prints "<x> <y> <w> <h>"
+//                                         once it is on, and holds it until the process is terminated
 
 // Every event the driver posts resets the system's idle clock, so it keeps
 // the time of its own last post here: an idle clock that runs from that
@@ -51,15 +54,14 @@ func frontmost() -> (pid_t, String) {
   return (app.processIdentifier, app.localizedName ?? "")
 }
 
-// The same number `ioreg -c IOHIDSystem` prints as HIDIdleTime, in seconds.
+// A resting mouse jitters the pointer every few seconds and resets the
+// system's HIDIdleTime, so pointer moves alone do not count as input here.
+let inputTypes: [CGEventType] = [
+  .keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+  .otherMouseDown, .otherMouseUp, .scrollWheel, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+]
 func idleSeconds() -> Double {
-  let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOHIDSystem"))
-  if service == 0 { return 0 }
-  defer { IOObjectRelease(service) }
-  guard let value = IORegistryEntryCreateCFProperty(service, "HIDIdleTime" as CFString, kCFAllocatorDefault, 0)?
-    .takeRetainedValue() as? Int64
-  else { return 0 }
-  return Double(value) / 1_000_000_000
+  inputTypes.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? 0
 }
 
 func stamp() {
@@ -181,6 +183,81 @@ func findElement(_ root: AXUIElement, _ role: String, _ name: String) -> AXUIEle
     return nil
   }
   return walk(root, 0)
+}
+
+func objcClass(_ name: String) -> NSObject.Type {
+  guard let found = NSClassFromString(name) as? NSObject.Type else { fail("this macOS has no \(name)") }
+  return found
+}
+
+func objcAlloc(_ name: String) -> NSObject {
+  guard let object = objcClass(name).perform(NSSelectorFromString("alloc"))?.takeUnretainedValue() as? NSObject
+  else { fail("could not allocate \(name)") }
+  return object
+}
+
+/// A display with no panel behind it, drawn at twice its size in points, for
+/// a machine whose own display is 1x. CGVirtualDisplay has no public header, so
+/// it is reached through the Objective-C runtime. The display lives as long as
+/// this process; on a Mac with no display attached it stands in for the
+/// fallback one macOS draws, and that fallback returns when the process ends.
+func holdHiDPIDisplay(width: UInt, height: UInt) -> Never {
+  let descriptor = objcClass("CGVirtualDisplayDescriptor").init()
+  descriptor.setValue("Writ capture", forKey: "name")
+  descriptor.setValue(width * 2, forKey: "maxPixelsWide")
+  descriptor.setValue(height * 2, forKey: "maxPixelsHigh")
+  descriptor.setValue(NSValue(size: NSSize(width: 600, height: 375)), forKey: "sizeInMillimeters")
+  descriptor.setValue(0x5752, forKey: "vendorID")
+  descriptor.setValue(0x0001, forKey: "productID")
+  descriptor.setValue(0x0001, forKey: "serialNum")
+  descriptor.setValue(DispatchQueue.main, forKey: "queue")
+
+  guard let display = objcAlloc("CGVirtualDisplay")
+    .perform(NSSelectorFromString("initWithDescriptor:"), with: descriptor)?
+    .takeUnretainedValue() as? NSObject
+  else { fail("the virtual display was refused") }
+
+  typealias ModeInit = @convention(c) (AnyObject, Selector, UInt, UInt, Double) -> Unmanaged<AnyObject>
+  let modeInit = NSSelectorFromString("initWithWidth:height:refreshRate:")
+  let modeAlloc = objcAlloc("CGVirtualDisplayMode")
+  let mode = unsafeBitCast(modeAlloc.method(for: modeInit), to: ModeInit.self)(modeAlloc, modeInit, width, height, 60)
+    .takeUnretainedValue()
+
+  let settings = objcClass("CGVirtualDisplaySettings").init()
+  settings.setValue([mode], forKey: "modes")
+  settings.setValue(1, forKey: "hiDPI")
+  typealias Apply = @convention(c) (AnyObject, Selector, AnyObject) -> Bool
+  let applySettings = NSSelectorFromString("applySettings:")
+  guard unsafeBitCast(display.method(for: applySettings), to: Apply.self)(display, applySettings, settings)
+  else { fail("the virtual display's mode was refused") }
+  guard let id = (display.value(forKey: "displayID") as? NSNumber)?.uint32Value else { fail("the virtual display has no id") }
+
+  // The display arrives with its mode drawn at 1x; the 2x one has to be
+  // chosen, and both take a moment to come on.
+  let options = [kCGDisplayShowDuplicateLowResolutionModes: kCFBooleanTrue] as CFDictionary
+  let deadline = Date().addingTimeInterval(15)
+  var isChosen = false
+  while Date() < deadline {
+    RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+    if let current = CGDisplayCopyDisplayMode(id), current.width == Int(width), current.pixelWidth == Int(width) * 2 {
+      let bounds = CGDisplayBounds(id)
+      print("\(Int(bounds.origin.x)) \(Int(bounds.origin.y)) \(Int(bounds.width)) \(Int(bounds.height))")
+      fflush(stdout)
+      let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+      signal(SIGTERM, SIG_IGN)
+      terminate.setEventHandler { exit(0) }
+      terminate.resume()
+      withExtendedLifetime(display) { dispatchMain() }
+    }
+    if isChosen { continue }
+    let modes = (CGDisplayCopyAllDisplayModes(id, options) as? [CGDisplayMode]) ?? []
+    guard let hidpi = modes.first(where: { $0.width == Int(width) && $0.pixelWidth == Int(width) * 2 }) else { continue }
+    var config: CGDisplayConfigRef?
+    guard CGBeginDisplayConfiguration(&config) == .success else { continue }
+    CGConfigureDisplayWithDisplayMode(config, id, hidpi, nil)
+    isChosen = CGCompleteDisplayConfiguration(config, .forSession) == .success
+  }
+  fail("the virtual display did not come on at 2x")
 }
 
 let args = CommandLine.arguments.dropFirst()
@@ -331,6 +408,15 @@ case "find":
     exit(1)
   }
   print("\(Int(origin.x)) \(Int(origin.y)) \(Int(size.width)) \(Int(size.height))")
+
+case "scale":
+  let main = CGMainDisplayID()
+  guard let mode = CGDisplayCopyDisplayMode(main), mode.width > 0 else { fail("the main display has no mode") }
+  print(mode.pixelWidth / mode.width)
+
+case "hidpi":
+  guard rest.count >= 2, let width = UInt(rest[0]), let height = UInt(rest[1]) else { fail("hidpi <w> <h>") }
+  holdHiDPIDisplay(width: width, height: height)
 
 default:
   fail("unknown command \(command)")

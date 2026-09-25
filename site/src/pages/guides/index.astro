@@ -3,12 +3,13 @@ import Prose from '../../layouts/Prose.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const guides = [
-  { href: 'obsidian-vault-files', title: 'Open a folder written in Obsidian', p: 'Point Writ at the folder. Links, properties, tags and callouts read as written, and both apps keep using the same files.' },
-  { href: 'agent-output', title: 'Give an assistant your notes with MCP', p: 'Connect Claude Code or another MCP client to the notes folder, approve what it may do, and see what it did.' },
-  { href: 'default-md-app', title: 'Make Writ the app for .md files', p: 'Register Writ for text and markdown so a double-click in Finder or Explorer opens here.' },
+  { href: 'default-md-app', title: 'Make Writ the app for .md and .txt', p: 'Register Writ for text and Markdown so a double-click in Finder or Explorer opens the file here.' },
+  { href: 'agent-output', title: 'Connect a program to your folder with MCP', p: 'Connect Claude Code or another MCP client to Writ\'s folder, approve what it may do, and see what it did.' },
+  { href: 'obsidian-vault-files', title: 'Open your Obsidian folder in Writ', p: 'Point Writ at the folder. Links, properties and tags read as written, and Obsidian keeps using the same files.' },
+  { href: 'obsidian', title: 'Writ and Obsidian on one folder', p: 'What each app does with the same folder of Markdown files.' },
 ];
 ---
-<Prose title="Guides" description="Step-by-step guides: opening a folder written in Obsidian, connecting an MCP client to your notes, making Writ the default app for markdown." path="/guides/" lead="Three things people set up in the first week.">
+<Prose title="Guides" description="Step-by-step guides: making Writ the default app for text and Markdown, connecting an MCP client, opening a folder Obsidian uses." path="/guides/">
   {guides.map((g) => (
     <Fragment>
       <h2><a href={`${base}/guides/${g.href}/`}>{g.title}</a></h2>

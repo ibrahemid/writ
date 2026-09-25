@@ -18,6 +18,7 @@
       "h3": { "$value": { "value": 22, "unit": "px" } },
       "h2": { "$value": { "value": 28, "unit": "px" } },
       "h2-lg": { "$value": { "value": 32, "unit": "px" } },
+      "h1-xs": { "$value": { "value": 36, "unit": "px" } },
       "h1": { "$value": { "value": 44, "unit": "px" } },
       "h1-md": { "$value": { "value": 60, "unit": "px" } },
       "h1-lg": { "$value": { "value": 72, "unit": "px" } }
@@ -50,11 +51,29 @@
     "motion": {
       "$type": "duration",
       "crossfade": { "$value": { "value": 350, "unit": "ms" } },
-      "noun-interval": { "$value": { "value": 2400, "unit": "ms" } }
+      "noun-interval": { "$value": { "value": 2400, "unit": "ms" } },
+      "arrive": { "$value": { "value": 480, "unit": "ms" } },
+      "arrive-stagger": { "$value": { "value": 60, "unit": "ms" } },
+      "arrive-window": { "$value": { "value": 640, "unit": "ms" } },
+      "arrive-window-delay": { "$value": { "value": 240, "unit": "ms" } },
+      "camera": { "$value": { "value": 600, "unit": "ms" } }
+    },
+    "noun-drift": { "$type": "dimension", "$value": { "value": 0.18, "unit": "em" } },
+    "arrive-rise": {
+      "$type": "dimension",
+      "text": { "$value": { "value": 12, "unit": "px" } },
+      "window": { "$value": { "value": 24, "unit": "px" } }
+    },
+    "tour": {
+      "$type": "dimension",
+      "band": { "$value": { "value": 144, "unit": "px" } },
+      "hold": { "$value": { "value": 80, "unit": "px" } },
+      "fade": { "$value": { "value": 48, "unit": "px" } }
     },
     "bp": {
       "$type": "dimension",
-      "$description": "The one breakpoint set. Media queries cannot read custom properties, so site.css repeats these three values as literals and nothing else does.",
+      "$description": "The one breakpoint set. Media queries cannot read custom properties, so site.css repeats these values as literals and nothing else does.",
+      "xs": { "$value": { "value": 360, "unit": "px" } },
       "sm": { "$value": { "value": 640, "unit": "px" } },
       "md": { "$value": { "value": 880, "unit": "px" } },
       "lg": { "$value": { "value": 1200, "unit": "px" } }

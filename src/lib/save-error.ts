@@ -182,7 +182,7 @@ export function formatSaveError(error: unknown): string {
 
 // A rename that was stopped renders on its own, in a toast, so what comes back
 // is a whole sentence.
-const RENAME_FAILED = "The note could not be renamed.";
+const RENAME_FAILED = "The file could not be renamed.";
 
 /**
  * What a stopped rename says.

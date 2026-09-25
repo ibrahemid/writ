@@ -59,10 +59,10 @@ function ConnectionsPanel() {
     return (
       <p class="right-panel-empty">
         {win.tabs.activeTabId() === null
-          ? "No note open."
+          ? "No file open."
           : readFailed()
-            ? "Could not read this note's connections."
-            : "Nothing links to this note yet."}
+            ? "Could not read this file's connections."
+            : "Nothing links to this file yet."}
       </p>
     );
   }

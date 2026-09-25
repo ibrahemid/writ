@@ -12,6 +12,7 @@ import type { ChatConversation } from "../../services/tauri";
 // since the offer was made comes back refused.
 
 const mocks = vi.hoisted(() => ({
+  chatRename: vi.fn(),
   chatList: vi.fn(),
   chatOpen: vi.fn(),
   chatRenderReply: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock("../../services/tauri", () => ({
   chatOpen: mocks.chatOpen,
   chatRenderReply: mocks.chatRenderReply,
   chatAttachedSizes: mocks.chatAttachedSizes,
-  chatRename: vi.fn(),
+  chatRename: mocks.chatRename,
   chatDelete: vi.fn(),
   noteNameCandidates: mocks.noteNameCandidates,
   chatNew: mocks.chatNew,
@@ -398,6 +399,31 @@ describe("the chat column", () => {
     expect(sent?.attachments.map((held) => held.path)).toEqual([LAUNCH]);
   });
 
+  // Removing the focused field makes the browser blur it, and the field
+  // commits on blur, so Enter and Escape are each followed by one. jsdom does
+  // not blur a removed node, so the tests fire it.
+  it("renames the chat once on Enter, and nothing on Escape", async () => {
+    mocks.chatRename.mockReset().mockImplementation((id: string, title: string) =>
+      Promise.resolve({ id, title, created_at: "", updated_at: "", provider: "custom", model: "a-model", turns: [] }),
+    );
+    const { container, getByRole } = open();
+    await exchange();
+    const rename = async (key: "Enter" | "Escape") => {
+      fireEvent.dblClick(container.querySelector(".chat-pane-title") as HTMLElement);
+      const field = getByRole("textbox", { name: "Chat name" }) as HTMLInputElement;
+      field.value = "Launch notes";
+      fireEvent.keyDown(field, { key });
+      fireEvent.blur(field);
+      await waitFor(() => expect(container.querySelector(".chat-pane-title")).not.toBeNull());
+    };
+
+    await rename("Escape");
+    expect(mocks.chatRename).not.toHaveBeenCalled();
+
+    await rename("Enter");
+    expect(mocks.chatRename).toHaveBeenCalledTimes(1);
+  });
+
   it("starts a new chat with the note in front and nothing else", async () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
@@ -517,11 +543,11 @@ describe("the chat column", () => {
     const { container } = open();
     await waitFor(() => expect(container.querySelectorAll(".chat-chip")).toHaveLength(1));
     const composer = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
-    expect(composer.placeholder).toBe("Ask about the attached notes. @ attaches another.");
+    expect(composer.placeholder).toBe("Ask about the attached files. @ attaches another.");
 
     fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
 
-    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a note or a folder."));
+    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a file or a folder."));
   });
 
   it("shows a proposal as the lines it would change", async () => {

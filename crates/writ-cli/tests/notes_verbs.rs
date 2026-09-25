@@ -688,6 +688,34 @@ fn new_follows_the_format_the_config_names() {
 }
 
 #[test]
+fn new_takes_the_format_a_name_spells_over_the_config() {
+    let fixture = Fixture::new();
+    // Plain text is configured; the name asks for Markdown.
+    let spelled = fixture.run(&["new", "Groceries.md"]);
+    assert_eq!(code(&spelled), 0, "{}", stderr(&spelled));
+    assert_eq!(
+        PathBuf::from(stdout(&spelled).trim()).file_name(),
+        fixture.notes.join("Groceries.md").file_name()
+    );
+
+    fixture.defaults_to_markdown();
+    let plain = fixture.run(&["new", "Log.TXT"]);
+    assert_eq!(code(&plain), 0, "{}", stderr(&plain));
+    assert_eq!(
+        PathBuf::from(stdout(&plain).trim()).file_name(),
+        fixture.notes.join("Log.txt").file_name()
+    );
+
+    // An extension Writ does not mint is part of the name.
+    let other = fixture.run(&["new", "Draft.2026"]);
+    assert_eq!(code(&other), 0, "{}", stderr(&other));
+    assert_eq!(
+        PathBuf::from(stdout(&other).trim()).file_name(),
+        fixture.notes.join("Draft.2026.md").file_name()
+    );
+}
+
+#[test]
 fn a_note_is_found_by_name_in_either_format() {
     let fixture = Fixture::new();
     write(&fixture.notes.join("Plain.txt"), "see [[Two]]\n");

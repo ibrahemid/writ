@@ -5,6 +5,12 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'src/**'
+      - 'demo/**'
+      - 'scripts/capture/fixtures/**'
+      - 'vite.demo.config.ts'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/site.yml'
   release:
     types: [published]
@@ -41,7 +47,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: site/pnpm-lock.yaml
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            site/pnpm-lock.yaml
 
       - name: Sync latest release data
         env:
@@ -111,6 +119,14 @@ jobs:
 
           echo "Wrote release.json:"
           cat src/data/release.json
+
+      - name: Install app dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the app for the hero
+        working-directory: .
+        run: pnpm build:demo
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-workspace

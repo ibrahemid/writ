@@ -50,7 +50,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.3.4",
-    date: "2026-08-22",
+    date: "2026-08-23",
     notes: [
       { kind: 'fixed', text: "the database no longer grows without limit: recovery snapshots write only on change, and a bloated database is compacted once at startup." },
       { kind: 'fixed', text: "a save that fails keeps the text queued and retries; closing the tab asks before discarding it, and the message names the file and the reason." },
@@ -108,7 +108,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.2.0",
-    date: "2026-07-23",
+    date: "2026-07-24",
     notes: [
       { kind: 'added', text: "local spell check: wavy underlines on likely misspellings, with fix all and a per-word preview from the status bar. off by default, and code, URLs, and links stay unflagged." },
       { kind: 'added', text: "rewrite a selection to proofread, rephrase, or polish it, streamed into a side-by-side view you approve before it applies. off until you turn it on, with a local model by default or a hosted provider whose key stays in the OS keychain." },
@@ -125,7 +125,7 @@ export const releases: ChangelogRelease[] = [
   },
   {
     version: "0.1.0",
-    date: "2026-07-07",
+    date: "2026-07-06",
     label: "first release",
     notes: [
       { kind: 'added', text: "split-pane live preview renders Markdown, HTML, Mermaid diagrams, and KaTeX math from bundled offline runtimes, with source and preview scroll in sync and find inside the preview." },

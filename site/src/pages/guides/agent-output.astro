@@ -1,11 +1,11 @@
 ---
 import Prose from '../../layouts/Prose.astro';
 ---
-<Prose title="Give an assistant your notes with MCP" description="Turn on Writ's MCP server, paste one command into Claude Code or another MCP client, approve what the program may do, and see every call it made." path="/guides/agent-output/" lead="Writ ships an MCP server. A program you connect can search and read your notes, and, if you allow it, write them. Nothing is approved until you say so, and every call is listed.">
-  <h2>1. Turn the server on</h2>
-  <p>Settings, Connected programs, "Let other programs read and write your notes". This starts nothing by itself: the program you connect launches the server when it needs it, over its own input and output. Writ opens no port.</p>
+<Prose title="Connect a program to your folder with MCP" description="Switch on Connected programs, paste one command into Claude Code or another MCP client, approve what the program may do, and see every call it made." path="/guides/agent-output/" lead="Connected programs is an MCP server in Writ. A program you connect can search and read the files in Writ's folder and, if you allow it, write them.">
+  <h2>1. Switch the app on</h2>
+  <p>Settings, Apps, Connected programs. This starts nothing by itself: the program you connect launches the server when it needs it, over its own input and output. Writ opens no port.</p>
   <h2>2. Give the program the command</h2>
-  <p>The same settings section shows the command and has a Copy button. Paste it where your client keeps its MCP servers. For Claude Code:</p>
+  <p>With the app on, the same row shows Command to give a program, with a Copy button. Paste it where your client keeps its MCP servers. For Claude Code:</p>
   <pre><code>claude mcp add writ -- "/Applications/Writ.app/Contents/MacOS/writ" mcp</code></pre>
   <p>For a client that reads a JSON file:</p>
   <pre><code>{`{
@@ -18,13 +18,13 @@ import Prose from '../../layouts/Prose.astro';
 }`}</code></pre>
   <p>On Windows and Linux the path is the one Settings shows for your install.</p>
   <h2>3. Approve the first call</h2>
-  <p>The first call from a program is refused and shows up under Programs you approved, waiting. Approve reading, and separately writing, for that program. Approving reading never grants writing. Take either away in the same list, or by editing <code>config.toml</code>; the change applies on the next call.</p>
+  <p>The first call from a program is refused and shows up under Programs you approved, waiting. Approve reading, and separately writing, for that program. Take either away in the same list, or by editing <code>config.toml</code>; the change applies on the next call.</p>
   <h2>4. What it can do</h2>
-  <p>With reading approved: list the notes, search them, read one, and read a note's links, backlinks, properties and tags. With writing approved: write a note, create one, rename one. No tool deletes or trashes a note. A write that would overwrite a newer file is refused, and the program's text lands beside the note as a conflict copy. Nothing outside the notes folder is reachable.</p>
+  <p>With reading approved: list the Markdown files in the folder, search, read a file, and read a file's links, backlinks, properties and tags. With writing approved: write, create and rename a file. No tool deletes one. When the program sends the hash of the version it read, a write over a newer file is refused and the program's text lands beside the file as a conflict copy. Nothing outside Writ's folder is reachable.</p>
   <h2>5. See what it did</h2>
-  <p>Recent activity, in the same settings section, lists every call: the program, the tool, the note, and whether it was allowed, refused or left waiting. Never the text. The list is a file in Writ's data folder and stays on your machine.</p>
-  <h2>Reports that land as files</h2>
-  <p>If a script or an agent writes files rather than calling tools, Settings, Advanced, Folder to watch for new files opens each file as it lands and brings the window forward. Have the program write there, or send its output in directly:</p>
+  <p>Recent activity, under the same app, lists every call: the program, the tool, the file, and whether it was allowed, refused or left waiting. The list holds no file text and stays in Writ's data folder on your machine.</p>
+  <h2>Output that arrives as files</h2>
+  <p>If a script writes files rather than calling tools, Settings, Advanced, Folder to watch for new files opens each file as it lands and brings the window forward. Have the program write there, or pipe its output in:</p>
   <pre><code>make test 2>&1 | writ --title tests</code></pre>
-  <p>The output becomes a note in the folder, so search finds it next week.</p>
+  <p>The output is saved as a file in Writ's folder, so search finds it later.</p>
 </Prose>

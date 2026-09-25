@@ -11,11 +11,12 @@ interface Props {
   loop?: string;
   /** Media on the left, text on the right. */
   flip?: boolean;
+  anchor?: 'top' | 'bottom';
 }
 
-const { id, title, capture, alt, loop, flip = false } = Astro.props;
+const { id, title, capture, alt, loop, flip = false, anchor = 'top' } = Astro.props;
 ---
-<section class:list={['feature', { 'is-flip': flip }]} id={id}>
+<section class:list={['feature', { 'is-flip': flip }]} id={id} data-step={id} data-anchor={anchor}>
   <div class="wrap feature-grid">
     <div class="feature-text">
       <h2>{title}</h2>

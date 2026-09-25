@@ -1,28 +1,30 @@
 # Writ + Claude Code integration
 
-Writ works well as a scratchpad alongside Claude Code. Two patterns are useful: piping command output into a new buffer, and wiring a hook that opens the result of a tool run automatically.
+The `writ` command connects Claude Code to Writ in two ways: piped output becomes a file in the Writ folder and opens in a tab, and a hook opens the result of a tool run as it happens.
 
 ## Prerequisites
 
-Install the `writ` command from Settings → Files → "Install `writ` command", or run the symlink manually:
+On macOS and Linux, install the `writ` command from Settings, Advanced, Terminal command, or create the link yourself:
 
 ```sh
 ln -sf "/Applications/Writ.app/Contents/MacOS/writ" /usr/local/bin/writ
 ```
 
+On Windows the installer puts `writ.exe` on the PATH.
+
 ## Pipe any output into Writ
 
 ```sh
-# Pipe command output into a named buffer
+# Save command output as a file named "test results" and open it
 cargo test 2>&1 | writ --title "test results"
 
-# Pipe a file's contents (useful in scripts)
-cat notes.md | writ --title "notes"
+# Pipe a file's contents from a script
+cat draft.md | writ --title "draft"
 
 # Open specific files
 writ src/main.rs Cargo.toml
 
-# Open the current directory as a workspace
+# Open the current folder
 writ .
 ```
 
@@ -53,13 +55,13 @@ To capture only failing runs:
 ```json
 {
   "hooks": {
-    "PostToolUse": [
+    "PostToolUseFailure": [
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r 'select(.tool_response.exit_code != 0) | .tool_response.stderr // .tool_response.stdout // empty' | writ --title \"error\""
+            "command": "jq -r '.error // empty' | writ --title \"error\""
           }
         ]
       }
@@ -92,7 +94,7 @@ This hook opens any file written by the `Write` tool in Writ immediately after i
 
 ## Stop hook: review session output
 
-A `Stop` hook lets you capture the final assistant message as a buffer for review or archiving:
+A `Stop` hook saves the final assistant message as a file:
 
 ```json
 {
@@ -102,7 +104,7 @@ A `Stop` hook lets you capture the final assistant message as a buffer for revie
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.assistant_message // empty' | writ --title \"session summary\""
+            "command": "jq -r '.last_assistant_message // empty' | writ --title \"session summary\""
           }
         ]
       }
@@ -111,4 +113,4 @@ A `Stop` hook lets you capture the final assistant message as a buffer for revie
 }
 ```
 
-Hook input arrives on stdin as JSON. Use `jq` to extract the relevant field and pipe the result to `writ`. Empty output from `jq` is ignored by `writ` (no window opens for empty pipes).
+Hook input arrives on stdin as JSON. Use `jq` to extract the relevant field and pipe the result to `writ`. `writ` ignores empty or whitespace-only input and opens no window for it.

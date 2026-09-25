@@ -153,6 +153,67 @@ describe('built output', () => {
   });
 });
 
+describe('the app the hero loads', () => {
+  const demo = join(DIST, 'demo', 'index.html');
+
+  it('ships at /demo/ and keeps it out of search', () => {
+    expect(existsSync(demo), 'run pnpm build:demo in the repo root before the site build').toBe(true);
+    expect(readFileSync(demo, 'utf8')).toMatch(/<meta name="robots" content="noindex"\s*\/?>/);
+  });
+
+  it('ships the module script its page loads', () => {
+    const html = readFileSync(demo, 'utf8');
+    const scripts = [...html.matchAll(/<script\b[^>]*type="module"[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1] ?? '');
+    expect(scripts.length, 'the demo page names no module script').toBeGreaterThan(0);
+    for (const src of scripts) {
+      const url = new URL(src, `${SITE_ORIGIN}/demo/`).pathname;
+      expect(resolvesOnDisk(url), `demo module script ${src}`).toBe(true);
+    }
+  });
+
+  it('is absent from the sitemap, as the refresh from /vs/obsidian/ is', () => {
+    const sitemap = readFileSync(join(DIST, 'sitemap-0.xml'), 'utf8');
+    expect(sitemap).not.toContain('/demo/');
+    expect(sitemap).not.toContain('/vs/obsidian/');
+    expect(sitemap).toContain('/guides/obsidian/');
+  });
+});
+
+describe('recorded media', () => {
+  const REPO = resolve(ROOT, '..');
+  const runSh = readFileSync(join(REPO, 'scripts', 'capture', 'run.sh'), 'utf8');
+  const readLimit = (name: string): number => Number(new RegExp(`^${name}=(\\d+)$`, 'm').exec(runSh)?.[1]);
+  const LIMITS = { webm: readLimit('WEBM_LIMIT'), mp4: readLimit('MP4_LIMIT') };
+  const GIF_LIMIT = readLimit('GIF_LIMIT');
+
+  it('reads every size limit the capture harness encodes to', () => {
+    for (const [name, limit] of Object.entries({ WEBM_LIMIT: LIMITS.webm, MP4_LIMIT: LIMITS.mp4, GIF_LIMIT })) {
+      expect(Number.isInteger(limit) && limit > 0, `${name} is missing from scripts/capture/run.sh`).toBe(true);
+    }
+  });
+
+  it('keeps every loop within the limit the capture harness encodes its format to', () => {
+    const media = join(DIST, 'media');
+    const files = existsSync(media) ? readdirSync(media) : [];
+    for (const [extension, limit] of Object.entries(LIMITS)) {
+      const over = files
+        .filter((name) => name.endsWith(`.${extension}`))
+        .map((name) => ({ name, size: statSync(join(media, name)).size }))
+        .filter(({ size }) => size > limit)
+        .map(({ name, size }) => `${name}: ${size} bytes`);
+      expect(over, `${extension} loops over ${limit} bytes:\n${over.join('\n')}`).toEqual([]);
+    }
+  });
+
+  it('ships the README hero as a light and a dark GIF, each within the size limit', () => {
+    for (const theme of ['light', 'dark']) {
+      const gif = join(REPO, 'docs', 'media', `hero-${theme}.gif`);
+      expect(existsSync(gif), `docs/media/hero-${theme}.gif is missing`).toBe(true);
+      if (existsSync(gif)) expect(statSync(gif).size, `docs/media/hero-${theme}.gif`).toBeLessThanOrEqual(GIF_LIMIT);
+    }
+  });
+});
+
 describe('site source', () => {
   it('writes nothing to the console', () => {
     const noisy: string[] = [];

@@ -19,8 +19,8 @@ use std::path::{Path, PathBuf};
 use writ_core::config::FileExtension;
 use writ_core::notes::links::Resolution;
 use writ_core::notes::{
-    minted_stem, name_is_taken, note_display_name, note_file_stem, rename_stem, WriteOrigin,
-    NAME_IS_EMPTY,
+    explicit_extension, minted_stem, name_is_taken, note_display_name, note_file_stem, rename_stem,
+    WriteOrigin, NAME_IS_EMPTY,
 };
 use writ_storage::database::migrations::binary_schema_version;
 use writ_storage::errors::StorageError;
@@ -106,13 +106,13 @@ pub fn usage() -> String {
     [
         "Usage: writ <verb> [arguments]",
         "",
-        "  writ links <file> [--json]        links written in a file",
-        "  writ backlinks <file> [--json]    links in other files pointing at it",
-        "  writ properties <file> [--json]   the file's frontmatter properties",
-        "  writ tags [<file>] [--json]       a file's tags, or every tag in the folder",
-        "  writ new [<name>] [--json]        create a file in your folder",
-        "  writ rename <file> <new-name>     rename a file, keeping its folder",
-        "  writ trash <file>                 move a file to the trash",
+        "  writ links <file> [--json]               links written in a file",
+        "  writ backlinks <file> [--json]           links in other files pointing at it",
+        "  writ properties <file> [--json]          the file's frontmatter properties",
+        "  writ tags [<file>] [--json]              a file's tags, or every tag in the folder",
+        "  writ new [<name>] [--json]               create a file in your folder",
+        "  writ rename <file> <new-name> [--json]   rename a file, keeping its folder",
+        "  writ trash <file> [--json]               move a file to the trash",
         "",
         "A <file> is a path, or the name of a file in your folder.",
         "rename does not yet rewrite links that name the file by its old name.",
@@ -759,19 +759,20 @@ fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
 /// by counter, which is what the window's own New File makes (ADR-041 §3). The
 /// date belongs to Today's File, and a name that was given and survives
 /// sanitising to nothing still falls back to it.
+///
+/// A name ending in a text extension is minted in that format rather than the
+/// configured one, as the window's own named New File does: `Groceries.md`
+/// asks for Markdown whatever the config holds (ADR-041 §2).
 fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
     let named = name.map(str::trim).filter(|name| !name.is_empty());
-    let stem = match named {
-        Some(name) => note_file_stem(name, ctx.now),
-        None => minted_stem(ctx.now),
+    let spelled = named.and_then(explicit_extension);
+    let stem = match (named, spelled) {
+        (_, Some((stem, _))) => note_file_stem(stem, ctx.now),
+        (Some(name), None) => note_file_stem(name, ctx.now),
+        (None, None) => minted_stem(ctx.now),
     };
-    match note_ops::create_note(
-        &ctx.notes_dir,
-        &stem,
-        ctx.default_extension.as_str(),
-        WriteOrigin::Cli,
-        None,
-    ) {
+    let extension = spelled.map_or(ctx.default_extension.as_str(), |(_, extension)| extension);
+    match note_ops::create_note(&ctx.notes_dir, &stem, extension, WriteOrigin::Cli, None) {
         Ok(path) => path_outcome(json, &path, None),
         Err(error) => Outcome::failed(format!(
             "cannot create a file in {}: {}",
@@ -986,6 +987,23 @@ mod tests {
         let usage = usage();
         for name in VERB_NAMES {
             assert!(usage.contains(*name), "usage does not mention {name}");
+        }
+    }
+
+    #[test]
+    fn the_usage_text_offers_json_on_every_verb() {
+        let usage = usage();
+        for name in VERB_NAMES {
+            let line = usage
+                .lines()
+                .find(|line| line.trim_start().starts_with(&format!("writ {name} ")))
+                .unwrap_or_else(|| panic!("no usage line for {name}"));
+            assert!(line.contains("[--json]"), "{name} takes --json: {line}");
+            assert!(
+                matches!(parse(&os(&[name, "a", "b", "--json"])), Some(Ok(_)))
+                    || matches!(parse(&os(&[name, "a", "--json"])), Some(Ok(_))),
+                "{name} refused --json"
+            );
         }
     }
 

@@ -31,35 +31,12 @@ const still = src ? await getImage({ src, format: 'webp', width: 1320 }) : undef
 )}
 
 <script>
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!reduced) {
-    const seen = new WeakSet<HTMLVideoElement>();
-    const watcher = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        const video = entry.target as HTMLVideoElement;
-        if (!entry.isIntersecting) {
-          video.pause();
-          continue;
-        }
-        if (!seen.has(video)) {
-          seen.add(video);
-          video.load();
-        }
-        void video.play().catch(() => {});
-      }
-    });
-    const toggle = (video: HTMLVideoElement) => {
-      if (video.paused) void video.play().catch(() => {});
-      else video.pause();
-    };
-    for (const video of document.querySelectorAll<HTMLVideoElement>('video[data-loop]')) {
-      watcher.observe(video);
-      video.addEventListener('click', () => toggle(video));
-      video.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        toggle(video);
-      });
-    }
-  }
+  import { startLoopPlayback } from '../scripts/loops';
+
+  startLoopPlayback({
+    videos: Array.from(document.querySelectorAll<HTMLVideoElement>('video[data-loop]')),
+    reducedQuery: window.matchMedia('(prefers-reduced-motion: reduce)'),
+    IntersectionObserver,
+    getComputedStyle: (element) => window.getComputedStyle(element),
+  });
 </script>
