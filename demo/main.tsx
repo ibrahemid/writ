@@ -7,6 +7,7 @@ import { CURSOR_LINE_AT_START } from "./backend/seed";
 import { createSceneChannel } from "./scenes/channel";
 import { createSceneRunner } from "./scenes/runner";
 import { createScenes, settle } from "./scenes/scenes";
+import { installGuestScrollIntoView } from "./guest-scroll";
 import "./scenes/caret.css";
 
 function installBackend(): DemoControls {
@@ -38,8 +39,9 @@ HTMLIFrameElement.prototype.setAttribute = function (name: string, value: string
 };
 
 // Inside the site's hero the app is a guest on the page until the visitor
-// clicks or types in it: nothing in it takes focus, and a wheel over it
-// scrolls the page rather than the file. The parent hears when it is ready.
+// clicks or types in it: nothing in it takes focus, a wheel over it scrolls
+// the page rather than the file, and a scroll into view moves only the app's
+// own scrollers. The parent hears when it is ready.
 const isEmbedded = window.parent !== window;
 let isEngaged = !isEmbedded;
 const sceneChannel = isEmbedded ? createSceneChannel({ parent: window.parent, origin: window.location.origin }) : null;
@@ -59,6 +61,8 @@ if (isEmbedded) {
   HTMLElement.prototype.focus = function (options?: FocusOptions) {
     if (isEngaged) focus.call(this, options);
   };
+
+  installGuestScrollIntoView(() => !isEngaged);
 
   const LINE_PX = 16;
   window.addEventListener(
