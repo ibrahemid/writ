@@ -74,6 +74,7 @@ export function createScenes(random: Random = Math.random): Readonly<Record<Scen
       await typeText(editor, MARKDOWN_TYPED, signal, random);
       await sleep(600, signal);
       app.setLayout(editor, "source");
+      editor.revealCursor();
       await sleep(1500, signal);
       app.setLayout(editor, "inline");
     },
