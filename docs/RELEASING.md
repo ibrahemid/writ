@@ -82,7 +82,7 @@ No further one-time code change is required.
 ### 2.1 Bump the version
 
 Trigger the `Bump version` workflow from the Actions tab and supply the new
-semver (e.g. `0.1.0`, `0.2.0-rc.1`). The workflow updates:
+semver (e.g. `0.1.0`, `0.2.0-1`). The workflow updates:
 
 - `Cargo.toml` (workspace package version) and `Cargo.lock` (the workspace
   crates only)
@@ -311,27 +311,32 @@ the distribution-manifest bump PR. Then check:
 
 ## 3. Release-candidate builds
 
-For pre-release testing, tag with a suffix:
+For pre-release testing, bump to a numeric pre-release and tag it:
 
 ```bash
-git tag v0.2.0-rc.1
-git push origin v0.2.0-rc.1
+git tag v0.2.0-1
+git push origin v0.2.0-1
 ```
+
+The MSI bundler accepts only a number of at most 65535 after the dash
+(`0.2.0-1` becomes MSI version `0.2.0.1`); `-rc.1` fails the Windows leg. The
+MSI of a candidate sorts above the final `0.2.0` (`0.2.0.0`), so do not install
+it on a machine that should take the release.
 
 The workflow detects the suffix and marks the draft release as a pre-release
 automatically. Pre-releases are not served by `releases/latest`, so installed
 clients will not auto-update to them unless you temporarily override the
 updater endpoint.
 
-Cut an `-rc` before any release that changes signing, notarization, or the
+Cut a candidate before any release that changes signing, notarization, or the
 installer. Signing failures are only visible on a published artifact: the
 build succeeds either way, and an unsigned or unstapled `.pkg` looks identical
 until Gatekeeper sees it. Download the `.pkg` from the pre-release and run:
 
 ```bash
-pkgutil --check-signature Writ_0.2.0-rc.1_universal.pkg   # Developer ID Installer chain
-spctl -a -t install -vv Writ_0.2.0-rc.1_universal.pkg     # what Gatekeeper decides
-xcrun stapler validate Writ_0.2.0-rc.1_universal.pkg      # ticket is embedded, works offline
+pkgutil --check-signature Writ_0.2.0-1_universal.pkg   # Developer ID Installer chain
+spctl -a -t install -vv Writ_0.2.0-1_universal.pkg     # what Gatekeeper decides
+xcrun stapler validate Writ_0.2.0-1_universal.pkg      # ticket is embedded, works offline
 ```
 
 Run them on a machine that has never had the signing certificate installed. All
