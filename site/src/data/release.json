@@ -1,27 +1,27 @@
 {
-  "version": "0.4.0",
-  "tag": "v0.4.0",
+  "version": "0.5.0-1",
+  "tag": "v0.5.0-1",
   "publishedAt": "2026-09-06T11:59:45Z",
   "published": false,
   "notarized": false,
   "hasChecksums": false,
   "platforms": {
     "mac": {
-      "dmg": "https://github.com/ibrahemid/writ/releases/download/v0.4.0/Writ_0.4.0_universal.dmg",
-      "pkg": "https://github.com/ibrahemid/writ/releases/download/v0.4.0/Writ_0.4.0_universal.pkg",
+      "dmg": "https://github.com/ibrahemid/writ/releases/download/v0.5.0-1/Writ_0.5.0-1_universal.dmg",
+      "pkg": "https://github.com/ibrahemid/writ/releases/download/v0.5.0-1/Writ_0.5.0-1_universal.pkg",
       "sha256_dmg": "",
       "sha256_pkg": "",
       "size_dmg": 0,
       "size_pkg": 0
     },
     "win": {
-      "msi": "https://github.com/ibrahemid/writ/releases/download/v0.4.0/Writ_0.4.0_x64_en-US.msi",
+      "msi": "https://github.com/ibrahemid/writ/releases/download/v0.5.0-1/Writ_0.5.0-1_x64_en-US.msi",
       "sha256_msi": "",
       "size_msi": 0
     },
     "linux": {
-      "deb": "https://github.com/ibrahemid/writ/releases/download/v0.4.0/Writ_0.4.0_amd64.deb",
-      "appImage": "https://github.com/ibrahemid/writ/releases/download/v0.4.0/Writ_0.4.0_amd64.AppImage",
+      "deb": "https://github.com/ibrahemid/writ/releases/download/v0.5.0-1/Writ_0.5.0-1_amd64.deb",
+      "appImage": "https://github.com/ibrahemid/writ/releases/download/v0.5.0-1/Writ_0.5.0-1_amd64.AppImage",
       "sha256_deb": "",
       "sha256_appImage": "",
       "size_deb": 0,
