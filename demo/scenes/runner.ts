@@ -1,5 +1,5 @@
 import { SceneCancelledError } from "./errors";
-import type { Scene, SceneApp, SceneEditor, SceneName, ScenePalette, ScenePlayer, SceneState } from "./types";
+import type { Scene, SceneApp, SceneEditor, SceneName, ScenePalette, ScenePlayer, SceneSettle, SceneState } from "./types";
 
 export const KEY_DELAY_MIN_MS = 35;
 export const KEY_DELAY_MAX_MS = 70;
@@ -83,7 +83,7 @@ export async function eraseQuery(field: Pick<ScenePalette, "setQuery">, query: s
 export interface SceneRunnerOptions {
   app: SceneApp;
   scenes: Readonly<Record<SceneName, Scene>>;
-  settle: Scene;
+  settle: SceneSettle;
   report: (name: SceneName, state: SceneState) => void;
   reportFailure?: (name: SceneName, error: unknown) => void;
 }
@@ -106,7 +106,7 @@ export function createSceneRunner(options: SceneRunnerOptions): ScenePlayer {
     if (previous) await previous.finished;
     try {
       throwIfCancelled(signal);
-      await settle(app, signal);
+      await settle(app, signal, name);
       throwIfCancelled(signal);
       await scenes[name](app, signal);
       throwIfCancelled(signal);

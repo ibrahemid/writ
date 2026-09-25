@@ -2,7 +2,7 @@ import type { SaveState } from "../../src/stores/global/save-status";
 import { CURSOR_LINE_AT_START, HERO_NOTE, VERSIONED_NOTE } from "../backend/seed";
 import { ScenePaletteMissingError, SceneStateError, SceneTimeoutError } from "./errors";
 import { checked, eraseQuery, sleep, typeQuery, typeText, waitUntil, type Random } from "./runner";
-import type { Scene, SceneApp, SceneName } from "./types";
+import type { Scene, SceneApp, SceneName, SceneSettle } from "./types";
 
 export const TODO_NOTE = "To do.txt";
 export const LOG_NOTE = "Server log.txt";
@@ -43,13 +43,15 @@ async function restoreSeedText(app: SceneApp, note: string, signal: AbortSignal)
   return { editor, seed };
 }
 
-export const settle: Scene = async (app, signal) => {
+// The Apps step rests on the open graph, so the Graph step carries on from that drawing instead of closing and redrawing it.
+export const settle: SceneSettle = async (app, signal, next) => {
   app.clearTyping();
   app.settings.close();
   app.palette.close();
   app.versions.close();
-  app.graph.close();
   app.restoreLayouts();
+  if (next === "graph") return;
+  app.graph.close();
   await checked(app.apps.setOn("graph", false), signal);
 };
 

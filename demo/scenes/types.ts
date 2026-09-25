@@ -58,6 +58,8 @@ export interface SceneApp {
 
 export type Scene = (app: SceneApp, signal: AbortSignal) => Promise<void>;
 
+export type SceneSettle = (app: SceneApp, signal: AbortSignal, next: SceneName) => Promise<void>;
+
 export interface ScenePlayer {
   play(name: SceneName): Promise<void>;
   cancel(): void;
