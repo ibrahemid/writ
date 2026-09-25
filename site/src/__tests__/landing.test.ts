@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const SITE = process.cwd();
@@ -234,10 +234,16 @@ describe('the landing page', () => {
     expect(hold).toBeLessThanOrEqual(150);
   });
 
-  it('sets the H1 at its smallest size at the narrowest breakpoint', () => {
-    expect(CSS).toContain('@media (max-width: 360px) {\n  .hero-h1 {\n    font-size: var(--writ-site-text-h1-xs);\n  }\n}');
-    const size = (name: string) => Number(new RegExp(`--writ-site-text-${name}: (\\d+)px;`).exec(TOKENS)?.[1]);
-    expect(size('h1-xs')).toBeLessThan(size('h1'));
+  it('scales the H1 with the viewport below the small breakpoint, at the default size from 480px and above its floor at 320px', () => {
+    const small = CSS.slice(CSS.indexOf('@media (max-width: 640px) {'), CSS.indexOf('@media (max-width: 880px) {'));
+    expect(small).toContain(
+      '  .hero-h1 {\n    font-size: clamp(var(--writ-site-text-h1-xs), var(--writ-site-text-h1-fluid), var(--writ-site-text-h1));\n  }',
+    );
+    const px = (name: string) => Number(new RegExp(`--writ-site-text-${name}: (\\d+)px;`).exec(TOKENS)?.[1]);
+    const vw = Number(/--writ-site-text-h1-fluid: (\d+(?:\.\d+)?)vw;/.exec(TOKENS)?.[1]);
+    expect(px('h1-xs')).toBeLessThan(px('h1'));
+    expect((vw * 480) / 100).toBeGreaterThanOrEqual(px('h1'));
+    expect((vw * 320) / 100).toBeGreaterThan(px('h1-xs'));
   });
 
   it('hides nothing unless an attribute or a class set by script says so', () => {
@@ -260,5 +266,91 @@ describe('the landing page', () => {
         /^(a|\.btn-primary|\.btn-primary:hover|\.skip|:focus-visible)$/,
       );
     }
+  });
+});
+
+describe('the site type', () => {
+  const LAYOUT = readFileSync(join(SITE, 'src', 'layouts', 'Site.astro'), 'utf8');
+  const FONTS = join(SITE, 'design-system', 'fonts');
+  const FACES = [
+    { family: 'Wix Madefor Display', file: 'wix-madefor-display-latin-variable', url: 'displayFontUrl' },
+    { family: 'Wix Madefor Text', file: 'wix-madefor-text-latin-variable', url: 'textFontUrl' },
+  ];
+  const rules = leafRules(CSS);
+  const rule = (selector: string): string => {
+    const found = rules.find((r) => r.selector === selector);
+    expect(found, `no rule for ${selector}`).toBeDefined();
+    return found?.body ?? '';
+  };
+
+  it('self-hosts the two Wix Madefor faces, each with its licence, and preloads both', () => {
+    for (const { family, file, url } of FACES) {
+      expect(existsSync(join(FONTS, `${file}.woff2`)), file).toBe(true);
+      expect(existsSync(join(FONTS, `OFL-${file.replace('-latin-variable', '')}.txt`)), `${file} licence`).toBe(true);
+      expect(LAYOUT).toContain(`import ${url} from '../../design-system/fonts/${file}.woff2?url';`);
+      expect(LAYOUT).toContain(`{ family: '${family}', url: ${url} }`);
+    }
+    expect(LAYOUT).toContain('font-weight:400 800;font-display:swap;');
+    expect(LAYOUT).toContain('{fontFaces.map(({ url }) => <link rel="preload" href={url} as="font" type="font/woff2" crossorigin />)}');
+    expect(existsSync(join(FONTS, 'inter-latin-variable.woff2'))).toBe(false);
+    expect(`${LAYOUT}\n${CSS}`).not.toMatch(/\bInter\b|inter-latin/);
+  });
+
+  it('declares the faces and the marker colours as tokens', () => {
+    expect(TOKENS).toContain('--writ-site-font-display: "Wix Madefor Display", var(--writ-font-ui);');
+    expect(TOKENS).toContain('--writ-site-font-text: "Wix Madefor Text", var(--writ-font-ui);');
+    expect(TOKENS).toMatch(/--writ-site-hl: #[0-9A-Fa-f]{6};/);
+    expect(TOKENS).toContain('--writ-site-hl-ink: var(--writ-fg);');
+  });
+
+  it('sets the body in the text cut, and the headings and the wordmark in the display cut', () => {
+    expect(rule('body')).toContain('font-family: var(--writ-site-font-text);');
+    const display = rules
+      .filter(({ body }) => body.includes('var(--writ-site-font-display)'))
+      .flatMap(({ selector }) => selector.split(',').map((part) => part.trim()));
+    expect(display.sort()).toEqual(
+      ['.nav-mark', '.hero-h1', '.feature h2', '.download h2', '.dl-os', '.download-page h1', '.prose h1', '.prose h2', '.prose h3'].sort(),
+    );
+    expect(rules.filter(({ body }) => /font-family:/.test(body) && !/var\(--writ-(site-font-(display|text)|font-mono)\)/.test(body))).toEqual([]);
+  });
+
+  it('weights the hero heading at 700 with -0.02em tracking and the other headings at 600', () => {
+    const hero = rule('.hero-h1');
+    expect(hero).toContain('font-weight: 700;');
+    expect(hero).toContain('letter-spacing: var(--writ-site-tracking-heading);');
+    expect(TOKENS).toContain('--writ-site-tracking-heading: -0.02em;');
+    for (const selector of ['.nav-mark', '.feature h2', '.download h2', '.dl-os', '.prose h1,\n.download-page h1', '.prose h2', '.prose h3']) {
+      expect(rule(selector), selector).toContain('font-weight: 600;');
+    }
+  });
+
+  it('draws the marker behind the shown noun, fully when nothing rotates', () => {
+    const noun = rule('.noun');
+    expect(noun).toContain('isolation: isolate;');
+    expect(noun).toContain('color: var(--writ-site-hl-ink);');
+    const sweep = rule('.noun::before');
+    expect(sweep).toContain('background: var(--writ-site-hl);');
+    expect(sweep).toContain('z-index: -1;');
+    expect(sweep).toContain('transform: rotate(-1.2deg) translateX(0) scaleX(1);');
+    expect(sweep).not.toContain('transition');
+  });
+
+  it('grows the marker from the left after the noun arrives and collapses it to the right as it leaves', () => {
+    const idle = rule('.noun-slot.is-live .noun::before');
+    expect(idle).toContain('transform: rotate(-1.2deg) translateX(0) scaleX(0);');
+    expect(idle).toContain('transition: transform var(--writ-site-motion-crossfade) var(--writ-ease);');
+    const on = rule('.noun-slot.is-live .noun.is-on::before');
+    expect(on).toContain('transform: rotate(-1.2deg) translateX(0) scaleX(1);');
+    expect(on).toContain('transition-delay: var(--writ-site-motion-noun-sweep-delay);');
+    const out = rule('.noun-slot.is-live .noun.is-out::before');
+    expect(out).toContain('transform: rotate(-1.2deg) translateX(100%) scaleX(0);');
+    expect(out).toContain('transition-duration: var(--writ-site-motion-noun-sweep-out);');
+    // One origin for every state: moving the origin of a rotated box shifts it.
+    expect(
+      rules.filter(({ selector, body }) => selector.includes('.noun') && body.includes('transform-origin')).map(({ selector }) => selector),
+    ).toEqual(['.noun::before']);
+    const reduced = /@media \(prefers-reduced-motion: reduce\) \{\s*:root \{([^}]*)\}/.exec(TOKENS)?.[1] ?? '';
+    expect(reduced).toContain('--writ-site-motion-noun-sweep-delay: 0ms;');
+    expect(reduced).toContain('--writ-site-motion-noun-sweep-out: 0ms;');
   });
 });

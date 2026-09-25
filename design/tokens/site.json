@@ -1,6 +1,6 @@
 {
   "site": {
-    "$description": "The site's own layout and type scale. Colour, spacing 1 to 7, radius, motion and fonts come from base and the light colour layer; only what the site adds on top lives here.",
+    "$description": "The site's own faces, marker colour, layout and type scale. Spacing 1 to 7, radius, the other colours and the base motion come from base and the light colour layer; only what the site adds on top lives here.",
     "container": { "$type": "dimension", "$value": { "value": 1120, "unit": "px" } },
     "measure": { "$type": "dimension", "$value": { "value": 60, "unit": "ch" } },
     "measure-prose": { "$type": "dimension", "$value": { "value": 68, "unit": "ch" } },
@@ -9,6 +9,13 @@
     "media-width": { "$type": "dimension", "$value": { "value": 1200, "unit": "px" } },
     "nav-height": { "$type": "dimension", "$value": { "value": 56, "unit": "px" } },
     "control-height": { "$type": "dimension", "$value": { "value": 44, "unit": "px" } },
+    "font": {
+      "$type": "fontFamily",
+      "display": { "$value": "\"Wix Madefor Display\", var(--writ-font-ui)" },
+      "text": { "$value": "\"Wix Madefor Text\", var(--writ-font-ui)" }
+    },
+    "hl": { "$type": "color", "$value": "#FFE97A" },
+    "hl-ink": { "$type": "color", "$value": "var(--writ-fg)" },
     "text": {
       "$type": "dimension",
       "xs": { "$value": { "value": 13, "unit": "px" } },
@@ -18,7 +25,8 @@
       "h3": { "$value": { "value": 22, "unit": "px" } },
       "h2": { "$value": { "value": 28, "unit": "px" } },
       "h2-lg": { "$value": { "value": 32, "unit": "px" } },
-      "h1-xs": { "$value": { "value": 36, "unit": "px" } },
+      "h1-xs": { "$value": { "value": 32, "unit": "px" } },
+      "h1-fluid": { "$value": { "value": 10.8, "unit": "vw" } },
       "h1": { "$value": { "value": 44, "unit": "px" } },
       "h1-md": { "$value": { "value": 60, "unit": "px" } },
       "h1-lg": { "$value": { "value": 72, "unit": "px" } }
@@ -52,6 +60,8 @@
       "$type": "duration",
       "crossfade": { "$value": { "value": 350, "unit": "ms" } },
       "noun-interval": { "$value": { "value": 2400, "unit": "ms" } },
+      "noun-sweep-delay": { "$value": { "value": 120, "unit": "ms" } },
+      "noun-sweep-out": { "$value": { "value": 220, "unit": "ms" } },
       "arrive": { "$value": { "value": 480, "unit": "ms" } },
       "arrive-stagger": { "$value": { "value": 60, "unit": "ms" } },
       "arrive-window": { "$value": { "value": 640, "unit": "ms" } },
@@ -73,7 +83,6 @@
     "bp": {
       "$type": "dimension",
       "$description": "The one breakpoint set. Media queries cannot read custom properties, so site.css repeats these values as literals and nothing else does.",
-      "xs": { "$value": { "value": 360, "unit": "px" } },
       "sm": { "$value": { "value": 640, "unit": "px" } },
       "md": { "$value": { "value": 880, "unit": "px" } },
       "lg": { "$value": { "value": 1200, "unit": "px" } }

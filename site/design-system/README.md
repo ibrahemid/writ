@@ -7,6 +7,7 @@ length of its own. `site/src/styles/site.css` holds the rules, and the only
 literal lengths in it are the three widths of the breakpoint set, which a
 media query cannot read from a custom property.
 
-`fonts/` holds the one self-hosted family, Inter. `site/design/REFERENCE.md`
+`fonts/` holds the two self-hosted families, Wix Madefor Display and Wix
+Madefor Text. `site/design/REFERENCE.md`
 records the reference set the layout was measured against and the lock taken
 from it.
