@@ -4,7 +4,11 @@ import type { Scene, SceneApp, SceneEditor, SceneName, ScenePalette, ScenePlayer
 export const KEY_DELAY_MIN_MS = 35;
 export const KEY_DELAY_MAX_MS = 70;
 export const LINE_END_DELAY_MS = 250;
+// CodeMirror's completion keeps its 100 ms typing timer armed when a tab switch drops the extension, and it throws when it fires.
+export const TYPING_COOLDOWN_MS = 250;
 const POLL_MS = 16;
+
+const lastKeystrokeAt = new WeakMap<AbortSignal, number>();
 
 export type Random = () => number;
 
@@ -57,6 +61,7 @@ export async function typeText(editor: SceneEditor, text: string, signal: AbortS
     for (const char of text) {
       await sleep(computeKeyDelay(char, random), signal);
       editor.insert(char);
+      lastKeystrokeAt.set(signal, Date.now());
     }
   } finally {
     editor.setTyping(false);
@@ -93,17 +98,28 @@ export function createSceneRunner(options: SceneRunnerOptions): ScenePlayer {
   const { app, scenes, settle, report } = options;
   const reportFailure = options.reportFailure ?? logSceneFailure;
   let latest: SceneRun | null = null;
+  let quietUntil = 0;
+
+  function holdAfterRecentKeystroke(signal: AbortSignal): void {
+    const keystrokeAt = lastKeystrokeAt.get(signal);
+    const now = Date.now();
+    if (keystrokeAt === undefined || now - keystrokeAt >= TYPING_COOLDOWN_MS) return;
+    quietUntil = Math.max(quietUntil, now + TYPING_COOLDOWN_MS);
+  }
 
   async function perform(name: SceneName, previous: SceneRun | null, signal: AbortSignal): Promise<void> {
     if (previous) await previous.finished;
     try {
       throwIfCancelled(signal);
+      const quietForMs = quietUntil - Date.now();
+      if (quietForMs > 0) await sleep(quietForMs, signal);
       await settle(app, signal);
       throwIfCancelled(signal);
       await scenes[name](app, signal);
       throwIfCancelled(signal);
       report(name, "done");
     } catch (error) {
+      holdAfterRecentKeystroke(signal);
       if (!(error instanceof SceneCancelledError) && !signal.aborted) reportFailure(name, error);
       report(name, "cancelled");
     }
