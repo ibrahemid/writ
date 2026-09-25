@@ -786,17 +786,37 @@ fn printed_stem(output: &std::process::Output) -> String {
         .into_owned()
 }
 
+/// Every stem `writ_core::notes::minted_stem` gives a moment from `since` to
+/// `until`, oldest first. The clock can pass a minute between `writ new`
+/// minting a file and a test naming it, so each minute the span touches is a
+/// stem the file may carry.
+fn minted_stems(
+    since: chrono::DateTime<chrono::Utc>,
+    until: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
+    let mut stems = Vec::new();
+    let mut moment = since;
+    while moment <= until {
+        stems.push(writ_core::notes::minted_stem(moment));
+        moment += chrono::Duration::seconds(60);
+    }
+    stems.push(writ_core::notes::minted_stem(until));
+    stems.dedup();
+    stems
+}
+
 #[test]
 fn new_with_no_name_mints_the_timestamped_name() {
     let fixture = Fixture::new();
+    let since = chrono::Utc::now();
     let output = fixture.run(&["new"]);
 
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     let stem = printed_stem(&output);
-    assert_eq!(
-        stem,
-        writ_core::notes::minted_stem(chrono::Utc::now()),
-        "the same name the window's own New File makes"
+    let stems = minted_stems(since, chrono::Utc::now());
+    assert!(
+        stems.contains(&stem),
+        "{stem} is not the name the window's own New File makes, one of {stems:?}"
     );
     assert_eq!(
         PathBuf::from(stdout(&output).trim()).extension(),

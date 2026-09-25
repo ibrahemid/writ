@@ -364,7 +364,8 @@ fn first_save_of_a_new_note_creates_a_dated_file_in_the_notes_folder() {
 fn the_dated_file_name_dedupes_when_todays_note_already_exists() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
-    let day = writ_core::notes::date_stem(chrono::Utc::now());
+    let doc = new_note(&state);
+    let day = writ_core::notes::date_stem(doc.created_at);
     let extension = state.default_extension().as_str();
     std::fs::write(
         state.notes_root().join(format!("{day}.{extension}")),
@@ -372,7 +373,6 @@ fn the_dated_file_name_dedupes_when_todays_note_already_exists() {
     )
     .unwrap();
 
-    let doc = new_note(&state);
     save_buffer_content_inner(&state, &doc.id, "today's").expect("save");
 
     assert_eq!(

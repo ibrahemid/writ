@@ -4,6 +4,7 @@
 
 use std::sync::Mutex as StdMutex;
 
+use chrono::{DateTime, TimeZone, Utc};
 use writ_core::config::{AppId, FileExtension, SidebarSection, WritConfig};
 use writ_tauri_lib::commands::buffer::save_buffer_content_inner;
 use writ_tauri_lib::commands::first_run::{
@@ -53,13 +54,79 @@ fn opened_path(note: &writ_core::buffer::document::BufferDocument) -> std::path:
     std::path::PathBuf::from(note.source_path.clone().expect("a file"))
 }
 
-/// The name a file nobody named carries: `writ_core::notes::minted_stem` plus
-/// the format the launch was answered with.
-fn minted(extension: &str) -> String {
-    format!(
-        "{}.{extension}",
-        writ_core::notes::minted_stem(chrono::Utc::now())
-    )
+/// Every stem `writ_core::notes::minted_stem` gives a moment from `since` to
+/// `until`, oldest first. The clock can pass a minute between the app minting
+/// a file and a test naming it, so each minute the span touches is a stem the
+/// file may carry.
+fn minted_stems(since: DateTime<Utc>, until: DateTime<Utc>) -> Vec<String> {
+    let mut stems = Vec::new();
+    let mut moment = since;
+    while moment <= until {
+        stems.push(writ_core::notes::minted_stem(moment));
+        moment += chrono::Duration::seconds(60);
+    }
+    stems.push(writ_core::notes::minted_stem(until));
+    stems.dedup();
+    stems
+}
+
+/// The names a file nobody named can carry when it was minted from `since` to
+/// `until`: a minted stem plus the format the launch was answered with.
+fn minted_names(since: DateTime<Utc>, until: DateTime<Utc>, extension: &str) -> Vec<String> {
+    minted_stems(since, until)
+        .into_iter()
+        .map(|stem| format!("{stem}.{extension}"))
+        .collect()
+}
+
+/// The one file in the notes folder, which must carry a name minted since
+/// `since`.
+fn minted_file(state: &AppState, since: DateTime<Utc>, extension: &str, why: &str) -> String {
+    let entries = notes_folder_entries(state);
+    let names = minted_names(since, Utc::now(), extension);
+    match entries.as_slice() {
+        [name] if names.contains(name) => name.clone(),
+        _ => panic!("{why}: the folder holds {entries:?}, not one of {names:?} alone"),
+    }
+}
+
+#[test]
+fn a_file_minted_the_minute_before_the_check_still_carries_a_minted_name() {
+    let stem = writ_core::notes::minted_stem;
+    let minute = chrono::Duration::seconds(60);
+    let since = Utc
+        .with_ymd_and_hms(2026, 1, 15, 3, 33, 59)
+        .single()
+        .expect("a moment");
+    let until = since + chrono::Duration::seconds(2);
+    assert_ne!(stem(since), stem(until), "the check is a minute later");
+
+    let names = minted_names(since, until, "txt");
+    let accepted = [
+        format!("{}.txt", stem(since)),
+        format!("{}.txt", stem(until)),
+    ];
+    for name in accepted {
+        assert!(names.contains(&name), "{name} is not one of {names:?}");
+    }
+    let rejected = [
+        format!("{}.txt", stem(since - minute)),
+        format!("{}.txt", stem(until + minute)),
+        format!("{}.md", stem(since)),
+        format!("{}-2.txt", stem(since)),
+    ];
+    for name in rejected {
+        assert!(!names.contains(&name), "{name} is one of {names:?}");
+    }
+
+    // A span over a minute long whose last minute has barely begun still
+    // reaches that minute.
+    let since = since - chrono::Duration::seconds(9);
+    let until = since + chrono::Duration::seconds(80);
+    assert_eq!(
+        minted_stems(since, until),
+        vec![stem(since), stem(since + minute), stem(until)]
+    );
 }
 
 /// Every file and folder directly inside the notes folder, sorted.
@@ -98,12 +165,13 @@ fn a_first_launch_creates_one_notes_folder_and_one_file_and_a_second_creates_nei
         "nothing is written until the screen is answered"
     );
 
+    let since = Utc::now();
     let note = finish(&first).expect("the first launch opens a file");
-    let first_name = minted("txt");
-    assert_eq!(
-        notes_folder_entries(&first),
-        vec![first_name.clone()],
-        "exactly one file, unnamed, in the format that was chosen"
+    let first_name = minted_file(
+        &first,
+        since,
+        "txt",
+        "exactly one file, unnamed, in the format that was chosen",
     );
     assert_eq!(
         note.source_path.as_deref().map(std::path::Path::new),
@@ -141,15 +209,16 @@ fn the_format_the_screen_was_answered_with_is_written_and_is_what_gets_minted() 
     let dir = tempfile::tempdir().expect("tempdir");
     let state = launch(dir.path());
 
+    let since = Utc::now();
     let note = finish_first_run_inner(&state, FileExtension::Md, &[])
         .expect("the screen is answered")
         .expect("the first launch opens a file");
 
-    let name = minted("md");
-    assert_eq!(
-        notes_folder_entries(&state),
-        vec![name.clone()],
-        "Markdown was chosen, so the file is Markdown"
+    let name = minted_file(
+        &state,
+        since,
+        "md",
+        "Markdown was chosen, so the file is Markdown",
     );
     assert_eq!(opened_path(&note).file_name(), Some(name.as_ref()));
 
@@ -171,6 +240,7 @@ fn answering_the_screen_twice_mints_one_file_and_records_one_answer() {
     let dir = tempfile::tempdir().expect("tempdir");
     let state = launch(dir.path());
 
+    let since = Utc::now();
     let first = finish(&state).expect("the first launch opens a file");
     let written = std::fs::read_to_string(config_file(dir.path())).expect("the config");
 
@@ -181,10 +251,11 @@ fn answering_the_screen_twice_mints_one_file_and_records_one_answer() {
         second.is_none(),
         "the launch has already been answered, so there is nothing to open"
     );
-    assert_eq!(
-        notes_folder_entries(&state),
-        vec![minted("txt")],
-        "no second file beside the one the answer minted"
+    let name = minted_file(
+        &state,
+        since,
+        "txt",
+        "no second file beside the one the answer minted",
     );
     assert_eq!(
         std::fs::read_to_string(config_file(dir.path())).expect("the config"),
@@ -192,10 +263,7 @@ fn answering_the_screen_twice_mints_one_file_and_records_one_answer() {
         "and the format the second call carried is not written over the first"
     );
     assert_eq!(state.default_extension(), FileExtension::Txt);
-    assert_eq!(
-        opened_path(&first).file_name(),
-        Some(minted("txt").as_ref())
-    );
+    assert_eq!(opened_path(&first).file_name(), Some(name.as_ref()));
 }
 
 #[test]
@@ -215,11 +283,18 @@ fn a_run_that_could_not_record_the_answer_can_be_answered_again() {
     );
     std::fs::remove_dir_all(&config).expect("the way is clear");
 
+    let since = Utc::now();
     let note = finish_first_run_inner(&state, FileExtension::Md, &[])
         .expect("the screen is answered")
         .expect("the retry opens a file");
 
-    assert_eq!(opened_path(&note).file_name(), Some(minted("md").as_ref()));
+    let name = opened_path(&note)
+        .file_name()
+        .expect("a file name")
+        .to_string_lossy()
+        .into_owned();
+    let names = minted_names(since, Utc::now(), "md");
+    assert!(names.contains(&name), "{name} is not one of {names:?}");
     assert_eq!(state.default_extension(), FileExtension::Md);
 }
 
@@ -227,6 +302,7 @@ fn a_run_that_could_not_record_the_answer_can_be_answered_again() {
 fn a_later_launch_records_nothing_and_leaves_the_format_alone() {
     let dir = tempfile::tempdir().expect("tempdir");
     let first = launch(dir.path());
+    let since = Utc::now();
     finish(&first).expect("the first launch opens a file");
     drop(first);
 
@@ -243,11 +319,7 @@ fn a_later_launch_records_nothing_and_leaves_the_format_alone() {
         "a later launch writes nothing"
     );
     assert_eq!(second.default_extension(), FileExtension::Txt);
-    assert_eq!(
-        notes_folder_entries(&second),
-        vec![minted("txt")],
-        "and mints nothing"
-    );
+    minted_file(&second, since, "txt", "and mints nothing");
 }
 
 #[test]
@@ -311,6 +383,7 @@ fn a_first_line_renames_the_file_it_was_typed_in_and_keeps_its_format() {
 fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
     let dir = tempfile::tempdir().expect("tempdir");
     let state = launch(dir.path());
+    let since = Utc::now();
     let note = finish_first_run_inner(&state, FileExtension::Md, &[])
         .expect("the screen is answered")
         .expect("a file");
@@ -324,12 +397,7 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
         panic!("a note something else has touched is asked about, not renamed");
     };
     assert_eq!(title, "Grocery list");
-    let name = minted("md");
-    assert_eq!(
-        notes_folder_entries(&state),
-        vec![name.clone()],
-        "nothing moved"
-    );
+    let name = minted_file(&state, since, "md", "nothing moved");
 
     // Taking the offer lands the same file name the unasked rename would
     // have, and it carries the links with it: the offer is only reached
@@ -373,19 +441,21 @@ fn a_note_something_else_has_touched_is_offered_the_rename_instead() {
 fn a_file_with_no_first_line_yet_is_left_alone() {
     let dir = tempfile::tempdir().expect("tempdir");
     let state = launch(dir.path());
+    let since = Utc::now();
     let note = finish(&state).expect("a file");
 
     assert!(matches!(
         auto_retitle_note_inner(&state, &note.id).expect("retitle"),
         RetitleOutcome::NotYet
     ));
-    assert_eq!(notes_folder_entries(&state), vec![minted("txt")]);
+    minted_file(&state, since, "txt", "the file keeps its minted name");
 }
 
 #[test]
 fn a_file_that_opens_with_frontmatter_keeps_its_name() {
     let dir = tempfile::tempdir().expect("tempdir");
     let state = launch(dir.path());
+    let since = Utc::now();
     let note = finish(&state).expect("a file");
 
     type_into(&state, &note, "---\ntitle: Grocery list\n---\n\nmilk\n");
@@ -396,7 +466,7 @@ fn a_file_that_opens_with_frontmatter_keeps_its_name() {
         auto_retitle_note_inner(&state, &note.id).expect("retitle"),
         RetitleOutcome::Skipped
     ));
-    assert_eq!(notes_folder_entries(&state), vec![minted("txt")]);
+    minted_file(&state, since, "txt", "the file keeps its minted name");
 }
 
 #[test]
@@ -404,6 +474,7 @@ fn a_launch_nobody_typed_in_still_records_itself_and_keeps_the_hint() {
     let dir = tempfile::tempdir().expect("tempdir");
 
     let first = launch(dir.path());
+    let since = Utc::now();
     finish(&first).expect("the first launch opens a file");
     drop(first);
 
@@ -415,10 +486,11 @@ fn a_launch_nobody_typed_in_still_records_itself_and_keeps_the_hint() {
     assert!(!state.first_run, "a config file means a later launch");
     assert!(!state.hint_dismissed, "nothing dismissed the line");
     assert!(finish(&second).is_none(), "a later launch mints nothing");
-    assert_eq!(
-        notes_folder_entries(&second),
-        vec![minted("txt")],
-        "one file, from the launch that made it"
+    minted_file(
+        &second,
+        since,
+        "txt",
+        "one file, from the launch that made it",
     );
 }
 
