@@ -149,19 +149,21 @@ def license_file_key(name: str) -> str:
     return re.sub(r"[._\s-]+", "-", key)
 
 
-def read_crate_license(crate_dir: pathlib.Path | None, licence: str) -> str | None:
-    """The text a crate ships for `licence`, or None when it ships none.
+def read_crate_licenses(
+    crate_dir: pathlib.Path | None, licence: str
+) -> tuple[str | None, str | None]:
+    """The texts a crate ships for `licence`: from a file named for it, and from
+    an unqualified `LICENSE`. Either is None when the crate ships no such file.
 
     cargo-about looks for a fixed set of file names, so a crate shipping
     `LICENSE_MIT` (tauri) or `license-mit` (the windows crates) is reported as
-    having no licence file at all. A name that pairs the licence identifier with
-    the file wins; failing that an unqualified `LICENSE` is the crate's notice
-    for everything it declares. A name qualified with a different licence never
-    matches: brotli ships `LICENSE.MIT` and nothing for the BSD half of
-    "BSD-3-Clause AND MIT".
+    having no licence file at all. A name qualified with a different licence
+    never matches: brotli ships `LICENSE.MIT` and nothing for the BSD half of
+    "BSD-3-Clause AND MIT". Files are read in sorted order, so the answer does
+    not depend on the platform's directory order.
     """
     if crate_dir is None or not crate_dir.is_dir():
-        return None
+        return None, None
     wanted = {
         f"{prefix}-{licence.lower().replace(' ', '-')}" for prefix in LICENSE_FILE_PREFIXES
     }
@@ -180,7 +182,7 @@ def read_crate_license(crate_dir: pathlib.Path | None, licence: str) -> str | No
             qualified = qualified or text
         else:
             unqualified = unqualified or text
-    return qualified or unqualified
+    return qualified, unqualified
 
 
 def load_vendored_notices() -> tuple[dict[tuple[str, str], str], set[tuple[str, str]]]:
@@ -304,17 +306,22 @@ def resolve_crate_text(
 ) -> tuple[str, str]:
     """One crate's licence text, and where it came from.
 
-    cargo-about hands back the SPDX template for a crate it found no licence
-    file in, blanks and all. Those crates are resolved here instead: from the
-    file the crate does ship under a name cargo-about does not look for, then
-    from licences/notices.toml.
+    A file the crate ships under a name that pairs it with the licence wins.
+    cargo-about picks among a crate's licence files in directory order, which
+    differs between macOS and Linux when a crate ships the same text twice
+    (miniz_oxide's `LICENSE` and `LICENSE-MIT.md` differ by a blank line). Then
+    cargo-about's text, unless it is the SPDX template it hands back for a crate
+    it found no file in, blanks and all; those crates take an unqualified
+    `LICENSE`, then licences/notices.toml.
     """
+    qualified, unqualified = read_crate_licenses(crate_source_dir(krate), licence)
+    if qualified is not None and not is_template(qualified):
+        return qualified, "shipped"
     if not is_template(text):
         return text, "about"
+    if unqualified is not None and not is_template(unqualified):
+        return unqualified, "shipped"
     key = (str(krate["name"]), licence)
-    shipped = read_crate_license(crate_source_dir(krate), licence)
-    if shipped is not None and not is_template(shipped):
-        return shipped, "shipped"
     if key in vendored:
         return vendored[key], "vendored"
     if key in unattributed:
