@@ -11,8 +11,8 @@ Writ is a text editor for macOS, Windows and Linux that opens any text file and 
 </div>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.png">
-  <img src="docs/media/hero-light.png" alt="A Markdown file open in Writ, rendered inline, with the file tree in the sidebar" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.gif">
+  <img src="docs/media/hero-light.gif" alt="A Markdown file open in Writ, rendered inline, with the file tree in the sidebar" width="100%">
 </picture>
 
 ## Install
