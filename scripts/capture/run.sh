@@ -1133,7 +1133,7 @@ loop_any_file_setup() {
 }
 loop_any_file_take() {
   key return; sleep 0.25
-  type_human "- Oil the bike chain"
+  type_human "- Take the recycling out on Tuesday"
   sleep 1.2
   take_palette o "Server log"
   sleep 1.2
@@ -1153,7 +1153,7 @@ loop_markdown_setup() {
 loop_markdown_take() {
   local line
   key return
-  for line in "## To try" "- Colder proof" "Deeper cuts" "[ ] Rye flour"; do
+  for line in "## Saturday" "- 78% water" "Cold proof" "[ ] Buy rye"; do
     type_human "$line"; sleep 0.25
     key return
   done
