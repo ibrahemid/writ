@@ -10,7 +10,7 @@ import IOKit
 // queue; clicks go through the HID tap and so need the app frontmost.
 //
 //   drive front                        -> "<pid>\t<name>" of the frontmost app
-//   drive idle                         -> seconds since the last HID event
+//   drive idle                         -> seconds since the last key, button, scroll or drag
 //   drive away                         -> exits 0 when nobody has touched the machine for IDLE_FLOOR s
 //   drive stamp                        -> records that the harness itself just produced an event
 //   drive windows <pid>                -> "<windowid>\t<x> <y> <w> <h>\t<title>" per on-screen window
@@ -54,15 +54,14 @@ func frontmost() -> (pid_t, String) {
   return (app.processIdentifier, app.localizedName ?? "")
 }
 
-// The same number `ioreg -c IOHIDSystem` prints as HIDIdleTime, in seconds.
+// A resting mouse jitters the pointer every few seconds and resets the
+// system's HIDIdleTime, so pointer moves alone do not count as input here.
+let inputTypes: [CGEventType] = [
+  .keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+  .otherMouseDown, .otherMouseUp, .scrollWheel, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+]
 func idleSeconds() -> Double {
-  let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOHIDSystem"))
-  if service == 0 { return 0 }
-  defer { IOObjectRelease(service) }
-  guard let value = IORegistryEntryCreateCFProperty(service, "HIDIdleTime" as CFString, kCFAllocatorDefault, 0)?
-    .takeRetainedValue() as? Int64
-  else { return 0 }
-  return Double(value) / 1_000_000_000
+  inputTypes.map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? 0
 }
 
 func stamp() {
