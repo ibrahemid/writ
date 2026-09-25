@@ -2,6 +2,7 @@ export interface LoopEnv {
   readonly videos: readonly HTMLVideoElement[];
   readonly reducedQuery: Pick<MediaQueryList, 'matches' | 'addEventListener'>;
   readonly IntersectionObserver: new (callback: IntersectionObserverCallback) => Pick<IntersectionObserver, 'observe' | 'disconnect'>;
+  readonly getComputedStyle: (element: Element) => Pick<CSSStyleDeclaration, 'opacity'>;
 }
 
 export function startLoopPlayback(env: LoopEnv): void {
@@ -14,6 +15,9 @@ export function startLoopPlayback(env: LoopEnv): void {
     if (figure && video.poster) {
       figure.style.setProperty('--writ-loop-poster', `url("${video.poster}")`);
       figure.dataset.fade = '';
+      // Commits the hidden state now: if `playing` lands before the next style pass, is-playing would
+      // otherwise go from 1 to 1 and frame 1 would cut in over the poster instead of fading.
+      void env.getComputedStyle(video).opacity;
       video.addEventListener('playing', () => figure.classList.add('is-playing'), { once: true });
     }
     video.load();

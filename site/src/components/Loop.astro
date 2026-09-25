@@ -37,5 +37,6 @@ const still = src ? await getImage({ src, format: 'webp', width: 1320 }) : undef
     videos: Array.from(document.querySelectorAll<HTMLVideoElement>('video[data-loop]')),
     reducedQuery: window.matchMedia('(prefers-reduced-motion: reduce)'),
     IntersectionObserver,
+    getComputedStyle: (element) => window.getComputedStyle(element),
   });
 </script>

@@ -3,7 +3,9 @@ import { startLoopPlayback, type LoopEnv } from '../scripts/loops';
 
 class FakeClassList {
   readonly names = new Set<string>();
+  constructor(private readonly log: string[]) {}
   add(name: string): void {
+    this.log.push(`class ${name}`);
     this.names.add(name);
   }
   remove(name: string): void {
@@ -31,12 +33,27 @@ class FakeSource {
   }
 }
 
+function recordDataset(log: string[]): Record<string, string> {
+  return new Proxy({} as Record<string, string>, {
+    set(target, key, value: string) {
+      log.push(`data-${String(key)}`);
+      target[String(key)] = value;
+      return true;
+    },
+  });
+}
+
 class FakeVideo {
   paused = true;
   loads = 0;
+  readonly log: string[] = [];
   readonly poster: string;
   readonly sources: FakeSource[];
-  readonly parentElement = { style: { setProperty: (_: string, __: string) => {} }, dataset: {} as Record<string, string>, classList: new FakeClassList() };
+  readonly parentElement = {
+    style: { setProperty: (_: string, __: string) => {} },
+    dataset: recordDataset(this.log),
+    classList: new FakeClassList(this.log),
+  };
   private readonly listeners: Record<string, ((event: { key?: string; preventDefault(): void }) => void)[]> = {};
   constructor(name: string) {
     this.poster = `/_astro/${name}.webp`;
@@ -45,21 +62,31 @@ class FakeVideo {
   querySelectorAll(selector: string): FakeSource[] {
     return selector === 'source' ? this.sources : [];
   }
-  addEventListener(type: string, fn: (event: { key?: string; preventDefault(): void }) => void): void {
-    (this.listeners[type] ??= []).push(fn);
+  addEventListener(type: string, fn: (event: { key?: string; preventDefault(): void }) => void, options?: { once?: boolean }): void {
+    if (type === 'playing') this.log.push('listen playing');
+    const listeners = (this.listeners[type] ??= []);
+    const listener: (event: { key?: string; preventDefault(): void }) => void = options?.once
+      ? (event) => {
+          listeners.splice(listeners.indexOf(listener), 1);
+          fn(event);
+        }
+      : fn;
+    listeners.push(listener);
   }
   dispatch(type: string, key?: string): void {
-    for (const fn of this.listeners[type] ?? []) fn({ key, preventDefault() {} });
+    for (const fn of [...(this.listeners[type] ?? [])]) fn({ key, preventDefault() {} });
   }
   pause(): void {
     this.paused = true;
   }
   play(): Promise<void> {
+    this.log.push('play');
     this.paused = false;
     this.dispatch('playing');
     return Promise.resolve();
   }
   load(): void {
+    this.log.push('load');
     this.loads += 1;
     this.paused = true;
   }
@@ -99,6 +126,10 @@ function setup(options: { reduced?: boolean } = {}) {
         this.record.observed = [];
       }
     },
+    getComputedStyle: (element: unknown) => {
+      (element as FakeVideo).log.push('style read');
+      return { opacity: '0' };
+    },
   };
   startLoopPlayback(env as unknown as LoopEnv);
   const watcher = observers[0];
@@ -127,6 +158,16 @@ describe('startLoopPlayback', () => {
     showInView([second!]);
     expect(first!.paused).toBe(true);
     expect(second!.paused).toBe(false);
+  });
+
+  it('hides the video and commits that style before it loads, and marks it playing only once frame 1 plays', () => {
+    const { videos, showInView } = setup();
+    const video = videos[0]!;
+    showInView([video]);
+    expect(video.log).toEqual(['data-fade', 'style read', 'listen playing', 'load', 'play', 'class is-playing']);
+    showInView([]);
+    showInView([video]);
+    expect(video.log.slice(6)).toEqual(['play']);
   });
 
   it('pauses every loop, drops its sources and shows the poster when reduced motion comes on', () => {

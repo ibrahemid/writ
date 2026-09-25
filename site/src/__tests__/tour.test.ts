@@ -247,7 +247,7 @@ function setup(options: { wide?: boolean; reduced?: boolean; tokens?: Record<str
     },
   };
   const stage = element();
-  const anchors: Partial<Record<SceneName, string>> = { markdown: 'bottom', apps: 'center', versions: 'center' };
+  const anchors: Partial<Record<SceneName, string>> = { markdown: 'bottom', versions: 'bottom' };
   const steps = SCENES.slice(1).map((name) => element({ step: name, anchor: anchors[name] ?? 'top' }));
   steps.forEach((step, i) => {
     step.top = 900 + i * 800;
@@ -403,9 +403,9 @@ describe('startTour', () => {
     scroll(900 - LINE + 2 * 800);
     expect(stage.dataset.anchor).toBe('top');
     scroll(900 - LINE + 3 * 800);
-    expect(stage.dataset.anchor).toBe('center');
+    expect(stage.dataset.anchor).toBe('top');
     scroll(900 - LINE + 4 * 800);
-    expect(stage.dataset.anchor).toBe('center');
+    expect(stage.dataset.anchor).toBe('bottom');
   });
 
   it('posts scenes through the ready callback as the steps cross the line', () => {

@@ -356,11 +356,11 @@ button {
 
 .window[data-fade] video {
   opacity: 0;
-  transition: opacity var(--writ-site-motion-crossfade) var(--writ-ease);
 }
 
 .window[data-fade].is-playing video {
   opacity: 1;
+  transition: opacity var(--writ-site-motion-crossfade) var(--writ-ease);
 }
 
 .owed {
@@ -479,10 +479,6 @@ button {
   transform: translateY(min(0%, var(--tour-view) - var(--writ-space-7) - var(--writ-site-hairline) * 2 - 100%));
 }
 
-[data-writ-tour] .stage[data-anchor="center"] .live-camera {
-  transform: translateY(min(0%, (var(--tour-view) - var(--writ-space-7) - var(--writ-site-hairline) * 2 - 100%) / 2));
-}
-
 [data-writ-tour] .live-window::before,
 [data-writ-tour] .live-window::after {
   content: "";
@@ -506,7 +502,7 @@ button {
 }
 
 [data-writ-tour] .stage:not([data-anchor="bottom"]) .live-window.is-cropped::after,
-[data-writ-tour] .stage:is([data-anchor="bottom"], [data-anchor="center"]) .live-window.is-cropped::before {
+[data-writ-tour] .stage[data-anchor="bottom"] .live-window.is-cropped::before {
   opacity: 1;
 }
 

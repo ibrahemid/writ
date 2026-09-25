@@ -204,12 +204,21 @@ describe('the landing page', () => {
     }
   });
 
-  it('centres the camera on the frame, and fades both cropped edges while it does', () => {
+  it('hides a primed loop at once and transitions only its fade-in', () => {
+    expect(CSS).toContain('.window[data-fade] video {\n  opacity: 0;\n}');
     expect(CSS).toContain(
-      '[data-writ-tour] .stage[data-anchor="center"] .live-camera {\n  transform: translateY(min(0%, (var(--tour-view) - var(--writ-space-7) - var(--writ-site-hairline) * 2 - 100%) / 2));\n}',
+      '.window[data-fade].is-playing video {\n  opacity: 1;\n  transition: opacity var(--writ-site-motion-crossfade) var(--writ-ease);\n}',
     );
-    expect(CSS).toContain('[data-writ-tour] .stage:not([data-anchor="bottom"]) .live-window.is-cropped::after,');
-    expect(CSS).toContain('[data-writ-tour] .stage:is([data-anchor="bottom"], [data-anchor="center"]) .live-window.is-cropped::before {');
+  });
+
+  it('lifts the camera to the frame bottom for a bottom anchor, and fades the cropped edge opposite the anchor', () => {
+    expect(CSS).toContain(
+      '[data-writ-tour] .stage[data-anchor="bottom"] .live-camera {\n  transform: translateY(min(0%, var(--tour-view) - var(--writ-space-7) - var(--writ-site-hairline) * 2 - 100%));\n}',
+    );
+    expect(CSS).not.toContain('data-anchor="center"');
+    expect(CSS).toContain(
+      '[data-writ-tour] .stage:not([data-anchor="bottom"]) .live-window.is-cropped::after,\n[data-writ-tour] .stage[data-anchor="bottom"] .live-window.is-cropped::before {\n  opacity: 1;\n}',
+    );
   });
 
   it('brings the first caption to the band within the hold token of scroll after the window pins', () => {

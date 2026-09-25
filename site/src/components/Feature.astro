@@ -11,7 +11,7 @@ interface Props {
   loop?: string;
   /** Media on the left, text on the right. */
   flip?: boolean;
-  anchor?: 'top' | 'center' | 'bottom';
+  anchor?: 'top' | 'bottom';
 }
 
 const { id, title, capture, alt, loop, flip = false, anchor = 'top' } = Astro.props;

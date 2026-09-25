@@ -4,9 +4,9 @@ export type SceneName = (typeof SCENES)[number];
 
 export type SceneState = 'done' | 'cancelled';
 
-export type CameraAnchor = 'top' | 'center' | 'bottom';
+export type CameraAnchor = 'top' | 'bottom';
 
-const CAMERA_ANCHORS: readonly CameraAnchor[] = ['top', 'center', 'bottom'];
+const CAMERA_ANCHORS: readonly CameraAnchor[] = ['top', 'bottom'];
 
 const RESIZE_SETTLE_MS = 150;
 
