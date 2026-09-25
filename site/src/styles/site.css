@@ -9,9 +9,12 @@
   box-sizing: border-box;
 }
 
+/* A focused element or an anchor target scrolled into view lands below the
+   sticky nav rather than under it. */
 html {
   color-scheme: light;
   -webkit-text-size-adjust: 100%;
+  scroll-padding-top: calc(var(--writ-site-nav-height) + var(--writ-site-hairline));
 }
 
 body {
@@ -95,9 +98,10 @@ kbd {
   outline-offset: var(--writ-space-1);
 }
 
-/* A heading reached by its anchor lands below the sticky nav. */
+/* A heading reached by its anchor keeps a gap under the nav; the nav's own
+   height is the root's scroll padding. */
 [id] {
-  scroll-margin-top: calc(var(--writ-site-nav-height) + var(--writ-space-5));
+  scroll-margin-top: var(--writ-space-5);
 }
 
 a,
@@ -122,7 +126,7 @@ button {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: var(--writ-z-chrome);
+  z-index: calc(var(--writ-z-chrome) + 1);
   padding: var(--writ-space-3) var(--writ-space-5);
   background: var(--writ-accent);
   color: var(--writ-accent-fg);
@@ -153,6 +157,7 @@ button {
 
 .nav-mark {
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   gap: var(--writ-space-3);
   color: var(--writ-fg);
@@ -724,8 +729,9 @@ button {
 }
 
 .dl-sha {
-  display: inline-block;
-  margin-top: var(--writ-space-4);
+  display: block;
+  width: fit-content;
+  margin-top: var(--writ-space-7);
   font-size: var(--writ-site-text-xs);
 }
 
@@ -941,14 +947,20 @@ button {
     gap: var(--writ-space-3);
   }
 
+  /* The wordmark and all four links share 288 px at 320: the spacing tightens
+     here, and the link size scales down with the viewport below 371 px. */
+  .nav-links {
+    gap: var(--writ-space-1);
+  }
+
   .nav-links a:not(.btn) {
-    padding: var(--writ-space-2);
-    font-size: var(--writ-site-text-xs);
+    padding: var(--writ-space-2) var(--writ-space-1);
+    font-size: clamp(var(--writ-ui-xs), var(--writ-site-text-nav-fluid), var(--writ-site-text-xs));
   }
 
   .nav .btn {
-    padding: 0 var(--writ-space-4);
-    font-size: var(--writ-site-text-xs);
+    padding: 0 var(--writ-space-3);
+    font-size: clamp(var(--writ-ui-xs), var(--writ-site-text-nav-fluid), var(--writ-site-text-xs));
   }
 
   .hero {

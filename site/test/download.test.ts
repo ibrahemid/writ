@@ -74,17 +74,20 @@ describe('download groups in the built pages', () => {
     }
   });
 
-  it('link each group to the SHA256 sums once and end with the privacy line', () => {
+  it('link the one SHA256 sums file once, after the groups and before the privacy line', () => {
+    const SUMS = /<a\b[^>]*href="([^"]*SHA256SUMS\.txt)"[^>]*>([\s\S]*?)<\/a>/g;
     for (const page of PAGES) {
       for (const group of groupsOf(page)) {
-        const sums = [...group.html.matchAll(/<a\b[^>]*href="([^"]*SHA256SUMS\.txt)"[^>]*>([\s\S]*?)<\/a>/g)];
-        expect(sums, `${page} ${group.os}`).toHaveLength(1);
-        expect(decode(sums[0]?.[2] ?? '')).toContain('SHA256');
+        expect([...group.html.matchAll(SUMS)], `${page} ${group.os}`).toHaveLength(0);
       }
       const html = readFileSync(page, 'utf8');
-      const lastGroup = html.lastIndexOf('data-os="linux"');
+      const groupsEnd = html.indexOf('</section>', html.lastIndexOf('data-os="linux"'));
       const privacy = html.indexOf('class="dl-privacy"');
-      expect(privacy, page).toBeGreaterThan(lastGroup);
+      expect(groupsEnd, page).toBeGreaterThan(-1);
+      expect(privacy, page).toBeGreaterThan(groupsEnd);
+      const between = [...html.slice(groupsEnd, privacy).matchAll(SUMS)];
+      expect(between, page).toHaveLength(1);
+      expect(decode(between[0]?.[2] ?? '')).toBe('Verify a download (SHA256 checksums)');
       expect(html.match(/class="dl-privacy"/g), page).toHaveLength(1);
     }
   });

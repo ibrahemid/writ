@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -60,28 +60,54 @@ const NOUN_SCRIPT = [...INDEX.matchAll(/<script is:inline>([\s\S]*?)<\/script>/g
   .map((match) => match[1] ?? '')
   .find((script) => script.includes('data-noun-slot'));
 
-function runNounScript(options: { interval: string; reduced?: boolean }) {
+interface FakeHeadline {
+  addEventListener(type: string, fn: (event: { relatedTarget: unknown }) => void): void;
+  contains(node: unknown): boolean;
+  fire(type: string, relatedTarget?: unknown): void;
+}
+
+function runNounScript(options: { interval: string; reduced?: boolean; clock?: 'manual' | 'vitest' }) {
   if (!NOUN_SCRIPT) throw new Error('index.astro has no inline noun script');
   const reduced = { matches: Boolean(options.reduced), change: [] as (() => void)[] };
-  const timers = new Map<number, { fn: () => void; ms: number }>();
+  const timers = new Map<unknown, { fn: () => void; ms: number }>();
   let nextTimer = 1;
-  const nouns = ['text', 'note', 'scratchpad'].map((text, i) => ({
-    text,
-    offsetWidth: 100 + i,
-    classList: fakeClassList(i === 0 ? ['is-on'] : []),
-  }));
-  const slot = { classList: fakeClassList(), style: { width: '' }, querySelectorAll: () => nouns };
+  const nouns = ['text', 'note', 'scratchpad'].map((text, i) => {
+    const attrs = new Map<string, string>(i === 0 ? [] : [['aria-hidden', 'true']]);
+    return {
+      text,
+      offsetWidth: 100 + i,
+      classList: fakeClassList(i === 0 ? ['is-on'] : []),
+      getAttribute: (name: string) => attrs.get(name) ?? null,
+      setAttribute: (name: string, value: string) => void attrs.set(name, value),
+      removeAttribute: (name: string) => void attrs.delete(name),
+    };
+  });
+  const listeners = new Map<string, ((event: { relatedTarget: unknown }) => void)[]>();
+  const headline: FakeHeadline = {
+    addEventListener: (type, fn) => listeners.set(type, [...(listeners.get(type) ?? []), fn]),
+    contains: (node) => node === headline || nouns.includes(node as (typeof nouns)[number]),
+    fire: (type, relatedTarget = null) => (listeners.get(type) ?? []).forEach((fn) => fn({ relatedTarget })),
+  };
+  const slot = {
+    classList: fakeClassList(),
+    style: { width: '' },
+    querySelectorAll: () => nouns,
+    closest: (selector: string) => (selector === 'h1' ? headline : null),
+  };
   const fakeWindow = {
     matchMedia: (query: string) => {
       if (query !== '(prefers-reduced-motion: reduce)') throw new Error(`unexpected media query ${query}`);
       return { get matches() { return reduced.matches; }, addEventListener: (_: string, fn: () => void) => reduced.change.push(fn) };
     },
     setInterval: (fn: () => void, ms: number) => {
-      const id = nextTimer++;
+      const id = options.clock === 'vitest' ? setInterval(fn, ms) : nextTimer++;
       timers.set(id, { fn, ms });
       return id;
     },
-    clearInterval: (id: number) => timers.delete(id),
+    clearInterval: (id: unknown) => {
+      if (options.clock === 'vitest') clearInterval(id as ReturnType<typeof setInterval>);
+      timers.delete(id);
+    },
     addEventListener: () => {},
   };
   const fakeDocument = { querySelector: (selector: string) => (selector === '[data-noun-slot]' ? slot : null) };
@@ -95,7 +121,8 @@ function runNounScript(options: { interval: string; reduced?: boolean }) {
     for (const fn of reduced.change) fn();
   };
   const shown = (): string[] => nouns.filter((noun) => noun.classList.contains('is-on')).map((noun) => noun.text);
-  return { timers, slot, shown, setReduced };
+  const exposed = (): string[] => nouns.filter((noun) => noun.getAttribute('aria-hidden') !== 'true').map((noun) => noun.text);
+  return { timers, slot, nouns, headline, shown, exposed, setReduced };
 }
 
 function featureTag(id: string): string {
@@ -156,6 +183,98 @@ describe('the landing page', () => {
     for (const interval of ['', '2400', 'fast', '0ms']) {
       expect(() => runNounScript({ interval }), interval).toThrow(expect.objectContaining({ name: 'NounIntervalError' }));
     }
+  });
+
+  describe('on a clock', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('exposes only the noun on show to assistive tech, and the markup state again when it stops', () => {
+      vi.useFakeTimers();
+      const { exposed, shown, setReduced } = runNounScript({ interval: '2400ms', clock: 'vitest' });
+      expect(exposed()).toEqual(['text']);
+      for (const expected of ['note', 'scratchpad', 'text', 'note']) {
+        vi.advanceTimersByTime(2400);
+        expect(shown()).toEqual([expected]);
+        expect(exposed()).toEqual([expected]);
+      }
+      setReduced(true);
+      expect(shown()).toEqual(['text']);
+      expect(exposed()).toEqual(['text']);
+    });
+
+    it('holds the noun while the pointer is over the headline or focus is inside it, and resumes on leaving', () => {
+      vi.useFakeTimers();
+      const { headline, nouns, shown, slot, timers } = runNounScript({ interval: '2400ms', clock: 'vitest' });
+      vi.advanceTimersByTime(2400);
+      expect(shown()).toEqual(['note']);
+
+      headline.fire('pointerenter');
+      expect(timers.size).toBe(0);
+      vi.advanceTimersByTime(24000);
+      expect(shown()).toEqual(['note']);
+      expect(slot.classList.contains('is-live')).toBe(true);
+      expect(slot.style.width).toBe('101px');
+      headline.fire('pointerleave');
+      vi.advanceTimersByTime(2399);
+      expect(shown()).toEqual(['note']);
+      vi.advanceTimersByTime(1);
+      expect(shown()).toEqual(['scratchpad']);
+
+      headline.fire('focusin');
+      vi.advanceTimersByTime(24000);
+      expect(shown()).toEqual(['scratchpad']);
+      headline.fire('focusout', nouns[0]);
+      vi.advanceTimersByTime(24000);
+      expect(shown()).toEqual(['scratchpad']);
+
+      headline.fire('pointerenter');
+      headline.fire('focusout', null);
+      vi.advanceTimersByTime(24000);
+      expect(shown()).toEqual(['scratchpad']);
+      headline.fire('pointerleave');
+      vi.advanceTimersByTime(2400);
+      expect(shown()).toEqual(['text']);
+    });
+
+    it('stops after three times through the nouns, resting on the first with its marker', () => {
+      vi.useFakeTimers();
+      const { headline, shown, slot, timers, setReduced } = runNounScript({ interval: '2400ms', clock: 'vitest' });
+      const seen: string[] = [];
+      for (let swap = 0; swap < 9; swap += 1) {
+        vi.advanceTimersByTime(2400);
+        seen.push(...shown());
+      }
+      expect(seen).toEqual(['note', 'scratchpad', 'text', 'note', 'scratchpad', 'text', 'note', 'scratchpad', 'text']);
+      expect(timers.size).toBe(0);
+      expect(slot.classList.contains('is-live')).toBe(true);
+      expect(slot.style.width).toBe('100px');
+
+      vi.advanceTimersByTime(24000);
+      expect(shown()).toEqual(['text']);
+      headline.fire('pointerenter');
+      headline.fire('pointerleave');
+      setReduced(true);
+      setReduced(false);
+      vi.advanceTimersByTime(24000);
+      expect(timers.size).toBe(0);
+      expect(shown()).toEqual(['text']);
+    });
+
+    it('counts the three loops again from the first noun after reduced motion stops and restarts it', () => {
+      vi.useFakeTimers();
+      const { shown, timers, setReduced } = runNounScript({ interval: '2400ms', clock: 'vitest' });
+      vi.advanceTimersByTime(2400 * 4);
+      expect(shown()).toEqual(['note']);
+      setReduced(true);
+      setReduced(false);
+      vi.advanceTimersByTime(2400 * 8);
+      expect(timers.size).toBe(1);
+      vi.advanceTimersByTime(2400);
+      expect(timers.size).toBe(0);
+      expect(shown()).toEqual(['text']);
+    });
   });
 
   it('sets the intro and tour attributes before paint, from the breakpoint token', () => {

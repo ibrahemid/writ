@@ -90,13 +90,13 @@ const describeFile = (file: DownloadFile): string => [file.name, mb(file.size)].
           <button type="button" class="dl-copy" data-copy hidden aria-label={`Copy the ${g.toolName} command`}>Copy</button>
         </div>
         <code class="dl-cmd" data-copy-text>{g.command.split(' ').map((word, i) => <Fragment>{i > 0 && ' '}<span>{word}</span></Fragment>)}</code>
-        <a class="dl-sha" href={sumsUrl}>Verify the file (SHA256 checksums)</a>
       </div>
     </section>
   ))}
 </div>
+<a class="dl-sha" href={sumsUrl}>Verify a download (SHA256 checksums)</a>
 <p class="dl-privacy">
-  Chat, Rewrite and Connected programs are apps you switch on in Settings, Apps. Until then, Writ contacts only GitHub, to check for updates and to download one you install, and the automatic check can be turned off (<a href={`${base}/privacy/`}>privacy</a>).
+  Until Chat or Rewrite is on, Writ contacts only GitHub, to check for updates and to download one you install, and the automatic check can be turned off (<a href={`${base}/privacy/`}>privacy</a>).
 </p>
 
 <script>

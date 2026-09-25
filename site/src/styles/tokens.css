@@ -137,6 +137,7 @@
   --writ-site-text-h2-lg: 32px;
   --writ-site-text-h1-xs: 32px;
   --writ-site-text-h1-fluid: 10.8vw;
+  --writ-site-text-nav-fluid: 3.5vw;
   --writ-site-text-h1: 44px;
   --writ-site-text-h1-md: 60px;
   --writ-site-text-h1-lg: 72px;
@@ -152,7 +153,7 @@
   --writ-site-shadow-window: 0 40px 80px -24px rgba(0, 0, 0, .25);
   --writ-site-motion-crossfade: 350ms;
   --writ-site-motion-noun-interval: 2400ms;
-  --writ-site-motion-noun-sweep-delay: 120ms;
+  --writ-site-motion-noun-sweep-delay: calc(var(--writ-site-motion-crossfade) + 60ms);
   --writ-site-motion-noun-sweep-out: 220ms;
   --writ-site-motion-arrive: 480ms;
   --writ-site-motion-arrive-stagger: 60ms;
