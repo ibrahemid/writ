@@ -188,9 +188,9 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: python3 -m unittest discover -s .github/scripts -t .github/scripts
 
-      - name: Packaging script tests
+      - name: Script tests
         if: matrix.os == 'ubuntu-latest'
-        run: python3 -m unittest discover -s scripts -p 'test_packaging*.py'
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
 
       - name: Install cargo-about
         if: matrix.os == 'ubuntu-latest'
