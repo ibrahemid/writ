@@ -1,5 +1,5 @@
 import { SceneCancelledError } from "./errors";
-import type { Scene, SceneApp, SceneEditor, SceneName, ScenePalette, ScenePlayer, SceneState } from "./types";
+import type { Scene, SceneApp, SceneEditor, SceneName, ScenePalette, ScenePlayer, SceneSettle, SceneState } from "./types";
 
 export const KEY_DELAY_MIN_MS = 35;
 export const KEY_DELAY_MAX_MS = 70;
@@ -63,19 +63,27 @@ export async function typeText(editor: SceneEditor, text: string, signal: AbortS
   }
 }
 
-export async function typeQuery(palette: ScenePalette, query: string, signal: AbortSignal, random: Random): Promise<void> {
+export async function typeQuery(field: Pick<ScenePalette, "setQuery">, query: string, signal: AbortSignal, random: Random): Promise<void> {
   let typed = "";
   for (const char of query) {
     await sleep(computeKeyDelay(char, random), signal);
     typed += char;
-    palette.setQuery(typed);
+    field.setQuery(typed);
+  }
+}
+
+export async function eraseQuery(field: Pick<ScenePalette, "setQuery">, query: string, signal: AbortSignal, random: Random): Promise<void> {
+  const chars = [...query];
+  for (let length = chars.length - 1; length >= 0; length -= 1) {
+    await sleep(computeKeyDelay(chars[length], random), signal);
+    field.setQuery(chars.slice(0, length).join(""));
   }
 }
 
 export interface SceneRunnerOptions {
   app: SceneApp;
   scenes: Readonly<Record<SceneName, Scene>>;
-  settle: Scene;
+  settle: SceneSettle;
   report: (name: SceneName, state: SceneState) => void;
   reportFailure?: (name: SceneName, error: unknown) => void;
 }
@@ -98,7 +106,7 @@ export function createSceneRunner(options: SceneRunnerOptions): ScenePlayer {
     if (previous) await previous.finished;
     try {
       throwIfCancelled(signal);
-      await settle(app, signal);
+      await settle(app, signal, name);
       throwIfCancelled(signal);
       await scenes[name](app, signal);
       throwIfCancelled(signal);

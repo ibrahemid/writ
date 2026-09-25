@@ -140,6 +140,25 @@ describe("preview layout keymap", () => {
     expect(win.layout.get("K5", "markdown")).toEqual({ kind: "inline" });
   });
 
+  it("escape declines when there is no fullscreen preview to leave, so the key reaches the editor", () => {
+    const exit = () => getCommand("preview.exitFullscreen")!.execute();
+    expect(exit()).toBe(false);
+
+    const markdown = activate(buffer("K7", "plan.md"));
+    markdown.layout.setLocal("K7", { kind: "inline" });
+    expect(exit()).toBe(false);
+
+    const html = activate(buffer("K8", "page.html"));
+    html.layout.setLocal("K8", defaultSplit());
+    expect(exit()).toBe(false);
+
+    run("preview.toggleFullscreen");
+    expect(html.layout.get("K8", "html")).toEqual({ kind: "preview" });
+    expect(exit()).not.toBe(false);
+    expect(html.layout.get("K8", "html")).toEqual(defaultSplit());
+    expect(exit()).toBe(false);
+  });
+
   it("reset ratio still re-derives an html split", () => {
     const win = activate(buffer("K6", "page.html"));
     win.layout.setLocal("K6", { kind: "source" });

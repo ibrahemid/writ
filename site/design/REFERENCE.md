@@ -91,7 +91,7 @@ Measured live with Chrome DevTools at 1440x900 (DPR 1) and 390x844 (DPR 2, mobil
 Primary: **Tuple** for the page grammar (centered H1 at weight 600 in Inter, one sub in grey, one filled button with a detail line, the real window under it with one shadow, plain light bands between sections) with **Linear** for type discipline (Inter Variable at 510 to 600, tracking -0.022em, a 14-step scale, hairline nav) and **Bear** for palette count (11 colours) and for being a notes app that shows its window plainly.
 
 Preserve:
-- Centered hero, H1 at 44/60/72 in Inter 600, tracking -0.025em, line-height 1.05. Tuple's 60px H1 at 1440 is the direct model; Linear's 64 and Raycast's 64 confirm the range.
+- Centered hero, H1 at 44/60/72 in Wix Madefor Display 700, tracking -0.02em, line-height 1.05; below 640px it scales at 10.8vw between 32 and 44. Tuple's 60px H1 at 1440 is the direct model; Linear's 64 and Raycast's 64 confirm the range.
 - One grey for secondary text (Tuple #71717A, Linear #8A8F98, Bear #888): Writ uses its own `fg.muted`.
 - One filled button on the accent, a text button beside it (Cap's pair, Tuple's single filled button with a text detail line).
 - The detail line in 13px under the buttons (Raycast, Tuple, Granola).
@@ -109,4 +109,4 @@ Refuse:
 - Eyebrow H2s (Raycast's 20px section labels), badges ("New", "alpha is available"), cookie banners, marquees, testimonials, the floating pill nav.
 - The page-as-buffer grammar of the page being replaced: source gutter, `##` tokens, spine, status-bar nav, typed hero, dark stage bands.
 
-Token commitments: canvas `bg.canvas` #FFFFFF, text `fg.default` #1C1A17, secondary `fg.muted` #5D5850, hairline `border.default` #E4E1DB, accent Pine #1F6F5C on the primary button and links only, one radius 10px, one shadow `0 40px 80px -24px rgba(0,0,0,.25)` on app windows only, container 1120px, measure 60ch (68ch on prose pages), an 8px spacing scale, Inter 400/500/600 self-hosted, mono only inside `<code>`.
+Token commitments: canvas `bg.canvas` #FFFFFF, text `fg.default` #1C1A17, secondary `fg.muted` #5D5850, hairline `border.default` #E4E1DB, accent Pine #1F6F5C on the primary button and links only, one radius 10px, one shadow `0 40px 80px -24px rgba(0,0,0,.25)` on app windows only, container 1120px, measure 60ch (68ch on prose pages), an 8px spacing scale, two self-hosted cuts: Wix Madefor Display (`site.font.display`) for headings, the nav wordmark and the hero word, at 600 for headings and the wordmark and 700 for the hero H1, and Wix Madefor Text (`site.font.text`) for everything else, at 400 and 500. The hero word sits on the highlight `site.hl` #FFE97A in `site.hl-ink`. Mono only inside `<code>`.

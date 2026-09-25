@@ -60,7 +60,7 @@ GIF_LIMIT=1200000
 
 SCENES=(hero-window text-file markdown-inline search apps first-run notes-folder connections graph-folder graph-local preview-rich chat versions activity settings-appearance obsidian-folder tags)
 # Recorded takes, no stills: loop-<name> writes <name>-<theme>.mp4 and .webm.
-LOOP_SCENES=(loop-any-file loop-markdown loop-search loop-apps loop-versions)
+LOOP_SCENES=(loop-any-file loop-markdown loop-search loop-apps loop-graph loop-versions)
 # Named only: report stills, not site assets.
 REPORT_SCENES=(settings-programs)
 SHELL_SCENES=(hero-window-win hero-window-linux)
@@ -857,15 +857,11 @@ scene_connections() {
   quit_app
 }
 
+# The loop-graph take's first and last frame, which is its poster.
 scene_graph_folder() {
   reset_state
-  apps_on graph
-  begin graph-folder
-  open_note "Garden plan"
-  run_command "Open graph"
-  sleep 2
-  key tab; sleep 0.3
-  typetext "Garden plan"; sleep 1.5
+  loop_graph_setup graph-folder
+  pointer_away
   shoot graph-folder
   quit_app
 }
@@ -1199,6 +1195,33 @@ loop_apps_take() {
   sleep 1.6
 }
 
+# The graph open on the whole folder, drawn and settled, with focus moved from
+# the layer to its search field. The count line under the field reads "<n>
+# files" once every Markdown file in the folder is a node.
+loop_graph_setup() {
+  local files
+  apps_on graph
+  begin "$1"
+  open_note "Garden plan"
+  take_palette f "> Open graph"
+  wait_for_element AXTextField "Search files" 5 >/dev/null || { echo "no graph search field after Open graph" >&2; exit 1; }
+  files=$(find "$NOTES" -type f -name '*.md' | wc -l | tr -d ' ')
+  if ! wait_for_element AXStaticText "$files files" 10 >/dev/null; then
+    log "graph: no \"$files files\" line in the accessibility tree, waiting 2 s for the drawing instead"
+    sleep 2
+  fi
+  sleep 1
+  key tab; sleep 0.3
+}
+# "garden" lights Garden plan and Garden committee 10 Sep and dims the rest; a
+# search repaints the drawing and never settles it again, so the cleared field
+# rests on the frame the take began on.
+loop_graph_take() {
+  type_human "garden"; sleep 2.2
+  for _ in 1 2 3 4 5 6; do key delete; done
+  sleep 1.6
+}
+
 loop_versions_setup() {
   local dir="$WORK/$1"
   /bin/rm -rf "$dir"; mkdir -p "$dir/data"
@@ -1248,6 +1271,7 @@ run_scene() {
     loop-markdown) scene_loop_markdown ;;
     loop-search) loop_take search loop_search_setup loop_search_take 1320 30 32 20 12 ;;
     loop-apps) loop_take apps loop_apps_setup loop_apps_take 1320 30 32 20 12 ;;
+    loop-graph) loop_take graph loop_graph_setup loop_graph_take 1320 30 32 20 12 ;;
     loop-versions) loop_take versions loop_versions_setup loop_versions_take 1320 30 32 20 12 ;;
     *) echo "no scene function for $1" >&2; exit 2 ;;
   esac

@@ -2,7 +2,7 @@ import type { NoteVersion } from "../../src/services/tauri";
 import type { SaveState } from "../../src/stores/global/save-status";
 import type { AppId } from "../../src/types/config";
 
-export const SCENE_NAMES = ["hero", "any-file", "markdown", "search", "apps", "versions"] as const;
+export const SCENE_NAMES = ["hero", "any-file", "markdown", "search", "apps", "graph", "versions"] as const;
 
 export type SceneName = (typeof SCENE_NAMES)[number];
 
@@ -51,12 +51,14 @@ export interface SceneApp {
   saveState(editor: SceneEditor): SaveState;
   settings: { open(section: "apps"): void; close(): void };
   apps: { setOn(app: AppId, isOn: boolean): Promise<void> };
-  graph: { open(): void; close(): void };
+  graph: { open(): void; close(): void; isDrawn(): boolean; setQuery(query: string): void };
   palette: ScenePalette;
   versions: SceneVersions;
 }
 
 export type Scene = (app: SceneApp, signal: AbortSignal) => Promise<void>;
+
+export type SceneSettle = (app: SceneApp, signal: AbortSignal, next: SceneName) => Promise<void>;
 
 export interface ScenePlayer {
   play(name: SceneName): Promise<void>;

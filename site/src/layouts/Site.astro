@@ -1,7 +1,8 @@
 ---
 import '../styles/tokens.css';
 import '../styles/site.css';
-import interUrl from '../../design-system/fonts/inter-latin-variable.woff2?url';
+import displayFontUrl from '../../design-system/fonts/wix-madefor-display-latin-variable.woff2?url';
+import textFontUrl from '../../design-system/fonts/wix-madefor-text-latin-variable.woff2?url';
 import Nav from '../components/Nav.astro';
 import Footer from '../components/Footer.astro';
 import release from '../data/release.json';
@@ -45,9 +46,15 @@ const ld = {
   url: SITE_URL + base + '/',
   screenshot: ogImage,
 };
-// The face is declared here rather than in a stylesheet so the preload and
-// the @font-face carry the same hashed URL the build gives the file.
-const fontFace = `@font-face{font-family:"Inter";font-style:normal;font-weight:400 600;font-display:swap;src:url("${interUrl}") format("woff2-variations")}`;
+// The faces are declared here rather than in a stylesheet so each preload
+// and its @font-face carry the same hashed URL the build gives the file.
+const fontFaces = [
+  { family: 'Wix Madefor Display', url: displayFontUrl },
+  { family: 'Wix Madefor Text', url: textFontUrl },
+];
+const fontFace = fontFaces
+  .map(({ family, url }) => `@font-face{font-family:"${family}";font-style:normal;font-weight:400 800;font-display:swap;src:url("${url}") format("woff2-variations")}`)
+  .join('');
 ---
 <!doctype html>
 <html lang="en">
@@ -61,7 +68,7 @@ const fontFace = `@font-face{font-family:"Inter";font-style:normal;font-weight:4
     <meta name="description" content={description} />
     {unlisted ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
 
-    <link rel="preload" href={interUrl} as="font" type="font/woff2" crossorigin />
+    {fontFaces.map(({ url }) => <link rel="preload" href={url} as="font" type="font/woff2" crossorigin />)}
     <style is:inline set:html={fontFace}></style>
 
     <link rel="icon" type="image/png" sizes="32x32" href={`${base}/brand/icon-32.png`} />

@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { matchesQuery } from "../../src/lib/graph/folder-graph";
 import type { NoteVersion } from "../../src/services/tauri";
 import type { SaveState } from "../../src/stores/global/save-status";
+import { getNoteDisplayName } from "../backend/links";
 import { CURSOR_LINE_AT_START, HERO_NOTE, SEED_FILES, VERSIONED_NOTE } from "../backend/seed";
 import { ENGAGED_MESSAGE, READY_MESSAGE, SCENE_MESSAGE, createSceneChannel } from "../scenes/channel";
-import { SceneStateError } from "../scenes/errors";
+import { SceneStateError, SceneTimeoutError } from "../scenes/errors";
 import { KEY_DELAY_MAX_MS, KEY_DELAY_MIN_MS, LINE_END_DELAY_MS, createSceneRunner, type Random } from "../scenes/runner";
 import {
+  GRAPH_QUERY,
   LOG_NOTE,
   MARKDOWN_NOTE,
   MARKDOWN_TYPED,
@@ -38,6 +41,8 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
   const layouts = new Map<string, SceneLayout>();
   const inserts: Insert[] = [];
   const queries: string[] = [];
+  const graphQueries: { query: string; at: number }[] = [];
+  const graphEvents: ("mount" | "unmount" | "app-on" | "app-off")[] = [];
   const opened: string[] = [];
   const reveals: { note: string; line: number }[] = [];
   const restored: number[] = [];
@@ -122,16 +127,22 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
     },
     apps: {
       setOn: async (id, isOn) => {
-        if (id === "graph") open.graphApp = isOn;
+        if (id !== "graph") return;
+        if (isOn !== open.graphApp) graphEvents.push(isOn ? "app-on" : "app-off");
+        open.graphApp = isOn;
       },
     },
     graph: {
       open: () => {
+        if (!open.graph) graphEvents.push("mount");
         open.graph = true;
       },
       close: () => {
+        if (open.graph) graphEvents.push("unmount");
         open.graph = false;
       },
+      isDrawn: () => open.graph && open.graphApp,
+      setQuery: (query) => graphQueries.push({ query, at: Date.now() }),
     },
     palette: {
       open: () => {
@@ -165,7 +176,7 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
     },
   };
 
-  return { app, texts, layouts, inserts, queries, opened, reveals, restored, selected, open, cursorLines, shownFromTop, calls, tabs: () => tabs };
+  return { app, texts, layouts, inserts, queries, graphQueries, graphEvents, opened, reveals, restored, selected, open, cursorLines, shownFromTop, calls, tabs: () => tabs };
 }
 
 function createHarness(options: { random?: Random; saveState?: SaveState } = {}) {
@@ -180,6 +191,11 @@ function createHarness(options: { random?: Random; saveState?: SaveState } = {})
     reportFailure: (name, error) => failures.push([name, error]),
   });
   return { ...fake, player, reports, failures };
+}
+
+async function advanceUntil(isMet: () => boolean): Promise<void> {
+  for (let step = 0; step < 1000 && !isMet(); step += 1) await vi.advanceTimersByTimeAsync(5);
+  expect(isMet()).toBe(true);
 }
 
 async function playToEnd(player: ScenePlayer, name: SceneName): Promise<number> {
@@ -294,6 +310,95 @@ describe("the scenes", () => {
     expect(open).toMatchObject({ settings: false, graphApp: true, graph: true });
   });
 
+  it("names at least two seed files with the graph query", () => {
+    const named = Object.keys(SEED_FILES).filter((path) => matchesQuery(getNoteDisplayName(path), GRAPH_QUERY));
+    expect(named.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("types the graph query a letter at a time, holds it, erases it, and rests on the open graph", async () => {
+    let step = 0;
+    const wandering: Random = () => [0, 0.5, 0.9999, 0.25][step++ % 4];
+    const { player, graphQueries, queries, open } = createHarness({ random: wandering });
+    await playToEnd(player, "graph");
+    const typed = [...GRAPH_QUERY].map((_, index) => GRAPH_QUERY.slice(0, index + 1));
+    const erased = typed.slice(0, -1).reverse().concat("");
+    expect(graphQueries.map((entry) => entry.query)).toEqual([...typed, ...erased]);
+    const gaps = graphQueries.slice(1).map((entry, index) => entry.at - graphQueries[index].at);
+    const holdAt = typed.length - 1;
+    gaps.forEach((gap, index) => {
+      if (index === holdAt) expect(gap).toBeGreaterThanOrEqual(1200 + KEY_DELAY_MIN_MS);
+      else {
+        expect(gap).toBeGreaterThanOrEqual(KEY_DELAY_MIN_MS);
+        expect(gap).toBeLessThanOrEqual(KEY_DELAY_MAX_MS);
+      }
+    });
+    expect(queries).toEqual([]);
+    expect(open).toMatchObject({ settings: false, palette: false, graphApp: true, graph: true });
+  });
+
+  it("carries the open graph from the apps step into the graph step without closing or redrawing it", async () => {
+    const { player, reports, graphEvents, open } = createHarness();
+    await playToEnd(player, "apps");
+    expect(open).toMatchObject({ graphApp: true, graph: true });
+    const fromApps = graphEvents.length;
+    await playToEnd(player, "graph");
+    expect(graphEvents.slice(fromApps)).toEqual([]);
+    expect(reports).toEqual([
+      ["apps", "done"],
+      ["graph", "done"],
+    ]);
+    expect(open).toMatchObject({ graphApp: true, graph: true });
+  });
+
+  it.each(SCENE_NAMES.filter((name) => name !== "apps" && name !== "graph"))("opens the graph afresh when the graph step follows %s", async (name) => {
+    const { player, reports, graphEvents, open } = createHarness();
+    await playToEnd(player, name);
+    expect(open).toMatchObject({ graphApp: false, graph: false });
+    const fromPrevious = graphEvents.length;
+    await playToEnd(player, "graph");
+    expect(graphEvents.slice(fromPrevious)).toEqual(["app-on", "mount"]);
+    expect(reports).toEqual([
+      [name, "done"],
+      ["graph", "done"],
+    ]);
+  });
+
+  it("stops typing the graph query when cancelled mid-type and never reports done", async () => {
+    const { player, reports, failures, graphQueries, queries } = createHarness();
+    const finished = player.play("graph");
+    await advanceUntil(() => graphQueries.length === 3);
+    player.cancel();
+    await vi.runAllTimersAsync();
+    await finished;
+    expect(graphQueries.map((entry) => entry.query)).toEqual(["g", "ga", "gar"]);
+    expect(queries).toEqual([]);
+    expect(reports).toEqual([["graph", "cancelled"]]);
+    expect(failures).toEqual([]);
+  });
+
+  it("stops erasing the graph query when cancelled mid-erase and never reports done", async () => {
+    const { player, reports, failures, graphQueries, queries } = createHarness();
+    const finished = player.play("graph");
+    await advanceUntil(() => graphQueries.length === GRAPH_QUERY.length + 2);
+    player.cancel();
+    await vi.runAllTimersAsync();
+    await finished;
+    const typed = [...GRAPH_QUERY].map((_, index) => GRAPH_QUERY.slice(0, index + 1));
+    expect(graphQueries.map((entry) => entry.query)).toEqual([...typed, "garde", "gard"]);
+    expect(queries).toEqual([]);
+    expect(reports).toEqual([["graph", "cancelled"]]);
+    expect(failures).toEqual([]);
+  });
+
+  it("reports a graph that never draws as cancelled and types nothing", async () => {
+    const { player, reports, failures, graphQueries, app } = createHarness();
+    app.graph.isDrawn = () => false;
+    await playToEnd(player, "graph");
+    expect(reports).toEqual([["graph", "cancelled"]]);
+    expect(failures[0][1]).toBeInstanceOf(SceneTimeoutError);
+    expect(graphQueries).toEqual([]);
+  });
+
   it("selects and restores the second version, then closes the list", async () => {
     const { player, selected, restored, opened, open, calls } = createHarness();
     await playToEnd(player, "versions");
@@ -304,15 +409,27 @@ describe("the scenes", () => {
     expect(open.versions).toBe(false);
   });
 
-  it("settles to a window with nothing open and the graph switched off", async () => {
+  it.each(SCENE_NAMES.filter((name) => name !== "graph"))("settles to a window with nothing open and the graph switched off before %s", async (next) => {
     const { app, open, layouts } = createFakeApp();
     Object.assign(open, { settings: true, palette: true, versions: true, graph: true, graphApp: true, typing: true });
     layouts.set("buffer:a.md", "source");
-    const finished = settle(app, new AbortController().signal);
+    const finished = settle(app, new AbortController().signal, next);
     await vi.runAllTimersAsync();
     await finished;
     expect(open).toEqual({ settings: false, palette: false, versions: false, graph: false, graphApp: false, typing: false });
     expect(layouts.get("buffer:a.md")).toBe("inline");
+  });
+
+  it("settles everything but the open graph before the graph step", async () => {
+    const { app, open, layouts, graphEvents } = createFakeApp();
+    Object.assign(open, { settings: true, palette: true, versions: true, graph: true, graphApp: true, typing: true });
+    layouts.set("buffer:a.md", "source");
+    const finished = settle(app, new AbortController().signal, "graph");
+    await vi.runAllTimersAsync();
+    await finished;
+    expect(open).toEqual({ settings: false, palette: false, versions: false, graph: true, graphApp: true, typing: false });
+    expect(layouts.get("buffer:a.md")).toBe("inline");
+    expect(graphEvents).toEqual([]);
   });
 
   it("cancels a running scene when the next one arrives, and the first goes quiet", async () => {

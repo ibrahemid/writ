@@ -97,11 +97,13 @@ export function registerPreviewKeymap(): void {
     keybinding: "Escape",
     scope: "app",
     global: true,
+    // With no fullscreen preview to leave, Escape declines so it reaches the
+    // focused editor, where Escape then Tab moves focus out (tab focus mode).
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
-      if (!w || !id || !hasSplitLayouts(id)) return;
-      if (w.layout.get(id, contentTypeOf(id)).kind !== "preview") return;
+      if (!w || !id || !hasSplitLayouts(id)) return false;
+      if (w.layout.get(id, contentTypeOf(id)).kind !== "preview") return false;
       w.layout.restorePrevious(id, bufferPath(id));
     },
   });

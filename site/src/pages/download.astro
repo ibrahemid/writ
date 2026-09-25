@@ -1,5 +1,5 @@
 ---
-import Prose from '../layouts/Prose.astro';
+import Site from '../layouts/Site.astro';
 import DownloadRows from '../components/DownloadRows.astro';
 import release from '../data/release.json';
 
@@ -14,35 +14,42 @@ const sums: [string, string][] = [
   ['.deb', p.linux.sha256_deb],
 ];
 ---
-<Prose title="Download" description="Writ for macOS, Windows and Linux: signed builds, package-manager lines and SHA256 checksums." path="/download/">
-  <DownloadRows />
-  <h2>Before you install</h2>
-  <table>
-    <tbody>
-      <tr><th>macOS</th><td>Signed and notarized by Apple, so there is no warning to click through.</td></tr>
-      <tr><th>Windows</th><td>The .msi is not code-signed yet, so SmartScreen shows a warning on first run: More info, then Run anyway. The checksum below is how to verify it instead.</td></tr>
-      <tr><th>Linux</th><td>The AppImage requires FUSE; the .deb targets Debian and Ubuntu on x86_64. Arch has <code>writ-bin</code> on the AUR.</td></tr>
-    </tbody>
-  </table>
-  <h2>Verify a download</h2>
-  <p>Every release ships a <a href={sumsUrl}>SHA256SUMS.txt</a>. On macOS or Linux:</p>
-  <pre><code>shasum -a 256 Writ_{release.version}_universal.pkg</code></pre>
-  <p>Compare the output with the line for that file. The current sums:</p>
-  <table>
-    <tbody>
-      {sums.map(([name, sum]) => (
-        <tr><th>{name}</th><td>{sum ? <code>{sum}</code> : 'published with the release'}</td></tr>
-      ))}
-    </tbody>
-  </table>
-  <h2>First open on macOS</h2>
-  <ol>
-    <li>Open the <code>.pkg</code> and follow the installer.</li>
-    <li>Launch Writ from Applications, choose the format for new files and the apps to switch on, then Continue. Writ keeps running after you switch away.</li>
-    <li>Press <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> from any app to bring it up, and again to put it away.</li>
-  </ol>
-  <h2>Updates</h2>
-  <p>Writ checks GitHub Releases shortly after launch, at most once a day, and offers the new version; nothing installs without a click. The check verifies a signed manifest and can be turned off in Settings. Package-manager installs update through the package manager instead.</p>
-  <h2>Uninstall</h2>
-  <p>Delete the app. Your files stay where they are, including Writ's folder, and Writ's own data stays in <code>~/.writ</code> until you delete that folder too.</p>
-</Prose>
+<Site title="Download" description="Writ for macOS, Windows and Linux: installers, package-manager commands and SHA256 checksums." path="/download/">
+  <main id="content" class="wrap">
+    <section class="download-page">
+      <h1>Download</h1>
+      <DownloadRows level={2} />
+    </section>
+    <article class="prose">
+      <h2>Before you install</h2>
+      <table>
+        <tbody>
+          <tr><th>macOS</th><td>Signed and notarized by Apple, so there is no warning to click through.</td></tr>
+          <tr><th>Windows</th><td>The .msi is not code-signed yet, so SmartScreen shows a warning on first run: More info, then Run anyway. The checksum below is how to verify it instead.</td></tr>
+          <tr><th>Linux</th><td>The AppImage needs FUSE 2: install libfuse2t64 on Ubuntu 24.04 or later and Debian 13 or later, or libfuse2 on earlier releases.</td></tr>
+        </tbody>
+      </table>
+      <h2>Verify a download</h2>
+      <p>Every release ships a <a href={sumsUrl}>SHA256SUMS.txt</a>. On macOS or Linux:</p>
+      <pre><code>shasum -a 256 Writ_{release.version}_universal.pkg</code></pre>
+      <p>Compare the output with the line for that file. The current sums:</p>
+      <table>
+        <tbody>
+          {sums.map(([name, sum]) => (
+            <tr><th>{name}</th><td>{sum ? <code>{sum}</code> : 'published with the release'}</td></tr>
+          ))}
+        </tbody>
+      </table>
+      <h2>First open on macOS</h2>
+      <ol>
+        <li>Open the <code>.pkg</code> and follow the installer.</li>
+        <li>Launch Writ from Applications, choose the format for new files and the apps to switch on, then Continue. Writ keeps running after you switch away.</li>
+        <li>Press <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> from any app to bring it up, and again to put it away.</li>
+      </ol>
+      <h2>Updates</h2>
+      <p>Writ checks GitHub Releases shortly after launch, at most once a day, and offers the new version; nothing installs without a click. The check verifies a signed manifest and can be turned off in Settings. Package-manager installs update through the package manager instead.</p>
+      <h2>Uninstall</h2>
+      <p>Delete the app. Your files stay where they are, including Writ's folder, and Writ's own data stays in <code>~/.writ</code> until you delete that folder too.</p>
+    </article>
+  </main>
+</Site>

@@ -1,4 +1,4 @@
-export const SCENES = ['hero', 'any-file', 'markdown', 'search', 'apps', 'versions'] as const;
+export const SCENES = ['hero', 'any-file', 'markdown', 'search', 'apps', 'graph', 'versions'] as const;
 
 export type SceneName = (typeof SCENES)[number];
 

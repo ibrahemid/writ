@@ -179,6 +179,54 @@ describe('the app the hero loads', () => {
   });
 });
 
+describe('the landing page as built', () => {
+  it('carries the noun slot in the H1 with the first noun on and the rest hidden from assistive tech', () => {
+    const html = readFileSync(join(DIST, 'index.html'), 'utf8');
+    const slot = /<h1 class="hero-h1">[\s\S]*?<span class="noun-slot" data-noun-slot>((?:<span[^>]*>[^<]*<\/span>)+)<\/span>/.exec(html);
+    expect(slot, 'no noun slot in the built H1').not.toBeNull();
+    const nouns = [...(slot?.[1] ?? '').matchAll(/<span ([^>]*)>([^<]*)<\/span>/g)].map(([, attrs, text]) => ({ attrs, text }));
+    expect(nouns.map(({ text }) => text)).toEqual(['text', 'note', 'scratchpad', 'Markdown editor', 'journal', 'to-do list']);
+    expect(nouns[0]?.attrs).toBe('class="noun is-on"');
+    for (const noun of nouns.slice(1)) expect(noun.attrs, noun.text).toBe('class="noun" aria-hidden="true"');
+  });
+});
+
+describe('site fonts', () => {
+  const FACES = [
+    { family: 'Wix Madefor Display', file: 'wix-madefor-display-latin-variable' },
+    { family: 'Wix Madefor Text', file: 'wix-madefor-text-latin-variable' },
+  ];
+
+  it('ships both faces as hashed files and no other font', () => {
+    const shipped = readdirSync(join(DIST, '_astro')).filter((name) => /\.(woff2?|ttf|otf)$/.test(name));
+    expect(shipped).toHaveLength(FACES.length);
+    for (const { file } of FACES) {
+      expect(shipped.some((name) => new RegExp(`^${file}\\.[\\w-]+\\.woff2$`).test(name)), file).toBe(true);
+    }
+  });
+
+  it('preloads both faces on every site page at the file its @font-face loads', () => {
+    const demo = join(DIST, 'demo', 'index.html');
+    const isStub = (p: string) => /<meta http-equiv="refresh"/.test(readFileSync(p, 'utf8'));
+    const sitePages = pages.filter((p) => p !== demo && !isStub(p));
+    expect(sitePages.length).toBeGreaterThan(0);
+    for (const page of sitePages) {
+      const html = readFileSync(page, 'utf8');
+      const name = page.slice(DIST.length);
+      const preloads = [...html.matchAll(/<link rel="preload" href="([^"]+)" as="font" type="font\/woff2" crossorigin>/g)].map((m) => m[1] ?? '');
+      expect(preloads, name).toHaveLength(FACES.length);
+      for (const { family, file } of FACES) {
+        const face = new RegExp(`@font-face\\{font-family:"${family}";[^}]*src:url\\("([^"]+)"\\)`).exec(html);
+        expect(face, `${name}: no @font-face for ${family}`).not.toBeNull();
+        const url = face?.[1] ?? '';
+        expect(url, `${name}: ${family}`).toMatch(new RegExp(`^/_astro/${file}\\.[\\w-]+\\.woff2$`));
+        expect(preloads, `${name}: ${family} is not preloaded`).toContain(url);
+        expect(resolvesOnDisk(url), `${name}: ${url}`).toBe(true);
+      }
+    }
+  });
+});
+
 describe('recorded media', () => {
   const REPO = resolve(ROOT, '..');
   const runSh = readFileSync(join(REPO, 'scripts', 'capture', 'run.sh'), 'utf8');

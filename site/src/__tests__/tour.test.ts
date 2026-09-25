@@ -79,7 +79,7 @@ describe('readFrameMessage', () => {
   });
 
   it('drops anything else', () => {
-    for (const data of [null, 'writ-demo-ready', 3, {}, { type: 'writ-demo-scene', name: 'graph', state: 'done' }, { type: 'writ-demo-scene', name: 'apps', state: 'late' }, { type: 'other' }]) {
+    for (const data of [null, 'writ-demo-ready', 3, {}, { type: 'writ-demo-scene', name: 'chat', state: 'done' }, { type: 'writ-demo-scene', name: 'apps', state: 'late' }, { type: 'other' }]) {
       expect(readFrameMessage(data), JSON.stringify(data)).toBeNull();
     }
   });
@@ -405,6 +405,8 @@ describe('startTour', () => {
     scroll(900 - LINE + 3 * 800);
     expect(stage.dataset.anchor).toBe('top');
     scroll(900 - LINE + 4 * 800);
+    expect(stage.dataset.anchor).toBe('top');
+    scroll(900 - LINE + 5 * 800);
     expect(stage.dataset.anchor).toBe('bottom');
   });
 
@@ -415,7 +417,7 @@ describe('startTour', () => {
     tour.connectFrame((scene) => sent.push(scene));
     scroll(900 - LINE);
     scroll(900 - LINE + 10);
-    scroll(900 - LINE + 4 * 800 + 5000);
+    scroll(900 - LINE + 5 * 800 + 5000);
     expect(sent).toEqual(['hero', 'any-file', 'versions']);
   });
 

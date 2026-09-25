@@ -1,8 +1,8 @@
 import type { SaveState } from "../../src/stores/global/save-status";
 import { CURSOR_LINE_AT_START, HERO_NOTE, VERSIONED_NOTE } from "../backend/seed";
 import { ScenePaletteMissingError, SceneStateError, SceneTimeoutError } from "./errors";
-import { checked, sleep, typeQuery, typeText, waitUntil, type Random } from "./runner";
-import type { Scene, SceneApp, SceneName } from "./types";
+import { checked, eraseQuery, sleep, typeQuery, typeText, waitUntil, type Random } from "./runner";
+import type { Scene, SceneApp, SceneName, SceneSettle } from "./types";
 
 export const TODO_NOTE = "To do.txt";
 export const LOG_NOTE = "Server log.txt";
@@ -10,10 +10,12 @@ export const MARKDOWN_NOTE = "Sourdough notes.md";
 export const TODO_TYPED = "\n- Take the recycling out on Tuesday";
 export const MARKDOWN_TYPED = "\n## Saturday\n- 78% water\n- Cold proof\n- [ ] Buy rye\n";
 export const SEARCH_QUERY = "compost";
+export const GRAPH_QUERY = "garden";
 
 const SAVE_WAIT_MS = 2000;
 const PALETTE_WAIT_MS = 1000;
 const VERSIONS_WAIT_MS = 2000;
+const GRAPH_WAIT_MS = 3000;
 const TODO_DONE_HEADING = "Done";
 
 const isSaved = (state: SaveState) => state === "saved" || state === "clean";
@@ -41,13 +43,15 @@ async function restoreSeedText(app: SceneApp, note: string, signal: AbortSignal)
   return { editor, seed };
 }
 
-export const settle: Scene = async (app, signal) => {
+// The Apps step rests on the open graph, so the Graph step carries on from that drawing instead of closing and redrawing it.
+export const settle: SceneSettle = async (app, signal, next) => {
   app.clearTyping();
   app.settings.close();
   app.palette.close();
   app.versions.close();
-  app.graph.close();
   app.restoreLayouts();
+  if (next === "graph") return;
+  app.graph.close();
   await checked(app.apps.setOn("graph", false), signal);
 };
 
@@ -96,6 +100,18 @@ export function createScenes(random: Random = Math.random): Readonly<Record<Scen
       await sleep(1000, signal);
       app.settings.close();
       app.graph.open();
+    },
+
+    graph: async (app, signal) => {
+      await checked(app.apps.setOn("graph", true), signal);
+      app.graph.open();
+      if (!(await waitUntil(() => app.graph.isDrawn(), GRAPH_WAIT_MS, signal))) {
+        throw new SceneTimeoutError("the folder graph", GRAPH_WAIT_MS);
+      }
+      await sleep(800, signal);
+      await typeQuery(app.graph, GRAPH_QUERY, signal, random);
+      await sleep(1200, signal);
+      await eraseQuery(app.graph, GRAPH_QUERY, signal, random);
     },
 
     versions: async (app, signal) => {

@@ -84,7 +84,11 @@ const p = release.platforms;
         <p>Connections, the graph, tags, chat, rewriting and connected programs are switches in Settings, and each adds nothing to the window until it is on.</p>
       </Feature>
 
-      <Feature id="versions" loop="versions" title="Earlier versions" capture="versions" alt="The earlier versions of a file listed by time, one open beside the list with Restore this version under it">
+      <Feature id="graph" loop="graph" title="Graph" capture="graph-folder" alt="Writ with the graph open beside the file list: an empty search field above scattered dots in several colors, some joined by lines">
+        <p>The graph draws each Markdown file in the folder as a dot and each link between two of them as a line, with a color per top-level folder. Typing a name lights the files that match, and clicking one opens it.</p>
+      </Feature>
+
+      <Feature id="versions" loop="versions" title="Earlier versions" capture="versions" alt="The earlier versions of a file listed by time, one open beside the list with Restore this version under it" flip>
         <p>Writ keeps a version of a file in its folder each time it is saved, for up to 30 days, stored outside that folder. Revert To, in the File menu, lists them and restores the one you pick.</p>
       </Feature>
     </div>
@@ -108,9 +112,16 @@ const p = release.platforms;
         this.name = 'NounIntervalError';
       }
     }
+    var LOOPS = 3;
+    var headline = slot.closest('h1') || slot;
     var reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
     var i = 0;
+    var swaps = 0;
     var timer = null;
+    var isLive = false;
+    var isDone = false;
+    var isPointerOver = false;
+    var isFocusWithin = false;
     // Read on each start: the token is 0ms under reduced motion, and the
     // bundler may rewrite 2400ms as 2.4s, so the unit is read, not assumed.
     function readInterval() {
@@ -121,8 +132,24 @@ const p = release.platforms;
       return interval;
     }
     function fitSlot() {
-      if (timer !== null) slot.style.width = nouns[i].offsetWidth + 'px';
+      if (isLive) slot.style.width = nouns[i].offsetWidth + 'px';
     }
+    function exposeOnly(shown) {
+      nouns.forEach(function (noun, n) {
+        if (n === shown) noun.removeAttribute('aria-hidden');
+        else noun.setAttribute('aria-hidden', 'true');
+      });
+    }
+    function clearTimer() {
+      if (timer === null) return;
+      window.clearInterval(timer);
+      timer = null;
+    }
+    function runTimer(interval) {
+      if (timer !== null || !isLive || isDone || isPointerOver || isFocusWithin) return;
+      timer = window.setInterval(showNextNoun, interval || readInterval());
+    }
+    // Three times through the nouns, then the first one stays with its marker.
     function showNextNoun() {
       nouns.forEach(function (noun) {
         noun.classList.remove('is-out');
@@ -131,27 +158,56 @@ const p = release.platforms;
       nouns[i].classList.add('is-out');
       i = (i + 1) % nouns.length;
       nouns[i].classList.add('is-on');
+      exposeOnly(i);
       fitSlot();
+      swaps += 1;
+      if (swaps >= LOOPS * nouns.length) {
+        isDone = true;
+        clearTimer();
+      }
     }
     function startRotation() {
-      if (timer !== null) return;
+      if (isLive || isDone) return;
       var interval = readInterval();
+      isLive = true;
       slot.classList.add('is-live');
-      timer = window.setInterval(showNextNoun, interval);
       fitSlot();
+      runTimer(interval);
     }
     function stopRotation() {
-      if (timer === null) return;
-      window.clearInterval(timer);
-      timer = null;
+      if (!isLive) return;
+      clearTimer();
+      isLive = false;
       nouns.forEach(function (noun) {
         noun.classList.remove('is-on', 'is-out');
       });
       i = 0;
+      swaps = 0;
       nouns[0].classList.add('is-on');
+      exposeOnly(0);
       slot.classList.remove('is-live');
       slot.style.width = '';
     }
+    function holdOrResume() {
+      if (isPointerOver || isFocusWithin) clearTimer();
+      else runTimer();
+    }
+    headline.addEventListener('pointerenter', function () {
+      isPointerOver = true;
+      holdOrResume();
+    });
+    headline.addEventListener('pointerleave', function () {
+      isPointerOver = false;
+      holdOrResume();
+    });
+    headline.addEventListener('focusin', function () {
+      isFocusWithin = true;
+      holdOrResume();
+    });
+    headline.addEventListener('focusout', function (event) {
+      isFocusWithin = headline.contains(event.relatedTarget);
+      holdOrResume();
+    });
     if (document.fonts) document.fonts.ready.then(fitSlot);
     window.addEventListener('resize', fitSlot);
     reducedQuery.addEventListener('change', function () {
