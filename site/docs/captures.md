@@ -36,7 +36,7 @@ Output: `site/src/assets/captures/<scene>-<theme>.png`, at most 2880 px wide and
 | `first-run` | No config and an empty folder: the format step, Plain text or Markdown | none written | 1280x800 |
 | `notes-folder` | Finder, list view, on the folder: `.md` and `.txt` files, folders as folders | none | 1280x800 |
 | `connections` | The Connections panel beside a file: the files that link here with their sentences, the outline, the properties | Connections | 1280x800 |
-| `graph-folder` | The Graph view of the whole folder, one colour per folder, one file found from the search box | Graph | 1280x800 |
+| `graph-folder` | The Graph view of the whole folder, a colour per top-level folder, the search field focused and empty: the first and last frame of `loop-graph` | Graph | 1280x800 |
 | `graph-local` | Nearby files in the Connections panel | Connections, Graph | 1280x800 |
 | `preview-rich` | `Sourdough notes.md` in Inline mode with the sidebar closed | none | 1280x800 |
 | `chat` | The chat pane beside Birthday ideas with the file attached, Sourdough notes attached by `@`, the rendered reply and the proposed edit as a diff; the host is a stub on localhost | Chat | 1280x800 |
@@ -54,7 +54,7 @@ Nineteen files a person might keep. Three are plain text: a to-do list, a campin
 
 ## Recordings
 
-`chat` and the five loop scenes record the window while the app is driven, once per theme, each take from a fresh instance. Each writes `site/public/media/<name>-{light,dark}.{mp4,webm}`, and `Loop.astro` plays the pair on scroll with a still as the poster (`<Loop name="chat" poster="chat" />`).
+`chat` and the six loop scenes record the window while the app is driven, once per theme, each take from a fresh instance. Each writes `site/public/media/<name>-{light,dark}.{mp4,webm}`, and `Loop.astro` plays the pair on scroll with a still as the poster (`<Loop name="chat" poster="chat" />`).
 
 | Scene | Media | The take |
 |---|---|---|
@@ -62,6 +62,7 @@ Nineteen files a person might keep. Three are plain text: a to-do list, a campin
 | `loop-markdown` | `markdown` | A heading, two list items and a checkbox typed at the end of `Sourdough notes.md`, each rendering in place, then Source and back to Inline |
 | `loop-search` | `search` | Search everywhere, `compost` typed, the Garden committee hit opened on its line |
 | `loop-apps` | `apps` | Settings on Apps, Graph switched on, Settings closed: Nearby files in the Connections panel |
+| `loop-graph` | `graph` | The Graph view of the folder, `garden` typed into its search so Garden plan and Garden committee 10 Sep stay lit, then cleared |
 | `loop-versions` | `versions` | `Newsletter draft.md`, Revert To…, the second version selected and restored |
 
 A take is cut from just before its first action to its last frame, kept 1320 px wide (twice the width the site draws a loop at), and encoded to mp4 under 1.2 MB and webm under 0.8 MB. Over a limit, the run steps the crf up by 4 twice, then drops to 24 fps and steps again, then stops. A loop take over 12 s also stops the run: a key waited for idle time, and the scene needs another run. Waiting for a panel or a button goes through the driver's accessibility lookup, `drive find <pid> <role> <name>`, rather than a fixed sleep.
