@@ -63,6 +63,16 @@ export class NoteHistory {
     this.record(path, after, at, kind === "editor");
   }
 
+  clearVersions(path: string): void {
+    for (let index = this.entries.length - 1; index >= 0; index -= 1) {
+      if (this.entries[index].path === path) this.entries.splice(index, 1);
+    }
+  }
+
+  seedVersion(path: string, text: string, atMs: number): void {
+    this.entries.push({ id: this.nextId++, path, atMs, text, merges: false });
+  }
+
   /** The note moved; its versions go with it. */
   follow(from: string, to: string): void {
     for (const entry of this.entries) if (entry.path === from) entry.path = to;

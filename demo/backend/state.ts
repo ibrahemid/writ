@@ -5,7 +5,7 @@ import { DEMO_CONFIG } from "./config";
 import { NoteHistory, countUtf8Bytes, type WriteKind } from "./history";
 import { dedupeStem } from "./naming";
 import { NotesIndex } from "./notes-index";
-import { SEED_FILES } from "./seed";
+import { SEED_FILES, SEED_VERSIONS, VERSIONED_NOTE } from "./seed";
 import { NOTES_ROOT, VirtualFolder, basename, extension, stem } from "./vfs";
 
 type Service = typeof import("../../src/services/tauri");
@@ -14,6 +14,15 @@ export type Answer<K extends keyof Service> = Service[K] extends (...args: never
 
 /** Command name to handler, as the host registers them. */
 export type CommandTable = Record<string, (args: Record<string, unknown>) => unknown>;
+
+export class VersionsNotSeededError extends Error {
+  constructor(readonly path: string) {
+    super(`the demo seeds no versions for ${path}`);
+    this.name = "VersionsNotSeededError";
+  }
+}
+
+const VERSIONED_PATH = `${NOTES_ROOT}/${VERSIONED_NOTE}`;
 
 /** BufferStore::get for an id no row holds, in the words the command rejects with. */
 export class BufferMissingError extends Error {
@@ -67,6 +76,33 @@ export class DemoState {
     this.index = new NotesIndex(this.folder, NOTES_ROOT);
     this.history = new NoteHistory();
     this.config = structuredClone(DEMO_CONFIG);
+    this.seedVersions();
+  }
+
+  private seedVersions(): void {
+    const seededAt = Date.now();
+    for (const version of SEED_VERSIONS) {
+      this.history.seedVersion(VERSIONED_PATH, version.text, seededAt - version.ageMs);
+    }
+  }
+
+  async resetVersions(path: string): Promise<void> {
+    if (path !== VERSIONED_PATH) throw new VersionsNotSeededError(path);
+    this.history.clearVersions(path);
+    this.seedVersions();
+    const seed = SEED_FILES[VERSIONED_NOTE];
+    if (this.folder.read(path) === seed) return;
+    this.folder.write(path, seed);
+    await this.emitExternalWrite(path, seed);
+  }
+
+  async emitExternalWrite(path: string, text: string): Promise<void> {
+    const tab = this.findActiveBuffer(path);
+    if (!tab) return;
+    this.bridge.emit("writ://buffer-external", {
+      kind: "buffer:external",
+      payload: { bufferId: tab.id, path, change: "modified", newPath: null, diskHash: await digestText(text) },
+    });
   }
 
   createBufferFor(path: string | null, title: string): BufferDocument {

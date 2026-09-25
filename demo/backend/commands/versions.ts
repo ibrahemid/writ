@@ -1,6 +1,6 @@
 import { VersionMissingError, countUtf8Bytes } from "../history";
 import { formatDottedStamp } from "../naming";
-import { digestText, refuseOnThrow, type Answer, type CommandTable, type DemoState } from "../state";
+import { refuseOnThrow, type Answer, type CommandTable, type DemoState } from "../state";
 import { NOTES_ROOT, dirname, extension, stem } from "../vfs";
 
 /** note_history::unreadable. */
@@ -21,13 +21,7 @@ export function createVersionCommands(state: DemoState): CommandTable {
       const kept = await readVersion(args);
       const note = kept.path.slice(NOTES_ROOT.length + 1);
       state.writeNote(kept.path, kept.text, "restore");
-      const tab = state.findActiveBuffer(kept.path);
-      if (tab) {
-        state.bridge.emit("writ://buffer-external", {
-          kind: "buffer:external",
-          payload: { bufferId: tab.id, path: kept.path, change: "modified", newPath: null, diskHash: await digestText(kept.text) },
-        });
-      }
+      await state.emitExternalWrite(kept.path, kept.text);
       return { note, bytes: countUtf8Bytes(kept.text) };
     },
     copy_note_version: async (args): Promise<Answer<"copyNoteVersion">> => {

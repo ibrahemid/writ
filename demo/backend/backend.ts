@@ -28,6 +28,22 @@ function describeCommandFailure(error: unknown): string {
   throw error;
 }
 
+export class DemoBackendNotInstalledError extends Error {
+  constructor() {
+    super("the demo backend was not created when the IPC bridge was installed");
+    this.name = "DemoBackendNotInstalledError";
+  }
+}
+
+export interface DemoControls {
+  resetVersions(path: string): Promise<void>;
+}
+
+export interface DemoBackend {
+  handle: CommandHandler;
+  controls: DemoControls;
+}
+
 function mergeCommandTables(tables: CommandTable[]): CommandTable {
   const merged: CommandTable = Object.create(null);
   for (const table of tables) {
@@ -39,7 +55,7 @@ function mergeCommandTables(tables: CommandTable[]): CommandTable {
   return merged;
 }
 
-export function createBackend(bridge: IpcBridge): CommandHandler {
+export function createBackend(bridge: IpcBridge): DemoBackend {
   const state = new DemoState(bridge);
   const handlers = mergeCommandTables([
     createConfigCommands(state),
@@ -51,7 +67,7 @@ export function createBackend(bridge: IpcBridge): CommandHandler {
 
   for (const relative of OPEN_AT_START) state.openPath(`${NOTES_ROOT}/${relative}`);
 
-  return (cmd: string, args: CommandArgs) => {
+  const handle: CommandHandler = (cmd: string, args: CommandArgs) => {
     if (cmd.startsWith("plugin:")) return null;
     const handler = handlers[cmd];
     if (!handler) {
@@ -60,4 +76,6 @@ export function createBackend(bridge: IpcBridge): CommandHandler {
     }
     return refuseOnThrow(() => handler(args ?? {}), describeCommandFailure);
   };
+
+  return { handle, controls: { resetVersions: (path) => state.resetVersions(path) } };
 }

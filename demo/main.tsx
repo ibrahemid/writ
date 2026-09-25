@@ -2,10 +2,25 @@ import { render } from "solid-js/web";
 import "../src/styles/global.css";
 import { installIpc } from "./ipc";
 import { EditorView } from "@codemirror/view";
-import { createBackend } from "./backend/backend";
+import { DemoBackendNotInstalledError, createBackend, type DemoControls } from "./backend/backend";
 import { CURSOR_LINE_AT_START } from "./backend/seed";
+import { createSceneChannel } from "./scenes/channel";
+import { createSceneRunner } from "./scenes/runner";
+import { createScenes, settle } from "./scenes/scenes";
+import "./scenes/caret.css";
 
-installIpc((bridge) => createBackend(bridge));
+function installBackend(): DemoControls {
+  const installed: { controls?: DemoControls } = {};
+  installIpc((bridge) => {
+    const backend = createBackend(bridge);
+    installed.controls = backend.controls;
+    return backend.handle;
+  });
+  if (!installed.controls) throw new DemoBackendNotInstalledError();
+  return installed.controls;
+}
+
+const demoControls = installBackend();
 
 // The preview pane keeps an iframe on the host's writ-preview:// scheme. A
 // browser has no handler for it; the blank page is what the host serves.
@@ -27,12 +42,18 @@ HTMLIFrameElement.prototype.setAttribute = function (name: string, value: string
 // scrolls the page rather than the file. The parent hears when it is ready.
 const isEmbedded = window.parent !== window;
 let isEngaged = !isEmbedded;
+const sceneChannel = isEmbedded ? createSceneChannel({ parent: window.parent, origin: window.location.origin }) : null;
 if (isEmbedded) {
+  window.addEventListener("message", (event) => sceneChannel?.receive(event));
   const engage = () => {
+    if (isEngaged) return;
     isEngaged = true;
+    window.removeEventListener("pointerdown", engage, { capture: true });
+    window.removeEventListener("keydown", engage, { capture: true });
+    sceneChannel?.engage();
   };
-  window.addEventListener("pointerdown", engage, { capture: true, once: true });
-  window.addEventListener("keydown", engage, { capture: true, once: true });
+  window.addEventListener("pointerdown", engage, { capture: true });
+  window.addEventListener("keydown", engage, { capture: true });
 
   const focus = HTMLElement.prototype.focus;
   HTMLElement.prototype.focus = function (options?: FocusOptions) {
@@ -58,11 +79,18 @@ if (isEmbedded) {
   );
 }
 
+const [{ default: App }, sceneApp] = await Promise.all([
+  import("../src/App"),
+  isEmbedded ? import("./scenes/app") : Promise.resolve(null),
+]);
+
 function announceReady(): void {
-  if (isEmbedded) window.parent.postMessage({ type: "writ-demo-ready" }, window.location.origin);
+  if (!sceneChannel || !sceneApp) return;
+  sceneChannel.ready(
+    createSceneRunner({ app: sceneApp.createSceneApp(demoControls), scenes: createScenes(), settle, report: sceneChannel.report }),
+  );
 }
 
-const { default: App } = await import("../src/App");
 render(() => <App />, document.getElementById("app")!);
 
 // The hero capture goes to its line through the search palette; the page
