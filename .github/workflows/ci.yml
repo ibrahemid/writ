@@ -192,6 +192,16 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: python3 -m unittest discover -s scripts -p 'test_packaging*.py'
 
+      - name: Install cargo-about
+        if: matrix.os == 'ubuntu-latest'
+        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375  # v2.87.12
+        with:
+          tool: cargo-about@0.9.1
+
+      - name: Third-party notices are current
+        if: matrix.os == 'ubuntu-latest'
+        run: python3 scripts/gen-third-party-notices.py --check
+
       - name: Security audit
         if: matrix.os == 'ubuntu-latest'
         run: cargo audit
