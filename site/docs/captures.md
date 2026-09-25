@@ -11,6 +11,8 @@ scripts/capture/run.sh --scene hero-window --theme light      # one theme
 scripts/capture/run.sh --scene hero-window --shell win        # the Windows shell, from a dev instance
 scripts/capture/run.sh --all --no-build                       # reuse the last bundle
 scripts/capture/run.sh --scene settings-programs              # report stills, into .status
+scripts/capture/run.sh --scene loop-markdown                  # one loop, light and dark
+scripts/capture/run.sh --report                               # media sizes against their limits
 ```
 
 Each scene writes its own `config.toml`: `[files] default_extension = "txt"`, Markdown files in Inline mode, the pine accent, and only the apps that scene shows switched on (`apps_on` in `run.sh`), so `[apps]`, `ai.chat.enabled`, `ai.rewrite.enabled` and `mcp.enabled` are all written out. `first-run` writes no config, which is what puts the format step on screen.
@@ -19,7 +21,7 @@ The run builds the CLI sidecar and the app (`CARGO_PROFILE_RELEASE_STRIP=false`,
 
 Stills are 2x. When the main display draws at 1x, as the headless M1's fallback display does, the run adds a 1680x1050 display drawn at 2x (`drive hidpi`, through `CGVirtualDisplay`) for its own length and places every window on it; on a machine with no display attached, that display stands in for the fallback one until the run ends, so a remote view of the machine changes size meanwhile. `CAPTURE_HIDPI=0` keeps the display as it is and takes 1x stills.
 
-Output: `site/src/assets/captures/<scene>-<theme>.png`, at most 2880 px wide and 1.2 MB each (`shrink.mjs`), plus a contact sheet at `.status/v2/shots/captures-contact.png`. A run that captures `hero-window` also copies it to `docs/media/hero-light.png` and `hero-dark.png` for the README. `Capture.astro` picks a still up by name, so a page references `<Capture name="search" />` and the theme pair follows.
+Output: `site/src/assets/captures/<scene>-<theme>.png`, at most 2880 px wide and 1.2 MB each (`shrink.mjs`), plus a contact sheet at `.status/v2/shots/captures-contact.png`. `Capture.astro` picks a still up by name, so a page references `<Capture name="search" />` and the theme pair follows.
 
 ## Scenes
 
@@ -52,6 +54,18 @@ Nineteen files a person might keep. Three are plain text: a to-do list, a campin
 
 ## Recordings
 
-`scripts/capture/run.sh --scene chat` records its window while the pane is driven, once per theme, and writes `site/public/media/chat-{light,dark}.{mp4,webm}`. `Loop.astro` plays the pair on scroll with the scene's own still as the poster (`<Loop name="chat" poster="chat" />`). The take is cut to the pane's life, scaled to 1320 px wide at 30 fps, and encoded to mp4 under 1.2 MB and webm under 0.8 MB; over that the run re-encodes at a higher crf, three tries, then stops. Waiting for the pane and for the Apply button goes through the driver's accessibility lookup, `drive find <pid> <role> <name>`, rather than a fixed sleep.
+`chat` and the five loop scenes record the window while the app is driven, once per theme, each take from a fresh instance. Each writes `site/public/media/<name>-{light,dark}.{mp4,webm}`, and `Loop.astro` plays the pair on scroll with a still as the poster (`<Loop name="chat" poster="chat" />`).
+
+| Scene | Media | The take |
+|---|---|---|
+| `loop-any-file` | `any-file` | A line typed at the end of the list in `To do.txt`, autosave, then `Server log.txt` opened |
+| `loop-markdown` | `markdown` | A heading, two list items and a checkbox typed at the end of `Sourdough notes.md`, each rendering in place, then Source and back to Inline |
+| `loop-search` | `search` | Search everywhere, `compost` typed, the Garden committee hit opened on its line |
+| `loop-apps` | `apps` | Settings on Apps, Graph switched on, Settings closed: Nearby files in the Connections panel |
+| `loop-versions` | `versions` | `Newsletter draft.md`, Revert To…, the second version selected and restored |
+
+A take is cut from just before its first action to its last frame, kept 1320 px wide (twice the width the site draws a loop at), and encoded to mp4 under 1.2 MB and webm under 0.8 MB. Over a limit, the run steps the crf up by 4 twice, then drops to 24 fps and steps again, then stops. A loop take over 12 s also stops the run: a key waited for idle time, and the scene needs another run. Waiting for a panel or a button goes through the driver's accessibility lookup, `drive find <pid> <role> <name>`, rather than a fixed sleep.
+
+A run of `loop-markdown` also encodes its takes, from the raw recording, as `docs/media/hero-{light,dark}.gif` for the README: palettegen then paletteuse without dithering, under 1.2 MB, at a lower frame rate and then a narrower width when over. The hero PNGs go once both GIFs exist. Every run ends by listing each loop and README GIF against its limit, as `--report` does, and exits 1 when one is over.
 
 Still deferred to the announcement week: the hero loop (`summon`), the find band, the inbox and themes loops, and the Obsidian side-by-side. They come from the same harness, not from a hand-held take, and land by dropping the files in.
