@@ -3,7 +3,7 @@
 
 Usage: bump_version.py <new_version>
 
-The new_version must be a valid semver without a leading v. All four files must
+The new_version must be a valid semver without a leading v. Every file must
 exist and contain a single canonical version field at the expected key, or the
 script exits non-zero without writing any partial state.
 
@@ -19,6 +19,7 @@ import json
 import pathlib
 import re
 import sys
+from collections.abc import Callable
 
 
 class BumpError(RuntimeError):
@@ -83,6 +84,17 @@ def bump_release_json(path: pathlib.Path, new_version: str) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
+# Every file the bump writes, relative to the repository root. The Bump version
+# workflow stages exactly these plus Cargo.lock.
+TARGETS: tuple[tuple[str, Callable[[pathlib.Path, str], None]], ...] = (
+    ("Cargo.toml", bump_cargo_toml),
+    ("src-tauri/tauri.conf.json", bump_tauri_conf),
+    ("package.json", bump_package_json),
+    ("site/package.json", bump_package_json),
+    ("site/src/data/release.json", bump_release_json),
+)
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2:
         print("Usage: bump_version.py <new_version>", file=sys.stderr)
@@ -93,26 +105,17 @@ def main(argv: list[str]) -> int:
         return 2
 
     root = pathlib.Path(__file__).resolve().parent.parent.parent
-    targets = {
-        "Cargo.toml": (root / "Cargo.toml", bump_cargo_toml),
-        "tauri.conf.json": (root / "src-tauri" / "tauri.conf.json", bump_tauri_conf),
-        "package.json": (root / "package.json", bump_package_json),
-        "site/package.json": (root / "site" / "package.json", bump_package_json),
-        "site/src/data/release.json": (
-            root / "site" / "src" / "data" / "release.json",
-            bump_release_json,
-        ),
-    }
+    targets = [(relative, root / relative, fn) for relative, fn in TARGETS]
 
-    for label, (path, _fn) in targets.items():
+    for relative, path, _fn in targets:
         if not path.exists():
-            print(f"Missing file: {path} ({label})", file=sys.stderr)
+            print(f"Missing file: {path} ({relative})", file=sys.stderr)
             return 1
 
     try:
-        for label, (path, fn) in targets.items():
+        for relative, path, fn in targets:
             fn(path, new_version)
-            print(f"Bumped {label} -> {new_version}")
+            print(f"Bumped {relative} -> {new_version}")
     except BumpError as err:
         print(f"ERROR: {err}", file=sys.stderr)
         return 1
