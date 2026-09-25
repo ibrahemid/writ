@@ -137,6 +137,25 @@ fn defaults_to_markdown(state: &AppState) {
         writ_core::config::FileExtension::Md;
 }
 
+/// Every stem `writ_core::notes::minted_stem` gives a moment from `since` to
+/// `until`, oldest first. The clock can pass a minute between the app minting
+/// a file and a test naming it, so each minute the span touches is a stem the
+/// file may carry.
+fn minted_stems(
+    since: chrono::DateTime<chrono::Utc>,
+    until: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
+    let mut stems = Vec::new();
+    let mut moment = since;
+    while moment <= until {
+        stems.push(writ_core::notes::minted_stem(moment));
+        moment += chrono::Duration::seconds(60);
+    }
+    stems.push(writ_core::notes::minted_stem(until));
+    stems.dedup();
+    stems
+}
+
 /// Opens a file from outside the notes folder the way the frontend does.
 fn open_note_at(state: &AppState, path: &std::path::Path, content: &str) -> String {
     std::fs::write(path, content).expect("write");
@@ -378,6 +397,7 @@ fn new_note_produces_a_file_on_disk_before_the_app_quits() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
 
+    let since = chrono::Utc::now();
     let doc = new_note_inner(&state).expect("new note");
 
     let path = std::path::PathBuf::from(doc.source_path.clone().expect("the note has no file"));
@@ -387,18 +407,34 @@ fn new_note_produces_a_file_on_disk_before_the_app_quits() {
         path.display()
     );
     assert!(path.starts_with(state.notes_root()), "{}", path.display());
-    let minted = writ_core::notes::minted_stem(chrono::Utc::now());
-    assert_eq!(path, state.notes_root().join(format!("{minted}.txt")));
+    let minted = minted_stems(since, chrono::Utc::now())
+        .into_iter()
+        .find(|stem| path == state.notes_root().join(format!("{stem}.txt")))
+        .unwrap_or_else(|| panic!("{} is not a minted name", path.display()));
     assert_eq!(std::fs::read_to_string(&path).expect("read"), "");
     assert_eq!(doc.title, path.file_name().unwrap().to_string_lossy());
 
-    // A second one names itself around the first rather than over it.
+    // A second one names itself around the first rather than over it. A
+    // minute that turned since the first is a name of its own.
+    let since = chrono::Utc::now();
     let second = new_note_inner(&state).expect("new note");
     let second_path =
         std::path::PathBuf::from(second.source_path.clone().expect("the note has no file"));
-    assert_eq!(
-        second_path,
-        state.notes_root().join(format!("{minted}-2.txt"))
+    let names: Vec<std::path::PathBuf> = minted_stems(since, chrono::Utc::now())
+        .into_iter()
+        .map(|stem| {
+            let name = if stem == minted {
+                format!("{stem}-2.txt")
+            } else {
+                format!("{stem}.txt")
+            };
+            state.notes_root().join(name)
+        })
+        .collect();
+    assert!(
+        names.contains(&second_path),
+        "{} is not one of {names:?}",
+        second_path.display()
     );
     assert!(second_path.exists());
     assert!(path.exists(), "the first note was written over");
