@@ -1,10 +1,17 @@
-import { describe, it, expect, vi } from "vitest";
-import { EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { Compartment, EditorState } from "@codemirror/state";
+import { EditorView, runScopeHandlers } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import type { Completion, CompletionContext } from "@codemirror/autocomplete";
+import {
+  completionStatus,
+  currentCompletions,
+  type Completion,
+  type CompletionContext,
+} from "@codemirror/autocomplete";
 import {
   wikilinkQueryAt,
+  wikilinkCompletion,
+  wikilinkCompletionForFile,
   wikilinkCompletionSource,
   type NoteName,
 } from "../../editor/wikilink-complete";
@@ -145,5 +152,65 @@ describe("accepting a name", () => {
   // link.
   it("closes a link that has no close of its own", async () => {
     expect(await accept("[[Gro", 5)).toBe("[[Grocery list]]");
+  });
+});
+
+describe("the file-type gate", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function viewWith(forFile: Compartment, on: boolean): EditorView {
+    return new EditorView({
+      state: EditorState.create({
+        extensions: [
+          markdown({ base: markdownLanguage }),
+          forFile.of(on ? wikilinkCompletionForFile : []),
+          wikilinkCompletion({ candidates: async () => notes }),
+        ],
+      }),
+      parent: document.body,
+    });
+  }
+
+  async function typeQuery(view: EditorView) {
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: "[[Gro" },
+      selection: { anchor: view.state.doc.length + 5 },
+      userEvent: "input.type",
+    });
+    await vi.advanceTimersByTimeAsync(500);
+  }
+
+  it("offers names where the file type turns the completion on", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const view = viewWith(new Compartment(), true);
+    await typeQuery(view);
+
+    expect(currentCompletions(view.state).map((c) => c.label)).toEqual(["Grocery list", "Growth"]);
+    view.destroy();
+  });
+
+  it("offers nothing once the file type turns it off", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const forFile = new Compartment();
+    const view = viewWith(forFile, true);
+    view.dispatch({ effects: forFile.reconfigure([]) });
+    await typeQuery(view);
+
+    expect(completionStatus(view.state)).toBeNull();
+    expect(currentCompletions(view.state)).toEqual([]);
+    view.destroy();
+  });
+
+  it("leaves the completion keys to the editor where the file type has none", () => {
+    const ctrlSpace = () => new KeyboardEvent("keydown", { key: " ", code: "Space", ctrlKey: true });
+    const off = viewWith(new Compartment(), false);
+    const on = viewWith(new Compartment(), true);
+
+    expect(runScopeHandlers(off, ctrlSpace(), "editor")).toBe(false);
+    expect(runScopeHandlers(on, ctrlSpace(), "editor")).toBe(true);
+    off.destroy();
+    on.destroy();
   });
 });

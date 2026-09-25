@@ -1,11 +1,12 @@
 import {
   autocompletion,
+  completionKeymap,
   type Completion,
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
-import type { EditorView } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import { keymap, type EditorView } from "@codemirror/view";
+import { Facet, Prec, type Extension } from "@codemirror/state";
 import { isInsideCode, isInsideFrontmatter } from "./link-layer";
 
 /** One note a completion can offer. */
@@ -97,12 +98,33 @@ function applyName(view: EditorView, completion: Completion, from: number, to: n
   });
 }
 
-/** The `[[` completion, as an editor extension. */
+/** Whether the `[[` completion offers names in this state. */
+const wikilinkCompletionOn = Facet.define<boolean, boolean>({
+  combine: (values) => values.some(Boolean),
+});
+
+/**
+ * The `[[` completion's list, state and typing timer, installed once for the
+ * life of a view and offering nothing until `wikilinkCompletionForFile` turns
+ * it on.
+ */
 export function wikilinkCompletion(deps: WikilinkCompleteDeps): Extension {
+  const source = wikilinkCompletionSource(deps);
   return autocompletion({
-    override: [wikilinkCompletionSource(deps)],
-    // A note name is prose, so nothing is inserted until it is chosen.
-    defaultKeymap: true,
+    override: [
+      (context: CompletionContext) =>
+        context.state.facet(wikilinkCompletionOn) ? source(context) : null,
+    ],
+    defaultKeymap: false,
     activateOnTyping: true,
   });
 }
+
+/**
+ * Turns the `[[` completion on for a file type: the gate and the keys that
+ * drive the list. Neither holds a timer, so a compartment may add and drop it.
+ */
+export const wikilinkCompletionForFile: Extension = [
+  wikilinkCompletionOn.of(true),
+  Prec.highest(keymap.of(completionKeymap)),
+];

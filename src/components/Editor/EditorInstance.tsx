@@ -19,7 +19,7 @@ import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { spellingExtension } from "../../editor/spelling";
 import { linkLayer } from "../../editor/link-layer";
 import { wikilinkDecorationLayer } from "../../editor/wikilink-decorations";
-import { wikilinkCompletion } from "../../editor/wikilink-complete";
+import { wikilinkCompletion, wikilinkCompletionForFile } from "../../editor/wikilink-complete";
 import { followNoteLink } from "../../editor/wikilink-open";
 import { showLinkCandidates, showMissingNote } from "./LinkAmbiguityPicker";
 import { editorContextMenu } from "../../editor/context-menu";
@@ -102,6 +102,8 @@ export default function EditorInstance(props: Props) {
   let view: EditorView | undefined;
   let disposeEditorCommands: (() => void) | undefined;
   let currentBufferId: string | undefined;
+  // The buffer the view holds; it trails currentBufferId during a switch.
+  let viewBufferId: string | undefined;
   let appliedNameForLang = "";
   let lastDetectLen = 0;
   let restrictedPublishTimer: ReturnType<typeof setTimeout> | null = null;
@@ -304,7 +306,7 @@ export default function EditorInstance(props: Props) {
       ? [
           linkLayer(linkDeps),
           wikilinkDecorationLayer(wikilinkDeps),
-          wikilinkCompletion(wikilinkCompleteDeps),
+          wikilinkCompletionForFile,
         ]
       : linkLayer(linkDeps);
   }
@@ -385,6 +387,9 @@ export default function EditorInstance(props: Props) {
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
       linkCompartment.of(isRestricted ? [] : linkExtensions(markdown)),
+      // Outside every compartment: the completion plugin never clears its typing
+      // timer, which throws if it fires after the completion is reconfigured away.
+      isRestricted ? [] : wikilinkCompletion(wikilinkCompleteDeps),
       contextMenuExtension,
       spellingMenuExtension,
       readOnlyCompartment.of(
@@ -596,6 +601,7 @@ export default function EditorInstance(props: Props) {
       state,
       parent: containerRef,
     });
+    viewBufferId = buffer.id;
 
     win.editor.registerView(view);
     win.editor.setLineCount(view.state.doc.lines);
@@ -715,7 +721,9 @@ export default function EditorInstance(props: Props) {
   createEffect(on(
     () => [props.buffer.title, props.buffer.filename] as const,
     () => {
-      if (!view) return;
+      // A switch changes the name too; loadBuffer configures the incoming
+      // view, and the outgoing one keeps its own file's type.
+      if (!view || props.buffer.id !== viewBufferId) return;
       applyLanguageFromBuffer(props.buffer, view.state.doc.toString());
     },
     { defer: true },
@@ -752,13 +760,17 @@ export default function EditorInstance(props: Props) {
 
   // The layout is what turns the decorations on, so the compartment follows
   // it: switching a markdown buffer between inline and source swaps the
-  // extension without reloading the buffer.
+  // extension without reloading the buffer. The swap changes line heights
+  // around a caret the scroll position does not follow, so it asks for the
+  // caret line to stay in view.
   createEffect(on(
     () => win.layout.get(props.buffer.id, isMarkdown() ? "markdown" : null).kind,
     () => {
+      if (!view || props.buffer.id !== viewBufferId) return;
       const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
-      view?.dispatch({
+      view.dispatch({
         effects: typographyCompartment.reconfigure(typographyExtension(isMarkdown(), mode)),
+        scrollIntoView: true,
       });
     },
     { defer: true },

@@ -19,7 +19,6 @@ export interface SceneEditor {
   placeCursorAtLineStart(line: number): void;
   placeCursorAtLineEnd(line: number): void;
   placeCursorAtEnd(): void;
-  revealCursor(): void;
   insert(text: string): void;
   setTyping(isTyping: boolean): void;
 }

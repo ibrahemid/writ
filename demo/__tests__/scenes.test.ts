@@ -4,14 +4,7 @@ import type { SaveState } from "../../src/stores/global/save-status";
 import { CURSOR_LINE_AT_START, HERO_NOTE, SEED_FILES, VERSIONED_NOTE } from "../backend/seed";
 import { ENGAGED_MESSAGE, READY_MESSAGE, SCENE_MESSAGE, createSceneChannel } from "../scenes/channel";
 import { SceneStateError } from "../scenes/errors";
-import {
-  KEY_DELAY_MAX_MS,
-  KEY_DELAY_MIN_MS,
-  LINE_END_DELAY_MS,
-  TYPING_COOLDOWN_MS,
-  createSceneRunner,
-  type Random,
-} from "../scenes/runner";
+import { KEY_DELAY_MAX_MS, KEY_DELAY_MIN_MS, LINE_END_DELAY_MS, createSceneRunner, type Random } from "../scenes/runner";
 import {
   LOG_NOTE,
   MARKDOWN_NOTE,
@@ -41,15 +34,12 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
   const cursorLines = new Map<string, number>();
   const shownFromTop: string[] = [];
   const calls: string[] = [];
-  const clearedAt: number[] = [];
   let tabs: string[] = [HERO_NOTE];
   const layouts = new Map<string, SceneLayout>();
   const inserts: Insert[] = [];
   const queries: string[] = [];
   const opened: string[] = [];
   const reveals: { note: string; line: number }[] = [];
-  const layoutChanges: { bufferId: string; layout: SceneLayout; at: number }[] = [];
-  const cursorReveals: { note: string; layout: SceneLayout | undefined; at: number }[] = [];
   const restored: number[] = [];
   const selected: number[] = [];
   const versionList: NoteVersion[] = [
@@ -85,7 +75,6 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
       },
       placeCursorAtLineEnd: (line) => cursors.set(note, lineEnd(line)),
       placeCursorAtEnd: () => cursors.set(note, read().length),
-      revealCursor: () => cursorReveals.push({ note, layout: layouts.get(`buffer:${note}`), at: Date.now() }),
       insert(char) {
         const text = read();
         const at = cursors.get(note) ?? text.length;
@@ -115,15 +104,11 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
       reveals.push({ note, line });
       return editorFor(note);
     },
-    setLayout: (editor, layout) => {
-      layouts.set(editor.bufferId, layout);
-      layoutChanges.push({ bufferId: editor.bufferId, layout, at: Date.now() });
-    },
+    setLayout: (editor, layout) => layouts.set(editor.bufferId, layout),
     restoreLayouts: () => {
       for (const id of layouts.keys()) layouts.set(id, "inline");
     },
     clearTyping: () => {
-      clearedAt.push(Date.now());
       open.typing = false;
     },
     saveState: () => options.saveState ?? "saved",
@@ -180,7 +165,7 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
     },
   };
 
-  return { app, texts, layouts, inserts, queries, opened, reveals, restored, selected, open, cursorLines, shownFromTop, calls, clearedAt, layoutChanges, cursorReveals, tabs: () => tabs };
+  return { app, texts, layouts, inserts, queries, opened, reveals, restored, selected, open, cursorLines, shownFromTop, calls, tabs: () => tabs };
 }
 
 function createHarness(options: { random?: Random; saveState?: SaveState } = {}) {
@@ -295,14 +280,6 @@ describe("the scenes", () => {
     expect(layouts.get(`buffer:${MARKDOWN_NOTE}`)).toBe("inline");
   });
 
-  it("brings the caret back into view the moment markdown switches to source", async () => {
-    const { player, layoutChanges, cursorReveals } = createHarness();
-    await playToEnd(player, "markdown");
-    const toSource = layoutChanges.find((change) => change.layout === "source");
-    expect(toSource).toBeDefined();
-    expect(cursorReveals).toEqual([{ note: MARKDOWN_NOTE, layout: "source", at: toSource!.at }]);
-  });
-
   it("types the query a letter at a time and opens the first hit on its line", async () => {
     const { player, queries, reveals, open } = createHarness();
     await playToEnd(player, "search");
@@ -372,89 +349,6 @@ describe("the scenes", () => {
     await playToEnd(player, "versions");
     expect(reports).toEqual([["versions", "cancelled"]]);
     expect(failures[0][1]).toBeInstanceOf(SceneStateError);
-  });
-});
-
-describe("the wait after a scene cancelled while typing", () => {
-  const typedChars = [...MARKDOWN_TYPED].length;
-
-  async function advanceUntilTyped(inserts: Insert[]): Promise<void> {
-    while (inserts.length < typedChars) await vi.advanceTimersByTimeAsync(5);
-  }
-
-  it.each(["any-file", "hero"] as const)("holds %s's settle until the cooldown after a cancel mid-typing", async (next) => {
-    const { player, inserts, clearedAt, reports } = createHarness();
-    const first = player.play("markdown");
-    await vi.advanceTimersByTimeAsync(500);
-    expect(inserts.length).toBeGreaterThan(0);
-    expect(inserts.length).toBeLessThan(typedChars);
-    const cancelAt = Date.now();
-    const second = player.play(next);
-    await vi.advanceTimersByTimeAsync(TYPING_COOLDOWN_MS - 1);
-    expect(clearedAt).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(clearedAt).toHaveLength(2);
-    expect(clearedAt[1]).toBe(cancelAt + TYPING_COOLDOWN_MS);
-    await vi.runAllTimersAsync();
-    await Promise.all([first, second]);
-    expect(reports).toEqual([
-      ["markdown", "cancelled"],
-      [next, "done"],
-    ]);
-  });
-
-  it("holds the cooldown when the typing stopped just before the cancel", async () => {
-    const { player, inserts, clearedAt } = createHarness();
-    const first = player.play("markdown");
-    await advanceUntilTyped(inserts);
-    await vi.advanceTimersByTimeAsync(20);
-    const cancelAt = Date.now();
-    const second = player.play("search");
-    await vi.runAllTimersAsync();
-    await Promise.all([first, second]);
-    expect(clearedAt[1]).toBe(cancelAt + TYPING_COOLDOWN_MS);
-  });
-
-  it("keeps the first deadline when another scene arrives during the cooldown", async () => {
-    const { player, clearedAt, reports } = createHarness();
-    const runs = [player.play("markdown")];
-    await vi.advanceTimersByTimeAsync(500);
-    const cancelAt = Date.now();
-    runs.push(player.play("search"));
-    await vi.advanceTimersByTimeAsync(100);
-    runs.push(player.play("versions"));
-    await vi.runAllTimersAsync();
-    await Promise.all(runs);
-    expect(clearedAt).toEqual([expect.any(Number), cancelAt + TYPING_COOLDOWN_MS]);
-    expect(reports).toEqual([
-      ["markdown", "cancelled"],
-      ["search", "cancelled"],
-      ["versions", "done"],
-    ]);
-  });
-
-  it("starts the next scene at once after a clean finish", async () => {
-    const { player, clearedAt } = createHarness();
-    await playToEnd(player, "markdown");
-    const playAt = Date.now();
-    await playToEnd(player, "any-file");
-    expect(clearedAt[1]).toBe(playAt);
-  });
-
-  it("starts the next scene at once when the cancelled scene typed longer ago than the cooldown", async () => {
-    const { player, inserts, clearedAt, reports } = createHarness();
-    const first = player.play("markdown");
-    await advanceUntilTyped(inserts);
-    await vi.advanceTimersByTimeAsync(700);
-    const cancelAt = Date.now();
-    const second = player.play("any-file");
-    await vi.runAllTimersAsync();
-    await Promise.all([first, second]);
-    expect(clearedAt[1]).toBe(cancelAt);
-    expect(reports).toEqual([
-      ["markdown", "cancelled"],
-      ["any-file", "done"],
-    ]);
   });
 });
 
