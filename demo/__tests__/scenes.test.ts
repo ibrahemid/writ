@@ -48,6 +48,8 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
   const queries: string[] = [];
   const opened: string[] = [];
   const reveals: { note: string; line: number }[] = [];
+  const layoutChanges: { bufferId: string; layout: SceneLayout; at: number }[] = [];
+  const cursorReveals: { note: string; layout: SceneLayout | undefined; at: number }[] = [];
   const restored: number[] = [];
   const selected: number[] = [];
   const versionList: NoteVersion[] = [
@@ -83,6 +85,7 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
       },
       placeCursorAtLineEnd: (line) => cursors.set(note, lineEnd(line)),
       placeCursorAtEnd: () => cursors.set(note, read().length),
+      revealCursor: () => cursorReveals.push({ note, layout: layouts.get(`buffer:${note}`), at: Date.now() }),
       insert(char) {
         const text = read();
         const at = cursors.get(note) ?? text.length;
@@ -112,7 +115,10 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
       reveals.push({ note, line });
       return editorFor(note);
     },
-    setLayout: (editor, layout) => layouts.set(editor.bufferId, layout),
+    setLayout: (editor, layout) => {
+      layouts.set(editor.bufferId, layout);
+      layoutChanges.push({ bufferId: editor.bufferId, layout, at: Date.now() });
+    },
     restoreLayouts: () => {
       for (const id of layouts.keys()) layouts.set(id, "inline");
     },
@@ -174,7 +180,7 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
     },
   };
 
-  return { app, texts, layouts, inserts, queries, opened, reveals, restored, selected, open, cursorLines, shownFromTop, calls, clearedAt, tabs: () => tabs };
+  return { app, texts, layouts, inserts, queries, opened, reveals, restored, selected, open, cursorLines, shownFromTop, calls, clearedAt, layoutChanges, cursorReveals, tabs: () => tabs };
 }
 
 function createHarness(options: { random?: Random; saveState?: SaveState } = {}) {
@@ -287,6 +293,14 @@ describe("the scenes", () => {
     await playToEnd(player, "markdown");
     expect(texts.get(MARKDOWN_NOTE)).toBe(SEED_FILES[MARKDOWN_NOTE] + MARKDOWN_TYPED);
     expect(layouts.get(`buffer:${MARKDOWN_NOTE}`)).toBe("inline");
+  });
+
+  it("brings the caret back into view the moment markdown switches to source", async () => {
+    const { player, layoutChanges, cursorReveals } = createHarness();
+    await playToEnd(player, "markdown");
+    const toSource = layoutChanges.find((change) => change.layout === "source");
+    expect(toSource).toBeDefined();
+    expect(cursorReveals).toEqual([{ note: MARKDOWN_NOTE, layout: "source", at: toSource!.at }]);
   });
 
   it("types the query a letter at a time and opens the first hit on its line", async () => {

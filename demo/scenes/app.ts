@@ -66,6 +66,9 @@ export function createSceneApp(controls: DemoControls): SceneApp {
       placeCursorAtEnd() {
         view.dispatch({ selection: { anchor: view.state.doc.length }, scrollIntoView: true });
       },
+      revealCursor() {
+        view.dispatch({ scrollIntoView: true });
+      },
       insert(text) {
         view.dispatch(view.state.replaceSelection(text), { userEvent: "input.type", scrollIntoView: true });
       },
