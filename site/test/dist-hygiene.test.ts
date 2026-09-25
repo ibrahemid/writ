@@ -182,18 +182,27 @@ describe('the app the hero loads', () => {
 describe('recorded media', () => {
   const REPO = resolve(ROOT, '..');
   const runSh = readFileSync(join(REPO, 'scripts', 'capture', 'run.sh'), 'utf8');
-  const limit = Number(/^WEBM_LIMIT=(\d+)$/m.exec(runSh)?.[1]);
-  const GIF_LIMIT = 1_258_291;
+  const readLimit = (name: string): number => Number(new RegExp(`^${name}=(\\d+)$`, 'm').exec(runSh)?.[1]);
+  const LIMITS = { webm: readLimit('WEBM_LIMIT'), mp4: readLimit('MP4_LIMIT') };
+  const GIF_LIMIT = readLimit('GIF_LIMIT');
 
-  it('keeps every loop within the limit the capture harness encodes to', () => {
-    expect(Number.isInteger(limit) && limit > 0, 'WEBM_LIMIT is missing from scripts/capture/run.sh').toBe(true);
+  it('reads every size limit the capture harness encodes to', () => {
+    for (const [name, limit] of Object.entries({ WEBM_LIMIT: LIMITS.webm, MP4_LIMIT: LIMITS.mp4, GIF_LIMIT })) {
+      expect(Number.isInteger(limit) && limit > 0, `${name} is missing from scripts/capture/run.sh`).toBe(true);
+    }
+  });
+
+  it('keeps every loop within the limit the capture harness encodes its format to', () => {
     const media = join(DIST, 'media');
-    const loops = existsSync(media) ? readdirSync(media).filter((name) => name.endsWith('.webm')) : [];
-    const over = loops
-      .map((name) => ({ name, size: statSync(join(media, name)).size }))
-      .filter(({ size }) => size > limit)
-      .map(({ name, size }) => `${name}: ${size} bytes`);
-    expect(over, `loops over ${limit} bytes:\n${over.join('\n')}`).toEqual([]);
+    const files = existsSync(media) ? readdirSync(media) : [];
+    for (const [extension, limit] of Object.entries(LIMITS)) {
+      const over = files
+        .filter((name) => name.endsWith(`.${extension}`))
+        .map((name) => ({ name, size: statSync(join(media, name)).size }))
+        .filter(({ size }) => size > limit)
+        .map(({ name, size }) => `${name}: ${size} bytes`);
+      expect(over, `${extension} loops over ${limit} bytes:\n${over.join('\n')}`).toEqual([]);
+    }
   });
 
   it('ships the README hero as a light and a dark GIF, each within the size limit', () => {

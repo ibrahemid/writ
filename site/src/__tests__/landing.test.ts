@@ -41,6 +41,63 @@ function leafRules(css: string): Rule[] {
   return rules;
 }
 
+interface FakeClassList {
+  add(...names: string[]): void;
+  remove(...names: string[]): void;
+  contains(name: string): boolean;
+}
+
+function fakeClassList(initial: string[] = []): FakeClassList {
+  const names = new Set(initial);
+  return {
+    add: (...added) => added.forEach((name) => names.add(name)),
+    remove: (...removed) => removed.forEach((name) => names.delete(name)),
+    contains: (name) => names.has(name),
+  };
+}
+
+const NOUN_SCRIPT = [...INDEX.matchAll(/<script is:inline>([\s\S]*?)<\/script>/g)]
+  .map((match) => match[1] ?? '')
+  .find((script) => script.includes('data-noun-slot'));
+
+function runNounScript(options: { interval: string; reduced?: boolean }) {
+  if (!NOUN_SCRIPT) throw new Error('index.astro has no inline noun script');
+  const reduced = { matches: Boolean(options.reduced), change: [] as (() => void)[] };
+  const timers = new Map<number, { fn: () => void; ms: number }>();
+  let nextTimer = 1;
+  const nouns = ['text', 'note', 'scratchpad'].map((text, i) => ({
+    text,
+    offsetWidth: 100 + i,
+    classList: fakeClassList(i === 0 ? ['is-on'] : []),
+  }));
+  const slot = { classList: fakeClassList(), style: { width: '' }, querySelectorAll: () => nouns };
+  const fakeWindow = {
+    matchMedia: (query: string) => {
+      if (query !== '(prefers-reduced-motion: reduce)') throw new Error(`unexpected media query ${query}`);
+      return { get matches() { return reduced.matches; }, addEventListener: (_: string, fn: () => void) => reduced.change.push(fn) };
+    },
+    setInterval: (fn: () => void, ms: number) => {
+      const id = nextTimer++;
+      timers.set(id, { fn, ms });
+      return id;
+    },
+    clearInterval: (id: number) => timers.delete(id),
+    addEventListener: () => {},
+  };
+  const fakeDocument = { querySelector: (selector: string) => (selector === '[data-noun-slot]' ? slot : null) };
+  const fakeStyle = () => ({
+    getPropertyValue: (name: string) =>
+      name === '--writ-site-motion-noun-interval' ? (reduced.matches ? '0ms' : options.interval) : '',
+  });
+  new Function('window', 'document', 'getComputedStyle', NOUN_SCRIPT)(fakeWindow, fakeDocument, fakeStyle);
+  const setReduced = (matches: boolean): void => {
+    reduced.matches = matches;
+    for (const fn of reduced.change) fn();
+  };
+  const shown = (): string[] => nouns.filter((noun) => noun.classList.contains('is-on')).map((noun) => noun.text);
+  return { timers, slot, shown, setReduced };
+}
+
 function featureTag(id: string): string {
   const match = new RegExp(`<Feature id="${id}"[^>]*>`).exec(INDEX);
   expect(match, `no Feature for ${id}`).not.toBeNull();
@@ -60,12 +117,45 @@ describe('the landing page', () => {
     expect(INDEX).toContain('</span><br /> app you need');
   });
 
-  it('rotates the noun from an inline script that stands down under reduced motion', () => {
-    const script = INDEX.slice(INDEX.indexOf("document.querySelector('[data-noun-slot]')") - 200);
-    expect(script).toContain("if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;");
-    expect(script).toContain("getPropertyValue('--writ-site-motion-noun-interval')");
-    expect(script).toContain("classList.add('is-out')");
-    expect(script).toContain('document.fonts.ready.then(fit)');
+  it('rotates the noun on the interval token, in milliseconds or seconds', () => {
+    for (const interval of ['2400ms', '2.4s']) {
+      const { timers, slot, shown } = runNounScript({ interval });
+      expect([...timers.values()].map((timer) => timer.ms)).toEqual([2400]);
+      expect(slot.classList.contains('is-live')).toBe(true);
+      expect(slot.style.width).toBe('100px');
+      [...timers.values()][0]?.fn();
+      expect(shown()).toEqual(['note']);
+      expect(slot.style.width).toBe('101px');
+    }
+    expect(NOUN_SCRIPT).toContain('document.fonts.ready.then(fitSlot)');
+  });
+
+  it('stops the rotation and rests on the first noun when reduced motion comes on, and resumes when it goes', () => {
+    const { timers, slot, shown, setReduced } = runNounScript({ interval: '2400ms' });
+    [...timers.values()][0]?.fn();
+    setReduced(true);
+    expect(timers.size).toBe(0);
+    expect(shown()).toEqual(['text']);
+    expect(slot.classList.contains('is-live')).toBe(false);
+    expect(slot.style.width).toBe('');
+    setReduced(false);
+    expect(timers.size).toBe(1);
+    expect(slot.classList.contains('is-live')).toBe(true);
+  });
+
+  it('leaves the first noun static when the page loads under reduced motion, where the token is 0ms', () => {
+    const { timers, slot, shown, setReduced } = runNounScript({ interval: '2400ms', reduced: true });
+    expect(timers.size).toBe(0);
+    expect(shown()).toEqual(['text']);
+    expect(slot.classList.contains('is-live')).toBe(false);
+    setReduced(false);
+    expect([...timers.values()].map((timer) => timer.ms)).toEqual([2400]);
+  });
+
+  it('fails loudly when the interval token is missing or not a time', () => {
+    for (const interval of ['', '2400', 'fast', '0ms']) {
+      expect(() => runNounScript({ interval }), interval).toThrow(expect.objectContaining({ name: 'NounIntervalError' }));
+    }
   });
 
   it('sets the intro and tour attributes before paint, from the breakpoint token', () => {
@@ -103,13 +193,23 @@ describe('the landing page', () => {
     expect(stage.trimEnd().endsWith('</div>')).toBe(true);
   });
 
-  it('gives every section its own loop, and anchors Apps and Earlier versions to the bottom', () => {
+  it('gives every section its own loop, anchors Markdown to the bottom and Apps and Earlier versions to the centre', () => {
+    const anchors: Record<string, string> = { markdown: 'bottom', apps: 'center', versions: 'center' };
     for (const id of SECTIONS) {
       const tag = featureTag(id);
       expect(tag).toContain(`loop="${id}"`);
-      if (id === 'apps' || id === 'versions') expect(tag).toContain('anchor="bottom"');
+      const anchor = anchors[id];
+      if (anchor) expect(tag).toContain(`anchor="${anchor}"`);
       else expect(tag).not.toContain('anchor=');
     }
+  });
+
+  it('centres the camera on the frame, and fades both cropped edges while it does', () => {
+    expect(CSS).toContain(
+      '[data-writ-tour] .stage[data-anchor="center"] .live-camera {\n  transform: translateY(min(0%, (var(--tour-view) - var(--writ-space-7) - var(--writ-site-hairline) * 2 - 100%) / 2));\n}',
+    );
+    expect(CSS).toContain('[data-writ-tour] .stage:not([data-anchor="bottom"]) .live-window.is-cropped::after,');
+    expect(CSS).toContain('[data-writ-tour] .stage:is([data-anchor="bottom"], [data-anchor="center"]) .live-window.is-cropped::before {');
   });
 
   it('brings the first caption to the band within the hold token of scroll after the window pins', () => {

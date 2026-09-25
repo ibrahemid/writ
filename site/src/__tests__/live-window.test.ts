@@ -48,9 +48,9 @@ describe('the live window', () => {
   it('starts the tour and hands it the ready and engaged messages', () => {
     expect(COMPONENT).toContain("import { isFrameMessage, readFrameMessage, startTour, type Tour } from '../scripts/tour';");
     expect(COMPONENT).toContain('startTour(host, bp, {');
-    expect(COMPONENT).toMatch(/tour\?\.ready\(\(name\) => frame\.contentWindow\?\.postMessage\(\{ type: 'writ-demo-scene', name \}, location\.origin\)\)/);
+    expect(COMPONENT).toMatch(/tour\?\.connectFrame\(\(name\) => frame\.contentWindow\?\.postMessage\(\{ type: 'writ-demo-scene', name \}, location\.origin\)\)/);
     expect(COMPONENT).toContain("message.type === 'writ-demo-engaged'");
-    expect(COMPONENT).toContain('tour?.engaged();');
+    expect(COMPONENT).toContain('tour?.markEngaged();');
   });
 
   it('records the scene the app last acknowledged on the window', () => {

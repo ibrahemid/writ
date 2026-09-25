@@ -4,38 +4,45 @@ export type SceneName = (typeof SCENES)[number];
 
 export type SceneState = 'done' | 'cancelled';
 
+export type CameraAnchor = 'top' | 'center' | 'bottom';
+
+const CAMERA_ANCHORS: readonly CameraAnchor[] = ['top', 'center', 'bottom'];
+
+const RESIZE_SETTLE_MS = 150;
+
 export type FrameMessage =
   | { readonly type: 'writ-demo-ready' }
   | { readonly type: 'writ-demo-engaged' }
   | { readonly type: 'writ-demo-scene'; readonly name: SceneName; readonly state: SceneState };
 
 export interface SceneGate {
-  readonly live: boolean;
-  readonly tour: boolean;
-  readonly engaged: boolean;
-  readonly visible: boolean;
+  readonly isLive: boolean;
+  readonly isTourOn: boolean;
+  readonly hasEngaged: boolean;
+  readonly isVisible: boolean;
 }
 
 export interface StepBox {
   readonly name: SceneName;
   readonly top: number;
-  readonly atLine?: boolean;
+  readonly isAtLine?: boolean;
 }
 
 export type PostScene = (scene: SceneName) => void;
 
 export interface SceneDriver {
   readonly active: SceneName;
-  setActive(scene: SceneName): void;
-  setTour(on: boolean): void;
-  setVisible(visible: boolean): void;
-  ready(post: PostScene): void;
-  engaged(): void;
+  setActiveScene(scene: SceneName): void;
+  setTourOn(isOn: boolean): void;
+  setVisible(isVisible: boolean): void;
+  restFrame(): void;
+  connectFrame(post: PostScene): void;
+  markEngaged(): void;
 }
 
 export interface Tour {
-  ready(post: PostScene): void;
-  engaged(): void;
+  connectFrame(post: PostScene): void;
+  markEngaged(): void;
 }
 
 type StyleReader = Pick<CSSStyleDeclaration, 'getPropertyValue'>;
@@ -49,7 +56,7 @@ export interface TourEnv {
   ) => Pick<IntersectionObserver, 'observe' | 'disconnect'>;
   readonly ResizeObserver: new (callback: ResizeObserverCallback) => Pick<ResizeObserver, 'observe'>;
   readonly getComputedStyle: (element: Element) => StyleReader;
-  readonly viewport: Pick<Window, 'innerHeight' | 'addEventListener'>;
+  readonly viewport: Pick<Window, 'innerHeight' | 'addEventListener' | 'setTimeout' | 'clearTimeout'>;
 }
 
 export class TourTokenError extends Error {
@@ -66,7 +73,7 @@ export function isSceneName(value: unknown): value is SceneName {
 }
 
 export function shouldPostScene(gate: SceneGate): boolean {
-  return gate.live && gate.tour && !gate.engaged && gate.visible;
+  return gate.isLive && gate.isTourOn && !gate.hasEngaged && gate.isVisible;
 }
 
 export function isFrameMessage(
@@ -86,10 +93,10 @@ export function readFrameMessage(data: unknown): FrameMessage | null {
   return known ? { type, name, state: known } : null;
 }
 
-export function activeScene(line: number, steps: readonly StepBox[]): SceneName {
-  let atLine: SceneName | null = null;
-  for (const step of steps) if (step.atLine) atLine = step.name;
-  if (atLine) return atLine;
+export function findActiveScene(line: number, steps: readonly StepBox[]): SceneName {
+  let sceneAtLine: SceneName | null = null;
+  for (const step of steps) if (step.isAtLine) sceneAtLine = step.name;
+  if (sceneAtLine) return sceneAtLine;
   let active: SceneName = 'hero';
   for (const step of steps) {
     if (step.top > line) break;
@@ -98,17 +105,17 @@ export function activeScene(line: number, steps: readonly StepBox[]): SceneName 
   return active;
 }
 
-export function createSceneDriver(initial: { readonly tour: boolean; readonly visible: boolean }): SceneDriver {
+export function createSceneDriver(initial: { readonly isTourOn: boolean; readonly isVisible: boolean }): SceneDriver {
   let post: PostScene | null = null;
   let active: SceneName = 'hero';
   let posted: SceneName | null = null;
-  let tour = initial.tour;
-  let visible = initial.visible;
-  let engaged = false;
+  let isTourOn = initial.isTourOn;
+  let isVisible = initial.isVisible;
+  let hasEngaged = false;
 
-  const send = (force: boolean): void => {
-    if (!post || !shouldPostScene({ live: true, tour, engaged, visible })) return;
-    if (!force && posted === active) return;
+  const sendScene = (isForced: boolean): void => {
+    if (!post || !shouldPostScene({ isLive: true, isTourOn, hasEngaged, isVisible })) return;
+    if (!isForced && posted === active) return;
     posted = active;
     post(active);
   };
@@ -117,27 +124,32 @@ export function createSceneDriver(initial: { readonly tour: boolean; readonly vi
     get active() {
       return active;
     },
-    setActive(scene) {
+    setActiveScene(scene) {
       if (scene === active) return;
       active = scene;
-      send(false);
+      sendScene(false);
     },
-    setTour(on) {
-      if (on === tour) return;
-      tour = on;
-      send(false);
+    setTourOn(isOn) {
+      if (isOn === isTourOn) return;
+      isTourOn = isOn;
+      sendScene(false);
     },
-    setVisible(next) {
-      if (next === visible) return;
-      visible = next;
-      send(true);
+    setVisible(isNowVisible) {
+      if (isNowVisible === isVisible) return;
+      isVisible = isNowVisible;
+      sendScene(true);
     },
-    ready(next) {
+    restFrame() {
+      if (!post || hasEngaged) return;
+      posted = 'hero';
+      post('hero');
+    },
+    connectFrame(next) {
       post = next;
-      send(true);
+      sendScene(true);
     },
-    engaged() {
-      engaged = true;
+    markEngaged() {
+      hasEngaged = true;
     },
   };
 }
@@ -152,7 +164,11 @@ function readLength(style: StyleReader, token: string): number {
 interface Step {
   readonly element: HTMLElement;
   readonly name: SceneName;
-  readonly anchor: 'top' | 'bottom';
+  readonly anchor: CameraAnchor;
+}
+
+function readAnchor(value: string | undefined): CameraAnchor {
+  return CAMERA_ANCHORS.find((anchor) => anchor === value) ?? 'top';
 }
 
 export function startTour(root: HTMLElement, bp: string, env: TourEnv): Tour {
@@ -163,84 +179,103 @@ export function startTour(root: HTMLElement, bp: string, env: TourEnv): Tour {
   const steps: Step[] = [];
   for (const element of doc.querySelectorAll<HTMLElement>('[data-step]')) {
     const name = element.dataset.step;
-    if (isSceneName(name)) steps.push({ element, name, anchor: element.dataset.anchor === 'bottom' ? 'bottom' : 'top' });
+    if (isSceneName(name)) steps.push({ element, name, anchor: readAnchor(element.dataset.anchor) });
   }
 
-  const wide = env.matchMedia(`(min-width: ${bp})`);
-  const reduced = env.matchMedia('(prefers-reduced-motion: reduce)');
-  const isTourOn = (): boolean => wide.matches && !reduced.matches;
-  const driver = createSceneDriver({ tour: isTourOn(), visible: doc.visibilityState === 'visible' });
+  const wideQuery = env.matchMedia(`(min-width: ${bp})`);
+  const reducedQuery = env.matchMedia('(prefers-reduced-motion: reduce)');
+  const isTourOn = (): boolean => wideQuery.matches && !reducedQuery.matches;
+  const driver = createSceneDriver({ isTourOn: isTourOn(), isVisible: doc.visibilityState === 'visible' });
 
-  const line = (): number => {
+  const readTriggerLine = (): number => {
     const style = env.getComputedStyle(html);
     return readLength(style, '--writ-site-nav-height') + readLength(style, '--writ-site-tour-band');
   };
 
-  const atLine = new Set<Element>();
-  const update = (): void => {
-    const scene = activeScene(
-      line(),
+  const stepsAtLine = new Set<Element>();
+  const updateActiveScene = (): void => {
+    const scene = findActiveScene(
+      readTriggerLine(),
       steps.map((step) => ({
         name: step.name,
         top: step.element.getBoundingClientRect().top,
-        atLine: atLine.has(step.element),
+        isAtLine: stepsAtLine.has(step.element),
       })),
     );
-    let anchor: Step['anchor'] = 'top';
-    for (const step of steps) {
-      step.element.classList.toggle('is-active', step.name === scene);
-      if (step.name === scene) anchor = step.anchor;
-    }
+    let anchor: CameraAnchor = 'top';
+    for (const step of steps) if (step.name === scene) anchor = step.anchor;
     if (stage) stage.dataset.anchor = anchor;
-    driver.setActive(scene);
+    driver.setActiveScene(scene);
   };
 
+  // Until a rebuilt observer reports, the previous scene holds: a rect read in
+  // between can sit a fraction of a pixel off the line and post a stray scene.
   let observer: Pick<IntersectionObserver, 'observe' | 'disconnect'> | null = null;
-  const observe = (): void => {
+  let generation = 0;
+  let isTourPending = false;
+  const stopObserving = (): void => {
     observer?.disconnect();
-    atLine.clear();
-    const top = Math.round(line());
+    observer = null;
+    generation += 1;
+    stepsAtLine.clear();
+  };
+  const observeSteps = (): void => {
+    stopObserving();
+    const current = generation;
+    const top = Math.round(readTriggerLine());
     const bottom = Math.max(0, Math.round(env.viewport.innerHeight) - top - 1);
     const onEntries: IntersectionObserverCallback = (entries) => {
+      if (current !== generation) return;
       for (const entry of entries) {
-        if (entry.isIntersecting) atLine.add(entry.target);
-        else atLine.delete(entry.target);
+        if (entry.isIntersecting) stepsAtLine.add(entry.target);
+        else stepsAtLine.delete(entry.target);
       }
-      update();
+      updateActiveScene();
+      if (isTourPending) {
+        isTourPending = false;
+        driver.setTourOn(true);
+      }
     };
     observer = new env.IntersectionObserver(onEntries, { rootMargin: `-${top}px 0% -${bottom}px 0%` });
     for (const step of steps) observer.observe(step.element);
   };
 
   const syncTour = (): void => {
-    const on = isTourOn();
-    html.toggleAttribute('data-writ-tour', on);
-    if (!on) driver.setTour(false);
-    observe();
-    update();
-    if (on) driver.setTour(true);
+    const isOn = isTourOn();
+    html.toggleAttribute('data-writ-tour', isOn);
+    isTourPending = isOn;
+    if (!isOn) driver.setTourOn(false);
+    observeSteps();
   };
 
   if (camera) {
-    const crop = (): void => {
+    const updateCrop = (): void => {
       root.classList.toggle('is-cropped', camera.offsetHeight > root.clientHeight + 1);
     };
-    const sizes = new env.ResizeObserver(crop);
-    sizes.observe(root);
-    sizes.observe(camera);
+    const sizeObserver = new env.ResizeObserver(updateCrop);
+    sizeObserver.observe(root);
+    sizeObserver.observe(camera);
   }
 
   syncTour();
-  wide.addEventListener('change', syncTour);
-  reduced.addEventListener('change', syncTour);
+  wideQuery.addEventListener('change', syncTour);
+  reducedQuery.addEventListener('change', () => {
+    if (reducedQuery.matches) driver.restFrame();
+    syncTour();
+  });
+  let resizeTimer: number | null = null;
   env.viewport.addEventListener('resize', () => {
-    observe();
-    update();
+    stopObserving();
+    if (resizeTimer !== null) env.viewport.clearTimeout(resizeTimer);
+    resizeTimer = env.viewport.setTimeout(() => {
+      resizeTimer = null;
+      observeSteps();
+    }, RESIZE_SETTLE_MS);
   });
   doc.addEventListener('visibilitychange', () => driver.setVisible(doc.visibilityState === 'visible'));
 
   return {
-    ready: (post) => driver.ready(post),
-    engaged: () => driver.engaged(),
+    connectFrame: (post) => driver.connectFrame(post),
+    markEngaged: () => driver.markEngaged(),
   };
 }

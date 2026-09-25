@@ -23,7 +23,7 @@ const FRAME_HEIGHT = 900;
 
   const host = document.querySelector<HTMLElement>('[data-live-window]');
   const bp = getComputedStyle(document.documentElement).getPropertyValue('--writ-site-bp-lg').trim();
-  const wide = bp ? window.matchMedia(`(min-width: ${bp})`) : null;
+  const wideQuery = bp ? window.matchMedia(`(min-width: ${bp})`) : null;
   const tour: Tour | null =
     host && bp
       ? startTour(host, bp, {
@@ -36,7 +36,7 @@ const FRAME_HEIGHT = 900;
         })
       : null;
 
-  function mount(root: HTMLElement): void {
+  function mountFrame(root: HTMLElement): void {
     if (root.querySelector('iframe')) return;
     const camera = root.querySelector<HTMLElement>('[data-live-camera]') ?? root;
     const width = Number(root.dataset.frameWidth);
@@ -48,11 +48,11 @@ const FRAME_HEIGHT = 900;
     frame.height = String(height);
     frame.className = 'live-frame';
     frame.setAttribute('loading', 'eager');
-    const fit = () => {
+    const fitFrame = () => {
       frame.style.transform = `scale(${root.clientWidth / width})`;
     };
-    fit();
-    new ResizeObserver(fit).observe(root);
+    fitFrame();
+    new ResizeObserver(fitFrame).observe(root);
     window.addEventListener('message', (event) => {
       if (!isFrameMessage(event, frame.contentWindow, location.origin)) return;
       const message = readFrameMessage(event.data);
@@ -60,9 +60,9 @@ const FRAME_HEIGHT = 900;
       if (message.type === 'writ-demo-ready') {
         root.classList.add('is-live');
         root.querySelector('.window')?.setAttribute('aria-hidden', 'true');
-        tour?.ready((name) => frame.contentWindow?.postMessage({ type: 'writ-demo-scene', name }, location.origin));
+        tour?.connectFrame((name) => frame.contentWindow?.postMessage({ type: 'writ-demo-scene', name }, location.origin));
       } else if (message.type === 'writ-demo-engaged') {
-        tour?.engaged();
+        tour?.markEngaged();
       } else {
         root.dataset.scene = `${message.name}:${message.state}`;
       }
@@ -70,16 +70,16 @@ const FRAME_HEIGHT = 900;
     camera.append(frame);
   }
 
-  if (host && wide) {
-    const start = () => {
-      if (wide.matches) mount(host);
+  if (host && wideQuery) {
+    const mountWhenWide = () => {
+      if (wideQuery.matches) mountFrame(host);
     };
-    const whenIdle = (fn: () => void): void => {
+    const runWhenIdle = (fn: () => void): void => {
       if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(fn, { timeout: 2000 });
       else window.setTimeout(fn, 200);
     };
-    if (document.readyState === 'complete') whenIdle(start);
-    else window.addEventListener('load', () => whenIdle(start), { once: true });
-    wide.addEventListener('change', start);
+    if (document.readyState === 'complete') runWhenIdle(mountWhenWide);
+    else window.addEventListener('load', () => runWhenIdle(mountWhenWide), { once: true });
+    wideQuery.addEventListener('change', mountWhenWide);
   }
 </script>

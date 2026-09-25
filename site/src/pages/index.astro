@@ -72,7 +72,7 @@ const p = release.platforms;
         <p>A <code>.txt</code>, a log, a config or a Markdown file opens from your file manager or the <code>writ</code> command and saves back to its own path.</p>
       </Feature>
 
-      <Feature id="markdown" loop="markdown" title="Markdown, inline" capture="markdown-inline" alt="A Markdown file in Writ with headings, checkboxes and a code block rendered in place" flip>
+      <Feature id="markdown" loop="markdown" anchor="bottom" title="Markdown, inline" capture="markdown-inline" alt="A Markdown file in Writ with headings, checkboxes and a code block rendered in place" flip>
         <p>Headings, lists, links and checkboxes render in place, and the line you are editing shows its markup.</p>
       </Feature>
 
@@ -80,11 +80,11 @@ const p = release.platforms;
         <p>One query matches file names and the text inside them.</p>
       </Feature>
 
-      <Feature id="apps" loop="apps" anchor="bottom" title="Apps" capture="apps" alt="Writ's Settings on the Apps section, with Graph switched on" flip>
+      <Feature id="apps" loop="apps" anchor="center" title="Apps" capture="apps" alt="Writ's Settings on the Apps section, with Graph switched on" flip>
         <p>Connections, the graph, tags, chat, rewriting and connected programs are switches in Settings, and each adds nothing to the window until it is on.</p>
       </Feature>
 
-      <Feature id="versions" loop="versions" anchor="bottom" title="Earlier versions" capture="versions" alt="The earlier versions of a file listed by time, one open beside the list with Restore this version under it">
+      <Feature id="versions" loop="versions" anchor="center" title="Earlier versions" capture="versions" alt="The earlier versions of a file listed by time, one open beside the list with Restore this version under it">
         <p>Writ keeps a version of a file in its folder each time it is saved, for up to 30 days, stored outside that folder. Revert To, in the File menu, lists them and restores the one you pick.</p>
       </Feature>
     </div>
@@ -98,23 +98,32 @@ const p = release.platforms;
 
 <script is:inline>
   (function () {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     var slot = document.querySelector('[data-noun-slot]');
     if (!slot) return;
     var nouns = Array.prototype.slice.call(slot.querySelectorAll('.noun'));
     if (nouns.length < 2) return;
-    // The bundler may rewrite 2400ms as 2.4s, so the unit is read, not assumed.
-    var raw = getComputedStyle(slot).getPropertyValue('--writ-site-motion-noun-interval').trim();
-    var interval = (parseFloat(raw) || 2.4) * (/ms$/.test(raw) ? 1 : 1000);
-    var i = 0;
-    slot.classList.add('is-live');
-    function fit() {
-      slot.style.width = nouns[i].offsetWidth + 'px';
+    class NounIntervalError extends Error {
+      constructor(raw) {
+        super('The noun rotation reads --writ-site-motion-noun-interval as a time, and the page resolved it to "' + raw + '".');
+        this.name = 'NounIntervalError';
+      }
     }
-    fit();
-    if (document.fonts) document.fonts.ready.then(fit);
-    window.addEventListener('resize', fit);
-    window.setInterval(function () {
+    var reducedQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var i = 0;
+    var timer = null;
+    // Read on each start: the token is 0ms under reduced motion, and the
+    // bundler may rewrite 2400ms as 2.4s, so the unit is read, not assumed.
+    function readInterval() {
+      var raw = getComputedStyle(slot).getPropertyValue('--writ-site-motion-noun-interval').trim();
+      var time = /^(\d*\.?\d+)(ms|s)$/.exec(raw);
+      var interval = time ? Number(time[1]) * (time[2] === 'ms' ? 1 : 1000) : 0;
+      if (!(interval > 0)) throw new NounIntervalError(raw);
+      return interval;
+    }
+    function fitSlot() {
+      if (timer !== null) slot.style.width = nouns[i].offsetWidth + 'px';
+    }
+    function showNextNoun() {
       nouns.forEach(function (noun) {
         noun.classList.remove('is-out');
       });
@@ -122,8 +131,34 @@ const p = release.platforms;
       nouns[i].classList.add('is-out');
       i = (i + 1) % nouns.length;
       nouns[i].classList.add('is-on');
-      fit();
-    }, interval);
+      fitSlot();
+    }
+    function startRotation() {
+      if (timer !== null) return;
+      var interval = readInterval();
+      slot.classList.add('is-live');
+      timer = window.setInterval(showNextNoun, interval);
+      fitSlot();
+    }
+    function stopRotation() {
+      if (timer === null) return;
+      window.clearInterval(timer);
+      timer = null;
+      nouns.forEach(function (noun) {
+        noun.classList.remove('is-on', 'is-out');
+      });
+      i = 0;
+      nouns[0].classList.add('is-on');
+      slot.classList.remove('is-live');
+      slot.style.width = '';
+    }
+    if (document.fonts) document.fonts.ready.then(fitSlot);
+    window.addEventListener('resize', fitSlot);
+    reducedQuery.addEventListener('change', function () {
+      if (reducedQuery.matches) stopRotation();
+      else startRotation();
+    });
+    if (!reducedQuery.matches) startRotation();
   })();
 </script>
 
