@@ -760,13 +760,17 @@ export default function EditorInstance(props: Props) {
 
   // The layout is what turns the decorations on, so the compartment follows
   // it: switching a markdown buffer between inline and source swaps the
-  // extension without reloading the buffer.
+  // extension without reloading the buffer. The swap changes line heights
+  // around a caret the scroll position does not follow, so it asks for the
+  // caret line to stay in view.
   createEffect(on(
     () => win.layout.get(props.buffer.id, isMarkdown() ? "markdown" : null).kind,
     () => {
+      if (!view || props.buffer.id !== viewBufferId) return;
       const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
-      view?.dispatch({
+      view.dispatch({
         effects: typographyCompartment.reconfigure(typographyExtension(isMarkdown(), mode)),
+        scrollIntoView: true,
       });
     },
     { defer: true },
