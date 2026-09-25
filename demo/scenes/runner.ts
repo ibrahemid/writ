@@ -63,12 +63,20 @@ export async function typeText(editor: SceneEditor, text: string, signal: AbortS
   }
 }
 
-export async function typeQuery(palette: ScenePalette, query: string, signal: AbortSignal, random: Random): Promise<void> {
+export async function typeQuery(field: Pick<ScenePalette, "setQuery">, query: string, signal: AbortSignal, random: Random): Promise<void> {
   let typed = "";
   for (const char of query) {
     await sleep(computeKeyDelay(char, random), signal);
     typed += char;
-    palette.setQuery(typed);
+    field.setQuery(typed);
+  }
+}
+
+export async function eraseQuery(field: Pick<ScenePalette, "setQuery">, query: string, signal: AbortSignal, random: Random): Promise<void> {
+  const chars = [...query];
+  for (let length = chars.length - 1; length >= 0; length -= 1) {
+    await sleep(computeKeyDelay(chars[length], random), signal);
+    field.setQuery(chars.slice(0, length).join(""));
   }
 }
 

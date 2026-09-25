@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { matchesQuery } from "../../src/lib/graph/folder-graph";
 import type { NoteVersion } from "../../src/services/tauri";
 import type { SaveState } from "../../src/stores/global/save-status";
+import { getNoteDisplayName } from "../backend/links";
 import { CURSOR_LINE_AT_START, HERO_NOTE, SEED_FILES, VERSIONED_NOTE } from "../backend/seed";
 import { ENGAGED_MESSAGE, READY_MESSAGE, SCENE_MESSAGE, createSceneChannel } from "../scenes/channel";
-import { SceneStateError } from "../scenes/errors";
+import { SceneStateError, SceneTimeoutError } from "../scenes/errors";
 import { KEY_DELAY_MAX_MS, KEY_DELAY_MIN_MS, LINE_END_DELAY_MS, createSceneRunner, type Random } from "../scenes/runner";
 import {
+  GRAPH_QUERY,
   LOG_NOTE,
   MARKDOWN_NOTE,
   MARKDOWN_TYPED,
@@ -38,6 +41,7 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
   const layouts = new Map<string, SceneLayout>();
   const inserts: Insert[] = [];
   const queries: string[] = [];
+  const graphQueries: { query: string; at: number }[] = [];
   const opened: string[] = [];
   const reveals: { note: string; line: number }[] = [];
   const restored: number[] = [];
@@ -132,6 +136,8 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
       close: () => {
         open.graph = false;
       },
+      isDrawn: () => open.graph && open.graphApp,
+      setQuery: (query) => graphQueries.push({ query, at: Date.now() }),
     },
     palette: {
       open: () => {
@@ -165,7 +171,7 @@ function createFakeApp(options: { saveState?: SaveState } = {}) {
     },
   };
 
-  return { app, texts, layouts, inserts, queries, opened, reveals, restored, selected, open, cursorLines, shownFromTop, calls, tabs: () => tabs };
+  return { app, texts, layouts, inserts, queries, graphQueries, opened, reveals, restored, selected, open, cursorLines, shownFromTop, calls, tabs: () => tabs };
 }
 
 function createHarness(options: { random?: Random; saveState?: SaveState } = {}) {
@@ -292,6 +298,41 @@ describe("the scenes", () => {
     const { player, open } = createHarness();
     await playToEnd(player, "apps");
     expect(open).toMatchObject({ settings: false, graphApp: true, graph: true });
+  });
+
+  it("names at least two seed files with the graph query", () => {
+    const named = Object.keys(SEED_FILES).filter((path) => matchesQuery(getNoteDisplayName(path), GRAPH_QUERY));
+    expect(named.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("types the graph query a letter at a time, holds it, erases it, and rests on the open graph", async () => {
+    let step = 0;
+    const wandering: Random = () => [0, 0.5, 0.9999, 0.25][step++ % 4];
+    const { player, graphQueries, queries, open } = createHarness({ random: wandering });
+    await playToEnd(player, "graph");
+    const typed = [...GRAPH_QUERY].map((_, index) => GRAPH_QUERY.slice(0, index + 1));
+    const erased = typed.slice(0, -1).reverse().concat("");
+    expect(graphQueries.map((entry) => entry.query)).toEqual([...typed, ...erased]);
+    const gaps = graphQueries.slice(1).map((entry, index) => entry.at - graphQueries[index].at);
+    const holdAt = typed.length - 1;
+    gaps.forEach((gap, index) => {
+      if (index === holdAt) expect(gap).toBeGreaterThanOrEqual(1200 + KEY_DELAY_MIN_MS);
+      else {
+        expect(gap).toBeGreaterThanOrEqual(KEY_DELAY_MIN_MS);
+        expect(gap).toBeLessThanOrEqual(KEY_DELAY_MAX_MS);
+      }
+    });
+    expect(queries).toEqual([]);
+    expect(open).toMatchObject({ settings: false, palette: false, graphApp: true, graph: true });
+  });
+
+  it("reports a graph that never draws as cancelled and types nothing", async () => {
+    const { player, reports, failures, graphQueries, app } = createHarness();
+    app.graph.isDrawn = () => false;
+    await playToEnd(player, "graph");
+    expect(reports).toEqual([["graph", "cancelled"]]);
+    expect(failures[0][1]).toBeInstanceOf(SceneTimeoutError);
+    expect(graphQueries).toEqual([]);
   });
 
   it("selects and restores the second version, then closes the list", async () => {
