@@ -24,6 +24,7 @@ import type { SceneApp, SceneEditor, SceneLayout } from "./types";
 export const TYPING_ATTRIBUTE = "data-scene-typing";
 const VIEW_TIMEOUT_MS = 4000;
 const PALETTE_INPUT_SELECTOR = ".palette .palette-input";
+const GRAPH_DRAWING_SELECTOR = ".folder-graph .folder-graph-drawing";
 
 const toNotePath = (note: string) => `${NOTES_ROOT}/${note}`;
 
@@ -142,6 +143,8 @@ export function createSceneApp(controls: DemoControls): SceneApp {
     graph: {
       open: () => getActiveWindow().folderGraph.open(),
       close: () => getActiveWindow().folderGraph.close(),
+      isDrawn: () => document.querySelector(GRAPH_DRAWING_SELECTOR) !== null,
+      setQuery: (query) => getActiveWindow().folderGraph.search(query),
     },
     palette: {
       open: () => openSearchPalette(""),
