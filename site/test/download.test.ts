@@ -12,16 +12,22 @@ const EXPECTED = [
   { os: 'linux', name: 'Linux', file: /\.AppImage$/, command: 'yay -S writ-bin' },
 ];
 
-const decode = (html: string): string =>
-  html
-    .replace(/<[^>]*>/g, '')
+const decode = (html: string): string => {
+  let decoded = html
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/&#39;/g, "'");
+
+  let previous: string;
+  do {
+    previous = decoded;
+    decoded = decoded.replace(/<[^>]*>/g, '');
+  } while (decoded !== previous);
+
+  return decoded.replace(/\s+/g, ' ').trim();
+};
 
 interface Group {
   os: string;
