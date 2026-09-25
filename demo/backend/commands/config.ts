@@ -73,6 +73,7 @@ export function createConfigCommands(state: DemoState): CommandTable {
 
     list_transforms: () => [],
     preview_get_layout: () => null,
+    preview_set_layout: () => null,
     preview_close: () => null,
     // Markdown renders in the editor. The HTML renderer needs the host's
     // writ-preview:// scheme, which a browser does not have.

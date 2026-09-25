@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { IpcBridge } from "../ipc";
 import { formatRenameError } from "../../src/lib/save-error";
 import { createBackend, DemoCommandError } from "../backend/backend";
+import { SEED_FILES, SEED_VERSIONS } from "../backend/seed";
+import { VersionsNotSeededError } from "../backend/state";
 import { NOTES_ROOT } from "../backend/vfs";
 
 function backend() {
@@ -12,7 +14,8 @@ function backend() {
     send: (_channel, _index, message) => sent.push(message),
     end: () => {},
   };
-  return { handle: createBackend(bridge), emitted, sent };
+  const { handle, controls } = createBackend(bridge);
+  return { handle, controls, emitted, sent };
 }
 
 describe("the demo backend", () => {
@@ -163,6 +166,45 @@ describe("the demo backend", () => {
     await handle("restore_note_version", { versionId: original.id });
     expect(emitted.some((e) => e.event === "writ://buffer-external")).toBe(true);
     await expect(handle("note_version_content", { versionId: 999 })).rejects.toBe("That version is not here any more.");
+  });
+
+  it("lists three earlier versions of the newsletter and restores the second one's text", async () => {
+    const { handle } = backend();
+    const path = `${NOTES_ROOT}/Newsletter draft.md`;
+    const versions = (await handle("note_versions", { path })) as { id: number; at_ms: number }[];
+    expect(versions).toHaveLength(3);
+    expect(versions.map((v) => v.at_ms)).toEqual([...versions.map((v) => v.at_ms)].sort((a, b) => b - a));
+    const second = (await handle("note_version_content", { versionId: versions[1].id })) as string;
+    expect(second).toContain("Shakshuka, probably.");
+    await handle("restore_note_version", { versionId: versions[1].id });
+    const doc = (await handle("open_file", { path })) as { doc: { id: string } };
+    const bytes = (await handle("read_buffer_content", { id: doc.doc.id })) as Uint8Array;
+    expect(new TextDecoder().decode(bytes)).toBe(second);
+  });
+
+  it("resets the newsletter to its three seeded versions and seed text after a restore", async () => {
+    const { handle, controls, emitted } = backend();
+    const path = `${NOTES_ROOT}/Newsletter draft.md`;
+    const opened = (await handle("open_file", { path })) as { doc: { id: string } };
+    const before = (await handle("note_versions", { path })) as { id: number }[];
+    await handle("restore_note_version", { versionId: before[1].id });
+    expect(await handle("note_versions", { path })).toHaveLength(5);
+    emitted.length = 0;
+
+    await controls.resetVersions(path);
+
+    const after = (await handle("note_versions", { path })) as { id: number }[];
+    expect(after).toHaveLength(3);
+    const texts = await Promise.all(after.map((v) => handle("note_version_content", { versionId: v.id })));
+    expect(texts).toEqual(SEED_VERSIONS.map((version) => version.text).reverse());
+    const bytes = (await handle("read_buffer_content", { id: opened.doc.id })) as ArrayBuffer;
+    expect(new TextDecoder().decode(bytes)).toBe(SEED_FILES["Newsletter draft.md"]);
+    expect(emitted.filter((e) => e.event === "writ://buffer-external")).toHaveLength(1);
+
+    await controls.resetVersions(path);
+    expect(await handle("note_versions", { path })).toHaveLength(3);
+    expect(emitted.filter((e) => e.event === "writ://buffer-external")).toHaveLength(1);
+    await expect(controls.resetVersions(`${NOTES_ROOT}/To do.txt`)).rejects.toBeInstanceOf(VersionsNotSeededError);
   });
 
   it("reports the connection honestly: nothing local answers, no key is held", async () => {
