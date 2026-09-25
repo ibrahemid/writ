@@ -668,6 +668,24 @@ describe("link title decorations", () => {
   });
 });
 
+// ─── Callout markers ──────────────────────────────────────────────────────
+
+describe("callout marker decorations", () => {
+  it("wraps the highlighted marker so the link ink the grammar gives it is cleared", () => {
+    // The grammar reads `[!note]` as a shortcut reference link and tags it
+    // with tags.link, which the theme paints as a link.
+    const doc = "> [!note] Hydration\ncursor\n";
+    const view = renderDoc(doc, doc.indexOf("cursor"));
+    const line = view.contentDOM.querySelector(".cm-line");
+    expect(line?.textContent).toBe("> [!note] Hydration");
+    const marker = line!.querySelector(".cm-md-callout-marker");
+    expect(marker?.textContent).toBe("[!note]");
+    expect(marker!.querySelector("span")).not.toBeNull();
+    expect(line!.querySelector(".cm-md-link-text")).toBeNull();
+    view.destroy();
+  });
+});
+
 // ─── Fenced code ──────────────────────────────────────────────────────────
 
 describe("fenced code decorations", () => {

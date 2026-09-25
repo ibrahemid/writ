@@ -80,6 +80,7 @@ const hungMarkerMark = Decoration.mark({ class: "cm-md-marker-hung" });
 const urlDimMark     = Decoration.mark({ class: "cm-md-url-dim" });
 const linkTextMark   = Decoration.mark({ class: "cm-md-link-text" });
 const blockquoteMark = Decoration.mark({ class: "cm-md-blockquote" });
+const calloutMarkerMark = Decoration.mark({ class: "cm-md-callout-marker" });
 const listNumMark    = Decoration.mark({ class: "cm-md-list-num" });
 const markerDimMark  = Decoration.mark({ class: "cm-md-marker-dim" });
 const codeInfoMark   = Decoration.mark({ class: "cm-md-code-info" });
@@ -201,6 +202,44 @@ function addressEndAfter(url: SyntaxNodeFull, lineEnd: number): number {
   const closing = title.nextSibling;
   const end = closing !== null && closing.name === "LinkMark" ? closing.from : title.to;
   return end <= lineEnd ? end : url.to;
+}
+
+/**
+ * Whether `link` is the `[!type]` that opens an Obsidian callout, which the
+ * grammar reads as a shortcut reference link.
+ *
+ * The rule is the preview's (writ-render's `callout.rs` and `header_at`): the
+ * first thing in the first paragraph of a quote, a non-empty type after the
+ * `!`, and nothing after the `]` that makes it an inline or full reference
+ * link. A fold marker or a title after it is the text that follows the node.
+ */
+function isCalloutMarker(
+  link: SyntaxNodeFull,
+  docSlice: (from: number, to: number) => string,
+): boolean {
+  const paragraph = link.parent;
+  if (paragraph === null || paragraph.name !== "Paragraph" || paragraph.from !== link.from) {
+    return false;
+  }
+  const quote = paragraph.parent;
+  if (quote === null || quote.name !== "Blockquote") return false;
+  let firstBlock = quote.firstChild;
+  while (firstBlock !== null && firstBlock.name === "QuoteMark") {
+    firstBlock = firstBlock.nextSibling;
+  }
+  if (firstBlock === null || firstBlock.from !== paragraph.from) return false;
+  const open = link.firstChild;
+  const close = open?.nextSibling ?? null;
+  if (
+    open?.name !== "LinkMark" ||
+    close === null ||
+    close.name !== "LinkMark" ||
+    close.nextSibling !== null
+  ) {
+    return false;
+  }
+  const label = docSlice(open.to, close.from);
+  return label.startsWith("!") && label.slice(1).trim() !== "";
 }
 
 // ─── Pure decoration builder ───────────────────────────────────────────────
@@ -465,6 +504,11 @@ export function buildMarkdownDecorations(
     if (name === "Link") {
       // Access the full SyntaxNode to walk children.
       const fullNode = nodeRef.node;
+      if (isCalloutMarker(fullNode, docSlice)) {
+        // Skipping the children keeps the brackets the marker rule would hide.
+        addMark(from, to, calloutMarkerMark);
+        return false;
+      }
       let child = fullNode.firstChild;
       let labelFrom = -1;
       let labelTo = -1;

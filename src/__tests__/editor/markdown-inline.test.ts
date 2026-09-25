@@ -146,6 +146,95 @@ describe("inline link decorations", () => {
   });
 });
 
+// ─── Callouts: the marker is quoted text, not a link ──────────────────────
+
+describe("callout markers", () => {
+  function linkTreatmentIn(specs: DecorationSpec[], from: number, to: number): DecorationSpec[] {
+    return specs.filter(
+      (s) =>
+        s.from < to &&
+        s.to > from &&
+        (classesOf(s).includes("cm-md-link-text") || isReplace(s)),
+    );
+  }
+
+  function markerIn(doc: string): [number, number] {
+    const marker = /\[![^\]]+\]/.exec(doc)!;
+    return [marker.index, marker.index + marker[0].length];
+  }
+
+  function labelsOf(doc: string, specs: DecorationSpec[]): string[] {
+    return specs
+      .filter((s) => classesOf(s).includes("cm-md-link-text"))
+      .map((s) => doc.slice(s.from, s.to));
+  }
+
+  function hidesAddress(doc: string, specs: DecorationSpec[], url: string): boolean {
+    const from = doc.indexOf(url);
+    return specs.some((s) => s.from === from && s.to === from + url.length && isReplace(s));
+  }
+
+  it("leaves the marker of a callout as quoted text", () => {
+    const doc = "> [!note] Hydration\n> Water the ferns twice a week.\ncursor\n";
+    const [from, to] = markerIn(doc);
+    for (const cursor of [doc.indexOf("cursor"), doc.indexOf("Hydration")]) {
+      expect(linkTreatmentIn(buildForDoc(doc, [cursor]), from, to)).toEqual([]);
+    }
+  });
+
+  it("reads a folding marker and a callout in a nested quote or a list item the same way", () => {
+    for (const doc of [
+      "> [!note]- Folded\n> body\ncursor\n",
+      "> [!tip]+ Open\n> body\ncursor\n",
+      "> [!faq]-\n> body\ncursor\n",
+      "> > [!tip] Nested\ncursor\n",
+      "- > [!warning] In a list\ncursor\n",
+      ">\n> [!note] After a blank quoted line\ncursor\n",
+    ]) {
+      const [from, to] = markerIn(doc);
+      expect(linkTreatmentIn(buildForDoc(doc, [doc.indexOf("cursor")]), from, to), doc).toEqual(
+        [],
+      );
+    }
+  });
+
+  it("still decorates a link on the title line and in the body", () => {
+    const doc =
+      "> [!note] See [docs](https://example.com)\n> Water [ferns](https://ferns.example) weekly.\ncursor\n";
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    expect(labelsOf(doc, specs)).toEqual(["docs", "ferns"]);
+    expect(hidesAddress(doc, specs, "https://example.com")).toBe(true);
+    expect(hidesAddress(doc, specs, "https://ferns.example")).toBe(true);
+  });
+
+  it("reads a marker followed by a destination as the link it is", () => {
+    const doc = "> [!note](https://example.com)\ncursor\n";
+    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    expect(labelsOf(doc, specs)).toEqual(["!note"]);
+    expect(hidesAddress(doc, specs, "https://example.com")).toBe(true);
+  });
+
+  it("does not read a marker outside a quote or past a quote's first line as a callout", () => {
+    for (const doc of [
+      "[!note] Outside a quote\ncursor\n",
+      "> Some text\n> [!note] On the second line\ncursor\n",
+    ]) {
+      expect(labelsOf(doc, buildForDoc(doc, [doc.indexOf("cursor")])), doc).toEqual(["!note"]);
+    }
+  });
+
+  it("follows nothing from a callout marker", () => {
+    const doc = "> [!note] Hydration\n> Water the ferns twice a week.\n";
+    const state = stateFor(doc);
+    treeFor(state);
+    const [from, to] = markerIn(doc);
+    expect(
+      findLinkTargets(state, 0, doc.length).filter((r) => r.from < to && r.to > from),
+    ).toEqual([]);
+    for (let pos = from; pos < to; pos++) expect(inlineLinkTargetAt(state, pos)).toBeNull();
+  });
+});
+
 // ─── Images: the source is hidden, the picture goes under the line ────────
 
 describe("inline image decorations", () => {
