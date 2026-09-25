@@ -5,6 +5,7 @@ import { join } from 'node:path';
 const SITE = process.cwd();
 const INDEX = readFileSync(join(SITE, 'src', 'pages', 'index.astro'), 'utf8');
 const CSS = readFileSync(join(SITE, 'src', 'styles', 'site.css'), 'utf8');
+const TOKENS = readFileSync(join(SITE, 'src', 'styles', 'tokens.css'), 'utf8');
 
 const SECTIONS = ['any-file', 'markdown', 'search', 'apps', 'versions'];
 
@@ -109,6 +110,25 @@ describe('the landing page', () => {
       if (id === 'apps' || id === 'versions') expect(tag).toContain('anchor="bottom"');
       else expect(tag).not.toContain('anchor=');
     }
+  });
+
+  it('brings the first caption to the band within the hold token of scroll after the window pins', () => {
+    expect(INDEX).toMatch(/<div class="hero-media wrap-media">\s*<LiveWindow [^>]*\/>\s*<\/div>\s*<Feature id="any-file"/);
+    expect(CSS).toContain(
+      '[data-writ-tour] .stage {\n  --tour-view: calc(100svh - var(--writ-site-nav-height) - var(--writ-site-tour-band));\n}',
+    );
+    expect(CSS).toMatch(/\[data-writ-tour\] \.hero-media \{[^}]*\n  min-height: var\(--tour-view\);/);
+    expect(CSS).toMatch(/\[data-writ-tour\] \.live-window \{\n  max-height: calc\(var\(--tour-view\) - var\(--writ-space-7\)\);/);
+    expect(CSS).toContain('[data-writ-tour] .hero-media + .feature {\n  margin-top: calc(var(--writ-site-tour-hold) - var(--tour-view));\n}');
+    const hold = Number(/--writ-site-tour-hold: (\d+)px;/.exec(TOKENS)?.[1]);
+    expect(hold).toBeGreaterThan(0);
+    expect(hold).toBeLessThanOrEqual(150);
+  });
+
+  it('sets the H1 at its smallest size at the narrowest breakpoint', () => {
+    expect(CSS).toContain('@media (max-width: 360px) {\n  .hero-h1 {\n    font-size: var(--writ-site-text-h1-xs);\n  }\n}');
+    const size = (name: string) => Number(new RegExp(`--writ-site-text-${name}: (\\d+)px;`).exec(TOKENS)?.[1]);
+    expect(size('h1-xs')).toBeLessThan(size('h1'));
   });
 
   it('hides nothing unless an attribute or a class set by script says so', () => {

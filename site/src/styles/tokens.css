@@ -131,6 +131,7 @@
   --writ-site-text-h3: 22px;
   --writ-site-text-h2: 28px;
   --writ-site-text-h2-lg: 32px;
+  --writ-site-text-h1-xs: 36px;
   --writ-site-text-h1: 44px;
   --writ-site-text-h1-md: 60px;
   --writ-site-text-h1-lg: 72px;
@@ -155,7 +156,9 @@
   --writ-site-arrive-rise-text: 12px;
   --writ-site-arrive-rise-window: 24px;
   --writ-site-tour-band: 144px;
+  --writ-site-tour-hold: 80px;
   --writ-site-tour-fade: 48px;
+  --writ-site-bp-xs: 360px;
   --writ-site-bp-sm: 640px;
   --writ-site-bp-md: 880px;
   --writ-site-bp-lg: 1200px;
