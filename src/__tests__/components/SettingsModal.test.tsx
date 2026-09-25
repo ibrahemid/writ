@@ -1928,20 +1928,33 @@ describe("Settings as a keyboard and a screen reader take it", () => {
     });
   });
 
-  it("keeps the description out of a labelled control's name", async () => {
+  it("keeps a description out of its control's name and on it as a description", async () => {
     const container = await openPanel();
-    await openSection(container, "advanced");
+    let checked = 0;
 
-    const row = container.querySelector<HTMLElement>("[data-setting-id='preview.live_threshold']")!;
-    const label = row.querySelector<HTMLLabelElement>("label.settings-row-label-text")!;
-    expect(label.textContent).toBe("Stop live preview above");
+    for (const section of ["editor", "advanced", "apps"]) {
+      await openSection(container, section);
+      for (const description of container.querySelectorAll<HTMLElement>(
+        ".settings-row-description",
+      )) {
+        const text = description.textContent ?? "";
+        expect(description.closest("label"), text).toBeNull();
 
-    const control = row.querySelector<HTMLElement>("#setting-live-limit")!;
-    const described = control.getAttribute("aria-describedby")!;
-    expect(described).toBeTruthy();
-    expect(container.querySelector(`#${described.split(" ")[0]}`)!.textContent).toContain(
-      "Writ keeps this",
-    );
+        const row = description.closest(".settings-row")!;
+        expect(row.querySelector(".settings-row-label-text")!.textContent, text).not.toContain(
+          text,
+        );
+
+        const control = row.querySelector<HTMLElement>("[aria-describedby]");
+        expect(control, text).not.toBeNull();
+        expect(control!.getAttribute("aria-describedby")!.split(" "), text).toContain(
+          description.id,
+        );
+        checked += 1;
+      }
+    }
+
+    expect(checked).toBeGreaterThan(0);
   });
 
   // A row may put a control in the label column (labelAside, the "Get a key"
