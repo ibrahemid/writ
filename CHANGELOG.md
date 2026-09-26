@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.5.0] - 2026-09-26
 
 Writ opens any text file, and a new file is plain text or Markdown, whichever the setup screen or Settings names. A Markdown file renders inline, with the markup shown on the line being edited. Chat, rewrite, connected programs, connections, the graph and tags are apps, each switched on under Settings, Apps, and all off in a fresh config. `[[Name]]` links one Markdown file to another, and the index behind links, tags and the `writ` command follows the folder as it changes. Nothing leaves the machine unless the client the user chose sends it. The app opens light with six accent colours and one menu bar on every platform.
 
@@ -58,6 +58,8 @@ Writ opens any text file, and a new file is plain text or Markdown, whichever th
 - A link rewrite that lost a race against an outside edit refused without leaving the losing side on disk. It now leaves a conflict copy like every other refusal.
 - The theme store wrote eleven dead properties to the page on every boot, one of them as `[object Object]`.
 - A rewrite whose provider returned an error ended the stream silently. The error is now shown.
+- The `[[` completion stays installed across file type switches, so switching from a Markdown tab to a plain-text tab within 100 ms of typing no longer throws.
+- Switching a Markdown file from Inline to Source keeps the caret line in view.
 
 ## [0.4.0] - 2026-09-05
 
