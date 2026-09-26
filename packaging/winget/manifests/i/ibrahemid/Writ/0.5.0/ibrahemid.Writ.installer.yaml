@@ -20,6 +20,6 @@ Installers:
     InstallerSwitches:
       Silent: /quiet
       SilentWithProgress: /passive
-    ProductCode: "{35E9496C-121F-4379-8F96-C0CC0D683E51}"
+    ProductCode: "{FD0146EA-B2E8-4F19-A5D5-C3F2E4788501}"
 ManifestType: installer
 ManifestVersion: 1.6.0
