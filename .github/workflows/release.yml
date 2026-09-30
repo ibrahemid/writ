@@ -188,7 +188,8 @@ jobs:
             patchelf \
             libgtk-3-dev \
             libjavascriptcoregtk-4.1-dev \
-            libsoup-3.0-dev
+            libsoup-3.0-dev \
+            squashfs-tools
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271  # v6.0.9
@@ -335,6 +336,24 @@ jobs:
               ;;
           esac
 
+      # tauri-bundler saves the AppRun it downloads as 0770 and the AppImage
+      # keeps that mode, so a kernel-mounted image (firejail, the AppImage
+      # catalog) cannot start it as a regular user. The bundler reuses a cached
+      # copy, so seeding the cache with a 0755 one fixes the packed mode.
+      - name: Seed AppRun with world-execute permission
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        env:
+          APPRUN_URL: https://github.com/tauri-apps/binary-releases/releases/download/apprun-old/AppRun-x86_64
+          APPRUN_SHA256: f30140a43a0a59e46db21bdefdf749b9e9f2c6946e92afabbacf98b8ae73fb4f
+        run: |
+          set -euo pipefail
+          TOOLS_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$TOOLS_DIR"
+          curl -fsSL --retry 3 -o "$TOOLS_DIR/AppRun-x86_64" "$APPRUN_URL"
+          echo "$APPRUN_SHA256  $TOOLS_DIR/AppRun-x86_64" | sha256sum -c -
+          chmod 0755 "$TOOLS_DIR/AppRun-x86_64"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f  # v1.0.0
         env:
@@ -351,6 +370,33 @@ jobs:
           includeUpdaterJson: false
           args: ${{ matrix.tauri_args }} --bundles ${{ matrix.bundles }}
           projectPath: src-tauri
+
+      - name: Require every AppImage file to be readable and runnable by any user
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPIMAGE="$(ls target/x86_64-unknown-linux-gnu/release/bundle/appimage/Writ_*_amd64.AppImage)"
+          # The squashfs image starts where the runtime's ELF section headers end.
+          SHOFF="$(od -An -t u8 -j 40 -N 8 "$APPIMAGE" | tr -d ' ')"
+          SHENTSIZE="$(od -An -t u2 -j 58 -N 2 "$APPIMAGE" | tr -d ' ')"
+          SHNUM="$(od -An -t u2 -j 60 -N 2 "$APPIMAGE" | tr -d ' ')"
+          OFFSET=$((SHOFF + SHENTSIZE * SHNUM))
+          LISTING="$(unsquashfs -lln -o "$OFFSET" "$APPIMAGE")"
+          if ! grep -q ' squashfs-root/AppRun$' <<<"$LISTING"; then
+            echo "no AppRun in $APPIMAGE" >&2
+            exit 1
+          fi
+          UNREACHABLE="$(awk '$1 ~ /^[-d]/ {
+            m = $1
+            ox = substr(m, 10, 1) ~ /[xt]/
+            if (substr(m, 8, 1) != "r" || (substr(m, 1, 1) == "d" && !ox) || (substr(m, 4, 1) ~ /[xs]/ && !ox)) print
+          }' <<<"$LISTING")"
+          if [ -n "$UNREACHABLE" ]; then
+            echo "files in $APPIMAGE that other users cannot read or run:" >&2
+            echo "$UNREACHABLE" >&2
+            exit 1
+          fi
 
       - name: Build .pkg installer
         if: matrix.os == 'macos-latest'
