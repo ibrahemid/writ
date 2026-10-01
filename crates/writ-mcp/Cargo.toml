@@ -28,7 +28,7 @@ tokio = { version = "1", features = ["rt", "macros", "io-std", "sync"] }
 # deliberate PR. Default features are off to keep the HTTP transports, and the
 # reqwest and hyper they carry, out of the resolved tree — asserted by
 # tests/no_tauri_dependency.rs.
-rmcp = { version = "=3.2.0", default-features = false, features = ["server", "transport-io", "macros"] }
+rmcp = { version = "=3.5.0", default-features = false, features = ["server", "transport-io", "macros"] }
 
 [dev-dependencies]
 tempfile = "3"
