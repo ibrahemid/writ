@@ -200,7 +200,11 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '" ')
+          SEARCH_LIST=("$KEYCHAIN_PATH")
+          while IFS= read -r EXISTING_KEYCHAIN; do
+            SEARCH_LIST+=("$EXISTING_KEYCHAIN")
+          done < <(security list-keychains -d user | sed -n 's/^[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p')
+          security list-keychain -d user -s "${SEARCH_LIST[@]}"
           # Developer ID Installer is a separate certificate from Developer ID
           # Application: the first signs the .pkg wrapper through productsign,
           # the second signs the .app, and either may be configured alone.
