@@ -23,6 +23,9 @@ use writ_tauri_lib::watcher::handler::{create_ignore_set, start_file_watcher, Ig
 /// latency, and for the ignore TTL to be nowhere near expiry.
 const SETTLE: Duration = Duration::from_secs(3);
 
+/// The stamp must still be live when the edit is classified: SETTLE, two debounces, and slack.
+const _: () = assert!(DEFAULT_IGNORE_TTL.as_millis() > SETTLE.as_millis() + 1_500);
+
 /// The path the ignore stamps key on. The handler's own `ignore_key_path` is
 /// crate-private; this is the same resolution, reached through the function
 /// it delegates to.
@@ -107,17 +110,12 @@ fn assert_own_write_absorbed_and_later_edit_reported(config_path: &Path) {
         1,
         "an edit after Writ's own write must reach the app exactly once, saw {seen:?}"
     );
-    assert!(
-        DEFAULT_IGNORE_TTL > SETTLE,
-        "this test only means anything while the stamp is still live"
-    );
 }
 
 #[test]
 fn an_edit_after_writ_s_own_config_write_still_reaches_the_app() {
     let data = TempDir::new().expect("data dir");
-    let folder = resolved(data.path());
-    assert_own_write_absorbed_and_later_edit_reported(&folder.join("config.toml"));
+    assert_own_write_absorbed_and_later_edit_reported(&data.path().join("config.toml"));
 }
 
 #[cfg(unix)]
@@ -137,7 +135,7 @@ fn a_config_reached_through_a_symlinked_folder_is_still_followed() {
 #[test]
 fn a_config_created_after_the_watcher_started_is_followed() {
     let data = TempDir::new().expect("data dir");
-    let config_path = resolved(data.path()).join("config.toml");
+    let config_path = data.path().join("config.toml");
 
     let (bus, rx) = bus_with_channel();
     let _watcher = start_file_watcher(bus, config_path.clone(), create_ignore_set())

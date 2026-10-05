@@ -5,6 +5,10 @@ use writ_core::config::WritConfig;
 use crate::atomic::write_atomic;
 use crate::errors::StorageResult;
 
+/// Most links a config write follows before it calls the chain a loop: the
+/// limit Linux puts on resolving a single path.
+const MAX_LINK_HOPS: usize = 40;
+
 /// TOML-backed configuration store.
 ///
 /// The store reads and writes [`WritConfig`] at a single path. A missing
@@ -49,9 +53,9 @@ impl ConfigStore {
     /// ([`write_atomic`]), so a crash or a reader in the middle of a write
     /// finds the previous settings or the new ones, never an empty or partial
     /// file. A `config.toml` that is a symlink, such as one into a dotfiles
-    /// checkout, is resolved first and its target replaced, so the link
-    /// survives. A hard-linked one is refused rather than split from its
-    /// other name ([`AtomicWriteError::HardLinked`]).
+    /// checkout, is followed to the file at the end of its links and that
+    /// file replaced, so every link survives. A hard-linked one is refused
+    /// rather than split from its other name ([`AtomicWriteError::HardLinked`]).
     ///
     /// The rename gives the config a new inode, which is why the app's
     /// watcher follows the folder rather than the file. It fingerprints this
@@ -63,8 +67,9 @@ impl ConfigStore {
     /// # Errors
     ///
     /// [`StorageError::AtomicWrite`] when the config cannot be replaced in one
-    /// step, and [`StorageError::Io`] when its folder cannot be created or its
-    /// link cannot be read. The file on disk is unchanged in every case.
+    /// step, and [`StorageError::Io`] when its folder cannot be created, a link
+    /// on the way cannot be read, or the links loop. The file on disk is
+    /// unchanged in every case.
     ///
     /// [`AtomicWriteError::HardLinked`]: crate::atomic::AtomicWriteError::HardLinked
     /// [`StorageError::AtomicWrite`]: crate::errors::StorageError::AtomicWrite
@@ -78,32 +83,39 @@ impl ConfigStore {
         Ok(())
     }
 
-    /// The file a write replaces: the config path itself, or the file it
-    /// links to.
+    /// The file a write replaces: the config path itself, or the file at the
+    /// end of the links it leads through.
     ///
     /// [`write_atomic`] replaces a symlink rather than writing through it, so
-    /// the link is resolved here. A link whose target does not exist yet
-    /// cannot be canonicalised; it is read one level and joined onto the
-    /// folder holding the link, which is how the filesystem reads a relative
-    /// link.
+    /// every link on the way is followed here and the first path that is not a
+    /// link is the one replaced. Each hop is joined onto the folder holding the
+    /// link it came from, which is how the filesystem reads a relative link.
+    /// Following the chain hop by hop rather than canonicalising it treats a
+    /// target that exists and one not written yet alike: a chain that ends in
+    /// nothing has the file created at its end, and no link in it is replaced.
+    /// A chain longer than [`MAX_LINK_HOPS`] is a loop and is refused.
     fn write_target(&self) -> StorageResult<PathBuf> {
-        let is_link = std::fs::symlink_metadata(&self.path)
-            .map(|entry| entry.file_type().is_symlink())
-            .unwrap_or(false);
-        if !is_link {
-            return Ok(self.path.clone());
-        }
-        match std::fs::canonicalize(&self.path) {
-            Ok(target) => Ok(target),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let link = std::fs::read_link(&self.path)?;
-                Ok(match self.path.parent() {
-                    Some(folder) => folder.join(link),
-                    None => link,
-                })
+        let mut current = self.path.clone();
+        for _ in 0..MAX_LINK_HOPS {
+            if !current.is_symlink() {
+                return Ok(current);
             }
-            Err(e) => Err(e.into()),
+            let link = std::fs::read_link(&current)?;
+            current = match current.parent() {
+                Some(folder) => folder.join(link),
+                None => link,
+            };
         }
+        // `ErrorKind::FilesystemLoop` is not stable at this crate's
+        // rust-version, so a loop reads as a config path that leads to no file.
+        Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "{} leads through more than {MAX_LINK_HOPS} links without reaching a file",
+                self.path.display()
+            ),
+        )
+        .into())
     }
 
     /// Serializes and atomically writes `config` to disk.

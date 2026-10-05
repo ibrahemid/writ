@@ -82,7 +82,10 @@ pub struct WatcherHandle {
 /// the resolved config path ([`ignore_key_path`]), which is the spelling the
 /// platform reports them in: `/var` and `/private/var`, or a data folder
 /// reached through a link, name the same file. A config that is itself a link
-/// is followed to its target's folder, which is where an edit to it lands.
+/// is followed to its target's folder, where an edit to it lands, when the
+/// target exists at startup. A link whose target does not exist yet is watched
+/// where it sits. Either way the path is resolved once, when the watcher
+/// starts.
 ///
 /// Every event in the folder goes through [`report_config_event`], which
 /// drops anything that is not the config, the temp file a write renames
