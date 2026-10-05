@@ -513,6 +513,144 @@ fn a_config_in_a_loop_of_links_is_refused_and_every_link_is_kept() {
 
 #[cfg(unix)]
 #[test]
+fn a_config_in_a_folder_reached_through_a_link_follows_its_dot_dot_from_the_real_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let real_folder = dir.path().join("dotfiles").join("writ");
+    std::fs::create_dir_all(&real_folder).expect("real config folder");
+    let shared = dir.path().join("dotfiles").join("shared");
+    std::fs::create_dir(&shared).expect("shared folder");
+    std::fs::write(shared.join("writ.toml"), "[editor]\nfont_size = 14\n")
+        .expect("seed the link's target");
+    let config_link = real_folder.join("config.toml");
+    std::os::unix::fs::symlink("../shared/writ.toml", &config_link).expect("link config.toml");
+    let home = dir.path().join("home");
+    std::fs::create_dir(&home).expect("home folder");
+    let folder_link = home.join(".writ");
+    std::os::unix::fs::symlink("../dotfiles/writ", &folder_link).expect("link the folder");
+
+    let store = ConfigStore::new(folder_link.join("config.toml"));
+    let written = "[editor]\nfont_size = 20\n";
+    store.write_serialized(written).expect("config write");
+
+    assert_still_links_to(&folder_link, "../dotfiles/writ");
+    assert_still_links_to(&config_link, "../shared/writ.toml");
+    assert_eq!(
+        std::fs::read_to_string(shared.join("writ.toml")).expect("read the link's target"),
+        written
+    );
+    assert!(
+        !home.join("shared").exists(),
+        "nothing was written beside the folder link"
+    );
+    assert_eq!(
+        store
+            .read()
+            .expect("read through the links")
+            .editor
+            .font_size,
+        20
+    );
+}
+
+/// Links `config.toml -> link2 -> ... -> link{links} -> writ.toml` in
+/// `folder`, `links` links in all, and returns each link with what it points
+/// at.
+#[cfg(unix)]
+fn chain_of_links(folder: &Path, links: usize) -> Vec<(PathBuf, String)> {
+    (1..=links)
+        .map(|n| {
+            let link = if n == 1 {
+                folder.join("config.toml")
+            } else {
+                folder.join(format!("link{n}"))
+            };
+            let points_at = if n == links {
+                "writ.toml".to_owned()
+            } else {
+                format!("link{}", n + 1)
+            };
+            std::os::unix::fs::symlink(&points_at, &link).expect("link the chain");
+            (link, points_at)
+        })
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_config_at_the_head_of_32_links_is_written_at_the_chain_s_end() {
+    let dir = TempDir::new().expect("temp dir");
+    // macOS keeps temp folders under /var, itself a link that a read through
+    // the chain would count toward the 32.
+    let folder = std::fs::canonicalize(dir.path()).expect("resolve the temp dir");
+    std::fs::write(folder.join("writ.toml"), "[editor]\nfont_size = 14\n")
+        .expect("seed the end of the chain");
+    let chain = chain_of_links(&folder, 32);
+
+    let store = ConfigStore::new(folder.join("config.toml"));
+    let written = "[editor]\nfont_size = 20\n";
+    store.write_serialized(written).expect("config write");
+
+    for (link, points_at) in &chain {
+        assert_still_links_to(link, points_at);
+    }
+    assert_eq!(
+        std::fs::read_to_string(folder.join("writ.toml")).expect("read the end of the chain"),
+        written
+    );
+    assert_eq!(
+        store
+            .read()
+            .expect("read through the chain")
+            .editor
+            .font_size,
+        20
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_config_at_the_head_of_33_links_is_refused_and_nothing_is_replaced() {
+    use writ_storage::errors::StorageError;
+
+    let dir = TempDir::new().expect("temp dir");
+    let before = "[editor]\nfont_size = 14\n";
+    std::fs::write(dir.path().join("writ.toml"), before).expect("seed the end of the chain");
+    let chain = chain_of_links(dir.path(), 33);
+
+    let refused = ConfigStore::new(dir.path().join("config.toml"))
+        .write_serialized("[editor]\nfont_size = 20\n");
+
+    assert!(
+        matches!(
+            &refused,
+            Err(StorageError::Io(e)) if e.kind() == std::io::ErrorKind::InvalidInput
+        ),
+        "a chain of 33 links is refused, got {refused:?}"
+    );
+    for (link, points_at) in &chain {
+        assert_still_links_to(link, points_at);
+    }
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("writ.toml")).expect("read the end of the chain"),
+        before,
+        "the end of the chain kept its bytes"
+    );
+    let mut names: Vec<_> = std::fs::read_dir(dir.path())
+        .expect("list the folder")
+        .map(|entry| entry.expect("folder entry").file_name())
+        .collect();
+    names.sort();
+    let mut expected: Vec<_> = chain
+        .iter()
+        .map(|(link, _)| link.file_name().expect("link name").to_owned())
+        .chain([std::ffi::OsString::from("writ.toml")])
+        .collect();
+    expected.sort();
+    assert_eq!(names, expected, "nothing else was written");
+}
+
+#[cfg(unix)]
+#[test]
 fn a_config_with_a_second_name_is_refused_and_both_names_keep_their_bytes() {
     use writ_storage::atomic::AtomicWriteError;
     use writ_storage::errors::StorageError;
