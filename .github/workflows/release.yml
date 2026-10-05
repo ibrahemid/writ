@@ -69,37 +69,11 @@ jobs:
         id: changelog
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          PREV_TAG="$(git describe --tags --abbrev=0 --match 'v*.*.*' "${TAG}^" 2>/dev/null || true)"
-          if [ -z "$PREV_TAG" ]; then
-            RANGE=""
-            echo "No previous tag found, listing all commits"
-          else
-            RANGE="${PREV_TAG}..${TAG}"
-            echo "Generating changelog for range ${RANGE}"
-          fi
-
-          {
-            echo "## What's changed"
-            echo
-            echo "### Features"
-            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -E "^- feat(\(.+\))?: " || echo "- None"
-            echo
-            echo
-            echo "### Fixes"
-            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -E "^- fix(\(.+\))?: " || echo "- None"
-            echo
-            echo
-            echo "### Other"
-            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -vE "^- (feat|fix)(\(.+\))?: " || echo "- None"
-            echo
-            if [ -n "$PREV_TAG" ]; then
-              echo
-              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
-            fi
-          } > CHANGELOG_RELEASE.md
+          python3 .github/scripts/release_notes.py > CHANGELOG_RELEASE.md
 
           {
             echo "body<<CHANGELOG_EOF"

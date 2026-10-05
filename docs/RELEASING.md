@@ -153,7 +153,10 @@ The push triggers `.github/workflows/release.yml`.
 
 1. `create-release`  creates (or reuses) a **draft** GitHub Release for the tag,
    with an auto-generated changelog grouped by `feat:` / `fix:` / other
-   conventional-commit prefixes since the previous `v*.*.*` tag.
+   conventional-commit prefixes (`.github/scripts/release_notes.py`). A stable
+   tag lists the commits since the previous stable `v*.*.*` tag, skipping
+   candidates; a candidate lists the commits since the previous tag of either
+   kind.
 2. `build`  runs a matrix build on:
    - `macos-latest`  universal binary (`aarch64` + `x86_64` merged), producing
      `Writ_<version>_universal.pkg` (with quit/relaunch scripts),
@@ -452,6 +455,7 @@ Revert the version bumps from step 2 before committing.
 - `.github/workflows/packages.yml`        post-release manifest bumps
 - `.github/workflows/site.yml`            site deploy, release.json sync
 - `.github/scripts/bump_version.py`       version bump implementation
+- `.github/scripts/release_notes.py`      draft release notes and their range
 - `.github/scripts/build_latest_json.py`  updater manifest builder
 - `.github/scripts/deploy_pages.py`       Pages deploy under a per-run build version
 - `scripts/release-preflight.sh`          local gates to run before tagging
