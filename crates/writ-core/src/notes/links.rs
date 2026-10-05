@@ -18,8 +18,9 @@ use std::ops::Range;
 
 use unicode_normalization::UnicodeNormalization;
 
-/// Extensions a link target may spell out and still mean the same note.
-const NOTE_EXTENSIONS: &[&str] = &["md", "markdown"];
+// A link target may spell a Markdown extension after a note's name and still
+// mean the same note.
+use super::extensions::is_markdown_extension;
 
 /// Which syntax a link was written in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -520,7 +521,7 @@ fn note_destination(inside: &str) -> Option<WikilinkTarget> {
     let name = path.rsplit(['/', '\\']).next().unwrap_or_default();
     let extension = name.rsplit_once('.').map(|(_, ext)| ext);
     match extension {
-        Some(ext) if !NOTE_EXTENSIONS.iter().any(|n| n.eq_ignore_ascii_case(ext)) => return None,
+        Some(ext) if !is_markdown_extension(ext) => return None,
         _ => {}
     }
 
@@ -675,7 +676,7 @@ fn split_target(path: &str) -> (Option<String>, String) {
 /// `name` without a trailing note extension.
 pub fn strip_note_extension(name: &str) -> &str {
     match name.rsplit_once('.') {
-        Some((stem, ext)) if NOTE_EXTENSIONS.iter().any(|n| n.eq_ignore_ascii_case(ext)) => stem,
+        Some((stem, ext)) if is_markdown_extension(ext) => stem,
         _ => name,
     }
 }

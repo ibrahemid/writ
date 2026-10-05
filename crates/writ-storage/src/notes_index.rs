@@ -41,10 +41,6 @@ use crate::errors::StorageResult;
 use crate::schema_meta;
 use crate::workspace_search::build_walk;
 
-/// Extensions indexed without sniffing the file, so the common case never
-/// opens a file to decide whether to open it.
-const TEXT_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text"];
-
 /// macOS `SF_DATALESS`: the file has no local data behind it.
 const SF_DATALESS: u32 = 0x4000_0000;
 
@@ -1625,16 +1621,15 @@ fn should_index(path: &Path) -> bool {
 }
 
 /// Whether `path` carries one of the extensions Writ indexes without sniffing
-/// the file: `md`, `markdown`, `txt`, `text`.
+/// the file ([`writ_core::notes::extensions::TEXT_EXTENSIONS`]), so the common
+/// case never opens a file to decide whether to open it.
 ///
 /// The half of the kind question that answers from the name, which is the only
 /// half a file with no local data behind it can be asked. Public so the
 /// first launch's read of the notes folder asks the same list the index does,
 /// rather than keeping a second one that drifts (ADR-041 §2).
 pub fn has_text_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|ext| TEXT_EXTENSIONS.iter().any(|t| t.eq_ignore_ascii_case(ext)))
+    writ_core::notes::extensions::has_text_extension(path)
 }
 
 /// Modification time in milliseconds since the Unix epoch, or `0` when the

@@ -20,7 +20,7 @@ import Prose from '../../layouts/Prose.astro';
   <h2>3. Approve the first call</h2>
   <p>The first call from a program is refused and shows up under Programs you approved, waiting. Approve reading, and separately writing, for that program. Take either away in the same list, or by editing <code>config.toml</code>; the change applies on the next call.</p>
   <h2>4. What it can do</h2>
-  <p>With reading approved: list the Markdown files in the folder, search, read a file, and read a file's links, backlinks, properties and tags. With writing approved: write, create and rename a file. No tool deletes one. When the program sends the hash of the version it read, a write over a newer file is refused and the program's text lands beside the file as a conflict copy. Nothing outside Writ's folder is reachable.</p>
+  <p>With reading approved: list the text files in the folder, search, read a file, and read a file's links, backlinks, properties and tags. With writing approved: write, create and rename a file. No tool deletes one. A write is checked against the version the program read, so a write over a newer file is refused and the program's text lands beside the file as a conflict copy. A file the program has not read is not written unless it asks to overwrite it. Writ keeps the text every write replaces, and Revert To, in the File menu, puts it back. Nothing outside Writ's folder is reachable.</p>
   <h2>5. See what it did</h2>
   <p>Recent activity, under the same app, lists every call: the program, the tool, the file, and whether it was allowed, refused or left waiting. The list holds no file text and stays in Writ's data folder on your machine.</p>
   <h2>Output that arrives as files</h2>

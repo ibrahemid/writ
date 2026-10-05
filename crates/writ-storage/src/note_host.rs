@@ -11,16 +11,18 @@
 //! ran after the resolution would already have told a caller whether a path
 //! outside the folder exists.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use tracing::warn;
 use writ_core::config::FileExtension;
 use writ_core::hash::{digest_hex, Sha256Digest};
 use writ_core::notes::containment::{resolve_for_containment, resolve_inside};
 use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::host::{
-    Capability, FolderTag, HostError, NoteBacklink, NoteContent, NoteFacts, NoteHit, NoteHost,
-    NoteLink, NoteSummary, PermissionSet, RenameReceipt, WriteReceipt, MAX_NOTE_BYTES,
+    Capability, FolderTag, HostError, LastKnown, NoteBacklink, NoteContent, NoteFacts, NoteHit,
+    NoteHost, NoteLink, NoteSummary, PermissionSet, RenameReceipt, WriteReceipt, MAX_NOTE_BYTES,
 };
 use writ_core::notes::WriteOrigin;
 
@@ -33,22 +35,23 @@ use crate::guarded::{
 };
 use crate::note_history::NoteHistoryStore;
 use crate::notes_index::{self, NotesIndexStore};
-use crate::paths::relative_slug;
-
-/// The extension a listing counts as a note.
-const NOTE_EXTENSION: &str = "md";
+use crate::paths::{file_name_only, relative_slug};
 
 /// The notes folder, the index over it, and what one consumer may ask of both.
 ///
 /// The index sits behind an [`Arc`] so a process that serves several approvals
 /// opens the database once: [`NoteHostImpl::with_permissions`] hands out a
-/// second handle over the same folder and the same connection.
+/// second handle over the same folder and the same connection. What the host
+/// has seen each note hold is shared the same way, so a read made through one
+/// handle is what a write through the next one compares against
+/// ([`LastKnown::LastSeen`]).
 pub struct NoteHostImpl<'a> {
     notes_root: PathBuf,
     index: Option<Arc<NotesIndexStore>>,
     permissions: PermissionSet,
     history: Option<&'a NoteHistoryStore>,
     default_extension: FileExtension,
+    seen: Arc<Mutex<HashMap<String, Sha256Digest>>>,
 }
 
 impl std::fmt::Debug for NoteHostImpl<'_> {
@@ -59,6 +62,7 @@ impl std::fmt::Debug for NoteHostImpl<'_> {
             .field("permissions", &self.permissions)
             .field("history", &self.history.is_some())
             .field("default_extension", &self.default_extension)
+            .field("seen", &self.seen().len())
             .finish_non_exhaustive()
     }
 }
@@ -96,10 +100,14 @@ impl<'a> NoteHostImpl<'a> {
             permissions,
             history: None,
             default_extension,
+            seen: Arc::default(),
         })
     }
 
     /// A second handle over the same folder and index, holding `permissions`.
+    ///
+    /// It sees what this handle has seen and the other way round: a note read
+    /// through either is a note both have read.
     pub fn with_permissions(&self, permissions: PermissionSet) -> NoteHostImpl<'a> {
         NoteHostImpl {
             notes_root: self.notes_root.clone(),
@@ -107,14 +115,17 @@ impl<'a> NoteHostImpl<'a> {
             permissions,
             history: self.history,
             default_extension: self.default_extension,
+            seen: Arc::clone(&self.seen),
         }
     }
 
     /// The same handle, capturing what it replaces into `history`.
     ///
-    /// The app passes its store; a process that keeps no history passes `None`
-    /// and the writes are made without one. A minted note has no text to keep a
-    /// version of, so [`NoteHost::create_note`] captures nothing either way.
+    /// The app passes its store and so does `writ mcp`, which opens the same
+    /// `history.db` (ADR-031 rule 1.3); a caller that keeps no history passes
+    /// `None` and the writes are made without one. A minted note has no text to
+    /// keep a version of, so [`NoteHost::create_note`] captures nothing either
+    /// way.
     pub fn with_history(mut self, history: Option<&'a NoteHistoryStore>) -> Self {
         self.history = history;
         self
@@ -146,6 +157,19 @@ impl<'a> NoteHostImpl<'a> {
     /// The index, or [`HostError::IndexUnavailable`] when there is none.
     fn index(&self) -> Result<&NotesIndexStore, HostError> {
         self.index.as_deref().ok_or(HostError::IndexUnavailable)
+    }
+
+    /// What this host has seen each note hold, by the note's index key.
+    fn seen(&self) -> std::sync::MutexGuard<'_, HashMap<String, Sha256Digest>> {
+        self.seen
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Records that the note at `key` holds the text `digest` names, as this
+    /// host last saw it.
+    fn saw(&self, key: &str, digest: Sha256Digest) {
+        self.seen().insert(key.to_string(), digest);
     }
 
     /// The file a path argument names, refusing anything the folder does not
@@ -208,10 +232,7 @@ impl NoteHost for NoteHostImpl<'_> {
             if writ_core::workspace::path_has_ignored_name(&self.notes_root, path) {
                 continue;
             }
-            if !path
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case(NOTE_EXTENSION))
-            {
+            if !writ_core::notes::extensions::has_text_extension(path) {
                 continue;
             }
             let Some(relative) = relative_slug(&self.notes_root, path) else {
@@ -255,10 +276,13 @@ impl NoteHost for NoteHostImpl<'_> {
         let text = String::from_utf8(read).map_err(|_| HostError::NotText {
             path: path.to_string(),
         })?;
+        let key = notes_index::index_key(&file);
+        let digest = writ_core::hash::sha256_bytes(text.as_bytes());
+        self.saw(&key, digest);
         Ok(NoteContent {
-            path: notes_index::index_key(&file),
+            path: key,
             bytes,
-            hash: writ_core::hash::sha256_hex(text.as_bytes()),
+            hash: digest_hex(digest),
             text,
         })
     }
@@ -378,11 +402,29 @@ impl NoteHost for NoteHostImpl<'_> {
         &self,
         path: &str,
         content: &str,
-        last_known: Option<Sha256Digest>,
+        last_known: LastKnown,
         origin: WriteOrigin,
     ) -> Result<WriteReceipt, HostError> {
         self.permit(Capability::WriteNote)?;
         let file = self.note_file(path)?;
+        let key = notes_index::index_key(&file);
+        // Settled before the file is asked anything else, so a note this host
+        // has not seen is answered without being stat'ed for its download
+        // state or read.
+        let expected = match last_known {
+            LastKnown::Hash(hash) => Some(hash),
+            LastKnown::LastSeen => {
+                Some(
+                    self.seen()
+                        .get(&key)
+                        .copied()
+                        .ok_or_else(|| HostError::HashRequired {
+                            path: path.to_string(),
+                        })?,
+                )
+            }
+            LastKnown::Overwrite => None,
+        };
         // Asked before the read below, because the read is what would pull an
         // evicted file down (ADR-028 section 5). The guard asks the same
         // question, and asking it here is what lets the state below be read
@@ -395,13 +437,13 @@ impl NoteHost for NoteHostImpl<'_> {
         let on_disk = read_disk_state(&file).map_err(|_| HostError::Unreadable {
             path: path.to_string(),
         })?;
-        // With a digest from the caller, only that is compared: the guard reads
-        // neither the length nor the modification time, and a caller that read
-        // the note over a wire knows neither about the file it read. Without
-        // one, what the file holds now stands in, which is the same thing as
-        // having no expectation and also lets a write of the text the note
-        // already holds be recognised and skipped.
-        let last_known = match last_known {
+        // With a digest, only that is compared: the guard reads neither the
+        // length nor the modification time, and a caller that read the note
+        // over a wire knows neither about the file it read. For an overwrite,
+        // what the file holds now stands in, which is the same thing as having
+        // no expectation and also lets a write of the text the note already
+        // holds be recognised and skipped.
+        let last_known = match expected {
             Some(hash) => Some(DiskState {
                 hash,
                 size: 0,
@@ -409,6 +451,18 @@ impl NoteHost for NoteHostImpl<'_> {
             }),
             None => on_disk,
         };
+        if let Some(history) = self.history {
+            // The capture after the write finds the note by its path, so a note
+            // renamed since the store last saw it is moved to its new path
+            // first, while the file still has the identity the store knows.
+            if let Err(error) = history.follow_rename(&file) {
+                warn!(
+                    note = %file_name_only(path),
+                    error = %error,
+                    "the versions this note kept under another name could not be moved to it"
+                );
+            }
+        }
         let keep = self.history.map(keep_versions);
         let outcome = write_note_guarded(
             GuardedWrite {
@@ -429,8 +483,11 @@ impl NoteHost for NoteHostImpl<'_> {
             None,
         )
         .map_err(|error| write_error(path, error))?;
+        // Landed or already there, the note now holds the caller's text, which
+        // is what the next write from this host is compared with.
+        self.saw(&key, outcome.disk_state.hash);
         Ok(WriteReceipt {
-            path: notes_index::index_key(&file),
+            path: key,
             bytes: outcome.disk_state.size,
             hash: digest_hex(outcome.disk_state.hash),
             // The guard leaves a file that already holds the incoming bytes
@@ -477,8 +534,10 @@ impl NoteHost for NoteHostImpl<'_> {
                 .ok_or_else(|| HostError::Unwritable {
                     path: name.to_string(),
                 })?;
+        let key = notes_index::index_key(&minted);
+        self.saw(&key, state.hash);
         Ok(WriteReceipt {
-            path: notes_index::index_key(&minted),
+            path: key,
             bytes: state.size,
             hash: digest_hex(state.hash),
             // A note that did not exist a moment ago holds new bytes.
@@ -514,9 +573,19 @@ impl NoteHost for NoteHostImpl<'_> {
             None,
         )
         .map_err(|error| write_error(path, error))?;
+        let new_key = notes_index::index_key(&moved);
+        let previous_key = notes_index::index_key(&file);
+        // A rename moves no byte, so what was seen at the old path is what the
+        // note holds at the new one.
+        {
+            let mut seen = self.seen();
+            if let Some(digest) = seen.remove(&previous_key) {
+                seen.insert(new_key.clone(), digest);
+            }
+        }
         Ok(RenameReceipt {
-            path: notes_index::index_key(&moved),
-            previous_path: notes_index::index_key(&file),
+            path: new_key,
+            previous_path: previous_key,
             bytes,
         })
     }

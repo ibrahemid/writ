@@ -10,6 +10,11 @@
 //! and the index-derived tools say so.
 
 use std::ffi::OsString;
+use std::path::PathBuf;
+
+use writ_mcp::tools::AppNotesFolder;
+
+use crate::resolve_app_notes_dir;
 
 /// The verb this module answers to.
 pub const VERB: &str = "mcp";
@@ -38,6 +43,28 @@ pub enum UsageError {
     /// An argument that is not valid text.
     #[error("writ mcp was given an argument that is not text")]
     NotText,
+}
+
+/// The app's notes folder, resolved from its settings at every write the
+/// server keeps a version of ([`resolve_app_notes_dir`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfiguredAppFolder {
+    /// The data folder holding `config.toml`.
+    pub writ_dir: PathBuf,
+    /// The data folder, when `WRIT_DATA_DIR` names it.
+    pub data_dir: Option<PathBuf>,
+    /// The user's home folder.
+    pub home: Option<PathBuf>,
+}
+
+impl AppNotesFolder for ConfiguredAppFolder {
+    fn app_notes_root(&self) -> Option<PathBuf> {
+        resolve_app_notes_dir(
+            &self.writ_dir,
+            self.data_dir.as_deref(),
+            self.home.as_deref(),
+        )
+    }
 }
 
 /// The help text, printed for `writ mcp --help`.
@@ -92,6 +119,24 @@ mod tests {
 
     fn args(parts: &[&str]) -> Vec<OsString> {
         parts.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn the_app_folder_is_read_from_the_settings_at_every_ask() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let config = dir.path().join("config.toml");
+        let folder = ConfiguredAppFolder {
+            writ_dir: dir.path().to_path_buf(),
+            data_dir: None,
+            home: Some(dir.path().to_path_buf()),
+        };
+        assert_eq!(folder.app_notes_root(), Some(dir.path().join("Writ")));
+
+        let moved = dir.path().join("Moved");
+        std::fs::write(&config, format!("[notes]\nroot = '{}'\n", moved.display()))
+            .expect("write the settings");
+
+        assert_eq!(folder.app_notes_root(), Some(moved));
     }
 
     #[test]

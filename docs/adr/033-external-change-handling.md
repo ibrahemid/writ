@@ -410,8 +410,8 @@ left the tab carrying the dead file's id and its next save coming back as a raw
 frontend are still told nothing — a folder is not a note change — so only the
 tab on that exact path hears it.
 
-`writ_core::notes::identity` decides and `src-tauri/src/watcher/identity.rs`
-reads, which is the policy and mechanism split the rest of the watcher follows.
+`writ_core::notes::identity` decides and `writ_storage::identity` reads, which
+is the policy and mechanism split the rest of the watcher follows.
 `classify_delete` compares the id the tab holds against the ids of the files the
 same batch names, plus the note's own folder; a match is a move, no match is a
 removal. The probe is a trait, so the verdict is tested on every platform

@@ -10,6 +10,12 @@
 //! second process (ADR-031) and a table written on every save has no business
 //! in it, nor does the free space a pruned table leaves behind.
 //!
+//! Two processes write this file: the app, and `writ mcp`, which keeps the text
+//! a connected program's write replaces (ADR-031 rule 1.3). The database is in
+//! WAL mode, every capture is one immediate transaction, and a writer that
+//! finds the other holding the lock waits for it ([`BUSY_TIMEOUT`]) rather than
+//! failing.
+//!
 //! The policy is [`writ_core::note_history`]'s and none of it is decided
 //! again here: what earns an entry, what a note is keyed by, and what has to
 //! go. This module is the filesystem and the database.
@@ -19,7 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use tracing::warn;
 use writ_core::hash::{digest_from_hex, sha256_hex, Sha256Digest};
 use writ_core::note_history::{
@@ -37,6 +43,14 @@ const BLOB_DIR: &str = "history";
 
 /// The index file, beside `writ.db` and never part of it.
 const DB_FILE: &str = "history.db";
+
+/// How long a writer waits for the other process to let go of the database
+/// before its call fails.
+///
+/// A capture holds the lock for one blob write and two rows, and a pruning
+/// pass for one transaction over the retired rows, so the wait this covers is
+/// milliseconds. The ceiling is for a disk that is slow for a moment.
+pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// One text a note held, as the panel lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,9 +109,12 @@ pub struct PruneOutcome {
 
 /// The texts of one Writ's notes, and the index over them.
 ///
-/// One instance per data directory, held by the app. Nothing outside the app
-/// process opens it: the `writ` command and the MCP server read `writ.db`
-/// read-only and never come here, so one process writes this file.
+/// One instance per data directory in each process that writes notes for
+/// someone: the app, and `writ mcp`. The `writ` command does not open it. The
+/// two processes share the file through SQLite's own locking, so each
+/// read-then-write here runs inside one immediate transaction: a note's row is
+/// found or made, and its entry added, with the other process held off until
+/// both are committed.
 pub struct NoteHistoryStore {
     conn: Mutex<Connection>,
     blobs: PathBuf,
@@ -116,6 +133,7 @@ impl NoteHistoryStore {
         let blobs = writ_dir.join(BLOB_DIR);
         std::fs::create_dir_all(&blobs)?;
         let conn = crate::database::connection::open_database(&writ_dir.join(DB_FILE))?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         create_schema(&conn)?;
         Ok(Self {
             conn: Mutex::new(conn),
@@ -141,10 +159,10 @@ impl NoteHistoryStore {
 
     /// Tells the store how to read what the filesystem calls a file.
     ///
-    /// The platform's answer is the app's to give
-    /// (`src-tauri/src/watcher/identity.rs`), so the store is handed it
-    /// rather than reaching for a syscall of its own. A store with no probe
-    /// keys every note by its path, which is the same answer a volume with no
+    /// The platform's answer is [`crate::identity::PlatformIdentity`], which
+    /// the app and `writ mcp` both hand over; the store is handed it rather
+    /// than reaching for a syscall of its own. A store with no probe keys
+    /// every note by its path, which is the same answer a volume with no
     /// stable id gives.
     pub fn set_probe(&self, probe: Arc<dyn IdentityProbe>) {
         match self.probe.write() {
@@ -174,6 +192,28 @@ impl NoteHistoryStore {
         let root = self.notes_root()?;
         let slug = relative_slug(&root, path)?;
         Some(VersionKey::new(identity, PathBuf::from(slug)))
+    }
+
+    /// Points the history of the file at `path` at that path, when the store
+    /// holds the file under a name it had before.
+    ///
+    /// For a writer about to replace the file. A save writes a sibling and
+    /// renames it over the note, so after it the file behind the path is a new
+    /// one and the capture can find the note by its path alone. A note renamed
+    /// while nothing was watching is found here instead, by the identity the
+    /// file still has, which is the repair [`Self::versions`] makes for a note
+    /// that is only read. A file the store does not hold under another name,
+    /// or one outside the notes folder, is left alone.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Database`] when the index cannot be read or written.
+    pub fn follow_rename(&self, path: &Path) -> StorageResult<()> {
+        let Some(key) = self.key_for(path) else {
+            return Ok(());
+        };
+        resolve_note(&self.conn(), &key, Mint::No)?;
+        Ok(())
     }
 
     /// Keeps `bytes` as a version of the note `key` names, as `origin` wrote
@@ -237,8 +277,9 @@ impl NoteHistoryStore {
         // watching still lists what it held under its old name. The repair has
         // to happen on whichever call arrives first, and for a note nobody
         // saves again that call is this one. So this read takes the store's
-        // write lock like every other call; one process holds it (`set_history`
-        // has a single caller) and the panel asks once per open.
+        // write lock like every other call, and the panel asks once per open.
+        // The repair is a single statement, so a second process writing the
+        // file at the same moment waits on it rather than interleaving.
         let Some(note) = resolve_note(&conn, key, Mint::No)? else {
             return Ok(Vec::new());
         };
@@ -335,7 +376,9 @@ impl NoteHistoryStore {
         // the texts are swept afterwards from what the commit actually says.
         let mut orphaned: HashSet<String> = HashSet::new();
         {
-            let transaction = conn.transaction()?;
+            // Immediate, so the rows this pass reads are the rows it deletes:
+            // a capture from the other process waits for the commit.
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             {
                 let mut statement =
                     transaction.prepare("SELECT hash FROM versions WHERE id = ?1")?;
@@ -358,27 +401,36 @@ impl NoteHistoryStore {
 
         let mut texts_deleted = 0;
         let mut bytes_freed = 0;
-        for hash in orphaned {
-            let still_held: Option<i64> = conn
-                .query_row(
-                    "SELECT 1 FROM versions WHERE hash = ?1 LIMIT 1",
-                    [&hash],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if still_held.is_some() {
-                continue;
-            }
-            let path = self.blob_path(&hash);
-            let size = path.metadata().map(|meta| meta.len()).unwrap_or(0);
-            match std::fs::remove_file(&path) {
-                Ok(()) => {
-                    texts_deleted += 1;
-                    bytes_freed += size;
+        {
+            // The sweep holds the write lock too. A capture in the other
+            // process writes a text and then the row naming it under that
+            // lock, so a text is never deleted between the two: either the
+            // row is there when the sweep asks, or the capture writes the text
+            // again after the sweep let go.
+            let sweep = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            for hash in orphaned {
+                let still_held: Option<i64> = sweep
+                    .query_row(
+                        "SELECT 1 FROM versions WHERE hash = ?1 LIMIT 1",
+                        [&hash],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if still_held.is_some() {
+                    continue;
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => warn!(error = %e, "a retired version's text could not be deleted"),
+                let path = self.blob_path(&hash);
+                let size = path.metadata().map(|meta| meta.len()).unwrap_or(0);
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {
+                        texts_deleted += 1;
+                        bytes_freed += size;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => warn!(error = %e, "a retired version's text could not be deleted"),
+                }
             }
+            sweep.commit()?;
         }
 
         // The index is a table written on every save and pruned on a timer,
@@ -436,7 +488,11 @@ impl NoteHistoryStore {
         let Some(digest) = digest_from_hex(&hash) else {
             return Ok(Kept::Nothing);
         };
-        let conn = self.conn();
+        let mut held = self.conn();
+        // One immediate transaction from the lookup to the insert. The other
+        // process can reach the same note at the same moment, and without the
+        // lock both would find no row for it and both would make one.
+        let conn = held.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let Some(note) = resolve_note(&conn, key, Mint::Yes)? else {
             return Ok(Kept::Nothing);
         };
@@ -486,8 +542,12 @@ impl NoteHistoryStore {
                     rusqlite::params![&hash, bytes.len() as i64, newest.id],
                 )?;
                 self.forget_text(&conn, &newest.hash)?;
+                conn.commit()?;
                 return Ok(Kept::Merged(newest.id));
             }
+            // A note row the lookup made, or an identity it moved, is kept
+            // even when the text earns no entry.
+            conn.commit()?;
             return Ok(Kept::Nothing);
         }
 
@@ -506,7 +566,9 @@ impl NoteHistoryStore {
                 i64::from(merge == Merge::Window)
             ],
         )?;
-        Ok(Kept::Added(conn.last_insert_rowid()))
+        let added = conn.last_insert_rowid();
+        conn.commit()?;
+        Ok(Kept::Added(added))
     }
 
     /// Deletes a text no entry names any more.

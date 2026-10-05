@@ -97,9 +97,10 @@ pub struct WriteCapture<'a> {
 /// The seam a version store is hung on: called once per write that landed,
 /// never for a write that was refused and never for one that was not needed.
 ///
-/// `None` for a caller keeping no versions: the command line and the MCP
-/// server, which run in their own processes and write no database of the
-/// app's, and every test that is not about versions.
+/// `None` for a caller keeping no versions: the command line, which runs in
+/// its own process and writes no database of the app's, and every test that is
+/// not about versions. The MCP server keeps them, in the app's own store
+/// (ADR-031 rule 1.3).
 pub type HistoryHook<'a> = Option<&'a dyn Fn(WriteCapture<'_>)>;
 
 /// What a write hands the version store.

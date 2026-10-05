@@ -9,6 +9,8 @@
 
 /// Whether a path names a file the notes folder holds.
 pub mod containment;
+/// The file extensions Writ reads as text from the name alone.
+pub mod extensions;
 /// What a note says about itself: links, properties, tags and headings.
 pub mod facts;
 /// The write guard: whether a save may land on the file it is aimed at.
@@ -398,10 +400,6 @@ pub fn note_file_stem_from_link(target: &str, dated_from: DateTime<Utc>) -> Stri
     note_file_stem(links::strip_note_extension(target.trim()), dated_from)
 }
 
-/// The extensions a typed name may spell its own format with, the four the
-/// index reads as text.
-const TEXT_EXTENSIONS: &[&str] = &["md", "markdown", "txt", "text"];
-
 /// The name without the extension it spells for itself, and that extension as
 /// a file name carries it.
 ///
@@ -419,7 +417,8 @@ pub fn explicit_extension(name: &str) -> Option<(&str, &'static str)> {
     if stem.trim().is_empty() {
         return None;
     }
-    let known = TEXT_EXTENSIONS
+    // The four the index reads as text are the formats a typed name may spell.
+    let known = extensions::TEXT_EXTENSIONS
         .iter()
         .copied()
         .find(|known| known.eq_ignore_ascii_case(extension))?;

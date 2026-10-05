@@ -7,7 +7,7 @@ use std::time::SystemTime;
 
 use tempfile::TempDir;
 use writ_core::config::FileExtension;
-use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
+use writ_core::notes::host::{Capability, HostError, LastKnown, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
 use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::note_host::NoteHostImpl;
@@ -89,7 +89,12 @@ fn a_refused_write_with_a_history_store_keeps_no_version() {
     .with_history(Some(&store));
 
     let refused = reading
-        .write_note("Launch.md", "after\n", None, WriteOrigin::Chat)
+        .write_note(
+            "Launch.md",
+            "after\n",
+            LastKnown::Overwrite,
+            WriteOrigin::Chat,
+        )
         .expect_err("a host without WriteNote has no write path");
 
     assert_eq!(
@@ -132,7 +137,12 @@ fn an_allowed_write_through_the_host_captures_a_version() {
     .expect("open the host")
     .with_history(Some(&store));
     writing
-        .write_note("Launch.md", "after\n", None, WriteOrigin::Chat)
+        .write_note(
+            "Launch.md",
+            "after\n",
+            LastKnown::Overwrite,
+            WriteOrigin::Chat,
+        )
         .expect("the write lands");
 
     assert!(
@@ -234,7 +244,7 @@ fn the_check_precedes_resolution_the_index_and_the_stat() {
         (nothing.folder_tags().unwrap_err(), Capability::ReadIndex),
         (
             nothing
-                .write_note(&outside, "x", None, WriteOrigin::Chat)
+                .write_note(&outside, "x", LastKnown::Overwrite, WriteOrigin::Chat)
                 .unwrap_err(),
             Capability::WriteNote,
         ),

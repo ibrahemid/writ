@@ -98,7 +98,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-core/src/file_ops.rs",
-        line: 165,
+        line: 166,
         word: "MiB",
         note: "size formatter unit, release 0.6",
     },
@@ -176,19 +176,19 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 97,
+        line: 118,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 103,
+        line: 124,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 106,
+        line: 127,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },

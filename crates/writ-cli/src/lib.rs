@@ -322,6 +322,23 @@ pub fn resolve_notes_dir(
     })
 }
 
+/// The notes folder the app resolves, which is the folder every key in its
+/// version store is relative to.
+///
+/// [`resolve_notes_dir`] without `WRIT_NOTES_DIR`: that variable is this
+/// process's own setting, and a `writ mcp` started on another folder still
+/// writes its versions into the app's store, keyed against the app's folder.
+/// `None` when no source resolves. Read from `config.toml` on every call, so
+/// a folder the app moved to while this process runs is the one answered.
+pub fn resolve_app_notes_dir(
+    writ_dir: &Path,
+    data_dir: Option<&Path>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
+    let configured = read_notes_root_from_config(writ_dir);
+    resolve_notes_dir(None, configured.as_deref(), data_dir, home).ok()
+}
+
 /// The path a piped payload is written to:
 /// `<notes>/<title-or-date>.<extension>`.
 ///
@@ -630,6 +647,57 @@ mod tests {
         )
         .expect("an absolute override resolves");
         assert_eq!(notes, overridden);
+    }
+
+    #[test]
+    fn the_apps_notes_folder_is_the_configured_one() {
+        let dir = TempDir::new().unwrap();
+        let configured = dir.path().join("Configured");
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!("[notes]\nroot = '{}'\n", configured.display()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            resolve_app_notes_dir(dir.path(), None, Some(dir.path())),
+            Some(configured)
+        );
+    }
+
+    #[test]
+    fn the_apps_notes_folder_falls_back_the_way_the_app_does() {
+        let dir = TempDir::new().unwrap();
+        let data = dir.path().join("instance");
+
+        assert_eq!(
+            resolve_app_notes_dir(dir.path(), None, Some(dir.path())),
+            Some(dir.path().join("Writ"))
+        );
+        assert_eq!(
+            resolve_app_notes_dir(dir.path(), Some(&data), Some(dir.path())),
+            Some(data.join("Writ"))
+        );
+    }
+
+    #[test]
+    fn the_apps_notes_folder_follows_a_config_rewritten_after_the_first_answer() {
+        let dir = TempDir::new().unwrap();
+        let first = dir.path().join("First");
+        let moved = dir.path().join("Moved");
+        let config = dir.path().join("config.toml");
+        std::fs::write(&config, format!("[notes]\nroot = '{}'\n", first.display())).unwrap();
+        assert_eq!(
+            resolve_app_notes_dir(dir.path(), None, Some(dir.path())),
+            Some(first)
+        );
+
+        std::fs::write(&config, format!("[notes]\nroot = '{}'\n", moved.display())).unwrap();
+
+        assert_eq!(
+            resolve_app_notes_dir(dir.path(), None, Some(dir.path())),
+            Some(moved)
+        );
     }
 
     #[test]

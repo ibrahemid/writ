@@ -63,6 +63,14 @@ pub enum HostError {
         /// written.
         conflict_copy: Option<String>,
     },
+    /// The write named [`super::LastKnown::LastSeen`] and this host has not
+    /// seen the note, so there is nothing to compare it with. The write was
+    /// not made.
+    #[error("{path} has not been read")]
+    HashRequired {
+        /// The path as the caller wrote it.
+        path: String,
+    },
     /// The name handed in holds nothing a file can be called.
     #[error("{}", crate::notes::NAME_IS_EMPTY)]
     NameEmpty,

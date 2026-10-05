@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use writ_mcp::consent::{ConfigGate, EnabledReads};
-use writ_mcp::tools::{ToolHost, READ_TOOLS, WRITE_TOOLS};
+use writ_mcp::tools::{FixedAppFolder, ToolHost, READ_TOOLS, WRITE_TOOLS};
 
 /// The version this test speaks. rmcp negotiates from its known list.
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -35,7 +35,14 @@ fn fixture() -> Fixture {
 
 fn host(notes: &Path, db: &Path) -> ToolHost {
     let writ_dir = db.parent().expect("the database sits in the data folder");
-    ToolHost::open(notes, db, writ_dir, Box::new(EnabledReads::new(true))).expect("host")
+    ToolHost::open(
+        notes,
+        db,
+        writ_dir,
+        Box::new(FixedAppFolder(notes.to_path_buf())),
+        Box::new(EnabledReads::new(true)),
+    )
+    .expect("host")
 }
 
 /// A host on the gate production runs, over settings that approve the test
@@ -51,6 +58,7 @@ fn approved_host(fixture: &Fixture) -> ToolHost {
         &fixture.notes,
         &fixture.db,
         writ_dir,
+        Box::new(FixedAppFolder(fixture.notes.clone())),
         Box::new(ConfigGate::new(writ_dir)),
     )
     .expect("host")
@@ -173,6 +181,7 @@ async fn a_tool_call_from_a_client_the_user_has_not_turned_the_server_on_for_is_
         &fixture.notes,
         &fixture.db,
         fixture.db.parent().expect("the data folder"),
+        Box::new(FixedAppFolder(fixture.notes.clone())),
         Box::new(EnabledReads::new(false)),
     )
     .expect("host");
@@ -403,6 +412,114 @@ async fn a_second_write_of_the_text_the_client_first_read_is_held_back() {
     assert_eq!(
         std::fs::read_to_string(&note).expect("read the note back"),
         "somebody else got there first\n"
+    );
+
+    drop(writer);
+    drop(reader);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), served).await;
+}
+
+#[tokio::test]
+async fn an_unread_note_is_refused_with_how_to_go_on_and_an_overwrite_lands() {
+    let fixture = fixture();
+    let note = fixture.notes.join("Launch.md");
+    let host = approved_host(&fixture);
+
+    let (client, server) = tokio::io::duplex(256 * 1024);
+    let served = tokio::spawn(writ_mcp::server::serve_on(host, server));
+
+    let (read_half, mut writer) = tokio::io::split(client);
+    let mut reader = BufReader::new(read_half).lines();
+
+    call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": { "name": "Test Client", "version": "1.0.0" }
+            }
+        }),
+    )
+    .await;
+    send(
+        &mut writer,
+        serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+    )
+    .await;
+
+    let listed = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }),
+    )
+    .await;
+    let write_tool = listed["result"]["tools"]
+        .as_array()
+        .expect("a tool list")
+        .iter()
+        .find(|tool| tool["name"] == "write_note")
+        .expect("write_note is listed")
+        .clone();
+    assert_eq!(
+        write_tool["inputSchema"]["properties"]["overwrite"]["type"], "boolean",
+        "{write_tool}"
+    );
+    let required: Vec<&str> = write_tool["inputSchema"]["required"]
+        .as_array()
+        .map(|names| names.iter().filter_map(|name| name.as_str()).collect())
+        .unwrap_or_default();
+    assert!(!required.contains(&"overwrite"), "{required:?}");
+
+    let refused = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "write_note",
+                "arguments": { "path": "Launch.md", "content": "a blind write\n" }
+            }
+        }),
+    )
+    .await;
+    let message = refused["error"]["message"]
+        .as_str()
+        .expect("a refusal, not a result");
+    assert!(message.contains("read_note"), "{message}");
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read the note back"),
+        "# Launch\n\nthe text\n"
+    );
+
+    let overwritten = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {
+                "name": "write_note",
+                "arguments": {
+                    "path": "Launch.md",
+                    "content": "an overwrite the client asked for\n",
+                    "overwrite": true
+                }
+            }
+        }),
+    )
+    .await;
+    assert!(overwritten["result"].is_object(), "{overwritten}");
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read the note back"),
+        "an overwrite the client asked for\n"
     );
 
     drop(writer);

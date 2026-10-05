@@ -14,17 +14,28 @@
 //! host knows nothing about.
 //!
 //! Notes are read from the folder and facts about them from the index, which is
-//! opened read-only: this process creates no database, runs no migration and
-//! changes no row (ADR-031 rule 1.3). With the index absent or unreadable,
-//! [`ToolHost::list_notes`] and [`ToolHost::read_note`] still answer from the
-//! folder and the six index-derived tools return [`ToolError::IndexUnavailable`].
+//! opened read-only: this process runs no migration and changes no row of
+//! `writ.db`. The one database it writes is the app's version store,
+//! `history.db`, which it opens at the first write a client is allowed to make,
+//! so a client that only reads, or is refused, leaves the data folder as it
+//! found it (ADR-031 rule 1.3). Every key in that store is relative to the
+//! app's notes folder, which is not always the folder this process serves
+//! (`WRIT_NOTES_DIR`), so each write asks [`AppNotesFolder`] where the app's
+//! folder is and keys against that. A note outside it keeps no version, as a
+//! file outside the notes folder keeps none in the app. With the index absent
+//! or unreadable, [`ToolHost::list_notes`] and [`ToolHost::read_note`] still
+//! answer from the folder and the six index-derived tools return
+//! [`ToolError::IndexUnavailable`].
 //!
-//! The three write tools change a note's file and nothing else. They write
-//! through the one facade a note's file is ever written by (ADR-032 section 4),
-//! under `WriteOrigin::Mcp` and a policy that refuses with a copy, so a note
-//! that changed since the client read it keeps what it holds and the client's
-//! text lands beside it. There is no argument that turns that into an
-//! overwrite.
+//! The three write tools change a note's file, and `write_note` keeps the text
+//! it replaced as a version the app's Revert To lists. They write through the
+//! one facade a note's file is ever written by (ADR-032 section 4), under
+//! `WriteOrigin::Mcp` and a policy that refuses with a copy, so a note that
+//! changed since the client read it keeps what it holds and the client's text
+//! lands beside it. What the client read is the `expected_hash` it passes or,
+//! without one, the text this session last saw the note hold. A note the
+//! session has not seen is refused unless the client passes `overwrite`, and
+//! an overwrite is logged under its own action, [`OVERWRITE_ACTION`].
 //!
 //! Nothing here stamps the app's ignore set, and that is load-bearing rather
 //! than a gap. The stamp is how Writ tells its own writes apart from somebody
@@ -35,12 +46,15 @@
 //! the client's child.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use writ_core::activity::{ActivityRecord, Actor};
 use writ_core::config::{FileExtension, FilesConfig};
 use writ_core::hash::digest_from_hex;
-use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
+use writ_core::notes::containment::resolve_for_containment;
+use writ_core::notes::host::{Capability, HostError, LastKnown, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
+use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::note_host::NoteHostImpl;
 use writ_storage::paths::{file_name_only, relative_slug};
 
@@ -68,6 +82,13 @@ pub use writ_core::notes::host::{
     FolderTag, NoteBacklink, NoteContent, NoteHit as SearchResult, NoteLink, NoteSummary,
     WriteReceipt,
 };
+
+/// The action the activity log records for a `write_note` call that asked to
+/// replace a note without comparing it with anything the client read.
+///
+/// Its own name rather than `write_note`, so the line a person reads in
+/// Recent activity says the program overwrote the file.
+pub const OVERWRITE_ACTION: &str = "overwrite_note";
 
 /// The tools that answer from the index and cannot answer without it.
 pub const INDEX_TOOLS: &[&str] = &[
@@ -143,6 +164,27 @@ pub enum ToolError {
     /// `expected_hash` is not the 64 hex characters a read hands back.
     #[error("expected_hash for {path} has to be the hash read_note returned.")]
     HashNotUnderstood {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// A write with no `expected_hash` to a note this session has not read, so
+    /// there is nothing to compare it with. Nothing was written.
+    #[error("{path} has not been read in this session. Read it with read_note first, or pass overwrite: true to replace whatever it holds.")]
+    HashRequired {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// A write that passed both `expected_hash` and `overwrite`, which ask for
+    /// two different writes. Nothing was written.
+    #[error("Pass expected_hash or overwrite for {path}, not both.")]
+    HashAndOverwrite {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// The version store would not open, so the text the note holds could not
+    /// be kept and the note was left as it is.
+    #[error("{path} was not changed: Writ could not open its version history to keep what the file holds now.")]
+    VersionsUnavailable {
         /// The path as the client wrote it.
         path: String,
     },
@@ -226,12 +268,38 @@ pub fn write_permissions() -> PermissionSet {
     .collect()
 }
 
+/// Where the app keeps its notes.
+///
+/// The version store under the data folder is the app's, and every key in it
+/// is a path relative to the app's notes folder. A server serving another
+/// folder that keyed its writes against its own would file one note's
+/// versions under another note at the same relative path, so the store is
+/// keyed against this folder instead, asked at every write: the app can move
+/// its folder while this process runs.
+pub trait AppNotesFolder: Send + Sync {
+    /// The app's notes folder as it stands now, or `None` when it cannot be
+    /// resolved, in which case a write keeps no version.
+    fn app_notes_root(&self) -> Option<PathBuf>;
+}
+
+/// An app notes folder that does not move.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixedAppFolder(pub PathBuf);
+
+impl AppNotesFolder for FixedAppFolder {
+    fn app_notes_root(&self) -> Option<PathBuf> {
+        Some(self.0.clone())
+    }
+}
+
 /// The notes folder and the index over it, behind a consent gate.
 pub struct ToolHost {
     writ_dir: PathBuf,
     host: NoteHostImpl<'static>,
+    app_folder: Box<dyn AppNotesFolder>,
     gate: Box<dyn ConsentGate>,
     default_extension: FileExtension,
+    history: OnceLock<NoteHistoryStore>,
 }
 
 impl std::fmt::Debug for ToolHost {
@@ -241,6 +309,7 @@ impl std::fmt::Debug for ToolHost {
             .field("writ_dir", &self.writ_dir)
             .field("index", &self.host.has_index())
             .field("default_extension", &self.default_extension)
+            .field("history", &self.history.get().is_some())
             .finish_non_exhaustive()
     }
 }
@@ -255,11 +324,14 @@ impl ToolHost {
     ///
     /// The host is opened holding nothing. Each call derives its set from the
     /// gate's verdict, so there is no handle in this process that may write
-    /// before a client has been approved to.
+    /// before a client has been approved to. The version store under
+    /// `writ_dir` is not opened here either: the first write that needs it
+    /// opens it, keyed against the folder `app_folder` names at that write.
     pub fn open(
         notes_root: &Path,
         db_path: &Path,
         writ_dir: &Path,
+        app_folder: Box<dyn AppNotesFolder>,
         gate: Box<dyn ConsentGate>,
     ) -> Result<Self, ToolError> {
         let default_extension = read_default_extension(writ_dir);
@@ -275,8 +347,10 @@ impl ToolHost {
         Ok(Self {
             writ_dir: writ_dir.to_path_buf(),
             host,
+            app_folder,
             gate,
             default_extension,
+            history: OnceLock::new(),
         })
     }
 
@@ -385,16 +459,26 @@ impl ToolHost {
             .map_err(|error| tool_error(self.host.notes_root(), client, "folder_tags", error))
     }
 
-    /// Replaces the text of the note at `path`.
+    /// Replaces the text of the note at `path`, keeping what it held as a
+    /// version.
     ///
-    /// `expected_hash` is the `hash` [`ToolHost::read_note`] handed back. Given
-    /// it, the write is made only while the note still holds that text: a note
-    /// somebody edited in between keeps what it holds, the text handed in is
-    /// put beside it as a dated copy, and [`ToolError::Conflict`] names the
-    /// copy (ADR-028 section 5). Omitted, the write is made against whatever
-    /// the file holds now, and keeping a stale read from landing on a newer
-    /// note is then the client's own business. There is no third option: no
-    /// argument to this method overwrites a note the guard held back.
+    /// `expected_hash` is the `hash` [`ToolHost::read_note`] or an earlier
+    /// write handed back. Given it, the write is made only while the note still
+    /// holds that text: a note somebody edited in between keeps what it holds,
+    /// the text handed in is put beside it as a dated copy, and
+    /// [`ToolError::Conflict`] names the copy (ADR-028 section 5). Omitted, the
+    /// same comparison is made against the text this session last saw the note
+    /// hold, through a read or its own write, and a note this session has not
+    /// seen is answered with [`ToolError::HashRequired`] and left alone.
+    ///
+    /// `overwrite` replaces whatever the note holds now, without a comparison.
+    /// It is the one way to write a note the session has not read, it cannot be
+    /// combined with `expected_hash` ([`ToolError::HashAndOverwrite`]), and the
+    /// activity log records the call as [`OVERWRITE_ACTION`].
+    ///
+    /// Every write that lands keeps the text it replaced in the app's version
+    /// store, so Revert To in the app lists it. A store that will not open
+    /// leaves the note as it is ([`ToolError::VersionsUnavailable`]).
     ///
     /// The bytes land as they were handed in. Nothing reflows the file, so
     /// frontmatter comes back out the way it went in. Text the note already
@@ -407,13 +491,19 @@ impl ToolHost {
         path: &str,
         content: &str,
         expected_hash: Option<&str>,
+        overwrite: bool,
     ) -> Result<WriteReceipt, ToolError> {
         let permitted = self.permit(client, "write_note");
-        let written = permitted
-            .and_then(|host| self.replace_text(&host, client, path, content, expected_hash));
+        let written = permitted.and_then(|host| {
+            self.replace_text(host, client, path, content, expected_hash, overwrite)
+        });
         self.record(
             client,
-            "write_note",
+            if overwrite {
+                OVERWRITE_ACTION
+            } else {
+                "write_note"
+            },
             &self.logged_path(
                 written
                     .as_ref()
@@ -497,28 +587,78 @@ impl ToolHost {
     /// [`ToolHost::write_note`] past the gate.
     fn replace_text(
         &self,
-        host: &NoteHostImpl<'_>,
+        host: NoteHostImpl<'static>,
         client: &ClientId,
         path: &str,
         content: &str,
         expected_hash: Option<&str>,
+        overwrite: bool,
     ) -> Result<WriteReceipt, ToolError> {
         self.text_fits(content)?;
         // Read as a digest and no further: a client that read the note over the
         // wire knows neither the length nor the modification time of the file
         // it read, and the guard compares digests.
-        let last_known = match expected_hash {
-            Some(hex) => {
-                Some(
-                    digest_from_hex(hex).ok_or_else(|| ToolError::HashNotUnderstood {
-                        path: path.to_string(),
-                    })?,
-                )
+        let last_known = match (expected_hash, overwrite) {
+            (Some(_), true) => {
+                return Err(ToolError::HashAndOverwrite {
+                    path: path.to_string(),
+                })
             }
-            None => None,
+            (Some(hex), false) => LastKnown::Hash(digest_from_hex(hex).ok_or_else(|| {
+                ToolError::HashNotUnderstood {
+                    path: path.to_string(),
+                }
+            })?),
+            (None, false) => LastKnown::LastSeen,
+            (None, true) => LastKnown::Overwrite,
         };
-        host.write_note(path, content, last_known, self.origin(client))
+        let history = self.history(path)?;
+        host.with_history(history)
+            .write_note(path, content, last_known, self.origin(client))
             .map_err(|error| tool_error(self.host.notes_root(), client, "write_note", error))
+    }
+
+    /// The app's version store, opened at the first write that needs it, or
+    /// `None` when this write cannot keep a version the app would list.
+    ///
+    /// The store the app holds, under the same data folder, keyed against the
+    /// app's notes folder as [`AppNotesFolder`] names it at this write: a
+    /// version a write keeps here is one Revert To in the app lists, under the
+    /// note it was kept for. A note this server serves from outside that
+    /// folder has no key there and keeps no version, and a served folder that
+    /// shares nothing with the app's does not open the store at all. Opened
+    /// late so a session that only reads, or is refused, creates nothing. A
+    /// store that would not open is tried again on the next write rather than
+    /// remembered as missing.
+    fn history(&self, path: &str) -> Result<Option<&NoteHistoryStore>, ToolError> {
+        // Canonical, as the served folder is, so a note's path is spelled the
+        // same way relative to both.
+        let Some(app_root) = self
+            .app_folder
+            .app_notes_root()
+            .and_then(|root| resolve_for_containment(&root))
+            .filter(|root| root.is_dir())
+        else {
+            return Ok(None);
+        };
+        let served = self.host.notes_root();
+        if !served.starts_with(&app_root) && !app_root.starts_with(served) {
+            return Ok(None);
+        }
+        let store = match self.history.get() {
+            Some(store) => store,
+            None => {
+                let store = NoteHistoryStore::open(&self.writ_dir).map_err(|_| {
+                    ToolError::VersionsUnavailable {
+                        path: path.to_string(),
+                    }
+                })?;
+                store.set_probe(Arc::new(writ_storage::identity::PlatformIdentity));
+                self.history.get_or_init(|| store)
+            }
+        };
+        store.set_notes_root(app_root);
+        Ok(Some(store))
     }
 
     /// [`ToolHost::create_note`] past the gate.
@@ -711,6 +851,7 @@ fn tool_error(root: &Path, client: &ClientId, tool: &str, error: HostError) -> T
                 relative_slug(root, Path::new(&copy)).unwrap_or_else(|| file_name_only(&copy))
             }),
         },
+        HostError::HashRequired { path } => ToolError::HashRequired { path },
         HostError::NameEmpty => ToolError::NameEmpty,
         HostError::NameTaken { name } => ToolError::NameTaken { name },
         HostError::NotDownloaded { path } => ToolError::NotDownloaded { path },
@@ -775,6 +916,7 @@ mod tests {
             &fixture.notes,
             &fixture.db,
             &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
             Box::new(EnabledReads::new(true)),
         )
         .expect("host")
@@ -798,6 +940,20 @@ mod tests {
         write: bool,
         extension: &str,
     ) -> ToolHost {
+        seed_settings(fixture, read, write, extension);
+        ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host")
+    }
+
+    /// Settings that grant the test client `read` and `write` and name
+    /// `extension` as the format a new note carries.
+    fn seed_settings(fixture: &Fixture, read: bool, write: bool, extension: &str) {
         std::fs::write(
             fixture.writ.join("config.toml"),
             format!(
@@ -805,10 +961,21 @@ mod tests {
             ),
         )
         .expect("seed the settings file");
+    }
+
+    /// A host approved to read and write, serving `served` for an app whose
+    /// notes folder is whatever `app_folder` answers.
+    fn approved_host_serving(
+        fixture: &Fixture,
+        served: &Path,
+        app_folder: Box<dyn AppNotesFolder>,
+    ) -> ToolHost {
+        seed_settings(fixture, true, true, "md");
         ToolHost::open(
-            &fixture.notes,
+            served,
             &fixture.db,
             &fixture.writ,
+            app_folder,
             Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
         )
         .expect("host")
@@ -852,12 +1019,14 @@ mod tests {
     }
 
     #[test]
-    fn list_notes_returns_every_markdown_file_and_nothing_else() {
+    fn list_notes_returns_every_text_file_and_nothing_else() {
         let fixture = fixture();
         write_note(&fixture, "Launch.md", "# Launch");
         write_note(&fixture, "Projects/Writ.md", "# Writ");
-        write_note(&fixture, "notes.txt", "not a note");
-        write_note(&fixture, "diagram.png", "not a note either");
+        write_note(&fixture, "notes.txt", "a plain text note");
+        write_note(&fixture, "Draft.markdown", "# Draft");
+        write_note(&fixture, "Log.TEXT", "upper-case extension");
+        write_note(&fixture, "diagram.png", "not a note");
         build_index(&fixture);
 
         let listed = host(&fixture)
@@ -865,15 +1034,44 @@ mod tests {
             .expect("list");
 
         let paths: Vec<&str> = listed.iter().map(|note| note.path.as_str()).collect();
+        let mut expected = [
+            key(&fixture.notes.join("Draft.markdown")),
+            key(&fixture.notes.join("Launch.md")),
+            key(&fixture.notes.join("Log.TEXT")),
+            key(&fixture.notes.join("Projects/Writ.md")),
+            key(&fixture.notes.join("notes.txt")),
+        ];
+        expected.sort();
         assert_eq!(
             paths,
-            vec![
-                key(&fixture.notes.join("Launch.md")).as_str(),
-                key(&fixture.notes.join("Projects/Writ.md")).as_str(),
-            ]
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
         );
-        assert_eq!(listed[0].name, "Launch");
-        assert_eq!(listed[0].bytes, "# Launch".len() as u64);
+        let launch = listed
+            .iter()
+            .position(|note| note.path == key(&fixture.notes.join("Launch.md")))
+            .expect("Launch is listed");
+        assert_eq!(listed[launch].name, "Launch");
+        assert_eq!(listed[launch].bytes, "# Launch".len() as u64);
+    }
+
+    #[test]
+    fn a_note_create_note_minted_is_in_the_next_listing() {
+        let fixture = fixture();
+        let host = approved_host_minting(&fixture, true, true, "txt");
+
+        let minted = host
+            .create_note(&client(), "Ship it", "text\n")
+            .expect("create");
+        let listed = host.list_notes(&client(), None, 100).expect("list");
+
+        assert!(minted.path.ends_with("Ship it.txt"), "{}", minted.path);
+        assert_eq!(
+            listed
+                .iter()
+                .map(|note| note.path.as_str())
+                .collect::<Vec<_>>(),
+            vec![minted.path.as_str()]
+        );
     }
 
     #[test]
@@ -1348,6 +1546,7 @@ mod tests {
             &fixture.notes,
             &fixture.db,
             &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
             Box::new(EnabledReads::new(false)),
         )
         .expect("host");
@@ -1382,6 +1581,7 @@ mod tests {
             &fixture.notes,
             &fixture.db,
             &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
             Box::new(DenyAll),
         )
         .expect("host");
@@ -1407,8 +1607,14 @@ mod tests {
         let missing = fixture.notes.join("nowhere");
 
         assert!(matches!(
-            ToolHost::open(&missing, &fixture.db, &fixture.writ, Box::new(DenyAll))
-                .expect_err("no folder"),
+            ToolHost::open(
+                &missing,
+                &fixture.db,
+                &fixture.writ,
+                Box::new(FixedAppFolder(fixture.notes.clone())),
+                Box::new(DenyAll)
+            )
+            .expect_err("no folder"),
             ToolError::NotFound { .. }
         ));
         assert!(!missing.exists());
@@ -1432,15 +1638,451 @@ mod tests {
         let note = write_note(&fixture, "Launch.md", "before\n");
         let host = approved_host(&fixture, true, true);
         let text = "after\r\nwith its own line endings\r\n";
+        let known = writ_core::hash::sha256_hex(b"before\n");
 
         let receipt = host
-            .write_note(&client(), "Launch.md", text, None)
+            .write_note(&client(), "Launch.md", text, Some(&known), false)
             .expect("the write is made");
 
         assert_eq!(std::fs::read(&note).expect("read back"), text.as_bytes());
         assert_eq!(receipt.path, key(&note));
         assert_eq!(receipt.bytes, text.len() as u64);
         assert_eq!(receipt.hash, writ_core::hash::sha256_hex(text.as_bytes()));
+    }
+
+    /// The store the app opens, set up the way `src-tauri/src/state.rs` sets
+    /// it: over the data folder, keyed against the app's notes folder
+    /// `notes_root` as the app spells it, reading what the platform calls each
+    /// file.
+    fn app_store_over(
+        fixture: &Fixture,
+        notes_root: &Path,
+    ) -> writ_storage::note_history::NoteHistoryStore {
+        let store = writ_storage::note_history::NoteHistoryStore::open(&fixture.writ)
+            .expect("open the version store");
+        store.set_notes_root(notes_root.to_path_buf());
+        store.set_probe(Arc::new(writ_storage::identity::PlatformIdentity));
+        store
+    }
+
+    /// The texts Revert To lists for the note `name`, oldest first, read the
+    /// way the app reads them.
+    fn versions_the_app_lists(fixture: &Fixture, name: &str) -> Vec<String> {
+        versions_listed_over(fixture, &fixture.notes, name)
+    }
+
+    /// [`versions_the_app_lists`] for an app whose notes folder is
+    /// `notes_root`.
+    fn versions_listed_over(fixture: &Fixture, notes_root: &Path, name: &str) -> Vec<String> {
+        let store = app_store_over(fixture, notes_root);
+        let key = store
+            .key_for(&notes_root.join(name))
+            .expect("a note in the folder has a key");
+        let mut texts: Vec<String> = store
+            .versions(&key)
+            .expect("read the versions")
+            .into_iter()
+            .map(|entry| {
+                String::from_utf8(store.content(entry.id).expect("a version's text"))
+                    .expect("utf-8")
+            })
+            .collect();
+        texts.reverse();
+        texts
+    }
+
+    #[test]
+    fn a_write_keeps_the_text_it_replaced_as_a_version() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+        let read = host.read_note(&client(), "Launch.md").expect("read");
+
+        host.write_note(&client(), "Launch.md", "after\n", Some(&read.hash), false)
+            .expect("the write is made");
+
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Launch.md"),
+            ["before\n", "after\n"]
+        );
+    }
+
+    /// Saves `text` over the note `name` the way the app does, keeping
+    /// versions in the app's store.
+    fn save_as_the_app(fixture: &Fixture, name: &str, text: &str) {
+        save_as_the_app_over(fixture, &fixture.notes, name, text);
+    }
+
+    /// [`save_as_the_app`] for an app whose notes folder is `notes_root`.
+    fn save_as_the_app_over(fixture: &Fixture, notes_root: &Path, name: &str, text: &str) {
+        use writ_storage::guarded::{
+            keep_versions, write_note_guarded, ConflictPolicy, DiskRead, GuardedWrite, WriteCapture,
+        };
+        let store = app_store_over(fixture, notes_root);
+        let keep = keep_versions(&store);
+        let target = notes_root.join(name);
+        let last_known =
+            writ_storage::buffer_store::read_disk_state(&target).expect("read the note");
+        write_note_guarded(
+            GuardedWrite {
+                target: &target,
+                bytes: text.as_bytes(),
+                last_known,
+                on_disk: DiskRead::Fresh,
+                dataless: None,
+                origin: WriteOrigin::Editor,
+                on_conflict: ConflictPolicy::RefuseWithCopy,
+                history: Some(&keep as &dyn Fn(WriteCapture<'_>)),
+            },
+            None,
+        )
+        .expect("the app's save lands");
+    }
+
+    /// An app notes folder the test moves while the server runs.
+    struct MovableAppFolder(Arc<std::sync::Mutex<PathBuf>>);
+
+    impl AppNotesFolder for MovableAppFolder {
+        fn app_notes_root(&self) -> Option<PathBuf> {
+            Some(self.0.lock().expect("the app's folder").clone())
+        }
+    }
+
+    #[test]
+    fn a_server_serving_another_folder_adds_nothing_to_the_apps_note_at_the_same_path() {
+        let fixture = fixture();
+        write_note(&fixture, "Ideas.md", "v0\n");
+        save_as_the_app(&fixture, "Ideas.md", "v1\n");
+        let vault = fixture.writ.join("vault");
+        std::fs::create_dir_all(&vault).expect("the served folder");
+        std::fs::write(vault.join("Ideas.md"), "vault text\n").expect("seed the served note");
+        let host = approved_host_serving(
+            &fixture,
+            &vault,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+        );
+        host.read_note(&client(), "Ideas.md").expect("read");
+
+        host.write_note(&client(), "Ideas.md", "vault rewritten\n", None, false)
+            .expect("the write is made");
+
+        assert_eq!(
+            std::fs::read_to_string(vault.join("Ideas.md")).expect("read back"),
+            "vault rewritten\n"
+        );
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Ideas.md"),
+            ["v0\n", "v1\n"]
+        );
+    }
+
+    #[test]
+    fn a_server_serving_a_folder_apart_from_the_apps_does_not_open_the_version_store() {
+        let fixture = fixture();
+        let vault = fixture.writ.join("vault");
+        std::fs::create_dir_all(&vault).expect("the served folder");
+        std::fs::write(vault.join("Ideas.md"), "vault text\n").expect("seed the served note");
+        let host = approved_host_serving(
+            &fixture,
+            &vault,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+        );
+        host.read_note(&client(), "Ideas.md").expect("read");
+
+        host.write_note(&client(), "Ideas.md", "vault rewritten\n", None, false)
+            .expect("the write is made");
+
+        assert_eq!(
+            std::fs::read_to_string(vault.join("Ideas.md")).expect("read back"),
+            "vault rewritten\n"
+        );
+        assert!(!fixture.writ.join("history.db").exists());
+    }
+
+    #[test]
+    fn a_server_serving_a_subfolder_keeps_versions_under_the_path_the_app_knows_the_note_by() {
+        let fixture = fixture();
+        write_note(&fixture, "Plan.md", "top v0\n");
+        save_as_the_app(&fixture, "Plan.md", "top v1\n");
+        write_note(&fixture, "Projects/Plan.md", "p0\n");
+        let host = approved_host_serving(
+            &fixture,
+            &fixture.notes.join("Projects"),
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+        );
+        host.read_note(&client(), "Plan.md").expect("read");
+
+        host.write_note(&client(), "Plan.md", "p1\n", None, false)
+            .expect("the write is made");
+
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Projects/Plan.md"),
+            ["p0\n", "p1\n"]
+        );
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Plan.md"),
+            ["top v0\n", "top v1\n"]
+        );
+    }
+
+    #[test]
+    fn a_server_keys_each_write_against_the_folder_the_app_holds_at_that_write() {
+        let fixture = fixture();
+        write_note(&fixture, "Other.md", "o0\n");
+        write_note(&fixture, "Ideas.md", "v0\n");
+        let app_folder = Arc::new(std::sync::Mutex::new(fixture.notes.clone()));
+        let host = approved_host_serving(
+            &fixture,
+            &fixture.notes,
+            Box::new(MovableAppFolder(Arc::clone(&app_folder))),
+        );
+        host.read_note(&client(), "Other.md").expect("read");
+        host.write_note(&client(), "Other.md", "o1\n", None, false)
+            .expect("the write before the move is made");
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Other.md"),
+            ["o0\n", "o1\n"]
+        );
+
+        let moved = fixture.writ.join("moved");
+        std::fs::create_dir_all(&moved).expect("the folder the app moved to");
+        std::fs::write(moved.join("Ideas.md"), "m0\n").expect("seed the moved note");
+        save_as_the_app_over(&fixture, &moved, "Ideas.md", "m1\n");
+        *app_folder.lock().expect("the app's folder") = moved.clone();
+        host.read_note(&client(), "Ideas.md").expect("read");
+
+        host.write_note(&client(), "Ideas.md", "v1\n", None, false)
+            .expect("the write after the move still lands");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.notes.join("Ideas.md")).expect("read back"),
+            "v1\n"
+        );
+        assert_eq!(
+            versions_listed_over(&fixture, &moved, "Ideas.md"),
+            ["m0\n", "m1\n"]
+        );
+    }
+
+    #[test]
+    fn a_note_renamed_through_the_server_keeps_its_earlier_versions_after_the_server_writes_it() {
+        let fixture = fixture();
+        write_note(&fixture, "Draft.md", "v0\n");
+        save_as_the_app(&fixture, "Draft.md", "v1\n");
+        let host = approved_host(&fixture, true, true);
+        host.read_note(&client(), "Draft.md").expect("read");
+        host.rename_note(&client(), "Draft.md", "Final")
+            .expect("the rename is made");
+
+        host.write_note(&client(), "Final.md", "v2\n", None, false)
+            .expect("the write is made");
+
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Final.md"),
+            ["v0\n", "v1\n", "v2\n"]
+        );
+    }
+
+    #[test]
+    fn a_note_renamed_outside_writ_keeps_its_earlier_versions_after_the_server_writes_it() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Draft.md", "v0\n");
+        save_as_the_app(&fixture, "Draft.md", "v1\n");
+        std::fs::rename(&note, fixture.notes.join("Final.md")).expect("rename in Finder");
+        let host = approved_host(&fixture, true, true);
+        host.read_note(&client(), "Final.md").expect("read");
+
+        host.write_note(&client(), "Final.md", "v2\n", None, false)
+            .expect("the write is made");
+
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Final.md"),
+            ["v0\n", "v1\n", "v2\n"]
+        );
+    }
+
+    #[test]
+    fn a_write_without_a_hash_after_a_read_of_older_text_is_a_conflict() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "as it was read\n");
+        let host = approved_host(&fixture, true, true);
+        host.read_note(&client(), "Launch.md").expect("read");
+        std::fs::write(&note, "as somebody else left it\n").expect("edit underneath");
+
+        let refusal = host
+            .write_note(
+                &client(),
+                "Launch.md",
+                "what the client sent\n",
+                None,
+                false,
+            )
+            .expect_err("the write is compared with the text this session read");
+
+        assert!(matches!(refusal, ToolError::Conflict { .. }), "{refusal:?}");
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read the note"),
+            "as somebody else left it\n"
+        );
+    }
+
+    #[test]
+    fn a_write_to_a_note_this_session_has_not_read_is_refused() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        let refusal = host
+            .write_note(&client(), "Launch.md", "after\n", None, false)
+            .expect_err("a note this session has not read is not written");
+
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read the note"),
+            "before\n"
+        );
+        assert_eq!(notes_in(&fixture), 1, "no copy is written beside it");
+        let message = refusal.to_string();
+        assert!(
+            matches!(refusal, ToolError::HashRequired { .. }),
+            "{refusal:?}"
+        );
+        assert!(
+            message.contains("read_note") && message.contains("overwrite"),
+            "the refusal says how to go on: {message}"
+        );
+    }
+
+    #[test]
+    fn a_session_read_on_one_call_is_what_a_write_on_the_next_compares_with() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        host.read_note(&client(), "Launch.md").expect("read");
+        host.write_note(&client(), "Launch.md", "first\n", None, false)
+            .expect("the note holds what this session read");
+        host.write_note(&client(), "Launch.md", "second\n", None, false)
+            .expect("the note holds what this session's own write left");
+
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read the note"),
+            "second\n"
+        );
+        assert_eq!(notes_in(&fixture), 1, "no conflict copy");
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Launch.md"),
+            ["before\n", "first\n", "second\n"]
+        );
+    }
+
+    #[test]
+    fn an_overwrite_lands_on_an_unread_note_keeps_its_text_and_is_logged_as_one() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        host.write_note(&client(), "Launch.md", "after\n", None, true)
+            .expect("an overwrite compares with nothing");
+
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read the note"),
+            "after\n"
+        );
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Launch.md"),
+            ["before\n", "after\n"]
+        );
+        let named = records_a_tool_wrote(&fixture);
+        assert_eq!(named.len(), 1, "{named:?}");
+        assert_eq!(named[0].action, OVERWRITE_ACTION);
+        assert_eq!(named[0].decision, Decision::Allow);
+        assert_eq!(named[0].path.as_deref(), Some(Path::new("Launch.md")));
+        assert_eq!(named[0].bytes, Some("after\n".len() as u64));
+    }
+
+    #[test]
+    fn a_refused_overwrite_is_logged_as_an_overwrite() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, false);
+
+        host.write_note(&client(), "Launch.md", "after\n", None, true)
+            .expect_err("a client approved to read does not write");
+
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read the note"),
+            "before\n"
+        );
+        let named = records_a_tool_wrote(&fixture);
+        assert_eq!(named.len(), 1, "{named:?}");
+        assert_eq!(named[0].action, OVERWRITE_ACTION);
+        assert_eq!(named[0].decision, Decision::Refuse);
+    }
+
+    #[test]
+    fn an_expected_hash_and_an_overwrite_together_are_refused() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+        let read = host.read_note(&client(), "Launch.md").expect("read");
+
+        let refusal = host
+            .write_note(&client(), "Launch.md", "after\n", Some(&read.hash), true)
+            .expect_err("the two ask for different writes");
+
+        assert!(
+            matches!(refusal, ToolError::HashAndOverwrite { .. }),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read the note"),
+            "before\n"
+        );
+    }
+
+    #[test]
+    fn a_write_the_version_store_cannot_keep_leaves_the_note_alone() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        // A file where the store's folder of texts goes, so the store cannot
+        // be opened.
+        std::fs::write(fixture.writ.join("history"), "in the way").expect("block the store");
+        let host = approved_host(&fixture, true, true);
+        let read = host.read_note(&client(), "Launch.md").expect("read");
+
+        let refusal = host
+            .write_note(&client(), "Launch.md", "after\n", Some(&read.hash), false)
+            .expect_err("a write that cannot keep a version is not made");
+
+        assert!(
+            matches!(refusal, ToolError::VersionsUnavailable { .. }),
+            "{refusal:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read the note"),
+            "before\n"
+        );
+
+        std::fs::remove_file(fixture.writ.join("history")).expect("clear the way");
+        host.write_note(&client(), "Launch.md", "after\n", Some(&read.hash), false)
+            .expect("the store is opened on the next write once it can be");
+        assert_eq!(
+            versions_the_app_lists(&fixture, "Launch.md"),
+            ["before\n", "after\n"]
+        );
+    }
+
+    #[test]
+    fn a_session_that_only_reads_creates_no_version_store() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        host.list_notes(&client(), None, 10).expect("list");
+        host.read_note(&client(), "Launch.md").expect("read");
+
+        assert!(!fixture.writ.join("history.db").exists());
+        assert!(!fixture.writ.join("history").exists());
     }
 
     #[test]
@@ -1451,7 +2093,7 @@ mod tests {
         let text = "after\n";
 
         let refusal = host
-            .write_note(&client(), "Launch.md", text, None)
+            .write_note(&client(), "Launch.md", text, None, false)
             .expect_err("a client approved to read does not write");
 
         assert!(matches!(refusal, ToolError::NotApproved { .. }));
@@ -1477,6 +2119,7 @@ mod tests {
                 "Launch.md",
                 "what the client sent\n",
                 Some(&read.hash),
+                false,
             )
             .expect_err("a note changed underneath is left alone");
 
@@ -1521,6 +2164,7 @@ mod tests {
                 "projects/Launch.md",
                 "what the client sent\n",
                 Some(&read.hash),
+                false,
             )
             .expect_err("a note changed underneath is left alone");
 
@@ -1546,7 +2190,7 @@ mod tests {
         let host = approved_host(&fixture, true, true);
 
         let refusal = host
-            .write_note(&client(), "../outside.md", "overwritten\n", None)
+            .write_note(&client(), "../outside.md", "overwritten\n", None, false)
             .expect_err("a path out of the folder is not written");
 
         assert!(matches!(refusal, ToolError::OutsideNotesFolder { .. }));
@@ -1787,7 +2431,7 @@ mod tests {
 
         let read = host.read_note(&client(), "Launch.md").expect("read");
         let edited = read.text.replace("body\n", "body, one word longer\n");
-        host.write_note(&client(), "Launch.md", &edited, Some(&read.hash))
+        host.write_note(&client(), "Launch.md", &edited, Some(&read.hash), false)
             .expect("the write is made");
 
         let after = std::fs::read_to_string(&note).expect("read back");
@@ -1807,7 +2451,7 @@ mod tests {
 
         let read = host.read_note(&client(), "Launch.md").expect("read");
         let receipt = host
-            .write_note(&client(), "Launch.md", "after\n", Some(&read.hash))
+            .write_note(&client(), "Launch.md", "after\n", Some(&read.hash), false)
             .expect("the hash a read handed back is accepted");
 
         let again = host.read_note(&client(), "Launch.md").expect("read again");
@@ -1821,7 +2465,7 @@ mod tests {
         let host = approved_host(&fixture, true, true);
 
         let refusal = host
-            .write_note(&client(), "Launch.md", "after\n", Some("not a hash"))
+            .write_note(&client(), "Launch.md", "after\n", Some("not a hash"), false)
             .expect_err("a hash that cannot be read is not treated as no hash at all");
 
         assert!(matches!(refusal, ToolError::HashNotUnderstood { .. }));
@@ -1838,8 +2482,16 @@ mod tests {
         let before = std::fs::metadata(&note).expect("metadata").modified().ok();
         let host = approved_host(&fixture, true, true);
 
+        let known = writ_core::hash::sha256_hex(b"the same text\n");
+
         let receipt = host
-            .write_note(&client(), "Launch.md", "the same text\n", None)
+            .write_note(
+                &client(),
+                "Launch.md",
+                "the same text\n",
+                Some(&known),
+                false,
+            )
             .expect("identical text is not a conflict");
 
         assert_eq!(
@@ -1859,7 +2511,8 @@ mod tests {
         write_note(&fixture, "Launch.md", "before\n");
         let host = approved_host(&fixture, true, true);
 
-        host.write_note(&client(), "Launch.md", "after\n", None)
+        let known = writ_core::hash::sha256_hex(b"before\n");
+        host.write_note(&client(), "Launch.md", "after\n", Some(&known), false)
             .expect("the write is made");
 
         let named = records_a_tool_wrote(&fixture);
@@ -1878,15 +2531,22 @@ mod tests {
         // first and the approval is granted after them.
         let read_only = approved_host(&fixture, true, false);
         read_only
-            .write_note(&client(), "Projects/Writ.md", "after\n", None)
+            .write_note(&client(), "Projects/Writ.md", "after\n", None, false)
             .expect_err("not approved to write");
         read_only
             .create_note(&client(), "Ship it", "text\n")
             .expect_err("not approved to write");
 
         let allowed = approved_host(&fixture, true, true);
+        let known = writ_core::hash::sha256_hex(b"before\n");
         allowed
-            .write_note(&client(), "Projects/Writ.md", "after\n", None)
+            .write_note(
+                &client(),
+                "Projects/Writ.md",
+                "after\n",
+                Some(&known),
+                false,
+            )
             .expect("write");
         allowed
             .create_note(&client(), "Ship it", "text\n")
@@ -1930,8 +2590,14 @@ mod tests {
         std::fs::write(&outside, "not a note of this folder\n").expect("seed");
         let host = approved_host(&fixture, true, true);
 
-        host.write_note(&client(), &outside.to_string_lossy(), "overwritten\n", None)
-            .expect_err("a path out of the folder is not written");
+        host.write_note(
+            &client(),
+            &outside.to_string_lossy(),
+            "overwritten\n",
+            None,
+            false,
+        )
+        .expect_err("a path out of the folder is not written");
 
         assert_eq!(
             records_a_tool_wrote(&fixture)[0].path.as_deref(),
@@ -1976,8 +2642,9 @@ mod tests {
         let fixture = fixture();
         let note = write_note(&fixture, "Launch.md", "before\n");
         let host = approved_host(&fixture, true, true);
+        let known = writ_core::hash::sha256_hex(b"before\n");
 
-        host.write_note(&client(), "Launch.md", "after\n", None)
+        host.write_note(&client(), "Launch.md", "after\n", Some(&known), false)
             .expect("write");
 
         let all = records(&fixture);
@@ -1998,8 +2665,9 @@ mod tests {
         let fixture = fixture();
         write_note(&fixture, "Launch.md", "before\n");
         let host = approved_host(&fixture, true, true);
+        let known = writ_core::hash::sha256_hex(b"before\n");
 
-        host.write_note(&client(), "Launch.md", "after\n", None)
+        host.write_note(&client(), "Launch.md", "after\n", Some(&known), false)
             .expect("write");
         host.create_note(&client(), "Ship it", "text\n")
             .expect("create");
@@ -2042,7 +2710,7 @@ mod tests {
         let long = "x".repeat(MAX_NOTE_BYTES as usize + 1);
 
         assert!(matches!(
-            host.write_note(&client(), "Launch.md", &long, None)
+            host.write_note(&client(), "Launch.md", &long, None, false)
                 .expect_err("over the ceiling"),
             ToolError::TooMuchText { .. }
         ));
@@ -2063,7 +2731,7 @@ mod tests {
         let host = approved_host(&fixture, true, true);
 
         assert!(matches!(
-            host.write_note(&client(), "Missing.md", "text\n", None)
+            host.write_note(&client(), "Missing.md", "text\n", None, false)
                 .expect_err("write_note replaces a note, it does not mint one"),
             ToolError::NotFound { .. }
         ));
@@ -2078,12 +2746,13 @@ mod tests {
             &fixture.notes,
             &fixture.db,
             &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
             Box::new(DenyAll),
         )
         .expect("host");
 
         assert!(matches!(
-            host.write_note(&client(), "Launch.md", "after\n", None)
+            host.write_note(&client(), "Launch.md", "after\n", None, false)
                 .expect_err("nobody is approved"),
             ToolError::NotApproved { .. }
         ));

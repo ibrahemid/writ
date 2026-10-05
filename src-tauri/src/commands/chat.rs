@@ -43,7 +43,7 @@ use writ_core::chat::{
 use writ_core::config::{AiConfig, FileExtension};
 use writ_core::diff::{line_diff, Hunk};
 use writ_core::hash::digest_from_hex;
-use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
+use writ_core::notes::host::{Capability, HostError, LastKnown, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
 use writ_core::polish;
 use writ_storage::chat_store::{ChatStore, ChatStoreError, ConversationSummary};
@@ -1227,7 +1227,12 @@ pub fn apply_proposal_inner(
     )
     .map_err(|_| format!("{note_key} was not written."))?
     .with_history(history);
-    let outcome = applier.write_note(path, new_content, Some(digest), WriteOrigin::Chat);
+    let outcome = applier.write_note(
+        path,
+        new_content,
+        LastKnown::Hash(digest),
+        WriteOrigin::Chat,
+    );
 
     match outcome {
         Ok(written) => {

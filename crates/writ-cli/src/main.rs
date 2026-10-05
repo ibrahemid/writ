@@ -145,10 +145,7 @@ fn notes_dir() -> PathBuf {
 /// letting it write somewhere the app would never look. The refusal names the
 /// path, which is the thing the user can go and fix.
 fn writ_paths() -> (PathBuf, PathBuf) {
-    let data_dir_override = std::env::var("WRIT_DATA_DIR")
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty());
+    let data_dir_override = data_dir_override();
     let home = dirs::home_dir();
     let writ_dir = data_dir_override.clone().unwrap_or_else(|| {
         home.clone()
@@ -170,6 +167,14 @@ fn writ_paths() -> (PathBuf, PathBuf) {
             process::exit(1);
         }
     }
+}
+
+/// The data folder `WRIT_DATA_DIR` names, when it names one.
+fn data_dir_override() -> Option<PathBuf> {
+    std::env::var("WRIT_DATA_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
 }
 
 /// Serves the MCP server on stdio and exits. Never returns: a client owns this
@@ -201,6 +206,11 @@ fn run_mcp(parsed: Result<mcp::Command, mcp::UsageError>) -> ! {
         &notes_dir,
         &writ_dir.join("writ.db"),
         &writ_dir,
+        Box::new(mcp::ConfiguredAppFolder {
+            writ_dir: writ_dir.clone(),
+            data_dir: data_dir_override(),
+            home: dirs::home_dir(),
+        }),
         Box::new(gate),
     ) {
         Ok(host) => host,
