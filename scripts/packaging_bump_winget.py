@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Bump the winget manifests to a new version."""
+"""Bump the winget manifests to a new version.
+
+Environment:
+  VERSION       release version without the leading v
+  SHA_MSI       SHA256 of the released x64 MSI
+  RELEASE_DATE  YYYY-MM-DD
+  MSI_PATH      the released x64 MSI; its ProductCode goes into the installer
+                manifest, read with `msiinfo export <msi> Property` (msitools)
+"""
 
 from __future__ import annotations
 
@@ -7,6 +15,7 @@ import os
 import pathlib
 import re
 import shutil
+import subprocess
 import sys
 
 MANIFEST_ROOT = pathlib.Path("packaging/winget/manifests/i/ibrahemid/Writ")
@@ -20,8 +29,17 @@ DESCRIPTION = (
 TAGS = ("text-editor", "editor", "markdown", "plain-text", "search", "tauri")
 
 
+PRODUCT_CODE_PATTERN = re.compile(
+    r"\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}"
+)
+
+
 class ManifestFormatError(ValueError):
-    """The source locale does not contain every field the release must replace."""
+    """A source manifest does not contain every field the release must replace."""
+
+
+class MsiReadError(RuntimeError):
+    """The released MSI's ProductCode could not be read."""
 
 
 def get_env(name: str) -> str:
@@ -72,10 +90,80 @@ def rewrite_locale(text: str, release_notes_url: str) -> str:
     return text
 
 
+def parse_product_code(property_table: str) -> str:
+    codes = [
+        value
+        for name, _, value in (line.partition("\t") for line in property_table.splitlines())
+        if name == "ProductCode"
+    ]
+    if len(codes) != 1:
+        raise MsiReadError(f"expected one ProductCode row in the MSI Property table, found {len(codes)}")
+    code = codes[0].strip()
+    if not PRODUCT_CODE_PATTERN.fullmatch(code):
+        raise MsiReadError(f"MSI ProductCode is not a braced GUID: {code!r}")
+    return code
+
+
+def read_product_code(msi_path: pathlib.Path) -> str:
+    if not msi_path.is_file():
+        raise MsiReadError(f"released MSI not found: {msi_path}")
+    try:
+        result = subprocess.run(
+            ["msiinfo", "export", str(msi_path), "Property"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise MsiReadError("msiinfo not found; install msitools to read the MSI ProductCode") from error
+    if result.returncode != 0:
+        raise MsiReadError(
+            f"msiinfo export {msi_path} Property exited {result.returncode}: {result.stderr.strip()}"
+        )
+    return parse_product_code(result.stdout)
+
+
+def rewrite_installer(
+    text: str,
+    *,
+    installer_url: str,
+    sha_msi: str,
+    release_date: str,
+    product_code: str,
+) -> str:
+    text = re.sub(
+        r"InstallerUrl: https://github\.com/ibrahemid/writ/releases/download/v[^\s]+",
+        f"InstallerUrl: {installer_url}",
+        text,
+    )
+    text = re.sub(
+        r"InstallerSha256: .*",
+        f"InstallerSha256: {sha_msi}",
+        text,
+    )
+    text = re.sub(
+        r"^ReleaseDate: .*$",
+        f"ReleaseDate: {release_date}",
+        text,
+        flags=re.MULTILINE,
+    )
+    text, product_code_count = re.subn(
+        r"^(?P<indent>[ ]*)ProductCode: .*$",
+        lambda match: f'{match.group("indent")}ProductCode: "{product_code}"',
+        text,
+        flags=re.MULTILINE,
+    )
+    if product_code_count != 1:
+        raise ManifestFormatError(
+            f"winget installer manifest needs exactly one ProductCode line, found {product_code_count}"
+        )
+    return text
+
+
 def main() -> None:
     version = get_env("VERSION")
     sha_msi = get_env("SHA_MSI")
     release_date = get_env("RELEASE_DATE")
+    product_code = read_product_code(pathlib.Path(get_env("MSI_PATH")))
 
     if not MANIFEST_ROOT.is_dir():
         print(f"winget manifest root missing: {MANIFEST_ROOT}", file=sys.stderr)
@@ -113,21 +201,12 @@ def main() -> None:
             flags=re.MULTILINE,
         )
         if path.name.endswith("installer.yaml"):
-            text = re.sub(
-                r"InstallerUrl: https://github\.com/ibrahemid/writ/releases/download/v[^\s]+",
-                f"InstallerUrl: {installer_url}",
+            text = rewrite_installer(
                 text,
-            )
-            text = re.sub(
-                r"InstallerSha256: .*",
-                f"InstallerSha256: {sha_msi}",
-                text,
-            )
-            text = re.sub(
-                r"^ReleaseDate: .*$",
-                f"ReleaseDate: {release_date}",
-                text,
-                flags=re.MULTILINE,
+                installer_url=installer_url,
+                sha_msi=sha_msi,
+                release_date=release_date,
+                product_code=product_code,
             )
         if path.name.endswith("locale.en-US.yaml"):
             text = rewrite_locale(text, release_notes_url)

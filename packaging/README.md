@@ -94,7 +94,7 @@ The workflow delegates rewriting to three standalone scripts so they are easy to
 - `scripts/packaging_bump_winget.py`
 - `scripts/packaging_bump_aur.py`
 
-All three read `VERSION` and the relevant `SHA_*` values from environment variables. The winget script additionally reads `RELEASE_DATE`. See each script's docstring for contract details.
+All three read `VERSION` and the relevant `SHA_*` values from environment variables. The winget script additionally reads `RELEASE_DATE` and `MSI_PATH`, the released MSI whose ProductCode it reads with `msiinfo` (msitools). See each script's docstring for contract details.
 
 Local dry run example:
 
