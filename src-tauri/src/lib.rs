@@ -1294,34 +1294,70 @@ mod tests {
     }
 
     #[test]
-    fn wry_dragdrop_patch_is_pinned() {
-        // The actual nil-unwrap panic lives in wry; we fix it via a pinned
-        // [patch.crates-io] fork. If this stanza is ever dropped, cargo silently
-        // falls back to the panicking crates.io wry and #113 regresses. Lock it.
-        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("Cargo.toml");
-        let toml = std::fs::read_to_string(&manifest).expect("read workspace Cargo.toml");
-        let patch = toml
-            .split_once("[patch.crates-io]")
-            .map(|(_, rest)| rest)
-            .expect("[patch.crates-io] stanza present");
+    fn wry_resolves_to_the_nil_safe_fork() {
+        // wry's collect_paths unwraps a nil pasteboard read that some drag and
+        // trackpad gestures produce (#113), so the workspace patches in a fork.
+        // Cargo drops a patch that no longer matches the wry version tauri asks
+        // for with only a warning and a [[patch.unused]] entry, so this checks
+        // what the lock resolved, not what the manifest asks for.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let read_toml = |name: &str| -> toml::Table {
+            std::fs::read_to_string(root.join(name))
+                .unwrap_or_else(|e| panic!("read workspace {name}: {e}"))
+                .parse()
+                .unwrap_or_else(|e| panic!("parse workspace {name}: {e}"))
+        };
+
+        let manifest = read_toml("Cargo.toml");
+        let patch = manifest
+            .get("patch")
+            .and_then(|p| p.get("crates-io"))
+            .and_then(|p| p.get("wry"))
+            .expect("Cargo.toml must patch wry under [patch.crates-io] (#113)");
+        let git = patch
+            .get("git")
+            .and_then(toml::Value::as_str)
+            .expect("the wry patch must name a git url");
+        let rev = patch
+            .get("rev")
+            .and_then(toml::Value::as_str)
+            .expect("the wry patch must pin a rev");
+        assert_eq!(git, "https://github.com/ibrahemid/wry.git");
         assert!(
-            patch.contains("wry") && patch.contains("ibrahemid/wry") && patch.contains("rev"),
-            "wry must stay pinned to the nil-safe fork rev (#113)"
+            rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit()),
+            "the wry patch must pin a full commit sha, got {rev:?}"
         );
 
-        // The manifest stanza is moot if the lock silently falls back to the
-        // panicking crates.io wry. Assert the resolved source is the fork.
-        let lock = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("..")
-                .join("Cargo.lock"),
-        )
-        .expect("read workspace Cargo.lock");
+        let lock = read_toml("Cargo.lock");
+        let unused: Vec<&str> = lock
+            .get("patch")
+            .and_then(|p| p.get("unused"))
+            .and_then(toml::Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|e| e.get("name").and_then(toml::Value::as_str))
+                    .collect()
+            })
+            .unwrap_or_default();
         assert!(
-            lock.contains("git+https://github.com/ibrahemid/wry.git"),
-            "Cargo.lock must resolve wry to the nil-safe fork, not crates.io (#113)"
+            unused.is_empty(),
+            "Cargo.lock lists [[patch.unused]] for {unused:?}: the patch no longer applies"
+        );
+
+        let wry: Vec<&toml::Value> = lock
+            .get("package")
+            .and_then(toml::Value::as_array)
+            .expect("Cargo.lock has [[package]] entries")
+            .iter()
+            .filter(|p| p.get("name").and_then(toml::Value::as_str) == Some("wry"))
+            .collect();
+        assert_eq!(wry.len(), 1, "Cargo.lock must resolve exactly one wry");
+        let source = wry[0].get("source").and_then(toml::Value::as_str);
+        assert_eq!(
+            source,
+            Some(format!("git+{git}?rev={rev}#{rev}").as_str()),
+            "Cargo.lock must resolve wry to the pinned fork rev, not crates.io or a local path (#113)"
         );
     }
 }

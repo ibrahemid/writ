@@ -34,15 +34,19 @@ lto = true
 strip = true
 panic = "abort"
 
-# wry 0.54.4 panics on macOS: collect_paths() unwraps a nil propertyListForType
-# read that AppKit returns for some drag/trackpad gestures, crashing the app on
-# drop (Writ #113). No 0.54.x release carries the fix and tauri-runtime-wry
-# 2.10.1 pins wry "^0.54.0", so a version bump is impossible without churning
-# tauri itself. This pins a one-commit fork of wry-v0.54.4 whose only change is a
-# nil-safe let-else in src/wkwebview/drag_drop.rs.
-#   fork:   https://github.com/ibrahemid/wry/tree/fix/dragdrop-nil-pasteboard
-#   diff:   wry-v0.54.4..4c8372657c0516b48c01fa7f05b826b9095ce315 (4 lines)
-# DROP THIS PATCH once a tauri/wry bump ships the nil-safe read upstream (wry
-# >= 0.55 carries it); re-pin or delete and run `cargo update -p wry`.
+# wry's macOS collect_paths() unwraps the propertyListForType read, which AppKit
+# returns as nil for some drag and trackpad gestures (Writ #113). The panic
+# unwinds out of an Objective-C callback and aborts the app on drop. Upstream
+# wry still unwraps there as of 0.57.0. This pins a one-commit fork of
+# wry-v0.55.1, the minor tauri-runtime-wry 2.11.4 requires (^0.55), whose only
+# change is in src/wkwebview/drag_drop.rs: a nil or malformed filenames list
+# yields no paths instead of a panic.
+#   fork:   https://github.com/ibrahemid/wry/tree/fix/dragdrop-nil-pasteboard-0.55
+#   diff:   wry-v0.55.1..a16da8ef85f1a08da3d3a6601d9a9a96381adb96
+# Cargo drops a patch whose version no longer matches what tauri-runtime-wry
+# requires, with only a warning and a [[patch.unused]] lock entry. When a tauri
+# bump moves wry to another minor, rebase the fork onto that wry tag and re-pin;
+# the wry_resolves_to_the_nil_safe_fork test and CI's [[patch.unused]] check
+# fail until then. Delete this patch once a wry release reads the list nil-safe.
 [patch.crates-io]
-wry = { git = "https://github.com/ibrahemid/wry.git", rev = "4c8372657c0516b48c01fa7f05b826b9095ce315" }
+wry = { git = "https://github.com/ibrahemid/wry.git", rev = "a16da8ef85f1a08da3d3a6601d9a9a96381adb96" }

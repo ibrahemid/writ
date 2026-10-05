@@ -102,6 +102,7 @@ windows = { version = "0.61", features = [
 
 [dev-dependencies]
 tempfile = "3"
+toml = "1.1"
 # Test-only. The write half of the harness runs in the client's own process,
 # and the one thing a unit test cannot prove is that a write from there reaches
 # a tab in this one. Not a runtime dependency: nothing in `src/` names it, and
