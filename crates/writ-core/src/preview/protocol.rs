@@ -580,7 +580,14 @@ fn svg_element_is_first(text: &str) -> bool {
             rest = tail;
             continue;
         }
-        if rest.len() >= 9 && rest[..9].eq_ignore_ascii_case("<!doctype") {
+        // Bytes, not a `str` slice: byte 9 of text that is not a doctype can
+        // fall inside a character. A match means the first nine bytes are
+        // ASCII, so `declaration[9..]` below starts on a boundary.
+        if rest
+            .as_bytes()
+            .get(..9)
+            .is_some_and(|head| head.eq_ignore_ascii_case(b"<!doctype"))
+        {
             // Only an `svg` doctype may precede an SVG root element.
             let Some((declaration, tail)) = rest.split_once('>') else {
                 return false;
@@ -1061,6 +1068,130 @@ mod asset_tests {
             &b""[..],
         ] {
             assert_eq!(sniff_image_mime(bytes), None);
+        }
+    }
+
+    #[test]
+    fn text_in_any_script_sniffs_as_nothing() {
+        // Byte 9 of each is inside a character, where the doctype check reads
+        // up to.
+        for text in ["Привет", "# 日本語", "😀😀😀", "12345678😀"] {
+            assert_eq!(sniff_image_mime(text.as_bytes()), None, "{text}");
+        }
+    }
+
+    #[test]
+    fn an_svg_with_or_without_a_doctype_still_sniffs_as_an_svg() {
+        for text in [
+            "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \
+             \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n\
+             <svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+            "<!doctype svg \"日本語\">\n<svg/>",
+            "<svg>",
+        ] {
+            assert_eq!(
+                sniff_image_mime(text.as_bytes()),
+                Some("image/svg+xml"),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            sniff_image_mime("<!DOCTYPE日本語>\n<svg/>".as_bytes()),
+            None
+        );
+    }
+
+    /// A seeded stream of numbers (splitmix64), so a failing case is named by
+    /// the seed that reproduces it.
+    struct Seeded(u64);
+
+    impl Seeded {
+        fn next_u64(&mut self) -> u64 {
+            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+            let mut z = self.0;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+            z ^ (z >> 31)
+        }
+
+        fn below(&mut self, bound: u32) -> u32 {
+            (self.next_u64() % u64::from(bound)) as u32
+        }
+
+        fn pick<'a>(&mut self, items: &[&'a str]) -> &'a str {
+            items[self.below(items.len() as u32) as usize]
+        }
+
+        /// A character one to four UTF-8 bytes wide, the wider ones as likely
+        /// as ASCII.
+        fn any_char(&mut self) -> char {
+            let (low, high) = match self.below(5) {
+                0 => (0x20, 0x7E),
+                1 => (0x0400, 0x06FF),
+                2 => (0x3041, 0x9FFF),
+                3 => (0x1_F300, 0x1_FAFF),
+                _ => (0, 0x10_FFFF),
+            };
+            loop {
+                if let Some(c) = char::from_u32(low + self.below(high - low + 1)) {
+                    return c;
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_leading_bytes_make_the_sniff_panic() {
+        const SEED: u64 = 0x534E_4946_465F_5533;
+        const CASES: u32 = 30_000;
+        const SERVED: [&str; 7] = [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "image/bmp",
+            "image/avif",
+            "image/svg+xml",
+        ];
+        let openings = [
+            "",
+            "",
+            " \n",
+            "\u{feff}",
+            "<",
+            "<!",
+            "<!doc",
+            "<?xml version=\"1.0\"?>",
+            "<!-- c -->",
+            "<!DOCTYPE svg>",
+            "<!DOCTYPE",
+        ];
+        let mut rng = Seeded(SEED);
+
+        for case in 0..CASES {
+            let mut bytes = Vec::new();
+            let mode = case % 3;
+            if mode != 1 {
+                let mut text = rng.pick(&openings).to_string();
+                for _ in 0..rng.below(16) {
+                    text.push(rng.any_char());
+                }
+                bytes.extend_from_slice(text.as_bytes());
+            }
+            if mode != 0 {
+                for _ in 0..rng.below(48) {
+                    bytes.push(rng.next_u64() as u8);
+                }
+            }
+
+            let sniffed = std::panic::catch_unwind(|| sniff_image_mime(&bytes))
+                .unwrap_or_else(|_| panic!("case {case} (seed {SEED:#x}) panicked on {bytes:?}"));
+            if let Some(mime) = sniffed {
+                assert!(
+                    SERVED.contains(&mime),
+                    "case {case}: {mime} is not a type the preview serves"
+                );
+            }
         }
     }
 }
