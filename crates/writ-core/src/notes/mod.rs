@@ -617,6 +617,7 @@ fn truncate_to_limits(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::seeded::Seeded;
 
     /// A moment for the dated fallback, so a test says which answer it means.
     fn moment() -> DateTime<Utc> {
@@ -922,54 +923,24 @@ mod tests {
         }
     }
 
-    /// A seeded stream of numbers (splitmix64), so a failing case is named by
-    /// the seed that reproduces it.
-    struct Seeded(u64);
-
-    impl Seeded {
-        fn next_u64(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = self.0;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        }
-
-        fn below(&mut self, bound: u32) -> u32 {
-            (self.next_u64() % u64::from(bound)) as u32
-        }
-
-        fn pick<'a>(&mut self, items: &[&'a str]) -> &'a str {
-            items[self.below(items.len() as u32) as usize]
-        }
-
-        fn char_in(&mut self, low: u32, high: u32) -> char {
-            loop {
-                if let Some(c) = char::from_u32(low + self.below(high - low + 1)) {
-                    return c;
-                }
-            }
-        }
-
-        /// One character `width` UTF-8 bytes wide, or of any width for 0.
-        fn char_of_width(&mut self, width: u32) -> char {
-            match width {
-                1 => self.char_in(0x20, 0x7E),
-                2 => match self.below(4) {
-                    0 => self.char_in(0x0430, 0x044F),
-                    1 => self.char_in(0x0621, 0x064A),
-                    2 => self.char_in(0x03B1, 0x03C9),
-                    _ => self.char_in(0x00C0, 0x00FF),
-                },
-                3 => match self.below(4) {
-                    0 => self.char_in(0x4E00, 0x9FFF),
-                    1 => self.char_in(0x3041, 0x30FF),
-                    2 => self.char_in(0xAC00, 0xD7A3),
-                    _ => self.char_in(0x2000, 0x2BFF),
-                },
-                4 => self.char_in(0x1_F300, 0x1_FAFF),
-                _ => self.char_in(0, 0x10_FFFF),
-            }
+    /// One character `width` UTF-8 bytes wide, or of any width for 0.
+    fn char_of_width(rng: &mut Seeded, width: u32) -> char {
+        match width {
+            1 => rng.char_in(0x20, 0x7E),
+            2 => match rng.below(4) {
+                0 => rng.char_in(0x0430, 0x044F),
+                1 => rng.char_in(0x0621, 0x064A),
+                2 => rng.char_in(0x03B1, 0x03C9),
+                _ => rng.char_in(0x00C0, 0x00FF),
+            },
+            3 => match rng.below(4) {
+                0 => rng.char_in(0x4E00, 0x9FFF),
+                1 => rng.char_in(0x3041, 0x30FF),
+                2 => rng.char_in(0xAC00, 0xD7A3),
+                _ => rng.char_in(0x2000, 0x2BFF),
+            },
+            4 => rng.char_in(0x1_F300, 0x1_FAFF),
+            _ => rng.char_in(0, 0x10_FFFF),
         }
     }
 
@@ -1027,7 +998,7 @@ mod tests {
             ".md.md",
             ".markdown",
         ];
-        let mut rng = Seeded(SEED);
+        let mut rng = Seeded::new(SEED);
 
         for case in 0..CASES {
             let note = Path::new(rng.pick(&notes));
@@ -1045,10 +1016,10 @@ mod tests {
             }
             for _ in 0..rng.below(6) {
                 let width = rng.below(5);
-                typed.push(rng.char_of_width(width));
+                typed.push(char_of_width(&mut rng, width));
             }
             for _ in 0..rng.below(4) {
-                typed.push(rng.char_of_width(tail_width));
+                typed.push(char_of_width(&mut rng, tail_width));
             }
             typed.push_str(rng.pick(&suffixes));
             if rng.below(4) == 0 {

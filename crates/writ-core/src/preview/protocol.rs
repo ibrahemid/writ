@@ -779,6 +779,7 @@ mod tests {
 #[cfg(test)]
 mod asset_tests {
     use super::*;
+    use crate::seeded::Seeded;
 
     /// A notes folder with a note in `daily/`, an image beside it, and one
     /// under the notes-folder attachments folder.
@@ -1101,43 +1102,17 @@ mod asset_tests {
         );
     }
 
-    /// A seeded stream of numbers (splitmix64), so a failing case is named by
-    /// the seed that reproduces it.
-    struct Seeded(u64);
-
-    impl Seeded {
-        fn next_u64(&mut self) -> u64 {
-            self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-            let mut z = self.0;
-            z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-            z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-            z ^ (z >> 31)
-        }
-
-        fn below(&mut self, bound: u32) -> u32 {
-            (self.next_u64() % u64::from(bound)) as u32
-        }
-
-        fn pick<'a>(&mut self, items: &[&'a str]) -> &'a str {
-            items[self.below(items.len() as u32) as usize]
-        }
-
-        /// A character one to four UTF-8 bytes wide, the wider ones as likely
-        /// as ASCII.
-        fn any_char(&mut self) -> char {
-            let (low, high) = match self.below(5) {
-                0 => (0x20, 0x7E),
-                1 => (0x0400, 0x06FF),
-                2 => (0x3041, 0x9FFF),
-                3 => (0x1_F300, 0x1_FAFF),
-                _ => (0, 0x10_FFFF),
-            };
-            loop {
-                if let Some(c) = char::from_u32(low + self.below(high - low + 1)) {
-                    return c;
-                }
-            }
-        }
+    /// A character one to four UTF-8 bytes wide, the wider ones as likely as
+    /// ASCII.
+    fn any_char(rng: &mut Seeded) -> char {
+        let (low, high) = match rng.below(5) {
+            0 => (0x20, 0x7E),
+            1 => (0x0400, 0x06FF),
+            2 => (0x3041, 0x9FFF),
+            3 => (0x1_F300, 0x1_FAFF),
+            _ => (0, 0x10_FFFF),
+        };
+        rng.char_in(low, high)
     }
 
     #[test]
@@ -1166,7 +1141,7 @@ mod asset_tests {
             "<!DOCTYPE svg>",
             "<!DOCTYPE",
         ];
-        let mut rng = Seeded(SEED);
+        let mut rng = Seeded::new(SEED);
 
         for case in 0..CASES {
             let mut bytes = Vec::new();
@@ -1174,7 +1149,7 @@ mod asset_tests {
             if mode != 1 {
                 let mut text = rng.pick(&openings).to_string();
                 for _ in 0..rng.below(16) {
-                    text.push(rng.any_char());
+                    text.push(any_char(&mut rng));
                 }
                 bytes.extend_from_slice(text.as_bytes());
             }
