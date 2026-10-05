@@ -1,7 +1,7 @@
 import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import type { BufferRegistry } from "../global/buffer-registry";
-import { keepUnsavedForRecovery, type SaveFailure } from "../../services/autosave";
+import { flushAutosave, keepUnsavedForRecovery, type SaveFailure } from "../../services/autosave";
 import { asSentence, formatSaveError } from "../../lib/save-error";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
 import { basename } from "../../lib/path";
@@ -153,15 +153,23 @@ export function createTabStore(deps: {
     }
   }
 
+  // The note's text is written before the selection moves: with no survivor,
+  // moving it unmounts the editor, and a note whose write fails keeps its tab
+  // without the selection ever leaving it.
   async function closeTab(id: string): Promise<void> {
-    selectSurvivor(id);
-    const outcome = await registry.closeBuffer(id);
-    if (outcome.closed) {
-      await forgetClosed([id]);
-      return;
+    const flushed = await flushAutosave(id);
+    if (flushed.ok) {
+      selectSurvivor(id);
+      const outcome = await registry.closeBuffer(id);
+      if (outcome.closed) {
+        await forgetClosed([id]);
+        return;
+      }
+      reselectRefused(id);
+      await discardFailed([id], outcome.failures);
+    } else {
+      await discardFailed([id], flushed.failures);
     }
-    reselectRefused(id);
-    await discardFailed([id], outcome.failures);
     reselectRefused(id);
     await forgetClosed([id]);
   }
@@ -178,6 +186,8 @@ export function createTabStore(deps: {
     await forgetClosed(ids);
   }
 
+  // `closeBuffers` writes every note before any leaves the active set, which
+  // is what moves the selection here.
   async function closeAllTabs(): Promise<void> {
     const toClose = registry.activeTabs();
     if (toClose.length === 0) {
@@ -207,6 +217,10 @@ export function createTabStore(deps: {
   ): Promise<BufferDocument | null> {
     const activate = options?.activate ?? true;
     const outcome = await registry.openFile(path);
+    // The note on screen is written before the selection leaves it: the
+    // download's pane replaces the editor outright.
+    const shown = activeTabId();
+    if (activate && shown !== null) await flushAutosave(shown);
     if (outcome.kind === "not-downloaded") {
       // Nothing is read and no buffer exists, so no tab can be active behind
       // the download's own pane.

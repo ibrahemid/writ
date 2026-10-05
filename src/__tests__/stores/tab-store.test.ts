@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createEffect, createRoot } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 
 let tabIdCounter = 0;
@@ -183,6 +184,46 @@ describe("tabStore (per-window factory)", () => {
 
       expect(activeWhenClosed).toBeNull();
       expect(tabs.activeTabId()).toBeNull();
+    });
+
+    it("writes the shown note's typing while its tab is still selected", async () => {
+      // The selection moving to the survivor is what unmounts the editor, so
+      // the text has to be on disk before that, not after.
+      const tabs = freshTabStore();
+      const first = await tabs.createTab();
+      const shown = await tabs.createTab();
+      let selectedWhenWritten: string | null = "UNSET";
+      mockedApi.saveBufferContent.mockImplementationOnce(async (id: string, content: string) => {
+        selectedWhenWritten = tabs.activeTabId();
+        callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
+      });
+      debouncedSave(shown.id, "typed inside the debounce", 50_000);
+
+      await tabs.closeTab(shown.id);
+
+      expect(callLog).toContain(`saveBufferContent:${shown.id}:typed inside the debounce`);
+      expect(selectedWhenWritten).toBe(shown.id);
+      expect(tabs.activeTabId()).toBe(first.id);
+    });
+
+    it("never moves the selection off a tab whose text could not be written", async () => {
+      const tabs = freshTabStore();
+      await tabs.createTab();
+      const unsaved = await tabs.createTab();
+      const selections: Array<string | null> = [];
+      const stop = createRoot((dispose) => {
+        createEffect(() => selections.push(tabs.activeTabId()));
+        return dispose;
+      });
+      mockedApi.saveBufferContent.mockRejectedValueOnce(new Error("disk full"));
+      debouncedSave(unsaved.id, "work in progress", 50_000);
+
+      await tabs.closeTab(unsaved.id);
+      stop();
+
+      expect(selections).toEqual([unsaved.id]);
+      cancelAutosave(unsaved.id);
     });
 
     it("stays on the tab when its text could not be written", async () => {
@@ -395,6 +436,31 @@ describe("tabStore (per-window factory)", () => {
         },
       ]);
       expect(downloads.selected()?.path).toBe(path);
+    });
+
+    it("writes the shown note's typing before the download takes the pane", async () => {
+      const downloads = createDownloadStore();
+      const tabs = createTabStore({ downloads, registry: bufferRegistry });
+      const shown = await tabs.createTab();
+      let selectedWhenWritten: string | null = "UNSET";
+      mockedApi.saveBufferContent.mockImplementationOnce(async (id: string, content: string) => {
+        selectedWhenWritten = tabs.activeTabId();
+        callLog.push(`saveBufferContent:${id}:${content}`);
+        return null;
+      });
+      debouncedSave(shown.id, "typed just before the click", 50_000);
+      const path = "/home/user/Writ/away.md";
+      mockedApi.openFile.mockResolvedValueOnce({
+        doc: null,
+        mode: { kind: "NotDownloaded", path, provider: "iCloud Drive" },
+        size_bytes: 12,
+      });
+
+      await tabs.openFile(path);
+
+      expect(callLog).toContain(`saveBufferContent:${shown.id}:typed just before the click`);
+      expect(selectedWhenWritten).toBe(shown.id);
+      expect(tabs.activeTabId()).toBeNull();
     });
 
     it("selecting a note's tab takes the pane back from a pending download", async () => {

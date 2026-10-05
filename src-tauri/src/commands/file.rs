@@ -280,17 +280,25 @@ fn open_file_classified_inner(
     // it: for the binary tier `content` is a hex dump, not the file's bytes,
     // and for every tier re-reading a large file just to hash it would defeat
     // the point of the large-file tiers existing at all.
-    let (content, digest) = if is_binary {
-        let bytes = std::fs::read(file_path).map_err(|e| e.to_string())?;
-        let digest = writ_core::hash::sha256_bytes(&bytes);
+    //
+    // A binary file is opened read-only as a hex dump, so there is no ending
+    // in it to keep; the row can never be written back either.
+    //
+    // `content` is `None` for a file whose bytes are not UTF-8. It opens all
+    // the same, and the tab's read fails with `ERR_READ_NOT_UTF8`, so the
+    // editor says why it cannot show the file instead of the open doing
+    // nothing. Its ending is counted from the bytes, so the row names the
+    // file's own ending from the open on.
+    let bytes = std::fs::read(file_path).map_err(|e| e.to_string())?;
+    let digest = writ_core::hash::sha256_bytes(&bytes);
+    let (content, line_ending) = if is_binary {
         (
-            file_ops::generate_hex_dump(&bytes, size_bytes as usize),
-            digest,
+            Some(file_ops::generate_hex_dump(&bytes, size_bytes as usize)),
+            LineEnding::default(),
         )
     } else {
-        let text = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
-        let digest = writ_core::hash::sha256_bytes(text.as_bytes());
-        (text, digest)
+        let line_ending = LineEnding::detect_bytes(&bytes);
+        (String::from_utf8(bytes).ok(), line_ending)
     };
 
     if let Some(history_buf) = store
@@ -300,7 +308,7 @@ fn open_file_classified_inner(
         store.restore(&history_buf.id).map_err(|e| e.to_string())?;
         if !is_binary {
             store
-                .set_line_ending(&history_buf.id, LineEnding::detect(&content))
+                .set_line_ending(&history_buf.id, line_ending)
                 .map_err(|e| e.to_string())?;
         }
         // Reopening reads the file; it never writes it back. The index is
@@ -328,14 +336,6 @@ fn open_file_classified_inner(
         .open_external(canonical.to_string())
         .map_err(|e| e.to_string())?;
 
-    // A binary file is opened read-only as a hex dump, so `content` is not the
-    // file's text and there is no ending in it to keep; the row can never be
-    // written back either.
-    let line_ending = match is_binary {
-        true => LineEnding::default(),
-        false => LineEnding::detect(&content),
-    };
-
     let new_doc = BufferDocument {
         language,
         read_only: is_binary,
@@ -345,9 +345,11 @@ fn open_file_classified_inner(
     };
 
     // No stamp: opening a file writes nothing, so there is no write of Writ's
-    // own for a watcher to mistake for somebody else's.
+    // own for a watcher to mistake for somebody else's. A file that is not
+    // UTF-8 indexes as empty, which is what the reindex and the launch
+    // reconcile record for it too.
     store
-        .open_from_path(&new_doc, &content)
+        .open_from_path(&new_doc, content.as_deref().unwrap_or(""))
         .map_err(|e| e.to_string())?;
 
     state

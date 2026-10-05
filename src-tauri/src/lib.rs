@@ -13,6 +13,7 @@ pub mod preview;
 pub mod quit;
 #[cfg(target_os = "macos")]
 mod quit_macos;
+pub mod relaunch;
 pub mod security;
 pub mod snap_overlay;
 pub mod startup;
@@ -1022,7 +1023,10 @@ pub fn run() {
             // A restart is not a quit the handshake can hold: `prevent_exit`
             // is a documented no-op for it, so asking the frontend to flush
             // would leave the answer arriving after the runtime had gone.
-            // Write what Rust holds and let it through.
+            // The restart command runs the handshake before it asks
+            // (`relaunch::shut_down_for_relaunch`), which leaves nothing to
+            // claim here; a restart raised any other way writes what Rust
+            // holds and goes through.
             if *code == Some(tauri::RESTART_EXIT_CODE) {
                 let state = app_handle.state::<AppState>();
                 if state.quit.claim_final_shutdown() {

@@ -16,6 +16,9 @@ import {
   hasPendingAutosave,
   saveNow,
   resetAutosave,
+  materializePendingSave,
+  peekUnsavedContent,
+  currentSaveGeneration,
 } from "../../services/autosave";
 import { recordUnsavedNotes, saveBufferContent } from "../../services/tauri";
 
@@ -31,6 +34,57 @@ describe("autosave", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  describe("materializePendingSave", () => {
+    // What the editor does with a getter when its view goes: the text it
+    // reads now replaces it, and the write it was waiting for still happens.
+    it("keeps the queued text and its timer, as a string read now", async () => {
+      let doc = "typed";
+      debouncedSave("mat-1", () => doc, 300);
+      const generation = currentSaveGeneration("mat-1");
+
+      materializePendingSave("mat-1");
+      doc = "a different document under the same getter";
+
+      expect(peekUnsavedContent("mat-1")).toBe("typed");
+      expect(hasPendingAutosave("mat-1")).toBe(true);
+      expect(currentSaveGeneration("mat-1")).toBe(generation);
+
+      await vi.advanceTimersByTimeAsync(300);
+      expect(mockedSave).toHaveBeenCalledOnce();
+      expect(mockedSave).toHaveBeenCalledWith("mat-1", "typed");
+    });
+
+    it("leaves queued plain text as it is", async () => {
+      debouncedSave("mat-2", "already a string", 300);
+
+      materializePendingSave("mat-2");
+      await flushAutosave("mat-2");
+
+      expect(mockedSave).toHaveBeenCalledWith("mat-2", "already a string");
+    });
+
+    it("does nothing for a note with nothing queued", () => {
+      materializePendingSave("mat-3");
+      expect(hasPendingAutosave("mat-3")).toBe(false);
+      expect(peekUnsavedContent("mat-3")).toBeUndefined();
+    });
+
+    it("leaves a getter that can no longer read queued as it was", async () => {
+      debouncedSave(
+        "mat-4",
+        () => {
+          throw new Error("the document is gone");
+        },
+        300,
+      );
+
+      materializePendingSave("mat-4");
+
+      expect(hasPendingAutosave("mat-4")).toBe(true);
+      cancelAutosave("mat-4");
+    });
   });
 
   describe("debouncedSave", () => {

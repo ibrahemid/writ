@@ -1,4 +1,4 @@
-import { onMount, onCleanup, createEffect, createMemo, on } from "solid-js";
+import { onMount, onCleanup, createEffect, createMemo, on, Show } from "solid-js";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
@@ -39,6 +39,8 @@ import { workspaceStore } from "../../stores/global/workspace";
 import { notesStore } from "../../stores/global/notes";
 import { dirname, resolveWithinRoot } from "../../lib/path";
 import { openSpellingPreview } from "./SpellingPreview";
+import NoteReadFailure from "./NoteReadFailure";
+import { showNoteInFileManager } from "../../lib/note-actions";
 import {
   toggleBold,
   toggleItalic,
@@ -433,7 +435,10 @@ export default function EditorInstance(props: Props) {
             // Autosave gets a lazy getter so its flush reads the live document
             // rather than a value captured keystrokes ago (ADR-020).
             if (!isBinary && !isExternalReload) {
-              const liveText = () => view?.state.doc.toString() ?? "";
+              // Bound to the view this edit was made in: a getter over the
+              // component's `view` would read the incoming note after a switch.
+              const editedView = update.view;
+              const liveText = () => editedView.state.doc.toString();
               win.editor.scheduleAutosave(bufferId, liveText, autosaveDebounce);
               win.editor.noteEdited(bufferId, liveText);
             }
@@ -493,9 +498,63 @@ export default function EditorInstance(props: Props) {
   // reading it back on the way in would replace the typing the bar exists to
   // protect and answering afterwards would send the file its own text.
   function keepTextOfOutgoingHeldNote() {
-    if (!currentBufferId || !view) return;
-    if (!win.editor.savesAreHeld(currentBufferId)) return;
-    win.editor.keepTextOfRemoved(currentBufferId, view.state.doc.toString());
+    if (!viewBufferId || !view) return;
+    if (!win.editor.savesAreHeld(viewBufferId)) return;
+    win.editor.keepTextOfRemoved(viewBufferId, view.state.doc.toString());
+  }
+
+  // Bumped by every load. A load overtaken while it waited on a flush or a
+  // read leaves the editor to the later one, so neither its text nor its
+  // read failure lands over the note that replaced it.
+  let loadTicket = 0;
+
+  // The outgoing view takes no typing between the flush that writes its text
+  // and the swap that destroys it.
+  function freezeOutgoingView() {
+    view?.dispatch({
+      effects: readOnlyCompartment.reconfigure([
+        EditorState.readOnly.of(true),
+        EditorView.editable.of(false),
+      ]),
+    });
+  }
+
+  type LoadedText = { ok: true; text: string } | { ok: false; error: unknown };
+
+  // The incoming note's text. A note can arrive with its own typing still
+  // queued, left by the cleanup of a view that was unmounted. That write goes
+  // first so the read returns it; if it cannot land, the queued text is what
+  // the view opens on, since the file holds the version before it.
+  async function loadText(buffer: BufferDocument): Promise<LoadedText> {
+    const pending = await win.editor.flushAutosave(buffer.id);
+    if (!pending.ok) {
+      const unsaved = win.editor.unsavedTextOf(buffer.id);
+      if (unsaved !== undefined) return { ok: true, text: unsaved };
+    }
+    try {
+      return { ok: true, text: await bufferRegistry.readContent(buffer.id) };
+    } catch (error) {
+      // Every failed read gets the failure, held or not. A note whose file is
+      // gone or changed and that kept no text has nothing to show: an empty
+      // document under either bar would offer text nobody typed.
+      return { ok: false, error };
+    }
+  }
+
+  // A file that could not be read gets no document: opening it already
+  // recorded what it holds, so a save from an empty document would be let
+  // through and replace it. The reason takes the view's place.
+  function showReadFailure(id: string, error: unknown) {
+    view?.destroy();
+    view = undefined;
+    viewBufferId = undefined;
+    win.editor.registerView(null);
+    win.editor.setLargeFileMode(null);
+    win.editor.setLanguage(null);
+    win.editor.setLineCount(0);
+    win.editor.setCurrentText("");
+    win.editor.setCurrentBufferId(null);
+    win.editor.failRead(id, error);
   }
 
   // An untitled note (created by New Note; no on-disk path) keeps its surface
@@ -544,7 +603,10 @@ export default function EditorInstance(props: Props) {
   }
 
   async function loadBuffer(buffer: BufferDocument) {
+    const ticket = ++loadTicket;
+    freezeOutgoingView();
     await saveCurrentContent();
+    if (ticket !== loadTicket) return;
     keepTextOfOutgoingHeldNote();
     // A pending publish belongs to the outgoing buffer; a late fire after the
     // swap would push stale text into the shared currentText signal.
@@ -563,14 +625,18 @@ export default function EditorInstance(props: Props) {
     // For a file that changed under the tab the read succeeds, which is worse:
     // the other program's text lands in the view, the typing the bar is
     // holding is gone, and the answer then writes the file its own text.
-    let content = "";
+    let content: string;
     const kept = win.editor.textOfRemoved(buffer.id);
     if (kept !== undefined) {
       content = kept;
     } else {
-      try {
-        content = await bufferRegistry.readContent(buffer.id);
-      } catch {}
+      const loaded = await loadText(buffer);
+      if (ticket !== loadTicket) return;
+      if (!loaded.ok) {
+        showReadFailure(buffer.id, loaded.error);
+        return;
+      }
+      content = loaded.text;
     }
 
     // Mode is content-aware: byte size drives the large-file tiers, but a
@@ -614,6 +680,7 @@ export default function EditorInstance(props: Props) {
     // Publish the loaded id last so it never leads currentText: a preview pane
     // gating on this id is guaranteed to read the matching buffer's text.
     win.editor.setCurrentBufferId(buffer.id);
+    win.editor.clearReadFailure();
     applySpelling();
     view.focus();
   }
@@ -859,21 +926,20 @@ export default function EditorInstance(props: Props) {
     unregisterCommand("spelling.preview");
     spellingStore.detach();
     rebuildKeyMap();
-    if (currentBufferId) {
-      // The hold is what the close and the quit hand to the recovery
-      // snapshot, and this cleanup runs before either of them: the view goes
-      // when the last tab closes, and cancelling here would take the only
-      // copy of a held note's text with it (ADR-033 decision 15). So a note
-      // whose saves are held has its text put back into the hold instead. It
-      // has nothing queued to cancel either — `scheduleAutosave` holds rather
-      // than queues while the bar is up, and the hold cancelled the queue
-      // when it went on.
-      if (view && win.editor.savesAreHeld(currentBufferId)) {
-        win.editor.keepTextOfRemoved(currentBufferId, view.state.doc.toString());
+    // This runs before whatever unmounted the editor (the last tab closing, a
+    // file whose bytes are not here, a crash screen) has written the typing,
+    // so the text stays where that path finds it; only an explicit discard
+    // cancels. A held note's text goes back into the hold, which the close
+    // and the quit hand to the recovery snapshot (ADR-033 decision 15). Any
+    // other note keeps its queued write, as text read from the view now.
+    if (view && viewBufferId) {
+      if (win.editor.savesAreHeld(viewBufferId)) {
+        win.editor.keepTextOfRemoved(viewBufferId, view.state.doc.toString());
       } else {
-        win.editor.cancelAutosave(currentBufferId);
+        win.editor.keepQueuedText(viewBufferId);
       }
     }
+    win.editor.clearReadFailure();
     clearRestrictedContentPublish();
     win.editor.setLargeFileMode(null);
     win.editor.registerView(null);
@@ -881,5 +947,24 @@ export default function EditorInstance(props: Props) {
     view?.destroy();
   });
 
-  return <div ref={containerRef!} class="editor-instance" />;
+  const shownFailure = () => {
+    const failure = win.editor.readFailure();
+    return failure !== null && failure.bufferId === props.buffer.id ? failure : null;
+  };
+
+  return (
+    <>
+      <Show when={shownFailure()}>
+        {(failure) => (
+          <NoteReadFailure
+            failure={failure()}
+            onRetry={() => void loadBuffer(props.buffer)}
+            onShowInFileManager={() => void showNoteInFileManager(failure().bufferId)}
+            onClose={() => void win.tabs.closeTab(failure().bufferId)}
+          />
+        )}
+      </Show>
+      <div ref={containerRef!} class="editor-instance" hidden={shownFailure() !== null} />
+    </>
+  );
 }

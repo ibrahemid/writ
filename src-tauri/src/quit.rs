@@ -106,6 +106,27 @@ impl QuitState {
         self.phase.load(Ordering::SeqCst) == COMPLETE
     }
 
+    /// Blocks until the shutdown work has finished, or until `limit` runs out.
+    /// Returns whether it finished.
+    ///
+    /// For a path that ends the process without going through the exit
+    /// request, which the Windows update installer does from inside the
+    /// updater plugin: if a quit is already writing when it arrives, letting
+    /// it go at once would end the process in the middle of that quit's
+    /// snapshot.
+    pub fn wait_until_complete(&self, limit: Duration) -> bool {
+        let started = Instant::now();
+        loop {
+            if self.is_complete() {
+                return true;
+            }
+            if started.elapsed() >= limit {
+                return false;
+            }
+            std::thread::sleep(POLL_INTERVAL);
+        }
+    }
+
     /// Records that the frontend has flushed every pending save.
     ///
     /// Idempotent: the frontend may confirm twice, or after the wait has

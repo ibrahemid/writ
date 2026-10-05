@@ -7,6 +7,7 @@ import {
   cancelAutosave as cancelAutosaveService,
   flushAutosave as flushAutosaveService,
   holdUnsavedContent,
+  materializePendingSave,
   peekHeldContent,
   onAutosaveSuccess,
   peekUnsavedContent,
@@ -18,6 +19,7 @@ import {
 import { noteDiskState, restoreNoteFile, type NoteDiskAnswer } from "../../services/tauri";
 import { applyExternalDocument } from "../../editor/external-reload";
 import { hashDocument } from "../../lib/doc-hash";
+import { readFailureOf, type ReadFailure } from "../../lib/read-failure";
 import {
   detectLanguage as detectLanguageService,
   detectFromContent as detectFromContentService,
@@ -955,6 +957,35 @@ export function createEditorStore() {
     return flushAutosaveService(bufferId);
   }
 
+  /**
+   * Leaves a note's queued typing queued, as text rather than as a reader of
+   * the view, for a view that is about to go. Only an explicit discard
+   * cancels ([`cancelAutosave`]).
+   */
+  function keepQueuedText(bufferId: string) {
+    materializePendingSave(bufferId);
+  }
+
+  /** The newest text of a note that is not known to be on disk. */
+  function unsavedTextOf(id: string): string | undefined {
+    return peekUnsavedContent(id);
+  }
+
+  // The note in front whose file could not be read; the editor shows the
+  // reason in place of a document. Every load reads the file again.
+  const [readFailure, setReadFailure] = createSignal<ReadFailure | null>(null);
+
+  /** Records that the load of `bufferId` could not read its file. */
+  function failRead(bufferId: string, error: unknown): ReadFailure {
+    const failure = readFailureOf(bufferId, error);
+    setReadFailure(failure);
+    return failure;
+  }
+
+  function clearReadFailure() {
+    setReadFailure(null);
+  }
+
   // The explicit save. Writes the live document of the loaded buffer even when
   // no edit is pending, so the keystroke always means "it is on disk now". A
   // binary buffer is skipped: it opens read-only and its view holds a decoded
@@ -1041,6 +1072,11 @@ export function createEditorStore() {
     scheduleAutosave,
     cancelAutosave,
     flushAutosave,
+    keepQueuedText,
+    unsavedTextOf,
+    readFailure,
+    failRead,
+    clearReadFailure,
     saveActiveBuffer,
     savesAreHeld,
     retrySave,
