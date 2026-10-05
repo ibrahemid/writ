@@ -70,28 +70,50 @@ pub struct WatcherHandle {
     _debouncer: Debouncer<RecommendedWatcher>,
 }
 
-/// Watches the config file.
+/// Watches the config file through the folder that holds it.
 ///
-/// It no longer watches Writ's data folder: nothing there holds note text
-/// after ADR-028 §1, so an event from it can only be noise. A note's own file
-/// is watched from release 0.5.
+/// The folder is watched, never the file, for the reason
+/// [`super::open_files`] gives: Writ writes `config.toml` by renaming a temp
+/// file over it (`ConfigStore::write_serialized`), and on backends that bind a
+/// watch to an inode that rename ends a watch on the file. The config does not
+/// have to exist yet either, so an edit that creates it is heard.
+///
+/// The folder is the config's resolved parent, and events are compared with
+/// the resolved config path ([`ignore_key_path`]), which is the spelling the
+/// platform reports them in: `/var` and `/private/var`, or a data folder
+/// reached through a link, name the same file. A config that is itself a link
+/// is followed to its target's folder, which is where an edit to it lands.
+///
+/// Every event in the folder goes through [`report_config_event`], which
+/// drops anything that is not the config, the temp file a write renames
+/// included, and absorbs the `IN_OPEN` its own fingerprint read raises on
+/// Linux. Nothing else in Writ's data folder holds note text after ADR-028 §1,
+/// so the config is the only file reported. A note's own file is watched from
+/// release 0.5.
 pub fn start_file_watcher(
     bus: Arc<EventBus>,
     config_path: PathBuf,
     ignore_set: IgnoreSet,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let ttl = DEFAULT_IGNORE_TTL;
+    let config_path = ignore_key_path(&config_path);
+    let folder = config_path.parent().map(Path::to_path_buf).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "config path has no parent folder: {}",
+                config_path.display()
+            ),
+        )
+    })?;
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
     let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
+    debouncer
+        .watcher()
+        .watch(&folder, RecursiveMode::NonRecursive)?;
 
-    if config_path.exists() {
-        debouncer
-            .watcher()
-            .watch(&config_path, RecursiveMode::NonRecursive)?;
-    }
-
-    info!("file watcher started");
+    info!(folder = %folder.display(), "config watcher started");
 
     std::thread::spawn(move || {
         let mut seen = LastSeen::new();
