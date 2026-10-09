@@ -106,6 +106,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
 
+      - name: Cargo patches apply
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          if grep -q '^\[\[patch.unused\]\]' Cargo.lock; then
+            echo "::error file=Cargo.lock::Cargo.lock lists [[patch.unused]]: a [patch.crates-io] entry no longer applies"
+            exit 1
+          fi
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
         with:
