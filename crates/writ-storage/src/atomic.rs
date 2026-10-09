@@ -9,11 +9,12 @@
 //! [`write_atomic`] writes the new bytes to a sibling temp file in the
 //! same directory, fsyncs the file's contents, then renames it into
 //! place. On POSIX, `rename(2)` over an existing destination is atomic.
-//! On Windows, [`tempfile::NamedTempFile::persist`] uses `ReplaceFile`
-//! to provide the same guarantee. The parent directory is fsynced on
-//! Unix so the rename itself survives a crash. Windows refuses that rename
-//! while another program holds the destination open, so it is retried for a
-//! fraction of a second before the save is reported as failed.
+//! On Windows, [`tempfile::NamedTempFile::persist`] renames it over the
+//! destination with `MoveFileExW` and `MOVEFILE_REPLACE_EXISTING`. The parent
+//! directory is fsynced on Unix so the rename itself survives a crash. Windows
+//! can refuse that rename while another program holds the destination open, so
+//! it is retried for a fraction of a second before the save is reported as
+//! failed.
 //!
 //! Replacing a file rather than writing through it means everything the
 //! filesystem knows about the destination has to be carried across by hand:
@@ -90,10 +91,10 @@ const ERROR_SHARING_VIOLATION: i32 = 32;
 /// How many times a save asks Windows to move the replacement into place
 /// before it gives up.
 ///
-/// A rename over a file that a watcher, a sync client, or a virus scanner has
-/// open without `FILE_SHARE_DELETE` fails outright. Those handles are held for
-/// a few milliseconds at a time, so a save that would be lost lands on a later
-/// attempt.
+/// Windows can refuse a rename over a file that another program, such as a
+/// watcher, a sync client, or a virus scanner, holds open. Those handles are
+/// held for a few milliseconds at a time, so a save that would be lost lands
+/// on a later attempt.
 pub const PERSIST_ATTEMPTS: u32 = 10;
 
 /// Longest a single wait between two attempts grows to.

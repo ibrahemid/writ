@@ -92,6 +92,9 @@ pub mod prompt;
 pub mod recovery;
 /// Full-text search query policy: prefix-match construction and sanitization.
 pub mod search;
+/// The seeded number stream the property tests draw their cases from.
+#[cfg(test)]
+pub(crate) mod seeded;
 /// Startup-failure report formatting and report-location policy.
 pub mod startup;
 /// The tools a connected program can call, named once.

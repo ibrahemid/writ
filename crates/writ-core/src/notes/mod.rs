@@ -312,16 +312,24 @@ pub fn name_is_taken(name: &str) -> String {
 /// carrying `..` loses the separators that would make it walk anywhere; a
 /// caller joining the result onto the note's own folder keeps the note in it.
 ///
+/// The suffix is compared before anything is cut. Where the note's extension
+/// would start is a byte offset, and in a name ending in non-Latin letters or
+/// an emoji that offset falls inside a character, so a name it does not land
+/// cleanly in is a name that does not end in the extension.
+///
 /// Returns `None` when nothing survives, which is the empty name.
 pub fn rename_stem(current: &Path, typed: &str) -> Option<String> {
     let typed = typed.trim();
     let base = match current.extension().and_then(|ext| ext.to_str()) {
         Some(extension) => {
             let suffix = format!(".{extension}");
-            match typed.len() > suffix.len()
-                && typed[typed.len() - suffix.len()..].eq_ignore_ascii_case(&suffix)
+            let split = typed.len().saturating_sub(suffix.len());
+            match split > 0
+                && typed
+                    .get(split..)
+                    .is_some_and(|tail| tail.eq_ignore_ascii_case(&suffix))
             {
-                true => &typed[..typed.len() - suffix.len()],
+                true => &typed[..split],
                 false => typed,
             }
         }
@@ -609,6 +617,7 @@ fn truncate_to_limits(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::seeded::Seeded;
 
     /// A moment for the dated fallback, so a test says which answer it means.
     fn moment() -> DateTime<Utc> {
@@ -876,6 +885,167 @@ mod tests {
                 None,
                 "{typed} should not name a note"
             );
+        }
+    }
+
+    #[test]
+    fn a_rename_of_a_markdown_note_to_a_non_latin_name_keeps_every_character() {
+        // `.md` is three bytes, so the offset it is compared at lands inside
+        // a two-byte letter or an emoji at the end of the name.
+        let note = Path::new("/notes/Grocery list.md");
+        for name in ["Заметка", "ملاحظات", "naïve", "Ideas 🚀"] {
+            for typed in [name.to_string(), format!("{name}.md"), format!("{name}.MD")] {
+                assert_eq!(
+                    rename_stem(note, &typed).as_deref(),
+                    Some(name),
+                    "renaming to {typed}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_rename_of_a_text_note_to_a_cjk_name_keeps_every_character() {
+        // `.txt` is four bytes and each of these characters three.
+        let note = Path::new("/notes/writ-260921-0748.txt");
+        for name in ["日记", "メモ"] {
+            for typed in [
+                name.to_string(),
+                format!("{name}.txt"),
+                format!("{name}.TXT"),
+            ] {
+                assert_eq!(
+                    rename_stem(note, &typed).as_deref(),
+                    Some(name),
+                    "renaming to {typed}"
+                );
+            }
+        }
+    }
+
+    /// One character `width` UTF-8 bytes wide, or of any width for 0.
+    fn char_of_width(rng: &mut Seeded, width: u32) -> char {
+        match width {
+            1 => rng.char_in(0x20, 0x7E),
+            2 => match rng.below(4) {
+                0 => rng.char_in(0x0430, 0x044F),
+                1 => rng.char_in(0x0621, 0x064A),
+                2 => rng.char_in(0x03B1, 0x03C9),
+                _ => rng.char_in(0x00C0, 0x00FF),
+            },
+            3 => match rng.below(4) {
+                0 => rng.char_in(0x4E00, 0x9FFF),
+                1 => rng.char_in(0x3041, 0x30FF),
+                2 => rng.char_in(0xAC00, 0xD7A3),
+                _ => rng.char_in(0x2000, 0x2BFF),
+            },
+            4 => rng.char_in(0x1_F300, 0x1_FAFF),
+            _ => rng.char_in(0, 0x10_FFFF),
+        }
+    }
+
+    /// What [`rename_stem`] has to answer, worked out over character
+    /// boundaries rather than byte arithmetic: the note's own extension comes
+    /// off the trimmed name, ASCII case aside, when something is left in front
+    /// of it.
+    fn char_safe_rename_stem(current: &Path, typed: &str) -> Option<String> {
+        let typed = typed.trim();
+        let base = match current.extension().and_then(|ext| ext.to_str()) {
+            Some(extension) => {
+                let suffix = format!(".{extension}");
+                typed
+                    .char_indices()
+                    .map(|(at, _)| at)
+                    .find(|&at| at > 0 && typed[at..].eq_ignore_ascii_case(&suffix))
+                    .map_or(typed, |at| &typed[..at])
+            }
+            None => typed,
+        };
+        sanitize_title(base)
+    }
+
+    #[test]
+    fn a_rename_to_any_unicode_name_answers_without_splitting_a_character() {
+        const SEED: u64 = 0x5752_4954_5F55_3033;
+        const CASES: u32 = 20_000;
+        let notes = [
+            "/notes/a.md",
+            "/notes/a.MD",
+            "/notes/a.txt",
+            "/notes/a.markdown",
+            "/notes/x.日记",
+            "/notes/x.é",
+            "/notes/x.😀",
+            "/notes/plain",
+            "/notes/x.",
+        ];
+        let suffixes = [
+            "",
+            "",
+            "",
+            ".md",
+            ".MD",
+            ".mD",
+            ".txt",
+            ".TXT",
+            ".tXt",
+            ".日记",
+            ".é",
+            ".É",
+            ".😀",
+            "md",
+            ".",
+            ".md.md",
+            ".markdown",
+        ];
+        let mut rng = Seeded::new(SEED);
+
+        for case in 0..CASES {
+            let note = Path::new(rng.pick(&notes));
+            // Two-byte letters end the names a `.md` note is renamed to, and
+            // three- and four-byte characters the ones a `.txt` note is.
+            let tail_width = match note.extension().and_then(|ext| ext.to_str()) {
+                Some("txt") => 3 + rng.below(2),
+                Some(ext) if ext.eq_ignore_ascii_case("md") => [2, 2, 2, 4][rng.below(4) as usize],
+                _ => rng.below(5),
+            };
+
+            let mut typed = String::new();
+            if rng.below(4) == 0 {
+                typed.push_str(rng.pick(&[" ", "\t", "\u{3000}", "\u{a0}"]));
+            }
+            for _ in 0..rng.below(6) {
+                let width = rng.below(5);
+                typed.push(char_of_width(&mut rng, width));
+            }
+            for _ in 0..rng.below(4) {
+                typed.push(char_of_width(&mut rng, tail_width));
+            }
+            typed.push_str(rng.pick(&suffixes));
+            if rng.below(4) == 0 {
+                typed.push_str(rng.pick(&[" ", "\n", "\u{2003}"]));
+            }
+
+            let answered =
+                std::panic::catch_unwind(|| rename_stem(note, &typed)).unwrap_or_else(|_| {
+                    panic!("case {case} (seed {SEED:#x}) panicked: note={note:?} typed={typed:?}")
+                });
+            assert_eq!(
+                answered,
+                char_safe_rename_stem(note, &typed),
+                "case {case} (seed {SEED:#x}): note={note:?} typed={typed:?}"
+            );
+            if let Some(stem) = answered {
+                assert!(
+                    !stem.contains('/') && !stem.contains('\\'),
+                    "case {case}: {typed:?} kept a separator: {stem:?}"
+                );
+                assert_eq!(
+                    Path::new(&stem).components().count(),
+                    1,
+                    "case {case}: {typed:?} is more than one path component: {stem:?}"
+                );
+            }
         }
     }
 
