@@ -99,10 +99,17 @@ export default function PreviewLayout(props: Props) {
     const k = layout().kind;
     return k === "split" || k === "preview";
   };
+  // A note whose file could not be read has nothing to render; the editor's
+  // slot carries the reason and takes the whole pane.
+  const readFailed = () => {
+    const failure = win.editor.readFailure();
+    return failure !== null && failure.bufferId === props.buffer?.id;
+  };
+  const previewable = () => renderable() && !readFailed();
   // Whether a real preview is shown: a preview-intent layout on a renderable
   // buffer. Drives the persistent PreviewPane's `active` flag — when false the
   // iframe parks blank (it is never removed; teardown freezes the webview).
-  const showsIframe = () => previewIntent() && renderable();
+  const showsIframe = () => previewIntent() && previewable();
   // Recognized content type but no registered renderer: the user reached a
   // preview layout (e.g. via the cycle keymap, which doesn't renderer-check).
   // Show a friendly note in the pane slot — never a blank iframe.
@@ -123,7 +130,7 @@ export default function PreviewLayout(props: Props) {
     // Only reserve split width when a preview pane actually shows. A split
     // layout on an unrenderable buffer (e.g. .md renamed back to .txt) must
     // give the editor full width, not leave an empty pane gap.
-    if (l.kind === "split" && renderable()) {
+    if (l.kind === "split" && previewable()) {
       return { "flex-grow": "0", "flex-shrink": "0", "flex-basis": `${l.ratio * 100}%` };
     }
     return { "flex-grow": "1", "flex-basis": "0" };
@@ -156,7 +163,7 @@ export default function PreviewLayout(props: Props) {
         </Show>
       </div>
 
-      <Show when={isSplit() && renderable()}>
+      <Show when={isSplit() && previewable()}>
         <PreviewSplit
           orientation={orientation()}
           ratio={layout().kind === "split" ? (layout() as { ratio: number }).ratio : 0.5}
@@ -179,7 +186,7 @@ export default function PreviewLayout(props: Props) {
           buffer={props.buffer}
           contentType={contentType()}
           isActive={showsIframe()}
-          isSplit={isSplit() && renderable()}
+          isSplit={isSplit() && previewable()}
         />
       </div>
 

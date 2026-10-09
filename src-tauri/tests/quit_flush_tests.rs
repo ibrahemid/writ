@@ -137,3 +137,58 @@ fn a_termination_after_a_completed_shutdown_claims_nothing() {
     quit.finish();
     assert!(!quit.claim_final_shutdown());
 }
+
+// A restart or an update install that arrives while a quit is writing must not
+// let the process go before that quit's snapshot is on disk: the Windows
+// installer exits the moment its hook returns.
+
+#[test]
+fn waiting_for_completion_ends_when_the_shutdown_work_finishes() {
+    let quit = Arc::new(QuitState::new());
+    quit.begin(None);
+    let worker = quit.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(80));
+        worker.finish();
+    });
+
+    let started = Instant::now();
+    assert!(quit.wait_until_complete(Duration::from_secs(5)));
+    let waited = started.elapsed();
+
+    assert!(
+        waited >= Duration::from_millis(80),
+        "returned while the work was running: {waited:?}"
+    );
+    assert!(
+        waited < Duration::from_secs(5),
+        "ran on past the finish: {waited:?}"
+    );
+}
+
+#[test]
+fn waiting_for_completion_gives_up_at_its_limit() {
+    let quit = QuitState::new();
+    quit.begin(None);
+
+    let started = Instant::now();
+    assert!(!quit.wait_until_complete(Duration::from_millis(100)));
+    let waited = started.elapsed();
+
+    assert!(waited >= Duration::from_millis(100));
+    assert!(
+        waited < Duration::from_secs(2),
+        "hung past its limit: {waited:?}"
+    );
+}
+
+#[test]
+fn waiting_for_completion_returns_at_once_when_it_is_already_complete() {
+    let quit = QuitState::new();
+    quit.begin(None);
+    quit.finish();
+
+    let started = Instant::now();
+    assert!(quit.wait_until_complete(Duration::from_secs(5)));
+    assert!(started.elapsed() < Duration::from_millis(500));
+}

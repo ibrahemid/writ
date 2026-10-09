@@ -60,11 +60,17 @@ async function flush(count = 30): Promise<void> {
  * the close is performed in the order `closeTab` performs it.
  */
 describe("closing the last tab of a note whose file changed outside Writ", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    const { resetAutosave } = await import("../../../services/autosave");
+    resetAutosave();
     bufferContent.clear();
     vi.clearAllMocks();
   });
-  afterEach(() => cleanup());
+  afterEach(async () => {
+    cleanup();
+    const { resetAutosave } = await import("../../../services/autosave");
+    resetAutosave();
+  });
 
   it("hands the typing nobody has answered for to the recovery snapshot", async () => {
     const EditorInstance = (await import("../EditorInstance")).default;
@@ -166,9 +172,10 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     ]);
   });
 
-  it("still cancels the autosave of a note nothing is holding", async () => {
-    // The cleanup's own job. A note that may write has its queue and its
-    // timers dropped with the view, and nothing is handed over for it.
+  it("writes the typing of a note nothing is holding when its last tab closes", async () => {
+    // The cleanup runs before the close's flush, so the text has to still be
+    // queued when that flush looks: the view is gone by then, and the queue is
+    // the only place the typing is.
     const EditorInstance = (await import("../EditorInstance")).default;
     const { keepUnsavedForRecovery, peekUnsavedContent } = await import(
       "../../../services/autosave"
@@ -183,7 +190,7 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     }
 
     const [active, setActive] = createSignal<BufferDocument | null>(mockBuffer("A"));
-    render(() => (
+    const { container } = render(() => (
       <WindowProvider windowId={9403}>
         <Probe />
         <Show when={active()}>{(buffer) => <EditorInstance buffer={buffer()} />}</Show>
@@ -191,9 +198,22 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     ));
     await flush();
 
+    const view = EditorView.findFromDOM(
+      container.querySelector(".cm-editor") as HTMLElement,
+    );
+    view!.dispatch({
+      changes: { from: view!.state.doc.length, insert: " and my last words" },
+    });
+    await flush();
+
+    // The last tab goes inside the debounce: the editor unmounts first, then
+    // the close flushes.
     setActive(null);
     await flush();
 
+    const flushed = await win!.editor.flushAutosave("A");
+    expect(flushed.ok).toBe(true);
+    expect(bufferContent.get("A")).toBe("as Writ opened it and my last words");
     expect(peekUnsavedContent("A")).toBeUndefined();
 
     win!.editor.noteClosed("A");

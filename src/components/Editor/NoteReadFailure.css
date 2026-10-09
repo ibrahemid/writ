@@ -1,0 +1,25 @@
+.note-read-failure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--writ-space-3);
+  width: 100%;
+  height: 100%;
+  padding: var(--writ-space-4);
+  background: var(--writ-bg-canvas);
+  color: var(--writ-fg);
+}
+
+.note-read-failure-line {
+  margin: 0;
+  max-width: 52ch;
+  text-align: center;
+}
+
+.note-read-failure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--writ-space-2);
+}

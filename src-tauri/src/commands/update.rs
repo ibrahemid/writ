@@ -45,6 +45,7 @@ pub fn write_last_check_ms(writ_dir: &Path, ms: u64) {
 
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
+use crate::relaunch::RelaunchShutdown;
 use crate::state::AppState;
 
 const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
@@ -155,10 +156,29 @@ pub fn dismiss_update(app: AppHandle) {
 }
 
 /// Relaunches the app to apply a staged update.
+///
+/// The window flushes and Rust's shutdown work runs before the restart is
+/// requested ([`crate::relaunch::shut_down_for_relaunch`]). Async so the wait
+/// runs off the main thread, where the window's answer is handled.
 #[tauri::command]
-pub fn restart_app(app: AppHandle) {
+pub async fn restart_app(app: AppHandle) {
     tracing::info!("restarting to apply update");
-    app.restart();
+    let handle = app.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let state = handle.state::<AppState>();
+        crate::relaunch::shut_down_for_relaunch(&state, || crate::finish_shutdown(&handle))
+    })
+    .await;
+    match outcome {
+        Ok(RelaunchShutdown::Finished) => app.request_restart(),
+        // A quit is already taking the process down.
+        Ok(RelaunchShutdown::AlreadyLeaving) => {}
+        // The person asked for the restart; the failure is logged.
+        Err(e) => {
+            tracing::warn!(error = %e, "the shutdown before the restart did not finish");
+            app.request_restart();
+        }
+    }
 }
 
 /// The outcome a check reaches, for the visibility decision.
@@ -269,7 +289,7 @@ fn build_updater(app: &AppHandle) -> tauri_plugin_updater::Result<tauri_plugin_u
         if let Ok(endpoint) = std::env::var("WRIT_UPDATER_ENDPOINT") {
             match url::Url::parse(&endpoint) {
                 Ok(parsed) => {
-                    let mut builder = app.updater_builder().endpoints(vec![parsed])?;
+                    let mut builder = updater_builder(app).endpoints(vec![parsed])?;
                     if let Ok(pubkey) = std::env::var("WRIT_UPDATER_PUBKEY") {
                         builder = builder.pubkey(pubkey);
                     }
@@ -282,7 +302,24 @@ fn build_updater(app: &AppHandle) -> tauri_plugin_updater::Result<tauri_plugin_u
             }
         }
     }
-    app.updater()
+    updater_builder(app).build()
+}
+
+/// The plugin's builder with the shutdown the Windows installer needs.
+///
+/// On Windows the plugin ends the process with `std::process::exit` after
+/// starting the installer, so no exit event reaches `lib.rs`. The hook runs
+/// the handshake and the shutdown work first
+/// ([`crate::relaunch::shut_down_for_relaunch`]), off the main thread inside
+/// the async install command. The plugin's own hook, which this replaces,
+/// releases the app's resources and still runs last.
+fn updater_builder(app: &AppHandle) -> tauri_plugin_updater::UpdaterBuilder {
+    let handle = app.clone();
+    app.updater_builder().on_before_exit(move || {
+        let state = handle.state::<AppState>();
+        crate::relaunch::shut_down_for_relaunch(&state, || crate::finish_shutdown(&handle));
+        handle.cleanup_before_exit();
+    })
 }
 
 /// Redacts URLs from an updater error string so endpoints (which may later

@@ -15,9 +15,12 @@ import "./EditorBar.css";
  */
 export default function RemovedOnDiskBar(props: { noteId: string | null }) {
   const win = useWindow();
+  // A note whose read failed shows the failure in place of a document, so
+  // there is no text here and nothing for "Put the file back" to write.
   const removed = () => {
     const id = props.noteId;
-    return id !== null && win.editor.isRemovedOnDisk(id) ? id : null;
+    if (id === null || !win.editor.isRemovedOnDisk(id)) return null;
+    return win.editor.readFailure()?.bufferId === id ? null : id;
   };
   const name = () => {
     const id = removed();

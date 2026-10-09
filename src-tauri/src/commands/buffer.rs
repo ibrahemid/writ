@@ -160,6 +160,53 @@ fn io_failure_code(kind: std::io::ErrorKind) -> &'static str {
     }
 }
 
+/// Code a read carries when the file's bytes are not UTF-8 text.
+///
+/// The read codes are the same contract as the save codes: the editor writes
+/// its own sentence from the code, and the message after it is for logs.
+pub const ERR_READ_NOT_UTF8: &str = "ERR_READ_NOT_UTF8";
+
+/// Code a read carries when the filesystem refused it.
+pub const ERR_READ_PERMISSION_DENIED: &str = "ERR_READ_PERMISSION_DENIED";
+
+/// Code a read carries when another program is holding the file, which on
+/// Windows is a sharing lock that a second attempt can get past.
+pub const ERR_READ_FILE_IN_USE: &str = "ERR_READ_FILE_IN_USE";
+
+/// Code a read carries when the file, or the folder above it, is gone.
+pub const ERR_READ_FILE_MISSING: &str = "ERR_READ_FILE_MISSING";
+
+/// Code a read carries when the filesystem stopped answering, which is what a
+/// disconnected network volume looks like.
+pub const ERR_READ_TIMED_OUT: &str = "ERR_READ_TIMED_OUT";
+
+/// Code a read carries when it failed for a reason with no sentence of its own.
+pub const ERR_READ_FAILED: &str = "ERR_READ_FAILED";
+
+/// Renders a failed read for the frontend as a stable code followed by the
+/// message a log wants ([`save_failure_message`] is the same shape).
+pub fn read_failure_message(error: &StorageError) -> String {
+    format!("{}: {error}", read_failure_code(error))
+}
+
+/// The stable code for a failed read.
+///
+/// `InvalidData` is what `read_to_string` reports for bytes that are not
+/// UTF-8, and nothing else on the read path raises it.
+pub fn read_failure_code(error: &StorageError) -> &'static str {
+    match error {
+        StorageError::Io(io) => match io.kind() {
+            std::io::ErrorKind::InvalidData => ERR_READ_NOT_UTF8,
+            std::io::ErrorKind::PermissionDenied => ERR_READ_PERMISSION_DENIED,
+            std::io::ErrorKind::ResourceBusy => ERR_READ_FILE_IN_USE,
+            std::io::ErrorKind::NotFound => ERR_READ_FILE_MISSING,
+            std::io::ErrorKind::TimedOut => ERR_READ_TIMED_OUT,
+            _ => ERR_READ_FAILED,
+        },
+        _ => ERR_READ_FAILED,
+    }
+}
+
 /// Outcome of resolving a new-note request: either an existing note that has
 /// not reached a file to reuse, or a freshly minted (not yet persisted) one.
 pub enum CreateDecision {
@@ -546,9 +593,14 @@ fn spawn_deferred_reindex(app: AppHandle, id: String, first_generation: u64) {
 ///
 /// A note with no file yet has nothing on disk to record.
 pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(id).map_err(|e| e.to_string())?;
-    let content = store.read_content(id).map_err(|e| e.to_string())?;
+    let store = state
+        .store
+        .lock()
+        .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?;
+    let doc = store.get(id).map_err(|e| read_failure_message(&e))?;
+    let content = store
+        .read_content(id)
+        .map_err(|e| read_failure_message(&e))?;
     if let Some(source_path) = doc.source_path.as_deref() {
         let path = Path::new(source_path);
         if doc.read_only {
@@ -1050,6 +1102,47 @@ mod tests {
     use super::*;
     use std::time::SystemTime;
     use writ_core::notes::guard::{DiskState, SF_DATALESS};
+
+    fn io(kind: std::io::ErrorKind) -> StorageError {
+        StorageError::Io(std::io::Error::new(kind, "from the filesystem"))
+    }
+
+    #[test]
+    fn every_read_failure_carries_a_code() {
+        use std::io::ErrorKind;
+        let cases = [
+            (io(ErrorKind::InvalidData), ERR_READ_NOT_UTF8),
+            (io(ErrorKind::PermissionDenied), ERR_READ_PERMISSION_DENIED),
+            (io(ErrorKind::ResourceBusy), ERR_READ_FILE_IN_USE),
+            (io(ErrorKind::NotFound), ERR_READ_FILE_MISSING),
+            (io(ErrorKind::TimedOut), ERR_READ_TIMED_OUT),
+            (io(ErrorKind::Interrupted), ERR_READ_FAILED),
+            (
+                StorageError::Consistency {
+                    message: "row and disk disagree".to_string(),
+                },
+                ERR_READ_FAILED,
+            ),
+        ];
+        for (error, code) in cases {
+            assert_eq!(read_failure_code(&error), code, "{error}");
+            let message = read_failure_message(&error);
+            assert!(
+                message.starts_with(&format!("{code}: ")),
+                "the code is not in front of the message: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_utf8_failure_of_read_to_string_is_the_not_utf8_code() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("latin1.txt");
+        std::fs::write(&file, b"caf\xe9").unwrap();
+        let error = StorageError::from(std::fs::read_to_string(&file).unwrap_err());
+
+        assert_eq!(read_failure_code(&error), ERR_READ_NOT_UTF8);
+    }
 
     /// The description in a `Described` answer, or a panic naming what came
     /// back instead.

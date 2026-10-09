@@ -19,7 +19,10 @@ vi.mock("../../lib/note-actions", () => ({
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    editor: { isRemovedOnDisk: (id: string) => fixtures.removed().has(id) },
+    editor: {
+      isRemovedOnDisk: (id: string) => fixtures.removed().has(id),
+      readFailure: () => null,
+    },
     tabs: { closeTab: stubs.closeTab },
   }),
 }));

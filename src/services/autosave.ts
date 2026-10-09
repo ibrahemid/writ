@@ -317,6 +317,26 @@ export async function keepUnsavedForRecovery(bufferId: string): Promise<void> {
   cancelAutosave(bufferId);
 }
 
+/**
+ * Replaces a queued getter with the text it reads now, leaving it queued.
+ *
+ * For an editor view that is going away before its typing was written: the
+ * getter would outlive the view it reads. The generation, the writer and the
+ * timer stay, so this is the same write carrying a string. Queued strings,
+ * an empty queue and a getter that can no longer read are left as they are.
+ */
+export function materializePendingSave(bufferId: string) {
+  const queued = pendingContent.get(bufferId);
+  if (queued === undefined || typeof queued.source !== "function") return;
+  let text: string;
+  try {
+    text = queued.source();
+  } catch {
+    return;
+  }
+  pendingContent.set(bufferId, { ...queued, source: text });
+}
+
 export function cancelAutosave(bufferId: string) {
   clearTimer(bufferId);
   pendingContent.delete(bufferId);
