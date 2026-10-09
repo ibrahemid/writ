@@ -291,10 +291,14 @@ This URL is what installed clients poll for updates (configured in
 
 Publishing fires two workflows: `site.yml` deploys the site and rewrites
 `site/src/data/release.json` from the latest release, and `packages.yml` opens
-the distribution-manifest bump PR. Every site deploy carries a Pages build
-version unique to the run (`.github/scripts/deploy_pages.py`), so the release
-deploy replaces the live site even when the push deploy already shipped the
-tagged commit. Then check:
+the distribution-manifest bump PR. Pages keeps the live site when a commit it
+already deployed is deployed again, so `site.yml` skips the push deploy of the
+commit the `Bump version` workflow creates (`chore(release): bump version to
+v<version>`). Tag that commit: the release run then makes its first and only
+deploy, with the published release data. A release on a commit a push already
+deployed leaves the old site live, and dispatching `site.yml` on an already
+deployed commit changes nothing. Push a new commit to refresh the site. Then
+check:
 
 - `/download` on the site offers the new version and every link resolves.
 - The macOS card carries the `notarized` badge. `site.yml` sets that flag from
@@ -457,7 +461,6 @@ Revert the version bumps from step 2 before committing.
 - `.github/scripts/bump_version.py`       version bump implementation
 - `.github/scripts/release_notes.py`      draft release notes and their range
 - `.github/scripts/build_latest_json.py`  updater manifest builder
-- `.github/scripts/deploy_pages.py`       Pages deploy under a per-run build version
 - `scripts/release-preflight.sh`          local gates to run before tagging
 - `scripts/build-mac-pkg.sh`              macOS installer build and signing
 - `src-tauri/tauri.conf.json`             bundle targets, updater pubkey

@@ -29,8 +29,6 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    outputs:
-      artifact_id: ${{ steps.upload.outputs.artifact_id }}
     defaults:
       run:
         working-directory: site
@@ -151,7 +149,6 @@ jobs:
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6.0.0
 
       - name: Upload artifact
-        id: upload
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         with:
           path: site/dist
@@ -159,24 +156,14 @@ jobs:
   deploy:
     name: Deploy
     needs: build
+    # Pages keeps the live site when a commit is deployed twice, so the
+    # release run makes the only deploy of the version bump commit.
+    if: "github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release): bump version to v')"
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout the deploy script
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
-        with:
-          sparse-checkout: .github/scripts
-          persist-credentials: false
-
-      # actions/deploy-pages sends GITHUB_SHA as the build version, and Pages
-      # keeps the live site when a run redeploys an already deployed commit.
-      # The script deploys under <sha>-<run id>-<run attempt> instead. exec
-      # makes it the process the runner signals when the job is cancelled.
       - name: Deploy to GitHub Pages
         id: deployment
-        env:
-          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: exec python3 -u .github/scripts/deploy_pages.py
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5.0.0
