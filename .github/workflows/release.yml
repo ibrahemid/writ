@@ -69,37 +69,11 @@ jobs:
         id: changelog
         env:
           TAG: ${{ steps.tag.outputs.tag }}
+          REPO: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          PREV_TAG="$(git describe --tags --abbrev=0 --match 'v*.*.*' "${TAG}^" 2>/dev/null || true)"
-          if [ -z "$PREV_TAG" ]; then
-            RANGE=""
-            echo "No previous tag found, listing all commits"
-          else
-            RANGE="${PREV_TAG}..${TAG}"
-            echo "Generating changelog for range ${RANGE}"
-          fi
-
-          {
-            echo "## What's changed"
-            echo
-            echo "### Features"
-            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -E "^- feat(\(.+\))?: " || echo "- None"
-            echo
-            echo
-            echo "### Fixes"
-            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -E "^- fix(\(.+\))?: " || echo "- None"
-            echo
-            echo
-            echo "### Other"
-            git log ${RANGE:-} --pretty=format:"- %s (%h)" --no-merges | grep -vE "^- (feat|fix)(\(.+\))?: " || echo "- None"
-            echo
-            if [ -n "$PREV_TAG" ]; then
-              echo
-              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
-            fi
-          } > CHANGELOG_RELEASE.md
+          python3 .github/scripts/release_notes.py > CHANGELOG_RELEASE.md
 
           {
             echo "body<<CHANGELOG_EOF"
@@ -226,7 +200,11 @@ jobs:
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '" ')
+          SEARCH_LIST=("$KEYCHAIN_PATH")
+          while IFS= read -r EXISTING_KEYCHAIN; do
+            SEARCH_LIST+=("$EXISTING_KEYCHAIN")
+          done < <(security list-keychains -d user | sed -n 's/^[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p')
+          security list-keychain -d user -s "${SEARCH_LIST[@]}"
           # Developer ID Installer is a separate certificate from Developer ID
           # Application: the first signs the .pkg wrapper through productsign,
           # the second signs the .app, and either may be configured alone.

@@ -99,15 +99,23 @@ jobs:
           set -euo pipefail
           python3 scripts/packaging_bump_homebrew.py
 
+      - name: Install msitools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends msitools
+
       - name: Bump winget manifests
         env:
           VERSION: ${{ steps.tag.outputs.version }}
           SHA_MSI: ${{ steps.checksums.outputs.sha_msi }}
+          MSI_PATH: artifacts/Writ_${{ steps.tag.outputs.version }}_x64_en-US.msi
         run: |
           set -euo pipefail
           RELEASE_DATE=$(date -u +%Y-%m-%d) \
           VERSION="$VERSION" \
           SHA_MSI="$SHA_MSI" \
+          MSI_PATH="$MSI_PATH" \
           python3 scripts/packaging_bump_winget.py
 
       - name: Bump AUR PKGBUILD
@@ -134,7 +142,7 @@ jobs:
 
             Updated files:
             - `packaging/homebrew/Casks/writ.rb` (version + SHA256 for the universal pkg)
-            - `packaging/winget/manifests/i/ibrahemid/Writ/${{ steps.tag.outputs.version }}/` (copied from previous version, rewritten)
+            - `packaging/winget/manifests/i/ibrahemid/Writ/${{ steps.tag.outputs.version }}/` (copied from previous version, rewritten; ProductCode read from the released MSI)
             - `packaging/aur/writ-bin/PKGBUILD` + regenerated `.SRCINFO`
 
             Follow-up submission steps (manual):

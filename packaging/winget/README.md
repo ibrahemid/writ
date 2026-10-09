@@ -31,11 +31,9 @@ Before a release fills it in, `InstallerSha256` holds the placeholder `__SHA256_
 
 The 0.2.0 installer manifest carries the real `ProductCode` GUID, and the upstream 0.2.0 manifest carries the same one. Only the dead 0.1.0 folder still holds the zero placeholder `{00000000-0000-0000-0000-000000000000}`, so a grep across this directory can look as though the field was never filled in.
 
-`scripts/packaging_bump_winget.py` rewrites `PackageVersion`, `InstallerUrl`, `InstallerSha256`, `ReleaseDate`, and `ReleaseNotesUrl`. It does not touch `ProductCode`, so a new version inherits the previous version's GUID.
+Tauri's WiX bundler mints a fresh ProductCode for every version (confirmed 0.3.1 -> 0.3.2), and the upstream validation bot rejects a stale one. `scripts/packaging_bump_winget.py` reads the GUID from the released MSI (`MSI_PATH`) with `msiinfo` from msitools and writes it into the new installer manifest. It stops without writing a version folder when msiinfo is missing, fails, or the Property table has no single braced-GUID `ProductCode` row.
 
-Inheriting it is wrong: Tauri's WiX bundler mints a fresh ProductCode for every version (confirmed 0.3.1 -> 0.3.2). Read the GUID out of the built MSI and paste it into the new manifest before opening the upstream PR; the upstream validation bot rejects a stale one.
-
-On Windows:
+To check a manifest's GUID against an MSI by hand, on Windows:
 
 ```powershell
 lessmsi l -t Property Writ_<version>_x64_en-US.msi
@@ -86,6 +84,6 @@ For a fuller check, run the upstream sandbox test from a clone of `microsoft/win
 
 ## Updating on a new release
 
-The post-release workflow `.github/workflows/packages.yml` copies the highest existing version folder to the new version, rewrites `PackageVersion`, `InstallerUrl`, `InstallerSha256`, `ReleaseDate`, and `ReleaseNotesUrl`, and opens a PR in this repo with the bumps. After the PR merges, repeat the submission steps above against `microsoft/winget-pkgs` for the new version folder.
+The post-release workflow `.github/workflows/packages.yml` copies the highest existing version folder to the new version, rewrites `PackageVersion`, `InstallerUrl`, `InstallerSha256`, `ReleaseDate`, `ReleaseNotesUrl`, and `ProductCode`, and opens a PR in this repo with the bumps. After the PR merges, repeat the submission steps above against `microsoft/winget-pkgs` for the new version folder.
 
 A follow-up improvement is to automate the upstream PR using `wingetcreate submit`, which requires a GitHub PAT with fork access stored as a repo secret.
