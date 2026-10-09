@@ -34,7 +34,8 @@
 
 // Denied rather than forbidden: `atomic::metadata` lifts it for the handful
 // of `libc` calls that carry a file's extended attributes and creation date
-// across the rename a save performs. Nothing else in the crate may.
+// across the rename a save performs, and `identity` for the one Windows call
+// that reads a file's id. Nothing else in the crate may.
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
@@ -57,6 +58,8 @@ pub mod database;
 pub mod errors;
 /// The one way a note's file is written (ADR-028 section 5).
 pub mod guarded;
+/// What the filesystem calls a file, independently of its path.
+pub mod identity;
 /// Watched-inbox file listing.
 pub mod inbox_store;
 /// Per-buffer preview layout persistence (ADR-009).

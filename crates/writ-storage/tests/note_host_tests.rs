@@ -14,7 +14,7 @@ use std::time::SystemTime;
 use tempfile::TempDir;
 use writ_core::config::FileExtension;
 use writ_core::notes::containment::resolve_for_containment;
-use writ_core::notes::host::{Capability, HostError, NoteHost, PermissionSet};
+use writ_core::notes::host::{Capability, HostError, LastKnown, NoteHost, PermissionSet};
 use writ_core::notes::WriteOrigin;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
@@ -150,7 +150,7 @@ fn a_host_holding_nothing_refuses_every_method() {
     );
     refused(host.folder_tags().expect_err("tags"), Capability::ReadIndex);
     refused(
-        host.write_note("Launch.md", "after\n", None, origin())
+        host.write_note("Launch.md", "after\n", LastKnown::Overwrite, origin())
             .expect_err("write"),
         Capability::WriteNote,
     );
@@ -174,7 +174,7 @@ fn a_refused_write_leaves_the_file_as_it_was_and_writes_nothing_beside_it() {
     let host = host(&fixture, &[Capability::ReadNote]);
 
     refused(
-        host.write_note("Launch.md", "after\n", None, origin())
+        host.write_note("Launch.md", "after\n", LastKnown::Overwrite, origin())
             .expect_err("a read-only set has no write path"),
         Capability::WriteNote,
     );
@@ -246,12 +246,13 @@ fn list_notes_answers_in_path_order_and_stops_at_the_limit() {
     write_note(&fixture, "Beta.md", "b\n");
     write_note(&fixture, "Alpha.md", "a\n");
     write_note(&fixture, "Projects/Writ.md", "w\n");
-    write_note(&fixture, "Notes.txt", "not a note\n");
+    write_note(&fixture, "Notes.txt", "a plain text note\n");
+    write_note(&fixture, "diagram.png", "not a note\n");
     let host = host(&fixture, &[Capability::ListNotes]);
 
     let listed = host.list_notes(None, 10).expect("list");
     let names: Vec<&str> = listed.iter().map(|note| note.name.as_str()).collect();
-    assert_eq!(names, ["Alpha", "Beta", "Writ"]);
+    assert_eq!(names, ["Alpha", "Beta", "Notes.txt", "Writ"]);
     assert_eq!(listed[0].bytes, 2);
 
     assert_eq!(host.list_notes(None, 1).expect("list").len(), 1);
@@ -331,7 +332,7 @@ fn write_note_lands_the_bytes_and_answers_with_the_new_hash() {
     let host = host(&fixture, &[Capability::WriteNote]);
 
     let receipt = host
-        .write_note("Launch.md", "after\n", None, origin())
+        .write_note("Launch.md", "after\n", LastKnown::Overwrite, origin())
         .expect("write");
 
     assert_eq!(
@@ -350,7 +351,7 @@ fn a_write_against_a_note_changed_underneath_is_refused_with_a_copy() {
     let host = host(&fixture, &[Capability::WriteNote]);
 
     let error = host
-        .write_note("Launch.md", "after\n", Some(stale), origin())
+        .write_note("Launch.md", "after\n", LastKnown::Hash(stale), origin())
         .expect_err("the note holds something else");
 
     match error {
@@ -362,6 +363,211 @@ fn a_write_against_a_note_changed_underneath_is_refused_with_a_copy() {
     assert_eq!(
         std::fs::read_to_string(&note).expect("read back"),
         "before\n"
+    );
+}
+
+/// The capabilities a session that reads and writes holds.
+const READ_AND_WRITE: &[Capability] = &[
+    Capability::ReadNote,
+    Capability::WriteNote,
+    Capability::CreateNote,
+    Capability::RenameNote,
+];
+
+#[test]
+fn a_write_against_what_the_host_last_saw_lands_after_a_read() {
+    let fixture = fixture();
+    let note = write_note(&fixture, "Launch.md", "before\n");
+    let host = host(&fixture, READ_AND_WRITE);
+
+    host.read_note("Launch.md").expect("read");
+    let receipt = host
+        .write_note("Launch.md", "after\n", LastKnown::LastSeen, origin())
+        .expect("the note still holds what was read");
+
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read back"),
+        "after\n"
+    );
+    assert!(receipt.changed);
+}
+
+#[test]
+fn a_note_the_host_has_not_seen_is_refused_and_left_alone() {
+    let fixture = fixture();
+    let note = write_note(&fixture, "Launch.md", "before\n");
+    let before = modified(&note);
+    let host = host(&fixture, READ_AND_WRITE);
+
+    let error = host
+        .write_note("Launch.md", "after\n", LastKnown::LastSeen, origin())
+        .expect_err("there is nothing to compare the write with");
+
+    assert_eq!(
+        error,
+        HostError::HashRequired {
+            path: "Launch.md".to_string()
+        }
+    );
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read back"),
+        "before\n"
+    );
+    assert_eq!(modified(&note), before);
+    assert_eq!(folder_contents(&fixture.notes), ["Launch.md"]);
+}
+
+#[test]
+fn a_path_the_folder_does_not_hold_keeps_its_own_answer_over_an_unseen_note() {
+    let fixture = fixture();
+    let host = host(&fixture, READ_AND_WRITE);
+
+    assert_eq!(
+        host.write_note("Missing.md", "after\n", LastKnown::LastSeen, origin())
+            .expect_err("nothing is there"),
+        HostError::NotFound {
+            path: "Missing.md".to_string()
+        }
+    );
+    assert!(matches!(
+        host.write_note("../outside.md", "after\n", LastKnown::LastSeen, origin())
+            .expect_err("out of the folder"),
+        HostError::OutsideNotesFolder { .. }
+    ));
+}
+
+#[test]
+fn a_note_changed_since_the_host_read_it_is_refused_with_a_copy() {
+    let fixture = fixture();
+    let note = write_note(&fixture, "Launch.md", "as it was read\n");
+    let host = host(&fixture, READ_AND_WRITE);
+    host.read_note("Launch.md").expect("read");
+    std::fs::write(&note, "as somebody else left it\n").expect("edit underneath");
+
+    let error = host
+        .write_note(
+            "Launch.md",
+            "what the caller sent\n",
+            LastKnown::LastSeen,
+            origin(),
+        )
+        .expect_err("the note moved on since it was read");
+
+    let HostError::Conflict { conflict_copy, .. } = error else {
+        panic!("expected a conflict, got {error:?}");
+    };
+    let copy = conflict_copy.expect("the text lands beside the note");
+    assert_eq!(
+        std::fs::read_to_string(copy).expect("read the copy"),
+        "what the caller sent\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read back"),
+        "as somebody else left it\n"
+    );
+}
+
+#[test]
+fn a_handle_derived_from_the_host_sees_what_the_host_read() {
+    let fixture = fixture();
+    let note = write_note(&fixture, "Launch.md", "before\n");
+    let reading = host(&fixture, &[Capability::ReadNote]);
+    let writing = reading.with_permissions(held(&[Capability::WriteNote]));
+
+    reading.read_note("Launch.md").expect("read");
+    writing
+        .write_note("Launch.md", "after\n", LastKnown::LastSeen, origin())
+        .expect("a read on one handle is a read on the other");
+
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read back"),
+        "after\n"
+    );
+}
+
+#[test]
+fn a_second_host_over_the_same_folder_has_seen_nothing() {
+    let fixture = fixture();
+    write_note(&fixture, "Launch.md", "before\n");
+    host(&fixture, READ_AND_WRITE)
+        .read_note("Launch.md")
+        .expect("read");
+
+    assert!(matches!(
+        host(&fixture, READ_AND_WRITE)
+            .write_note("Launch.md", "after\n", LastKnown::LastSeen, origin())
+            .expect_err("another session's read is not this one's"),
+        HostError::HashRequired { .. }
+    ));
+}
+
+#[test]
+fn the_hosts_own_write_is_what_its_next_write_is_compared_with() {
+    let fixture = fixture();
+    let note = write_note(&fixture, "Launch.md", "before\n");
+    let host = host(&fixture, READ_AND_WRITE);
+    host.read_note("Launch.md").expect("read");
+
+    host.write_note("Launch.md", "first\n", LastKnown::LastSeen, origin())
+        .expect("first write");
+    host.write_note("Launch.md", "second\n", LastKnown::LastSeen, origin())
+        .expect("the note holds what the first write left");
+
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read back"),
+        "second\n"
+    );
+    assert_eq!(folder_contents(&fixture.notes), ["Launch.md"]);
+}
+
+#[test]
+fn a_note_the_host_minted_is_one_it_has_seen() {
+    let fixture = fixture();
+    let host = host(&fixture, READ_AND_WRITE);
+    let minted = host
+        .create_note("Ship it", "first\n", origin())
+        .expect("mint");
+
+    host.write_note(&minted.path, "second\n", LastKnown::LastSeen, origin())
+        .expect("the host knows what it minted");
+
+    assert_eq!(
+        std::fs::read_to_string(fixture.notes.join("Ship it.md")).expect("read back"),
+        "second\n"
+    );
+}
+
+#[test]
+fn a_renamed_note_keeps_what_the_host_saw_under_its_new_path() {
+    let fixture = fixture();
+    write_note(&fixture, "Writ.md", "body\n");
+    let host = host(&fixture, READ_AND_WRITE);
+    host.read_note("Writ.md").expect("read");
+    let moved = host
+        .rename_note("Writ.md", "Landed", origin())
+        .expect("rename");
+
+    host.write_note(&moved.path, "after\n", LastKnown::LastSeen, origin())
+        .expect("a rename moves no byte");
+
+    assert_eq!(
+        std::fs::read_to_string(fixture.notes.join("Landed.md")).expect("read back"),
+        "after\n"
+    );
+}
+
+#[test]
+fn an_overwrite_lands_on_a_note_the_host_has_not_seen() {
+    let fixture = fixture();
+    let note = write_note(&fixture, "Launch.md", "before\n");
+    let host = host(&fixture, &[Capability::WriteNote]);
+
+    host.write_note("Launch.md", "after\n", LastKnown::Overwrite, origin())
+        .expect("an overwrite compares with nothing");
+
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read back"),
+        "after\n"
     );
 }
 
@@ -465,11 +671,11 @@ fn a_second_handle_serves_another_set_over_the_same_folder_and_index() {
         Capability::ReadIndex,
     );
     assert!(writing
-        .write_note("One.md", "other\n", None, origin())
+        .write_note("One.md", "other\n", LastKnown::Overwrite, origin())
         .is_ok());
     refused(
         reading
-            .write_note("One.md", "again\n", None, origin())
+            .write_note("One.md", "again\n", LastKnown::Overwrite, origin())
             .expect_err("the first set writes nothing"),
         Capability::WriteNote,
     );
@@ -509,7 +715,12 @@ fn an_identical_proposal_reports_no_change() {
     let host = host(&fixture, &[Capability::WriteNote]);
 
     let receipt = host
-        .write_note("Launch.md", "the same text\n", None, origin())
+        .write_note(
+            "Launch.md",
+            "the same text\n",
+            LastKnown::Overwrite,
+            origin(),
+        )
         .expect("a write of the text the note already holds is not a refusal");
 
     assert!(
@@ -531,7 +742,7 @@ fn a_proposal_that_moves_bytes_reports_a_change() {
     let host = host(&fixture, &[Capability::WriteNote]);
 
     let receipt = host
-        .write_note("Launch.md", "after\n", None, origin())
+        .write_note("Launch.md", "after\n", LastKnown::Overwrite, origin())
         .expect("the write lands");
 
     assert!(receipt.changed);
@@ -554,4 +765,50 @@ fn a_host_mints_in_the_format_it_was_opened_with() {
 
     assert!(receipt.path.ends_with("Ship it.txt"), "{}", receipt.path);
     assert!(fixture.notes.join("Ship it.txt").is_file());
+}
+
+#[test]
+fn a_write_keeping_versions_keeps_the_ones_a_renamed_note_had_under_its_old_name() {
+    use std::time::Duration;
+    use writ_storage::identity::PlatformIdentity;
+    use writ_storage::note_history::NoteHistoryStore;
+
+    let fixture = fixture();
+    write_note(&fixture, "Draft.md", "v1\n");
+    let host = host(&fixture, &[Capability::WriteNote]);
+    // Keyed against the folder as the host resolved it, the way the app and
+    // `writ mcp` hand it to their stores.
+    let notes = host.notes_root().to_path_buf();
+    let note = notes.join("Draft.md");
+    let store = NoteHistoryStore::open(&fixture._dir.path().join("data")).expect("open the store");
+    store.set_notes_root(notes.clone());
+    store.set_probe(std::sync::Arc::new(PlatformIdentity));
+    // Two versions under the old name, so the text the write replaces is not
+    // the whole of what the note had.
+    let key = store.key_for(&note).expect("a key");
+    let now = SystemTime::now();
+    store
+        .capture_replaced(&key, b"v0\n", now - Duration::from_secs(20))
+        .expect("keep v0");
+    store
+        .capture_replaced(&key, b"v1\n", now - Duration::from_secs(10))
+        .expect("keep v1");
+    let renamed = notes.join("Final.md");
+    std::fs::rename(&note, &renamed).expect("rename outside the host");
+
+    host.with_history(Some(&store))
+        .write_note("Final.md", "v2\n", LastKnown::Overwrite, origin())
+        .expect("the write is made");
+
+    let key = store.key_for(&renamed).expect("a key");
+    let texts: Vec<Vec<u8>> = store
+        .versions(&key)
+        .expect("versions")
+        .into_iter()
+        .map(|entry| store.content(entry.id).expect("content"))
+        .collect();
+    assert_eq!(
+        texts,
+        [b"v2\n".to_vec(), b"v1\n".to_vec(), b"v0\n".to_vec()]
+    );
 }

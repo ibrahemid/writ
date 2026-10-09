@@ -24,7 +24,9 @@ const DEFAULT_LIMIT: usize = 100;
 /// What the server tells a client about itself.
 const INSTRUCTIONS: &str = "Reads and writes the notes in the user's Writ folder. A path is \
      one list_notes returns, or a path inside the folder. Reading and writing are approved \
-     separately, in Writ. Nothing here deletes a note.";
+     separately, in Writ. Read a note before you write it: write_note compares the note with \
+     the text you read, and writes a note you have not read only when you pass overwrite. \
+     Writ keeps the text every write replaces. Nothing here deletes a note.";
 
 /// Arguments to `list_notes`.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
@@ -63,12 +65,19 @@ pub struct WriteNoteArgs {
     /// The whole note, frontmatter included. It replaces what the file
     /// holds, byte for byte.
     pub content: String,
-    /// The hash read_note returned for this note. Pass it and the write is
-    /// made only while the note still holds the text you read; a note
+    /// The hash read_note or an earlier write_note returned for this note.
+    /// The write is made only while the note still holds that text; a note
     /// somebody edited in between is left alone and your text is written
-    /// beside it. Leave it out and the write lands on whatever the file
-    /// holds now.
+    /// beside it. Leave it out and the note is compared with the text you
+    /// last read or wrote in this session, and a note you have not read is
+    /// refused.
     pub expected_hash: Option<String>,
+    /// Replace whatever the note holds now without comparing it with
+    /// anything you read. The only way to write a note you have not read in
+    /// this session; not allowed with expected_hash. Writ keeps the text it
+    /// replaces and its activity list names the overwrite.
+    #[serde(default)]
+    pub overwrite: bool,
 }
 
 /// Arguments to `create_note`.
@@ -206,9 +215,10 @@ impl WritServer {
 
     #[tool(
         name = "write_note",
-        description = "Replace the text of a note that already exists. Pass expected_hash, \
-            the hash read_note gave you, and a note edited since you read it is left alone, \
-            with your text written beside it."
+        description = "Replace the text of a note that already exists. Read it first: a note \
+            edited since you read it is left alone, with your text written beside it, and a \
+            note you have not read is refused unless you pass overwrite. Writ keeps the text \
+            every write replaces."
     )]
     async fn write_note(
         &self,
@@ -220,6 +230,7 @@ impl WritServer {
             &args.path,
             &args.content,
             args.expected_hash.as_deref(),
+            args.overwrite,
         ))
     }
 
@@ -342,13 +353,18 @@ fn mcp_error(error: ToolError) -> ErrorData {
         | ToolError::TooLarge { .. }
         | ToolError::TooMuchText { .. }
         | ToolError::HashNotUnderstood { .. }
+        | ToolError::HashAndOverwrite { .. }
         | ToolError::NameEmpty
         | ToolError::NameTaken { .. } => ErrorData::invalid_params(message, None),
         ToolError::NotFound { .. } => ErrorData::resource_not_found(message, None),
         // A conflict is the note's answer to the call, not a fault in it: the
         // client asked about a note it had read and the note has moved on.
         ToolError::Conflict { .. } => ErrorData::invalid_request(message, None),
+        // The same for a note the client has not read: the call is well formed,
+        // and the client has a read to make before it is answered.
+        ToolError::HashRequired { .. } => ErrorData::invalid_request(message, None),
         ToolError::IndexUnavailable
+        | ToolError::VersionsUnavailable { .. }
         | ToolError::Unreadable { .. }
         | ToolError::Unwritable { .. }
         | ToolError::NotDownloaded { .. } => ErrorData::internal_error(message, None),
@@ -359,14 +375,28 @@ fn mcp_error(error: ToolError) -> ErrorData {
 mod tests {
     use super::*;
     use crate::consent::{DenyAll, EnabledReads};
-    use crate::tools::{READ_TOOLS, WRITE_TOOLS};
+    use crate::tools::{FixedAppFolder, READ_TOOLS, WRITE_TOOLS};
 
     fn host(root: &std::path::Path, enabled: bool) -> ToolHost {
         let db = root.join("writ.db");
         if enabled {
-            ToolHost::open(root, &db, root, Box::new(EnabledReads::new(true))).expect("host")
+            ToolHost::open(
+                root,
+                &db,
+                root,
+                Box::new(FixedAppFolder(root.to_path_buf())),
+                Box::new(EnabledReads::new(true)),
+            )
+            .expect("host")
         } else {
-            ToolHost::open(root, &db, root, Box::new(DenyAll)).expect("host")
+            ToolHost::open(
+                root,
+                &db,
+                root,
+                Box::new(FixedAppFolder(root.to_path_buf())),
+                Box::new(DenyAll),
+            )
+            .expect("host")
         }
     }
 

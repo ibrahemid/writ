@@ -18,8 +18,9 @@ use writ_storage::note_history::{Kept, NoteHistoryStore};
 
 /// The platform's answer on Unix, and a description everywhere else.
 ///
-/// The app's own probe (`src-tauri/src/watcher/identity.rs`) is not reachable
-/// from this crate, so the tests carry the two lines of it they need.
+/// Two lines of [`writ_storage::identity::PlatformIdentity`], with the
+/// fallback in place of a Windows file id so the fallback arm is what Windows
+/// runs.
 struct Probe;
 
 impl IdentityProbe for Probe {
@@ -359,9 +360,9 @@ fn a_file_the_notes_folder_does_not_hold_has_no_key() {
 
 // The fixture's probe answers with an inode on unix and with the fallback
 // everywhere else (`Probe` above), and a fallback cannot recognise the same
-// file at another name. The app's Windows probe reads a durable file id
-// (`src-tauri/src/watcher/identity.rs`); what this crate can test on Windows is
-// the fallback arm, below.
+// file at another name. The platform's Windows probe reads a durable file id
+// (`writ_storage::identity`); what this fixture tests on Windows is the
+// fallback arm, below.
 #[cfg(unix)]
 #[test]
 fn a_note_renamed_inside_the_folder_keeps_its_history_through_its_identity() {
@@ -384,6 +385,100 @@ fn a_note_renamed_inside_the_folder_keeps_its_history_through_its_identity() {
         fixture.store.content(versions[0].id).expect("content"),
         b"one\n"
     );
+}
+
+/// Replaces the file at `path` the way a save does: a sibling written and
+/// renamed over it, so the path holds a new file afterwards.
+#[cfg(unix)]
+fn replace_like_a_save(path: &Path, text: &str) {
+    let sibling = path.with_extension("incoming");
+    std::fs::write(&sibling, text).expect("write the sibling");
+    std::fs::rename(&sibling, path).expect("rename over the note");
+}
+
+#[cfg(unix)]
+#[test]
+fn following_a_rename_before_a_save_keeps_the_history_the_note_had_under_its_old_name() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    let renamed = fixture.notes.join("Ship it.md");
+    std::fs::rename(&path, &renamed).expect("rename");
+
+    fixture.store.follow_rename(&renamed).expect("follow");
+    replace_like_a_save(&renamed, "two\n");
+    let after = fixture.key(&renamed);
+    fixture
+        .store
+        .capture(&after, b"two\n", at(2_000), &WriteOrigin::Chat)
+        .expect("capture");
+
+    let texts: Vec<Vec<u8>> = fixture
+        .store
+        .versions(&after)
+        .expect("versions")
+        .into_iter()
+        .map(|entry| fixture.store.content(entry.id).expect("content"))
+        .collect();
+    assert_eq!(texts, [b"two\n".to_vec(), b"one\n".to_vec()]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_save_over_a_renamed_note_nobody_followed_starts_a_history_of_its_own() {
+    // The case following exists for: the save gives the path a new file, so
+    // neither the path nor the identity the capture reads names the note's
+    // row any more.
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    let renamed = fixture.notes.join("Ship it.md");
+    std::fs::rename(&path, &renamed).expect("rename");
+
+    replace_like_a_save(&renamed, "two\n");
+    let after = fixture.key(&renamed);
+    fixture
+        .store
+        .capture(&after, b"two\n", at(2_000), &WriteOrigin::Chat)
+        .expect("capture");
+
+    assert_eq!(fixture.store.versions(&after).expect("versions").len(), 1);
+}
+
+#[test]
+fn following_a_file_the_store_does_not_hold_changes_nothing() {
+    let fixture = Fixture::new();
+    let kept = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&kept);
+    fixture
+        .store
+        .capture(&key, b"one\n", at(1_000), &WriteOrigin::Editor)
+        .expect("capture");
+    let stranger = fixture.note("Never kept.md", "two\n");
+    let outside = fixture.writ_dir.join("outside.md");
+    std::fs::write(&outside, "three\n").expect("write outside");
+
+    fixture.store.follow_rename(&stranger).expect("follow");
+    fixture.store.follow_rename(&outside).expect("follow");
+    fixture
+        .store
+        .follow_rename(&fixture.notes.join("Not there.md"))
+        .expect("follow");
+
+    assert!(fixture
+        .store
+        .versions(&fixture.key(&stranger))
+        .expect("versions")
+        .is_empty());
+    assert_eq!(fixture.store.versions(&key).expect("versions").len(), 1);
 }
 
 #[cfg(not(unix))]

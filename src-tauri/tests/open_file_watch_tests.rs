@@ -619,16 +619,20 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
         &root,
         &data.path().join("writ.db"),
         data.path(),
+        Box::new(writ_mcp::tools::FixedAppFolder(root.clone())),
         Box::new(writ_mcp::consent::ConfigGate::new(data.path())),
     )
     .expect("open the folder the way the served process does");
     let written = b"as a program left it\n";
+    // The hash of the text the program read, which is what a client passes.
+    let read_by_the_program = writ_core::hash::sha256_hex(read_by_the_tab);
     std::thread::spawn(move || {
         host.write_note(
             &writ_core::activity::ClientId::named("Test Client"),
             "Launch.md",
             std::str::from_utf8(written).expect("utf-8"),
-            None,
+            Some(&read_by_the_program),
+            false,
         )
         .expect("the write is made");
     })

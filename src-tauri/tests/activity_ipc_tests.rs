@@ -295,6 +295,7 @@ fn the_settings_row_lists_the_tools_the_served_process_registers() {
         dir.path(),
         &dir.path().join("writ.db"),
         dir.path(),
+        Box::new(writ_mcp::tools::FixedAppFolder(dir.path().to_path_buf())),
         Box::new(writ_mcp::consent::DenyAll),
     )
     .expect("host");

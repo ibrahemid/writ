@@ -13,6 +13,10 @@ separately in ADR-032.
 Amended by [ADR-040](./040-one-ai-connection-and-a-chat-that-persists.md) in rules 2.1, 2.4, 2.7,
 5.2 and 7.1.
 
+Rules 1.3 and 1.4 amended 2026-10-05: the MCP process writes `history.db`, so a write it makes
+keeps the text it replaced, and the two processes share SQLite's lock on that file. Until then the
+MCP process wrote no database and its writes kept no version.
+
 The rule numbers below are the contract the units that build the harness are reviewed against.
 Each rule names either the code that already satisfies it or the unit that will. Rules 3.1, 3.6,
 4.1 and 4.2 are the premises the rest are argued from rather than work an implementer does, so they
@@ -57,12 +61,36 @@ its own. Writes go through the single guarded facade (U3), which is the only cal
 `:357`).
 
 1.3. The MCP process reads the index read-only through `NotesIndexStore::open_read_only`
-(`crates/writ-storage/src/notes_index.rs:1660`) and writes `writ.db` never. Two processes do not
-write one SQLite file in this release (U4).
+(`crates/writ-storage/src/notes_index.rs`) and writes `writ.db` never. It writes one other database
+of the app's, `history.db`, so a write a connected program makes keeps the text it replaced the
+way a save in the app does (rule 5.6). It opens the store at the first write a client is allowed
+to make (`ToolHost::history`, `crates/writ-mcp/src/tools.rs`), through the same
+`NoteHistoryStore` the app holds, keyed against the app's notes folder and reading each file's
+identity with the same probe (`writ_storage::identity`), so Revert To in the app lists what the
+program replaced. The app's folder is resolved from `config.toml` at every write, without the
+server's own `WRIT_NOTES_DIR` (`writ_cli::resolve_app_notes_dir`), because a server started on
+another folder that keyed its writes against that folder would file them under the app's note at
+the same relative path. A note the server serves from inside the app's folder keeps its versions
+under the path the app knows it by; a note outside it keeps none, as a file outside the notes
+folder keeps none in the app, and a served folder that shares nothing with the app's does not open
+the store. Before a write lands, a note renamed since its last version is moved to its new
+path by that identity (`NoteHistoryStore::follow_rename`), so its earlier versions stay listed. A
+session that only reads, or is refused, creates nothing.
+
+Two processes write that one file. It is in WAL mode, every capture and every pruning pass is one
+immediate transaction, so a note's row is found or made and its entry added with the other process
+held off until both are committed, and a writer that finds the lock held waits up to five seconds
+(`note_history::BUSY_TIMEOUT`) rather than failing. A store that will not open leaves the note
+unwritten (`ToolError::VersionsUnavailable`). `crates/writ-mcp/tests/history_two_writers.rs`
+asserts every version both processes keep while writing at once, and
+`crates/writ-storage/tests/note_history_two_writers_tests.rs` asserts two writers reaching one new
+note at the same moment.
 
 1.4. A running app learns about an outside write through the notes watcher
 ([ADR-033](./033-external-change-handling.md)), not through a channel the harness adds. No socket,
-no shared lock, no new IPC between the server process and the app (U6).
+no lock of the harness's own, no new IPC between the server process and the app (U6). The one
+thing the two processes share is SQLite's own lock on `history.db` under rule 1.3, which carries
+no message: the app still learns of a program's write only through the watcher.
 
 1.5. The plugin surface this harness is built on is internal. No third-party code is loaded,
 nothing is installable, no manifest is read from disk, and no surface is documented for anyone

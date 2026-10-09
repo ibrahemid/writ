@@ -14,8 +14,11 @@
 //! The three writes carry a [`crate::notes::WriteOrigin`] naming the consumer,
 //! and they do not write themselves: they go through the one guarded facade, so
 //! a note changed since the caller last saw it keeps what it holds and the text
-//! handed in lands beside it. There is no argument that turns that into an
-//! overwrite (ADR-032 section 4).
+//! handed in lands beside it. What the caller last saw is a [`LastKnown`] the
+//! caller has to name: a digest, the text this host last saw the note hold, or
+//! [`LastKnown::Overwrite`]. A write that replaces whatever the note holds is
+//! that third value and nothing else, so a consumer cannot make one by leaving
+//! an argument out (ADR-032 section 4).
 //!
 //! The implementation is `writ_storage::note_host::NoteHostImpl`, which owns
 //! the folder walk, the index and the facade. This module is the declaration
@@ -41,6 +44,26 @@ use crate::notes::WriteOrigin;
 
 /// Largest note this surface reads, in bytes (ADR-031 rule 4.8).
 pub const MAX_NOTE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// What a write expects the note to hold before it lands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LastKnown {
+    /// The digest of the text the caller last saw the note hold: the `hash` a
+    /// read or an earlier write handed back. The write lands only while the
+    /// note still holds that text.
+    Hash(Sha256Digest),
+    /// The text this host last saw the note hold: what its own
+    /// [`NoteHost::read_note`] handed back, or what its own write or mint left
+    /// there. The write lands only while the note still holds that text, and a
+    /// note this host has not seen is refused with [`HostError::HashRequired`].
+    ///
+    /// Every handle derived from one host sees the same notes, so a read on one
+    /// call and a write on the next compare against each other.
+    LastSeen,
+    /// Whatever the note holds now. The caller asked to replace it without a
+    /// comparison, and says so by passing this.
+    Overwrite,
+}
 
 /// The notes folder, as a program is allowed to see it.
 pub trait NoteHost {
@@ -80,12 +103,14 @@ pub trait NoteHost {
 
     /// Replaces the text of the note at `path`.
     ///
-    /// `last_known` is the digest of what the caller last saw the note hold.
-    /// Given one, the write is made only while the note still holds that text:
-    /// a note somebody edited in between keeps what it holds, the text handed
-    /// in is put beside it as a dated copy, and [`HostError::Conflict`] names
-    /// the copy. Omitted, the write is made against whatever the file holds
-    /// now.
+    /// `last_known` is what the caller last saw the note hold. For
+    /// [`LastKnown::Hash`] and [`LastKnown::LastSeen`] the write is made only
+    /// while the note still holds that text: a note somebody edited in between
+    /// keeps what it holds, the text handed in is put beside it as a dated
+    /// copy, and [`HostError::Conflict`] names the copy. A note this host has
+    /// not seen answers [`LastKnown::LastSeen`] with
+    /// [`HostError::HashRequired`] and is left alone. [`LastKnown::Overwrite`]
+    /// is made against whatever the file holds now.
     ///
     /// The bytes land as they were handed in. Text the note already holds is
     /// not written again, so the modification time does not move.
@@ -93,7 +118,7 @@ pub trait NoteHost {
         &self,
         path: &str,
         content: &str,
-        last_known: Option<Sha256Digest>,
+        last_known: LastKnown,
         origin: WriteOrigin,
     ) -> Result<WriteReceipt, HostError>;
 

@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use tempfile::TempDir;
 use writ_mcp::consent::{ClientId, ConsentGate, Decision};
-use writ_mcp::tools::{ToolError, ToolHost};
+use writ_mcp::tools::{FixedAppFolder, ToolError, ToolHost};
 
 /// A gate that remembers every question it was asked.
 struct CountingGate {
@@ -77,6 +77,7 @@ fn each_tool_call_asks_the_gate_once() {
         &fixture.notes,
         &fixture.db,
         &fixture.writ,
+        Box::new(FixedAppFolder(fixture.notes.clone())),
         Box::new(Forwarding(counted)),
     )
     .expect("host");
@@ -86,7 +87,7 @@ fn each_tool_call_asks_the_gate_once() {
     let _ = host.read_note(&client, "Launch.md");
     let _ = host.note_links(&client, "Launch.md");
     let _ = host.folder_tags(&client);
-    let _ = host.write_note(&client, "Launch.md", "after\n", None);
+    let _ = host.write_note(&client, "Launch.md", "after\n", None, false);
     let _ = host.create_note(&client, "Ship it", "body\n");
     let _ = host.rename_note(&client, "Launch.md", "Landed");
 
@@ -117,6 +118,7 @@ fn a_refusal_reaches_no_host_call() {
         &fixture.notes,
         &fixture.db,
         &fixture.writ,
+        Box::new(FixedAppFolder(fixture.notes.clone())),
         Box::new(CountingGate::new(Decision::Refuse)),
     )
     .expect("host");
@@ -127,7 +129,7 @@ fn a_refusal_reaches_no_host_call() {
         ToolError::NotApproved { .. }
     ));
     assert!(matches!(
-        host.write_note(&client, "Launch.md", "after\n", None)
+        host.write_note(&client, "Launch.md", "after\n", None, false)
             .unwrap_err(),
         ToolError::NotApproved { .. }
     ));
@@ -141,6 +143,10 @@ fn a_refusal_reaches_no_host_call() {
     );
     assert!(!fixture.notes.join("Ship it.md").exists());
     assert!(!fixture.db.exists(), "a refused call opened no database");
+    assert!(
+        !fixture.writ.join("history.db").exists(),
+        "a refused write opened no version store"
+    );
 }
 
 /// An unparseable `expected_hash` on a path the folder does not hold: the
@@ -155,6 +161,7 @@ fn an_unparseable_hash_outranks_the_path_check() {
         &fixture.notes,
         &fixture.db,
         &fixture.writ,
+        Box::new(FixedAppFolder(fixture.notes.clone())),
         Box::new(CountingGate::new(Decision::Allow)),
     )
     .expect("host");
@@ -165,6 +172,7 @@ fn an_unparseable_hash_outranks_the_path_check() {
             &outside.to_string_lossy(),
             "after\n",
             Some("not-a-hash"),
+            false,
         )
         .expect_err("both arguments are wrong");
 
@@ -181,7 +189,7 @@ fn an_unparseable_hash_outranks_the_path_check() {
 
     // A missing path in the folder, same question.
     let missing = host
-        .write_note(&client(), "Gone.md", "after\n", Some("not-a-hash"))
+        .write_note(&client(), "Gone.md", "after\n", Some("not-a-hash"), false)
         .expect_err("both arguments are wrong");
     assert!(
         matches!(missing, ToolError::HashNotUnderstood { .. }),

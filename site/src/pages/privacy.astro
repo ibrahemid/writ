@@ -109,11 +109,12 @@ import Prose from '../layouts/Prose.astro';
     withdrawn in Settings or in <code>config.toml</code> and takes effect on the next call.
   </p>
   <p>
-    With reading approved, a program has eight tools: list the folder's Markdown files, search the folder, read a
+    With reading approved, a program has eight tools: list the folder's text files, search the folder, read a
     file, read a file's links, backlinks, properties and tags, and list the folder's tags. With writing approved, it
-    has three: replace a file's text, create a file, and rename one. No tool deletes a file. A write that passes the
-    version the program read is refused if the file changed since, and the program's text is saved beside the file.
-    A file outside your folder is out of reach.
+    has three: replace a file's text, create a file, and rename one. No tool deletes a file. A write is checked
+    against the version the program read: it is refused if the file changed since, and the program's text is saved
+    beside the file. A file the program has not read is not replaced unless it asks to overwrite it, and the text a
+    write replaces is kept as a version in Writ's data folder. A file outside your folder is out of reach.
   </p>
 
   <h2>The activity list</h2>

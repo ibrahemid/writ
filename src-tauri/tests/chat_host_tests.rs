@@ -7,7 +7,7 @@
 //! and nothing else.
 
 use tempfile::TempDir;
-use writ_core::notes::host::{Capability, HostError, NoteHost};
+use writ_core::notes::host::{Capability, HostError, LastKnown, NoteHost};
 use writ_core::notes::WriteOrigin;
 use writ_storage::note_host::NoteHostImpl;
 use writ_tauri_lib::commands::chat::{apply_permissions, context_permissions};
@@ -48,7 +48,7 @@ fn a_write_through_the_context_set_is_refused_and_the_note_is_untouched() {
         .write_note(
             "Launch.md",
             "what the model proposed\n",
-            None,
+            LastKnown::Overwrite,
             WriteOrigin::Chat,
         )
         .expect_err("the side a reply can influence has no write path");

@@ -6,6 +6,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use crate::errors::{WritError, WritResult};
+use crate::notes::extensions::{is_markdown_extension, is_text_extension};
 
 /// Files up to this size get the full feature set.
 pub const THRESHOLD_NORMAL_BYTES: u64 = 5 * 1024 * 1024;
@@ -265,7 +266,7 @@ pub fn detect_language_from_path(path: &Path) -> Option<String> {
         "xml" => Some("xml"),
         "yaml" | "yml" => Some("yaml"),
         "toml" => Some("toml"),
-        "md" | "markdown" => Some("markdown"),
+        ext if is_markdown_extension(ext) => Some("markdown"),
         "sql" => Some("sql"),
         "sh" | "bash" | "zsh" => Some("shell"),
         "ps1" => Some("powershell"),
@@ -285,7 +286,7 @@ pub fn detect_language_from_path(path: &Path) -> Option<String> {
         "dockerfile" => Some("dockerfile"),
         "graphql" | "gql" => Some("graphql"),
         "proto" => Some("protobuf"),
-        "txt" | "text" => Some("plaintext"),
+        ext if is_text_extension(ext) => Some("plaintext"),
         "csv" => Some("csv"),
         "log" => Some("plaintext"),
         "ini" | "cfg" => Some("ini"),

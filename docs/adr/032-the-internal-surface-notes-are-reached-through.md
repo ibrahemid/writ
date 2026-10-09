@@ -144,13 +144,30 @@ The three write methods do not write. They call U3's facade,
 `writ_core::notes::WriteOrigin` naming the consumer: `WriteOrigin::Mcp { client }` for a tool
 call, `WriteOrigin::Chat` for an applied proposal. The activity log and the history store are
 populated from that one call by the host, so a consumer cannot write without being recorded, and
-no consumer carries its own logging.
+no consumer carries its own logging. Both consumers hand the host a history store: the app its
+own, and the MCP process the same `history.db`, opened at its first allowed write (ADR-031 rule
+1.3).
 
-The conflict rule travels with it. Every write passes the caller's last known disk state as
-`last_known`: the tool reads the current state itself (U6), and the chat pane passes the
-proposal's `before_hash` (U7). A file changed since then is refused with a conflict copy rather
-than overwritten. The trait has no force parameter, so there is no argument a consumer can pass to
-make a refusal into an overwrite.
+The conflict rule travels with it. Every write names what the caller last saw as a
+`writ_core::notes::host::LastKnown`, and there is no default:
+
+- `LastKnown::Hash(digest)`: the text a read or an earlier write handed back. The chat pane passes
+  the proposal's `before_hash` (U7), and a tool passes the client's `expected_hash`.
+- `LastKnown::LastSeen`: the text this host last saw the note hold, through its own `read_note`,
+  write or mint. Every handle `with_permissions` derives from one host shares that memory, so a
+  read on one tool call is what a write on the next compares against. A note the host has not
+  seen is refused with `HostError::HashRequired` and left alone. A tool call with no
+  `expected_hash` passes this.
+- `LastKnown::Overwrite`: whatever the note holds now. A tool passes it only when the client sent
+  `overwrite: true`, which cannot be combined with `expected_hash`, and the activity log records
+  that call as `overwrite_note` rather than `write_note`.
+
+A file changed since the caller saw it is refused with a conflict copy rather than overwritten.
+Overwrite is the one way past that comparison, it is a value the caller has to name rather than
+an argument it can leave out, and the text it replaces is kept as a version.
+
+Amended 2026-10-05. Until then `last_known` was optional and a tool call without a hash wrote
+against whatever the file held, which the history store did not see.
 
 ### 5. The chat surface holds two permission sets
 
