@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-10-12
+
+Two crashes and four ways typed text could miss its file, all found in 0.5.0. Connected programs now see every text file in the folder, and a write from one keeps the replaced text as a version.
+
+### Fixed
+
+- Renaming a file to a name in Arabic, Chinese, Cyrillic or any other non-ASCII script, from the tab, the sidebar or `writ rename`, closed the app. The same slice ran when the preview checked an image whose bytes begin with non-ASCII text.
+- A trackpad drag onto the window that carried no file could close the app. The wry fix for it was pinned to an older wry and had stopped applying; it is applied again and a test keeps it applied.
+- Closing the only tab, or opening another file, within a second of typing dropped the queued save. Restart to update did the same. The text is saved first now.
+- A file Writ could not read (not UTF-8, locked, missing) opened as an empty document, and the next keystroke wrote that over the file. It now opens on a message naming the reason, with no editing.
+- Typing in a file over 5 MB and switching tabs at once could write one file's text into the other.
+- `config.toml` is replaced in one step, so a crash mid-write cannot leave it empty. A `config.toml` that is a hard link cannot be saved; a symlinked one is followed.
+- Connected programs listed Markdown files only, so a plain-text folder looked empty to them. They now see every `.md`, `.markdown`, `.txt` and `.text` file.
+- A connected program replacing a file it has not read is refused until it reads it or asks to overwrite, and the replaced text is kept as a version under File, Revert To….
+- The Linux AppImage packed its launcher without the execute bit for other users, so it did not start under firejail.
+
+### Changed
+
+- rustls 0.23.45.
+
 ## [0.5.0] - 2026-09-26
 
 Writ opens any text file, and a new file is plain text or Markdown, whichever the setup screen or Settings names. A Markdown file renders inline, with the markup shown on the line being edited. Chat, rewrite, connected programs, connections, the graph and tags are apps, each switched on under Settings, Apps, and all off in a fresh config. `[[Name]]` links one Markdown file to another, and the index behind links, tags and the `writ` command follows the folder as it changes. Nothing leaves the machine unless the client the user chose sends it. The app opens light with six accent colours and one menu bar on every platform.

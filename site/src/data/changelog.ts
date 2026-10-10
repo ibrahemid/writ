@@ -12,6 +12,22 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "0.5.1",
+    date: "2026-10-12",
+    notes: [
+      { kind: 'fixed', text: "renaming a file to a name in Arabic, Chinese, Cyrillic or any other non-ASCII script, from the tab, the sidebar or writ rename, closed the app. The same slice ran when the preview checked an image whose bytes begin with non-ASCII text." },
+      { kind: 'fixed', text: "a trackpad drag onto the window that carried no file could close the app. The wry fix for it was pinned to an older wry and had stopped applying; it is applied again and a test keeps it applied." },
+      { kind: 'fixed', text: "closing the only tab, or opening another file, within a second of typing dropped the queued save. Restart to update did the same. The text is saved first now." },
+      { kind: 'fixed', text: "a file Writ could not read (not UTF-8, locked, missing) opened as an empty document, and the next keystroke wrote that over the file. It now opens on a message naming the reason, with no editing." },
+      { kind: 'fixed', text: "typing in a file over 5 MB and switching tabs at once could write one file's text into the other." },
+      { kind: 'fixed', text: "config.toml is replaced in one step, so a crash mid-write cannot leave it empty. A config.toml that is a hard link cannot be saved; a symlinked one is followed." },
+      { kind: 'fixed', text: "connected programs listed Markdown files only, so a plain-text folder looked empty to them. They now see every .md, .markdown, .txt and .text file." },
+      { kind: 'fixed', text: "a connected program replacing a file it has not read is refused until it reads it or asks to overwrite, and the replaced text is kept as a version under File, Revert To…." },
+      { kind: 'fixed', text: "the Linux AppImage packed its launcher without the execute bit for other users, so it did not start under firejail." },
+      { kind: 'changed', text: "rustls 0.23.45." },
+    ],
+  },
+  {
     version: "0.5.0",
     date: "2026-09-26",
     notes: [
