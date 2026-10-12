@@ -47,7 +47,7 @@ libc = "0.2"
 # A file's id on Windows (`identity`). The same 0.61 line src-tauri takes, so
 # the two unify.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
 
 [[bench]]
 name = "storage"
