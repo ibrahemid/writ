@@ -15,6 +15,7 @@ What Writ does, at the level of detail that answers "does it do X".
 - Writ keeps a version of a file in its folder each time it is saved, for up to 30 days or 200 versions, outside that folder. A file over 2 MB is not versioned. File > Revert To puts one back.
 - Open tabs and unsaved text come back after a restart or a crash.
 - Binary files open as hex. Large files open with syntax colouring off.
+- A file over 50 MiB asks before it opens and says how large it is. A file over 500 MiB (524 MB) doesn't open, and Writ says why. Tabs restored at launch skip both checks.
 - On macOS, Writ can register as the app that opens text, config, data and source files (Settings, Files).
 
 ## Markdown
@@ -34,7 +35,8 @@ What Writ does, at the level of detail that answers "does it do X".
 
 ## Editing
 
-- CodeMirror 6 with language detection.
+- CodeMirror 6. A file's name decides its language, and a `.txt` or `.text` file stays plain text whatever it holds. Change Language in the palette picks another language for one file, and the file keeps it.
+- Word wrap and tab size, under Settings, Editor, apply to open files at once.
 - The command palette opens on a double tap of `Shift`.
 - Line commands: duplicate (`Cmd+D`), delete (`Cmd+Shift+K`), move (`Shift+Alt+Up/Down`), select (`Cmd+L`), join (`Cmd+Shift+J`), insert below or above (`Cmd+Enter`, `Cmd+Shift+Enter`), toggle comment (`Cmd+/`) and select next occurrence (`Cmd+Shift+D`).
 - Text transforms in the palette: trim leading or trailing spaces, collapse repeated spaces, straighten quotes, remove shared indentation, end with one newline, fix spacing before punctuation, prepare as prompt, and tidy whitespace, which runs several of them.

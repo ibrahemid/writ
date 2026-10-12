@@ -19,34 +19,30 @@ use writ_storage::buffer_store::BufferStore;
 const ERR_UNAUTHORIZED_PATH: &str =
     "Writ cannot open that file from here. Use File > Open File, or drop it onto the window.";
 
+/// Code an open carries when its path is in no folder Writ opens from on its
+/// own and no gesture of the person's granted it. A path that does not
+/// resolve answers the same, so the answer never says whether a file is
+/// there. The frontend words it (`src/lib/open-failure.ts`); the text after
+/// the code is for logs.
+pub const ERR_OPEN_NOT_AUTHORIZED: &str = "ERR_OPEN_NOT_AUTHORIZED";
+
 /// Returned to the frontend for every `open_file` call.
 ///
 /// Carries the buffer metadata plus the mode tier so the frontend can
 /// configure the editor without a second IPC round-trip.
 #[derive(Debug, Clone, Serialize)]
 pub struct FileOpenResult {
-    /// The buffer metadata row, or `None` when the file was not opened
-    /// because its bytes are not on this machine
-    /// ([`FileOpenMode::NotDownloaded`]). Every other mode carries a row.
+    /// The buffer metadata row, or `None` when nothing was opened: the file
+    /// waits on a confirm ([`FileOpenMode::LargeFileConfirm`]), is over the
+    /// size Writ opens ([`FileOpenMode::Refused`]), or has its bytes on
+    /// another machine ([`FileOpenMode::NotDownloaded`]). Every other mode
+    /// carries a row.
     pub doc: Option<BufferDocument>,
     /// How the file was classified.
     pub mode: FileOpenMode,
-    /// File size in bytes (mirrors `doc.size_bytes`; included for
-    /// convenience so callers do not have to traverse the nested struct).
+    /// File size in bytes. For a row it mirrors `doc.size_bytes`; without one
+    /// it is the size the confirm states and the refusal names.
     pub size_bytes: u64,
-}
-
-/// Returned when a file requires confirmation before loading.
-///
-/// The frontend shows a dialog, then calls `open_file_confirmed`.
-#[derive(Debug, Clone, Serialize)]
-pub struct FileOpenConfirmRequired {
-    /// Canonical path that was classified.
-    pub path: String,
-    /// File size in bytes.
-    pub size_bytes: u64,
-    /// Human-readable description of what will be disabled.
-    pub warning: String,
 }
 
 // Paths this process treats as sync placeholders regardless of what the
@@ -96,8 +92,8 @@ fn path_is_dataless(path: &Path) -> bool {
 /// itself and can be opened again tomorrow. A path outside all three is opened
 /// on a token the person's own gesture recorded, and that token is spent here.
 fn authorize_open(state: &AppState, raw_path: &str) -> Result<(String, bool), String> {
-    let canonical = canonicalize_for_authorization(Path::new(raw_path))
-        .map_err(|_| ERR_UNAUTHORIZED_PATH.to_string())?;
+    let canonical =
+        canonicalize_for_authorization(Path::new(raw_path)).map_err(|_| open_not_authorized())?;
     if state.authorized_paths.consume_for_open(&canonical) {
         return Ok((canonical, true));
     }
@@ -110,7 +106,11 @@ fn authorize_open(state: &AppState, raw_path: &str) -> Result<(String, bool), St
     if state.is_within_notes(&canonical) {
         return Ok((canonical, false));
     }
-    Err(ERR_UNAUTHORIZED_PATH.to_string())
+    Err(open_not_authorized())
+}
+
+fn open_not_authorized() -> String {
+    format!("{ERR_OPEN_NOT_AUTHORIZED}: {ERR_UNAUTHORIZED_PATH}")
 }
 
 /// Gate on asking a sync provider for a file's bytes.
@@ -136,9 +136,11 @@ pub fn authorize_download(state: &AppState, raw_path: &str) -> Result<String, St
 
 /// Opens a file from an already-authorized canonical path.
 ///
-/// Does not read the file's full content for the `LargeFileConfirm` tier —
-/// returns early with an error containing the confirmation sentinel instead.
-/// The frontend must call `open_file_confirmed` after the user confirms.
+/// Reads nothing past the classification for the `LargeFileConfirm` and
+/// `Refused` tiers: each answers with its mode and the file's size and no
+/// row. A confirm is followed, once the person says Open, by
+/// `open_file_confirmed`. A file in the confirm tier that a tab already shows
+/// answers that tab instead, since the question is asked before a read.
 pub fn open_file_from_path(state: &AppState, path: &str) -> Result<FileOpenResult, String> {
     let (canonical, spent) = authorize_open(state, path)?;
     let opened = open_authorized_path(state, &canonical);
@@ -201,17 +203,17 @@ fn open_authorized_path(state: &AppState, canonical: &str) -> Result<FileOpenRes
         return Ok(answer);
     }
 
-    let classification = file_ops::classify_path(file_path).map_err(|e| e.to_string())?;
+    let classification = file_ops::classify_path(file_path).map_err(open_failure_message)?;
 
-    match &classification.mode {
-        FileOpenMode::Refused { reason } => return Err(reason.clone()),
-        FileOpenMode::LargeFileConfirm => {
-            return Err(format!(
-                "__CONFIRM_REQUIRED__:{}:{}",
-                canonical, classification.size_bytes
-            ));
+    if let Some(answer) = unopened_answer(&classification) {
+        // Answering a tab reads its file again, which a refused file must not
+        // cost.
+        if classification.mode == FileOpenMode::LargeFileConfirm {
+            if let Some(shown) = open_tab_answer(state, &canonical)? {
+                return Ok(shown);
+            }
         }
-        _ => {}
+        return Ok(answer);
     }
 
     open_file_classified(
@@ -222,13 +224,83 @@ fn open_authorized_path(state: &AppState, canonical: &str) -> Result<FileOpenRes
     )
 }
 
-/// Performs the actual open after the frontend has confirmed.
+/// The answer for a file a tab already shows: that tab's row, in the mode the
+/// row gives, with the tab brought back in line with the file. `None` when no
+/// tab shows it.
+fn shown_tab_answer(
+    state: &AppState,
+    store: &BufferStore,
+    canonical: &str,
+) -> Result<Option<FileOpenResult>, String> {
+    let Some(existing) = store
+        .find_active_by_source_path(canonical)
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
+    };
+    state
+        .authorized_paths
+        .record_blessed_source(canonical.to_string());
+    resync_open_buffer(state, store, &existing);
+    let mode = file_ops::classify_file(existing.size_bytes, existing.read_only).once_open();
+    Ok(Some(FileOpenResult {
+        mode,
+        size_bytes: existing.size_bytes,
+        doc: Some(existing),
+    }))
+}
+
+/// [`shown_tab_answer`] under its own lock, with the tab followed the way
+/// [`open_file_classified`] follows every row it answers.
+fn open_tab_answer(state: &AppState, canonical: &str) -> Result<Option<FileOpenResult>, String> {
+    let shown = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        shown_tab_answer(state, &store, canonical)?
+    };
+    if let Some(doc) = shown.as_ref().and_then(|answer| answer.doc.as_ref()) {
+        state.follow_note_file(doc);
+    }
+    Ok(shown)
+}
+
+/// The answer for a tier that opens nothing yet, or `None` for one that opens.
 ///
-/// Called for the 50–500 MiB tier after `open_file` returns the confirmation
-/// sentinel and the user confirms. The path must already be
-/// authorized (the original `open_file` call consumed the authorization token
-/// before returning the sentinel). Re-authorization is performed here via the
-/// workspace membership check or a freshly recorded token.
+/// A refusal and a question are both answers: the mode says which, the size is
+/// what the frontend states, and no row exists. Nothing past the
+/// classification has read the file.
+fn unopened_answer(classification: &file_ops::FileClassification) -> Option<FileOpenResult> {
+    match classification.mode {
+        FileOpenMode::Refused { .. } | FileOpenMode::LargeFileConfirm => Some(FileOpenResult {
+            mode: classification.mode.clone(),
+            size_bytes: classification.size_bytes,
+            doc: None,
+        }),
+        _ => None,
+    }
+}
+
+/// An open that could not read the file, as the read code the editor's own
+/// read carries ([`crate::commands::buffer::io_read_failure_code`]) followed
+/// by the message for logs.
+fn open_failure_message(error: writ_core::errors::WritError) -> String {
+    match error {
+        writ_core::errors::WritError::Io(io) => io_read_failure_message(&io),
+        other => other.to_string(),
+    }
+}
+
+fn io_read_failure_message(error: &std::io::Error) -> String {
+    format!(
+        "{}: {error}",
+        crate::commands::buffer::io_read_failure_code(error.kind())
+    )
+}
+
+/// Registers the file and records what it holds.
+///
+/// Reached from `open_file` for a tier that opens straight away and from
+/// `open_file_confirmed` once the person said Open. The path is authorized by
+/// the caller.
 fn open_file_classified(
     state: &AppState,
     canonical: &str,
@@ -258,20 +330,8 @@ fn open_file_classified_inner(
     let file_path = Path::new(canonical);
     let store = state.store.lock().map_err(|e| e.to_string())?;
 
-    if let Some(existing) = store
-        .find_active_by_source_path(canonical)
-        .map_err(|e| e.to_string())?
-    {
-        state
-            .authorized_paths
-            .record_blessed_source(canonical.to_string());
-        resync_open_buffer(state, &store, &existing);
-        let existing_mode = file_ops::classify_file(existing.size_bytes, existing.read_only);
-        return Ok(FileOpenResult {
-            mode: existing_mode,
-            size_bytes: existing.size_bytes,
-            doc: Some(existing),
-        });
+    if let Some(shown) = shown_tab_answer(state, &store, canonical)? {
+        return Ok(shown);
     }
 
     let is_binary = matches!(mode, FileOpenMode::Binary);
@@ -289,7 +349,7 @@ fn open_file_classified_inner(
     // editor says why it cannot show the file instead of the open doing
     // nothing. Its ending is counted from the bytes, so the row names the
     // file's own ending from the open on.
-    let bytes = std::fs::read(file_path).map_err(|e| e.to_string())?;
+    let bytes = std::fs::read(file_path).map_err(|e| io_read_failure_message(&e))?;
     let digest = writ_core::hash::sha256_bytes(&bytes);
     let (content, line_ending) = if is_binary {
         (
@@ -329,15 +389,12 @@ fn open_file_classified_inner(
         });
     }
 
-    let language = file_ops::detect_language_from_path(file_path);
-
     let mut mgr = BufferManager::new().with_event_bus(state.event_bus.clone());
     let new_doc = mgr
         .open_external(canonical.to_string())
         .map_err(|e| e.to_string())?;
 
     let new_doc = BufferDocument {
-        language,
         read_only: is_binary,
         size_bytes,
         line_ending,
@@ -368,11 +425,11 @@ pub fn open_file(state: State<'_, AppState>, path: String) -> Result<FileOpenRes
     open_file_from_path(&state, &path)
 }
 
-/// Opens a file in the 50–500 MiB tier after explicit user confirmation.
+/// Opens a file in the 50-500 MiB tier once the person said Open.
 ///
-/// The caller must ensure the path was previously classified as
-/// `LargeFileConfirm` — this command skips the tier check and opens
-/// unconditionally at large-file mode.
+/// Classifies again, since the file can change while the question is up: a
+/// file now over the limit answers `Refused`, and one in the confirm tier
+/// opens as a large file.
 #[tauri::command]
 pub fn open_file_confirmed(
     state: State<'_, AppState>,
@@ -401,17 +458,20 @@ fn open_confirmed_path(state: &AppState, canonical: &str) -> Result<FileOpenResu
     }
 
     let file_path = Path::new(canonical);
-    let classification = file_ops::classify_path(file_path).map_err(|e| e.to_string())?;
-    if let FileOpenMode::Refused { reason } = &classification.mode {
-        return Err(reason.clone());
+    let classification = file_ops::classify_path(file_path).map_err(open_failure_message)?;
+    if let FileOpenMode::Refused { .. } = classification.mode {
+        return Ok(FileOpenResult {
+            mode: classification.mode,
+            size_bytes: classification.size_bytes,
+            doc: None,
+        });
     }
-    // Treat LargeFileConfirm as LargeFile now that the user confirmed.
-    let mode = if classification.mode == FileOpenMode::LargeFileConfirm {
-        FileOpenMode::LargeFile
-    } else {
-        classification.mode
-    };
-    open_file_classified(state, canonical, mode, classification.size_bytes)
+    open_file_classified(
+        state,
+        canonical,
+        classification.mode.once_open(),
+        classification.size_bytes,
+    )
 }
 
 #[tauri::command]

@@ -20,7 +20,7 @@
 //! - [`config`]: typed user configuration with serde defaults.
 //! - [`errors`]: crate-wide [`errors::WritError`] / [`errors::WritResult`].
 //! - [`events`]: strongly-typed domain events and an in-process event bus.
-//! - [`file_ops`]: pure helpers for file validation and language detection.
+//! - [`file_ops`]: pure helpers for file validation and the open tiers.
 //! - [`hash`]: SHA-256 helpers shared by the watcher, the write guard and
 //!   the notes migration.
 //! - [`history`]: recently-closed buffer history.

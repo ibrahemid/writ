@@ -392,7 +392,13 @@ describe("tabStore (per-window factory)", () => {
       const doc = await tabs.createTab();
       await tabs.closeTab(doc.id);
 
-      mockedApi.listActiveBuffers.mockResolvedValueOnce([{ ...doc, status: "active" as const }]);
+      const reopened = { ...doc, status: "active" as const };
+      mockedApi.restoreBuffer.mockResolvedValueOnce({
+        doc: reopened,
+        mode: { kind: "Normal" },
+        size_bytes: 0,
+      });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([reopened]);
       mockedApi.listHistory.mockResolvedValueOnce([]);
 
       await tabs.restoreFromHistory(doc.id);

@@ -52,6 +52,7 @@ vi.mock("../../services/tauri", () => ({
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
   readBufferContent: vi.fn().mockResolvedValue(""),
   previewClose: vi.fn().mockResolvedValue(undefined),
+  setBufferLanguage: vi.fn(),
 }));
 
 vi.mock("../../services/autosave", () => ({
@@ -280,7 +281,13 @@ describe("bufferRegistry (app-global)", () => {
       const doc = await bufferRegistry.createBuffer();
       await bufferRegistry.closeBuffer(doc.id);
 
-      mockedApi.listActiveBuffers.mockResolvedValueOnce([{ ...doc, status: "active" as const }]);
+      const reopened = { ...doc, status: "active" as const };
+      mockedApi.restoreBuffer.mockResolvedValueOnce({
+        doc: reopened,
+        mode: { kind: "Normal" },
+        size_bytes: 0,
+      });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([reopened]);
       mockedApi.listHistory.mockResolvedValueOnce([]);
 
       await bufferRegistry.restoreBuffer(doc.id);
@@ -346,6 +353,31 @@ describe("bufferRegistry (app-global)", () => {
       expect(again.existed).toBe(true);
       expect(again.doc.id).toBe(first.doc.id);
       expect(mockedApi.openFile).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("setLanguage", () => {
+    it("records the choice and patches the row the backend answers with", async () => {
+      const open = mockBuffer({ id: "lang-1", source_path: "/home/user/snippet.txt" });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([open]);
+      await bufferRegistry.load();
+      mockedApi.setBufferLanguage.mockResolvedValueOnce({ ...open, language: "python" });
+
+      await bufferRegistry.setLanguage("lang-1", "python");
+
+      expect(mockedApi.setBufferLanguage).toHaveBeenCalledWith("lang-1", "python");
+      expect(bufferRegistry.activeTabs().find((b) => b.id === "lang-1")?.language).toBe("python");
+    });
+
+    it("leaves the row as it was when the backend refuses", async () => {
+      const open = mockBuffer({ id: "lang-2", language: "toml" });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([open]);
+      await bufferRegistry.load();
+      mockedApi.setBufferLanguage.mockRejectedValueOnce(new Error("invalid language: the language id is empty"));
+
+      await expect(bufferRegistry.setLanguage("lang-2", "")).rejects.toThrow("invalid language");
+
+      expect(bufferRegistry.activeTabs().find((b) => b.id === "lang-2")?.language).toBe("toml");
     });
   });
 

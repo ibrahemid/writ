@@ -195,14 +195,22 @@ pub fn read_failure_message(error: &StorageError) -> String {
 /// UTF-8, and nothing else on the read path raises it.
 pub fn read_failure_code(error: &StorageError) -> &'static str {
     match error {
-        StorageError::Io(io) => match io.kind() {
-            std::io::ErrorKind::InvalidData => ERR_READ_NOT_UTF8,
-            std::io::ErrorKind::PermissionDenied => ERR_READ_PERMISSION_DENIED,
-            std::io::ErrorKind::ResourceBusy => ERR_READ_FILE_IN_USE,
-            std::io::ErrorKind::NotFound => ERR_READ_FILE_MISSING,
-            std::io::ErrorKind::TimedOut => ERR_READ_TIMED_OUT,
-            _ => ERR_READ_FAILED,
-        },
+        StorageError::Io(io) => io_read_failure_code(io.kind()),
+        _ => ERR_READ_FAILED,
+    }
+}
+
+/// The stable code for a read the filesystem failed, by the kind of failure.
+///
+/// Shared by the editor's read and the open's: both read the same file, so a
+/// person is told the same thing about it from either.
+pub fn io_read_failure_code(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::InvalidData => ERR_READ_NOT_UTF8,
+        std::io::ErrorKind::PermissionDenied => ERR_READ_PERMISSION_DENIED,
+        std::io::ErrorKind::ResourceBusy => ERR_READ_FILE_IN_USE,
+        std::io::ErrorKind::NotFound => ERR_READ_FILE_MISSING,
+        std::io::ErrorKind::TimedOut => ERR_READ_TIMED_OUT,
         _ => ERR_READ_FAILED,
     }
 }
@@ -1095,6 +1103,30 @@ pub fn update_tab_order(state: State<'_, AppState>, id: String, order: u32) -> R
 pub fn rename_buffer(state: State<'_, AppState>, id: String, title: String) -> Result<(), String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
     store.rename(&id, &title).map_err(|e| e.to_string())
+}
+
+/// Records the language chosen for a buffer with Change Language, or clears
+/// the choice with `None`, and answers the buffer as it now stands.
+pub fn set_buffer_language_inner(
+    state: &AppState,
+    id: &str,
+    language: Option<&str>,
+) -> Result<BufferDocument, String> {
+    writ_core::buffer::language::validate_language_choice(language).map_err(|e| e.to_string())?;
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store
+        .update_language(id, language)
+        .map_err(|e| e.to_string())?;
+    store.get(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_buffer_language(
+    state: State<'_, AppState>,
+    id: String,
+    language: Option<String>,
+) -> Result<BufferDocument, String> {
+    set_buffer_language_inner(&state, &id, language.as_deref())
 }
 
 #[cfg(test)]

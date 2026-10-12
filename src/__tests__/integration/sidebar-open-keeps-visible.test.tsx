@@ -38,6 +38,7 @@ vi.mock("../../services/tauri", () => ({
   restoreBuffer: vi.fn(async () => {
     historyRows = [];
     activeRows = [{ ...histDoc, status: "active", closed_at: null }];
+    return { doc: activeRows[0], mode: { kind: "Normal" }, size_bytes: 0 };
   }),
   deleteBuffer: vi.fn(async () => {}),
   closeBuffer: vi.fn(async () => {}),

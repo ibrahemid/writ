@@ -294,6 +294,20 @@ fn update_language_clears_language_field() {
 }
 
 #[test]
+fn choosing_a_language_leaves_updated_at_alone() {
+    let (_dir, store) = setup();
+    let doc = make_scratch_doc("lang-3", "test");
+    store.insert(&doc).unwrap();
+    let before = store.get("lang-3").unwrap().updated_at;
+
+    store.update_language("lang-3", Some("python")).unwrap();
+
+    let after = store.get("lang-3").unwrap();
+    assert_eq!(after.language.as_deref(), Some("python"));
+    assert_eq!(after.updated_at, before);
+}
+
+#[test]
 fn close_and_restore_source_backed_buffer() {
     let (_dir, store) = setup();
     let doc = make_source_doc("lifecycle-1", "app.ts", "/home/user/app.ts");

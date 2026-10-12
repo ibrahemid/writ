@@ -5,6 +5,7 @@ import type {
   ChangeChoice,
   FileOpenResult,
   ResolveOutcome,
+  TodaysFile,
 } from "../types/buffer";
 import type {
   AiConfig,
@@ -70,8 +71,11 @@ export async function newNote(): Promise<BufferDocument> {
   return invoke("new_note");
 }
 
-/** The note named for today, created if the notes folder has none yet. */
-export async function todaysNote(): Promise<BufferDocument> {
+/**
+ * The file named for today, created if the notes folder has none yet, with
+ * what opening it came to.
+ */
+export async function todaysNote(): Promise<TodaysFile> {
   return invoke("todays_note");
 }
 
@@ -650,8 +654,17 @@ export async function listHistory(): Promise<BufferDocument[]> {
   return invoke("list_history");
 }
 
-export async function restoreBuffer(id: string): Promise<void> {
+/**
+ * Reopens a closed file, answering as an open does: a file that grew past the
+ * size Writ opens without asking is a question, and nothing reopens until
+ * `restoreBufferConfirmed`.
+ */
+export async function restoreBuffer(id: string): Promise<FileOpenResult> {
   return invoke("restore_buffer", { id });
+}
+
+export async function restoreBufferConfirmed(id: string): Promise<FileOpenResult> {
+  return invoke("restore_buffer_confirmed", { id });
 }
 
 export async function clearHistory(): Promise<void> {
@@ -687,6 +700,15 @@ export async function openFile(path: string): Promise<FileOpenResult> {
 
 export async function openFileConfirmed(path: string): Promise<FileOpenResult> {
   return invoke("open_file_confirmed", { path });
+}
+
+// The language chosen for a file, or null to let its name decide. Answers the
+// row as it now stands.
+export async function setBufferLanguage(
+  id: string,
+  language: string | null,
+): Promise<BufferDocument> {
+  return invoke("set_buffer_language", { id, language });
 }
 
 // Asks the sync provider for a note's bytes. Returns as soon as the download

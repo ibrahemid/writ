@@ -1,6 +1,6 @@
 # ADR-019: Open Anything — File-Size Ladder and Binary Hex View
 
-**Status:** Accepted
+**Status:** Accepted; amended 2026-10-13 (every open has a typed answer, the confirm states the size before any read, a reopened tab keeps its mode, editor settings and a file's language)
 **Date:** 2026-06-13
 
 ## Context
@@ -41,6 +41,26 @@ Refused           — >500 MiB; hard refusal with a descriptive message.
 
 `open_file` validates + classifies but does **not** read file content for the confirm tier. It returns the metadata: size and mode. The frontend (`bufferRegistry.openFile`) calls `requestConfirm` with the size formatted as a human-readable string and a description of what is disabled, then calls `open_file_confirmed(path)` to perform the actual load. `open_file` itself still hard-refuses files above 500 MiB server-side regardless of any frontend call path.
 
+### Amended: every open has an answer
+
+The confirm tier no longer travels as a `__CONFIRM_REQUIRED__` error string that the frontend split on `:`. That split broke on a Windows drive colon (`C:\Users\…`, `\\?\C:\…`) and on a file named `10:30.log`: the frontend read the path as `C` and the size as `0 B`. `open_file` answers the tier as data instead: `FileOpenResult { mode: LargeFileConfirm, size_bytes, doc: None }`, and `Refused` likewise (`doc: None`, the size it was refused at). The path the person asked for is the path `open_file_confirmed` reads, untouched.
+
+A refusal is worded in the frontend (`src/lib/open-failure.ts`), through the one byte formatter, so the screen never shows MiB: "it is 600 MB, and Writ opens files up to 524 MB." A size that rounds to the limit is not stated: "it is over the 524 MB limit." Read failures keep their `ERR_READ_*` codes, so an unreadable file says why; an error with no code reads "Writ could not read it." A path in no folder Writ opens from on its own, with no gesture granting it, answers `ERR_OPEN_NOT_AUTHORIZED`: "open it with File > Open File, or drop it onto the window." A path that does not resolve answers the same, so the answer never says whether a file is there.
+
+`bufferRegistry.openFile` resolves one of `opened | declined | refused { reason } | not-downloaded`, and one store-level reporter (`src/stores/global/open-report.ts`) speaks for every caller: a refusal names the file and the reason, several refusals collapse into one line, and a decline is silent, since Cancel is the person's answer and not a failure.
+
+The confirm is its own dialog (`LargeFileOpen`). It states the name and the size before anything is read, and after Open it shows progress until the editor shows the text. The progress is indeterminate: `open_file_confirmed` reads the file in one synchronous call, so there is no byte count to report until the read moves off the main thread. The dialog yields a paint before that call so the progress state is on screen while it runs.
+
+A file that arrives while nobody is looking (an inbox file, a finished download) asks the same question; nothing over 50 MiB opens without a yes. A question asked while another one or its progress is up waits its turn, so only the person answers a question.
+
+Today's File and reopening a closed file from History answer the same way. `todays_note` returns the dated file's path with its open answer. `restore_buffer` measures the closed file with a stat, since a read would fetch a sync placeholder's bytes, and answers the question or the refusal without reopening anything; `restore_buffer_confirmed` reopens it after Open and measures it again.
+
+### Amended: a reopened tab keeps its mode
+
+Opening a file that already has a tab answers with the mode Rust reports for it, and the confirm tier becomes `LargeFile` once open (`FileOpenMode::once_open`). The frontend keeps the mode each open reported, so returning to the tab never asks again and never shows a 60 MB file with syntax on. `open_file` answers a file in the confirm tier that a tab shows with that tab, so a path that spells the file another way (a link, `/var` for `/private/var`) does not ask again. A file a tab shows that grew past 500 MiB is still refused, since answering the tab reads the file again.
+
+Restoring the session at launch still reads each tab's file without measuring it, so a file that grew past 50 MiB, or past 500 MiB, while Writ was closed loads without a question. Asking there needs a tab that is restored but not yet read, which the editor does not have.
+
 ### Binary files: hex view
 
 The hex dump is generated in `writ-core` (`generate_hex_dump(bytes, max_bytes) -> String`), a pure function. Format: `XXXXXXXX  hh hh … hh hh  |ASCII…|`, 16 bytes per row, offset column 8 hex digits, ASCII gutter replaces non-printable bytes with `.`. Input is capped at `HEX_DUMP_MAX_BYTES` (10 MiB) with a truncation notice appended when clamped.
@@ -77,6 +97,14 @@ The FTS skip does **not** produce orphan rows because excluded buffers never rec
 - `Binary`: same as LargeFile plus `readOnlyCompartment` gets `[EditorState.readOnly.of(true), EditorView.editable.of(false)]`.
 
 Mode is derived from `(buffer.size_bytes, buffer.read_only)` using the same `classify` pure function mirrored in TypeScript, called on every `loadBuffer` so tab-switch always sees the right mode.
+
+### Amended: editor settings and a file's language
+
+`editor.word_wrap` and `editor.tab_size` each have a compartment in `EditorInstance` (`wrapCompartment`, `indentationCompartment`), reconfigured on every open editor when the setting changes. Wrapping applies to Normal files only, as before; tab size sets both `tabSize` and `indentUnit`. `editor.font_family` and `editor.markdown_typography` are removed: nothing read either. The faces are the type pairing's (ADR-030), and Inline | Source decides how Markdown is drawn. A config file that still carries them loads, and the next save leaves them out.
+
+A file's language is decided from its name. A fence's info string names the language of the fence only, so a `.txt` holding a Python fence stays plain text. Only a name with no extension lets the text speak: a shebang on the first line, or code the content scorer recognises once the file holds enough of it. Change Language in the palette records a language for one file in `buffers.language` (`set_buffer_language`); `plaintext` is a choice too. The column held a language guessed from the extension until now, so migration 044 clears it, and the open path no longer writes one.
+
+Grammars come from `@codemirror/language-data` through `LanguageDescription` (`src/editor/languages.ts`) and load the first time a file needs one, so the main chunk carries none. A name Writ's own map does not list is looked up in that table: a whole name it knows (`Dockerfile`, `PKGBUILD`) takes its language, and otherwise the extension does, in any case. A name that says plain text takes none, the table's `CMakeLists.txt` included, and neither does an extension the table gives to more than one language (`.m`) or reads as a language most such files are not in (`.cfg`, `.in`). Markdown (with the GitHub extensions and every fence highlighted in its language) and JavaScript (with JSX) are Writ's own descriptions over the same table entries. The restricted tiers ignore a chosen language: syntax stays off above 5 MiB.
 
 ### Status bar chip
 

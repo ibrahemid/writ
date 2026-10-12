@@ -335,11 +335,14 @@ pub fn update_line_ending(conn: &Connection, id: &str, ending: LineEnding) -> St
     Ok(())
 }
 
-/// Updates the detected or user-assigned language for a buffer.
+/// Records the language chosen for a buffer, or clears the choice with `None`.
+///
+/// `updated_at` is left alone: the choice changes how the file is shown, not
+/// what it holds.
 pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> StorageResult<()> {
     conn.execute(
-        "UPDATE buffers SET language = ?1, updated_at = ?2 WHERE id = ?3",
-        params![language, Utc::now().to_rfc3339(), id],
+        "UPDATE buffers SET language = ?1 WHERE id = ?2",
+        params![language, id],
     )?;
     Ok(())
 }

@@ -1,16 +1,50 @@
 import { createSignal, createMemo, createRoot } from "solid-js";
-import type { BufferDocument, FileOpenResult } from "../../types/buffer";
+import type { BufferDocument, FileOpenMode, FileOpenResult } from "../../types/buffer";
 import * as api from "../../services/tauri";
 import { cancelAutosave, flushAutosave, type SaveFailure } from "../../services/autosave";
-import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
-import { formatBytes } from "../../lib/format-bytes";
+import { basename } from "../../lib/path";
+import { openFailureReason, refusalReason } from "../../lib/open-failure";
+import { THRESHOLD_NORMAL_BYTES } from "../../editor/large-file";
+import { largeFileOpen } from "./large-file-open";
 
-// What an open of a path came to. A file whose bytes a sync provider has not
-// put on this machine opens no note: it is downloaded first, and opened again
-// once the bytes are here.
+/**
+ * What an open of a path came to. Every open has one of these answers and
+ * none of them is thrown:
+ *
+ * - `opened`: the file has a row, new or (`existed`) already in a tab.
+ * - `declined`: the file is over the size Writ opens without asking and the
+ *   person said Cancel. Nothing was read, and nothing is said about it.
+ * - `refused`: the file was not opened; `reason` is the second half of
+ *   "Couldn't open <name>: ".
+ * - `not-downloaded`: a sync provider has not put the bytes on this machine.
+ *   The file is downloaded first and opened again once the bytes are here.
+ */
 export type OpenOutcome =
-  | { kind: "opened"; doc: BufferDocument; existed: boolean; mode: FileOpenResult["mode"] }
+  | { kind: "opened"; doc: BufferDocument; existed: boolean; mode: FileOpenMode }
+  | { kind: "declined"; path: string }
+  | { kind: "refused"; path: string; reason: string }
   | { kind: "not-downloaded"; path: string; provider: string | null };
+
+/** An open a caller has to treat as a failure was refused, with the reason. */
+export class OpenRefusedError extends Error {
+  constructor(
+    readonly path: string,
+    readonly reason: string,
+  ) {
+    super(`the file was not opened: ${reason}`);
+    this.name = "OpenRefusedError";
+  }
+}
+
+// The mode a row restored at launch is shown in. Rust classified it when it was
+// first opened and nobody asked since, so the row's size and read-only flag
+// say the rest; the confirm tier is a question asked before a read, and an
+// open file of that size is a large file.
+function modeOfRow(doc: BufferDocument): FileOpenMode {
+  if (doc.read_only) return { kind: "Binary" };
+  if (doc.size_bytes > THRESHOLD_NORMAL_BYTES) return { kind: "LargeFile" };
+  return { kind: "Normal" };
+}
 
 export interface CloseOutcome {
   closed: boolean;
@@ -36,6 +70,9 @@ export interface CloseOptions {
 
 function createBufferRegistry() {
   const [buffers, setBuffers] = createSignal<BufferDocument[]>([]);
+  // The mode each open reported, by row: a second open of the same file
+  // answers what Rust classified rather than a guess from the row's size.
+  const openModes = new Map<string, FileOpenMode>();
 
   const activeTabs = createMemo(() =>
     buffers().filter((b) => b.status === "active"),
@@ -86,19 +123,18 @@ function createBufferRegistry() {
     hold(doc);
   }
 
-  // One note a day: today's is opened when it is already there and made when
+  // One file a day: today's is opened when it is already there and made when
   // it is not, and the row that comes back is the only honest name for it. A
-  // note that was closed comes back active, so the entry is replaced rather
-  // than left as the tab bar last saw it.
-  async function todaysNote(): Promise<BufferDocument> {
+  // file that was closed comes back active, so the entry is replaced rather
+  // than left as the tab bar last saw it. The open answers as any open does,
+  // so a day's file over the size Writ opens without asking is asked about.
+  async function todaysNote(): Promise<OpenOutcome> {
     await flushAutosave();
-    const doc = await api.todaysNote();
-    setBuffers((prev) =>
-      prev.find((b) => b.id === doc.id)
-        ? prev.map((b) => (b.id === doc.id ? doc : b))
-        : [...prev, doc],
-    );
-    return doc;
+    const today = await api.todaysNote();
+    if (today.opened.mode.kind === "LargeFileConfirm") {
+      return openAfterAsking(today.path, today.opened.size_bytes);
+    }
+    return registerOpenResult(today.opened, today.path);
   }
 
   // Trashing is not undoable from inside Writ, so the pending write is dropped
@@ -173,9 +209,24 @@ function createBufferRegistry() {
     return { closedIds: saved, failedIds, failures };
   }
 
-  async function restoreBuffer(id: string): Promise<void> {
-    await api.restoreBuffer(id);
-    await load();
+  // Reopening a closed file reads it, so it answers as an open does: a file
+  // that grew past the size Writ opens without asking while it was closed is
+  // asked about first, and one past the size Writ opens stays closed.
+  async function restoreBuffer(id: string): Promise<OpenOutcome> {
+    const closed = buffers().find((b) => b.id === id);
+    const path = closed?.source_path ?? closed?.title ?? id;
+    let result: FileOpenResult;
+    try {
+      result = await api.restoreBuffer(id);
+    } catch (error) {
+      return { kind: "refused", path, reason: openFailureReason(error) };
+    }
+    const outcome =
+      result.mode.kind === "LargeFileConfirm"
+        ? await openAfterAsking(path, result.size_bytes, () => api.restoreBufferConfirmed(id))
+        : registerOpenResult(result, path);
+    if (outcome.kind === "opened") await load();
+    return outcome;
   }
 
   async function deleteFromHistory(id: string): Promise<void> {
@@ -196,62 +247,86 @@ function createBufferRegistry() {
     setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
   }
 
-  function registerOpenResult(result: FileOpenResult): OpenOutcome {
-    if (result.mode.kind === "NotDownloaded") {
-      return {
-        kind: "not-downloaded",
-        path: result.mode.path,
-        provider: result.mode.provider,
-      };
+  // The language chosen for a file with Change Language, or null to let its
+  // name decide again. The choice lives on the file's row, so it outlasts the
+  // tab; the open editor follows the row that comes back.
+  async function setLanguage(id: string, language: string | null): Promise<void> {
+    const doc = await api.setBufferLanguage(id, language);
+    setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
+  }
+
+  // `path` is what the caller asked to open; a result that names no file of
+  // its own is answered under it.
+  function registerOpenResult(result: FileOpenResult, path?: string): OpenOutcome {
+    const asked = path ?? result.doc?.source_path ?? "";
+    switch (result.mode.kind) {
+      case "NotDownloaded":
+        return {
+          kind: "not-downloaded",
+          path: result.mode.path,
+          provider: result.mode.provider,
+        };
+      case "Refused":
+        return {
+          kind: "refused",
+          path: asked,
+          reason: refusalReason(result.mode.reason, result.size_bytes),
+        };
     }
     const doc = result.doc;
-    if (!doc) throw new Error("the file opened but carried no note");
+    if (!doc) return { kind: "refused", path: asked, reason: openFailureReason(null) };
+    const existed = activeTabs().some((b) => b.id === doc.id);
+    openModes.set(doc.id, result.mode);
     setBuffers((prev) => {
       if (prev.find((b) => b.id === doc.id)) {
         return prev.map((b) => (b.id === doc.id ? doc : b));
       }
       return [...prev, doc];
     });
-    return { kind: "opened", doc, existed: false, mode: result.mode };
+    return { kind: "opened", doc, existed, mode: result.mode };
+  }
+
+  // A file over the size Writ opens without asking: the size is stated before
+  // anything reads it, and the progress runs from Open until the editor shows
+  // the text (the tab store hands it on, or ends it when no tab shows it).
+  async function openAfterAsking(
+    path: string,
+    sizeBytes: number,
+    openConfirmed: () => Promise<FileOpenResult> = () => api.openFileConfirmed(path),
+  ): Promise<OpenOutcome> {
+    const open = await largeFileOpen.ask(basename(path), sizeBytes);
+    if (!open) return { kind: "declined", path };
+    await largeFileOpen.shown();
+    let result: FileOpenResult;
+    try {
+      result = await openConfirmed();
+    } catch (error) {
+      largeFileOpen.finish();
+      return { kind: "refused", path, reason: openFailureReason(error) };
+    }
+    const outcome = registerOpenResult(result, path);
+    if (outcome.kind === "opened") largeFileOpen.handOff(outcome.doc.id);
+    else largeFileOpen.finish();
+    return outcome;
   }
 
   async function openFile(path: string): Promise<OpenOutcome> {
     const existing = activeTabs().find((b) => b.source_path === path);
     if (existing) {
-      const mode = existing.read_only
-        ? { kind: "Binary" as const }
-        : existing.size_bytes > 50 * 1024 * 1024
-        ? { kind: "LargeFile" as const }
-        : existing.size_bytes > 5 * 1024 * 1024
-        ? { kind: "LargeFile" as const }
-        : { kind: "Normal" as const };
+      const mode = openModes.get(existing.id) ?? modeOfRow(existing);
       return { kind: "opened", doc: existing, existed: true, mode };
     }
 
     let result: FileOpenResult;
     try {
       result = await api.openFile(path);
-    } catch (err) {
-      const msg = String(err);
-      if (msg.startsWith("__CONFIRM_REQUIRED__:")) {
-        const parts = msg.split(":");
-        const confirmedPath = parts[1];
-        const sizeBytes = parseInt(parts[2], 10);
-        const sizeStr = formatBytes(sizeBytes);
-        const confirmed = await requestConfirm({
-          title: "Open this file?",
-          message: `It is ${sizeStr}. Writ will show it as plain text, with no styling and no line wrapping, and will leave it out of search and crash recovery.\n\nOpen it?`,
-          confirmLabel: "Open",
-          cancelLabel: "Cancel",
-        });
-        if (!confirmed) throw new Error("cancelled");
-        result = await api.openFileConfirmed(confirmedPath);
-      } else {
-        throw err;
-      }
+    } catch (error) {
+      return { kind: "refused", path, reason: openFailureReason(error) };
     }
-
-    return registerOpenResult(result);
+    if (result.mode.kind === "LargeFileConfirm") {
+      return openAfterAsking(path, result.size_bytes);
+    }
+    return registerOpenResult(result, path);
   }
 
   async function showOpenFileDialog(): Promise<string | null> {
@@ -292,6 +367,7 @@ function createBufferRegistry() {
     deleteFromHistory,
     clearAllHistory,
     renameBuffer,
+    setLanguage,
     openFile,
     registerOpenResult,
     showOpenFileDialog,

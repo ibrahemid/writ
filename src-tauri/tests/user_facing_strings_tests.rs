@@ -98,7 +98,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-core/src/file_ops.rs",
-        line: 166,
+        line: 204,
         word: "MiB",
         note: "size formatter unit, release 0.6",
     },
@@ -200,7 +200,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "src-tauri/src/commands/notes.rs",
-        line: 1250,
+        line: 1254,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },

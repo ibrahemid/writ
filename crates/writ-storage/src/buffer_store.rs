@@ -798,7 +798,8 @@ impl BufferStore {
         queries::update_line_ending(&self.conn, id, ending)
     }
 
-    /// Updates the detected or user-assigned language for a buffer.
+    /// Records the language chosen for a buffer, or clears the choice with
+    /// `None`. Leaves `updated_at` alone.
     pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {
         queries::update_language(&self.conn, id, language)
     }
