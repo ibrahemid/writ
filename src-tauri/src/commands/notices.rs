@@ -26,6 +26,7 @@ fn pick_notices_path(candidates: &[PathBuf]) -> Option<&Path> {
 ///
 /// `src-tauri` is one level below the root, so the root is the manifest
 /// directory's parent.
+#[cfg(any(test, debug_assertions))]
 fn repo_root_notices(manifest_dir: &Path) -> Option<PathBuf> {
     manifest_dir.parent().map(|root| root.join(NOTICES_FILE))
 }

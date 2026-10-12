@@ -110,7 +110,7 @@ fn register_class() -> Result<(), String> {
                 ..Default::default()
             };
             if unsafe { RegisterClassExW(&class) } == 0 {
-                return Err(windows::core::Error::from_win32().to_string());
+                return Err(windows::core::Error::from_thread().to_string());
             }
             Ok(())
         })
