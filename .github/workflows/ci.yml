@@ -26,9 +26,10 @@ jobs:
       site: ${{ steps.classify.outputs.site }}
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Classify changed files
         id: classify
@@ -104,9 +105,17 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Cargo patches apply
+      - name: Install Rust toolchain
+        shell: bash
+        env:
+          RUSTUP_PERMIT_COPY_RENAME: 1
+        run: rustup toolchain install --no-self-update
+
+      - name: Lockfile guards
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
@@ -114,19 +123,17 @@ jobs:
             echo "::error file=Cargo.lock::Cargo.lock lists [[patch.unused]]: a [patch.crates-io] entry no longer applies"
             exit 1
           fi
+          cargo metadata --locked --format-version 1 > /dev/null
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-
-      - name: Install cargo-audit
+      - name: Install cargo-deny
         if: matrix.os == 'ubuntu-latest'
-        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375  # v2.87.12
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8  # v2.87.28
         with:
-          tool: cargo-audit
-        continue-on-error: true
+          tool: cargo-deny@0.20.2
+
+      - name: Dependency policy
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo deny --locked check advisories bans licenses sources
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-latest'
@@ -142,13 +149,13 @@ jobs:
             libsoup-3.0-dev
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271  # v6.0.9
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
           version: 10.13.1
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -165,7 +172,7 @@ jobs:
           test -z "$(git status --porcelain -- src/styles/generated src-tauri/assets/generated site/src/styles/tokens.css src/components/Icon/sprite.generated.ts)"
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
           workspaces: ". -> target"
 
@@ -179,19 +186,23 @@ jobs:
         run: |
           set -euo pipefail
           HOST_TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
-          cargo build -p writ-cli
+          cargo build -p writ-cli --locked
           mkdir -p src-tauri/binaries
           EXT=""
           case "$HOST_TRIPLE" in *windows*) EXT=".exe";; esac
           cp "target/debug/writ${EXT}" "src-tauri/binaries/writ-${HOST_TRIPLE}${EXT}"
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Clippy (release profile)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo clippy --workspace --release --locked -- -D warnings
 
       - name: Run tests
         # Cross-OS tests run once on main, after integration.
         if: matrix.cross_only == false || github.event_name == 'push'
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
       - name: Release script tests
         if: matrix.os == 'ubuntu-latest'
@@ -203,18 +214,13 @@ jobs:
 
       - name: Install cargo-about
         if: matrix.os == 'ubuntu-latest'
-        uses: taiki-e/install-action@3f74d7c16a4242f1c95561e98edc25d36adb4375  # v2.87.12
+        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8  # v2.87.28
         with:
           tool: cargo-about@0.9.1
 
       - name: Third-party notices are current
         if: matrix.os == 'ubuntu-latest'
         run: python3 scripts/gen-third-party-notices.py --check
-
-      - name: Security audit
-        if: matrix.os == 'ubuntu-latest'
-        run: cargo audit
-        continue-on-error: true
 
       - name: TypeScript check
         run: pnpm exec tsc --noEmit
@@ -227,7 +233,7 @@ jobs:
         run: pnpm build
 
       - name: Tauri build check
-        run: cargo check --lib -p writ-tauri
+        run: cargo check --lib -p writ-tauri --locked
 
   site:
     name: Site
@@ -239,16 +245,18 @@ jobs:
         working-directory: site
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271  # v6.0.9
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
           version: 10.13.1
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -288,9 +296,10 @@ jobs:
 
     steps:
       # The scan walks the base..head commit range, so it needs full history.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Gitleaks
         uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
@@ -298,3 +307,21 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_VERSION: "8.30.1"
           GITLEAKS_ENABLE_COMMENTS: "false"
+
+  zizmor:
+    name: Workflow audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482  # v0.6.4
+        with:
+          version: 1.30.1
+          advanced-security: false
+          annotations: true
