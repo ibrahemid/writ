@@ -126,16 +126,24 @@ Before tagging:
    scripts/release-preflight.sh
    ```
 
-   It runs seven gates on your machine: `cargo fmt --all --check`,
-   `cargo test --workspace`, `cargo clippy --workspace -- -D warnings`,
-   `npx tsc --noEmit`, `pnpm --dir site build`, a universal macOS `app,dmg`
-   build followed by `scripts/build-mac-pkg.sh`, and an `act --dryrun` of the
-   Linux release leg. Gate 7 checks the workflow shape, not the Linux build;
-   drop `--dryrun` to run the build itself. Gate 6 is skipped with a warning
-   off Darwin, gate 7 when `act` or Docker is missing, and the closing
-   `preflight: OK` says nothing about a gate that was skipped. A mac build
-   that would fail the tag fails here instead of burning macOS CI minutes.
-   Windows still needs CI or a VM.
+   Step 0 rebuilds the mac sidecars. Then ten gates run on your machine:
+   `cargo deny --locked check advisories bans licenses sources` against
+   `deny.toml`, `cargo fmt --all --check`, `cargo test --workspace --locked`,
+   `cargo clippy --workspace --locked -- -D warnings`, `npx tsc --noEmit`, the
+   third-party notices check, `node scripts/check-release-json.mjs`,
+   `pnpm --dir site build`, a universal macOS `app,dmg` build with `--locked`
+   followed by `scripts/build-mac-pkg.sh`, and an `act --dryrun` of the Linux
+   release leg. Gate 1 needs cargo-deny 0.20.2
+   (`cargo install cargo-deny --version 0.20.2 --locked`) and fails when it is
+   missing; it catches an advisory published after the last merge. Gate 10
+   checks the workflow shape, not the Linux build; drop `--dryrun` to run the
+   build itself. Gate 9 is skipped with a warning off Darwin, gate 10 when
+   `act` or Docker is missing, and the closing `preflight: OK` says nothing
+   about a gate that was skipped. A mac build that would fail the tag fails
+   here instead of burning macOS CI minutes. Windows still needs CI or a VM.
+
+   rustup installs the compiler `rust-toolchain.toml` pins on the first cargo
+   command, the same one CI and the release workflow use.
 
 The script ends by printing the tag command, reading the version from
 `site/package.json`:
@@ -174,6 +182,8 @@ The push triggers `.github/workflows/release.yml`.
    Tauri v2 signs the platform installer directly instead of wrapping it, so
    there is no `.msi.zip` and no `.AppImage.tar.gz`; the `.sig` sits beside the
    raw installer (`createUpdaterArtifacts` in `src-tauri/tauri.conf.json`).
+   Every leg builds with `--locked`, so the release compiles the lockfile CI
+   tested.
    Both Linux installers are updater payloads: `latest.json` carries the
    `.AppImage` under `linux-x86_64` and the `.deb` under `linux-x86_64-deb`,
    and the plugin picks by the bundle type baked into the running binary, so a
@@ -462,6 +472,8 @@ Revert the version bumps from step 2 before committing.
 - `.github/scripts/release_notes.py`      draft release notes and their range
 - `.github/scripts/build_latest_json.py`  updater manifest builder
 - `scripts/release-preflight.sh`          local gates to run before tagging
+- `deny.toml`                             advisory, licence, ban and source policy
+- `rust-toolchain.toml`                   the pinned compiler
 - `scripts/build-mac-pkg.sh`              macOS installer build and signing
 - `src-tauri/tauri.conf.json`             bundle targets, updater pubkey
 - `Cargo.toml`                            workspace version

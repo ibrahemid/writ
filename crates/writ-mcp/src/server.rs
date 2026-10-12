@@ -10,7 +10,7 @@
 
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{schemars, tool, tool_handler, tool_router};
 use rmcp::{ErrorData, Peer, RoleServer, ServerHandler, ServiceExt};
 use serde::Deserialize;
@@ -269,8 +269,8 @@ impl WritServer {
 
 #[tool_handler]
 impl ServerHandler for WritServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("writ", env!("CARGO_PKG_VERSION")))
             .with_instructions(INSTRUCTIONS)
     }

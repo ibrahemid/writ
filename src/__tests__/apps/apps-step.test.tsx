@@ -142,7 +142,7 @@ describe("the Apps step", () => {
     fireEvent.click(switchFor(container, "chat"));
     fireEvent.click(continueButton(container));
     await waitFor(() => expect(firstRunStore.step()).toBeNull());
-    expect(mocks.finishFirstRun).toHaveBeenCalledTimes(1);
+    expect(mocks.finishFirstRun).not.toHaveBeenCalled();
     expect(mocks.updateConfig).toHaveBeenCalledTimes(1);
     const written = mocks.updateConfig.mock.calls[0][0];
     expect(written.apps).toEqual({ connections: false, graph: true, tags: true });
