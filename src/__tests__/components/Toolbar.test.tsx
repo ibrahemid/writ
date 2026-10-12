@@ -10,6 +10,12 @@ const h = vi.hoisted(() => ({
   panelOpen: false,
 }));
 
+const waitingList = await vi.hoisted(async () => {
+  const { createSignal } = await import("solid-js");
+  const [pending, setPending] = createSignal<{ name: string }[]>([]);
+  return { pending, setPending };
+});
+
 vi.mock("../../lib/platform", () => ({
   resolvePlatform: () => h.platform,
   detectPlatform: () => h.platform,
@@ -39,6 +45,9 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 }));
 vi.mock("../../stores/global/workspace", () => ({ workspaceStore: { root: () => null } }));
 vi.mock("../../stores/global/inbox", () => ({ inboxStore: { files: () => [] } }));
+vi.mock("../../stores/global/activity", () => ({
+  activityStore: { pending: waitingList.pending },
+}));
 vi.mock("../../components/Sidebar/FilesSection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/InboxSection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/HistorySection", () => ({ default: () => null }));
@@ -101,6 +110,7 @@ afterEach(() => {
   for (const id of registered.splice(0)) unregisterCommand(id);
   h.platform = "mac";
   h.setSearchQuery.mockClear();
+  waitingList.setPending([]);
 });
 
 describe("Toolbar shape", () => {
@@ -266,5 +276,42 @@ describe("Toolbar keyboard", () => {
     input.focus();
     fireEvent.keyDown(input, { key: "ArrowRight" });
     expect(document.activeElement).toBe(input);
+  });
+});
+
+describe("Toolbar programs mark", () => {
+  const mark = (container: HTMLElement) =>
+    container.querySelector<HTMLButtonElement>(".writ-toolbar-programs");
+
+  it("is in the toolbar while Connected programs is on", () => {
+    const { container } = render(() => <Toolbar />);
+    expect(mark(container)).toBeNull();
+
+    configStore.noteAppsOn(["connections", "programs"]);
+
+    expect(mark(container)?.getAttribute("aria-label")).toBe("Program activity");
+    expect(mark(container)?.querySelector("[data-waiting]")).toBeNull();
+  });
+
+  it("carries a dot and the count while programs wait", () => {
+    configStore.noteAppsOn(["connections", "programs"]);
+    const { container } = render(() => <Toolbar />);
+
+    waitingList.setPending([{ name: "Claude Code" }]);
+    expect(mark(container)?.getAttribute("aria-label")).toBe("Program activity, 1 program waiting");
+    expect(mark(container)?.querySelector(".writ-toolbar-dot[data-waiting]")).not.toBeNull();
+
+    waitingList.setPending([{ name: "Claude Code" }, { name: "Cursor" }]);
+    expect(mark(container)?.getAttribute("aria-label")).toBe("Program activity, 2 programs waiting");
+  });
+
+  it("opens Program activity", () => {
+    configStore.noteAppsOn(["connections", "programs"]);
+    const open = stub("activity.open", "Program activity");
+    const { container } = render(() => <Toolbar />);
+
+    fireEvent.click(mark(container)!);
+
+    expect(open).toHaveBeenCalledTimes(1);
   });
 });

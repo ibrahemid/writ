@@ -5,8 +5,10 @@ import {
   activityClear,
   activityRecent,
   mcpClients,
+  mcpDenyClient,
   mcpForgetClient,
-  mcpRefuseWaitingClient,
+  mcpRestoreClient,
+  mcpReturnToWaiting,
   mcpServerCommand,
   mcpSetClientPermission,
   mcpTools,
@@ -35,12 +37,31 @@ const [clients, setClients] = createSignal<ClientApproval[]>([]);
 const [pending, setPending] = createSignal<PendingClient[]>([]);
 const [serverCommand, setServerCommand] = createSignal<McpServerCommand | null>(null);
 const [tools, setTools] = createSignal<McpTools | null>(null);
+const [announced, setAnnounced] = createSignal<string[]>([]);
 
 let subscription: Promise<UnlistenFn> | null = null;
+let waitingSubscription: Promise<UnlistenFn> | null = null;
+
+function isWaiting(waiting: readonly PendingClient[], name: string): boolean {
+  return waiting.some((client) => client.name === name);
+}
 
 function takeClients(answer: McpClients): void {
   setClients(answer.approved);
   setPending(answer.waiting);
+  setAnnounced((names) => names.filter((name) => isWaiting(answer.waiting, name)));
+}
+
+function takeWaiting(waiting: PendingClient[]): void {
+  const before = pending();
+  const arrived = waiting
+    .map((client) => client.name)
+    .filter((name) => !isWaiting(before, name));
+  setPending(waiting);
+  setAnnounced((names) => [
+    ...names.filter((name) => isWaiting(waiting, name)),
+    ...arrived.filter((name) => !names.includes(name)),
+  ]);
 }
 
 /**
@@ -81,6 +102,32 @@ function subscribe(): Promise<UnlistenFn> {
     void refresh();
   });
   return subscription;
+}
+
+async function watchWaiting(): Promise<void> {
+  waitingSubscription ??= onEvent("mcp:pending", (payload) => {
+    takeWaiting(payload.waiting);
+  });
+  await waitingSubscription;
+  await refreshClients();
+}
+
+function notice(): PendingClient | null {
+  const waiting = pending();
+  for (const name of announced()) {
+    const client = waiting.find((entry) => entry.name === name);
+    if (client) return client;
+  }
+  return null;
+}
+
+function dismissNotice(name: string): void {
+  setAnnounced((names) => names.filter((entry) => entry !== name));
+}
+
+function announce(name: string): void {
+  if (!isWaiting(pending(), name)) return;
+  setAnnounced((names) => [name, ...names.filter((entry) => entry !== name)]);
 }
 
 /** Reads the log, the programs and the command, and starts listening. */
@@ -135,19 +182,25 @@ async function setPermission(name: string, read: boolean, write: boolean): Promi
 }
 
 /**
- * Turns a waiting program down for this connection.
- *
- * The waiting entry goes and no approval is written, so the program is not
- * blocked: it asks again the next time it calls.
+ * "Don't allow": stores a decision granting neither direction, by the name the
+ * program sent, so it is answered as not allowed and does not wait again.
  */
-async function refuseWaiting(name: string): Promise<void> {
-  takeClients(await mcpRefuseWaitingClient(name));
+async function deny(name: string): Promise<void> {
+  takeClients(await mcpDenyClient(name));
+}
+
+async function undoDenial(name: string): Promise<void> {
+  takeClients(await mcpReturnToWaiting(name));
 }
 
 /** Takes a program off the list, so its next call waits to be decided on. */
 async function forget(name: string): Promise<void> {
   takeClients(await mcpForgetClient(name));
   await refreshLog();
+}
+
+async function restore(approval: ClientApproval): Promise<void> {
+  takeClients(await mcpRestoreClient(approval));
 }
 
 export const activityStore = {
@@ -159,11 +212,17 @@ export const activityStore = {
   load,
   refresh,
   refreshClients,
+  watchWaiting,
+  notice,
+  dismissNotice,
+  announce,
   loadCommand,
   loadTools,
   copyCommand,
   clear,
   setPermission,
-  refuseWaiting,
+  deny,
+  undoDenial,
   forget,
+  restore,
 };

@@ -8,11 +8,17 @@ const h = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [records, setRecords] = createSignal<ActivityRecord[]>([]);
   const [pending, setPending] = createSignal<PendingClient[]>([]);
+  const [serverCommand, setServerCommand] = createSignal<{ path: string; command: string } | null>(
+    null,
+  );
   return {
     records,
     setRecords,
     pending,
     setPending,
+    serverCommand,
+    setServerCommand,
+    copyCommand: vi.fn().mockResolvedValue(undefined),
     load: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn().mockResolvedValue(undefined),
@@ -30,6 +36,8 @@ vi.mock("../../stores/global/activity", () => ({
   activityStore: {
     records: h.records,
     pending: h.pending,
+    serverCommand: h.serverCommand,
+    copyCommand: h.copyCommand,
     load: h.load,
     refresh: h.refresh,
     clear: h.clear,
@@ -87,6 +95,8 @@ afterEach(() => {
   closeActivity();
   h.setRecords([]);
   h.setPending([]);
+  h.setServerCommand(null);
+  h.copyCommand.mockClear();
   h.load.mockClear();
   h.refresh.mockClear();
   h.clear.mockClear();
@@ -101,14 +111,44 @@ describe("ActivityPanel", () => {
     expect(container.querySelector(".activity-modal")).toBeNull();
   });
 
-  it("renders one line when nothing has called yet", () => {
+  it("says what the list holds under its title", () => {
+    openActivity();
+    const { getByRole } = render(() => <ActivityPanel />);
+
+    const dialog = getByRole("dialog");
+    const title = document.getElementById(dialog.getAttribute("aria-labelledby")!);
+    const subtitle = document.getElementById(dialog.getAttribute("aria-describedby")!);
+    expect(title?.textContent?.trim()).toBe("Program activity");
+    expect(subtitle?.textContent?.trim()).toBe(
+      "Calls from programs connected to your folder, newest first.",
+    );
+  });
+
+  it("gives the next step when nothing has called yet", () => {
+    h.setServerCommand({ path: "/usr/local/bin/writ", command: '"/usr/local/bin/writ" mcp' });
     openActivity();
     const { container } = render(() => <ActivityPanel />);
 
     const empty = container.querySelectorAll(".activity-empty");
     expect(empty).toHaveLength(1);
-    expect(empty[0].textContent).toBe("No program has called yet.");
+    expect(
+      Array.from(empty[0].querySelectorAll(".activity-empty-line"), (line) => line.textContent?.trim()),
+    ).toEqual([
+      "No program has called yet.",
+      "Add the command to a program's MCP settings, then ask it to read a file.",
+    ]);
     expect(container.querySelector(".activity-list")).toBeNull();
+
+    fireEvent.click(container.querySelector('[data-action="activity-copy-command"]')!);
+    expect(h.copyCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no copy before the command is known", () => {
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    expect(container.querySelector(".activity-empty")).not.toBeNull();
+    expect(container.querySelector('[data-action="activity-copy-command"]')).toBeNull();
   });
 
   it("keeps the decisions out of the log rows", () => {
@@ -175,8 +215,48 @@ describe("ActivityPanel", () => {
 
     const row = container.querySelector(".activity-row")!;
     expect(row.querySelector(".activity-program")!.textContent).toBe("Claude Code");
-    expect(row.querySelector(".activity-action")!.textContent).toBe("read_note");
+    expect(row.querySelector(".activity-action")!.textContent).toBe("opened");
     expect(row.querySelector(".activity-note")!.textContent).toBe("Ideas/Tessera.md");
+  });
+
+  it("words a call that names no file without one", () => {
+    h.setRecords([record({ action: "list_notes", path: null })]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const row = container.querySelector(".activity-row")!;
+    expect(row.querySelector(".activity-action")!.textContent).toBe("listed files");
+    expect(row.querySelector(".activity-note")).toBeNull();
+  });
+
+  it("names the new name of a file a rename moved", () => {
+    h.setRecords([record({ action: "rename_note", path: "Ideas/Renamed.md" })]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const row = container.querySelector(".activity-row")!;
+    expect(row.querySelector(".activity-action")!.textContent).toBe("renamed a file to");
+    expect(row.querySelector(".activity-note")!.textContent).toBe("Ideas/Renamed.md");
+  });
+
+  it("folds repeated reads of one file into one row with a count", () => {
+    h.setRecords([
+      record({ at: "2026-09-09T10:30:00.000Z" }),
+      record({ at: "2026-09-09T10:30:20.000Z" }),
+      record({ at: "2026-09-09T10:30:40.000Z", count: 4 }),
+      record({ at: "2026-09-09T10:30:50.000Z", action: "write_note" }),
+      record({ at: "2026-09-09T10:30:55.000Z", action: "write_note" }),
+    ]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const rows = Array.from(container.querySelectorAll(".activity-row"));
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.querySelector(".activity-count")?.textContent ?? null)).toEqual([
+      null,
+      null,
+      "6 times",
+    ]);
   });
 
   it("says what happens next on a waiting program", () => {

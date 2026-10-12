@@ -1,0 +1,47 @@
+.activity-waiting-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.activity-waiting {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+}
+
+.activity-waiting-what {
+  display: flex;
+  align-items: baseline;
+  gap: var(--writ-space-2);
+  min-width: 0;
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}
+
+.activity-waiting-when {
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-decide-line {
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+}
+
+.activity-decide-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--writ-space-2);
+}
+
+.activity-denied {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--writ-space-3);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+}

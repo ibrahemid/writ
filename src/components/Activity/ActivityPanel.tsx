@@ -4,14 +4,12 @@ import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { foldActivity, type ActivityRow } from "../../lib/activity-rows";
+import { describeCall } from "../../lib/tool-phrases";
 import { requestConfirm } from "../ConfirmDialog/ConfirmDialog";
 import { showToast } from "../Notifications/Toast";
-import {
-  activityStore,
-  ACTIVITY_POLL_MS,
-  type ActivityRecord,
-  type PendingClient,
-} from "../../stores/global/activity";
+import { activityStore, ACTIVITY_POLL_MS, type ActivityRecord } from "../../stores/global/activity";
+import { programName, timeOf, WaitingList } from "./WaitingProgram";
 import "./ActivityPanel.css";
 
 // Singleton state — Writ is single-window
@@ -41,13 +39,10 @@ const VERDICT: Record<ActivityRecord["decision"], string> = {
   pending: "Waiting",
 };
 
-/** A program that sent no name still made a call, and the row still shows it. */
-const UNNAMED_PROGRAM = "Unknown program";
-
 function actorName(record: ActivityRecord): string {
   switch (record.actor.kind) {
     case "client":
-      return record.actor.name.trim() || UNNAMED_PROGRAM;
+      return programName(record.actor.name);
     case "chat":
       return record.actor.host;
     case "app":
@@ -55,42 +50,22 @@ function actorName(record: ActivityRecord): string {
   }
 }
 
-/** The time of day, in the reader's own locale. */
-function timeOf(at: string): string {
-  const stamp = new Date(at);
-  if (Number.isNaN(stamp.getTime())) return "";
-  return stamp.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
-/**
- * When a program first called: the time today, the date and time before that.
- *
- * A waiting program stays on the list until it is decided on, so its first call
- * can be days old and an hour on its own would read as today.
- */
-function firstSeenLabel(at: string): string {
-  const stamp = new Date(at);
-  if (Number.isNaN(stamp.getTime())) return "";
-  if (stamp.toDateString() === new Date().toDateString()) return timeOf(at);
-  return stamp.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function Row(props: { record: ActivityRecord }) {
-  const record = () => props.record;
+function Row(props: { row: ActivityRow }) {
+  const record = () => props.row.record;
 
   return (
     <li class="activity-row">
       <span class="activity-time">{timeOf(record().at)}</span>
       <span class="activity-what">
         <span class="activity-program">{actorName(record())}</span>
-        <span class="activity-action">{record().action}</span>
+        <span class="activity-action">
+          {describeCall(record().action, record().path !== null, record().decision)}
+        </span>
         <Show when={record().path}>
           {(path) => <span class="activity-note">{path()}</span>}
+        </Show>
+        <Show when={props.row.calls > 1}>
+          <span class="activity-count">{props.row.calls} times</span>
         </Show>
       </span>
       <span class="activity-verdict" data-decision={record().decision}>
@@ -100,60 +75,9 @@ function Row(props: { record: ActivityRecord }) {
   );
 }
 
-/**
- * One program the user has not decided on.
- *
- * Read from the store's own list rather than from a log row: the log is capped,
- * and a program making calls it is not allowed to make would otherwise push
- * itself out of the list where it is decided on.
- */
-function Waiting(props: { client: PendingClient }) {
-  const name = () => props.client.name.trim() || UNNAMED_PROGRAM;
-
-  async function approve(write: boolean) {
-    try {
-      await activityStore.setPermission(name(), true, write);
-    } catch {
-      showToast("Could not save the approval", "error");
-    }
-  }
-
-  // The name the program sent, not the row's stand-in for an empty one: the
-  // waiting entry is held under the name as it came in.
-  async function refuse() {
-    try {
-      await activityStore.refuseWaiting(props.client.name);
-    } catch {
-      showToast("Could not turn the program down", "error");
-    }
-  }
-
-  return (
-    <li class="activity-waiting" data-program={props.client.name}>
-      <span class="activity-waiting-what">
-        <span class="activity-program">{name()}</span>
-        <Show when={firstSeenLabel(props.client.first_seen)}>
-          {(label) => <span class="activity-waiting-when">since {label()}</span>}
-        </Show>
-      </span>
-      <span class="activity-decide-line">It reads and writes nothing until you approve it.</span>
-      <span class="activity-decide-controls">
-        <Button data-action="approve-read" onClick={() => void approve(false)}>
-          Approve reading
-        </Button>
-        <Button data-action="approve-write" onClick={() => void approve(true)}>
-          Approve reading and writing
-        </Button>
-        <Button variant="ghost" data-action="refuse" onClick={() => void refuse()}>
-          Don't allow
-        </Button>
-      </span>
-    </li>
-  );
-}
-
 function ActivityDialog() {
   const titleId = createUniqueId();
+  const subtitleId = createUniqueId();
   const win = useWindow();
   let dialogRef: HTMLDivElement | undefined;
 
@@ -181,6 +105,15 @@ function ActivityDialog() {
     onCleanup(teardown);
   });
 
+  async function onCopyCommand() {
+    try {
+      await activityStore.copyCommand();
+      showToast("Command copied", "success");
+    } catch {
+      showToast("Could not copy the command", "error");
+    }
+  }
+
   async function onClear() {
     const confirmed = await requestConfirm({
       title: "Clear the activity list?",
@@ -206,10 +139,16 @@ function ActivityDialog() {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        aria-describedby={subtitleId}
       >
         <div class="activity-header">
-          <span id={titleId} class="activity-title">
-            Activity
+          <span class="activity-heading">
+            <span id={titleId} class="activity-title">
+              Program activity
+            </span>
+            <span id={subtitleId} class="activity-subtitle">
+              Calls from programs connected to your folder, newest first.
+            </span>
           </span>
           <span class="activity-header-controls">
             <Show when={activityStore.records().length > 0}>
@@ -217,32 +156,38 @@ function ActivityDialog() {
                 Clear
               </Button>
             </Show>
-            <Tooltip label="Close activity">
+            <Tooltip label="Close program activity">
               <Button
                 variant="ghost"
                 icon="x"
                 iconSize={16}
                 onClick={closeActivity}
-                aria-label="Close activity"
+                aria-label="Close program activity"
               />
             </Tooltip>
           </span>
         </div>
 
-        <Show when={activityStore.pending().length > 0}>
-          <ul class="activity-waiting-list">
-            <For each={activityStore.pending()}>
-              {(client) => <Waiting client={client} />}
-            </For>
-          </ul>
-        </Show>
+        <WaitingList />
 
         <Show
           when={activityStore.records().length > 0}
-          fallback={<p class="activity-empty">No program has called yet.</p>}
+          fallback={
+            <div class="activity-empty">
+              <p class="activity-empty-line">No program has called yet.</p>
+              <p class="activity-empty-line">
+                Add the command to a program's MCP settings, then ask it to read a file.
+              </p>
+              <Show when={activityStore.serverCommand()}>
+                <Button data-action="activity-copy-command" onClick={() => void onCopyCommand()}>
+                  Copy command
+                </Button>
+              </Show>
+            </div>
+          }
         >
           <ul class="activity-list">
-            <For each={activityStore.records()}>{(record) => <Row record={record} />}</For>
+            <For each={foldActivity(activityStore.records())}>{(row) => <Row row={row} />}</For>
           </ul>
         </Show>
       </div>

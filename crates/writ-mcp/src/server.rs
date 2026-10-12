@@ -348,7 +348,10 @@ fn answer<T: serde::Serialize>(result: Result<T, ToolError>) -> Result<CallToolR
 fn mcp_error(error: ToolError) -> ErrorData {
     let message = error.to_string();
     match error {
-        ToolError::NotApproved { .. } => ErrorData::invalid_request(message, None),
+        ToolError::NotEnabled
+        | ToolError::NotApproved { .. }
+        | ToolError::NotAllowed { .. }
+        | ToolError::Unnamed => ErrorData::invalid_request(message, None),
         ToolError::OutsideNotesFolder { .. }
         | ToolError::TooLarge { .. }
         | ToolError::TooMuchText { .. }
@@ -460,6 +463,16 @@ mod tests {
             tool: "read_note".to_string(),
         });
         assert!(refused.message.contains("Some Client"));
+
+        let off = mcp_error(ToolError::NotEnabled);
+        assert_eq!(
+            off.message,
+            "Connected programs is off in Writ. Turn it on in Settings, Apps."
+        );
+        assert_eq!(
+            off.code, refused.code,
+            "every refusal is the same kind of answer"
+        );
 
         let outside = mcp_error(ToolError::OutsideNotesFolder {
             path: "/etc/passwd".to_string(),

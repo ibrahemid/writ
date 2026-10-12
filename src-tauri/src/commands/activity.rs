@@ -12,6 +12,7 @@
 //! field that could hold anything else (rule 5.1).
 
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use tauri::{AppHandle, Manager};
 use writ_core::activity::{ActivityRecord, PendingClient};
@@ -135,9 +136,10 @@ pub fn mcp_clients_inner(config: &McpConfig) -> Vec<ClientApproval> {
 /// Sets what one client may do, adding it to the list when it is not there yet.
 ///
 /// The name is stored exactly as the client sent it, because that is the string
-/// the gate matches (`McpConfig::approval_for`). Granting neither direction is
-/// a legal state and is not the same as forgetting: the client stays on the
-/// list, so it is not offered again as something new to decide on.
+/// the gate matches (`McpConfig::approval_for`). Writing is stored with reading,
+/// as the settings load it. Granting neither direction is a legal state and is
+/// not the same as forgetting: it is the person's "Don't allow", and the client
+/// stays on the list, so it is not offered again as something new to decide on.
 pub fn set_client_permission_inner(
     config: &mut McpConfig,
     name: &str,
@@ -147,6 +149,7 @@ pub fn set_client_permission_inner(
     if name.trim().is_empty() {
         return Err(ApprovalError::NoName);
     }
+    let read = read || write;
     match config
         .approved_clients
         .iter_mut()
@@ -164,6 +167,52 @@ pub fn set_client_permission_inner(
         }),
     }
     Ok(())
+}
+
+pub fn deny_client_inner(config: &mut McpConfig, name: &str) -> Result<(), ApprovalError> {
+    set_client_permission_inner(config, name, false, false)
+}
+
+pub fn undo_denial_inner(config: &mut McpConfig, name: &str) -> Option<ClientApproval> {
+    let index = config
+        .approved_clients
+        .iter()
+        .position(|approval| approval.name == name && approval.grants_nothing())?;
+    Some(config.approved_clients.remove(index))
+}
+
+pub fn restore_client_inner(
+    config: &mut McpConfig,
+    approval: ClientApproval,
+) -> Result<(), ApprovalError> {
+    if approval.name.trim().is_empty() {
+        return Err(ApprovalError::NoName);
+    }
+    let approval = ClientApproval {
+        read: approval.read || approval.write,
+        ..approval
+    };
+    match config
+        .approved_clients
+        .iter_mut()
+        .find(|existing| existing.name == approval.name)
+    {
+        Some(existing) => *existing = approval,
+        None => config.approved_clients.push(approval),
+    }
+    Ok(())
+}
+
+/// The denial's own time stands in for when the program first asked: the
+/// server's entry was dropped when the decision was made.
+pub fn waiting_again(approval: &ClientApproval) -> PendingClient {
+    PendingClient {
+        name: approval.name.clone(),
+        version: None,
+        first_seen: approval.first_seen,
+        last_seen: approval.first_seen,
+        calls: 0,
+    }
 }
 
 /// Takes a client off the list, so its next call is pending again.
@@ -196,14 +245,65 @@ pub fn mcp_clients(app: AppHandle) -> McpClients {
 /// entry, the user approves it in the app, and the entry is dropped there. If a
 /// write fails on the way, the approval is what counts.
 pub fn waiting_in(writ_dir: &Path, approved: &[ClientApproval]) -> Vec<PendingClient> {
+    undecided(writ_storage::pending_clients::read(writ_dir), approved)
+}
+
+pub fn waiting_settled_in(
+    writ_dir: &Path,
+    approved: &[ClientApproval],
+) -> Option<Vec<PendingClient>> {
+    writ_storage::pending_clients::read_settled(writ_dir)
+        .map(|waiting| undecided(waiting, approved))
+}
+
+fn undecided(waiting: Vec<PendingClient>, approved: &[ClientApproval]) -> Vec<PendingClient> {
     let decided: std::collections::HashSet<&str> = approved
         .iter()
         .map(|approval| approval.name.as_str())
         .collect();
-    writ_storage::pending_clients::read(writ_dir)
+    waiting
         .into_iter()
         .filter(|entry| !decided.contains(entry.name.as_str()))
         .collect()
+}
+
+pub fn announce_waiting(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let Some(event) = announce_waiting_inner(&state) else {
+        tracing::debug!("the waiting file could not be read whole; skipped");
+        return;
+    };
+    if let Err(error) = emit_event(app, event) {
+        tracing::warn!(error = %error, "failed to emit the waiting programs");
+    }
+}
+
+/// A file caught mid-write sends nothing: the write that completes it raises
+/// its own change, and an empty list in between would hide every waiting
+/// program.
+pub fn announce_waiting_inner(state: &AppState) -> Option<WritFrontendEvent> {
+    let approved = {
+        let guard = recover_poison(state.config.lock(), "commands::activity::announce_waiting");
+        mcp_clients_inner(&guard.mcp)
+    };
+    waiting_settled_in(&state.writ_dir, &approved)
+        .map(|waiting| WritFrontendEvent::McpPending { waiting })
+}
+
+/// What the app hands `pending_clients` before it writes the waiting file:
+/// records the bytes in the watcher's ignore set, so the app's own write does
+/// not come back to it as the server's (the watcher rule).
+fn stamp_waiting_write(state: &AppState) -> impl FnOnce(&[u8]) + '_ {
+    move |bytes| {
+        let key = writ_core::watcher::ignore::data_key(&crate::watcher::handler::ignore_key_path(
+            &writ_storage::pending_clients::path(&state.writ_dir),
+        ));
+        let mut ignore = recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::activity::stamp_waiting_write",
+        );
+        ignore.record(key, bytes, Instant::now());
+    }
 }
 
 /// IPC: set what one client may do.
@@ -219,31 +319,100 @@ pub fn mcp_set_client_permission(
     })
 }
 
-/// Drops one waiting program's entry, deciding nothing about it.
+/// IPC: "Don't allow" one program.
 ///
-/// The waiting file is the only thing written: no approval is added, and none
-/// is removed, so the program is neither allowed nor blocked. Its next call
-/// writes the entry again and puts it back on the list to be decided on.
-pub fn refuse_waiting_client_inner(writ_dir: &Path, name: &str) -> Result<(), String> {
-    writ_storage::pending_clients::forget(writ_dir, name).map_err(|error| error.to_string())
+/// Stored as an entry granting neither direction, so a program that keeps
+/// calling is answered as not allowed and stays off the waiting list. A program
+/// that sent no name cannot be stored, and the gate refuses it whatever is on
+/// the list, so its waiting entry is all there is to take away.
+#[tauri::command]
+pub fn mcp_deny_client(app: AppHandle, name: String) -> Result<McpClients, String> {
+    if name.trim().is_empty() {
+        return deny_unnamed_inner(&app.state::<AppState>(), &name);
+    }
+    write_approvals(&app, "mcp_deny_client", &name, |mcp| {
+        deny_client_inner(mcp, &name).map_err(|e| e.to_string())
+    })
 }
 
-/// IPC: turn one waiting program down for this connection.
+pub fn deny_unnamed_inner(state: &AppState, name: &str) -> Result<McpClients, String> {
+    writ_storage::pending_clients::forget(&state.writ_dir, name, stamp_waiting_write(state))
+        .map_err(|error| error.to_string())?;
+    Ok(clients_now(state, "commands::activity::mcp_deny_client"))
+}
+
+/// IPC: undo "Don't allow", putting the program back on the waiting list.
+///
+/// Answers the lists as they are when there was no denial to undo.
 #[tauri::command]
-pub fn mcp_refuse_waiting_client(app: AppHandle, name: String) -> Result<McpClients, String> {
+pub fn mcp_return_to_waiting(app: AppHandle, name: String) -> Result<McpClients, String> {
     let state = app.state::<AppState>();
-    refuse_waiting_client_inner(&state.writ_dir, &name)?;
+    return_to_waiting_inner(&state, &name, || tell_settings_moved(&app))
+}
+
+pub fn return_to_waiting_inner(
+    state: &AppState,
+    name: &str,
+    settings_moved: impl FnOnce(),
+) -> Result<McpClients, String> {
+    let location = "commands::activity::mcp_return_to_waiting";
+    let (updated, undone, previous) = {
+        let mut guard = recover_poison(state.config.lock(), location);
+        let previous = guard.mcp.approved_clients.clone();
+        let undone = undo_denial_inner(&mut guard.mcp, name);
+        (guard.clone(), undone, previous)
+    };
+    let Some(undone) = undone else {
+        return Ok(clients_now(state, location));
+    };
+    if let Err(reason) = super::config::persist_config(state, &updated) {
+        let mut guard = recover_poison(state.config.lock(), location);
+        guard.mcp.approved_clients = previous;
+        return Err(reason);
+    }
+    settings_moved();
+    writ_storage::pending_clients::put_back(
+        &state.writ_dir,
+        waiting_again(&undone),
+        stamp_waiting_write(state),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(clients_now(state, location))
+}
+
+#[tauri::command]
+pub fn mcp_restore_client(app: AppHandle, approval: ClientApproval) -> Result<McpClients, String> {
+    let name = approval.name.clone();
+    write_approvals(&app, "mcp_restore_client", &name, |mcp| {
+        restore_client_inner(mcp, approval).map_err(|e| e.to_string())
+    })
+}
+
+fn clients_now(state: &AppState, location: &'static str) -> McpClients {
     let approved = {
-        let guard = recover_poison(
-            state.config.lock(),
-            "commands::activity::mcp_refuse_waiting_client",
-        );
+        let guard = recover_poison(state.config.lock(), location);
         mcp_clients_inner(&guard.mcp)
     };
-    Ok(McpClients {
+    McpClients {
         waiting: waiting_in(&state.writ_dir, &approved),
         approved,
-    })
+    }
+}
+
+/// Tells the frontend the settings it holds moved. `persist_config` records the
+/// write in the watcher's ignore set, so the file change never comes back as
+/// external and the frontend's copy of the settings would keep the old list.
+/// The next settings edit sends that copy whole, which would drop the approval
+/// just written.
+fn tell_settings_moved(app: &AppHandle) {
+    if let Err(error) = emit_event(
+        app,
+        WritFrontendEvent::ConfigChanged {
+            keys: vec!["mcp".to_string()],
+        },
+    ) {
+        tracing::warn!(error = %error, "failed to emit config event");
+    }
 }
 
 /// IPC: forget one client.
@@ -279,23 +448,14 @@ fn write_approvals(
         guard.mcp.approved_clients = previous;
         return Err(reason);
     }
-    // `persist_config` records the write in the watcher's ignore set, so the
-    // file change never comes back as external and the frontend's copy of the
-    // settings would keep the old list. The next settings edit sends that copy
-    // whole, which would drop the approval just written.
-    if let Err(error) = emit_event(
-        app,
-        WritFrontendEvent::ConfigChanged {
-            keys: vec!["mcp".to_string()],
-        },
-    ) {
-        tracing::warn!(error = %error, "failed to emit config event");
-    }
+    tell_settings_moved(app);
 
     // The decision is made, so the program is no longer one to decide on. A
     // failed write leaves a stale entry, which the filter in `waiting_in` hides
     // anyway once the name is on the approved list.
-    if let Err(error) = writ_storage::pending_clients::forget(&state.writ_dir, name) {
+    if let Err(error) =
+        writ_storage::pending_clients::forget(&state.writ_dir, name, stamp_waiting_write(&state))
+    {
         tracing::warn!(error = %error, "failed to clear the waiting client");
     }
 
@@ -451,16 +611,128 @@ mod tests {
     }
 
     #[test]
-    fn refusing_a_waiting_program_takes_its_row_off_the_list() {
+    fn writing_is_stored_with_reading() {
+        let mut config = McpConfig::default();
+        set_client_permission_inner(&mut config, "Claude Code", false, true).expect("set");
+
+        let approval = config.approval_for("Claude Code").expect("the client");
+        assert!(approval.read && approval.write);
+    }
+
+    #[test]
+    fn not_allowing_a_program_stores_a_decision_that_grants_nothing() {
+        let mut config = McpConfig::default();
+        deny_client_inner(&mut config, "Claude Code").expect("deny");
+
+        let approval = config
+            .approval_for("Claude Code")
+            .expect("the client is listed");
+        assert!(approval.grants_nothing());
+    }
+
+    #[test]
+    fn not_allowing_a_program_that_sent_no_name_stores_nothing() {
+        let mut config = McpConfig::default();
+        assert_eq!(
+            deny_client_inner(&mut config, "  "),
+            Err(ApprovalError::NoName)
+        );
+        assert!(config.approved_clients.is_empty());
+    }
+
+    #[test]
+    fn undoing_a_denial_takes_it_off_the_list_and_answers_it() {
+        let mut config = McpConfig::default();
+        deny_client_inner(&mut config, "Claude Code").expect("deny");
+        set_client_permission_inner(&mut config, "Zed", true, false).expect("set");
+
+        let undone = undo_denial_inner(&mut config, "Claude Code").expect("a denial");
+
+        assert_eq!(undone.name, "Claude Code");
+        assert!(config.approval_for("Claude Code").is_none());
+        assert!(config.approval_for("Zed").is_some());
+    }
+
+    #[test]
+    fn undoing_a_denial_leaves_a_program_that_was_since_allowed_alone() {
+        let mut config = McpConfig::default();
+        set_client_permission_inner(&mut config, "Claude Code", true, false).expect("set");
+
+        assert_eq!(undo_denial_inner(&mut config, "Claude Code"), None);
+        assert!(
+            config
+                .approval_for("Claude Code")
+                .expect("still there")
+                .read
+        );
+    }
+
+    #[test]
+    fn an_undone_denial_waits_again_from_when_it_was_decided() {
+        let mut config = McpConfig::default();
+        deny_client_inner(&mut config, "Claude Code").expect("deny");
+        let denial = config
+            .approval_for("Claude Code")
+            .expect("the client")
+            .clone();
+
+        let waiting = waiting_again(&denial);
+
+        assert_eq!(waiting.name, "Claude Code");
+        assert_eq!(waiting.first_seen, denial.first_seen);
+        assert_eq!(waiting.calls, 0);
+    }
+
+    #[test]
+    fn a_forgotten_program_is_put_back_exactly_as_it_was() {
+        let mut config = McpConfig {
+            enabled: true,
+            approved_clients: vec![approved("Claude Code", true, true)],
+        };
+        let before = config.approved_clients[0].clone();
+        forget_client_inner(&mut config, "Claude Code");
+
+        restore_client_inner(&mut config, before.clone()).expect("restore");
+
+        assert_eq!(config.approved_clients, [before]);
+    }
+
+    #[test]
+    fn restoring_replaces_what_is_on_the_list_under_the_name_now() {
+        let mut config = McpConfig {
+            enabled: true,
+            approved_clients: vec![approved("Claude Code", false, false)],
+        };
+        let earlier = approved("Claude Code", true, false);
+
+        restore_client_inner(&mut config, earlier.clone()).expect("restore");
+
+        assert_eq!(config.approved_clients, [earlier]);
+    }
+
+    #[test]
+    fn a_program_that_sent_no_name_cannot_be_restored() {
+        let mut config = McpConfig::default();
+        assert_eq!(
+            restore_client_inner(&mut config, approved(" ", true, false)),
+            Err(ApprovalError::NoName)
+        );
+    }
+
+    #[test]
+    fn a_waiting_file_caught_mid_write_is_not_an_empty_list() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        for name in ["Claude Code", "Zed"] {
-            writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named(name), 1)
-                .expect("note");
-        }
+        writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Zed"), 1)
+            .expect("note");
+        let file = writ_storage::pending_clients::path(dir.path());
+        let whole = std::fs::read(&file).expect("the file");
+        std::fs::write(&file, &whole[..whole.len() - 3]).expect("cut it short");
 
-        refuse_waiting_client_inner(dir.path(), "Claude Code").expect("refuse");
+        assert_eq!(waiting_settled_in(dir.path(), &[]), None);
 
-        let names: Vec<String> = waiting_in(dir.path(), &[])
+        std::fs::write(&file, &whole).expect("the write completes");
+        let names: Vec<String> = waiting_settled_in(dir.path(), &[])
+            .expect("settled")
             .into_iter()
             .map(|entry| entry.name)
             .collect();
@@ -468,39 +740,20 @@ mod tests {
     }
 
     #[test]
-    fn refusing_a_waiting_program_writes_no_approval() {
+    fn the_settled_list_leaves_out_programs_already_decided_on() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Claude Code"), 1)
-            .expect("note");
-        let config = McpConfig::default();
+        for name in ["Claude Code", "Zed"] {
+            writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named(name), 1)
+                .expect("note");
+        }
 
-        refuse_waiting_client_inner(dir.path(), "Claude Code").expect("refuse");
-
-        assert!(config.approved_clients.is_empty());
-        assert!(config.approval_for("Claude Code").is_none());
-        assert!(mcp_clients_inner(&config).is_empty());
-    }
-
-    #[test]
-    fn refusing_a_program_that_sent_no_name_takes_its_row_off_the_list() {
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named(""), 1)
-            .expect("note");
-
-        refuse_waiting_client_inner(dir.path(), "").expect("refuse");
-
-        assert!(waiting_in(dir.path(), &[]).is_empty());
-    }
-
-    #[test]
-    fn refusing_a_program_that_is_not_waiting_changes_nothing() {
-        let dir = tempfile::TempDir::new().expect("temp dir");
-        writ_storage::pending_clients::note_calls(dir.path(), &ClientId::named("Zed"), 1)
-            .expect("note");
-
-        refuse_waiting_client_inner(dir.path(), "Claude Code").expect("refuse");
-
-        assert_eq!(waiting_in(dir.path(), &[]).len(), 1);
+        let names: Vec<String> =
+            waiting_settled_in(dir.path(), &[approved("Claude Code", false, false)])
+                .expect("settled")
+                .into_iter()
+                .map(|entry| entry.name)
+                .collect();
+        assert_eq!(names, ["Zed"]);
     }
 
     #[test]

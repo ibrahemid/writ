@@ -11,8 +11,9 @@
 //! name a client sent and the verdict a gate reached are one type across the
 //! server, the log and the settings surface (ADR-031 rule 3.1).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -40,7 +41,7 @@ impl ClientId {
 }
 
 /// What was decided about one call.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Decision {
     /// The call ran.
@@ -138,6 +139,11 @@ pub struct ActivityRecord {
     pub decision: Decision,
     /// How many bytes were read or written, when that is a number.
     pub bytes: Option<u64>,
+    /// How many calls the line stands for, when it is more than one: repeated
+    /// reads within [`REPEAT_WINDOW`] share a line ([`RepeatFold`]). Absent
+    /// from every other line, so a log written before it reads the same.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<u64>,
 }
 
 impl ActivityRecord {
@@ -150,6 +156,7 @@ impl ActivityRecord {
             path: None,
             decision,
             bytes: None,
+            count: None,
         }
     }
 
@@ -163,6 +170,154 @@ impl ActivityRecord {
     pub fn with_bytes(mut self, bytes: u64) -> Self {
         self.bytes = Some(bytes);
         self
+    }
+
+    /// The same record, standing for `calls` calls. One call is an ordinary
+    /// line and carries no count.
+    pub fn with_count(mut self, calls: u64) -> Self {
+        self.count = (calls > 1).then_some(calls);
+        self
+    }
+
+    /// How many calls the line stands for.
+    pub fn calls(&self) -> u64 {
+        self.count.unwrap_or(1)
+    }
+}
+
+/// How long repeated reads share one line of the log.
+pub const REPEAT_WINDOW: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FoldKey {
+    actor: String,
+    action: String,
+    path: Option<PathBuf>,
+    decision: Decision,
+}
+
+impl FoldKey {
+    fn of(record: &ActivityRecord) -> Self {
+        let actor = match &record.actor {
+            Actor::Client { name, .. } => format!("client:{name}"),
+            Actor::Chat { host } => format!("chat:{host}"),
+            Actor::App => "app".to_string(),
+        };
+        Self {
+            actor,
+            action: record.action.clone(),
+            path: record.path.clone(),
+            decision: record.decision,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Run {
+    opened: Instant,
+    held: u64,
+    last: Option<ActivityRecord>,
+}
+
+/// Folds repeated reads into one line per [`REPEAT_WINDOW`] (ADR-031 rule
+/// 5.5).
+///
+/// The first read of a run is written as it happens, so the log shows a
+/// program reading a file at the moment it did. Further reads of the same file
+/// by the same program, decided the same way, are counted until the window
+/// closes; then one line carries the count, stamped at the last of them. A
+/// window closes at the first record after it ends, whichever file that record
+/// names, or when [`RepeatFold::drain`] is called as the log closes. A process
+/// killed mid-window takes its held count with it, so a count is a floor.
+///
+/// Only the read tools fold. A write, an overwrite, a chat proposal or the
+/// app's own action is always its own line.
+#[derive(Debug)]
+pub struct RepeatFold {
+    window: Duration,
+    runs: HashMap<FoldKey, Run>,
+}
+
+impl Default for RepeatFold {
+    fn default() -> Self {
+        Self::new(REPEAT_WINDOW)
+    }
+}
+
+impl RepeatFold {
+    /// A fold over runs `window` long.
+    pub fn new(window: Duration) -> Self {
+        Self {
+            window,
+            runs: HashMap::new(),
+        }
+    }
+
+    /// The lines to append for `record`, arriving at `now`, in the order they
+    /// go in: the counts of runs that have ended, oldest first, then `record`
+    /// itself unless it joined a run.
+    pub fn take(&mut self, record: ActivityRecord, now: Instant) -> Vec<ActivityRecord> {
+        let mut due = self.close_ended(now);
+        if !crate::tools::is_read_tool(&record.action) {
+            due.push(record);
+            return due;
+        }
+        match self.runs.get_mut(&FoldKey::of(&record)) {
+            Some(run) => {
+                run.held += 1;
+                run.last = Some(record);
+            }
+            None => {
+                self.runs.insert(
+                    FoldKey::of(&record),
+                    Run {
+                        opened: now,
+                        held: 0,
+                        last: None,
+                    },
+                );
+                due.push(record);
+            }
+        }
+        due
+    }
+
+    /// Every count still held, as its line, oldest first. What a log that is
+    /// closing writes last.
+    pub fn drain(&mut self) -> Vec<ActivityRecord> {
+        let mut lines: Vec<ActivityRecord> = self
+            .runs
+            .drain()
+            .filter_map(|(_, run)| run.line())
+            .collect();
+        lines.sort_by_key(|line| line.at);
+        lines
+    }
+
+    fn close_ended(&mut self, now: Instant) -> Vec<ActivityRecord> {
+        let window = self.window;
+        let ended: Vec<FoldKey> = self
+            .runs
+            .iter()
+            .filter(|(_, run)| now.saturating_duration_since(run.opened) >= window)
+            .map(|(key, _)| key.clone())
+            .collect();
+        let mut lines: Vec<ActivityRecord> = ended
+            .into_iter()
+            .filter_map(|key| self.runs.remove(&key))
+            .filter_map(|run| run.line())
+            .collect();
+        lines.sort_by_key(|line| line.at);
+        lines
+    }
+}
+
+impl Run {
+    fn line(self) -> Option<ActivityRecord> {
+        let held = self.held;
+        self.last
+            .filter(|_| held > 0)
+            .map(|last| last.with_count(held))
     }
 }
 
@@ -313,6 +468,186 @@ mod tests {
         let client = ClientId::named("Some Client");
         assert_eq!(client.name, "Some Client");
         assert_eq!(client.version, None);
+    }
+
+    #[test]
+    fn a_folded_line_carries_its_count_and_still_no_key_that_could_hold_text() {
+        let json = serde_json::to_value(record().with_count(5)).expect("serialise");
+        let mut found = keys(&json);
+        found.sort();
+        assert_eq!(
+            found,
+            ["action", "actor", "at", "bytes", "count", "decision", "path"]
+        );
+        assert_eq!(json["count"].as_u64(), Some(5));
+    }
+
+    #[test]
+    fn one_call_is_an_ordinary_line_with_no_count() {
+        let one = record().with_count(1);
+        assert_eq!(one.count, None);
+        assert_eq!(one.calls(), 1);
+        let json = serde_json::to_value(one).expect("serialise");
+        assert!(json.get("count").is_none());
+    }
+
+    #[test]
+    fn a_line_written_before_the_count_existed_reads_as_one_call() {
+        let line = r#"{"at":"2026-09-09T10:30:00.000Z","actor":{"kind":"app"},"action":"save","path":null,"decision":"allow","bytes":null}"#;
+        let parsed: ActivityRecord = serde_json::from_str(line).expect("parse");
+        assert_eq!(parsed.count, None);
+        assert_eq!(parsed.calls(), 1);
+    }
+
+    fn read_at(path: &str, second: u64) -> ActivityRecord {
+        let mut line = ActivityRecord::now(
+            Actor::Client {
+                name: "Claude Code".to_string(),
+                version: None,
+            },
+            "read_note",
+            Decision::Allow,
+        )
+        .with_path(path);
+        line.at = SystemTime::UNIX_EPOCH + Duration::from_secs(second);
+        line
+    }
+
+    fn write_at(second: u64) -> ActivityRecord {
+        let mut line = ActivityRecord::now(
+            Actor::Client {
+                name: "Claude Code".to_string(),
+                version: None,
+            },
+            "write_note",
+            Decision::Allow,
+        )
+        .with_path("Launch.md")
+        .with_bytes(6);
+        line.at = SystemTime::UNIX_EPOCH + Duration::from_secs(second);
+        line
+    }
+
+    #[test]
+    fn the_first_read_of_a_run_is_written_as_it_happens() {
+        let mut fold = RepeatFold::default();
+        let start = Instant::now();
+
+        let due = fold.take(read_at("Launch.md", 0), start);
+
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].count, None);
+    }
+
+    #[test]
+    fn repeated_reads_in_the_window_become_one_line_with_their_count() {
+        let mut fold = RepeatFold::default();
+        let start = Instant::now();
+        fold.take(read_at("Launch.md", 0), start);
+
+        for second in 1..=10 {
+            let due = fold.take(
+                read_at("Launch.md", second),
+                start + Duration::from_secs(second),
+            );
+            assert!(due.is_empty(), "held at {second}s: {due:?}");
+        }
+
+        let due = fold.take(read_at("Launch.md", 61), start + Duration::from_secs(61));
+        assert_eq!(due.len(), 2, "{due:?}");
+        assert_eq!(due[0].count, Some(10), "the held calls, as one line");
+        assert_eq!(
+            due[0].at,
+            SystemTime::UNIX_EPOCH + Duration::from_secs(10),
+            "stamped at the last call it counts"
+        );
+        assert_eq!(due[1].count, None, "the call that opened the next run");
+    }
+
+    #[test]
+    fn a_write_is_never_folded() {
+        let mut fold = RepeatFold::default();
+        let start = Instant::now();
+
+        for second in 0..5 {
+            let due = fold.take(write_at(second), start + Duration::from_secs(second));
+            assert_eq!(due.len(), 1, "write at {second}s");
+            assert_eq!(due[0].count, None);
+        }
+    }
+
+    #[test]
+    fn another_file_tool_or_answer_is_another_run() {
+        let mut fold = RepeatFold::default();
+        let start = Instant::now();
+        fold.take(read_at("Launch.md", 0), start);
+
+        let other_file = fold.take(read_at("Plan.md", 1), start + Duration::from_secs(1));
+        let mut listing = read_at("Launch.md", 2);
+        listing.action = "note_links".to_string();
+        let other_tool = fold.take(listing, start + Duration::from_secs(2));
+        let mut waiting = read_at("Launch.md", 3);
+        waiting.decision = Decision::Pending;
+        let other_answer = fold.take(waiting, start + Duration::from_secs(3));
+
+        assert_eq!(other_file.len(), 1);
+        assert_eq!(other_tool.len(), 1);
+        assert_eq!(other_answer.len(), 1);
+    }
+
+    #[test]
+    fn a_run_closes_at_the_first_record_after_its_window_whatever_it_names() {
+        let mut fold = RepeatFold::default();
+        let start = Instant::now();
+        fold.take(read_at("Launch.md", 0), start);
+        fold.take(read_at("Launch.md", 5), start + Duration::from_secs(5));
+        fold.take(read_at("Launch.md", 6), start + Duration::from_secs(6));
+
+        let due = fold.take(write_at(70), start + Duration::from_secs(70));
+
+        assert_eq!(due.len(), 2, "{due:?}");
+        assert_eq!(due[0].action, "read_note");
+        assert_eq!(due[0].count, Some(2));
+        assert_eq!(due[1].action, "write_note");
+    }
+
+    #[test]
+    fn a_closing_log_writes_every_count_it_holds() {
+        let mut fold = RepeatFold::default();
+        let start = Instant::now();
+        fold.take(read_at("Launch.md", 0), start);
+        fold.take(read_at("Plan.md", 1), start + Duration::from_secs(1));
+        fold.take(read_at("Launch.md", 2), start + Duration::from_secs(2));
+        fold.take(read_at("Plan.md", 3), start + Duration::from_secs(3));
+        fold.take(read_at("Plan.md", 4), start + Duration::from_secs(4));
+
+        let drained = fold.drain();
+
+        let summary: Vec<(Option<PathBuf>, u64)> = drained
+            .iter()
+            .map(|line| (line.path.clone(), line.calls()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                (Some(PathBuf::from("Launch.md")), 1),
+                (Some(PathBuf::from("Plan.md")), 2)
+            ],
+            "oldest first"
+        );
+        assert!(fold.drain().is_empty(), "nothing is written twice");
+    }
+
+    #[test]
+    fn a_run_with_nothing_held_writes_nothing_when_it_closes() {
+        let mut fold = RepeatFold::default();
+        let start = Instant::now();
+        fold.take(read_at("Launch.md", 0), start);
+
+        let due = fold.take(read_at("Launch.md", 90), start + Duration::from_secs(90));
+
+        assert_eq!(due.len(), 1, "only the new run's first line: {due:?}");
+        assert!(fold.drain().is_empty());
     }
 
     #[test]
