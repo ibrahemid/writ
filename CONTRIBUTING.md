@@ -4,8 +4,8 @@ Thank you for your interest in contributing. This document covers everything you
 
 ## Prerequisites
 
-- **Rust** 1.89+ (the workspace `rust-version`), install via [rustup.rs](https://rustup.rs)
-- **Node.js** 20+, via [nodejs.org](https://nodejs.org) or a version manager
+- **Rust** via [rustup.rs](https://rustup.rs). `rust-toolchain.toml` pins the compiler, and rustup installs it on the first build.
+- **Node.js** 22 (22.22.2 or later), 24 (24.15 or later) or 26+, as `engines` in `package.json` sets it, via [nodejs.org](https://nodejs.org) or a version manager
 - **pnpm** 9+: `npm install -g pnpm`
 - **Tauri CLI prerequisites** for your platform: [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/)
   - macOS: Xcode Command Line Tools
