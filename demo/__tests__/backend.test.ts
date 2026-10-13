@@ -106,6 +106,21 @@ describe("the demo backend", () => {
     expect(answer.path).toBe(`${NOTES_ROOT}/Garden/Seed order.md`);
   });
 
+  it("answers the preview URL base the app loads at startup", async () => {
+    const { handle } = backend();
+    expect(await handle("preview_url_prefix", {})).toBe("writ-preview://");
+  });
+
+  it("keeps a file's preview scripts off until it is turned on, and remembers it", async () => {
+    const { handle } = backend();
+    const [doc] = (await handle("list_active_buffers", {})) as { id: string }[];
+    expect(await handle("preview_get_scripts", { bufferId: doc.id })).toBe(false);
+    await handle("preview_set_scripts", { bufferId: doc.id, enabled: true });
+    expect(await handle("preview_get_scripts", { bufferId: doc.id })).toBe(true);
+    await handle("preview_set_scripts", { bufferId: doc.id, enabled: false });
+    expect(await handle("preview_get_scripts", { bufferId: doc.id })).toBe(false);
+  });
+
   it("refuses a command it has no answer for by name", () => {
     const { handle } = backend();
     expect(() => handle("no_such_command", {})).toThrow(DemoCommandError);

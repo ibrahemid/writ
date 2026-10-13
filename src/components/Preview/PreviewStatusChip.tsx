@@ -14,8 +14,8 @@ interface Props {
 // A transient status indicator floating in the preview pane's corner. It is
 // silent in the steady state (rendered OK, no warnings) so nothing hovers
 // over the content; it appears only when there is something to say —
-// rendering, a size gate, an error, or parser warnings. Layout and the
-// scripts kill switch are persistent controls and live in the status bar.
+// rendering, a size gate, an error, or parser warnings. Layout is a
+// persistent control and lives in the status bar.
 
 const STATE_LABEL: Record<PreviewState, string> = {
   rendering: "Rendering…",

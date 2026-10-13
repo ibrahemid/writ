@@ -721,8 +721,11 @@ fn open_note_modification(
         .last_disk_state(note_id)
         .map(|state| state.hash);
     let on_disk = bytes.map(writ_core::hash::sha256_bytes);
-    modification_is_news(last_read, on_disk, came_back)
-        .then(|| open_note_modified(note_id, path, bytes))
+    if !modification_is_news(last_read, on_disk, came_back) {
+        return None;
+    }
+    vanished.tracking.files.note_file_changed(note_id);
+    Some(open_note_modified(note_id, path, bytes))
 }
 
 /// The file's bytes, or `None` where reading them is the wrong thing to do.
@@ -957,11 +960,14 @@ pub fn open_note_vanished(
         // The volume cannot say whether the file moved or went, so neither is
         // claimed and the write guard governs the next save exactly as it did
         // before identity was read at all.
-        DeleteVerdict::ExternalModification => Some(open_note_modified(
-            note_id,
-            path,
-            readable_bytes(path).as_deref(),
-        )),
+        DeleteVerdict::ExternalModification => {
+            files.note_file_changed(note_id);
+            Some(open_note_modified(
+                note_id,
+                path,
+                readable_bytes(path).as_deref(),
+            ))
+        }
     }
 }
 
@@ -1644,6 +1650,7 @@ mod tests {
         moved: Arc<Mutex<Vec<(PathBuf, PathBuf)>>>,
         removed: Arc<Mutex<Vec<PathBuf>>>,
         returned: Arc<Mutex<Vec<PathBuf>>>,
+        changed: Arc<Mutex<Vec<String>>>,
         already_told: Arc<Mutex<bool>>,
         /// What the record answers for a file that is at its path again: the
         /// tab was refusing to save to it, so hearing it is back is news
@@ -1681,6 +1688,10 @@ mod tests {
         fn note_file_returned(&self, _note_id: &str, path: &Path) -> bool {
             self.returned.lock().unwrap().push(path.to_path_buf());
             self.was_removed
+        }
+
+        fn note_file_changed(&self, note_id: &str) {
+            self.changed.lock().unwrap().push(note_id.to_string());
         }
 
         fn last_disk_state(&self, _note_id: &str) -> Option<writ_core::notes::guard::DiskState> {
@@ -2215,7 +2226,7 @@ mod tests {
         let identity = crate::watcher::identity::read_identity(&from);
         fs::rename(&from, &to).unwrap();
 
-        let (tracking, _files) = tracking_with(RecordingFiles {
+        let (tracking, files) = tracking_with(RecordingFiles {
             identity,
             ..RecordingFiles::default()
         });
@@ -2238,6 +2249,10 @@ mod tests {
             }
             other => panic!("expected a move, got {other:?}"),
         }
+        assert!(
+            files.changed.lock().unwrap().is_empty(),
+            "a move changes no bytes, so nothing granted to them goes"
+        );
     }
 
     #[test]
@@ -2286,6 +2301,11 @@ mod tests {
             "a tab must not stop writing on a verdict nothing could establish"
         );
         assert!(files.moved.lock().unwrap().is_empty());
+        assert_eq!(
+            files.changed.lock().unwrap().as_slice(),
+            &["note-1".to_string()],
+            "a modification the tab is told of reaches the record first"
+        );
     }
 
     #[test]
@@ -2476,6 +2496,10 @@ mod tests {
             &[path],
             "the id is re-read whether or not the tab is told, or the next rename reads as a deletion"
         );
+        assert!(
+            files.changed.lock().unwrap().is_empty(),
+            "bytes the tab already read are no change, so nothing granted to them lapses"
+        );
     }
 
     #[test]
@@ -2484,7 +2508,7 @@ mod tests {
         let path = dir.path().join("edited.md");
         fs::write(&path, b"somebody else wrote this").unwrap();
 
-        let (event, _files) = modification_for(&path, b"what the tab loaded", false);
+        let (event, files) = modification_for(&path, b"what the tab loaded", false);
 
         assert!(matches!(
             event,
@@ -2493,6 +2517,11 @@ mod tests {
                 ..
             })
         ));
+        assert_eq!(
+            files.changed.lock().unwrap().as_slice(),
+            &["note-1".to_string()],
+            "the record hears of the change before the tab does"
+        );
     }
 
     #[test]

@@ -131,6 +131,14 @@ pub enum StorageError {
         path: String,
     },
 
+    /// A buffer was named that the store does not hold, so nothing was
+    /// recorded for it.
+    #[error("no file in the store has the id {id}")]
+    BufferMissing {
+        /// The id that was named.
+        id: String,
+    },
+
     /// The file is over the size Writ opens
     /// (`writ_core::file_ops::THRESHOLD_MAX_BYTES`), so none of it was read
     /// (ADR-019).

@@ -1014,11 +1014,13 @@ fn vault_of_10000_notes_and_200000_links_stays_under_budget() {
 
     // Migration 045 over the same rows: the shape a database written before it
     // has, migrated forward. The runner applies only versions above the
-    // highest one recorded, so 046 goes too.
+    // highest one recorded, so 046 to 048 go too.
     conn.execute_batch(
         "DROP INDEX idx_links_name_key;
          ALTER TABLE links DROP COLUMN name_key;
          DROP TABLE unsaved_text;
+         ALTER TABLE buffers DROP COLUMN preview_scripts_hash;
+         ALTER TABLE buffers DROP COLUMN preview_scripts;
          DELETE FROM schema_version WHERE version >= 45;",
     )
     .expect("roll back to before 045");

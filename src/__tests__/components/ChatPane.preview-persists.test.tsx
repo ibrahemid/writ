@@ -148,7 +148,6 @@ function chatConfig(): WritConfig {
       render_confirm_threshold_mb: 5,
       render_refuse_threshold_mb: 50,
       debounce_ms: 200,
-      run_scripts: true,
     },
   };
 }

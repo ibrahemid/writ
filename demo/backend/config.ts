@@ -71,8 +71,7 @@ export const DEMO_CONFIG: WritConfig = {
     "live_render_threshold_mb": 1,
     "render_confirm_threshold_mb": 5,
     "render_refuse_threshold_mb": 50,
-    "debounce_ms": 200,
-    "run_scripts": true
+    "debounce_ms": 200
   },
   "workspace": {
     "root": "/Users/you/Notes"

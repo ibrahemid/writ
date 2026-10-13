@@ -1,6 +1,9 @@
 # ADR-011: Preview Trust Model — CSP, Pins, Audit, Verification
 
 **Status:** Superseded — descoped to offline agent-output preview (2026-05-26)
+**Amended by:** [ADR-043](./043-untrusted-documents-in-the-preview.md) (2026-10-13):
+a downloaded document is untrusted, its own scripts run only once its file is
+opted in, the frame is sandboxed and its resource hints are disabled.
 **Date:** 2026-05-22
 
 > **Superseded.** The preview renders Writ's own agent/LLM output offline; it

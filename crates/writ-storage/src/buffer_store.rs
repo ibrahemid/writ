@@ -6,16 +6,19 @@ use writ_core::file_ops::{FileOpenMode, THRESHOLD_NORMAL_BYTES};
 
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
-use tracing::warn;
+use tracing::{info, warn};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::hash::{digest_from_hex, digest_hex, Sha256Digest};
 use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::WriteOrigin;
+use writ_core::preview::scripts::{opt_in_carries_over_write, opt_in_standing, OptInStanding};
 
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
 use crate::guarded::{
     write_note_guarded, write_recovered_copy, ConflictPolicy, DiskRead, GuardedWrite, WriteCapture,
+    WriteOutcome,
 };
 use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::note_history::NoteHistoryStore;
@@ -769,6 +772,7 @@ impl BufferStore {
             },
             before_write,
         )?;
+        self.settle_preview_scripts(id, &outcome);
         Ok((doc, outcome.disk_state))
     }
 
@@ -921,6 +925,7 @@ impl BufferStore {
             },
             before_write,
         )?;
+        self.settle_preview_scripts(id, &outcome);
         Ok(RecoveredText::Restored(outcome.disk_state))
     }
 
@@ -932,6 +937,112 @@ impl BufferStore {
     /// overruled, because the next save has to write what the file holds now.
     pub fn set_line_ending(&self, id: &str, ending: LineEnding) -> StorageResult<()> {
         queries::update_line_ending(&self.conn, id, ending)
+    }
+
+    /// The preview-scripts opt-in as recorded on the row, before it is checked
+    /// against the bytes Writ holds for the file. What a render obeys is
+    /// [`Self::check_preview_scripts`].
+    pub fn preview_scripts(&self, id: &str) -> StorageResult<bool> {
+        queries::get_preview_scripts(&self.conn, id)
+    }
+
+    /// Whether this document's own scripts may run in its preview: the user
+    /// opted the file in, and the bytes Writ holds for it are ones the opt-in
+    /// covers (ADR-043). Off for every document until the user opts the file
+    /// in (decision RC-D1/TS-D1).
+    ///
+    /// `seen` is the digest of the bytes Writ last read from the file or wrote
+    /// to it, which the caller keeps; no file is read here, so the check never
+    /// waits on a file that does not answer. The opt-in covers what Writ held
+    /// when it was given and what Writ has written since. Other bytes were
+    /// another program's, read in with the tab open, on a reopen or after a
+    /// relaunch, and the opt-in lapses here. With no bytes to compare the
+    /// scripts stay off this time and the opt-in is kept.
+    pub fn check_preview_scripts(
+        &self,
+        id: &str,
+        seen: Option<Sha256Digest>,
+    ) -> StorageResult<bool> {
+        let Some(opt_in) = queries::get_preview_scripts_opt_in(&self.conn, id)? else {
+            return Ok(false);
+        };
+        if !opt_in.enabled {
+            return Ok(false);
+        }
+        let covered = opt_in.recorded_hash.as_deref().and_then(digest_from_hex);
+        match opt_in_standing(covered, seen) {
+            OptInStanding::Stands => Ok(true),
+            OptInStanding::Unchecked => Ok(false),
+            OptInStanding::Lapses => {
+                queries::disable_preview_scripts(&self.conn, id)?;
+                info!(buffer = %id, "the file holds bytes another program wrote; its preview-scripts opt-in lapsed");
+                Ok(false)
+            }
+        }
+    }
+
+    /// Opts the file in to running its own scripts in the preview, remembered
+    /// on the buffer row so it survives a relaunch. `covers` is the digest of
+    /// the bytes Writ holds for the file, the document the user is looking at;
+    /// `None` for a file Writ holds none of yet, whose first save it follows.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::BufferMissing`] for an id with no row.
+    pub fn enable_preview_scripts(
+        &self,
+        id: &str,
+        covers: Option<Sha256Digest>,
+    ) -> StorageResult<()> {
+        queries::enable_preview_scripts(&self.conn, id, covers.map(digest_hex).as_deref())
+    }
+
+    /// Turns the file's scripts off and forgets the bytes the opt-in covered.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::BufferMissing`] for an id with no row.
+    pub fn disable_preview_scripts(&self, id: &str) -> StorageResult<()> {
+        queries::disable_preview_scripts(&self.conn, id)
+    }
+
+    /// Carries `id`'s preview-scripts opt-in over the write Writ just made, or
+    /// lets it lapse (ADR-043). It carries only when the file held bytes the
+    /// opt-in covers as the write's guard found it, so a save cannot pass
+    /// another program's change off as Writ's, and then it covers the bytes
+    /// written. Both digests come from the write itself: no file is read
+    /// again. A failure to read or update the row is logged and the write
+    /// stands: a save never fails over a preview setting, and an opt-in whose
+    /// digest was not moved lapses at its next check.
+    fn settle_preview_scripts(&self, id: &str, outcome: &WriteOutcome) {
+        let opt_in = match queries::get_preview_scripts_opt_in(&self.conn, id) {
+            Ok(Some(opt_in)) if opt_in.enabled => opt_in,
+            Ok(_) => return,
+            Err(error) => {
+                warn!(buffer = %id, %error, "could not read the preview-scripts opt-in after a save");
+                return;
+            }
+        };
+        let covered = opt_in.recorded_hash.as_deref().and_then(digest_from_hex);
+        let found = outcome.found.map(|state| state.hash);
+        if opt_in_carries_over_write(covered, found) {
+            if let Err(error) = queries::record_preview_scripts_hash(
+                &self.conn,
+                id,
+                &digest_hex(outcome.disk_state.hash),
+            ) {
+                warn!(buffer = %id, %error, "could not record the bytes a preview-scripts opt-in covers");
+            }
+            return;
+        }
+        match queries::disable_preview_scripts(&self.conn, id) {
+            Ok(()) => {
+                info!(buffer = %id, "a save landed where the file held bytes the preview-scripts opt-in does not cover, or none; the opt-in lapsed")
+            }
+            Err(error) => {
+                warn!(buffer = %id, %error, "could not clear a lapsed preview-scripts opt-in")
+            }
+        }
     }
 
     /// Records the size a stat measured for a buffer's file, so everything

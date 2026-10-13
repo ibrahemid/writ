@@ -691,6 +691,71 @@ describe("the write after a file turns up at another path", () => {
     expect(written()).toEqual(["hello 1"]);
     expect(store.isDirty("a")).toBe(true);
   });
+
+  it("leaves a note with no view dirty when it writes a failed restore's text that an undo had moved past", async () => {
+    // Fuzz seed 5529: the failed text is held when the file goes again, and
+    // that hold is what the file found at another path is written.
+    const store = newStore();
+    const view = await showNote(store, "a", "hello");
+    store.markRemovedOnDisk("a");
+    let landFirst: (digest: string) => void = () => {};
+    mockedRestore.mockImplementationOnce(() => new Promise<string>((resolve) => (landFirst = resolve)));
+    const first = store.saveActiveBuffer();
+    view.state.doc = typeInto(store, "a", view.state.doc, 5, " z");
+    store.scheduleAutosave("a", view.state.doc, 0);
+    mockedRestore.mockRejectedValueOnce(NOT_REPEATED);
+    const second = store.saveActiveBuffer();
+    view.state.doc = typeInto(store, "a", view.state.doc, 5, "", 2);
+    store.scheduleAutosave("a", view.state.doc, 0);
+    landFirst("r".repeat(64));
+    await Promise.all([first, second]);
+
+    store.registerView(null);
+    store.recordFileEvent("a", "removed");
+    expect(store.liveTextOf("a")).toEqual({ content: "hello z", current: false });
+    mockedSave.mockResolvedValueOnce("m".repeat(64));
+    store.recordFileEvent("a", "moved");
+    await flushAutosave("a");
+    await compared();
+
+    expect(mockedRestore.mock.calls.map(([, text]) => text)).toEqual(["hello", "hello z"]);
+    expect(written()).toEqual(["hello z"]);
+    expect(store.isDirty("a")).toBe(true);
+  });
+});
+
+describe("text handed to the autosave that is not the note's document", () => {
+  it("leaves a note with no view dirty once its write lands", async () => {
+    const store = newStore();
+    await openNote(store, "a", "hello");
+    store.registerView(null);
+
+    mockedSave.mockResolvedValueOnce("w".repeat(64));
+    store.scheduleAutosave("a", "an older text", 0, false);
+    await flushAutosave("a");
+    await compared();
+
+    expect(written()).toEqual(["an older text"]);
+    expect(store.isDirty("a")).toBe(true);
+  });
+
+  it("is held as other than the note's text, so writing it to the file found at another path leaves the note dirty", async () => {
+    const store = newStore();
+    const view = await showNote(store, "a", "hello");
+    view.state.doc = typeInto(store, "a", view.state.doc, 5, " 1");
+    store.markRemovedOnDisk("a");
+    store.registerView(null);
+    store.scheduleAutosave("a", "an older text", 0, false);
+    expect(store.liveTextOf("a")).toEqual({ content: "an older text", current: false });
+
+    mockedSave.mockResolvedValueOnce("m".repeat(64));
+    store.recordFileEvent("a", "moved");
+    await flushAutosave("a");
+    await compared();
+
+    expect(written()).toEqual(["an older text"]);
+    expect(store.isDirty("a")).toBe(true);
+  });
 });
 
 describe("a write that lands while the open is still out", () => {

@@ -18,12 +18,21 @@ vi.mock("../../lib/frontmatter", async (importOriginal) => {
 
 import { findLinkTargets, isInsideFrontmatter, linkLayer, type LinkDeps } from "../../editor/link-layer";
 
-const BODY_LINES = 20_000;
+const BODY_PARAGRAPHS = 20_000;
 
 function body(lines: number): string {
   const out: string[] = [];
   for (let i = 0; i < lines; i++) out.push(`line ${i} of the body with [[Note ${i}]] in it`);
   return out.join("\n");
+}
+
+// One paragraph per line. Markdown parses a paragraph whole, so a body of one
+// paragraph thousands of lines long costs jsdom a second per keystroke at its
+// end, with or without the link layer.
+function paragraphs(count: number): string {
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) out.push(`line ${i} of the body with [[Note ${i}]] in it`);
+  return out.join("\n\n");
 }
 
 const deps: LinkDeps = { openUrl: () => {}, openWorkspaceFile: () => {}, openNoteLink: () => true };
@@ -59,7 +68,7 @@ afterEach(() => {
 
 describe("the frontmatter extent on a keystroke", () => {
   it("does not walk the document again when the leading --- is never closed", () => {
-    const target = mount(`---\n${body(BODY_LINES)}`);
+    const target = mount(`---\n${paragraphs(BODY_PARAGRAPHS)}`);
     const end = target.state.doc.length;
     fences.calls = 0;
 
@@ -74,7 +83,7 @@ describe("the frontmatter extent on a keystroke", () => {
   });
 
   it("does not walk the document again for a keystroke below a closed block", () => {
-    const target = mount(`---\ntitle: x\n---\n${body(BODY_LINES)}`);
+    const target = mount(`---\ntitle: x\n---\n${paragraphs(BODY_PARAGRAPHS)}`);
     const end = target.state.doc.length;
     fences.calls = 0;
 

@@ -1,0 +1,13 @@
+-- The digest of the bytes a preview-scripts opt-in covers (ADR-043).
+--
+-- An opt-in covers the bytes the file held when the user gave it, then the
+-- bytes each save from Writ writes, whose digest replaces this one. A file
+-- that holds anything else was changed by another program, with its tab open
+-- or closed or while Writ was not running, and its opt-in lapses the next time
+-- the file is checked.
+--
+-- NULL on every row that is not opted in, and on an opt-in given before its
+-- file had any bytes; otherwise 64 lowercase hex characters
+-- (writ_core::hash::digest_hex). A row opted in before this column existed
+-- has no digest, so its opt-in lapses at the first check of a file with bytes.
+ALTER TABLE buffers ADD COLUMN preview_scripts_hash TEXT;

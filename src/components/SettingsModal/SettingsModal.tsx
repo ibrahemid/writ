@@ -788,14 +788,11 @@ function PreviewSection() {
   );
 }
 
-/** The two HTML rows. A fresh install writes plain text or Markdown, so they
- * sit under Advanced. */
+/** The HTML preview row. A fresh install writes plain text or Markdown, so it
+ * sits under Advanced. Running a file's own scripts is a per-file choice (the
+ * "Preview: Toggle scripts for this file" command), not a global switch. */
 function HtmlRows() {
   const cfg = () => configStore.config().preview;
-
-  function onRunScriptsToggle() {
-    void patchConfig((prev) => ({ ...prev, preview: { ...prev.preview, run_scripts: !prev.preview.run_scripts } }));
-  }
 
   function onDefaultLayoutHtmlChange(raw: string) {
     const layout = raw as DefaultLayout;
@@ -804,18 +801,6 @@ function HtmlRows() {
 
   return (
     <>
-      <SettingsRow
-        id="preview.run_scripts"
-        label="Allow HTML files to run their scripts"
-        caution="Off is safer."
-      >
-        <ToggleSwitch
-          setting="run_scripts"
-          label="Allow HTML files to run their scripts"
-          checked={cfg().run_scripts}
-          onChange={onRunScriptsToggle}
-        />
-      </SettingsRow>
       <SettingsRow
         id="preview.layout_html"
         label="When opening an HTML file, show"

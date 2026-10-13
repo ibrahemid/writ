@@ -2,29 +2,32 @@
 //! roster, L6.
 //!
 //! Math renders client-side from a bundled, offline KaTeX runtime served
-//! same-origin under the `writ-preview://document/_assets/katex/` route (see
-//! [`super::mermaid`] for why same-origin, not the chrome origin).
+//! same-origin under the `_assets/katex/` route (see [`super::mermaid`] for
+//! why same-origin, not the chrome origin), with a root-relative URL so it
+//! resolves on Windows too.
 //!
 //! The Markdown renderer tokenizes math with pulldown-cmark's `ENABLE_MATH`, so
 //! each `$…$` / `$$…$$` becomes a `<span class="math math-inline|math-display">`
 //! carrying the *raw* LaTeX (one node, backslashes intact, code-aware). When
-//! any are present this module's runtime is injected, and a small inline pass
-//! calls `katex.render` on each span. This is more robust than client-side
-//! delimiter scanning: a multi-line `$$` block survives, and a lone currency
-//! `$` is never mistaken for math (the parser already excluded it).
+//! any are present this module's runtime is injected, and a first-party init
+//! script (`_assets/katex/init.js`) calls `katex.render` on each span. This is
+//! more robust than client-side delimiter scanning: a multi-line `$$` block
+//! survives, and a lone currency `$` is never mistaken for math.
 //!
 //! KaTeX is a pure string→DOM renderer: no eval, no workers, no network. Its
 //! output carries inline `style` attributes (covered by the document CSP's
 //! `style-src 'unsafe-inline'`) and its fonts load from
-//! `_assets/katex/fonts/*.woff2` (covered by `font-src writ-preview:`); the
-//! relative `url(fonts/…)` in `katex.min.css` resolves against the stylesheet's
-//! own URL, so no CSP change is needed.
+//! `_assets/katex/fonts/*.woff2` (covered by `font-src 'self'`); the relative
+//! `url(fonts/…)` in `katex.min.css` resolves against the stylesheet's own URL.
 //!
-//! Degradation is automatic: scripts off → `script-src 'none'` → the runtime
-//! never executes and each span shows its raw LaTeX source text.
+//! The runtime and its init are first-party, not the document's own scripts,
+//! so they run under `script-src 'self'` whether or not the file is opted in to
+//! run its scripts (decision RC-D1/TS-D1): math in the user's own note draws
+//! either way. The init being an external same-origin file, not inline, is what
+//! lets it run when author inline scripts are blocked.
 
-/// Base of the same-origin asset route for the KaTeX bundle.
-const BASE: &str = "writ-preview://document/_assets/katex";
+/// Root-relative base of the same-origin asset route for the KaTeX bundle.
+const BASE: &str = "/_assets/katex";
 
 /// `<head>` injection: the KaTeX stylesheet. Put in `<head>` so the first
 /// paint is already styled; auto-render itself does not depend on it.
@@ -32,21 +35,14 @@ pub fn head_tags() -> String {
     format!("<link rel=\"stylesheet\" href=\"{BASE}/katex.min.css\">")
 }
 
-/// End-of-`<body>` injection: the runtime, then a pass that typesets every
-/// math span the Markdown renderer emitted. Each `span.math` carries raw LaTeX
-/// as its text content; `displayMode` follows the `math-display` class.
-/// `throwOnError:false` keeps a malformed expression from throwing (it renders
-/// the error inline instead); the `try` is belt-and-suspenders.
+/// End-of-`<body>` injection: the runtime, then the first-party init that
+/// typesets every math span the Markdown renderer emitted. Both are external
+/// same-origin scripts (not inline), so they run under `script-src 'self'`
+/// when the document is not opted in to run its own scripts.
 pub fn runtime_tags() -> String {
     format!(
         "<script src=\"{BASE}/katex.min.js\"></script>\n\
-         <script>(function(){{\
-         var ns=document.querySelectorAll('span.math');\
-         for(var i=0;i<ns.length;i++){{var el=ns[i];\
-         try{{window.katex.render(el.textContent,el,\
-         {{displayMode:el.classList.contains('math-display'),throwOnError:false}});}}\
-         catch(e){{}}}}\
-         }})();</script>"
+         <script src=\"{BASE}/init.js\"></script>"
     )
 }
 
@@ -117,6 +113,9 @@ pub fn asset(path: &str) -> Option<&'static [u8]> {
         "fonts/KaTeX_Typewriter-Regular.woff2" => {
             include_bytes!("../../../assets/katex/fonts/KaTeX_Typewriter-Regular.woff2")
         }
+        // The first-party init that typesets the math spans, served same-origin
+        // so it runs under `script-src 'self'` whether or not scripts are on.
+        "init.js" => include_bytes!("../../../assets/katex/init.js"),
         _ => return None,
     };
     Some(bytes)
@@ -126,21 +125,32 @@ pub fn asset(path: &str) -> Option<&'static [u8]> {
 mod tests {
     use super::*;
 
+    /// The init script the runtime tags load, as the asset table serves it.
+    const INIT_JS: &str = include_str!("../../../assets/katex/init.js");
+
     #[test]
-    fn runtime_loads_katex_then_renders_each_math_span() {
+    fn runtime_tags_load_the_runtime_then_the_external_init() {
         let tags = runtime_tags();
-        // The runtime is loaded before the render pass that consumes it.
+        // Both are external same-origin scripts (so they run under
+        // script-src 'self' when the file is not opted in), the runtime first.
         let load = tags.find("katex.min.js").unwrap();
-        let pass = tags.find("katex.render(").unwrap();
-        assert!(load < pass);
+        let init = tags.find("/_assets/katex/init.js").unwrap();
+        assert!(load < init);
+        // No inline render pass, so nothing here needs 'unsafe-inline'.
+        assert!(!tags.contains("katex.render("));
+    }
+
+    #[test]
+    fn the_init_asset_typesets_each_math_span() {
         // The pass targets the spans the Markdown renderer emits and follows
         // the display/inline distinction from the class.
-        assert!(tags.contains("span.math"));
-        assert!(tags.contains("math-display"));
-        assert!(tags.contains("throwOnError:false"));
+        assert!(INIT_JS.contains("katex.render("));
+        assert!(INIT_JS.contains("span.math"));
+        assert!(INIT_JS.contains("math-display"));
+        assert!(INIT_JS.contains("throwOnError: false"));
         // No client-side delimiter scanning (auto-render) is used.
-        assert!(!tags.contains("auto-render"));
-        assert!(!tags.contains("renderMathInElement"));
+        assert!(!INIT_JS.contains("auto-render"));
+        assert!(!INIT_JS.contains("renderMathInElement"));
     }
 
     #[test]
@@ -150,9 +160,10 @@ mod tests {
     }
 
     #[test]
-    fn asset_table_serves_js_css_and_all_twenty_fonts() {
+    fn asset_table_serves_js_css_init_and_all_twenty_fonts() {
         assert!(asset("katex.min.js").is_some());
         assert!(asset("katex.min.css").is_some());
+        assert!(asset("init.js").is_some());
         // Auto-render is no longer bundled (per-span katex.render is used).
         assert!(asset("auto-render.min.js").is_none());
         assert!(asset("nope.js").is_none());

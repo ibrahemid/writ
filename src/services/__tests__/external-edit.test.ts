@@ -74,6 +74,7 @@ function makeDeps(overrides: Partial<ExternalEditDeps> = {}): ExternalEditDeps {
     isRemovedOnDisk: vi.fn(() => false),
     followMove: vi.fn(),
     markRemoved: vi.fn(),
+    refreshScripts: vi.fn(),
     ...overrides,
   };
 }
@@ -200,6 +201,35 @@ describe("handleExternalEdit", () => {
     );
 
     expect(deps.reload).toHaveBeenCalledWith("buf-1");
+  });
+
+  it("reads a modified file's scripts again before the reload or the bar", async () => {
+    for (const hasUnsaved of [false, true]) {
+      const order: string[] = [];
+      const deps = makeDeps({
+        hasUnsaved: vi.fn(() => hasUnsaved),
+        refreshScripts: vi.fn((id: string) => order.push(`scripts read ${id}`)),
+        reload: vi.fn((id: string) => order.push(`reload ${id}`)),
+        markChanged: vi.fn((id: string) => order.push(`ask ${id}`)),
+      });
+      await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
+      expect(order).toEqual(["scripts read buf-1", hasUnsaved ? "ask buf-1" : "reload buf-1"]);
+    }
+  });
+
+  it("leaves the scripts alone for a move, a removal or an unknown file", async () => {
+    const moved = makeDeps();
+    await handleExternalEdit(
+      { bufferId: "buf-1.txt", change: "moved", newPath: "/notes/elsewhere.html" },
+      moved,
+    );
+    const removed = makeDeps();
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "removed" }, removed);
+    const unknown = makeDeps({ findBuffer: vi.fn(() => undefined) });
+    await handleExternalEdit({ bufferId: "ghost.txt", change: "modified" }, unknown);
+    for (const deps of [moved, removed, unknown]) {
+      expect(deps.refreshScripts).not.toHaveBeenCalled();
+    }
   });
 });
 

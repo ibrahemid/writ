@@ -29,7 +29,10 @@ const editor = vi.hoisted(() => ({
   currentBufferId: vi.fn(() => "n-1"),
   getActiveText: vi.fn(() => ({ text: "my unsaved text\n", usedSelection: false })),
   liveDoc: vi.fn((): unknown => null),
-  liveTextOf: vi.fn(() => "my unsaved text\n"),
+  liveTextOf: vi.fn((): { content: string; current: boolean } | undefined => ({
+    content: "my unsaved text\n",
+    current: true,
+  })),
   recordFileEvent: vi.fn(),
   scheduleAutosave: vi.fn(),
   applyExternalContent: vi.fn(),
@@ -47,7 +50,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   editor.currentBufferId.mockReturnValue("n-1");
   editor.getActiveText.mockReturnValue({ text: "my unsaved text\n", usedSelection: false });
-  editor.liveTextOf.mockReturnValue("my unsaved text\n");
+  editor.liveTextOf.mockReturnValue({ content: "my unsaved text\n", current: true });
   editor.liveDoc.mockReturnValue(ON_SCREEN);
   api.readBufferContent.mockResolvedValue("the file's own text\n");
   tabs.openFile.mockResolvedValue(undefined);
@@ -126,12 +129,56 @@ describe("answering a file that changed outside Writ", () => {
       content: null,
       disk_hash: "ghi",
     });
-    editor.liveTextOf.mockReturnValue("my unsaved text\nand more\n");
+    editor.liveTextOf.mockReturnValue({ content: "my unsaved text\nand more\n", current: true });
 
     await resolveNoteChange("n-1", "keep_mine");
 
     expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi", false, { source: ON_SCREEN, current: false });
-    expect(editor.scheduleAutosave).toHaveBeenCalledWith("n-1", "my unsaved text\nand more\n", 0);
+    expect(editor.scheduleAutosave).toHaveBeenCalledWith("n-1", "my unsaved text\nand more\n", 0, true);
+  });
+
+  it("says the text it wrote is not known to be the note's own when nothing says what the note holds", async () => {
+    // A tab switched away from mid-answer whose hold ended before the answer
+    // landed: its typing may have gone out in a write of its own.
+    api.resolveExternalChange.mockResolvedValue({
+      conflict_copy_path: "/notes/note (conflict).md",
+      content: null,
+      disk_hash: "ghi",
+    });
+    editor.liveTextOf.mockReturnValue(undefined);
+
+    await resolveNoteChange("n-1", "keep_mine");
+
+    expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi", false, { source: ON_SCREEN, current: false });
+    expect(editor.scheduleAutosave).not.toHaveBeenCalled();
+  });
+
+  it("does not count held text the store cannot vouch for as the note's, even when it is the same text", async () => {
+    api.resolveExternalChange.mockResolvedValue({
+      conflict_copy_path: "/notes/note (conflict).md",
+      content: null,
+      disk_hash: "ghi",
+    });
+    editor.liveTextOf.mockReturnValue({ content: "my unsaved text\n", current: false });
+
+    await resolveNoteChange("n-1", "keep_mine");
+
+    expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi", false, { source: ON_SCREEN, current: false });
+    expect(editor.scheduleAutosave).not.toHaveBeenCalled();
+  });
+
+  it("writes held text the store cannot vouch for without marking the write as the note's", async () => {
+    api.resolveExternalChange.mockResolvedValue({
+      conflict_copy_path: "/notes/note (conflict).md",
+      content: null,
+      disk_hash: "ghi",
+    });
+    editor.liveTextOf.mockReturnValue({ content: "an older text the hold kept\n", current: false });
+
+    await resolveNoteChange("n-1", "keep_mine");
+
+    expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi", false, { source: ON_SCREEN, current: false });
+    expect(editor.scheduleAutosave).toHaveBeenCalledWith("n-1", "an older text the hold kept\n", 0, false);
   });
 
   it("opens the copy only for the answer that asked for both", async () => {

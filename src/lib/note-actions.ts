@@ -213,6 +213,11 @@ export async function resolveNoteChange(
   // note is not always the one on screen by the time the answer lands, and a
   // guard on that would drop the typing of every tab switched away from
   // mid-answer.
+  //
+  // The write carried the note's document only when the store can say what
+  // the note holds now and it is that text. With nothing to say it, typing
+  // during the answer may already have left the hold in a write of its own (a
+  // file found at another path ends the hold), so the note reads dirty.
   const typedSince = win.editor.liveTextOf(id);
 
   // A save that failed against this same change left a bar of its own, about a
@@ -228,7 +233,7 @@ export async function resolveNoteChange(
   } else {
     win.editor.noteSaved(id, outcome.disk_hash, false, {
       source: read,
-      current: typedSince === undefined || typedSince === content,
+      current: typedSince?.current === true && typedSince.content === content,
     });
     // The write that has landed carried the text as it was read, so the typing
     // above is in the document and nowhere else. It goes on the queue the way
@@ -241,8 +246,8 @@ export async function resolveNoteChange(
     // Only this branch has a delta to keep. `Use the file on disk` replaces
     // the document with what the file holds, on purpose, and there is nothing
     // to merge the typing onto.
-    if (typedSince !== undefined && typedSince !== content) {
-      win.editor.scheduleAutosave(id, typedSince, 0);
+    if (typedSince !== undefined && typedSince.content !== content) {
+      win.editor.scheduleAutosave(id, typedSince.content, 0, typedSince.current);
     }
   }
   if (choice === "keep_both" && outcome.conflict_copy_path !== null) {

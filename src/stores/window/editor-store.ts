@@ -297,6 +297,11 @@ export function createEditorStore() {
   // stands, emptied by the next edit, held or not. A write that lands with one
   // of them wrote what the note holds.
   const currentTextWrites = new Map<string, Set<number>>();
+  // The notes whose hold keeps the note's document as it stands. A hold taken
+  // from a queued or failed write the document had moved past is not one of
+  // them, and every edit or load takes a note out until the store holds the
+  // document again.
+  const currentHolds = new Set<string>();
 
   function noteWriteOfCurrentText(id: string) {
     let writes = currentTextWrites.get(id);
@@ -313,13 +318,17 @@ export function createEditorStore() {
 
   /**
    * Whether `unsaved` is the note's document as it stands. Text a hold keeps
-   * is: every keystroke into a held note and every switch away from one
-   * replaces it. A queued or failed write's text is only while that write
-   * carried the document and nothing was typed since, because a failed text
-   * stays outstanding after a newer write has gone out with newer text.
+   * is when the store held it as the document ([`holdText`]): a keystroke into
+   * a held note and a switch away from one do, and a move into a hold that
+   * carries an older queued or failed text does not. A queued or failed
+   * write's text is only while that write carried the document and nothing
+   * was typed since, because a failed text stays outstanding after a newer
+   * write has gone out with newer text.
    */
   function isCurrentText(id: string, unsaved: UnsavedText): boolean {
-    return unsaved.generation === null || carriesCurrentText(id, unsaved.generation);
+    return unsaved.generation === null
+      ? currentHolds.has(id)
+      : carriesCurrentText(id, unsaved.generation);
   }
 
   function hashesOf(id: string): NoteHashes {
@@ -406,6 +415,7 @@ export function createEditorStore() {
     // carries it.
     if (after === "present") {
       releaseUnsavedContent(id, writesKeptText);
+      currentHolds.delete(id);
       // And the copy the next load of the tab would read in place of the file.
       // There is a file again, and it is the one the tab is about to hold.
       setRemovedText((current) => {
@@ -429,7 +439,7 @@ export function createEditorStore() {
       // run would answer for the person, and the guard would refuse it and
       // stack a second bar under the first.
       cancelAutosaveService(id);
-      if (kept !== undefined) holdText(id, kept.content);
+      if (kept !== undefined) holdText(id, kept.content, kept.current);
       return;
     }
 
@@ -486,8 +496,10 @@ export function createEditorStore() {
    * `removed -> changed` the entry is whatever the note holds now, and it is
    * dropped only when the note reaches `present` ([`recordFileEvent`]).
    */
-  function holdText(id: string, text: HeldContent, keepAfterMs?: number) {
+  function holdText(id: string, text: HeldContent, current: boolean, keepAfterMs?: number) {
     holdUnsavedContent(id, text, keepAfterMs);
+    if (current) currentHolds.add(id);
+    else currentHolds.delete(id);
     if (!savesAreHeld(id)) return;
     setRemovedText((current) => {
       if (current.get(id) === text) return current;
@@ -683,19 +695,24 @@ export function createEditorStore() {
     if (!savesAreHeld(id)) return;
     // The same text the next load reads is the text a close or a quit has to
     // keep, and no write is going to leave it there in the usual way.
-    holdText(id, text);
+    holdText(id, text, true);
   }
 
   /**
-   * The newest text of `id` that no file is known to hold.
+   * The newest text of `id` that no file is known to hold, and whether it is
+   * the note's document as it stands.
    *
    * The live document when the note is the one on screen, else what its hold
-   * is keeping. Never a failed write's text: the caller asking this is about
-   * to decide what to write, and a refusal that a later answer superseded is
-   * not it ([`peekHeldContent`]).
+   * is keeping, which is the document only when the store held it as that
+   * ([`isCurrentText`]). Never a failed write's text: the caller asking this
+   * is about to decide what to write, and a refusal that a later answer
+   * superseded is not it ([`peekHeldContent`]).
    */
-  function liveTextOf(id: string): string | undefined {
-    return liveTextOfNote(id) ?? peekHeldContent(id);
+  function liveTextOf(id: string): { content: string; current: boolean } | undefined {
+    const live = liveTextOfNote(id);
+    if (live !== undefined) return { content: live, current: true };
+    const held = peekHeldContent(id);
+    return held === undefined ? undefined : { content: held, current: currentHolds.has(id) };
   }
 
   /** The kept text of a note that may not write, when there is one. */
@@ -818,6 +835,7 @@ export function createEditorStore() {
   function noteOpened(id: string, opened: Text | null, fromFile: boolean) {
     clearCompareTimer(id);
     currentTextWrites.delete(id);
+    currentHolds.delete(id);
     const ticket = ++openTickets;
     setNoteHashes((current) => {
       const next = new Map(current);
@@ -906,6 +924,7 @@ export function createEditorStore() {
    */
   function noteEdited(id: string, doc: Text) {
     currentTextWrites.get(id)?.clear();
+    currentHolds.delete(id);
     patchHashes(id, { docGeneration: hashesOf(id).docGeneration + 1 });
     if (viewed !== null && viewed.id === id) viewed.doc = doc;
     else viewed = { id, doc, saved: null, opened: doc };
@@ -979,6 +998,7 @@ export function createEditorStore() {
   function noteClosed(id: string) {
     clearCompareTimer(id);
     currentTextWrites.delete(id);
+    currentHolds.delete(id);
     forgetHashes(id);
     forgetFileState(id);
     clearUpdatedFromDisk(id);
@@ -1156,6 +1176,7 @@ export function createEditorStore() {
     bufferId: string,
     content: ContentSource,
     delayMs: number,
+    current = true,
   ) {
     // A note carrying a bar writes nothing until the bar is answered, and a
     // note whose file is gone writes nothing at all. Without this every
@@ -1178,14 +1199,16 @@ export function createEditorStore() {
     // getter would report the incoming note's document under this one's name.
     //
     // The text is the caller's newest, so the writes issued before it are no
-    // longer known to carry the same text.
+    // longer known to carry the same text. It is the note's document unless
+    // the caller says otherwise (`current`): Keep mine hands over held text
+    // the store could not vouch for.
     currentTextWrites.get(bufferId)?.clear();
     if (savesAreHeld(bufferId)) {
-      holdText(bufferId, typeof content === "function" ? content() : content, delayMs);
+      holdText(bufferId, typeof content === "function" ? content() : content, current, delayMs);
       return;
     }
     debouncedSave(bufferId, content, delayMs);
-    noteWriteOfCurrentText(bufferId);
+    if (current) noteWriteOfCurrentText(bufferId);
   }
 
   function cancelAutosave(bufferId: string) {

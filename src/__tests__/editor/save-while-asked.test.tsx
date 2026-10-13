@@ -86,6 +86,7 @@ function openNote() {
     openBuffers: () => [{ id: NOTE, title: "note", filename: "note.md" }],
     refreshBuffer: async () => {},
     forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
+    refreshScripts: () => {},
   });
 
   /** What the watcher reports, through the path the subscription takes. */

@@ -10,6 +10,11 @@ import { utf8Length } from "../../editor/document-counts";
 import { findStore } from "../../stores/global/find-store";
 import { linkStore } from "../../stores/global/link";
 import { notesStore } from "../../stores/global/notes";
+import {
+  previewUrl,
+  previewUrlPrefixLoaded,
+  BLANK_PREVIEW_SRC,
+} from "../../stores/global/preview-url";
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
 import LinkConfirm, { type LinkRequest } from "./LinkConfirm";
 import "./preview-chrome.css";
@@ -29,20 +34,22 @@ interface Props {
 }
 
 const MB = 1024 * 1024;
-// Same-origin near-empty document the iframe parks on when no preview is
-// active. Parking here instead of unmounting the element is what keeps the
-// teardown freeze from ever being reachable.
-const BLANK_SRC = "writ-preview://chrome/blank";
 
 export default function PreviewPane(props: Props) {
   const win = useWindow();
   const [renderVersion, setRenderVersion] = createSignal(0);
+  // The same-origin near-empty document the iframe parks on when no preview is
+  // active. Parking here instead of unmounting the element is what keeps the
+  // teardown freeze (#124) from ever being reachable. Built from the host base,
+  // so it is about:blank until that loads and the preview scheme's blank
+  // document after — an src change, never a teardown.
+  const blankSrc = () => previewUrl("chrome", "blank");
   // The iframe always loads this; it is never null, so the element is created
   // once and only ever navigated. It advances to a document URL only on a
   // successful, correctly-attributed render (so a tab switch keeps showing the
   // outgoing buffer until the incoming one is ready — no #97 flash) and falls
-  // back to BLANK_SRC when the pane goes inactive.
-  const [renderedSrc, setRenderedSrc] = createSignal<string>(BLANK_SRC);
+  // back to the blank document when the pane goes inactive.
+  const [renderedSrc, setRenderedSrc] = createSignal<string>(blankSrc());
   const [state, setState] = createSignal<PreviewState>("rendering");
   const [warnings, setWarnings] = createSignal<string[]>([]);
   const [message, setMessage] = createSignal("");
@@ -182,6 +189,9 @@ export default function PreviewPane(props: Props) {
     const buffer = props.buffer;
     const contentType = props.contentType;
     if (!props.isActive || !buffer || !contentType) return;
+    // The document URL needs the host-provided base; until it loads the pane
+    // stays parked, and the effect below renders once it is known.
+    if (!previewUrlPrefixLoaded()) return;
 
     // Coordination guard: never render this pane's buffer id with another
     // buffer's live text. During a tab switch props.buffer.id flips reactively
@@ -238,7 +248,7 @@ export default function PreviewPane(props: Props) {
         const v = renderVersion();
         // Cache-busting query param forces a fresh load; the protocol parser
         // discards the query, so the handler still keys on the id.
-        setRenderedSrc(`writ-preview://document/${bufferId}?v=${v}`);
+        setRenderedSrc(`${previewUrl("document", bufferId)}?v=${v}`);
       } else if (result.kind === "no_renderer") {
         setState("error");
         setMessage(`no renderer for ${result.content_type}`);
@@ -267,7 +277,7 @@ export default function PreviewPane(props: Props) {
           if (debounceTimer) clearTimeout(debounceTimer);
           lastRenderedDoc = null;
           setState("rendering");
-          setRenderedSrc(BLANK_SRC);
+          setRenderedSrc(blankSrc());
         }
       },
       { defer: true },
@@ -335,6 +345,31 @@ export default function PreviewPane(props: Props) {
     ),
   );
 
+  // When the host base loads after mount, a pane still parked on about:blank
+  // advances to the real blank document — an src navigation, never a teardown.
+  createEffect(() => {
+    const blank = blankSrc();
+    untrack(() => {
+      if (renderedSrc() === BLANK_PREVIEW_SRC && blank !== BLANK_PREVIEW_SRC) {
+        setRenderedSrc(blank);
+      }
+    });
+  });
+
+  // A render that found no base returned without one; run it now that the
+  // base is known, or the pane stays blank until the text changes.
+  createEffect(
+    on(
+      () => previewUrlPrefixLoaded(),
+      (loaded) => {
+        if (loaded && props.isActive && props.buffer && win.editor.currentBufferId() === props.buffer.id) {
+          void doRender(true);
+        }
+      },
+      { defer: true },
+    ),
+  );
+
   // Bridge messages arrive on the app window; the source check pins them to
   // this pane's iframe (the only writ-preview:// frame).
   onMount(() => {
@@ -389,6 +424,13 @@ export default function PreviewPane(props: Props) {
         class="preview-frame"
         src={renderedSrc()}
         title={props.buffer ? `Preview of ${props.buffer.title}` : "Preview"}
+        // allow-scripts keeps scripts running (the document CSP still gates
+        // them); allow-same-origin keeps the writ-preview://document origin so
+        // 'self', the postMessage source check and the bundled fonts work.
+        // Nothing else: no allow-top-navigation, allow-popups or allow-forms,
+        // so a document cannot navigate the window away or post a form out. The
+        // app is a different origin, so the frame cannot lift its own sandbox.
+        sandbox="allow-scripts allow-same-origin"
       />
       <Show when={state() === "too_large"}>
         <div class="preview-pane-overlay">Use the source view.</div>

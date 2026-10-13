@@ -1,3 +1,12 @@
+import { setPreviewUrlPrefix } from "./stores/global/preview-url";
+
+// The preview URL base is host-provided at startup; tests never run that boot
+// step, so seed the native scheme (the macOS/Linux form) once per test file.
+// Without it the preview pane would stay parked on about:blank — a test that
+// asserts a writ-preview://document src would see the un-loaded fallback. A
+// test that needs the Windows form overrides this with its own call.
+setPreviewUrlPrefix("writ-preview://");
+
 // jsdom does not implement Range.getClientRects / getBoundingClientRect, which
 // CodeMirror calls from its layout-measurement pass (scheduled on
 // requestAnimationFrame). Without these, any test that drives an EditorView and

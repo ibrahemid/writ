@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use chrono::Utc;
 use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::hash::sha256_bytes;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
@@ -117,6 +118,249 @@ fn insert_and_get_buffer() {
     let fetched = store.get("buf-1").expect("get failed");
     assert_eq!(fetched.title, "Hello World");
     assert_eq!(fetched.id, "buf-1");
+}
+
+#[test]
+fn preview_scripts_defaults_off_and_remembers_the_opt_in() {
+    let (_dir, store) = setup();
+    let doc = make_doc("buf-scripts", "Scripts");
+    store.insert(&doc).expect("insert failed");
+
+    // Every document is off until the file is opted in.
+    assert!(!store.preview_scripts("buf-scripts").unwrap());
+
+    store
+        .enable_preview_scripts("buf-scripts", Some(sha256_bytes(b"")))
+        .expect("opt in failed");
+    assert!(store.preview_scripts("buf-scripts").unwrap());
+
+    store
+        .disable_preview_scripts("buf-scripts")
+        .expect("opt out failed");
+    assert!(!store.preview_scripts("buf-scripts").unwrap());
+
+    // An unknown id reads as off rather than erroring.
+    assert!(!store.preview_scripts("no-such-buffer").unwrap());
+}
+
+#[test]
+fn opting_in_a_buffer_the_store_does_not_hold_is_an_error() {
+    let (_dir, store) = setup();
+
+    let refused = store.enable_preview_scripts("no-such-buffer", None);
+    assert!(
+        matches!(
+            refused,
+            Err(writ_storage::errors::StorageError::BufferMissing { ref id }) if id == "no-such-buffer"
+        ),
+        "{refused:?}"
+    );
+    assert!(!store.preview_scripts("no-such-buffer").unwrap());
+}
+
+#[test]
+fn preview_scripts_survives_closing_and_reopening_a_file() {
+    let (_dir, store) = setup();
+    let doc = make_doc("buf-remember", "Remember");
+    store.insert(&doc).expect("insert failed");
+    store
+        .enable_preview_scripts("buf-remember", Some(sha256_bytes(b"")))
+        .expect("opt in failed");
+
+    // Closing a tab moves the row to history; the flag rides along, which is
+    // what "remembered per file" means for a saved file.
+    store.close("buf-remember").expect("close failed");
+    store.restore("buf-remember").expect("restore failed");
+    assert!(store.preview_scripts("buf-remember").unwrap());
+}
+
+/// A file in the test's own folder holding `bytes`, and its row.
+fn insert_file_doc(store: &BufferStore, dir: &TempDir, id: &str, bytes: &[u8]) -> PathBuf {
+    let path = dir.path().join(format!("{id}.html"));
+    std::fs::write(&path, bytes).expect("write the file");
+    let mut doc = make_unwritten(id, id);
+    doc.source_path = Some(path.to_string_lossy().into_owned());
+    store.insert(&doc).expect("insert failed");
+    path
+}
+
+/// Another program's rewrite, done the way downloads and editors do it: a new
+/// file renamed over the old one.
+fn rewrite_from_outside(path: &Path, bytes: &[u8]) {
+    let staged = path.with_extension("part");
+    std::fs::write(&staged, bytes).expect("stage the new version");
+    std::fs::rename(&staged, path).expect("move it over the file");
+}
+
+#[test]
+fn an_opt_in_lapses_when_writ_reads_bytes_another_program_wrote_while_its_tab_was_closed() {
+    let (dir, store) = setup();
+    let path = insert_file_doc(&store, &dir, "buf-closed", b"<p>approved</p>");
+    store
+        .enable_preview_scripts("buf-closed", Some(sha256_bytes(b"<p>approved</p>")))
+        .expect("opt in failed");
+    store.close("buf-closed").expect("close failed");
+
+    rewrite_from_outside(&path, b"<script>fetch('/leak')</script>");
+
+    store.restore("buf-closed").expect("restore failed");
+    let read_on_reopen = sha256_bytes(&std::fs::read(&path).expect("the editor reads the file"));
+    assert!(!store
+        .check_preview_scripts("buf-closed", Some(read_on_reopen))
+        .unwrap());
+    assert!(
+        !store.preview_scripts("buf-closed").unwrap(),
+        "the lapse is recorded"
+    );
+}
+
+#[test]
+fn an_opt_in_lapses_when_the_file_changed_while_writ_was_not_running() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("test.db");
+    let open = || {
+        let conn = open_database(&db_path).expect("open database");
+        run_migrations(&conn).expect("migrations failed");
+        let buffers = dir.path().join("buffers");
+        std::fs::create_dir_all(&buffers).expect("buffers dir");
+        BufferStore::new(conn, buffers)
+    };
+    let path = {
+        let store = open();
+        let path = insert_file_doc(&store, &dir, "buf-relaunch", b"<p>approved</p>");
+        store
+            .enable_preview_scripts("buf-relaunch", Some(sha256_bytes(b"<p>approved</p>")))
+            .expect("opt in failed");
+        path
+    };
+    let read_after_relaunch = || sha256_bytes(&std::fs::read(&path).expect("read the file"));
+    assert!(
+        open()
+            .check_preview_scripts("buf-relaunch", Some(read_after_relaunch()))
+            .unwrap(),
+        "a file nothing changed keeps it"
+    );
+
+    rewrite_from_outside(&path, b"<script>fetch('/leak')</script>");
+
+    let relaunched = open();
+    assert!(!relaunched
+        .check_preview_scripts("buf-relaunch", Some(read_after_relaunch()))
+        .unwrap());
+    assert!(!relaunched.preview_scripts("buf-relaunch").unwrap());
+}
+
+#[test]
+fn a_save_from_writ_keeps_the_opt_in_across_closing_and_reopening() {
+    let (dir, store) = setup();
+    insert_file_doc(&store, &dir, "buf-saved", b"<p>approved</p>");
+    store
+        .enable_preview_scripts("buf-saved", Some(sha256_bytes(b"<p>approved</p>")))
+        .expect("opt in failed");
+    let edited = "<p id=a></p><script>a.textContent='ran'</script>";
+
+    store
+        .save_content("buf-saved", edited)
+        .expect("save failed");
+    let written = Some(sha256_bytes(edited.as_bytes()));
+    assert!(store.check_preview_scripts("buf-saved", written).unwrap());
+
+    store.close("buf-saved").expect("close failed");
+    store.restore("buf-saved").expect("restore failed");
+    assert!(store.check_preview_scripts("buf-saved", written).unwrap());
+}
+
+#[test]
+fn a_save_does_not_carry_an_opt_in_over_a_change_another_program_made() {
+    let (dir, store) = setup();
+    let path = insert_file_doc(&store, &dir, "buf-carried", b"<p>approved</p>");
+    store
+        .enable_preview_scripts("buf-carried", Some(sha256_bytes(b"<p>approved</p>")))
+        .expect("opt in failed");
+
+    rewrite_from_outside(&path, b"<script>fetch('/leak')</script>");
+    let edited = "<script>fetch('/leak')</script><p>edited</p>";
+    store
+        .save_content("buf-carried", edited)
+        .expect("save failed");
+
+    assert!(
+        !store.preview_scripts("buf-carried").unwrap(),
+        "the save landed over bytes the opt-in does not cover"
+    );
+    assert!(!store
+        .check_preview_scripts("buf-carried", Some(sha256_bytes(edited.as_bytes())))
+        .unwrap());
+}
+
+#[test]
+fn an_opt_in_given_before_the_file_exists_follows_the_first_save() {
+    let (dir, store) = setup();
+    let path = dir.path().join("buf-first.html");
+    let mut doc = make_unwritten("buf-first", "First");
+    doc.source_path = Some(path.to_string_lossy().into_owned());
+    store.insert(&doc).expect("insert failed");
+
+    store
+        .enable_preview_scripts("buf-first", None)
+        .expect("opt in failed");
+    assert!(store.check_preview_scripts("buf-first", None).unwrap());
+
+    store
+        .save_content("buf-first", "<script>1</script>")
+        .expect("first save failed");
+    let written = Some(sha256_bytes(b"<script>1</script>"));
+    assert!(store.check_preview_scripts("buf-first", written).unwrap());
+
+    assert!(
+        !store
+            .check_preview_scripts("buf-first", Some(sha256_bytes(b"<script>2</script>")))
+            .unwrap(),
+        "bytes Writ did not write lapse it"
+    );
+}
+
+#[test]
+fn an_opt_in_with_no_bytes_to_compare_runs_nothing_and_is_kept() {
+    let (dir, store) = setup();
+    insert_file_doc(&store, &dir, "buf-unseen", b"<p>approved</p>");
+    let approved = Some(sha256_bytes(b"<p>approved</p>"));
+    store
+        .enable_preview_scripts("buf-unseen", approved)
+        .expect("opt in failed");
+
+    assert!(!store.check_preview_scripts("buf-unseen", None).unwrap());
+    assert!(store.preview_scripts("buf-unseen").unwrap());
+
+    assert!(store.check_preview_scripts("buf-unseen", approved).unwrap());
+}
+
+#[test]
+fn the_carry_compares_what_the_guard_found_and_records_the_bytes_written() {
+    // The digest the opt-in moves to is the one of the bytes the save wrote,
+    // line ending and all: a CRLF file saved from the editor's LF text is
+    // covered by its CRLF bytes, the ones the next read of it hashes.
+    let (dir, store) = setup();
+    let approved = b"<p>approved</p>\r\n";
+    let path = dir.path().join("buf-crlf.html");
+    std::fs::write(&path, approved).expect("write the file");
+    let mut doc = make_unwritten("buf-crlf", "CRLF");
+    doc.source_path = Some(path.to_string_lossy().into_owned());
+    doc.line_ending = writ_core::notes::line_ending::LineEnding::CrLf;
+    store.insert(&doc).expect("insert failed");
+    store
+        .enable_preview_scripts("buf-crlf", Some(sha256_bytes(approved)))
+        .expect("opt in failed");
+
+    store
+        .save_content("buf-crlf", "<p>approved</p>\n<script>1</script>\n")
+        .expect("save failed");
+
+    let on_disk = std::fs::read(&path).expect("read the file");
+    assert_eq!(on_disk, b"<p>approved</p>\r\n<script>1</script>\r\n");
+    assert!(store
+        .check_preview_scripts("buf-crlf", Some(sha256_bytes(&on_disk)))
+        .unwrap());
 }
 
 #[test]

@@ -27,7 +27,6 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["editor.spelling_dialect", "editor", "Spelling", ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"]],
   ["editor.status_bar", "editor", "Status bar", ["status bar", "line", "column", "encoding", "word count"]],
   ["editor.status_bar_counts", "editor", "Word, character and token counts", ["word count", "character count", "token", "counts", "status bar"]],
-  ["preview.run_scripts", "advanced", "Allow HTML files to run their scripts", ["scripts", "javascript", "html", "run", "safety"]],
   ["preview.layout_md", "preview", "When opening a Markdown file, show:", ["layout", "markdown", "md", "text", "preview", "inline"]],
   ["preview.layout_html", "advanced", "When opening an HTML file, show:", ["layout", "html", "text", "preview", "split"]],
   ["ai.provider", "apps", "Provider", ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"]],
