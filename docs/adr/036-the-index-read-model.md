@@ -4,6 +4,8 @@
 
 Accepted. Amended 2026-09-12: `pathsForTag` names the tag and the tags under it (section 2).
 
+Amended 2026-10-13: Writ's own index writes are announced as `notes:indexed`, and every read lives in one keyed store that either event drops (section 4).
+
 ## Context
 
 The index has held everything a note says about itself since migration 040 and
@@ -96,17 +98,56 @@ The 5,000-note budget in ADR-028 section 7 covers it. A budget test builds that
 corpus and reads the whole graph out of it, held to the query budget a keystroke
 is held to rather than to the walk's.
 
-### 4. Invalidation is the watcher's event, never a poll
+### 4. Invalidation is an event, never a poll
 
-Every cache in the read model is dropped by `writ://notes-changed` and by
-nothing else. There is no interval, no refresh on focus, no re-read on mount.
+Two events drop the read model. The watcher sends `writ://notes-changed` once
+the index has taken a change the watcher did not skip: another program's
+write, or a version restore, which Writ writes without an IgnoreSet entry. Rust
+sends `writ://notes-indexed` after an index write Writ made itself. Creating a
+note from a link also drops what links resolve to at once, so the editor
+asking about that link again does not wait for the event.
+There is no interval, no refresh on focus, no re-read on mount.
 
-The event names the note that changed. It does not name the lists that changed
-with it: a tag added to one note moves the folder's tag list, and a link added
-to one note moves the graph and the backlink list of a note nowhere near it. So
-the event re-reads every cache something is showing, and re-reads none that
-nothing is showing. Two surfaces asking for the same note at the same moment
-wait on one call.
+The watcher skips Writ's own writes (the IgnoreSet), so a save, a rename, a new
+file or a delete never reaches it, and a read model that listened to the watcher
+alone kept the rows from before every one of them. The command that writes the
+index row announces it once the index call has returned, so a surface reading
+on the event reads the new rows:
+
+- a save, once the deferred reindex of ADR-020 lands, for a file in the notes
+  folder, and a save the write guard stopped, naming the copy it set aside;
+- a new file, a deleted file written back from its tab, and a copy into the
+  folder: Save a copy, and Copy this version in the version panel;
+- an answer to the change bar, at once, naming the copy it set aside and, for
+  Keep mine, the file it rewrote, or the copy its save set aside when the
+  guard stopped that save;
+- a rename, naming the old file, the new one, and every file whose links the
+  rename rewrote;
+- a delete, once the row is forgotten;
+- a walk that changed rows, and a move of the notes folder, each naming the
+  notes folder itself, since any row in it may have moved.
+
+One operation is one event, naming each file once. Opening a file records rows
+for a file Writ did not change, and is not announced.
+
+Neither event names the lists that changed: a tag added to one note moves the
+folder's tag list, and a link added to one note moves the graph and the
+backlink list of a note nowhere near it. So either event re-reads every read
+something is showing, and drops every read nothing is showing.
+
+Every read the window keeps lives in one store, keyed by what it reads: a
+note's facts, the files linking to it, the folder's tags, one tag's files, the
+graph, and what a link resolves to. A surface holds a key while it shows it and
+hands the hold back when it stops. Holds are counted, so two surfaces showing
+one tag share one read and the last hand-back drops it. Reading a key holds
+nothing. Two surfaces asking for one key at the same moment wait on one call.
+
+A burst of events, a sync client catching up or autosave settling in several
+tabs, costs at most two rounds of reads: the first event starts a round, and
+every event that arrives while it runs earns one more round after it, however
+many there were. A read that lands after a newer one started is dropped, and a
+link resolution read before a change and landing after it is handed to its
+caller and not kept.
 
 ### 5. Zero rows is an empty list
 
@@ -142,3 +183,6 @@ like every other line, and the folder shape it implies is one nobody wrote.
   suggest. That is the honest count, and the panel says which links they are.
 - Nothing new is stored. Deleting `writ.db` still costs a walk and nothing
   else.
+- Every index write Writ makes needs its event. A new command that writes the
+  index announces `notes:indexed` once the write returns, or every surface
+  keeps the rows from before it until another program touches the folder.

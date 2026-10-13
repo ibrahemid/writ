@@ -3,6 +3,7 @@ use std::path::Path;
 use writ_core::workspace::{is_ignored_name, sort_entries, WorkspaceEntry};
 
 use crate::errors::{StorageError, StorageResult};
+use crate::notes_index;
 use crate::paths::strip_verbatim_prefix;
 
 /// Lists the immediate children of `dir` that are inside `workspace_root`.
@@ -19,6 +20,33 @@ use crate::paths::strip_verbatim_prefix;
 /// [`crate::notes_index::index_key`] keys the index by: the tree and the index
 /// name the same note.
 pub fn list_dir(workspace_root: &Path, dir: &Path) -> StorageResult<Vec<WorkspaceEntry>> {
+    list_entries(workspace_root, dir, is_ignored_name)
+}
+
+/// [`list_dir`] for `dir`, a folder inside the notes folder `notes_root`, for
+/// the tree the sidebar shows of it.
+///
+/// The boundary, the symlink rule, the order and the spelling of each path are
+/// [`list_dir`]'s. What it hides is decided by the notes index rather than by
+/// the names a code checkout hides: an entry is hidden when the index skips it
+/// by name, so every file the index holds is in the tree, and a tag naming a
+/// file filters the tree down to that file rather than to nothing.
+pub fn list_notes_dir(notes_root: &Path, dir: &Path) -> StorageResult<Vec<WorkspaceEntry>> {
+    list_entries(notes_root, dir, |name| {
+        // The index's rule is a question about the path of a note, so it is
+        // asked about a note inside the entry: the walk reads nothing inside
+        // an entry it skips.
+        !notes_index::names_a_note(notes_root, &notes_root.join(name).join("a.md"))
+    })
+}
+
+/// The listing [`list_dir`] and [`list_notes_dir`] share, leaving out every
+/// entry whose name `hides` answers for.
+fn list_entries(
+    workspace_root: &Path,
+    dir: &Path,
+    hides: impl Fn(&str) -> bool,
+) -> StorageResult<Vec<WorkspaceEntry>> {
     let canonical_root = workspace_root.canonicalize().map_err(|e| {
         StorageError::Io(std::io::Error::new(
             e.kind(),
@@ -53,7 +81,7 @@ pub fn list_dir(workspace_root: &Path, dir: &Path) -> StorageResult<Vec<Workspac
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
 
-        if is_ignored_name(&name) {
+        if hides(&name) {
             continue;
         }
 

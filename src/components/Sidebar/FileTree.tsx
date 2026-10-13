@@ -1,8 +1,8 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { workspaceStore } from "../../stores/global/workspace";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
-import { noteFactsStore } from "../../stores/global/note-facts";
+import { indexCacheStore } from "../../stores/global/index-cache";
+import { sidebarFolderStore, type FolderTree } from "../../stores/global/sidebar-folder";
 import Icon from "../Icon/Icon";
 import { notesStore } from "../../stores/global/notes";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
@@ -52,6 +52,8 @@ function underFilter(
 interface TreeNodeProps {
   entry: WorkspaceEntry;
   level: number;
+  /** The folder being drawn, which lists each level as it opens. */
+  folder: FolderTree;
   tree: () => HTMLDivElement | undefined;
   /** The notes the selected tag names, or `null` when no tag is selected. */
   tagged: () => ReadonlySet<string> | null;
@@ -69,11 +71,12 @@ function TreeNode(props: TreeNodeProps) {
   // caret. Clearing the tag hands the folder back whatever the user had.
   const expanded = () => open() || (props.entry.is_dir && props.tagged() !== null);
 
-  const children = () => underFilter(workspaceStore.entriesFor(props.entry.path) ?? [], props.tagged());
+  const children = () =>
+    underFilter(props.folder.entriesFor(props.entry.path) ?? [], props.tagged());
 
   createEffect(() => {
-    if (expanded() && workspaceStore.entriesFor(props.entry.path) === undefined) {
-      void workspaceStore.loadDir(props.entry.path);
+    if (expanded() && props.folder.entriesFor(props.entry.path) === undefined) {
+      void props.folder.loadDir(props.entry.path);
     }
   });
 
@@ -197,6 +200,7 @@ function TreeNode(props: TreeNodeProps) {
               <TreeNode
                 entry={child}
                 level={props.level + 1}
+                folder={props.folder}
                 tree={props.tree}
                 tagged={props.tagged}
                 openPath={props.openPath}
@@ -209,37 +213,47 @@ function TreeNode(props: TreeNodeProps) {
   );
 }
 
-export default function FileTree() {
+interface FileTreeProps {
+  /** The folder to draw: the one opened by hand, or the notes folder. */
+  folder: FolderTree;
+}
+
+export default function FileTree(props: FileTreeProps) {
   let treeRef: HTMLDivElement | undefined;
   const win = useWindow();
 
   createEffect(() => {
-    const root = workspaceStore.root();
-    if (root && workspaceStore.entriesFor(root) === undefined) {
-      void workspaceStore.loadDir(root);
+    const root = props.folder.root();
+    if (root && props.folder.entriesFor(root) === undefined) {
+      void props.folder.loadDir(root);
     }
+  });
+
+  // The tag the tree is filtered by: the selected one, while this tree holds
+  // the files a tag names. Any other tree is drawn whole and the tag lists its
+  // files itself (NV-02).
+  const filterTag = createMemo(() =>
+    sidebarFolderStore.showsNotes() ? win.sidebar.selectedTag() : null,
+  );
+
+  // A tag nothing is showing would be read again on every change for nothing,
+  // so the tag is held exactly while the tree is filtered by it.
+  createEffect(() => {
+    const tag = filterTag();
+    if (tag === null) return;
+    onCleanup(indexCacheStore.holdTag(tag));
   });
 
   // The selected tag's notes are one read, cached per tag. The index answers
   // the tag and every tag under it, so selecting `project` lists the notes
   // tagged `project/alpha` too, and nothing here asks a second question about
-  // the children to draw the filtered tree.
+  // the children to draw the filtered tree. Until that read lands nothing is
+  // known to match, which is not the same as nothing matching.
   const tagged = createMemo<ReadonlySet<string> | null>(() => {
-    const tag = win.sidebar.selectedTag();
+    const tag = filterTag();
     if (tag === null) return null;
-    return new Set(noteFactsStore.pathsForTag(tag)());
-  });
-
-  // A tag nothing is showing would be re-read on every change for nothing, so
-  // the list is handed back as soon as the selection leaves it.
-  let heldTag: string | null = null;
-  createEffect(() => {
-    const tag = win.sidebar.selectedTag();
-    if (heldTag !== null && heldTag !== tag) noteFactsStore.releaseTag(heldTag);
-    heldTag = tag;
-  });
-  onCleanup(() => {
-    if (heldTag !== null) noteFactsStore.releaseTag(heldTag);
+    if (!indexCacheStore.tagPathsSettled(tag)()) return new Set();
+    return new Set(indexCacheStore.pathsForTag(tag)());
   });
 
   // The file behind the active tab, read once for the whole tree. A buffer
@@ -250,26 +264,51 @@ export default function FileTree() {
     return bufferRegistry.activeTabs().find((tab) => tab.id === id)?.source_path ?? null;
   });
 
-  const rootEntries = () => {
-    const root = workspaceStore.root();
-    const rows = root ? (workspaceStore.entriesFor(root) ?? []) : [];
-    return underFilter(rows, tagged());
+  const rootListing = () => {
+    const root = props.folder.root();
+    return root ? props.folder.entriesFor(root) : undefined;
   };
+
+  const rootEntries = () => underFilter(rootListing() ?? [], tagged());
+
+  // A read that failed is said, in the tree, rather than drawn as an empty
+  // folder or as a tag nothing carries.
+  const failure = createMemo<string | null>(() => {
+    const tag = filterTag();
+    if (tag !== null) return indexCacheStore.tagPathsError(tag)();
+    const root = props.folder.root();
+    return root && props.folder.errorFor ? props.folder.errorFor(root) : null;
+  });
+
+  // What an empty list means, once it means something: a tag whose files
+  // have been read and are not in this folder, or a folder listed and empty.
+  const emptyLine = createMemo<string | null>(() => {
+    if (failure() !== null || rootListing() === undefined) return null;
+    const tag = filterTag();
+    if (tag === null) return "Empty folder";
+    return indexCacheStore.tagPathsSettled(tag)() ? "No files with this tag" : null;
+  });
 
   return (
     <div ref={treeRef} role="tree" aria-label="Files" class="file-tree">
+      <Show when={failure()}>
+        {(line) => (
+          <div class="file-tree-empty" role="status">
+            {line()}
+          </div>
+        )}
+      </Show>
       <For
         each={rootEntries()}
         fallback={
-          <div class="file-tree-empty">
-            {tagged() === null ? "Empty folder" : "No files with this tag"}
-          </div>
+          <Show when={emptyLine()}>{(line) => <div class="file-tree-empty">{line()}</div>}</Show>
         }
       >
         {(entry) => (
           <TreeNode
             entry={entry}
             level={1}
+            folder={props.folder}
             tree={() => treeRef}
             tagged={tagged}
             openPath={openPath}

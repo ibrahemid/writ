@@ -19,6 +19,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "workspace:changed": "writ://workspace-changed",
   "notes:changed": "writ://notes-changed",
   "notes:swept": "writ://notes-swept",
+  "notes:indexed": "writ://notes-indexed",
   "inbox:file-arrived": "writ://inbox-file-arrived",
   "note:download": "writ://note-download",
   "update:status": "writ://update-status",

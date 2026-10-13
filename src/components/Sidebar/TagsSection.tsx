@@ -1,9 +1,13 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { noteFactsStore } from "../../stores/global/note-facts";
+import { indexCacheStore } from "../../stores/global/index-cache";
+import { sidebarFolderStore } from "../../stores/global/sidebar-folder";
 import { buildTagTree, type TagNode } from "../../lib/tag-tree";
 import { moveTreeFocus } from "../../lib/tree-focus";
+import { displayFileName } from "../../lib/display-name";
+import { basename } from "../../lib/path";
 import Icon from "../Icon/Icon";
+import Tooltip from "../Tooltip/Tooltip";
 import SidebarSection from "./SidebarSection";
 import "./TagsSection.css";
 
@@ -18,6 +22,88 @@ interface TagRowProps {
   tree: () => HTMLDivElement | undefined;
   folded: () => ReadonlySet<string>;
   setFolded: (tag: string, folded: boolean) => void;
+  /** The tag whose files are listed under its row, or `null`. */
+  listedTag: () => string | null;
+}
+
+interface TaggedFilesProps {
+  tag: string;
+  level: number;
+  tree: () => HTMLDivElement | undefined;
+}
+
+/**
+ * The files one tag names, listed under its row when no tree on screen holds
+ * them: a folder opened by hand is shown in place of the notes folder, or the
+ * Files section is switched off (NV-02). Each row opens its file.
+ */
+function TaggedFiles(props: TaggedFilesProps) {
+  const win = useWindow();
+  const paths = () => indexCacheStore.pathsForTag(props.tag)();
+  const failure = () => indexCacheStore.tagPathsError(props.tag)();
+  const settled = () => indexCacheStore.tagPathsSettled(props.tag)();
+  const paddingLeft = () => `${BASE_INDENT + props.level * INDENT_PER_LEVEL}px`;
+
+  function open(path: string) {
+    void win.tabs.openFile(path).catch(() => undefined);
+  }
+
+  function handleKeyDown(e: KeyboardEvent, path: string) {
+    switch (e.key) {
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        open(path);
+        break;
+      case "ArrowDown":
+      case "ArrowUp": {
+        e.preventDefault();
+        const tree = props.tree();
+        if (!tree) break;
+        moveTreeFocus(tree, e.currentTarget as HTMLElement, e.key === "ArrowDown" ? 1 : -1);
+        break;
+      }
+    }
+  }
+
+  return (
+    <div role="group" class="tags-files">
+      <Show when={failure()}>
+        {(line) => (
+          <div class="tags-note" role="status" style={{ "padding-left": paddingLeft() }}>
+            {line()}
+          </div>
+        )}
+      </Show>
+      <For
+        each={paths()}
+        fallback={
+          <Show when={settled() && failure() === null}>
+            <div class="tags-note" style={{ "padding-left": paddingLeft() }}>
+              No files with this tag
+            </div>
+          </Show>
+        }
+      >
+        {(path) => (
+          <div
+            role="treeitem"
+            aria-level={props.level + 1}
+            tabIndex={0}
+            class="sidebar-row tags-file"
+            style={{ "padding-left": paddingLeft() }}
+            onClick={() => open(path)}
+            onKeyDown={(e) => handleKeyDown(e, path)}
+          >
+            <Icon name="file-text" />
+            <Tooltip label={path} requiresTruncation>
+              <span class="tags-file-name">{displayFileName(basename(path))}</span>
+            </Tooltip>
+          </div>
+        )}
+      </For>
+    </div>
+  );
 }
 
 function TagRow(props: TagRowProps) {
@@ -96,6 +182,9 @@ function TagRow(props: TagRowProps) {
           <span class="tags-row-count">{props.node.count}</span>
         </Show>
       </div>
+      <Show when={props.listedTag() === props.node.tag}>
+        <TaggedFiles tag={props.node.tag} level={props.level} tree={props.tree} />
+      </Show>
       <Show when={expanded()}>
         <div
           role="group"
@@ -110,6 +199,7 @@ function TagRow(props: TagRowProps) {
                 tree={props.tree}
                 folded={props.folded}
                 setFolded={props.setFolded}
+                listedTag={props.listedTag}
               />
             )}
           </For>
@@ -120,8 +210,12 @@ function TagRow(props: TagRowProps) {
 }
 
 export default function TagsSection() {
+  const win = useWindow();
   let treeRef: HTMLDivElement | undefined;
-  const tags = noteFactsStore.allTags();
+  onCleanup(indexCacheStore.holdTags());
+  const tags = indexCacheStore.allTags();
+  const tagsError = indexCacheStore.tagsError();
+  const tagsSettled = indexCacheStore.tagsSettled();
   const nodes = createMemo(() => buildTagTree(tags()));
 
   // Which parents are folded lasts for the window, not across launches:
@@ -139,9 +233,34 @@ export default function TagsSection() {
     });
   }
 
+  // The selected tag lists its own files when no tree on screen holds them,
+  // and holds their read for as long as it does.
+  const listedTag = createMemo(() =>
+    sidebarFolderStore.showsNotes() ? null : win.sidebar.selectedTag(),
+  );
+  createEffect(() => {
+    const tag = listedTag();
+    if (tag === null) return;
+    onCleanup(indexCacheStore.holdTag(tag));
+  });
+
+  // Nothing is said until the list has been read: an unread list and an empty
+  // one look the same, and only one of them means there are no tags.
+  const showsHowToTag = () => tagsSettled() && tagsError() === null && nodes().length === 0;
+
   return (
-    <Show when={nodes().length > 0}>
-      <SidebarSection id="tags" heading="Tags" class="tags-section">
+    <SidebarSection id="tags" heading="Tags" class="tags-section">
+      <Show when={tagsError()}>
+        {(line) => (
+          <p class="tags-note tags-section-note" role="status">
+            {line()}
+          </p>
+        )}
+      </Show>
+      <Show when={showsHowToTag()}>
+        <p class="tags-note tags-section-note">Type #tag in a file to list it here.</p>
+      </Show>
+      <Show when={nodes().length > 0}>
         <div ref={treeRef} role="tree" aria-label="Tags" class="tags-tree">
           <For each={nodes()}>
             {(node) => (
@@ -151,11 +270,12 @@ export default function TagsSection() {
                 tree={() => treeRef}
                 folded={folded}
                 setFolded={foldTag}
+                listedTag={listedTag}
               />
             )}
           </For>
         </div>
-      </SidebarSection>
-    </Show>
+      </Show>
+    </SidebarSection>
   );
 }

@@ -8,6 +8,7 @@ vi.mock("../../services/tauri", () => ({
   noteFacts: vi.fn(),
   noteAllTags: vi.fn(),
   noteGraph: vi.fn(),
+  notePathsForTag: vi.fn().mockResolvedValue([]),
   searchBuffers: vi.fn().mockResolvedValue({ hits: [], total: 0 }),
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
@@ -32,7 +33,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 
 import TagsSection from "../../components/Sidebar/TagsSection";
 import { createSidebarStore, type SidebarStore } from "../../stores/window/sidebar-store";
-import { noteFactsStore, type TagCount } from "../../stores/global/note-facts";
+import { indexCacheStore, type TagCount } from "../../stores/global/index-cache";
 import * as api from "../../services/tauri";
 import * as events from "../../services/events";
 
@@ -92,7 +93,7 @@ let sidebar: SidebarStore;
 let disposeSidebar: () => void = () => {};
 
 beforeEach(async () => {
-  await noteFactsStore.reset();
+  await indexCacheStore.reset();
   vi.clearAllMocks();
   mockedEvents.onEvent.mockResolvedValue(() => {});
   disposeSidebar = createRoot((dispose) => {
@@ -108,10 +109,20 @@ afterEach(() => {
 });
 
 describe("the tags section", () => {
-  it("is absent from the tree when the folder has no tags", async () => {
+  it("says how a tag is made while the folder has none, and draws no rows", async () => {
     const { container } = await mount([]);
-    expect(container.querySelector(".tags-section")).toBeNull();
-    expect(container.textContent).toBe("");
+    expect(container.querySelector(".tags-section")).not.toBeNull();
+    expect(container.querySelector(".tags-tree")).toBeNull();
+    expect(container.querySelector(".tags-section-note")!.textContent).toBe(
+      "Type #tag in a file to list it here.",
+    );
+  });
+
+  it("says nothing about an empty list before the list has been read", async () => {
+    mockedApi.noteAllTags.mockReturnValue(new Promise(() => {}));
+    const { container } = render(() => <TagsSection />);
+    await settle();
+    expect(container.querySelector(".tags-section-note")).toBeNull();
   });
 
   it("names the section Tags and lists a tag with the notes carrying it", async () => {

@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::path::Path;
 use std::time::{Instant, UNIX_EPOCH};
 
+use crate::commands::note_index::{announce_indexed, index_copy};
 use crate::fts_scheduler::{PollOutcome, FTS_REINDEX_DEBOUNCE};
 use crate::poison::recover_poison;
 use crate::state::AppState;
@@ -324,6 +325,24 @@ fn write_note_source(
     content: &str,
     removed: RemovedFile,
 ) -> Result<Option<String>, String> {
+    let mut set_aside = Vec::new();
+    let written = write_note_source_unannounced(state, id, content, removed, &mut set_aside);
+    announce_indexed(&state.event_bus, set_aside);
+    written
+}
+
+/// [`write_note_source`], leaving the announcement to the caller.
+///
+/// A write the guard stops sets the text aside in a copy, which is indexed
+/// here and added to `set_aside` rather than announced, so a caller that wrote
+/// more than this note announces all of it as one event (ADR-036 section 4).
+fn write_note_source_unannounced(
+    state: &AppState,
+    id: &str,
+    content: &str,
+    removed: RemovedFile,
+    set_aside: &mut Vec<String>,
+) -> Result<Option<String>, String> {
     wait_out_a_held_removal(state, id, removed)?;
     // Read before the store lock, and unconditionally: the config lock is
     // never taken under a held store lock, and finding out whether this write
@@ -352,9 +371,21 @@ fn write_note_source(
 
     crate::commands::file::authorize_source_write(state, &source_path)?;
     let stamp = ignore_stamper(state);
-    let written = store
-        .save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp))
-        .map_err(|e| save_failure_message(&e))?;
+    let saved = store.save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp));
+    let written = match saved {
+        Ok(written) => written,
+        Err(error) => {
+            drop(store);
+            if let StorageError::SourceChangedOnDisk {
+                conflict_copy: Some(copy),
+                ..
+            } = &error
+            {
+                set_aside.extend(index_copy(state, Path::new(copy)));
+            }
+            return Err(save_failure_message(&error));
+        }
+    };
     state.set_disk_state(id, written);
     // Every save writes a temporary file and renames it over the note, so the
     // file behind this tab is a new file now. A record taken before the save
@@ -558,24 +589,58 @@ fn spawn_deferred_reindex(app: AppHandle, id: String, first_generation: u64) {
             })
             .await;
             let state = app.state::<AppState>();
-            match state.fts_scheduler.poll(&id, seen) {
-                PollOutcome::Wait(generation) => seen = generation,
-                PollOutcome::Reindex => {
-                    match state.store.lock() {
-                        Ok(store) => {
-                            if let Err(e) = store.reindex_buffer(&id) {
-                                tracing::debug!(buffer_id = %id, error = %e, "deferred fts reindex failed");
-                            }
-                        }
-                        Err(_) => {
-                            tracing::debug!(buffer_id = %id, "store poisoned; skipping deferred reindex")
-                        }
-                    }
-                    break;
-                }
+            match close_debounce_window(&state, &id, seen) {
+                Some(generation) => seen = generation,
+                None => break,
             }
         }
     });
+}
+
+/// What the deferred worker does once a debounce window has passed: while
+/// newer edits keep arriving it waits again, on the generation returned; once
+/// they stop it reindexes the buffer ([`reindex_settled_buffer`]) and returns
+/// `None`.
+pub fn close_debounce_window(state: &AppState, id: &str, seen: u64) -> Option<u64> {
+    match state.fts_scheduler.poll(id, seen) {
+        PollOutcome::Wait(generation) => Some(generation),
+        PollOutcome::Reindex => {
+            reindex_settled_buffer(state, id);
+            None
+        }
+    }
+}
+
+/// Reindexes a buffer whose edits have settled: the step the deferred worker
+/// runs once its debounce window passes with no newer edit (ADR-020).
+///
+/// A file in the notes folder is announced once its rows land
+/// ([`announce_indexed`]): the watcher drops the save, so this is how the
+/// outline, the tags and the graph hear of it. A file anywhere else has no
+/// rows to change and is not announced.
+pub fn reindex_settled_buffer(state: &AppState, id: &str) {
+    announce_indexed(&state.event_bus, reindex_buffer_now(state, id));
+}
+
+/// Reindexes a buffer's file, and returns the path to announce it under when
+/// the file is in the notes folder.
+fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
+    let indexed = match state.store.lock() {
+        Ok(store) => match store.reindex_buffer(id) {
+            Ok(()) => store.get(id).ok().and_then(|doc| doc.source_path),
+            Err(e) => {
+                tracing::debug!(buffer_id = %id, error = %e, "fts reindex failed");
+                None
+            }
+        },
+        Err(_) => {
+            tracing::debug!(buffer_id = %id, "store poisoned; skipping reindex");
+            None
+        }
+    };
+    let path = indexed?;
+    crate::commands::notes::path_is_inside_notes(state, &path)
+        .then(|| writ_storage::notes_index::index_key(Path::new(&path)))
 }
 
 /// Reads a note's text from its file, recording what the file held.
@@ -803,6 +868,12 @@ pub struct ResolveOutcome {
 /// copy of a note (ADR-028 §1), so the one place the unsaved version exists is
 /// the document, and Rust reading the note back would read the very change
 /// being asked about.
+///
+/// What the answer wrote is indexed before it returns and announced as one
+/// event (ADR-036 section 4): the copy, the note when Keep mine rewrote it,
+/// and the copy Keep mine's save set aside when the guard stopped it. The
+/// watcher reports none of them, and a bar is answered once, so the deferral
+/// that collapses a run of keystroke saves has nothing to collapse.
 pub fn resolve_external_change_inner(
     state: &AppState,
     id: &str,
@@ -912,19 +983,25 @@ pub fn resolve_external_change_at(
     let copy = write_conflict_copy(path, &losing, chrono::Utc::now(), Some(&stamp))
         .map_err(|e| save_failure_message(&e))?;
     let conflict_copy_path = Some(copy.to_string_lossy().into_owned());
+    let copy_key = index_copy(state, &copy);
 
-    match outcome.then {
+    let mut rewritten = None;
+    let mut set_aside = Vec::new();
+    let answered = match outcome.then {
         Action::WriteMine => {
             // What the file holds is beside the note now, so the write guard
             // has nothing left to protect and the save may land. Recording it
             // is also what makes the record true: Writ has read this file.
             state.record_disk_state_bytes(id, path, &disk_bytes);
-            let written = save_buffer_content_inner(state, id, content)?;
-            Ok(ResolveOutcome {
-                conflict_copy_path,
-                content: None,
-                disk_hash: written.unwrap_or(mine_hash),
-            })
+            write_note_source_unannounced(state, id, content, RemovedFile::Refuse, &mut set_aside)
+                .map(|written| {
+                    rewritten = reindex_buffer_now(state, id);
+                    ResolveOutcome {
+                        conflict_copy_path,
+                        content: None,
+                        disk_hash: written.unwrap_or(mine_hash),
+                    }
+                })
         }
         Action::TakeDisk | Action::TakeDiskAndShowCopy => {
             // The file is left exactly as the other program wrote it. The tab
@@ -936,7 +1013,12 @@ pub fn resolve_external_change_at(
                 disk_hash,
             })
         }
-    }
+    };
+    announce_indexed(
+        &state.event_bus,
+        rewritten.into_iter().chain(copy_key).chain(set_aside),
+    );
+    answered
 }
 
 /// IPC: [`resolve_external_change_inner`] as the bar calls it.

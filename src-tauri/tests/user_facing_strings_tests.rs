@@ -199,18 +199,6 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
         note: "debug_assert text, never rendered",
     },
     AllowedString {
-        file: "src-tauri/src/commands/notes.rs",
-        line: 1250,
-        word: "note",
-        note: "log line the prefix test misses inside a multi-line macro",
-    },
-    AllowedString {
-        file: "src-tauri/src/lib.rs",
-        line: 155,
-        word: "note",
-        note: "log line the prefix test misses inside a multi-line macro",
-    },
-    AllowedString {
         file: "src-tauri/src/state.rs",
         line: 418,
         word: "note",

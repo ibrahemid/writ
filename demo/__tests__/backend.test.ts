@@ -33,6 +33,15 @@ describe("the demo backend", () => {
     expect(entries.some((e) => e.name === "To do.txt")).toBe(true);
   });
 
+  it("lists the notes folder the sidebar shows when no folder is open", async () => {
+    const { handle } = backend();
+    await handle("clear_workspace_root", {});
+    const names = (entries: unknown) => (entries as { name: string }[]).map((entry) => entry.name);
+    const notes = names(await handle("list_notes_dir", { dirPath: NOTES_ROOT }));
+    expect(notes).toContain("To do.txt");
+    expect(notes).toEqual(names(await handle("list_workspace_dir", { dirPath: NOTES_ROOT })));
+  });
+
   it("reports the digest the app computes for the same text", async () => {
     const { handle } = backend();
     const [doc] = (await handle("list_active_buffers", {})) as { id: string }[];

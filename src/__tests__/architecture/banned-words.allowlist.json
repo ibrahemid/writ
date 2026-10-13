@@ -22,29 +22,5 @@
     "line": 904,
     "word": "source",
     "note": "markdown layout option label, release 0.6"
-  },
-  {
-    "file": "src/components/Sidebar/InboxSection.tsx",
-    "line": 14,
-    "word": "inbox",
-    "note": "sidebar section title, release 0.6"
-  },
-  {
-    "file": "src/stores/global/inbox.ts",
-    "line": 68,
-    "word": "inbox",
-    "note": "open-failure toast, release 0.6"
-  },
-  {
-    "file": "src/stores/global/inbox.ts",
-    "line": 75,
-    "word": "inbox",
-    "note": "open-failure toast, release 0.6"
-  },
-  {
-    "file": "src/stores/global/inbox.ts",
-    "line": 91,
-    "word": "inbox",
-    "note": "arrival toast, release 0.6"
   }
 ]

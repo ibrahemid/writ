@@ -56,6 +56,7 @@ import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerPromptCommands } from "./commands/prompt";
 import { toggleChat } from "./commands/chat";
+import { openRecent } from "./commands/recent";
 import { defineAppCommands, definedAppCommandIds } from "./commands/app-commands";
 import { followAppSwitches } from "./commands/app-switches";
 import { chatStore } from "./stores/global/chat";
@@ -383,7 +384,7 @@ function AppShell() {
       id: "workspace.openFolder",
       icon: "folder-open",
       label: "Open folder…",
-      description: "Open a folder as the workspace",
+      description: "Show a folder's files in the sidebar",
       scope: "app",
       execute: () => {
         void workspaceStore.openFolder().then((root) => {
@@ -398,7 +399,7 @@ function AppShell() {
     registerCommand({
       id: "workspace.closeFolder",
       label: "Close folder",
-      description: "Close the open workspace folder",
+      description: "Stop showing this folder in the sidebar",
       scope: "app",
       execute: () => void workspaceStore.closeFolder(),
     });
@@ -491,14 +492,14 @@ function AppShell() {
       label: "Open recent",
       description: "Show the files closed most recently",
       scope: "app",
-      execute: () => windowRegistry.getActive()?.sidebar.showRecent(),
+      execute: () => openRecent(),
     });
 
     registerCommand({
       id: "sidebar.toggle",
       icon: "sidebar-simple",
       label: "Toggle sidebar",
-      description: "Show or hide the tabs + history rail",
+      description: "Show or hide the sidebar",
       keybinding: "CmdOrCtrl+\\",
       // Finder's own sidebar chord, for the hand that already knows it.
       keybindingAliases: ["CmdOrCtrl+Alt+S"],
@@ -746,16 +747,16 @@ function AppShell() {
 
     registerCommand({
       id: "history.clear",
-      label: "Clear history",
-      description: "Permanently remove all history entries",
+      label: "Clear Recent",
+      description: "Remove every file from Recent",
       scope: "app",
       execute: async () => {
         const count = bufferRegistry.historyList().length;
         if (count === 0) return;
         const confirmed = await requestConfirm({
-          title: "Clear all history?",
-          message: `This permanently removes ${count} closed tab${count === 1 ? "" : "s"} from history. This cannot be undone.`,
-          confirmLabel: "Clear history",
+          title: "Clear Recent?",
+          message: `This removes ${count} file${count === 1 ? "" : "s"} from Recent and cannot be undone. The files stay where they are.`,
+          confirmLabel: "Clear Recent",
           danger: true,
         });
         if (confirmed) void bufferRegistry.clearAllHistory();

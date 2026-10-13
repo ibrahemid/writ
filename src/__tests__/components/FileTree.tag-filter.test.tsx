@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createRoot } from "solid-js";
+import { Show, createRoot } from "solid-js";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import type { WorkspaceEntry } from "../../types/workspace";
 
@@ -8,6 +8,7 @@ vi.mock("../../services/tauri", () => ({
   noteAllTags: vi.fn(async () => []),
   noteGraph: vi.fn(),
   notePathsForTag: vi.fn(async () => []),
+  getNotesRoot: vi.fn(async () => "/notes"),
 }));
 
 vi.mock("../../services/events", () => ({
@@ -20,9 +21,20 @@ const h = vi.hoisted(() => ({
   sidebar: null as unknown,
 }));
 
+// The tree these tests filter is the notes folder's own, drawn while no
+// folder is opened by hand, so a tag filters it rather than listing its files
+// under the tag.
+vi.mock("../../stores/global/notes-tree", () => ({
+  notesTreeStore: {
+    root: () => "/notes",
+    entriesFor: (path: string) => h.entries.get(path),
+    loadDir: vi.fn(),
+  },
+}));
+
 vi.mock("../../stores/global/workspace", async () => {
   const { createSignal } = await import("solid-js");
-  const [root, setRoot] = createSignal<string | null>("/notes");
+  const [root, setRoot] = createSignal<string | null>(null);
   h.setRoot = (next: string | null) => setRoot(() => next);
   return {
     workspaceStore: {
@@ -43,7 +55,10 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 import FileTree from "../../components/Sidebar/FileTree";
 import TagsSection from "../../components/Sidebar/TagsSection";
 import { createSidebarStore, type SidebarStore } from "../../stores/window/sidebar-store";
-import { noteFactsStore } from "../../stores/global/note-facts";
+import { indexCacheStore } from "../../stores/global/index-cache";
+import { notesStore } from "../../stores/global/notes";
+import { notesTreeStore } from "../../stores/global/notes-tree";
+import { sidebarFolderStore } from "../../stores/global/sidebar-folder";
 import * as api from "../../services/tauri";
 import * as events from "../../services/events";
 
@@ -84,13 +99,14 @@ let sidebar: SidebarStore;
 let disposeSidebar: () => void = () => {};
 
 beforeEach(async () => {
-  await noteFactsStore.reset();
+  await indexCacheStore.reset();
   vi.clearAllMocks();
+  await notesStore.load();
   mockedApi.noteAllTags.mockResolvedValue([]);
   mockedApi.notePathsForTag.mockResolvedValue([]);
   mockedEvents.onEvent.mockResolvedValue(() => {});
   h.entries = new Map();
-  h.setRoot("/notes");
+  h.setRoot(null);
   disposeSidebar = createRoot((dispose) => {
     sidebar = createSidebarStore();
     return dispose;
@@ -108,7 +124,7 @@ describe("the file tree under a tag", () => {
     h.entries.set("/notes", [file("/notes/Pricing.md"), file("/notes/Recipes.md")]);
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md"]);
 
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={notesTreeStore} />);
     expect(names(container)).toEqual(["Pricing", "Recipes"]);
 
     sidebar.selectTag("idea");
@@ -126,7 +142,7 @@ describe("the file tree under a tag", () => {
     h.entries.set("/notes/Drafts", [file("/notes/Drafts/launch.md"), file("/notes/Drafts/old.md")]);
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Drafts/launch.md"]);
 
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={notesTreeStore} />);
     sidebar.selectTag("idea");
     await settle();
 
@@ -137,7 +153,7 @@ describe("the file tree under a tag", () => {
     h.entries.set("/notes", [file("/notes/Pricing.md"), file("/notes/Recipes.md")]);
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md"]);
 
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={notesTreeStore} />);
     sidebar.selectTag("idea");
     await settle();
     expect(names(container)).toEqual(["Pricing"]);
@@ -154,7 +170,11 @@ describe("the file tree under a tag", () => {
     h.entries.set("/other", [file("/other/Kitchen.md")]);
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md"]);
 
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => (
+      <Show when={sidebarFolderStore.tree()} keyed>
+        {(folder) => <FileTree folder={folder} />}
+      </Show>
+    ));
     sidebar.selectTag("idea");
     await settle();
     expect(names(container)).toEqual(["Pricing"]);
@@ -174,7 +194,7 @@ describe("the file tree under a tag", () => {
     const { container } = render(() => (
       <>
         <TagsSection />
-        <FileTree />
+        <FileTree folder={notesTreeStore} />
       </>
     ));
     await settle();
@@ -199,7 +219,7 @@ describe("the file tree under a tag", () => {
     const { container } = render(() => (
       <>
         <TagsSection />
-        <FileTree />
+        <FileTree folder={notesTreeStore} />
       </>
     ));
     await settle();
@@ -231,7 +251,7 @@ describe("the file tree under a tag", () => {
     const { container } = render(() => (
       <>
         <TagsSection />
-        <FileTree />
+        <FileTree folder={notesTreeStore} />
       </>
     ));
     await settle();
@@ -256,7 +276,7 @@ describe("the file tree under a tag", () => {
     h.entries.set("/notes", [file("/notes/Pricing.md")]);
     mockedApi.notePathsForTag.mockResolvedValue(["/elsewhere/Other.md"]);
 
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={notesTreeStore} />);
     sidebar.selectTag("idea");
     await settle();
 
@@ -269,7 +289,7 @@ describe("the file tree under a tag", () => {
     h.entries.set("/notes/Drafts", [file("/notes/Drafts/launch.md")]);
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Drafts/launch.md", "/notes/Pricing.md"]);
 
-    render(() => <FileTree />);
+    render(() => <FileTree folder={notesTreeStore} />);
     sidebar.selectTag("idea");
     await settle();
 
@@ -280,21 +300,22 @@ describe("the file tree under a tag", () => {
     h.entries.set("/notes", [file("/notes/Pricing.md")]);
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Pricing.md"]);
 
-    render(() => <FileTree />);
+    render(() => <FileTree folder={notesTreeStore} />);
     sidebar.selectTag("idea");
     await settle();
     sidebar.selectTag("draft");
     await settle();
 
-    // The first tag is no longer read: a session that tries ten tags does not
-    // re-read ten lists on the next change.
-    noteFactsStore.pathsForTag("idea");
+    // The first tag is no longer held: a session that tries ten tags does not
+    // re-read ten lists on the next change, and holding it again reads it anew.
+    const release = indexCacheStore.holdTag("idea");
     await settle();
     expect(mockedApi.notePathsForTag.mock.calls.map(([tag]) => tag)).toEqual([
       "idea",
       "draft",
       "idea",
     ]);
+    release();
   });
 
   it("gives a folder its own expansion back when the tag clears", async () => {
@@ -302,7 +323,7 @@ describe("the file tree under a tag", () => {
     h.entries.set("/notes/Drafts", [file("/notes/Drafts/launch.md")]);
     mockedApi.notePathsForTag.mockResolvedValue(["/notes/Drafts/launch.md"]);
 
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={notesTreeStore} />);
     sidebar.selectTag("idea");
     await settle();
     expect(names(container)).toEqual(["Drafts", "launch"]);
