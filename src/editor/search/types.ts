@@ -10,6 +10,12 @@ export interface MatchState {
   current: number;
   total: number;
   capped: boolean;
+  /** The document is still being read: `total` counts the matches found so far. */
+  pending?: boolean;
+  /** The query is a regular expression that does not compile. */
+  invalid?: boolean;
+  /** The regular expression engine gave up reading the document: a match attempt outgrew its stack. */
+  failed?: boolean;
 }
 
 export interface MatchTick {

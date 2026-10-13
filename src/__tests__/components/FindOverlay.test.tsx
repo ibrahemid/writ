@@ -6,7 +6,13 @@ import { EditorState } from "@codemirror/state";
 import { search } from "@codemirror/search";
 import FindOverlay from "../../components/Find/FindOverlay";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
-import { createFindController, createEditorSurface } from "../../stores/global/find-store";
+import {
+  createFindController,
+  createEditorSurface,
+  FIND_INPUT_DEBOUNCE_MS,
+  type SearchSurface,
+} from "../../stores/global/find-store";
+import type { MatchState } from "../../editor/search/types";
 
 function makeView(doc: string) {
   const state = EditorState.create({ doc, extensions: [search({ top: true })] });
@@ -23,7 +29,37 @@ function makeStore(view: EditorView) {
   return store;
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  vi.useRealTimers();
+  cleanup();
+});
+
+function makeDebouncedStore(view: EditorView) {
+  let store!: ReturnType<typeof createFindController>;
+  createRoot(() => {
+    store = createFindController(() => createEditorSurface(() => view), {
+      inputDebounceMs: FIND_INPUT_DEBOUNCE_MS,
+    });
+  });
+  return store;
+}
+
+/** A surface that answers one fixed count. */
+function surfaceWith(state: MatchState): SearchSurface {
+  return {
+    setQuery: () => {},
+    next: () => {},
+    previous: () => {},
+    replaceCurrent: () => {},
+    replaceAll: () => {},
+    matchState: () => state,
+    matchPositions: () => [],
+    clear: () => {},
+    selectionSeed: () => "",
+    focus: () => {},
+    canReplace: () => true,
+  };
+}
 
 describe("FindOverlay", () => {
   it("renders nothing while closed", () => {
@@ -65,6 +101,95 @@ describe("FindOverlay", () => {
     find.open();
     find.setQueryText("zzz");
     expect(getByText("No results")).toBeTruthy();
+  });
+
+  it("says nothing about a first query until the debounce has applied it", () => {
+    vi.useFakeTimers();
+    const find = makeDebouncedStore(makeView("alpha beta zebrafish gamma"));
+    const { container } = render(() => <FindOverlay store={find} />);
+    find.open();
+    find.setQueryText("z");
+    const badge = container.querySelector(".find-count") as HTMLElement;
+    expect(badge.textContent).toBe("");
+    expect(badge.classList.contains("is-empty")).toBe(false);
+    expect(badge.getAttribute("aria-busy")).toBe("true");
+    vi.advanceTimersByTime(FIND_INPUT_DEBOUNCE_MS);
+    expect(badge.textContent).toBe("1 match");
+    expect(badge.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("keeps the last count through the debounce rather than flashing", () => {
+    vi.useFakeTimers();
+    const find = makeDebouncedStore(makeView("alpha beta"));
+    const { container } = render(() => <FindOverlay store={find} />);
+    find.open();
+    find.setQueryText("zz");
+    vi.advanceTimersByTime(FIND_INPUT_DEBOUNCE_MS);
+    const badge = container.querySelector(".find-count") as HTMLElement;
+    expect(badge.textContent).toBe("No results");
+    find.setQueryText("zzz");
+    expect(badge.textContent).toBe("No results");
+    expect(badge.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("counts a match found so far as matches, since more may follow", () => {
+    let find!: ReturnType<typeof createFindController>;
+    createRoot(() => {
+      find = createFindController(() => surfaceWith({ current: 0, total: 1, capped: false, pending: true }));
+    });
+    const { container } = render(() => <FindOverlay store={find} />);
+    find.open();
+    find.setQueryText("needle");
+    expect(container.querySelector(".find-count")?.textContent).toBe("1+ matches");
+  });
+
+  it("says a regular expression that does not compile is an invalid pattern", () => {
+    const find = makeStore(makeView("anything (here)"));
+    const { getByText, queryByText } = render(() => <FindOverlay store={find} />);
+    find.open();
+    find.toggleRegexp();
+    find.setQueryText("(");
+    expect(getByText("Invalid pattern")).toBeTruthy();
+    expect(queryByText("No results")).toBeNull();
+    find.setQueryText("\\(");
+    expect(getByText("1 match")).toBeTruthy();
+  });
+
+  it("highlights nothing for a query of only whitespace, which it does not count", () => {
+    const view = makeView("alpha beta gamma");
+    const find = makeStore(view);
+    const { container } = render(() => <FindOverlay store={find} />);
+    find.open();
+    find.setQueryText(" ");
+    expect(container.querySelector(".find-count")?.textContent).toBe("");
+    expect(view.dom.querySelectorAll(".cm-searchMatch")).toHaveLength(0);
+    find.setQueryText(" beta");
+    expect(container.querySelector(".find-count")?.textContent).toBe("1 match");
+    expect(view.dom.querySelectorAll(".cm-searchMatch")).toHaveLength(1);
+  });
+
+  it("says when the regular expression engine gave up on the pattern, also while it reads again", () => {
+    let state: MatchState = { current: 0, total: 0, capped: false, pending: false, failed: true };
+    let find!: ReturnType<typeof createFindController>;
+    createRoot(() => {
+      find = createFindController(() => surfaceWith(state));
+    });
+    const { container } = render(() => <FindOverlay store={find} />);
+    find.open();
+    find.toggleRegexp();
+    find.setQueryText("(\\D)+");
+    const badge = container.querySelector(".find-count") as HTMLElement;
+    expect(badge.textContent).toBe("Pattern too complex");
+    expect(badge.classList.contains("is-empty")).toBe(true);
+    expect(badge.getAttribute("aria-busy")).toBe("false");
+    state = { current: 0, total: 0, capped: false, pending: true, failed: true };
+    find.refresh();
+    expect(badge.textContent).toBe("Pattern too complex");
+    expect(badge.getAttribute("aria-busy")).toBe("true");
+    state = { current: 0, total: 3, capped: false, pending: false, failed: false };
+    find.refresh();
+    expect(badge.textContent).toBe("3 matches");
+    expect(badge.classList.contains("is-empty")).toBe(false);
   });
 
   it("reflects toggle state via aria-pressed", () => {

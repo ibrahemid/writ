@@ -32,14 +32,20 @@ export default function FindOverlay(props: Props) {
   });
 
   const hasQuery = createMemo(() => find.queryText().trim().length > 0);
+  // The count describes the query last applied; the field waits out its debounce.
+  const counted = createMemo(() => hasQuery() && find.appliedQuery().trim().length > 0);
+  const waiting = createMemo(() => find.queryText() !== find.appliedQuery());
 
   const countLabel = createMemo(() => {
-    const { current, total, capped } = find.matches();
-    if (!hasQuery()) return "";
-    if (total === 0) return "No results";
-    const suffix = capped ? "+" : "";
+    const { current, total, capped, pending, invalid, failed } = find.matches();
+    if (!counted()) return "";
+    if (invalid) return "Invalid pattern";
+    if (failed) return "Pattern too complex";
+    if (total === 0) return pending ? "" : "No results";
+    const more = capped || pending;
+    const suffix = more ? "+" : "";
     if (current > 0) return `${current} of ${total}${suffix}`;
-    return `${total}${suffix} match${total === 1 ? "" : "es"}`;
+    return `${total}${suffix} ${total === 1 && !more ? "match" : "matches"}`;
   });
 
   // The row's own control for the command the app registers as Replace, so it
@@ -51,7 +57,10 @@ export default function FindOverlay(props: Props) {
     return key ? `Replace (${key})` : "Replace";
   });
 
-  const noResults = createMemo(() => hasQuery() && find.matches().total === 0);
+  const noResults = createMemo(() => {
+    const { total, pending, invalid, failed } = find.matches();
+    return counted() && (invalid === true || failed === true || (total === 0 && !pending));
+  });
   const currentTick = createMemo(() => find.matches().current);
 
   function onQueryKeyDown(e: KeyboardEvent) {
@@ -113,6 +122,7 @@ export default function FindOverlay(props: Props) {
             class="find-count"
             classList={{ "is-empty": noResults() }}
             aria-live="polite"
+            aria-busy={find.matches().pending === true || waiting()}
           >
             {countLabel()}
           </span>

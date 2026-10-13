@@ -1,12 +1,13 @@
-import type { BufferDocument, FileOpenResult } from "../../src/types/buffer";
+import type { BufferDocument, FileOpenMode, FileOpenResult } from "../../src/types/buffer";
 import type { WritConfig } from "../../src/types/config";
 import type { IpcBridge } from "../ipc";
+import { classifyFile, classifySize, onceOpen, sniffsBinary } from "./classify";
 import { DEMO_CONFIG } from "./config";
 import { NoteHistory, countUtf8Bytes, type WriteKind } from "./history";
 import { dedupeStem } from "./naming";
 import { NotesIndex } from "./notes-index";
 import { SEED_FILES, SEED_VERSIONS, VERSIONED_NOTE } from "./seed";
-import { NOTES_ROOT, VirtualFolder, basename, stem } from "./vfs";
+import { NOTES_ROOT, VirtualFolder, basename } from "./vfs";
 
 type Service = typeof import("../../src/services/tauri");
 /** What the app's wrapper for a command resolves to. */
@@ -97,7 +98,7 @@ export class DemoState {
     });
   }
 
-  createBufferFor(path: string | null, title: string): BufferDocument {
+  createBufferFor(path: string | null, title: string, readOnly = false): BufferDocument {
     const content = path ? this.folder.read(path) : "";
     const doc: BufferDocument = {
       id: `demo-${this.nextId++}`,
@@ -112,7 +113,7 @@ export class DemoState {
       created_at: stampNow(),
       updated_at: stampNow(),
       closed_at: null,
-      read_only: false,
+      read_only: readOnly,
       size_bytes: countUtf8Bytes(content),
       line_ending: "lf",
     };
@@ -124,14 +125,77 @@ export class DemoState {
     return [...this.buffers.values()].find((b) => b.status === "active" && b.source_path === path);
   }
 
-  openPath(path: string): FileOpenResult & { doc: BufferDocument } {
+  /** The file's bytes, as the host reads them. */
+  readBytes(path: string): Uint8Array {
+    return new TextEncoder().encode(this.folder.read(path));
+  }
+
+  /**
+   * commands::file::open_file: the tier from the size and the binary sniff, a
+   * question for the confirm tier and a refusal past the size Writ opens, both
+   * with no tab, and the tab an open file already has.
+   */
+  openPath(path: string): FileOpenResult {
+    const shown = this.findActiveBuffer(path);
+    if (shown) return this.shownAnswer(shown);
+    const bytes = this.readBytes(path);
+    const mode = classifySize(bytes.length, sniffsBinary(bytes));
+    if (mode.kind === "Refused" || mode.kind === "LargeFileConfirm") {
+      return { doc: null, mode, size_bytes: bytes.length };
+    }
+    return this.openClassified(path, mode, bytes.length);
+  }
+
+  /** commands::file::open_file_confirmed: classified again, then opened. */
+  openConfirmedPath(path: string): FileOpenResult {
+    const shown = this.findActiveBuffer(path);
+    if (shown) return this.shownAnswer(shown);
+    const bytes = this.readBytes(path);
+    const mode = classifySize(bytes.length, sniffsBinary(bytes));
+    if (mode.kind === "Refused") return { doc: null, mode, size_bytes: bytes.length };
+    return this.openClassified(path, onceOpen(mode), bytes.length);
+  }
+
+  /**
+   * commands::file::open_generated_document: a read-only document Writ writes
+   * itself, titled as given, in the Normal tier whatever its size.
+   */
+  openGeneratedDocument(path: string, title: string, content: string): FileOpenResult & { doc: BufferDocument } {
+    this.folder.write(path, content);
+    const sizeBytes = countUtf8Bytes(content);
     const closed = [...this.buffers.values()].find((b) => b.status === "history" && b.source_path === path);
     if (closed && !this.findActiveBuffer(path)) {
       closed.status = "active";
       closed.closed_at = null;
     }
-    const doc = this.findActiveBuffer(path) ?? this.createBufferFor(path, stem(path));
-    return { doc: { ...doc }, mode: { kind: "Normal" }, size_bytes: doc.size_bytes };
+    const doc = this.findActiveBuffer(path) ?? this.createBufferFor(path, title, true);
+    return { doc: { ...doc }, mode: { kind: "Normal" }, size_bytes: sizeBytes };
+  }
+
+  /** The tab that shows `doc`'s file, in the mode its row gives. */
+  private shownAnswer(doc: BufferDocument): FileOpenResult {
+    return {
+      doc: { ...doc },
+      mode: onceOpen(classifyFile(doc.size_bytes, doc.read_only)),
+      size_bytes: doc.size_bytes,
+    };
+  }
+
+  /** The row for an open that goes ahead: a closed tab back, else a new one titled with the file name. */
+  private openClassified(path: string, mode: FileOpenMode, sizeBytes: number): FileOpenResult {
+    const binary = mode.kind === "Binary";
+    const closed = [...this.buffers.values()].find((b) => b.status === "history" && b.source_path === path);
+    let doc: BufferDocument;
+    if (closed) {
+      closed.status = "active";
+      closed.closed_at = null;
+      doc = closed;
+    } else {
+      doc = this.createBufferFor(path, basename(path), binary);
+    }
+    doc.read_only = binary;
+    doc.size_bytes = sizeBytes;
+    return { doc: { ...doc }, mode, size_bytes: sizeBytes };
   }
 
   getBuffer(id: unknown): BufferDocument {

@@ -232,6 +232,14 @@ jobs:
       - name: Frontend build
         run: pnpm build
 
+      - name: Editor perf gate
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          WRIT_PERF_GATE: "1"
+        run: |
+          pnpm exec playwright-core install --with-deps --no-shell chromium
+          node scripts/perf-editor.mjs
+
       - name: Tauri build check
         run: cargo check --lib -p writ-tauri --locked
 
