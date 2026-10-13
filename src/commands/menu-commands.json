@@ -24,6 +24,7 @@
   { "id": "panel.toggle", "label": "Toggle Connections", "accelerator": "CmdOrCtrl+Shift+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"], "app": "connections" },
   { "id": "chat.toggle", "label": "Toggle Chat", "accelerator": "CmdOrCtrl+Shift+A", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"], "app": "chat" },
   { "id": "folderGraph.open", "label": "Open Graph", "menu": "view", "group": 1, "platforms": ["mac", "win", "linux"], "app": "graph" },
+  { "id": "activity.open", "label": "Program Activity", "menu": "view", "group": 1, "platforms": ["mac", "win", "linux"], "app": "programs" },
 
   { "id": "palette.open", "label": "Command Palette", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] },
   { "id": "shortcuts.customize", "label": "Customize Shortcuts…", "menu": "help", "group": 0, "platforms": ["mac", "win", "linux"] }

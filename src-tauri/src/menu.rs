@@ -64,13 +64,14 @@ pub enum MenuAction {
     TogglePanel,
     ToggleChat,
     OpenFolderGraph,
+    OpenProgramActivity,
     OpenPalette,
     CustomizeShortcuts,
 }
 
 impl MenuAction {
     /// Every action the table routes to.
-    pub const ALL: [MenuAction; 24] = [
+    pub const ALL: [MenuAction; 25] = [
         MenuAction::ThirdPartyNotices,
         MenuAction::OpenSettings,
         MenuAction::CheckUpdates,
@@ -93,6 +94,7 @@ impl MenuAction {
         MenuAction::TogglePanel,
         MenuAction::ToggleChat,
         MenuAction::OpenFolderGraph,
+        MenuAction::OpenProgramActivity,
         MenuAction::OpenPalette,
         MenuAction::CustomizeShortcuts,
     ];
@@ -123,6 +125,7 @@ impl MenuAction {
             MenuAction::TogglePanel => "panel.toggle",
             MenuAction::ToggleChat => "chat.toggle",
             MenuAction::OpenFolderGraph => "folderGraph.open",
+            MenuAction::OpenProgramActivity => "activity.open",
             MenuAction::OpenPalette => "palette.open",
             MenuAction::CustomizeShortcuts => "shortcuts.customize",
         }
@@ -210,6 +213,7 @@ pub fn menu_action_for_id(id: &str) -> Option<MenuAction> {
         "panel.toggle" => MenuAction::TogglePanel,
         "chat.toggle" => MenuAction::ToggleChat,
         "folderGraph.open" => MenuAction::OpenFolderGraph,
+        "activity.open" => MenuAction::OpenProgramActivity,
         "palette.open" => MenuAction::OpenPalette,
         "shortcuts.customize" => MenuAction::CustomizeShortcuts,
         _ => return None,
@@ -334,8 +338,24 @@ mod tests {
                 "sidebar.toggle",
                 "panel.toggle",
                 "chat.toggle",
-                "folderGraph.open"
+                "folderGraph.open",
+                "activity.open"
             ]
+        );
+    }
+
+    #[test]
+    fn program_activity_is_in_the_view_menu_while_connected_programs_is_on() {
+        let programs: BTreeSet<AppId> = [AppId::Programs].into();
+        assert_eq!(view_ids(&programs), ["sidebar.toggle", "activity.open"]);
+        let item = menu_commands()
+            .iter()
+            .find(|command| command.id == "activity.open")
+            .expect("the item");
+        assert_eq!(item.label, "Program Activity");
+        assert_eq!(
+            menu_action_for_id("activity.open"),
+            Some(MenuAction::OpenProgramActivity)
         );
     }
 
@@ -351,6 +371,7 @@ mod tests {
                 ("panel.toggle", AppId::Connections),
                 ("chat.toggle", AppId::Chat),
                 ("folderGraph.open", AppId::Graph),
+                ("activity.open", AppId::Programs),
             ]
         );
     }

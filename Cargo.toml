@@ -18,7 +18,7 @@ resolver = "2"
 [workspace.package]
 version = "0.5.1"
 edition = "2021"
-rust-version = "1.89"
+rust-version = "1.90"
 license = "MIT"
 repository = "https://github.com/ibrahemid/writ"
 homepage = "https://github.com/ibrahemid/writ"
@@ -38,15 +38,15 @@ panic = "abort"
 # returns as nil for some drag and trackpad gestures (Writ #113). The panic
 # unwinds out of an Objective-C callback and aborts the app on drop. Upstream
 # wry still unwraps there as of 0.57.0. This pins a one-commit fork of
-# wry-v0.55.1, the minor tauri-runtime-wry 2.11.4 requires (^0.55), whose only
+# wry-v0.57.0, the minor tauri-runtime-wry 2.12 requires (^0.57), whose only
 # change is in src/wkwebview/drag_drop.rs: a nil or malformed filenames list
 # yields no paths instead of a panic.
-#   fork:   https://github.com/ibrahemid/wry/tree/fix/dragdrop-nil-pasteboard-0.55
-#   diff:   wry-v0.55.1..a16da8ef85f1a08da3d3a6601d9a9a96381adb96
+#   fork:   https://github.com/ibrahemid/wry/tree/fix/dragdrop-nil-pasteboard-0.57
+#   diff:   wry-v0.57.0..8462cabe0c17355ba3ceac9270bc6c161e4c1a1d
 # Cargo drops a patch whose version no longer matches what tauri-runtime-wry
 # requires, with only a warning and a [[patch.unused]] lock entry. When a tauri
 # bump moves wry to another minor, rebase the fork onto that wry tag and re-pin;
 # the wry_resolves_to_the_nil_safe_fork test and CI's [[patch.unused]] check
 # fail until then. Delete this patch once a wry release reads the list nil-safe.
 [patch.crates-io]
-wry = { git = "https://github.com/ibrahemid/wry.git", rev = "a16da8ef85f1a08da3d3a6601d9a9a96381adb96" }
+wry = { git = "https://github.com/ibrahemid/wry.git", rev = "8462cabe0c17355ba3ceac9270bc6c161e4c1a1d" }

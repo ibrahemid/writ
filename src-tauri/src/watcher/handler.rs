@@ -70,7 +70,8 @@ pub struct WatcherHandle {
     _debouncer: Debouncer<RecommendedWatcher>,
 }
 
-/// Watches the config file through the folder that holds it.
+/// Watches the config file, and the list of programs waiting to be approved,
+/// through the folder that holds them.
 ///
 /// The folder is watched, never the file, for the reason
 /// [`super::open_files`] gives: Writ writes `config.toml` by renaming a temp
@@ -87,34 +88,38 @@ pub struct WatcherHandle {
 /// where it sits. Either way the path is resolved once, when the watcher
 /// starts.
 ///
-/// Every event in the folder goes through [`report_config_event`], which
-/// drops anything that is not the config, the temp file a write renames
-/// included, and absorbs the `IN_OPEN` its own fingerprint read raises on
-/// Linux. Nothing else in Writ's data folder holds note text after ADR-028 §1,
-/// so the config is the only file reported. A note's own file is watched from
+/// `mcp-pending.json` sits beside the config in Writ's data folder and is
+/// written by another process, the `writ mcp` server a program launched. Its
+/// changes go through [`report_pending_event`]. When the config was followed
+/// to a folder of its own, the waiting file's folder is watched as well.
+///
+/// Every event in the folder goes through [`report_config_event`] and
+/// [`report_pending_event`], which drop anything that is not their file, the
+/// temp file a write renames included, and absorb the `IN_OPEN` their own
+/// fingerprint read raises on Linux. A note's own file is watched from
 /// release 0.5.
 pub fn start_file_watcher(
     bus: Arc<EventBus>,
     config_path: PathBuf,
+    pending_path: PathBuf,
     ignore_set: IgnoreSet,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let ttl = DEFAULT_IGNORE_TTL;
     let config_path = ignore_key_path(&config_path);
-    let folder = config_path.parent().map(Path::to_path_buf).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!(
-                "config path has no parent folder: {}",
-                config_path.display()
-            ),
-        )
-    })?;
+    let pending_path = ignore_key_path(&pending_path);
+    let folder = parent_of(&config_path)?;
+    let pending_folder = parent_of(&pending_path)?;
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
     let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
     debouncer
         .watcher()
         .watch(&folder, RecursiveMode::NonRecursive)?;
+    if pending_folder != folder {
+        debouncer
+            .watcher()
+            .watch(&pending_folder, RecursiveMode::NonRecursive)?;
+    }
 
     info!(folder = %folder.display(), "config watcher started");
 
@@ -124,14 +129,26 @@ pub fn start_file_watcher(
             match result {
                 Ok(events) => {
                     for event in events {
-                        if let Some(domain_event) = report_config_event(
+                        let now = Instant::now();
+                        let reported = report_config_event(
                             &event.path,
                             &config_path,
                             &ignore_set,
                             &mut seen,
                             ttl,
-                            Instant::now(),
-                        ) {
+                            now,
+                        )
+                        .or_else(|| {
+                            report_pending_event(
+                                &event.path,
+                                &pending_path,
+                                &ignore_set,
+                                &mut seen,
+                                ttl,
+                                now,
+                            )
+                        });
+                        if let Some(domain_event) = reported {
                             bus.emit(domain_event);
                         }
                     }
@@ -146,6 +163,15 @@ pub fn start_file_watcher(
 
     Ok(WatcherHandle {
         _debouncer: debouncer,
+    })
+}
+
+fn parent_of(path: &Path) -> Result<PathBuf, std::io::Error> {
+    path.parent().map(Path::to_path_buf).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("path has no parent folder: {}", path.display()),
+        )
     })
 }
 
@@ -737,6 +763,37 @@ pub fn report_config_event(
         return None;
     }
     classify_watch_event(path, config_path, ignore_set, ttl, now)
+}
+
+/// The sighting check comes first and the read second, as for the config: on
+/// Linux the read raises `IN_OPEN`, and so does the app's own read of the file
+/// when it answers, and neither is a change. The temp file a write renames into
+/// place is dropped before anything is looked at.
+pub fn report_pending_event(
+    path: &Path,
+    pending_path: &Path,
+    ignore_set: &IgnoreSet,
+    seen: &mut LastSeen,
+    ttl: Duration,
+    now: Instant,
+) -> Option<WritEvent> {
+    if path != pending_path {
+        return None;
+    }
+    if !seen.is_news(path, look_at(path), now, DEFAULT_SIGHTING_TTL) {
+        return None;
+    }
+    let key = writ_core::watcher::ignore::data_key(&ignore_key_path(pending_path));
+    let current_bytes = std::fs::read(path).ok();
+    let decision = {
+        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::pending_event");
+        set.decide(&key, current_bytes.as_deref(), now, ttl)
+    };
+    if decision == SuppressDecision::Suppress {
+        return None;
+    }
+    info!("the waiting programs changed");
+    Some(WritEvent::McpPendingChanged)
 }
 
 /// Classifies a single file-system event into a domain event, or suppresses
@@ -1503,6 +1560,279 @@ mod tests {
                 .is_none(),
             "a folder inside the notes root must never surface as a note change"
         );
+    }
+
+    fn pending_stamp_key(path: &Path) -> String {
+        writ_core::watcher::ignore::data_key(&ignore_key_path(path))
+    }
+
+    #[test]
+    fn a_change_to_the_waiting_file_is_reported() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        fs::write(&pending, b"{\"clients\":[]}").unwrap();
+
+        let mut seen = LastSeen::new();
+        let event = report_pending_event(
+            &pending,
+            &pending,
+            &make_set(),
+            &mut seen,
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+        );
+
+        assert!(matches!(event, Some(WritEvent::McpPendingChanged)));
+    }
+
+    #[test]
+    fn the_echo_of_reading_the_waiting_file_is_not_reported_again() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        fs::write(&pending, b"{\"clients\":[]}").unwrap();
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+
+        let reported = (0..11)
+            .filter_map(|_| {
+                report_pending_event(
+                    &pending,
+                    &pending,
+                    &ignore,
+                    &mut seen,
+                    DEFAULT_IGNORE_TTL,
+                    now,
+                )
+            })
+            .count();
+
+        assert_eq!(reported, 1);
+
+        fs::write(&pending, b"{\"clients\":[{\"name\":\"Zed\"}]}").unwrap();
+        assert!(
+            report_pending_event(
+                &pending,
+                &pending,
+                &ignore,
+                &mut seen,
+                DEFAULT_IGNORE_TTL,
+                now
+            )
+            .is_some(),
+            "the next write from the server is still news"
+        );
+    }
+
+    #[test]
+    fn the_apps_own_write_to_the_waiting_file_is_not_reported() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        let bytes = b"{\"clients\":[]}";
+        let ignore = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = ignore.lock().unwrap();
+            guard.record(pending_stamp_key(&pending), bytes, now);
+        }
+        fs::write(&pending, bytes).unwrap();
+
+        let event = report_pending_event(
+            &pending,
+            &pending,
+            &ignore,
+            &mut LastSeen::new(),
+            DEFAULT_IGNORE_TTL,
+            now,
+        );
+
+        assert!(event.is_none(), "the app already has what it wrote");
+    }
+
+    #[test]
+    fn a_server_write_over_the_apps_own_is_reported() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        let ignore = make_set();
+        let now = Instant::now();
+        {
+            let mut guard = ignore.lock().unwrap();
+            guard.record(pending_stamp_key(&pending), b"{\"clients\":[]}", now);
+        }
+        fs::write(&pending, b"{\"clients\":[{\"name\":\"Zed\"}]}").unwrap();
+
+        let event = report_pending_event(
+            &pending,
+            &pending,
+            &ignore,
+            &mut LastSeen::new(),
+            DEFAULT_IGNORE_TTL,
+            now,
+        );
+
+        assert!(matches!(event, Some(WritEvent::McpPendingChanged)));
+    }
+
+    #[test]
+    fn only_the_waiting_file_itself_is_reported() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+        for other in [
+            ".tmpAb12Cd",
+            "mcp-pending.json.tmp",
+            "config.toml",
+            "activity.jsonl",
+        ] {
+            let path = dir.path().join(other);
+            fs::write(&path, b"x").unwrap();
+            assert!(
+                report_pending_event(&path, &pending, &ignore, &mut seen, DEFAULT_IGNORE_TTL, now)
+                    .is_none(),
+                "{other}"
+            );
+        }
+        assert!(
+            report_config_event(
+                &pending,
+                &dir.path().join("config.toml"),
+                &ignore,
+                &mut seen,
+                DEFAULT_IGNORE_TTL,
+                now
+            )
+            .is_none(),
+            "the config watcher leaves the waiting file to its own branch"
+        );
+    }
+
+    /// One delivery from the watcher thread, `after_ms` into a replay. The
+    /// debouncer hands the handler a path and no event kind, so a replay of
+    /// what inotify raises is a list of paths and times.
+    fn deliver(
+        path: &Path,
+        pending: &Path,
+        ignore: &IgnoreSet,
+        seen: &mut LastSeen,
+        start: Instant,
+        after_ms: u64,
+    ) -> bool {
+        report_pending_event(
+            path,
+            pending,
+            ignore,
+            seen,
+            DEFAULT_IGNORE_TTL,
+            start + Duration::from_millis(after_ms),
+        )
+        .is_some()
+    }
+
+    #[test]
+    fn a_server_write_by_rename_is_reported_once_however_its_events_arrive() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        let temp = dir.path().join(".tmpAb12Cd");
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let start = Instant::now();
+
+        fs::write(&temp, b"{\"clients\":[{\"name\":\"Zed\"}]}").unwrap();
+        fs::rename(&temp, &pending).unwrap();
+
+        // IN_CREATE, IN_MODIFY and IN_MOVED_FROM name the temp file; IN_MOVED_TO,
+        // and IN_CLOSE_WRITE once the server drops the renamed file, the target.
+        assert!(!deliver(&temp, &pending, &ignore, &mut seen, start, 500));
+        assert!(deliver(&pending, &pending, &ignore, &mut seen, start, 500));
+        assert!(!deliver(&pending, &pending, &ignore, &mut seen, start, 520));
+        // IN_OPEN from the handler's own read, then from announce_waiting's.
+        for after_ms in [1_000, 1_100, 1_600] {
+            assert!(
+                !deliver(&pending, &pending, &ignore, &mut seen, start, after_ms),
+                "{after_ms}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_write_in_place_is_reported_once_however_its_events_arrive() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        fs::write(&pending, b"{\"clients\":[]}").unwrap();
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let start = Instant::now();
+        assert!(deliver(&pending, &pending, &ignore, &mut seen, start, 0));
+        assert!(!deliver(&pending, &pending, &ignore, &mut seen, start, 500));
+
+        fs::write(&pending, b"{\"clients\":[{\"name\":\"Zed\"}]}").unwrap();
+
+        // IN_OPEN, IN_MODIFY for the truncate and for the write, IN_CLOSE_WRITE:
+        // one delivery or several, wherever the debounce window falls.
+        assert!(deliver(
+            &pending, &pending, &ignore, &mut seen, start, 2_000
+        ));
+        for after_ms in [2_010, 2_500, 3_000] {
+            assert!(
+                !deliver(&pending, &pending, &ignore, &mut seen, start, after_ms),
+                "{after_ms}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_apps_own_write_by_rename_is_absorbed_however_its_events_arrive() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        let temp = dir.path().join(".tmpEf34Gh");
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let start = Instant::now();
+        let bytes = b"{\"clients\":[]}";
+        ignore
+            .lock()
+            .unwrap()
+            .record(pending_stamp_key(&pending), bytes, start);
+
+        fs::write(&temp, bytes).unwrap();
+        fs::rename(&temp, &pending).unwrap();
+
+        for after_ms in [500, 520, 1_000] {
+            assert!(
+                !deliver(&pending, &pending, &ignore, &mut seen, start, after_ms),
+                "{after_ms}"
+            );
+        }
+        fs::write(&pending, b"{\"clients\":[{\"name\":\"Zed\"}]}").unwrap();
+        assert!(
+            deliver(&pending, &pending, &ignore, &mut seen, start, 2_000),
+            "the server's next write is news"
+        );
+    }
+
+    #[test]
+    fn a_read_after_the_last_sighting_has_aged_out_is_reported_once_more() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        fs::write(&pending, b"{\"clients\":[]}").unwrap();
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let start = Instant::now();
+        let aged = DEFAULT_SIGHTING_TTL.as_millis() as u64 + 1_000;
+
+        assert!(deliver(&pending, &pending, &ignore, &mut seen, start, 0));
+        assert!(!deliver(&pending, &pending, &ignore, &mut seen, start, 500));
+        assert!(deliver(&pending, &pending, &ignore, &mut seen, start, aged));
+        assert!(!deliver(
+            &pending,
+            &pending,
+            &ignore,
+            &mut seen,
+            start,
+            aged + 500
+        ));
     }
 
     #[test]

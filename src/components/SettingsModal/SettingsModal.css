@@ -727,6 +727,18 @@
   line-height: var(--writ-ui-sm-lh);
 }
 
+.settings-program-forgotten .settings-program-name {
+  color: var(--writ-fg-muted);
+}
+
+.settings-row .activity-waiting-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-3);
+  min-width: 0;
+  flex: 1 1 0%;
+}
+
 /* The tools behind each grant. One sentence per grant, named for the switch of
    the same name two rows down. */
 .settings-tools {

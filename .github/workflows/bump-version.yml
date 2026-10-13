@@ -22,9 +22,12 @@ jobs:
     name: Bump workspace + frontend version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+      # The job pushes the bump with the checkout token; nothing after checkout
+      # uploads an artifact or runs a third-party action.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1 zizmor: ignore[artipacked]
         with:
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Validate version input
         env:
@@ -36,11 +39,6 @@ jobs:
             exit 1
           fi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
-        with:
-          node-version: 20
-
       - name: Bump versions
         env:
           NEW_VERSION: ${{ inputs.version }}
@@ -49,9 +47,9 @@ jobs:
           python3 .github/scripts/bump_version.py "$NEW_VERSION"
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
-        with:
-          toolchain: stable
+        env:
+          RUSTUP_PERMIT_COPY_RENAME: 1
+        run: rustup toolchain install --no-self-update
 
       - name: Move the workspace crates in Cargo.lock
         run: cargo update --workspace
