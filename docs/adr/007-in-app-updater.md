@@ -1,6 +1,8 @@
 # ADR-007: In-App Updater
 
-**Status:** Accepted
+**Status:** Accepted. Amended 2026-10-13: signing runs in its own jobs, apart
+from the build, and the updater key has offline copies and a transition path
+(Signing; Key custody and transition).
 **Date:** 2026-05-21
 
 ## Context
@@ -61,12 +63,54 @@ is public.
 
 ### Signing
 
-Update bundles are signed with a minisign keypair. The private key
-(`TAURI_SIGNING_PRIVATE_KEY`, optional password) lives only in GitHub Actions
-secrets and is injected into `tauri-action`; it is never committed or logged.
-The public key is embedded in `tauri.conf.json`. The client rejects any bundle
-whose `.sig` does not verify against that key. The minisign signature is the
-updater's integrity check and is independent of Apple notarization (below).
+Update bundles are signed with a minisign keypair. The public key is embedded
+in `tauri.conf.json`, and the client rejects any bundle whose `.sig` does not
+verify against it. The minisign signature is the updater's integrity check and
+is independent of Apple notarization (below).
+
+The private key (`TAURI_SIGNING_PRIVATE_KEY`, with its password) is a secret of
+the `release` GitHub Environment, and only the `sign-updater` job of
+`release.yml` reads it. That job checks out the release scripts and
+`tauri.conf.json`, installs a pinned minisign, and signs the payloads the build
+and signing jobs uploaded. Until this amendment `tauri-action` signed inside
+the build, so every build script, proc macro and Vite plugin ran with the key
+in its environment; the build now runs with no secret and no write token. The
+Apple certificates and notarization credentials belong in the same environment,
+where only `sign-macos` reads them. `sign-windows` runs the Tauri CLI beside the
+Azure signing credentials, because the bundler calls
+`bundle.windows.signCommand`; the CLI is installed with package scripts off,
+and nothing is compiled there.
+
+When this amendment was written, the Apple secrets and a second copy of the
+updater key were also repository secrets, which every workflow in the
+repository can read. `docs/RELEASING.md` section 1.3 moves them into the
+environment and deletes the repository copies; until that is done, the
+environment does not keep them from other workflows.
+
+Each `.sig` keeps the format `tauri signer sign --app-version` writes: the
+trusted comment names the file and the version, and the plugin refuses a
+payload whose signed version differs from the version `latest.json` announces.
+The same key signs `SHA256SUMS.txt` as `SHA256SUMS.txt.minisig`.
+`sign-updater` checks every signature it makes against the public key in
+`tauri.conf.json` of the latest published release, the key installed copies
+hold, and fails the release on any other key.
+
+### Key custody and transition
+
+The key file and its password have two offline copies, on separate media in
+separate places. The environment secret is a working copy: GitHub never shows
+it again, and a lost key cannot be replaced by any release, because installed
+copies trust only the key built into them.
+
+A new key reaches installed copies through one release (N) signed with the old
+key that carries the new public key. Every release after N is signed with the
+new key. The latest-release check above enforces both halves: while N-1 is the
+latest release only the old key passes, and once N is published only the new
+one does. A copy that never installs N keeps trusting the old key and cannot
+verify a later release; its owner has to reinstall. `install.sh` embeds one
+key, so it has to accept both during a transition. The procedure is
+`docs/RELEASING.md` section 1.5, and `test_release_signing.py` rehearses it
+with throwaway keys.
 
 ### Test-only endpoint override (debug builds only)
 
@@ -116,6 +160,8 @@ fixable in code from this branch:
 
 **Negative / risks:**
 - Update availability is coupled to repo visibility (accepted for launch).
+- A key transition takes two releases and strands every copy that skips the
+  first one.
 - The notarization gate is enforced by humans/secrets, not by the compiler; a
   release shipped with empty Apple secrets will produce auto-updates that break
   on launch. The risk is documented here and in `docs/RELEASING.md` rather than

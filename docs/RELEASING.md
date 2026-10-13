@@ -22,6 +22,13 @@ store it in your password manager. The command produces:
 - `~/.tauri/writ.key`       the ed25519 private key
 - `~/.tauri/writ.key.pub`   the ed25519 public key
 
+Keep two offline copies of the key file and its password, on separate media
+stored in separate places, for example two encrypted drives, one of them off
+site. The `release` environment secret (1.3) is a working copy, not a backup:
+GitHub never shows a saved secret again. Installed copies verify every update
+against the public key built into them, so a lost private key strands them: no
+later release can reach them, and each person has to reinstall by hand.
+
 ### 1.2 Install the public key into `tauri.conf.json`
 
 Copy the contents of `~/.tauri/writ.key.pub` and paste the base64 string into
@@ -30,27 +37,59 @@ Copy the contents of `~/.tauri/writ.key.pub` and paste the base64 string into
 
 Commit that change on a branch and merge via PR. Never commit the private key.
 
-### 1.3 Load repository secrets
+### 1.3 Load the release environment secrets
 
-Navigate to `Settings` -> `Secrets and variables` -> `Actions` and add:
+The signing secrets live in the `release` GitHub Environment: `Settings` ->
+`Environments` -> `release` -> `Environment secrets`. Only the jobs that sign
+name that environment (`signing-config`, `sign-macos`, `sign-windows` and
+`sign-updater` in `.github/workflows/release.yml`), so no other job can read
+them. The environment has no required reviewer, and a release run does not
+wait for approval.
 
-| Secret | Required | Notes |
+| Secret | Read by | Notes |
 |---|---|---|
-| `TAURI_SIGNING_PRIVATE_KEY` | yes, for updater | Paste the contents of `~/.tauri/writ.key` |
-| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | yes if you set one in 1.1 | Leave unset if the key has no password |
-| `APPLE_CERTIFICATE` | optional, recommended | Base64-encoded `.p12` Developer ID Application cert |
-| `APPLE_CERTIFICATE_PASSWORD` | optional | Password for the `.p12` |
-| `APPLE_INSTALLER_CERTIFICATE` | required to sign the `.pkg` | Base64-encoded `.p12` Developer ID Installer cert |
-| `APPLE_INSTALLER_CERTIFICATE_PASSWORD` | optional | Password for the installer `.p12` |
-| `APPLE_SIGNING_IDENTITY` | optional | e.g. `Developer ID Application: Your Name (TEAMID)` |
-| `APPLE_ID` | optional | Apple ID email used for notarization |
-| `APPLE_PASSWORD` | optional | App-specific password for notarization |
-| `APPLE_TEAM_ID` | optional | 10-character Apple Team ID |
-| `WINDOWS_CERTIFICATE` | optional | Base64-encoded `.pfx` code-signing cert |
-| `WINDOWS_CERTIFICATE_PASSWORD` | optional | Password for the `.pfx` |
+| `TAURI_SIGNING_PRIVATE_KEY` | `sign-updater` | Paste the contents of `~/.tauri/writ.key` |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | `sign-updater` | Leave unset if the key has no password |
+| `APPLE_CERTIFICATE` | `sign-macos` | Base64-encoded `.p12` Developer ID Application cert |
+| `APPLE_CERTIFICATE_PASSWORD` | `sign-macos` | Password for the `.p12` |
+| `APPLE_INSTALLER_CERTIFICATE` | `sign-macos` | Base64-encoded `.p12` Developer ID Installer cert, which signs the `.pkg` |
+| `APPLE_INSTALLER_CERTIFICATE_PASSWORD` | `sign-macos` | Password for the installer `.p12` |
+| `APPLE_SIGNING_IDENTITY` | `sign-macos` | Optional, e.g. `Developer ID Application: Your Name (TEAMID)`; read from the imported certificate when unset |
+| `APPLE_ID` | `sign-macos` | Apple ID email used for notarization |
+| `APPLE_PASSWORD` | `sign-macos` | App-specific password for notarization |
+| `APPLE_TEAM_ID` | `sign-macos` | 10-character Apple Team ID |
+| `AZURE_TENANT_ID` | `signing-config`, `sign-windows` | Windows signing, below |
+| `AZURE_CLIENT_ID` | `signing-config`, `sign-windows` | Windows signing, below |
+| `AZURE_CLIENT_SECRET` | `signing-config`, `sign-windows` | Windows signing, below |
 
 The updater-signing key (`TAURI_SIGNING_PRIVATE_KEY`) must be present for
 auto-update to work at all.
+
+Every job of every workflow can read a repository secret, which defeats the
+environment. Keep these secrets in the environment only, and delete any
+repository secret of the same name under `Settings` -> `Secrets and variables`
+-> `Actions`. A job in the environment reads the environment's value when both
+exist, so moving a secret is safe in this order: add it to the environment,
+then delete the repository copy.
+
+**Windows signing.** `sign-windows` signs the sidecar, the app executable and
+the MSI through `bundle.windows.signCommand`, with signtool and an Azure
+Artifact Signing account. Setting one up:
+
+1. Create an Artifact Signing account and a public-trust certificate profile
+   in Azure, which includes Microsoft's identity validation.
+2. Register an app with a client secret and give it the certificate profile
+   signer role on the account.
+3. In the `release` environment, add `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and
+   `AZURE_CLIENT_SECRET` as secrets, and `AZURE_SIGNING_ENDPOINT` (the
+   account's regional endpoint, e.g. `https://eus.codesigning.azure.net`),
+   `AZURE_SIGNING_ACCOUNT` and `AZURE_SIGNING_PROFILE` as environment
+   variables.
+
+Until the three secrets exist, `signing-config` reports no account,
+`sign-windows` is skipped, and the release ships the build's unsigned MSI,
+which SmartScreen warns about. Once they exist, a failing `sign-windows` stops
+the release rather than shipping the MSI unsigned.
 
 > **macOS notarization is a launch gate for auto-update, not optional.**
 > You can ship a *first install* unsigned (users click through Gatekeeper
@@ -58,10 +97,11 @@ auto-update to work at all.
 > quarantine or refuse to launch a bundle that is not Developer-ID signed,
 > notarized, and stapled. An un-notarized auto-update will download, install,
 > relaunch, and then be **blocked on the user's machine**. The minisign
-> updater signature does **not** substitute for Apple notarization. Before the
-> first release users will auto-update from, confirm the `APPLE_*` secrets
-> above are populated; otherwise `release.yml` produces an ad-hoc-signed (`-`),
-> un-notarized build. See `docs/adr/007-in-app-updater.md`.
+> updater signature does **not** substitute for Apple notarization. In this
+> repository `sign-macos` stops the release unless the `.app`, the `.pkg` and
+> the `.dmg` are all notarized and stapled; a fork without the `APPLE_*`
+> secrets builds an ad-hoc-signed (`-`), un-notarized release and says so. See
+> `docs/adr/007-in-app-updater.md`.
 
 ### 1.4 Updater plugin wiring (already in place)
 
@@ -76,6 +116,39 @@ client flow lives in `src-tauri/src/commands/update.rs`:
   user to install, shows download progress, and offers "Restart now".
 
 No further one-time code change is required.
+
+### 1.5 Moving to a new updater key
+
+Installed copies trust one key, the one built into them, so a new key reaches
+them through a release signed with the old key that carries the new public
+key. `sign-updater` checks every signature against the public key in
+`src-tauri/tauri.conf.json` of the latest published release, which is the key
+installed copies hold, and fails the run on any other key.
+
+Before starting, change `install.sh` to accept the old and the new key. It
+checks the AppImage of the latest published release against the single key it
+embeds (`MINISIGN_PUBKEY`): that release is signed with the old key through N
+(below), and with the new key from the release after N.
+
+1. Generate the new key offline (1.1) and make its two offline copies.
+2. Release N: put the new public key in `plugins.updater.pubkey`, keep the old
+   key in the `release` environment, and release as usual. N is signed with
+   the old key, which every installed copy accepts, and carries the new one.
+3. Once N is published, replace `TAURI_SIGNING_PRIVATE_KEY` and its password
+   in the environment with the new key. Every later release is signed with it,
+   since the latest published release is now N.
+4. Leave N as the latest release long enough for most installed copies to take
+   it. A copy that skips N keeps trusting the old key and cannot verify any
+   later release: its owner has to reinstall from the site.
+5. Nothing signs with the old key after step 3: destroy its copies. Once the
+   first release signed with the new key is published, drop the old key from
+   `install.sh`.
+
+`KeyTransitionRehearsal` in `.github/scripts/test_release_signing.py` runs
+these steps with throwaway keys: N signed with the old key passes against the
+previous release's key and carries old-key signatures in `latest.json`, the
+release after it passes only with the new key, and a release signed with the
+wrong key fails in either position.
 
 ## 2. Cutting a release
 
@@ -132,15 +205,21 @@ Before tagging:
    `cargo clippy --workspace --locked -- -D warnings`, `npx tsc --noEmit`, the
    third-party notices check, `node scripts/check-release-json.mjs`,
    `pnpm --dir site build`, a universal macOS `app,dmg` build with `--locked`
-   followed by `scripts/build-mac-pkg.sh`, and an `act --dryrun` of the Linux
-   release leg. Gate 1 needs cargo-deny 0.20.2
+   followed by the `sign-macos` steps with an ad-hoc identity and the updater
+   signature checked against the latest release's key, and an `act --dryrun`
+   of the release job graph. Gate 1 needs cargo-deny 0.20.2
    (`cargo install cargo-deny --version 0.20.2 --locked`) and fails when it is
-   missing; it catches an advisory published after the last merge. Gate 10
-   checks the workflow shape, not the Linux build; drop `--dryrun` to run the
-   build itself. Gate 9 is skipped with a warning off Darwin, gate 10 when
-   `act` or Docker is missing, and the closing `preflight: OK` says nothing
-   about a gate that was skipped. A mac build that would fail the tag fails
-   here instead of burning macOS CI minutes. Windows still needs CI or a VM.
+   missing; it catches an advisory published after the last merge. Gate 9
+   needs minisign (`brew install minisign`), the updater key from 1.1 and a
+   signed-in `gh`. On macOS the script reads the key and its password before
+   gate 0, stops there if either is missing, and passes them to the signing
+   step alone. Gate 10 checks the workflow shape and the job graph, not the
+   builds; `sign-windows` shows as skipped there because its condition reads
+   an output only a real run sets. Gate 9 is skipped with a warning off
+   Darwin, gate 10 when `act` or Docker is missing, and the closing
+   `preflight: OK` says nothing about a gate that was skipped. A mac build or
+   signing step that would fail the tag fails here instead of burning macOS CI
+   minutes. Windows still needs CI or a VM.
 
    rustup installs the compiler `rust-toolchain.toml` pins on the first cargo
    command, the same one CI and the release workflow use.
@@ -159,70 +238,95 @@ The push triggers `.github/workflows/release.yml`.
 
 ### 2.4 What the release workflow does
 
-1. `create-release`  creates (or reuses) a **draft** GitHub Release for the tag,
-   with an auto-generated changelog grouped by `feat:` / `fix:` / other
-   conventional-commit prefixes (`.github/scripts/release_notes.py`). A stable
-   tag lists the commits since the previous stable `v*.*.*` tag, skipping
-   candidates; a candidate lists the commits since the previous tag of either
-   kind.
-2. `build`  runs a matrix build on:
+The workflow token can only read the repository; the two jobs that need more
+say so. Every checkout is the tag `plan` resolved, on a manual run too.
+
+1. `plan` resolves the tag, checks `site/src/data/release.json`, and writes the
+   release notes, grouped by `feat:` / `fix:` / other conventional-commit
+   prefixes (`.github/scripts/release_notes.py`). A stable tag lists the
+   commits since the previous stable `v*.*.*` tag, skipping candidates; a
+   candidate lists the commits since the previous tag of either kind.
+2. `build` runs the matrix with no secret and no write token:
    - `macos-latest`  universal binary (`aarch64` + `x86_64` merged), producing
-     `Writ_<version>_universal.pkg` (with quit/relaunch scripts),
-     `Writ_<version>_universal.dmg` (drag-to-Applications), and
-     `Writ_<version>_universal.app.tar.gz` and
-     `Writ_<version>_universal.app.tar.gz.sig`. Both the `.pkg` and the `.dmg` ship
-     on every release; the `.pkg` is the default recommendation and the source
-     for the Homebrew cask. The in-app updater consumes neither: it downloads
-     `Writ_<version>_universal.app.tar.gz`, verifies the `.sig` against the embedded
-     minisign public key, and swaps the `.app` in place.
-   - `windows-latest`  x64, producing `Writ_<version>_x64_en-US.msi` + `.sig`.
-   - `ubuntu-22.04`  x64, producing `Writ_<version>_amd64.deb` + `.sig` and
-     `Writ_<version>_amd64.AppImage` + `.sig`.
+     `Writ.app`, ad-hoc signed, inside `Writ_<version>_universal.dmg`.
+   - `windows-latest`  x64, producing `Writ_<version>_x64_en-US.msi`, plus the
+     two executables `sign-windows` signs.
+   - `ubuntu-22.04`  x64, producing `Writ_<version>_amd64.deb` and
+     `Writ_<version>_amd64.AppImage`.
 
-   Tauri v2 signs the platform installer directly instead of wrapping it, so
-   there is no `.msi.zip` and no `.AppImage.tar.gz`; the `.sig` sits beside the
-   raw installer (`createUpdaterArtifacts` in `src-tauri/tauri.conf.json`).
    Every leg builds with `--locked`, so the release compiles the lockfile CI
-   tested.
-   Both Linux installers are updater payloads: `latest.json` carries the
-   `.AppImage` under `linux-x86_64` and the `.deb` under `linux-x86_64-deb`,
-   and the plugin picks by the bundle type baked into the running binary, so a
-   deb install updates from the `.deb`. All artifacts are uploaded to the draft
-   release.
-3. `finalize`  downloads every release asset, generates `SHA256SUMS.txt`, and
-   writes `latest.json` (the Tauri updater manifest). Both files are uploaded
-   back to the draft release.
+   tested, and with `createUpdaterArtifacts` off: no updater signature is made
+   where dependency code runs.
+3. `sbom` writes CycloneDX SBOMs: `writ-tauri_<version>_<target>.cdx.json` and
+   `writ-cli_<version>_<target>.cdx.json` for each release target
+   (cargo-cyclonedx), and `writ-frontend_<version>.cdx.json` for the pnpm tree
+   (cdxgen). It refuses an SBOM that `actions/attest` would reject (no
+   `bomFormat`, `specVersion` or `serialNumber`), one that describes another
+   project or version, and one with no components.
+4. `signing-config` reports whether the Windows signing secrets exist (1.3).
+5. `sign-macos` signs, notarizes and staples the app, the `.pkg` and the
+   `.dmg`, and archives the signed app as the updater payload
+   `Writ_<version>_universal.app.tar.gz` (below).
+6. `sign-windows` rebuilds the MSI around the build's executables with
+   `tauri bundle`, signing each through `bundle.windows.signCommand`. It runs
+   only when a Windows signing account exists.
+7. `sign-updater` checks out the release scripts and `tauri.conf.json` only,
+   installs a pinned minisign (`scripts/install-minisign.sh`), and refuses any
+   input file missing or extra. It signs each updater payload as
+   `<payload>.sig`, in the format `tauri signer sign` writes with the version
+   in the trusted comment, writes `SHA256SUMS.txt` over the installers, their
+   `.sig` files and the SBOMs, signs it as `SHA256SUMS.txt.minisig`, and
+   writes `latest.json` (the Tauri updater manifest). It then verifies all of
+   it against the key of the latest published release (1.5).
+8. `attest-sboms` attests each SBOM against the installers it describes.
+9. `publish`, the only job with a write token, downloads the signed set,
+   refuses a missing or extra file and any checksum mismatch, attests build
+   provenance for every asset, creates (or reuses) the **draft** release with
+   the notes, and uploads the assets.
 
-**macOS signing and notarization.** The mac leg handles three artifacts
-separately, and the `.pkg` needs a different certificate from the other two:
+The `.pkg` (with quit/relaunch scripts) and the `.dmg` (drag-to-Applications)
+ship on every release; the `.pkg` is the default recommendation and the source
+for the Homebrew cask. The in-app updater consumes neither: it downloads
+`Writ_<version>_universal.app.tar.gz`, verifies the `.sig` against the embedded
+minisign public key, and swaps the `.app` in place.
 
-- The `.app` is codesigned by `tauri-action` with the Developer ID
-  **Application** identity (`APPLE_SIGNING_IDENTITY`, falling back to ad-hoc
-  `-` when the secret is absent) and notarized when `APPLE_ID`,
-  `APPLE_PASSWORD`, and `APPLE_TEAM_ID` are all set.
-- The `.pkg` is built by `scripts/build-mac-pkg.sh`. `pkgbuild` produces the
-  component package carrying the pre-install (quit a running Writ) and
-  post-install (relaunch) scripts; `productbuild` wraps it in a distribution
-  declaring the macOS 12.0 floor, which a bare component package cannot
-  express; `productsign` signs the result when
+There is no `.msi.zip` and no `.AppImage.tar.gz`: the Windows and Linux updater
+payloads are the raw installers, with the `.sig` beside them. Both Linux
+installers are updater payloads: `latest.json` carries the `.AppImage` under
+`linux-x86_64` and the `.deb` under `linux-x86_64-deb`, and the plugin picks by
+the bundle type baked into the running binary, so a deb install updates from
+the `.deb`.
+
+**macOS signing and notarization.** `sign-macos` works on the app the build
+job made, and the `.pkg` needs a different certificate from the other two
+artifacts. `scripts/macos-release.sh` holds the signing steps:
+
+- The `.app` is extracted from the build's `.dmg` and signed inside out with
+  the Developer ID **Application** identity (`APPLE_SIGNING_IDENTITY`, or the
+  one in the imported certificate): nested executables first, then the bundle,
+  each with `--options runtime --timestamp`. It is then notarized and stapled.
+- The `.pkg` is built from that signed app by `scripts/build-mac-pkg.sh`.
+  `pkgbuild` produces the component package carrying the pre-install (quit a
+  running Writ) and post-install (relaunch) scripts; `productbuild` wraps it
+  in a distribution declaring the macOS 12.0 floor, which a bare component
+  package cannot express; `productsign` signs the result when
   `WRIT_INSTALLER_SIGNING_IDENTITY` is set. The workflow sets that itself,
   resolving the Developer ID **Installer** identity out of the build keychain
   rather than reading it from a secret; the certificate arrives as
   `APPLE_INSTALLER_CERTIFICATE`. That is a different certificate from the
   Application one: a `.pkg` signed with the Application identity is rejected.
   With the variable unset the script still writes an installer, unsigned, and
-  prints that Gatekeeper will reject it. That is what a local preflight run
-  produces, since nothing in `scripts/release-preflight.sh` sets the identity.
-- The `.dmg` wraps an already-notarized `.app`, but the wrapper needs its own
-  ticket.
+  prints that Gatekeeper will reject it.
+- The `.dmg` is the build's image with its `Writ.app` swapped for the signed
+  one, keeping the window layout and volume icon. The wrapper is then signed,
+  notarized and stapled on its own.
 
-With the notarization secrets set, both wrappers go through
+With the notarization secrets set, each artifact goes through
 `xcrun notarytool submit --wait`, then `xcrun stapler staple` and
-`xcrun stapler validate`. Stapling embeds the ticket in the file, so each
-upload comes after it: the `.pkg` uploads once its own ticket is stapled, and
-the stapled `.dmg` overwrites the pre-staple copy `tauri-action` already
-pushed. Without those secrets the job logs what it skipped and the wrappers
-ship without tickets.
+`xcrun stapler validate`; the submission status is read from the tool's JSON
+output rather than its exit code. Without those secrets the job logs what it
+skipped. In this repository the job then fails: the app, the `.pkg` and the
+`.dmg` must all be notarized and stapled before anything publishes.
 
 Two guards sit on this path. The workflow reads the `.pkg` signature back with
 `pkgutil --check-signature` and **fails the job** when
@@ -241,9 +345,9 @@ the outcomes it observed, uploaded as a release asset:
 `site.yml` reads that asset back and sets the site's `notarized` flag true only
 when `pkg.stapled` and `dmg.stapled` are both true. A missing or unparseable
 asset reads as false, so the site cannot claim notarization a release did not
-produce. It is deliberately absent from `SHA256SUMS.txt`, where the checksum
-step globs binary artifacts only: this is a derived status file the site reads,
-not an integrity-bearing download.
+produce. It is deliberately absent from `SHA256SUMS.txt`, which lists the
+installers, their `.sig` files and the SBOMs: this is a derived status file the
+site reads, not an integrity-bearing download.
 
 ### 2.5 Smoke test before publishing
 
@@ -270,10 +374,26 @@ machine:
 - Linux: install the `.deb` with `sudo dpkg -i`, or run the `.AppImage`
   directly, and confirm hotkey and autosave work.
 
-Verify `SHA256SUMS.txt`:
+Verify `SHA256SUMS.txt`, then its signature against the key installed copies
+hold, the one in the latest published release (during a key move that is the
+old key, 1.5):
 
 ```bash
 sha256sum --check SHA256SUMS.txt
+git fetch --tags
+git show "$(gh release view --json tagName --jq .tagName):src-tauri/tauri.conf.json" \
+  | jq -r .plugins.updater.pubkey | base64 --decode > writ-updater.pub
+minisign -Vm SHA256SUMS.txt -p writ-updater.pub
+```
+
+Check the attestations on one installer per platform: build provenance, then
+the SBOM attestation for the same file.
+
+```bash
+for asset in Writ_<version>_universal.pkg Writ_<version>_x64_en-US.msi Writ_<version>_amd64.AppImage; do
+  gh attestation verify "$asset" --repo ibrahemid/writ
+  gh attestation verify "$asset" --repo ibrahemid/writ --predicate-type https://cyclonedx.org/bom
+done
 ```
 
 Verify `latest.json` parses and points at real asset URLs:
@@ -348,10 +468,12 @@ automatically. Pre-releases are not served by `releases/latest`, so installed
 clients will not auto-update to them unless you temporarily override the
 updater endpoint.
 
-Cut a candidate before any release that changes signing, notarization, or the
-installer. Signing failures are only visible on a published artifact: the
-build succeeds either way, and an unsigned or unstapled `.pkg` looks identical
-until Gatekeeper sees it. Download the `.pkg` from the pre-release and run:
+Cut a candidate before any release that changes signing, notarization, the
+installer, or the release workflow. Signing failures are only visible on a
+published artifact: the build succeeds either way, and an unsigned or
+unstapled `.pkg` looks identical until Gatekeeper sees it. The order
+`sign-macos` signs, notarizes, staples and repacks in is only proven by a
+candidate. Download the `.pkg` from the pre-release and run:
 
 ```bash
 pkgutil --check-signature Writ_0.2.0-1_universal.pkg   # Developer ID Installer chain
@@ -361,7 +483,14 @@ xcrun stapler validate Writ_0.2.0-1_universal.pkg      # ticket is embedded, wor
 
 Run them on a machine that has never had the signing certificate installed. All
 three must pass, and `release-meta.json` on the same pre-release must report
-every flag true, before the real tag goes out.
+every flag true, before the real tag goes out. On the same pre-release,
+`minisign` must verify `SHA256SUMS.txt` and `gh attestation verify` must pass
+for one installer per platform (2.5). Without a Windows signing account the
+candidate's MSI is unsigned (1.3); with one, check it on Windows:
+
+```powershell
+Get-AuthenticodeSignature .\Writ_0.2.0-1_x64_en-US.msi | Format-List Status, SignerCertificate
+```
 
 ## 4. Rolling back
 
@@ -375,37 +504,34 @@ If a release is broken after publishing:
 
 ## 5. Troubleshooting
 
-### 5.1 `tauri-action` fails with "invalid signing identity"
+### 5.1 `sign-macos` finds no Developer ID identity
 
-Apple or Windows signing env vars are wrong. Either fix the secret values or
-clear the Apple / Windows secrets to fall back to unsigned builds.
+`APPLE_CERTIFICATE` or `APPLE_INSTALLER_CERTIFICATE` is set but the identity
+never reached the build keychain. Check the matching `_PASSWORD` secret and
+that the secret holds a base64 Developer ID `.p12` of the right kind:
+Application for the app and the `.dmg`, Installer for the `.pkg`.
 
-### 5.2 `latest.json` has an empty `platforms` object
+### 5.2 `sign-updater` names a missing file
 
-The finalize step identifies an updater payload by the `.sig` beside it, so an
-empty or partial `platforms` means one of `Writ_<version>_universal.app.tar.gz`,
-`Writ_<version>_x64_en-US.msi`, `Writ_<version>_amd64.AppImage`, or
-`Writ_<version>_amd64.deb` reached the release without its `.sig`.
-`build_latest_json.py` requires all five keys (`darwin-aarch64`,
-`darwin-x86_64`, `windows-x86_64`, `linux-x86_64`, `linux-x86_64-deb`) and
-fails the job naming the ones it could not fill instead of publishing a partial
-manifest. This happens when:
-
-- `createUpdaterArtifacts` is off in `tauri.conf.json`, so nothing is signed.
-- `TAURI_SIGNING_PRIVATE_KEY` is unset, so the signatures are skipped.
-
-Verify both and re-run the finalize job.
+`sign-updater` and `publish` take an exact set of files, named in
+`.github/scripts/release_assets.py`, and stop on any file missing or not part
+of it. A missing installer means its build leg or `sign-macos` did not upload
+it; re-run the failed job. `build_latest_json.py` then requires all five
+`latest.json` keys (`darwin-aarch64`, `darwin-x86_64`, `windows-x86_64`,
+`linux-x86_64`, `linux-x86_64-deb`), so a partial manifest cannot publish. A
+new bundle type goes into `release_assets.py` before it can ship.
 
 ### 5.3 Draft release already exists for the tag
 
-The `create-release` job detects this and updates the existing draft instead
-of failing. Safe to re-run after a failed build.
+The `publish` job detects this and updates the existing draft instead of
+failing. Safe to re-run after a failed build.
 
-### 5.4 `SHA256SUMS.txt` missing some artifacts
+### 5.4 `sign-updater` says a file "is signed with key X, and installed copies trust key Y"
 
-The finalize job uses glob patterns covering `.pkg`, `.dmg`, `.msi`,
-`.AppImage`, `.deb`, `.rpm`, `.tar.gz`, `.zip`, `.sig`, and `.exe`. Extend
-`.github/workflows/release.yml` if new bundle types are added.
+The key in the `release` environment is not the key of the latest published
+release. Put the right key back, or finish the key move in 1.5 if one is under
+way. `TAURI_SIGNING_PRIVATE_KEY` unset or its password wrong fails the signing
+step itself, naming minisign's error.
 
 ## 6. Testing the update flow locally (no release, no CI)
 
@@ -471,6 +597,12 @@ Revert the version bumps from step 2 before committing.
 - `.github/scripts/bump_version.py`       version bump implementation
 - `.github/scripts/release_notes.py`      draft release notes and their range
 - `.github/scripts/build_latest_json.py`  updater manifest builder
+- `.github/scripts/release_assets.py`     the exact set of files a release publishes
+- `.github/scripts/release_signing.py`    updater and checksum signatures, and their checks
+- `.github/scripts/archive_app.py`        macOS updater archive of the signed app
+- `.github/scripts/windows_signing.py`    signCommand config for Azure Artifact Signing
+- `scripts/macos-release.sh`              macOS signing, notarization and dmg repack
+- `scripts/install-minisign.sh`           pinned minisign for CI and the release
 - `scripts/release-preflight.sh`          local gates to run before tagging
 - `deny.toml`                             advisory, licence, ban and source policy
 - `rust-toolchain.toml`                   the pinned compiler

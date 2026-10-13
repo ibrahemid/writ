@@ -7,8 +7,10 @@
 # Usage:
 #   scripts/build-mac-pkg.sh
 #     - Reads version from Cargo.toml
-#     - Reads .app from target/universal-apple-darwin/release/bundle/macos/Writ.app
-#     - Writes target/universal-apple-darwin/release/bundle/macos/Writ_<version>_universal.pkg
+#     - Reads .app from target/universal-apple-darwin/release/bundle/macos/Writ.app,
+#       or from WRIT_APP_PATH when set
+#     - Writes target/universal-apple-darwin/release/bundle/macos/Writ_<version>_universal.pkg,
+#       or into WRIT_PKG_OUT_DIR when set
 #
 #     - Signs the installer when WRIT_INSTALLER_SIGNING_IDENTITY is set
 #       (e.g. "Developer ID Installer: Ibrahem Mahyob (5C6Y52822Q)")
@@ -25,14 +27,17 @@ cd "$ROOT"
 VERSION="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)"
 [ -n "$VERSION" ] || { echo "could not read version from Cargo.toml" >&2; exit 1; }
 
-# Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
-# override moves it away from ./target.
-TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+if [ -z "${WRIT_APP_PATH:-}" ] || [ -z "${WRIT_PKG_OUT_DIR:-}" ]; then
+  # Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
+  # override moves it away from ./target.
+  TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+fi
 
-APP_PATH="${TARGET_DIR}/universal-apple-darwin/release/bundle/macos/Writ.app"
+APP_PATH="${WRIT_APP_PATH:-${TARGET_DIR}/universal-apple-darwin/release/bundle/macos/Writ.app}"
 [ -d "$APP_PATH" ] || { echo "no .app at $APP_PATH; run cargo tauri build first" >&2; exit 1; }
 
-OUT_DIR="${TARGET_DIR}/universal-apple-darwin/release/bundle/macos"
+OUT_DIR="${WRIT_PKG_OUT_DIR:-${TARGET_DIR}/universal-apple-darwin/release/bundle/macos}"
+mkdir -p "$OUT_DIR"
 OUT="${OUT_DIR}/Writ_${VERSION}_universal.pkg"
 
 WORK="$(mktemp -d -t writ-pkg.XXXXXX)"
@@ -71,8 +76,8 @@ POSTINSTALL
 
 chmod +x "$WORK/scripts/preinstall" "$WORK/scripts/postinstall"
 
-# The component package goes to a scratch dir, not next to $OUT: release.yml
-# globs Writ_*_universal.pkg in the bundle dir and a second match breaks it.
+# The component package goes to a scratch dir, not next to $OUT: the release
+# publishes every file in WRIT_PKG_OUT_DIR and refuses one it does not expect.
 mkdir -p "$WORK/component"
 pkgbuild \
   --root "$WORK/root" \
