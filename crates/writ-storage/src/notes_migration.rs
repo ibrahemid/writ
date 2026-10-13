@@ -31,6 +31,7 @@ use crate::buffer_store::BufferStore;
 use crate::database::queries;
 use crate::errors::StorageResult;
 use crate::guarded::write_guarded_by_stamp;
+use crate::recovery::journal::UnsavedJournal;
 use crate::rollback;
 use crate::schema_meta::{
     self, KEY_NOTES_MIGRATION_RAN_AT, KEY_NOTES_MIGRATION_REPORT,
@@ -285,7 +286,15 @@ pub fn run_notes_migration(
         recovered: DirNames::read(&roots.notes.join(RECOVERED_FOLDER)),
     };
 
+    let journal = UnsavedJournal::new(conn);
     for doc in &rows {
+        // A note with no file whose text is in the unsaved-text journal is the
+        // launch's recovery to place, and that ran before this pass. A row it
+        // could not give a file to waits for the next launch rather than read
+        // as empty here and be deleted from under its tab (ADR-044).
+        if doc.source_path.is_none() && journal.holds(&doc.id)? {
+            continue;
+        }
         let outcome = migrate_row(store, doc, &mut dirs, now)?;
         report.record(doc.id.clone(), outcome);
     }

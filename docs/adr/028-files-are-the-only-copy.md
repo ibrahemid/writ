@@ -10,6 +10,9 @@ Accepted, 2026-08-28. Supersedes [ADR-004](./004-sqlite-over-flat-files.md). Shi
 
 Amended 2026-10-13: section 7 names the files the walk reads, lists the notes folder opened as the workspace by the same rule, measures the indexing budget as the slowest command issued during a walk rather than a percentile, and holds the folder graph to its own budget.
 
+[ADR-044](./044-unsaved-text-journal.md) replaces the recovery snapshot §1 allows with the
+unsaved-text journal, and the heartbeat §8 slows no longer reads files.
+
 ## Context
 
 Every note in Writ exists twice. `BufferManager` mints a mirror filename `{id}.txt` for a new note
@@ -53,10 +56,12 @@ reindex and the session layout. The content-addressed history store that arrives
 versions lives in Writ's data directory under `~/.writ`, never in the notes folder, so sync never
 carries it and deleting the notes folder does not delete its own history.
 
-One copy of text outside a file is legitimate: the recovery snapshot for text that has not
-reached a file yet (`crates/writ-storage/src/recovery/`, `MAX_SNAPSHOTS` at
-`crates/writ-core/src/recovery.rs:11`). That is a write-ahead buffer measured in seconds, not a
-second source of truth.
+One copy of text outside a file is legitimate: the unsaved-text journal
+([ADR-044](./044-unsaved-text-journal.md), `crates/writ-storage/src/recovery/journal.rs`), which
+holds text no file holds, what a save could not write and what a bar held back: a tab's text
+until the next save of that tab that lands, and text no open tab holds until a launch writes it to
+disk, even after the note's row is deleted.
+It is a record of text that has not reached a file, not a second source of truth.
 
 Mirror files under `~/.writ/buffers/` are retired. `buffers_dir` (`src-tauri/src/state.rs:76`)
 stops holding note text. Piped CLI input becomes a note in the notes folder like any other new

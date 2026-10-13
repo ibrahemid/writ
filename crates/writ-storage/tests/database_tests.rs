@@ -20,6 +20,13 @@ fn roll_back_045(conn: &rusqlite::Connection) {
     .expect("failed to drop the name key");
 }
 
+/// Takes back what migration 046 added: the unsaved-text journal and its
+/// indexes. The stamp is the caller's to remove.
+fn roll_back_046(conn: &rusqlite::Connection) {
+    conn.execute("DROP TABLE unsaved_text", [])
+        .expect("failed to drop the table 046 added");
+}
+
 #[test]
 fn open_database_creates_file_in_wal_mode() {
     let (_dir, conn) = setup_temp_db();
@@ -220,7 +227,7 @@ fn the_schema_migrations_are_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 45);
+    assert_eq!(max_version, 46);
 }
 
 #[test]
@@ -265,6 +272,7 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
 
     // The shape a release before 043 leaves behind: rows with no ending
     // recorded, which the column's default has to answer for.
+    roll_back_046(&conn);
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
     roll_back_045(&conn);
@@ -292,6 +300,121 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
     assert_eq!(line_ending, "lf");
 }
 
+/// Column names of the unsaved-text journal, in table order.
+fn journal_columns(conn: &rusqlite::Connection) -> Vec<String> {
+    let mut stmt = conn
+        .prepare("SELECT name FROM pragma_table_info('unsaved_text')")
+        .expect("failed to prepare statement");
+    let columns = stmt
+        .query_map([], |row| row.get(0))
+        .expect("query failed")
+        .map(|r| r.expect("row error"))
+        .collect();
+    columns
+}
+
+const JOURNAL_COLUMNS: [&str; 7] = [
+    "id",
+    "buffer_id",
+    "path",
+    "text",
+    "text_hash",
+    "recorded_at",
+    "in_tab",
+];
+
+/// The versions a run of the migrations stamped above 043, in order.
+fn stamps_above_043(conn: &rusqlite::Connection) -> Vec<i32> {
+    let mut stmt = conn
+        .prepare("SELECT version FROM schema_version WHERE version > 43 ORDER BY version")
+        .expect("failed to prepare statement");
+    let stamps = stmt
+        .query_map([], |row| row.get(0))
+        .expect("query failed")
+        .map(|r| r.expect("row error"))
+        .collect();
+    stamps
+}
+
+#[test]
+fn a_fresh_database_runs_044_045_and_046_once_each() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46]);
+    assert_eq!(journal_columns(&conn), JOURNAL_COLUMNS);
+    let name_key: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('links') WHERE name = 'name_key'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed to look for the column");
+    assert_eq!(name_key, 1);
+
+    run_migrations(&conn).expect("second run failed");
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46]);
+}
+
+#[test]
+fn a_database_at_043_runs_044_045_and_046_with_its_rows_intact() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    // The shape 0.5 leaves behind: 043 is the last migration it ran, so the
+    // language column holds a guess from the file's name, `links` has no name
+    // key and there is no journal.
+    roll_back_046(&conn);
+    roll_back_045(&conn);
+    conn.execute("DELETE FROM schema_version WHERE version > 43", [])
+        .expect("failed to roll the stamp back");
+    conn.execute(
+        "INSERT INTO buffers
+            (id, title, filename, status, language, cursor_pos, scroll_pos, tab_order,
+             created_at, updated_at, read_only, size_bytes)
+         VALUES ('buf-old', 'Old', 'buf-old.txt', 'history', 'markdown', 0, 0, 0,
+                 '2026-08-28T00:00:00Z', '2026-08-28T00:00:00Z', 0, 0)",
+        [],
+    )
+    .expect("failed to insert buffer row");
+    conn.execute(
+        "INSERT INTO files (path, size, mtime, hash, indexed_at)
+         VALUES ('/notes/From.md', 1, 1, NULL, '2026-08-28T00:00:00Z')",
+        [],
+    )
+    .expect("failed to insert file row");
+    conn.execute(
+        "INSERT INTO links (from_path, to_target, to_path, kind, line, col)
+         VALUES ('/notes/From.md', 'Weekly Review', NULL, 'wikilink', 1, 0)",
+        [],
+    )
+    .expect("failed to insert link row");
+
+    run_migrations(&conn).expect("migration from 043 failed");
+
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46]);
+    let (title, language): (String, Option<String>) = conn
+        .query_row(
+            "SELECT title, language FROM buffers WHERE id = 'buf-old'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("failed to read the row back");
+    assert_eq!(title, "Old");
+    assert_eq!(language, None, "044 cleared the guessed language");
+    let key: Option<String> = conn
+        .query_row("SELECT name_key FROM links", [], |row| row.get(0))
+        .expect("failed to read the key");
+    assert_eq!(key.as_deref(), Some("weekly review"), "045 keyed the link");
+    assert_eq!(journal_columns(&conn), JOURNAL_COLUMNS);
+    conn.execute(
+        "INSERT INTO unsaved_text (buffer_id, path, text, text_hash, recorded_at)
+         VALUES ('buf-old', NULL, 'kept', 'hash', '2026-10-13T00:00:00Z')",
+        [],
+    )
+    .expect("the journal takes an entry for a row the database already held");
+}
+
 #[test]
 fn migration_044_clears_every_language_guessed_from_a_name() {
     let (_dir, conn) = setup_temp_db();
@@ -299,6 +422,7 @@ fn migration_044_clears_every_language_guessed_from_a_name() {
 
     // The shape a release before 044 leaves behind: rows whose language the
     // open path filled in from the extension.
+    roll_back_046(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 44", [])
         .expect("failed to roll the stamp back");
     for (id, language) in [
@@ -366,6 +490,7 @@ fn a_database_at_041_gains_the_column_with_its_rows_intact() {
 
     // Roll the database back to the shape the release that ships 040 and 041
     // leaves behind, then migrate it forward again.
+    roll_back_046(&conn);
     conn.execute("ALTER TABLE files DROP COLUMN indexed_by", [])
         .expect("failed to drop the column");
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
@@ -501,7 +626,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 45);
+    assert_eq!(max_version, 46);
 }
 
 /// Column names of the `buffers` table.
@@ -570,6 +695,7 @@ fn a_database_at_043_gains_the_name_key_of_every_stored_link() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
+    roll_back_046(&conn);
     roll_back_045(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 44", [])
         .expect("failed to roll the stamp back");
@@ -630,6 +756,7 @@ fn a_database_at_043_that_lost_its_links_table_still_migrates() {
 
     conn.execute("DROP TABLE links", [])
         .expect("failed to drop the table");
+    roll_back_046(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 44", [])
         .expect("failed to roll the stamp back");
 
@@ -657,6 +784,7 @@ fn a_database_at_044_gains_the_name_key_of_every_stored_link() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
+    roll_back_046(&conn);
     roll_back_045(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 45", [])
         .expect("failed to roll the stamp back");
@@ -690,7 +818,7 @@ fn a_database_at_044_gains_the_name_key_of_every_stored_link() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 45);
+    assert_eq!(max_version, 46);
 }
 
 /// A database stamped below 045 whose `links` already carries the name key,
@@ -702,6 +830,7 @@ fn a_database_whose_links_already_carry_the_name_key_still_migrates() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
+    roll_back_046(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 44", [])
         .expect("failed to roll the stamp back");
     conn.execute(
@@ -728,5 +857,5 @@ fn a_database_whose_links_already_carry_the_name_key_still_migrates() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 45);
+    assert_eq!(max_version, 46);
 }

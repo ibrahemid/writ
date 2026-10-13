@@ -113,7 +113,7 @@ impl QuitState {
     /// request, which the Windows update installer does from inside the
     /// updater plugin: if a quit is already writing when it arrives, letting
     /// it go at once would end the process in the middle of that quit's
-    /// snapshot.
+    /// writes.
     pub fn wait_until_complete(&self, limit: Duration) -> bool {
         let started = Instant::now();
         loop {

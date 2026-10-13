@@ -110,7 +110,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-storage/src/database/queries.rs",
-        line: 111,
+        line: 102,
         word: "buffer",
         note: "row lookup error, release 0.6",
     },
@@ -200,13 +200,13 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 419,
+        line: 388,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 477,
+        line: 446,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },

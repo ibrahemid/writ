@@ -498,8 +498,8 @@ pub fn write_conflict_copy(
     )
 }
 
-/// Writes `content` beside `note_path` as a dated copy the crash snapshot was
-/// holding, and returns the path written.
+/// Writes `content` beside `note_path` as a dated copy of text the
+/// unsaved-text journal was holding, and returns the path written.
 ///
 /// The relaunch counterpart of [`write_conflict_copy`]: same folder, same
 /// dedupe, a name that says where the text came from

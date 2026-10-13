@@ -44,6 +44,7 @@ vi.mock("../../services/tauri", () => ({
   closeBuffers: vi.fn().mockImplementation(async (ids: string[]) => {
     callLog.push(`closeBuffers:${ids.join(",")}`);
   }),
+  discardUnsavedText: vi.fn().mockResolvedValue(undefined),
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
   restoreBuffer: vi.fn().mockResolvedValue({
     doc: null,
@@ -112,7 +113,7 @@ describe("tabStore (per-window factory)", () => {
   });
 
   describe("closeTab", () => {
-    it("hands a closed note's unwritten text to the recovery snapshot", async () => {
+    it("hands a closed note's unwritten text to the unsaved-text journal", async () => {
       const tabs = freshTabStore();
       const doc = await tabs.createTab();
       // The guard refuses this write, so nothing goes back on the queue and
@@ -409,6 +410,29 @@ describe("tabStore (per-window factory)", () => {
 
       expect(mockedApi.restoreBuffer).toHaveBeenCalledWith(doc.id);
       expect(tabs.activeTabId()).toBe(doc!.id);
+    });
+
+    it("brings forward the tab that has the closed file open", async () => {
+      const tabs = freshTabStore();
+      const closed = await tabs.createTab();
+      await tabs.closeTab(closed.id);
+      const holder = await tabs.createTab();
+      const other = await tabs.createTab();
+      expect(tabs.activeTabId()).toBe(other.id);
+
+      mockedApi.restoreBuffer.mockResolvedValueOnce({
+        doc: holder,
+        mode: { kind: "Normal" },
+        size_bytes: 0,
+      });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([holder, other]);
+      mockedApi.listHistory.mockResolvedValueOnce([{ ...closed, status: "history" }]);
+
+      const shown = await tabs.restoreFromHistory(closed.id);
+
+      expect(shown?.id).toBe(holder.id);
+      expect(tabs.activeTabId()).toBe(holder.id);
+      expect(bufferRegistry.historyList().map((b) => b.id)).toEqual([closed.id]);
     });
   });
 

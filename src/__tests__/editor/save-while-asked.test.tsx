@@ -236,7 +236,7 @@ describe("a note that is waiting for an answer about its file", () => {
   });
 
   // Holding the writes takes the note out of the queue, and the queue is what
-  // the close and quit paths hand to the recovery snapshot. Without a slot of
+  // the close and quit paths hand to the unsaved-text journal. Without a slot of
   // its own the typing would be in the document and nowhere else, and closing
   // the tab without answering would lose it.
   it("still hands its typing over when the tab closes", async () => {
@@ -269,7 +269,7 @@ describe("a note that is waiting for an answer about its file", () => {
     expect(api.recordUnsavedNotes).not.toHaveBeenCalled();
   });
 
-  it("hands the shutdown snapshot nothing of the version answered against", async () => {
+  it("hands the journal nothing of the version answered against", async () => {
     // A write refused before the question arrived leaves its text in the
     // failed-write slot, which the recovery handover reads after the queue and
     // the hold. `Use the file on disk` is the person saying that text loses.
@@ -298,7 +298,7 @@ describe("a note that is waiting for an answer about its file", () => {
     expect(recorded.map((note) => note.content)).not.toContain(MINE);
   });
 
-  it("hands the snapshot nothing of a write the answer superseded", async () => {
+  it("hands the journal nothing of a write the answer superseded", async () => {
     // The other half of the same rule, and the half the ordering above cannot
     // reach: the write is still on the wire when the question is answered, so
     // its refusal arrives afterwards and lands its text in the failed-write

@@ -5,6 +5,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::file_ops::THRESHOLD_LARGE_BYTES;
 use writ_core::hash::{sha256_bytes, sha256_hex};
 use writ_core::notes::guard::{DiskState, SF_DATALESS};
 use writ_storage::buffer_store::{BufferStore, RecoveredText};
@@ -467,6 +468,41 @@ fn an_evicted_file_is_never_read_and_the_snapshot_lands_beside_it() {
 }
 
 #[test]
+fn a_file_over_the_size_writ_opens_without_asking_is_not_read_and_the_text_lands_beside_it() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# A log that kept growing");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(THRESHOLD_LARGE_BYTES + 1)
+        .unwrap();
+
+    let outcome = store
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
+        .expect("a large file is not a failure");
+
+    let RecoveredText::SetAside { on_disk, copy } = outcome else {
+        panic!("expected the text to be set aside, got {outcome:?}");
+    };
+    assert!(
+        on_disk.is_none(),
+        "nothing was read, so nothing can be claimed about the file"
+    );
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().len(),
+        THRESHOLD_LARGE_BYTES + 1,
+        "the file is left as it was"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&copy).unwrap(),
+        "# What the crash was holding"
+    );
+    assert_eq!(recovered_copies(notes.path()).len(), 1);
+}
+
+#[test]
 fn a_file_the_flags_call_downloaded_takes_the_ordinary_route() {
     let (_db, store) = setup();
     let notes = TempDir::new().unwrap();
@@ -550,7 +586,7 @@ fn a_note_read_back_from_disk_moves_its_row_forward() {
     let after = store.get("guard-1").expect("the row").updated_at;
     assert!(
         after > before,
-        "the stamp a relaunch compares the last snapshot against did not move"
+        "the stamp that records when Writ last learned what the file holds did not move"
     );
     assert_eq!(
         store.get("guard-1").expect("the row").size_bytes,
@@ -559,22 +595,16 @@ fn a_note_read_back_from_disk_moves_its_row_forward() {
 }
 
 #[test]
-fn a_note_writ_itself_re_read_is_ignored_by_recovery() {
+fn a_note_writ_itself_re_read_leaves_nothing_for_the_next_launch_to_write_back() {
     let (_db, mut store) = setup();
     let notes = TempDir::new().unwrap();
     let path = open_note_from_an_earlier_launch(&store, &notes, "# What the tab opened with");
 
-    // The heartbeat: every open note's file, read from disk, kept as an
-    // unclean snapshot.
-    let contents = store.collect_buffer_contents().expect("collect");
+    // The heartbeat, which used to copy every open note's file into a
+    // snapshot the next launch wrote back.
     store
-        .write_session_snapshot_if_changed(&contents)
-        .expect("write the snapshot");
-    assert_eq!(
-        store.resolve_recovery().expect("resolve").len(),
-        1,
-        "the snapshot must be newer than the row, or this proves nothing"
-    );
+        .mark_session_running()
+        .expect("the running-session marker");
 
     // Another program writes the note and Writ reads it back into the tab.
     let refreshed = b"# What another program wrote";
@@ -584,8 +614,8 @@ fn a_note_writ_itself_re_read_is_ignored_by_recovery() {
         .expect("the row takes the read");
 
     assert!(
-        store.resolve_recovery().expect("resolve").is_empty(),
-        "the last snapshot would be written back over the text Writ just read"
+        store.unsaved_text().expect("read").entries.is_empty(),
+        "the next launch would write something back over the text Writ just read"
     );
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),

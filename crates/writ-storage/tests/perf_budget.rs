@@ -1013,11 +1013,13 @@ fn vault_of_10000_notes_and_200000_links_stays_under_budget() {
     );
 
     // Migration 045 over the same rows: the shape a database written before it
-    // has, migrated forward.
+    // has, migrated forward. The runner applies only versions above the
+    // highest one recorded, so 046 goes too.
     conn.execute_batch(
         "DROP INDEX idx_links_name_key;
          ALTER TABLE links DROP COLUMN name_key;
-         DELETE FROM schema_version WHERE version = 45;",
+         DROP TABLE unsaved_text;
+         DELETE FROM schema_version WHERE version >= 45;",
     )
     .expect("roll back to before 045");
     let start = Instant::now();

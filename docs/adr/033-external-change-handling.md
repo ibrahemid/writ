@@ -6,6 +6,10 @@ Accepted. This record covers the watching side. The file-identity rules that
 tell a move from a delete, and the policy for what a reload does to a document
 somebody is typing into, are added to it as those land.
 
+[ADR-044](./044-unsaved-text-journal.md) amends decision 15: the text a hold
+keeps reaches the unsaved-text journal on the autosave's debounce, and the
+handover on the way out leaves out text a dated copy beside the note holds.
+
 ## Context
 
 Notes live on disk and the file is the only copy (ADR-028 §1). That makes every
@@ -694,7 +698,7 @@ What each move does to the text, the dirty answer, autosave and the file:
 | `present` | a change is reported, under a document holding nothing of its own | `present` | replaced by the file's, in one tracked transaction | false | resumes | untouched |
 | `present` | a removal is announced | `removed` | taken the same way. Nothing, and the note's only text was the file's | unchanged | the queue and the timer are dropped, after the text is taken | untouched |
 | `changed` | any of the three answers | `present` | see §16: every answer writes the text it does not keep beside the note first | false | resumes | written, and a dated copy of the losing side beside it |
-| `changed` | a keystroke | `changed` | replaced by the newer text | true | nothing is queued, so nothing is scheduled | untouched |
+| `changed` | a keystroke | `changed` | replaced by the newer text, which reaches the unsaved-text journal on the autosave's debounce | true | nothing is queued, so nothing is scheduled | untouched |
 | `changed` | the save keystroke | `changed` | kept | unchanged | still silent | untouched; the focus goes to the question instead |
 | `changed` | the tab is switched away from | `changed` | taken from the view before the view is replaced | unchanged | already silent | untouched |
 | `changed` | the tab is switched back to | `changed` | the kept text goes into the new view; the file is not read | unchanged | already silent | untouched, and unread until the question is answered |
@@ -703,16 +707,16 @@ What each move does to the text, the dirty answer, autosave and the file:
 | `removed` | the file is found at another path | `present` | kept, and put back on the queue when the tab is dirty: the path is writable again and nothing else would write it | unchanged | resumes | untouched at its new path |
 | `removed` | a file back at the note's own path, tab holding nothing of its own | `present` | replaced by the file's | false | resumes | untouched |
 | `removed` | a file back at the note's own path, tab holding text no file has | `changed` | kept, and still the only copy | stays true | still silent | untouched, and unread until the question is answered |
-| `removed` | a keystroke | `removed` | replaced by the newer text | true | nothing is queued, so nothing is scheduled | untouched |
+| `removed` | a keystroke | `removed` | replaced by the newer text, which reaches the unsaved-text journal on the autosave's debounce | true | nothing is queued, so nothing is scheduled | untouched |
 | `removed` | a flush, from a tab switch or a quit | `removed` | kept | unchanged | there is nothing queued to write | untouched |
 | `removed` | "Put the file back", or the save keystroke, and the write lands | `present` | kept | false | resumes | written at the note's path |
 | `removed` | the same, and the write fails | `removed` | kept | unchanged | a retryable refusal is requeued with its own writer, so a later flush can land it | untouched |
 | `removed` | "Save a copy" | `removed` | kept, and written to the path the person names | unchanged | still silent for this note | its own path untouched, a new file at the other one |
 | `removed` | the tab is switched away from | `removed` | taken from the view before the view is replaced | unchanged | silent | untouched |
 | `removed` | the tab is switched back to | `removed` | the kept text goes into the new view; the missing file is never read | unchanged | silent | untouched |
-| `changed` or `removed` | the tab is closed | gone | handed to the shutdown snapshot, then dropped | gone with the tab | cancelled | untouched |
-| `changed` or `removed` | the window quits | gone | handed to the shutdown snapshot | gone with the window | flushed, which writes nothing for this note | untouched |
-| relaunch, with snapshot text for a note whose path has no file | `removed` | the snapshot's, seeded before the first tab loads | true | silent | nothing written, and nothing left beside it |
+| `changed` or `removed` | the tab is closed | gone | handed to the unsaved-text journal unless a dated copy beside the note holds it, then dropped | gone with the tab | cancelled | untouched |
+| `changed` or `removed` | the window quits | gone | handed to the unsaved-text journal unless a dated copy beside the note holds it | gone with the window | flushed, which writes nothing for this note | untouched |
+| relaunch, with journaled text for a note whose path has no file | `removed` | the journal's, seeded before the first tab loads | true | silent | nothing written, and nothing left beside it |
 
 Five rules hold the table together.
 
@@ -726,7 +730,11 @@ back into it.
 
 **One hold, and it holds a string.** The text of a note that may not write goes
 beside the queue, in a slot the recovery handover reads and no write path does,
-so closing the tab or quitting without answering does not lose it. It is
+so closing the tab or quitting without answering does not lose it. The slot hands
+its text to the unsaved-text journal on the autosave's debounce too, from the
+moment the hold starts, so a crash under the bar loses no more than a debounce of
+typing; when the hold ends with nothing left to write, what it handed over is
+dropped (ADR-044 §2). It is
 materialized as it goes in: the editor has one view for every tab, destroyed
 and rebuilt on a switch, so a getter kept past a switch reads the incoming
 note's document under the outgoing note's name. A copy is kept in the store as
@@ -884,8 +892,9 @@ the note, so a tab left writing into an unanswered question fills the notes
 folder with copies of itself at one per pause in typing. The typing is kept
 rather than dropped: it goes to a slot beside the queue that the recovery
 handover reads and no write path does (`holdUnsavedContent`), so closing the
-tab or quitting without answering does not lose it, and it is released when
-the question ends. A deleted note keeps its typing on the same terms and the
+tab or quitting without answering does not lose it, the slot hands it to the
+unsaved-text journal on the autosave's debounce, and it is released when the
+question ends. A deleted note keeps its typing on the same terms and the
 deletion still stands: the next launch writes nothing at the path and leaves
 nothing beside it, handing the text back to the tab instead
 (`writ_core::recovery::plan_recovery`, decision 15). Only a note that never
@@ -904,7 +913,7 @@ was held in, so the answer is the only thing left to put it back: `Keep mine`
 and `Show both` queue whatever the document gained while they were out, the
 way a keystroke would, under the same rate cap as any other write, and the tab
 keeps it on the way out because the queue is what the close path hands to the
-recovery snapshot. `Use the file on disk`
+unsaved-text journal. `Use the file on disk`
 has nothing to keep, because it replaces the document with the file's text on
 purpose.
 
@@ -916,8 +925,16 @@ queueing and cancelling both bump: a write issued before the answer is
 dropped, and one issued after it still shows. Its text goes the same way. A
 refusal leaves the text it could not write where the recovery handover reads
 it, and only while that text is still the newest there is, so the version the
-person answered against cannot reach the shutdown snapshot and come back at the
-next launch.
+person answered against cannot reach the unsaved-text journal and come back at
+the next launch.
+
+**Text a dated copy holds is not handed over again.** A save the guard stopped
+writes its text beside the note, and so does an answer that sets the tab's text
+aside, yet the tab can still hold that text when it closes or Writ quits. The
+handover leaves out text whose hash matches a copy written beside that note in
+the session (`BufferStore::copy_beside_holds`), so the next launch does not
+write the same text beside the note a second time. Text typed after the copy is
+new text, and goes as before.
 
 ## Consequences
 

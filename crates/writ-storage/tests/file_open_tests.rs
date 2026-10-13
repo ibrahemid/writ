@@ -310,7 +310,7 @@ fn choosing_a_language_leaves_updated_at_alone() {
 }
 
 // A size taken from a stat is not a read, so it leaves the stamp a read
-// leaves: a relaunch compares a crash snapshot against `updated_at`.
+// leaves: `updated_at` records when Writ last learned what the file holds.
 #[test]
 fn recording_a_measured_size_leaves_updated_at_alone() {
     let (_dir, store) = setup();

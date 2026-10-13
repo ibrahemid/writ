@@ -17,10 +17,10 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
-    decide_create_buffer, read_buffer_content_inner, save_buffer_content_inner,
-    save_failure_message, CreateDecision, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_IN_USE,
-    ERR_FILE_NOT_DOWNLOADED, ERR_FOLDER_NOT_WRITABLE, ERR_HARD_LINKED, ERR_READ_ONLY_DESTINATION,
-    ERR_WRITE_FAILED,
+    decide_create_buffer, read_buffer_content_inner, record_unsaved_notes_inner,
+    save_buffer_content_inner, save_failure_message, CreateDecision, UnsavedNote,
+    ERR_FILE_CHANGED_ON_DISK, ERR_FILE_IN_USE, ERR_FILE_NOT_DOWNLOADED, ERR_FOLDER_NOT_WRITABLE,
+    ERR_HARD_LINKED, ERR_READ_ONLY_DESTINATION, ERR_WRITE_FAILED,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -150,7 +150,6 @@ fn make_state(dir: &TempDir) -> AppState {
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
         source_records: Mutex::new(std::collections::HashMap::new()),
-        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -442,24 +441,60 @@ fn a_conflict_copy_in_one_folder_does_not_suppress_an_arrival_of_the_same_name_i
 }
 
 #[test]
-fn text_a_save_could_not_write_is_held_for_the_shutdown_snapshot() {
+fn text_handed_over_on_the_way_out_is_journaled_until_a_save_of_it_lands() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
+    let (one, _) = open_note(&state, &dir, "One.md", "on disk\n");
+    let (two, _) = open_note(&state, &dir, "Two.md", "also on disk\n");
 
-    state.record_unsaved_on_exit("note-1", "first pass".to_string());
+    record_unsaved_notes_inner(
+        &state,
+        vec![UnsavedNote {
+            id: one.clone(),
+            content: "first pass".to_string(),
+        }],
+    )
+    .expect("the text is kept");
     // Both ways out hand the same note over, and the later one carries the
     // newer text.
-    state.record_unsaved_on_exit("note-1", "what the person last typed".to_string());
-    state.record_unsaved_on_exit("note-2", "another note".to_string());
+    record_unsaved_notes_inner(
+        &state,
+        vec![
+            UnsavedNote {
+                id: one.clone(),
+                content: "what the person last typed".to_string(),
+            },
+            UnsavedNote {
+                id: two.clone(),
+                content: "another note".to_string(),
+            },
+        ],
+    )
+    .expect("the text is kept");
 
-    let held = state.take_unsaved_on_exit();
+    let journaled = |state: &AppState| -> std::collections::HashMap<String, String> {
+        state
+            .store
+            .lock()
+            .unwrap()
+            .unsaved_text()
+            .expect("read the journal")
+            .entries
+            .into_iter()
+            .map(|entry| (entry.buffer_id, entry.text))
+            .collect()
+    };
+    let kept = journaled(&state);
     assert_eq!(
-        held.get("note-1").map(String::as_str),
+        kept.get(&one).map(String::as_str),
         Some("what the person last typed")
     );
-    assert_eq!(held.get("note-2").map(String::as_str), Some("another note"));
+    assert_eq!(kept.get(&two).map(String::as_str), Some("another note"));
 
-    // Taken once: a second snapshot pass must not write the text again over a
-    // file that has since been saved.
-    assert!(state.take_unsaved_on_exit().is_empty());
+    // A save that lands takes the entry with it: the next launch must not
+    // write the older text beside a file that has since been saved.
+    save_buffer_content_inner(&state, &one, "saved at last\n").expect("the save lands");
+    let kept = journaled(&state);
+    assert!(!kept.contains_key(&one), "{kept:?}");
+    assert_eq!(kept.get(&two).map(String::as_str), Some("another note"));
 }

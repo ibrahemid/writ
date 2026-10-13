@@ -35,6 +35,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     ),
     // A column on a derived table, added by `migrate_rows` (045_links_name_key.sql).
     (45, ""),
+    (46, include_str!("../../migrations/046_unsaved_text.sql")),
 ];
 
 /// Work a migration needs that its SQL cannot do, run inside the same

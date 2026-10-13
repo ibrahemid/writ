@@ -3,10 +3,10 @@ use crate::state::AppState;
 use tauri::State;
 use writ_core::recovery::RecoveredBuffer;
 
-/// Returns the list of buffers restored from a crash snapshot on this
-/// launch, then clears the list.
+/// Returns the notes whose text this launch took from the unsaved-text
+/// journal (ADR-044), then clears the list.
 ///
-/// Returns an empty list when the previous shutdown was clean.
+/// Returns an empty list when the journal held nothing.
 #[tauri::command]
 pub fn get_recovered_buffers(state: State<'_, AppState>) -> Result<Vec<RecoveredBuffer>, String> {
     let mut recovered = recover_poison(

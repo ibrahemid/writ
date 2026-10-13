@@ -603,14 +603,42 @@ export interface UnsavedNote {
 }
 
 /**
- * Hands text no save could write to the shutdown snapshot.
+ * Hands text no save could write to the unsaved-text journal.
  *
- * Called on the way out, once, after the last flush: the file has already
- * refused this text, so the snapshot is the only place left that the next
- * launch reads.
+ * Called on the way out, after the last flush: the file has already refused
+ * this text, so the journal is the only place left that the next launch reads.
+ * Called too while a bar holds a note's saves, on the autosave's debounce,
+ * with the text the hold keeps.
  */
 export async function recordUnsavedNotes(notes: readonly UnsavedNote[]): Promise<void> {
   return invoke("record_unsaved_notes", { notes });
+}
+
+/**
+ * Drops what the unsaved-text journal holds for the tabs whose unsaved text
+ * the person chose to lose, or whose hold ended with nothing left to write,
+ * so the next launch does not bring it back.
+ */
+export async function discardUnsavedText(ids: readonly string[]): Promise<void> {
+  return invoke("discard_unsaved_text", { ids });
+}
+
+/**
+ * Asks the person where a note with no file goes, in the save panel. The
+ * path they chose, which the write that follows may land at, or null when
+ * they cancelled.
+ */
+export async function pickNoteSavePath(id: string): Promise<string | null> {
+  return invoke("pick_note_save_path", { id });
+}
+
+/**
+ * Gives a note with no file its first file at `path`, a place the person
+ * picked ([`pickNoteSavePath`]), and writes `content` there. Answers with the
+ * digest of what the file holds, as a save does.
+ */
+export async function saveNoteTo(id: string, content: string, path: string): Promise<string | null> {
+  return invoke("save_note_to", { id, content, path });
 }
 
 export async function readBufferContent(id: string): Promise<string> {
@@ -736,6 +764,12 @@ export async function renameBuffer(id: string, title: string): Promise<void> {
   return invoke("rename_buffer", { id, title });
 }
 
+/** The first file the launch could not make for a note that never had one. */
+export interface UnmadeFile {
+  name: string;
+  folder: string;
+}
+
 export interface RecoveredBuffer {
   id: string;
   content: string;
@@ -744,6 +778,11 @@ export interface RecoveredBuffer {
    * the last copy of it (ADR-033 decision 15).
    */
   removed_on_disk: boolean;
+  /**
+   * Set with `removed_on_disk` for a note whose first file the launch could
+   * not make, which was never deleted (ADR-044 §4).
+   */
+  unmade_file?: UnmadeFile | null;
 }
 
 export async function getRecoveredBuffers(): Promise<RecoveredBuffer[]> {

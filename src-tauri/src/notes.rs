@@ -76,6 +76,11 @@ pub fn mint_note_path_text(
 ///
 /// Returns the path the caller then writes to. The write is left to the
 /// caller so exactly one code path writes a note's text.
+///
+/// A caller whose write then makes nothing at the path takes it back
+/// ([`writ_storage::buffer_store::BufferStore::detach_source_path_with_no_file`]):
+/// a row naming a file that was never made reads at the next launch as a note
+/// whose file was deleted.
 pub fn attach_note_file(
     store: &writ_storage::buffer_store::BufferStore,
     notes_root: &Path,

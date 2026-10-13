@@ -33,10 +33,10 @@ export async function startWindowLifecycle(): Promise<UnlistenFn[]> {
  * Puts text the last flush could not write where the next launch will find it.
  *
  * The window is about to go away and the file has already refused this text,
- * so the shutdown snapshot is the only place left; the backend folds it over
- * the files it reads and marks the shutdown unclean, which is what makes the
- * next launch offer it back. Failing here must not hold the exit: the process
- * leaves either way, and a held quit only trades lost text for a hung app.
+ * so the unsaved-text journal is the only place left, and the next launch
+ * reads it whatever kind of exit this turns out to be. Failing here must not
+ * hold the exit: the process leaves either way, and a held quit only trades
+ * lost text for a hung app.
  *
  * What the flush just reported is not the question asked. A save that failed
  * minutes ago left the queue empty and the bar on screen, so this flush finds

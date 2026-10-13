@@ -109,7 +109,6 @@ fn make_state(dir: &TempDir) -> AppState {
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
         source_records: Mutex::new(std::collections::HashMap::new()),
-        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -529,9 +528,8 @@ fn open_tab(state: &AppState, name: &str) -> (std::path::PathBuf, String) {
 
 // A file can change size while Writ is closed. The launch measures each tab it
 // restores before anything reads it, and the row it hands the editor carries
-// the size the file has now: the editor's tier, the crash snapshot and the
-// index all read it off the row. A stat is not a read, so the stamp a read
-// leaves is not moved.
+// the size the file has now: the editor's tier and the index both read it off
+// the row. A stat is not a read, so the stamp a read leaves is not moved.
 #[test]
 fn a_tab_restored_at_launch_carries_the_size_its_file_has_now() {
     let dir = TempDir::new().unwrap();
