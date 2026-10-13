@@ -93,6 +93,7 @@ describe("SearchResults", () => {
   });
 
   it("restores a history hit on click", () => {
+    h.restoreFromHistory.mockResolvedValue(null);
     h.setHistory([buf("hh", "old.md", "history")]);
     h.setQuery("x");
     h.setHits([{ buffer_id: "hh", title: "old.md", line: null, snippet: [] }]);
@@ -101,6 +102,36 @@ describe("SearchResults", () => {
     const { container } = render(() => <SearchResults />);
     fireEvent.click(container.querySelector(".search-result")!);
     expect(h.restoreFromHistory).toHaveBeenCalledWith("hh");
+    expect(h.requestReveal).not.toHaveBeenCalled();
+  });
+
+  it("reveals the hit's line once the history entry reopened", async () => {
+    h.restoreFromHistory.mockResolvedValue(buf("hh", "old.md", "active"));
+    h.setHistory([buf("hh", "old.md", "history")]);
+    h.setQuery("x");
+    h.setHits([{ buffer_id: "hh", title: "old.md", line: 12, snippet: [] }]);
+    h.setMs(1);
+
+    const { container } = render(() => <SearchResults />);
+    fireEvent.click(container.querySelector(".search-result")!);
+    await vi.waitFor(() => expect(h.requestReveal).toHaveBeenCalledWith("hh", 12));
+  });
+
+  // Cancel on the size question, or a refusal, reopens nothing. A reveal left
+  // queued would land on the line the next time the file opens another way,
+  // which reuses this entry's id.
+  it("reveals nothing for a history hit that did not reopen", async () => {
+    h.restoreFromHistory.mockResolvedValue(null);
+    h.setHistory([buf("hh", "big.log", "history")]);
+    h.setQuery("x");
+    h.setHits([{ buffer_id: "hh", title: "big.log", line: 12, snippet: [] }]);
+    h.setMs(1);
+
+    const { container } = render(() => <SearchResults />);
+    fireEvent.click(container.querySelector(".search-result")!);
+    await vi.waitFor(() => expect(h.restoreFromHistory).toHaveBeenCalledWith("hh"));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(h.requestReveal).not.toHaveBeenCalled();
   });
 

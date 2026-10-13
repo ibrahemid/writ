@@ -4,16 +4,16 @@
 //! inbox folder should auto-open. The adapter supplies the filesystem
 //! facts (the snapshot of paths that already existed when watching
 //! began); this module owns the decision: containment under the inbox
-//! root, the shared default ignore set, and the not-in-snapshot rule
-//! that keeps pre-existing backlogs and mere modifications from opening
-//! tabs.
+//! root, the shared default ignore set and temp-file names, and the
+//! not-in-snapshot rule that keeps pre-existing backlogs and mere
+//! modifications from opening tabs.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::workspace::path_has_ignored_component;
+use crate::workspace::path_has_ignored_name;
 
 /// A regular file listed in the watched inbox folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,7 +37,9 @@ pub fn sort_inbox_files(files: &mut [InboxFile]) {
 ///
 /// - sit inside `root`,
 /// - have no default-ignored component (`node_modules`, `.git`, …)
-///   between `root` and the file, and
+///   between `root` and the file, and no temp-file name: a download still
+///   arriving (`*.crdownload`, `*.partial`) or the file a save renames into
+///   place (`.writ-tmp-*`) is not a file anybody finished, and
 /// - are absent from `preexisting`, the snapshot of paths taken when
 ///   watching began, so pre-existing files (including pre-existing files
 ///   later modified) never auto-open.
@@ -50,7 +52,7 @@ pub fn qualifies_for_auto_open(root: &Path, path: &Path, preexisting: &HashSet<P
     if !path.starts_with(root) {
         return false;
     }
-    if path_has_ignored_component(root, path) {
+    if path_has_ignored_name(root, path) {
         return false;
     }
     !preexisting.contains(path)
@@ -112,6 +114,30 @@ mod tests {
         assert!(!qualifies_for_auto_open(
             Path::new("/inbox"),
             Path::new("/elsewhere/report.md"),
+            &snapshot(&[]),
+        ));
+    }
+
+    #[test]
+    fn a_file_still_arriving_or_a_save_in_flight_is_excluded() {
+        for name in [
+            "report.pdf.crdownload",
+            "report.pdf.partial",
+            ".writ-tmp-a1b2c3",
+            ".writ-tmp-Plan.md",
+        ] {
+            assert!(
+                !qualifies_for_auto_open(
+                    Path::new("/inbox"),
+                    &Path::new("/inbox").join(name),
+                    &snapshot(&[]),
+                ),
+                "{name} must not open as a tab"
+            );
+        }
+        assert!(qualifies_for_auto_open(
+            Path::new("/inbox"),
+            Path::new("/inbox/report.pdf"),
             &snapshot(&[]),
         ));
     }

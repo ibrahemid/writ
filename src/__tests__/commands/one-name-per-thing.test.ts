@@ -14,6 +14,19 @@ function descriptions(): string[] {
   return Array.from(APP_TSX.matchAll(/description:\s*"([^"]*)"/g), (match) => match[1]);
 }
 
+function registration(id: string): string {
+  const at = APP_TSX.indexOf(`id: "${id}"`);
+  expect(at, `no command ${id}`).toBeGreaterThan(-1);
+  const open = APP_TSX.lastIndexOf("{", at);
+  let depth = 0;
+  for (let i = open; i < APP_TSX.length; i += 1) {
+    if (APP_TSX[i] === "{") depth += 1;
+    if (APP_TSX[i] === "}") depth -= 1;
+    if (depth === 0) return APP_TSX.slice(open, i + 1);
+  }
+  return APP_TSX.slice(open);
+}
+
 describe("the palette's words for the sidebar", () => {
   it("names no workspace and no rail", () => {
     const offenders = descriptions().filter((text) => /\bworkspace\b|\brail\b/i.test(text));
@@ -23,7 +36,11 @@ describe("the palette's words for the sidebar", () => {
   it("describes the sidebar's commands in the sidebar's own words", () => {
     expect(APP_TSX).toContain('description: "Show a folder\'s files in the sidebar"');
     expect(APP_TSX).toContain('description: "Stop showing this folder in the sidebar"');
-    expect(APP_TSX).toContain('description: "Show or hide the sidebar"');
+  });
+
+  it("gives a command no description that only says its label again", () => {
+    expect(registration("sidebar.toggle")).not.toContain("description:");
+    expect(registration("history.clear")).not.toContain("description:");
   });
 
   it("calls the list of closed files Recent wherever it is cleared", () => {

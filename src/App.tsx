@@ -14,6 +14,8 @@ import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEdit
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import ActivityPanel, { openActivity } from "./components/Activity/ActivityPanel";
+import ProgramNotice from "./components/Activity/ProgramNotice";
+import { activityStore } from "./stores/global/activity";
 import NoteHistoryPanel, { openNoteVersions } from "./components/NoteHistory/NoteHistoryPanel";
 import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
@@ -21,18 +23,21 @@ import { renameLinksStore } from "./stores/global/rename-links";
 import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import LinkAmbiguityPicker from "./components/Editor/LinkAmbiguityPicker";
+import LanguagePicker from "./components/Editor/LanguagePicker";
 import IconSprite from "./components/Icon/IconSprite";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
 import { IS_MAC, resolvePlatform } from "./lib/platform";
 import ToastContainer, { showToast } from "./components/Notifications/Toast";
 import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
+import LargeFileOpen from "./components/LargeFileOpen/LargeFileOpen";
 import AppFrame from "./components/AppFrame/AppFrame";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
-import { bufferRegistry } from "./stores/global/buffer-registry";
+import { bufferRegistry, type OpenOutcome } from "./stores/global/buffer-registry";
+import { reportOpenOutcomes } from "./stores/global/open-report";
+import { openFailureReason } from "./lib/open-failure";
 import { saveStatusStore } from "./stores/global/save-status";
-import { basename } from "./lib/path";
 import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
 import { openBootTab } from "./stores/window/boot-tab";
@@ -125,22 +130,16 @@ async function openPendingPaths(paths: string[]) {
     showToast("Couldn't open the files", "error");
     return;
   }
-  // A drop of twenty unreadable files is one failure to the user, not twenty.
-  const failed: string[] = [];
+  // A drop of twenty unreadable files is one line to the user, not twenty.
+  const outcomes: OpenOutcome[] = [];
   for (const path of paths) {
     try {
-      await win.tabs.openFile(path);
-    } catch {
-      failed.push(basename(path));
+      outcomes.push(await win.tabs.openPath(path));
+    } catch (error) {
+      outcomes.push({ kind: "refused", path, reason: openFailureReason(error) });
     }
   }
-  if (failed.length > 0) {
-    logFailure("a file could not be opened");
-    showToast(
-      failed.length === 1 ? `Couldn't open ${failed[0]}` : `Couldn't open ${failed.length} files`,
-      "error",
-    );
-  }
+  reportOpenOutcomes(outcomes);
 }
 
 function measureFirstPaint(
@@ -257,10 +256,11 @@ function AppShell() {
     win.sidebar.hydrateFromConfig();
     win.rightPanel.hydrateFromConfig();
     win.chatPanel.hydrateFromConfig();
-    await bufferRegistry.load();
+    await bufferRegistry.loadSession();
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
     await notesStore.load();
+    void activityStore.watchWaiting();
 
     // Only notes whose text never reached their file are restored, so the
     // count is how many of those there were, not how many tabs were open.
@@ -499,7 +499,7 @@ function AppShell() {
       id: "sidebar.toggle",
       icon: "sidebar-simple",
       label: "Toggle sidebar",
-      description: "Show or hide the sidebar",
+      keywords: ["show", "hide"],
       keybinding: "CmdOrCtrl+\\",
       // Finder's own sidebar chord, for the hand that already knows it.
       keybindingAliases: ["CmdOrCtrl+Alt+S"],
@@ -748,7 +748,6 @@ function AppShell() {
     registerCommand({
       id: "history.clear",
       label: "Clear Recent",
-      description: "Remove every file from Recent",
       scope: "app",
       execute: async () => {
         const count = bufferRegistry.historyList().length;
@@ -801,9 +800,10 @@ function AppShell() {
     defineAppCommands("programs", [
       {
         id: "activity.open",
-        icon: "list-bullets",
-        label: "Activity",
+        icon: "plugs-connected",
+        label: "Program activity",
         description: "What connected programs did with your files",
+        keywords: ["mcp", "programs", "claude", "cursor", "connected"],
         scope: "app",
         execute: () => openActivity(),
       },
@@ -989,12 +989,15 @@ function AppShell() {
       <SearchPalette />
       <SettingsModal />
       <ActivityPanel />
+      <ProgramNotice />
       <NoteHistoryPanel />
       <ThemeEditor />
       <ShortcutEditor />
       <ContextMenu />
       <LinkAmbiguityPicker />
+      <LanguagePicker />
       <ConfirmDialog />
+      <LargeFileOpen />
       <PromptFillModal />
       <AiRewriteOverlay />
       <ToastContainer />

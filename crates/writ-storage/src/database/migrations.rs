@@ -1,4 +1,4 @@
-use crate::database::index_repair::repair_notes_index;
+use crate::database::index_repair::{object_exists, repair_notes_index};
 use crate::errors::{StorageError, StorageResult};
 use rusqlite::Connection;
 use tracing::info;
@@ -29,7 +29,52 @@ const MIGRATIONS: &[(i32, &str)] = &[
         43,
         include_str!("../../migrations/043_buffer_line_ending.sql"),
     ),
+    (
+        44,
+        include_str!("../../migrations/044_buffer_language_choice.sql"),
+    ),
+    // A column on a derived table, added by `migrate_rows` (045_links_name_key.sql).
+    (45, ""),
 ];
+
+/// Work a migration needs that its SQL cannot do, run inside the same
+/// transaction as the SQL so the two are applied together or not at all.
+fn migrate_rows(version: i32, conn: &Connection) -> StorageResult<()> {
+    match version {
+        45 => add_link_name_keys(conn),
+        _ => Ok(()),
+    }
+}
+
+/// Migration 45: `links.name_key`, its index, and the key of every link
+/// already stored.
+///
+/// The key is a Unicode fold of each stored target, which SQL has no function
+/// for, so the rows are filled from here. A database that lost `links` has
+/// nothing to add the column to; the repair that ends the run recreates the
+/// table with it ([`repair_notes_index`]), and the next walk fills it. A
+/// `links` that already carries the column, written by a build that numbered
+/// this migration 44, only has its keys filled.
+fn add_link_name_keys(conn: &Connection) -> StorageResult<()> {
+    if !object_exists(conn, "links")? {
+        return Ok(());
+    }
+    if !column_exists(conn, "links", "name_key")? {
+        conn.execute_batch(include_str!("../../migrations/045_links_name_key.sql"))?;
+    }
+    crate::notes_index::backfill_link_name_keys(conn)?;
+    Ok(())
+}
+
+/// Whether `table` has a column called `column`.
+fn column_exists(conn: &Connection, table: &str, column: &str) -> StorageResult<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT count(*) FROM pragma_table_info(?1) WHERE name = ?2",
+        [table, column],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
 
 /// Highest migration version embedded in this binary.
 pub fn binary_schema_version() -> i32 {
@@ -108,6 +153,9 @@ pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
             tx.execute_batch(sql).map_err(|e| StorageError::Migration {
                 message: format!("migration v{} failed: {}", version, e),
             })?;
+            migrate_rows(*version, &tx).map_err(|e| StorageError::Migration {
+                message: format!("migration v{} failed: {}", version, e),
+            })?;
             tx.execute(
                 "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
                 [version],
@@ -122,4 +170,21 @@ pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
     repair_notes_index(conn)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MIGRATIONS;
+
+    /// The runner applies the pending migrations in the order this list holds
+    /// them, so a version listed above a lower one would run before it on a
+    /// database that needs both.
+    #[test]
+    fn the_migrations_are_listed_in_the_order_of_their_versions() {
+        let versions: Vec<i32> = MIGRATIONS.iter().map(|(version, _)| *version).collect();
+        assert!(
+            versions.windows(2).all(|pair| pair[0] < pair[1]),
+            "{versions:?}"
+        );
+    }
 }

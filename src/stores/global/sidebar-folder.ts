@@ -46,15 +46,18 @@ function tree(): FolderTree | null {
  * Whether the tree on screen holds every file a tag can name, so selecting a
  * tag filters it.
  *
- * Tags come from the notes index, and only the notes folder's own tree is
- * listed by the index's rule. A folder opened by hand is listed by the rule for
- * a code folder, which leaves out `build`, `vendor` and the like, so it can miss
- * tagged files even when it is the notes folder or a folder above it. With one
- * open, or with the Files section switched off, the tagged files are listed
- * under the tag instead.
+ * Tags come from the notes index, and the notes folder's own tree is listed by
+ * the index's rule, so only that tree is filtered. A folder opened by hand is
+ * drawn whole, the notes folder itself included, and a Files section switched
+ * off or folded shows no tree at all: in each of those the tagged files are
+ * listed under the tag instead.
  */
 function showsNotes(): boolean {
-  return !configStore.isSidebarSectionHidden("folder") && kind() === "notes";
+  return (
+    !configStore.isSidebarSectionHidden("folder") &&
+    !configStore.isSidebarSectionCollapsed("folder") &&
+    kind() === "notes"
+  );
 }
 
 export const sidebarFolderStore = { kind, tree, showsNotes };

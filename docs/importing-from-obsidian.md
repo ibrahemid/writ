@@ -56,6 +56,6 @@ folder (`~/.writ`), not beside your files. Inside the folder Writ writes the
 files you create and edit, and a dated conflict copy beside a file when a save
 would overwrite a newer version on disk.
 
-Implementation: `crates/writ-storage/src/notes_index.rs`, with the folder this
+Implementation: `crates/writ-storage/src/notes_index/`, with the folder this
 page describes as a fixture in
 `crates/writ-storage/tests/fixtures/obsidian-folder/`.

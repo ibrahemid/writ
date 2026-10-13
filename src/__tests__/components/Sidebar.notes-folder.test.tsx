@@ -137,6 +137,14 @@ function listedUnderTag(container: HTMLElement): string[] {
   );
 }
 
+function rowsUnderTag(container: HTMLElement): string[][] {
+  return Array.from(container.querySelectorAll(".tags-section .tags-file")).map((row) =>
+    Array.from(row.querySelectorAll(".tags-file-name, .tags-file-folder")).map(
+      (part) => part.textContent!,
+    ),
+  );
+}
+
 let windowId = 9700;
 
 async function mount() {
@@ -340,8 +348,6 @@ describe("tags over the notes folder", () => {
     expect(listedUnderTag(container)).toEqual(["Plan"]);
   });
 
-  // A folder opened by hand is listed by the rule for a code folder, which
-  // leaves out `build`, `vendor` and the like that the notes index reads.
   it("lists the tagged files under the tag when the notes folder itself is opened by hand", async () => {
     h.workspaceRoot = NOTES;
     h.workspaceDirs.set(NOTES, [file(`${NOTES}/Plan.md`), file(`${NOTES}/Shopping.md`)]);
@@ -387,6 +393,81 @@ describe("tags over the notes folder", () => {
     expect(treeNames(container)).toEqual(["todo"]);
     expect(listedUnderTag(container)).toEqual(["Plan"]);
     expect(container.textContent).not.toContain("No files with this tag");
+  });
+
+  it("lists the tagged files under the tag while the Files section is folded", async () => {
+    h.notesDirs.set(NOTES, [file(`${NOTES}/Plan.md`), file(`${NOTES}/Shopping.md`)]);
+    mockedApi.noteAllTags.mockResolvedValue([{ tag: "plan", count: 1 }]);
+    mockedApi.notePathsForTag.mockResolvedValue([`${NOTES}/Plan.md`]);
+    const { container } = await mount();
+    configStore.setSidebarSectionCollapsed("folder", true);
+    await settle();
+
+    fireEvent.click(tagRow(container, "plan"));
+    await settle();
+
+    expect(treeNames(container)).toEqual([]);
+    expect(listedUnderTag(container)).toEqual(["Plan"]);
+    expect(container.querySelector(".files-tag-chip")).toBeNull();
+  });
+
+  it("moves the tagged files under the tag when the filtered Files section folds, and back into the tree when it opens", async () => {
+    h.notesDirs.set(NOTES, [file(`${NOTES}/Plan.md`), file(`${NOTES}/Shopping.md`)]);
+    mockedApi.noteAllTags.mockResolvedValue([{ tag: "plan", count: 1 }]);
+    mockedApi.notePathsForTag.mockResolvedValue([`${NOTES}/Plan.md`]);
+    const { container } = await mount();
+    fireEvent.click(tagRow(container, "plan"));
+    await settle();
+    expect(treeNames(container)).toEqual(["Plan"]);
+    expect(listedUnderTag(container)).toEqual([]);
+
+    configStore.setSidebarSectionCollapsed("folder", true);
+    await settle();
+
+    expect(treeNames(container)).toEqual([]);
+    expect(listedUnderTag(container)).toEqual(["Plan"]);
+    expect(container.querySelector(".files-tag-chip")).toBeNull();
+
+    configStore.setSidebarSectionCollapsed("folder", false);
+    await settle();
+
+    expect(treeNames(container)).toEqual(["Plan"]);
+    expect(listedUnderTag(container)).toEqual([]);
+    expect(container.querySelector(".files-section .files-tag-chip")?.textContent).toContain(
+      "#plan",
+    );
+  });
+
+  it("shows the folder beside a name two files under the tag share", async () => {
+    h.workspaceRoot = "/proj";
+    h.workspaceDirs.set("/proj", [file("/proj/main.rs")]);
+    mockedApi.noteAllTags.mockResolvedValue([{ tag: "plan", count: 3 }]);
+    mockedApi.notePathsForTag.mockResolvedValue([
+      `${NOTES}/A/Plan.md`,
+      `${NOTES}/B/Plan.md`,
+      `${NOTES}/Shopping.md`,
+    ]);
+    const { container } = await mount();
+
+    fireEvent.click(tagRow(container, "plan"));
+    await settle();
+
+    expect(rowsUnderTag(container)).toEqual([["Plan", "A"], ["Plan", "B"], ["Shopping"]]);
+  });
+
+  it("lists the tagged files under the tag while the Files section is switched off", async () => {
+    h.notesDirs.set(NOTES, [file(`${NOTES}/Plan.md`), file(`${NOTES}/Shopping.md`)]);
+    mockedApi.noteAllTags.mockResolvedValue([{ tag: "plan", count: 1 }]);
+    mockedApi.notePathsForTag.mockResolvedValue([`${NOTES}/Plan.md`]);
+    const { container } = await mount();
+    configStore.setSidebarSectionHidden("folder", true);
+    await settle();
+
+    fireEvent.click(tagRow(container, "plan"));
+    await settle();
+
+    expect(container.querySelector(".files-section")).toBeNull();
+    expect(listedUnderTag(container)).toEqual(["Plan"]);
   });
 
   it("shows a failed tag read rather than hiding the section", async () => {

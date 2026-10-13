@@ -124,3 +124,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.tags-file-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  margin-left: var(--writ-space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}

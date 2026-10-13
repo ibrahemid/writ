@@ -43,7 +43,7 @@ Every verb and its exit codes are in [docs/cli-verbs.md](docs/cli-verbs.md).
 
 ## Build from source
 
-Prerequisites: Rust 1.89+, Node.js `^22.22.2 || ^24.15.0 || >=26`, pnpm 9+, and the [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/) for your OS.
+Prerequisites: [rustup](https://rustup.rs), which installs the Rust version `rust-toolchain.toml` pins, Node.js `^22.22.2 || ^24.15.0 || >=26`, pnpm 9+, and the [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/) for your OS.
 
 ```bash
 git clone https://github.com/ibrahemid/writ.git

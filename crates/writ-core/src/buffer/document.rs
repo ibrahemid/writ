@@ -32,7 +32,13 @@ pub struct BufferDocument {
     pub filename: String,
     /// Current lifecycle state.
     pub status: BufferStatus,
-    /// Detected or user-assigned language identifier (for example `rust`).
+    /// The language chosen for the buffer with Change Language (for example
+    /// `python`, or `plaintext` for plain text whatever the name says).
+    ///
+    /// `None` means nobody chose one, and the editor decides from the file's
+    /// name. Writ never writes a detected language here: the name is read
+    /// again every time, so a rename changes the language and a choice does
+    /// not go stale.
     pub language: Option<String>,
     /// Absolute path to the originating file, if the buffer mirrors one.
     pub source_path: Option<String>,

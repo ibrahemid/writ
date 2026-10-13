@@ -3,7 +3,7 @@
 //!
 //! Deleting the whole file is covered next door in `notes_index_tests`, and it
 //! is a different case: an absent database runs every migration on the way back
-//! up. Here the file is there, `schema_version` says 43, and the tables the
+//! up. Here the file is there, `schema_version` is current, and the tables the
 //! index derives are gone, which the version-gated runner recreates nothing
 //! for. What is tested is that the folder still answers the same afterwards.
 

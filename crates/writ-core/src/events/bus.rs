@@ -125,6 +125,11 @@ pub enum WritEvent {
         /// `command.id` registered in the frontend command palette.
         action: String,
     },
+    /// The list of programs waiting to be approved, `mcp-pending.json` in
+    /// Writ's data folder, changed on disk. A `writ mcp` process writes it the
+    /// moment a program nobody has decided on first calls. Carries nothing:
+    /// the host reads the file whole when it answers.
+    McpPendingChanged,
     /// The application is shutting down and the frontend may still be holding
     /// text inside the autosave debounce window. Listeners write everything
     /// pending and confirm; the shutdown path waits for that confirmation, but

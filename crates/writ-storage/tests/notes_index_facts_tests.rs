@@ -499,3 +499,86 @@ fn removing_a_note_takes_its_derived_rows_with_it() {
     walk(&conn, &notes);
     assert_eq!(counts(&conn), (0, 0, 0, 0));
 }
+
+/// A `.txt` file is plain text (ADR-041 §2): it is searchable and openable,
+/// and nothing in it is read as a link, a tag, a heading or a property.
+#[test]
+fn a_txt_file_adds_no_tags_links_headings_or_properties() {
+    let (_dir, conn, notes) = fixture();
+    let plain = write_note(
+        &notes,
+        "list.txt",
+        "---\ntitle: List\n---\n# Groceries\n\n#include <stdio.h> and #shopping [[Plan]]\n",
+    );
+    let plan = write_note(&notes, "Plan.md", "the plan\n");
+    walk(&conn, &notes);
+
+    let index = NotesIndex::new(&conn);
+    let facts = index.facts(&notes_index::index_key(&plain)).expect("facts");
+    assert!(facts.links.is_empty(), "{:?}", facts.links);
+    assert!(facts.tags.is_empty(), "{:?}", facts.tags);
+    assert!(facts.headings.is_empty(), "{:?}", facts.headings);
+    assert!(facts.properties.is_empty(), "{:?}", facts.properties);
+    assert!(index.all_tags().expect("tags").is_empty());
+    assert!(index
+        .backlinks(&notes_index::index_key(&plan))
+        .expect("backlinks")
+        .is_empty());
+
+    let query = writ_core::search::to_prefix_match("groceries").expect("query");
+    let hits = index
+        .search_hits(&query, &writ_core::search::search_terms("groceries"), 10)
+        .expect("search");
+    assert_eq!(
+        hits.into_iter()
+            .filter_map(|hit| hit.path)
+            .collect::<Vec<_>>(),
+        vec![notes_index::index_key(&plain)],
+        "a .txt file is still searchable"
+    );
+}
+
+/// The graph draws Markdown notes only: a `.txt` file is no node, and a link
+/// to one from a note is no edge.
+#[test]
+fn a_txt_file_is_no_graph_node() {
+    let (_dir, conn, notes) = fixture();
+    write_note(&notes, "list.txt", "[[Plan]] and [[Home]]\n");
+    write_note(&notes, "Plan.md", "see [[list.txt]] and [[Home]]\n");
+    write_note(&notes, "Home.md", "home\n");
+    walk(&conn, &notes);
+
+    let graph = NotesIndex::new(&conn).graph(&notes).expect("graph");
+    let names: Vec<&str> = graph.nodes.iter().map(|node| node.name.as_str()).collect();
+    assert_eq!(names, vec!["Home", "Plan"]);
+    assert_eq!(graph.edges.len(), 1, "{:?}", graph.edges);
+    assert!(graph.edges[0].from_path.ends_with("Plan.md"));
+    assert!(graph.edges[0].to_path.ends_with("Home.md"));
+}
+
+/// An index filled under the reading before this one holds facts read out of
+/// `.txt` files. The reading changed, so the next walk reads every file again
+/// and those rows go.
+#[test]
+fn facts_read_out_of_a_txt_file_under_an_older_reading_are_cleared() {
+    let (_dir, conn, notes) = fixture();
+    let plain = write_note(&notes, "list.txt", "#shopping\n");
+    walk(&conn, &notes);
+    let key = notes_index::index_key(&plain);
+
+    // What the previous reading left behind for this file.
+    conn.execute(
+        "INSERT INTO tags (path, tag, line) VALUES (?1, 'shopping', 1)",
+        [&key],
+    )
+    .expect("insert an old tag row");
+    schema_meta::set(&conn, schema_meta::KEY_NOTES_FACTS_READING, "2").expect("older reading");
+
+    walk(&conn, &notes);
+
+    assert!(NotesIndex::new(&conn)
+        .facts(&key)
+        .expect("facts")
+        .tags
+        .is_empty());
+}

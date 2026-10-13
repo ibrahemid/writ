@@ -6,7 +6,7 @@ import { NoteHistory, countUtf8Bytes, type WriteKind } from "./history";
 import { dedupeStem } from "./naming";
 import { NotesIndex } from "./notes-index";
 import { SEED_FILES, SEED_VERSIONS, VERSIONED_NOTE } from "./seed";
-import { NOTES_ROOT, VirtualFolder, basename, extension, stem } from "./vfs";
+import { NOTES_ROOT, VirtualFolder, basename, stem } from "./vfs";
 
 type Service = typeof import("../../src/services/tauri");
 /** What the app's wrapper for a command resolves to. */
@@ -44,14 +44,6 @@ export function refuseOnThrow<T>(body: () => T, describe: (error: unknown) => st
     return refuse(describe(error));
   }
 }
-
-export const LANGUAGES: Record<string, string> = {
-  md: "markdown",
-  markdown: "markdown",
-  txt: "plaintext",
-  text: "plaintext",
-  log: "plaintext",
-};
 
 export const stampNow = () => new Date().toISOString();
 
@@ -112,7 +104,7 @@ export class DemoState {
       title,
       filename: path ? basename(path) : `${title}.txt`,
       status: "active",
-      language: path ? (LANGUAGES[extension(path)] ?? null) : "plaintext",
+      language: null,
       source_path: path,
       cursor_pos: 0,
       scroll_pos: 0,

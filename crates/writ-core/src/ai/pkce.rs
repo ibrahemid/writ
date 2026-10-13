@@ -80,21 +80,36 @@ pub fn challenge_s256(verifier: &str) -> String {
 
 /// An opaque value for one flow, from random bytes. The callback must carry it
 /// back unchanged, which is what ties the request the listener accepts to the
-/// flow the user started.
+/// flow the user started. Base64url, so it sits in a URL path as it is.
 pub fn state_from_bytes(bytes: &[u8; 16]) -> String {
     base64url(bytes)
 }
+
+/// Where the browser is sent back to: the loopback port, with this flow's
+/// state as the last segment of the path.
+///
+/// OpenRouter's flow takes `callback_url`, `code_challenge` and
+/// `code_challenge_method` and appends `code` to the callback on the way back.
+/// A `state` parameter of its own comes back only when the user authorizes. A
+/// state carried in the callback URL itself comes back with the callback
+/// whatever the provider echoes, so the check never rests on an optional
+/// parameter.
+pub fn callback_url(port: u16, state: &str) -> String {
+    format!("http://127.0.0.1:{port}{CALLBACK_PREFIX}{state}")
+}
+
+/// The path every callback starts with; the state follows it.
+const CALLBACK_PREFIX: &str = "/callback/";
 
 /// The URL the user's browser is sent to.
 ///
 /// Every value is form-encoded through the `url` crate, so a callback URL
 /// carrying a port and a path survives the round trip intact.
-pub fn auth_url(callback_url: &str, challenge: &str, state: &str) -> String {
+pub fn auth_url(callback_url: &str, challenge: &str) -> String {
     let query = url::form_urlencoded::Serializer::new(String::new())
         .append_pair("callback_url", callback_url)
         .append_pair("code_challenge", challenge)
         .append_pair("code_challenge_method", "S256")
-        .append_pair("state", state)
         .finish();
     format!("{AUTH_URL}?{query}")
 }
@@ -104,7 +119,7 @@ pub fn auth_url(callback_url: &str, challenge: &str, state: &str) -> String {
 pub struct Callback {
     /// The authorization code, to be exchanged for a key.
     pub code: String,
-    /// The state the flow sent, as it came back.
+    /// The state the flow sent, as it came back in the path.
     pub state: String,
 }
 
@@ -119,11 +134,11 @@ pub enum CallbackError {
     Malformed,
     /// Something other than `GET`.
     NotGet,
-    /// A path other than `/callback`.
+    /// A path other than `/callback/<state>`.
     WrongPath,
     /// No `code` parameter.
     MissingCode,
-    /// No `state` parameter.
+    /// `/callback` with no state after it.
     MissingState,
 }
 
@@ -142,13 +157,38 @@ impl fmt::Display for CallbackError {
 
 impl std::error::Error for CallbackError {}
 
-/// Reads the first line of an HTTP request: `GET /callback?code=…&state=… HTTP/1.1`.
+/// Reads the first line of an HTTP request: `GET /callback/<state>?code=… HTTP/1.1`.
 ///
-/// Only a `GET` of `/callback` carrying both parameters is a callback. The
+/// Only a `GET` of `/callback/<state>` carrying a `code` is a callback. The
 /// method and the path are checked before the query, so a stray request from
 /// another program on the machine is rejected on its shape rather than on its
-/// contents.
+/// contents. A `state` query parameter is not read: the path is the one place
+/// the state travels.
 pub fn parse_callback(request_line: &str) -> Result<Callback, CallbackError> {
+    let (state, query) = callback_target(request_line)?;
+    let code = url::form_urlencoded::parse(query.as_bytes())
+        .find(|(key, value)| key == "code" && !value.is_empty())
+        .map(|(_, value)| value.into_owned())
+        .ok_or(CallbackError::MissingCode)?;
+
+    Ok(Callback {
+        code,
+        state: state.to_string(),
+    })
+}
+
+/// The state a callback carries in its path, whether or not it carries a code.
+///
+/// A browser sent back without a code, which is what a denial is, still names
+/// the flow it belongs to here, so the receiver can end that flow rather than
+/// wait out its deadline.
+pub fn callback_state(request_line: &str) -> Option<&str> {
+    callback_target(request_line).ok().map(|(state, _)| state)
+}
+
+/// The state in the path and the query after it, for a `GET` of
+/// `/callback/<state>`.
+fn callback_target(request_line: &str) -> Result<(&str, &str), CallbackError> {
     let mut parts = request_line.split_whitespace();
     let method = parts.next().ok_or(CallbackError::Malformed)?;
     let target = parts.next().ok_or(CallbackError::Malformed)?;
@@ -156,28 +196,15 @@ pub fn parse_callback(request_line: &str) -> Result<Callback, CallbackError> {
         return Err(CallbackError::NotGet);
     }
 
-    let (path, query) = match target.split_once('?') {
-        Some((path, query)) => (path, query),
-        None => (target, ""),
+    let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    let state = match path.strip_prefix(CALLBACK_PREFIX) {
+        Some("") => return Err(CallbackError::MissingState),
+        Some(state) if !state.contains('/') => state,
+        Some(_) => return Err(CallbackError::WrongPath),
+        None if path == "/callback" => return Err(CallbackError::MissingState),
+        None => return Err(CallbackError::WrongPath),
     };
-    if path != "/callback" {
-        return Err(CallbackError::WrongPath);
-    }
-
-    let mut code = None;
-    let mut state = None;
-    for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
-        match key.as_ref() {
-            "code" if !value.is_empty() => code = Some(value.into_owned()),
-            "state" if !value.is_empty() => state = Some(value.into_owned()),
-            _ => {}
-        }
-    }
-
-    Ok(Callback {
-        code: code.ok_or(CallbackError::MissingCode)?,
-        state: state.ok_or(CallbackError::MissingState)?,
-    })
+    Ok((state, query))
 }
 
 /// Whether the callback carried this flow's state, compared in constant time.
@@ -255,42 +282,83 @@ mod tests {
     }
 
     #[test]
-    fn the_auth_url_carries_the_four_parameters_encoded() {
+    fn the_auth_url_carries_the_three_parameters_encoded() {
         let url = auth_url(
-            "http://127.0.0.1:52341/callback",
+            &callback_url(52341, "abc-def"),
             "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
-            "abc+def",
         );
         assert!(url.starts_with("https://openrouter.ai/auth?"));
-        assert!(url.contains("callback_url=http%3A%2F%2F127.0.0.1%3A52341%2Fcallback"));
+        assert!(url.contains("callback_url=http%3A%2F%2F127.0.0.1%3A52341%2Fcallback%2Fabc-def"));
         assert!(url.contains("code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"));
         assert!(url.contains("code_challenge_method=S256"));
-        assert!(url.contains("state=abc%2Bdef"));
+        assert!(!url.contains("&state="), "{url}");
     }
 
     #[test]
-    fn a_good_request_line_reads_as_a_callback() {
-        let parsed = parse_callback("GET /callback?code=abc123&state=xyz HTTP/1.1").unwrap();
+    fn the_callback_url_carries_the_state_in_its_path() {
+        let state = state_from_bytes(&[0xFB; 16]);
+        let url = callback_url(52341, &state);
+        assert_eq!(url, format!("http://127.0.0.1:52341/callback/{state}"));
+        // What the browser asks for when it comes back is that path.
+        let line = format!("GET /callback/{state}?code=abc HTTP/1.1");
+        assert_eq!(parse_callback(&line).unwrap().state, state);
+    }
+
+    #[test]
+    fn a_state_carried_in_the_path_reads_as_the_callback() {
+        let parsed = parse_callback("GET /callback/st4te?code=abc123 HTTP/1.1").unwrap();
         assert_eq!(parsed.code, "abc123");
-        assert_eq!(parsed.state, "xyz");
+        assert_eq!(parsed.state, "st4te");
+    }
+
+    #[test]
+    fn a_state_query_parameter_is_not_where_the_state_is_read() {
+        let parsed = parse_callback("GET /callback/st4te?code=abc&state=other HTTP/1.1").unwrap();
+        assert_eq!(parsed.state, "st4te");
+        assert_eq!(
+            parse_callback("GET /callback?code=abc&state=st4te HTTP/1.1"),
+            Err(CallbackError::MissingState)
+        );
     }
 
     #[test]
     fn a_percent_encoded_code_comes_back_decoded() {
-        let parsed = parse_callback("GET /callback?code=a%2Fb&state=s HTTP/1.1").unwrap();
+        let parsed = parse_callback("GET /callback/s?code=a%2Fb HTTP/1.1").unwrap();
         assert_eq!(parsed.code, "a/b");
     }
 
     #[test]
     fn a_line_with_no_code_is_refused() {
         assert_eq!(
-            parse_callback("GET /callback?state=xyz HTTP/1.1"),
+            parse_callback("GET /callback/st4te?code= HTTP/1.1"),
             Err(CallbackError::MissingCode)
         );
         assert_eq!(
-            parse_callback("GET /callback HTTP/1.1"),
+            parse_callback("GET /callback/st4te HTTP/1.1"),
             Err(CallbackError::MissingCode)
         );
+    }
+
+    #[test]
+    fn a_return_without_a_code_still_names_its_flow() {
+        assert_eq!(
+            callback_state("GET /callback/st4te?error=access_denied HTTP/1.1"),
+            Some("st4te")
+        );
+        assert_eq!(
+            callback_state("GET /callback/st4te?code=abc HTTP/1.1"),
+            Some("st4te")
+        );
+        for line in [
+            "GET /callback?error=access_denied HTTP/1.1",
+            "GET /callback/?code=abc HTTP/1.1",
+            "GET /callback/st4te/more HTTP/1.1",
+            "POST /callback/st4te HTTP/1.1",
+            "GET /favicon.ico HTTP/1.1",
+            "",
+        ] {
+            assert_eq!(callback_state(line), None, "{line:?}");
+        }
     }
 
     #[test]
@@ -299,12 +367,16 @@ mod tests {
             parse_callback("GET /callback?code=abc HTTP/1.1"),
             Err(CallbackError::MissingState)
         );
+        assert_eq!(
+            parse_callback("GET /callback/?code=abc HTTP/1.1"),
+            Err(CallbackError::MissingState)
+        );
     }
 
     #[test]
     fn a_post_is_refused() {
         assert_eq!(
-            parse_callback("POST /callback?code=abc&state=xyz HTTP/1.1"),
+            parse_callback("POST /callback/st4te?code=abc HTTP/1.1"),
             Err(CallbackError::NotGet)
         );
     }
@@ -312,11 +384,19 @@ mod tests {
     #[test]
     fn another_path_is_refused() {
         assert_eq!(
-            parse_callback("GET /?code=abc&state=xyz HTTP/1.1"),
+            parse_callback("GET /?code=abc HTTP/1.1"),
             Err(CallbackError::WrongPath)
         );
         assert_eq!(
-            parse_callback("GET /callbackx?code=abc&state=xyz HTTP/1.1"),
+            parse_callback("GET /callbackx/st4te?code=abc HTTP/1.1"),
+            Err(CallbackError::WrongPath)
+        );
+        assert_eq!(
+            parse_callback("GET /callback/st4te/more?code=abc HTTP/1.1"),
+            Err(CallbackError::WrongPath)
+        );
+        assert_eq!(
+            parse_callback("GET /favicon.ico HTTP/1.1"),
             Err(CallbackError::WrongPath)
         );
     }

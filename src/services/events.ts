@@ -30,6 +30,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "preview:layout_changed": "writ://preview-layout-changed",
   "quit:flush": "writ://flush-before-quit",
   "activity:changed": "writ://activity",
+  "mcp:pending": "writ://mcp-pending",
   "titlebar:maximize-hit": "writ://titlebar-maximize-hit",
 };
 

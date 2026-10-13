@@ -179,6 +179,14 @@ where
     bus.emit(WritEvent::NotesIndexed { paths });
 }
 
+/// Whether a file Writ wrote at `path` has rows in the notes index: it is in
+/// the notes folder, under no name the walk of that folder skips
+/// ([`notes_index::notes_walk_skips`]).
+pub(crate) fn holds_own_write(state: &AppState, path: &Path) -> bool {
+    crate::commands::notes::path_is_inside_notes(state, &path.to_string_lossy())
+        && !notes_index::notes_walk_skips(&state.notes_root(), path)
+}
+
 /// Writes the rows of a copy Writ just wrote beside a file, and returns the
 /// path to announce it under ([`announce_indexed`]).
 ///
@@ -186,11 +194,11 @@ where
 /// it: Save a copy, Copy this version, the text the change bar sets aside, and
 /// the text a stopped save sets aside. Without this the copy stays out of
 /// search, the tags and the graph until the next walk. A copy outside the
-/// notes folder has no rows to write and returns `None`. A row that could not
-/// be written is logged and the copy still announced, so the tree lists what
-/// is on disk.
+/// notes folder, or under a name the walk of that folder skips, has no rows to
+/// write and returns `None`. A row that could not be written is logged and the
+/// copy still announced, so the tree lists what is on disk.
 pub fn index_copy(state: &AppState, path: &Path) -> Option<String> {
-    if !crate::commands::notes::path_is_inside_notes(state, &path.to_string_lossy()) {
+    if !holds_own_write(state, path) {
         return None;
     }
     if let Err(error) = state.notes_index.index_path(path) {

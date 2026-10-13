@@ -646,6 +646,54 @@ fn a_copy_is_indexed_inside_the_notes_folder_and_nowhere_else() {
 }
 
 #[test]
+fn writs_own_writes_under_a_folder_the_walk_skips_leave_no_rows() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let root = state.notes_root();
+    let versions = root.join(".stversions");
+    std::fs::create_dir_all(&versions).expect("folder");
+    let old = versions.join("Plan~old.md");
+    std::fs::write(&old, "# Old plan\n\n#plan\n").expect("write");
+    std::fs::create_dir_all(root.join("vendor")).expect("folder");
+    let kept = root.join("vendor").join("Plan.md");
+    std::fs::write(&kept, "# Vendor plan\n\n#plan\n").expect("write");
+    state
+        .notes_index
+        .reconcile(&root, &|| false, &|_| false)
+        .expect("walk");
+    let kept = key(&kept.to_string_lossy());
+    let log = listen(&state);
+
+    let canonical = canonicalize_for_authorization(&old).expect("canonical");
+    state.authorized_paths.record_for_open(canonical.clone());
+    let id = open_file_from_path(&state, &canonical)
+        .expect("open")
+        .doc
+        .expect("a row")
+        .id;
+    save_buffer_content_inner(&state, &id, "# Old plan\n\n#plan\n\n## Later\n").expect("save");
+    reindex_settled_buffer(&state, &id);
+    let copy = versions.join("Plan~old (conflict 2026-10-13 06.36.31).md");
+    std::fs::write(&copy, "# Old plan\n\n#plan\n").expect("write");
+    assert_eq!(index_copy(&state, &copy), None);
+
+    assert_eq!(
+        state.notes_index.paths_for_tag("plan").expect("tag"),
+        vec![kept.clone()],
+        "a tag counts only files the notes tree shows"
+    );
+    assert!(
+        heard(&log).is_empty(),
+        "nothing the tree or the tags show changed: {:?}",
+        heard(&log)
+    );
+
+    rename_note_inner(&state, &id, "Plan~older").expect("rename");
+
+    assert_eq!(rows(&state), vec![kept]);
+}
+
+#[test]
 fn a_version_copy_is_indexed_and_announced() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);

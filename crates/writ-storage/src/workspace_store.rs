@@ -1,9 +1,8 @@
 use std::path::Path;
 
-use writ_core::workspace::{is_ignored_name, sort_entries, WorkspaceEntry};
+use writ_core::workspace::{is_ignored_name, is_notes_ignored_name, sort_entries, WorkspaceEntry};
 
 use crate::errors::{StorageError, StorageResult};
-use crate::notes_index;
 use crate::paths::strip_verbatim_prefix;
 
 /// Lists the immediate children of `dir` that are inside `workspace_root`.
@@ -23,21 +22,15 @@ pub fn list_dir(workspace_root: &Path, dir: &Path) -> StorageResult<Vec<Workspac
     list_entries(workspace_root, dir, is_ignored_name)
 }
 
-/// [`list_dir`] for `dir`, a folder inside the notes folder `notes_root`, for
-/// the tree the sidebar shows of it.
+/// [`list_dir`] for `dir`, a folder inside the notes folder `notes_root`.
 ///
 /// The boundary, the symlink rule, the order and the spelling of each path are
-/// [`list_dir`]'s. What it hides is decided by the notes index rather than by
-/// the names a code checkout hides: an entry is hidden when the index skips it
-/// by name, so every file the index holds is in the tree, and a tag naming a
-/// file filters the tree down to that file rather than to nothing.
+/// [`list_dir`]'s. What it leaves out is what the notes walk skips
+/// ([`is_notes_ignored_name`]) rather than what a code checkout hides, so a
+/// note under `vendor/` or `build/` is in the tree as it is in search and
+/// backlinks (ADR-028 section 7).
 pub fn list_notes_dir(notes_root: &Path, dir: &Path) -> StorageResult<Vec<WorkspaceEntry>> {
-    list_entries(notes_root, dir, |name| {
-        // The index's rule is a question about the path of a note, so it is
-        // asked about a note inside the entry: the walk reads nothing inside
-        // an entry it skips.
-        !notes_index::names_a_note(notes_root, &notes_root.join(name).join("a.md"))
-    })
+    list_entries(notes_root, dir, is_notes_ignored_name)
 }
 
 /// The listing [`list_dir`] and [`list_notes_dir`] share, leaving out every
@@ -190,6 +183,46 @@ mod tests {
             "a copy is listed with the flag on it, never hidden"
         );
         assert_eq!(entries[0].conflict_copy, None);
+    }
+
+    #[test]
+    fn the_notes_folder_lists_what_the_walk_reads_and_a_code_workspace_does_not() {
+        let root = setup();
+        fs::create_dir(root.path().join("vendor")).unwrap();
+        fs::write(root.path().join("vendor").join("Acme.md"), "supplier").unwrap();
+        fs::create_dir(root.path().join("build")).unwrap();
+        fs::create_dir(root.path().join("node_modules")).unwrap();
+        fs::create_dir(root.path().join(".obsidian")).unwrap();
+        fs::create_dir(root.path().join(".git")).unwrap();
+        fs::write(root.path().join(".DS_Store"), "").unwrap();
+        fs::write(root.path().join(".writ-tmp-a1b2"), "").unwrap();
+        fs::write(root.path().join("Home.md"), "see [[Acme]]").unwrap();
+
+        let names = |entries: Vec<WorkspaceEntry>| -> Vec<String> {
+            entries.into_iter().map(|e| e.name).collect()
+        };
+        assert_eq!(
+            names(list_notes_dir(root.path(), root.path()).unwrap()),
+            ["build", "node_modules", "vendor", "Home.md"]
+        );
+        assert_eq!(
+            names(list_notes_dir(root.path(), &root.path().join("vendor")).unwrap()),
+            ["Acme.md"]
+        );
+        assert_eq!(
+            names(list_dir(root.path(), root.path()).unwrap()),
+            ["Home.md"]
+        );
+    }
+
+    #[test]
+    fn the_notes_folder_listing_keeps_its_boundary() {
+        let root = setup();
+        let notes = root.path().join("notes");
+        fs::create_dir(&notes).unwrap();
+
+        assert!(list_notes_dir(&notes, root.path()).is_err());
+        assert!(list_notes_dir(&notes, &notes.join("..").join("..")).is_err());
     }
 
     #[test]

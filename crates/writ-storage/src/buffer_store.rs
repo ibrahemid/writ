@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use writ_core::file_ops::THRESHOLD_NORMAL_BYTES;
+use writ_core::file_ops::{FileOpenMode, THRESHOLD_NORMAL_BYTES};
 
 use rusqlite::Connection;
 use tracing::warn;
@@ -103,6 +103,12 @@ pub struct BufferStore {
     /// line and the MCP server write notes without writing any database of
     /// the app's (ADR-031, and §4's one-writer rule for each SQLite file).
     history: Option<Arc<NoteHistoryStore>>,
+    /// The notes index the app holds, which every write to the index goes
+    /// through (ADR-036 section 7).
+    ///
+    /// `None` in tests and tools that have no store: the index is then written
+    /// through this store's own connection.
+    notes_index: Option<Arc<notes_index::NotesIndexStore>>,
     last_snapshot_fingerprint: Option<SnapshotFingerprint>,
 }
 
@@ -114,6 +120,7 @@ impl BufferStore {
             buffers_dir,
             notes_root: None,
             history: None,
+            notes_index: None,
             last_snapshot_fingerprint: None,
         }
     }
@@ -134,6 +141,16 @@ impl BufferStore {
     /// it did before and keeps no versions.
     pub fn set_history(&mut self, history: Arc<NoteHistoryStore>) {
         self.history = Some(history);
+    }
+
+    /// Names the notes index the app holds, so a save's index write goes
+    /// through its one writer and keeps the names it holds in memory current.
+    ///
+    /// Set once, at startup, by the app. A save then holds the index's writer
+    /// for that one note, and a walk running at the time lets it in between
+    /// two files.
+    pub fn set_notes_index(&mut self, index: Arc<notes_index::NotesIndexStore>) {
+        self.notes_index = Some(index);
     }
 
     /// Returns the path to the retired mirror directory.
@@ -310,11 +327,12 @@ impl BufferStore {
     /// holds.
     ///
     /// A row is indexed when it has a file, that file is inside the notes
-    /// folder, it is not read-only, and it opens with the full feature set. A
-    /// read-only row is a hex view or a document Writ generated; a large or
-    /// binary file is not text to search. Nothing here is fatal to a save: the
-    /// bytes are already durable, and a file whose metadata cannot be read is
-    /// picked up by the next reconcile.
+    /// folder under no name the walk of that folder skips
+    /// ([`notes_index::notes_walk_skips`]), it is not read-only, and it opens
+    /// with the full feature set. A read-only row is a hex view or a document
+    /// Writ generated; a large or binary file is not text to search. Nothing
+    /// here is fatal to a save: the bytes are already durable, and a file whose
+    /// metadata cannot be read is picked up by the next reconcile.
     fn index_note(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
         if doc.read_only || doc.size_bytes > THRESHOLD_NORMAL_BYTES {
             return Ok(());
@@ -323,13 +341,24 @@ impl BufferStore {
             return Ok(());
         };
         let path = Path::new(source_path);
-        if !self.is_within_notes(path) {
+        if !self.holds_as_note(path) {
             return Ok(());
         }
         let Some(note) = notes_index::IndexedNote::from_file(path) else {
             return Ok(());
         };
-        notes_index::NotesIndex::new(&self.conn).upsert(&note, content)
+        match &self.notes_index {
+            Some(index) => index.upsert(&note, content),
+            None => notes_index::NotesIndex::new(&self.conn).upsert(&note, content),
+        }
+    }
+
+    fn holds_as_note(&self, path: &Path) -> bool {
+        self.is_within_notes(path)
+            && self
+                .notes_root
+                .as_deref()
+                .is_some_and(|root| !notes_index::notes_walk_skips(root, path))
     }
 
     /// Whether `path` is inside the folder the notes index holds. Both sides
@@ -371,11 +400,23 @@ impl BufferStore {
     /// the file on every read rather than stored anywhere. Bytes that sniff
     /// as text but are not valid UTF-8 fall back to a lossy decode rather
     /// than failing the read.
+    ///
+    /// The file is measured before anything reads it. A file can grow past
+    /// the size Writ opens after its open measured it, while its tab waits to
+    /// be shown or while it is open, and such a file answers
+    /// [`StorageError::FileTooLarge`] with the size a stat found, none of it
+    /// read (ADR-019).
     pub fn read_content(&self, id: &str) -> StorageResult<String> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let Some(source_path) = doc.source_path.as_deref() else {
             return Ok(String::new());
         };
+        let size_bytes = std::fs::metadata(source_path)?.len();
+        if let FileOpenMode::Refused { .. } =
+            writ_core::file_ops::classify_size(size_bytes, doc.read_only)
+        {
+            return Err(StorageError::FileTooLarge { size_bytes });
+        }
         if doc.read_only {
             let bytes = std::fs::read(source_path)?;
             if writ_core::file_ops::is_binary_bytes(&bytes) {
@@ -417,14 +458,14 @@ impl BufferStore {
     /// Records a note's new file and the name that matches it, in one write.
     ///
     /// A rename moves the file and the name the tab shows together, so the two
-    /// are written in one transaction alongside the index refresh: two writes
-    /// leave a window where the row names one file and points at another, and
-    /// a crash inside that window is a note nobody can find.
+    /// are written in one transaction: two writes leave a window where the row
+    /// names one file and points at another, and a crash inside that window is
+    /// a note nobody can find.
     ///
-    /// `source_path` is where the file is now, so the index is re-keyed to it:
-    /// the row under the old path goes, and the file is indexed under the new
-    /// one. Writ's own rename is stamped into the watcher's ignore set, so the
-    /// notes watcher will not do this for it.
+    /// `source_path` is where the file is now, so once that transaction commits
+    /// the index is re-keyed to it: the row under the old path goes, and the
+    /// file is indexed under the new one. Writ's own rename is stamped into the
+    /// watcher's ignore set, so the notes watcher will not do this for it.
     pub fn rename_to_file(&self, id: &str, source_path: &str, title: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let old_path = doc.source_path.clone();
@@ -442,7 +483,11 @@ impl BufferStore {
         if let Some(old_path) = old_path {
             let old = Path::new(&old_path);
             if self.is_within_notes(old) {
-                notes_index::NotesIndex::new(&self.conn).remove(&notes_index::index_key(old))?;
+                match &self.notes_index {
+                    Some(index) => index.forget_path(old)?,
+                    None => notes_index::NotesIndex::new(&self.conn)
+                        .remove(&notes_index::index_key(old))?,
+                }
             }
         }
         self.index_note(&renamed, &content)
@@ -798,7 +843,15 @@ impl BufferStore {
         queries::update_line_ending(&self.conn, id, ending)
     }
 
-    /// Updates the detected or user-assigned language for a buffer.
+    /// Records the size a stat measured for a buffer's file, so everything
+    /// that reads its tier off the row (the editor, the crash snapshot, the
+    /// index) sees the file as it is now. Leaves `updated_at` alone.
+    pub fn record_size(&self, id: &str, size_bytes: u64) -> StorageResult<()> {
+        queries::update_size(&self.conn, id, size_bytes)
+    }
+
+    /// Records the language chosen for a buffer, or clears the choice with
+    /// `None`. Leaves `updated_at` alone.
     pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {
         queries::update_language(&self.conn, id, language)
     }

@@ -223,13 +223,13 @@ impl NoteHost for NoteHostImpl<'_> {
         self.permit(Capability::ListNotes)?;
 
         let mut notes = Vec::new();
-        for entry in crate::workspace_search::build_walk(&self.notes_root).build() {
+        for entry in notes_index::build_notes_walk(&self.notes_root).build() {
             let Ok(entry) = entry else { continue };
             if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                 continue;
             }
             let path = entry.path();
-            if writ_core::workspace::path_has_ignored_name(&self.notes_root, path) {
+            if writ_core::workspace::path_has_notes_ignored_name(&self.notes_root, path) {
                 continue;
             }
             if !writ_core::notes::extensions::has_text_extension(path) {

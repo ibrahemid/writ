@@ -1,7 +1,7 @@
 ---
 import Prose from '../../layouts/Prose.astro';
 ---
-<Prose title="Connect a program to your folder with MCP" description="Switch on Connected programs, paste one command into Claude Code or another MCP client, approve what the program may do, and see every call it made." path="/guides/agent-output/" lead="Connected programs is an MCP server in Writ. A program you connect can search and read the files in Writ's folder and, if you allow it, write them.">
+<Prose title="Connect a program to your folder with MCP" description="Switch on Connected programs, paste one command into Claude Code or another MCP client, approve what the program may do, and see every call it made." path="/guides/agent-output/" lead="Connected programs is an MCP server in Writ. Claude Code, Cursor or another program you connect can search and read the files in Writ's folder and, if you allow it, write them.">
   <h2>1. Switch the app on</h2>
   <p>Settings, Apps, Connected programs. This starts nothing by itself: the program you connect launches the server when it needs it, over its own input and output. Writ opens no port.</p>
   <h2>2. Give the program the command</h2>
@@ -18,11 +18,12 @@ import Prose from '../../layouts/Prose.astro';
 }`}</code></pre>
   <p>On Windows and Linux the path is the one Settings shows for your install.</p>
   <h2>3. Approve the first call</h2>
-  <p>The first call from a program is refused and shows up under Programs you approved, waiting. Approve reading, and separately writing, for that program. Take either away in the same list, or by editing <code>config.toml</code>; the change applies on the next call.</p>
+  <p>A program's first call waits for you, and the program is told where to look: Settings, Apps, Connected programs, Waiting for you. If Writ is open when it asks, a notice names the program, and the toolbar's programs mark carries a dot while one waits. Choose Approve reading, Approve reading and writing, or Don't allow.</p>
+  <p>A program you don't allow is turned down on every call without waiting again, and stays under Programs with reading and writing off. Switch either on there, or Forget the program so its next call waits again. A change there or in <code>config.toml</code> applies on the next call.</p>
   <h2>4. What it can do</h2>
   <p>With reading approved: list the text files in the folder, search, read a file, and read a file's links, backlinks, properties and tags. With writing approved: write, create and rename a file. No tool deletes one. A write is checked against the version the program read, so a write over a newer file is refused and the program's text lands beside the file as a conflict copy. A file the program has not read is not written unless it asks to overwrite it. Writ keeps the text every write replaces, and Revert To, in the File menu, puts it back. Nothing outside Writ's folder is reachable.</p>
   <h2>5. See what it did</h2>
-  <p>Recent activity, under the same app, lists every call: the program, the tool, the file, and whether it was allowed, refused or left waiting. The list holds no file text and stays in Writ's data folder on your machine.</p>
+  <p>Program activity, in the View menu and on the toolbar, lists every call: the program, what it asked for, the file, and whether it was allowed, not allowed or left waiting. Repeated reads of one file share a line with a count. The list holds no file text and stays in Writ's data folder on your machine.</p>
   <h2>Output that arrives as files</h2>
   <p>If a script writes files rather than calling tools, Settings, Advanced, Folder to watch for new files opens each file as it lands and brings the window forward. Have the program write there, or pipe its output in:</p>
   <pre><code>make test 2>&1 | writ --title tests</code></pre>

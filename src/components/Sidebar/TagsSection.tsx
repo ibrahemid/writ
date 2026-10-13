@@ -6,6 +6,7 @@ import { buildTagTree, type TagNode } from "../../lib/tag-tree";
 import { moveTreeFocus } from "../../lib/tree-focus";
 import { displayFileName } from "../../lib/display-name";
 import { basename } from "../../lib/path";
+import { foldersForSharedNames } from "../../lib/shared-names";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
 import SidebarSection from "./SidebarSection";
@@ -35,11 +36,12 @@ interface TaggedFilesProps {
 /**
  * The files one tag names, listed under its row when no tree on screen holds
  * them: a folder opened by hand is shown in place of the notes folder, or the
- * Files section is switched off (NV-02). Each row opens its file.
+ * Files section is switched off or folded (NV-02). Each row opens its file.
  */
 function TaggedFiles(props: TaggedFilesProps) {
   const win = useWindow();
   const paths = () => indexCacheStore.pathsForTag(props.tag)();
+  const folders = createMemo(() => foldersForSharedNames(paths()));
   const failure = () => indexCacheStore.tagPathsError(props.tag)();
   const settled = () => indexCacheStore.tagPathsSettled(props.tag)();
   const paddingLeft = () => `${BASE_INDENT + props.level * INDENT_PER_LEVEL}px`;
@@ -99,6 +101,9 @@ function TaggedFiles(props: TaggedFilesProps) {
             <Tooltip label={path} requiresTruncation>
               <span class="tags-file-name">{displayFileName(basename(path))}</span>
             </Tooltip>
+            <Show when={folders().get(path)}>
+              {(folder) => <span class="tags-file-folder">{folder()}</span>}
+            </Show>
           </div>
         )}
       </For>

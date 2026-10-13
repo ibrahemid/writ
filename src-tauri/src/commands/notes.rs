@@ -27,7 +27,7 @@ use writ_storage::notes_move;
 use writ_storage::workspace_store;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
-use crate::commands::note_index::{announce_indexed, announce_walk, index_copy};
+use crate::commands::note_index::{announce_indexed, announce_walk, holds_own_write, index_copy};
 use crate::security::{canonicalize_for_authorization, resolve_for_containment};
 use crate::state::{AppState, NotesRootFallback};
 
@@ -150,12 +150,19 @@ fn dated_name_candidates(now: DateTime<Utc>, configured: FileExtension) -> [Stri
     ]
 }
 
-/// The note today's date names, and whether this call is what made it.
-pub struct DatedNote {
-    /// The note, or `None` when the file is there and its bytes are not.
-    pub doc: Option<BufferDocument>,
-    /// Whether the file was created here rather than found.
-    pub minted: bool,
+/// What Today's File answers: the dated file's path, and what opening it came
+/// to, as any open answers.
+///
+/// A file over the size Writ opens without asking is a question the frontend
+/// asks before the confirmed open reads it, one over the size Writ opens is a
+/// refusal, and one whose bytes are elsewhere is downloaded first. A file a
+/// tab already shows answers that tab.
+#[derive(Debug, Clone, Serialize)]
+pub struct TodaysFile {
+    /// The dated file, found or made.
+    pub path: String,
+    /// The open's answer.
+    pub opened: crate::commands::file::FileOpenResult,
 }
 
 /// Opens `<notes>/<YYYY-MM-DD>.<ext>`, creating it only when it is not there
@@ -169,18 +176,15 @@ pub struct DatedNote {
 /// rewritten and a note already in a tab keeps that tab; the mint goes through
 /// [`create_note_at`], so the guard and the index see the file the same way
 /// they see every other new note.
-pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<DatedNote, String> {
+pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFile, String> {
     let root = state.notes_root();
     let names = dated_name_candidates(now, state.default_extension());
     for name in &names {
         let path = root.join(name);
         if path.is_file() {
-            let opened =
-                crate::commands::file::open_file_from_path(state, &path.to_string_lossy())?;
-            return Ok(DatedNote {
-                doc: opened.doc,
-                minted: false,
-            });
+            let path = path.to_string_lossy().into_owned();
+            let opened = crate::commands::file::open_file_from_path(state, &path)?;
+            return Ok(TodaysFile { path, opened });
         }
     }
     // The name about to be minted is already on something that is not a note
@@ -194,21 +198,21 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<D
         return Err(name_is_taken(&names[0]));
     }
     let doc = new_dated_note_inner(state, now)?;
-    Ok(DatedNote {
+    let path = doc
+        .source_path
+        .clone()
+        .unwrap_or_else(|| minting.to_string_lossy().into_owned());
+    let opened = crate::commands::file::FileOpenResult {
+        mode: writ_core::file_ops::classify_file(doc.size_bytes, doc.read_only),
+        size_bytes: doc.size_bytes,
         doc: Some(doc),
-        minted: true,
-    })
+    };
+    Ok(TodaysFile { path, opened })
 }
 
-/// What today's note is answered with when its file is here and its text is
-/// still with the sync provider.
-const NOTE_IS_NOT_HERE_YET: &str = "That file is still being downloaded.";
-
 /// [`open_or_mint_dated_note`] for the menu item and the command that share it.
-pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<BufferDocument, String> {
-    open_or_mint_dated_note(state, now)?
-        .doc
-        .ok_or_else(|| NOTE_IS_NOT_HERE_YET.to_string())
+pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFile, String> {
+    open_or_mint_dated_note(state, now)
 }
 
 /// Starts watching a freshly minted note, so its first line can be answered
@@ -324,10 +328,12 @@ fn create_note_at_in(
     // after the lock on the note rows has gone, and announced for the same
     // reason: nothing else tells the sidebar the file exists.
     drop(store);
-    if let Err(error) = state.notes_index.index_path(&path) {
-        warn!(path = %path.display(), %error, "a new note could not be indexed");
+    if holds_own_write(state, &path) {
+        if let Err(error) = state.notes_index.index_path(&path) {
+            warn!(path = %path.display(), %error, "a new note could not be indexed");
+        }
+        announce_indexed(&state.event_bus, [notes_index::index_key(&path)]);
     }
-    announce_indexed(&state.event_bus, [notes_index::index_key(&path)]);
     Ok(doc)
 }
 
@@ -339,7 +345,7 @@ pub fn new_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
 
 /// IPC: [`todays_note_inner`].
 #[tauri::command]
-pub fn todays_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
+pub fn todays_note(state: State<'_, AppState>) -> Result<TodaysFile, String> {
     todays_note_inner(&state, Utc::now())
 }
 
@@ -839,6 +845,10 @@ fn recorded_disk_state(state: &AppState, path: &Path) -> Option<DiskState> {
 /// cannot be written is logged and not fatal — a rename that landed on disk is
 /// not undone because an index lagged.
 ///
+/// A walk under way keeps running. The index records these writes, and the
+/// walk leaves alone every path written after it looked (ADR-036 section 7),
+/// so retiring it would only leave the rest of the folder unread.
+///
 /// The rename and every note it rewrote are then announced as one event, the
 /// old name first: however many links it carried, a rename is one change to
 /// what the graph, the backlinks and the tags show.
@@ -851,11 +861,13 @@ fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[Str
         }
     }
     for path in std::iter::once(path_text(to)).chain(updated.iter().cloned()) {
+        if !holds_own_write(state, Path::new(&path)) {
+            continue;
+        }
         if let Err(error) = index.index_path(Path::new(&path)) {
             warn!(path = %path, error = %error, "the notes index was not updated after a rename");
         }
     }
-    index.bump_generation();
     announce_indexed(
         &state.event_bus,
         std::iter::once(from_key)
@@ -1274,7 +1286,7 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Brings the notes index and the notes watcher to the folder Writ now uses.
+/// Brings the notes index and the watchers to the folder Writ now uses.
 ///
 /// Nothing here can fail the move: the files are already in their new home, so
 /// a failure is logged and left to the walk this spawns. The order matters.
@@ -1312,6 +1324,7 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
         }
         Err(e) => warn!(error = %e, "notes watcher could not follow the folder"),
     }
+    crate::commands::workspace::rewatch_workspace(state);
 
     let index = state.notes_index.clone();
     let cancel = state.notes_index_cancel.clone();

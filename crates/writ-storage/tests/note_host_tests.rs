@@ -261,6 +261,38 @@ fn list_notes_answers_in_path_order_and_stops_at_the_limit() {
     assert_eq!(scoped[0].name, "Writ");
 }
 
+/// The listing walks the notes folder the way the index does: a note under
+/// `vendor`, `build`, `coverage` or `node_modules`, or one a `.gitignore`
+/// names, is listed, and what git, another note app, a sync client or a save
+/// in flight keeps for itself is not (ADR-028 section 7).
+#[test]
+fn list_notes_lists_every_note_the_index_walks_and_nothing_another_tool_keeps() {
+    let fixture = fixture();
+    for name in [
+        "Home.md",
+        "vendor/Acme.md",
+        "build/Plan.md",
+        "coverage/Report.md",
+        "node_modules/Readme.md",
+        "scratch/Idea.md",
+        ".git/Head.md",
+        ".obsidian/Workspace.md",
+        ".trash/Old.md",
+        ".stfolder/Marker.md",
+        ".stversions/Plan.md",
+        ".writ-tmp-a1b2c3.md",
+    ] {
+        write_note(&fixture, name, "a note\n");
+    }
+    write_note(&fixture, ".gitignore", "scratch/\nvendor/\nbuild/\n*.md\n");
+    let host = host(&fixture, &[Capability::ListNotes]);
+
+    let listed = host.list_notes(None, 50).expect("list");
+
+    let names: Vec<&str> = listed.iter().map(|note| note.name.as_str()).collect();
+    assert_eq!(names, ["Home", "Plan", "Report", "Readme", "Idea", "Acme"]);
+}
+
 #[test]
 fn read_note_answers_with_the_text_the_file_holds_and_its_hash() {
     let fixture = fixture();

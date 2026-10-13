@@ -30,8 +30,12 @@ use crate::schema_meta;
 use rusqlite::Connection;
 use tracing::{info, warn};
 
-/// The four derived tables and their indexes, the DDL migration 40 applies.
-const DERIVED_DDL: &str = include_str!("notes_index_derived.sql");
+/// The four derived tables and their indexes: the DDL migration 40 applies,
+/// then the column and index migration 45 adds to `links`.
+const DERIVED_DDL: &str = concat!(
+    include_str!("notes_index_derived.sql"),
+    include_str!("../../migrations/045_links_name_key.sql"),
+);
 
 /// The key/value table the census is written to, the DDL migration 40 applies.
 const SCHEMA_META_DDL: &str = include_str!("schema_meta.sql");
@@ -52,6 +56,7 @@ pub const DERIVED_OBJECTS: &[&str] = &[
     "headings",
     "idx_links_from",
     "idx_links_to",
+    "idx_links_name_key",
     "idx_properties_path",
     "idx_properties_key",
     "idx_tags_path",
@@ -206,7 +211,7 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
 }
 
 /// Whether `name` is a table, virtual table or index the database holds.
-fn object_exists(conn: &Connection, name: &str) -> StorageResult<bool> {
+pub(crate) fn object_exists(conn: &Connection, name: &str) -> StorageResult<bool> {
     let count: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE name = ?1",
         [name],

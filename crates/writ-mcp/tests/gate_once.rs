@@ -5,17 +5,17 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use tempfile::TempDir;
-use writ_mcp::consent::{ClientId, ConsentGate, Decision};
+use writ_mcp::consent::{ClientId, ConsentGate, Verdict};
 use writ_mcp::tools::{FixedAppFolder, ToolError, ToolHost};
 
 /// A gate that remembers every question it was asked.
 struct CountingGate {
     asked: Mutex<Vec<String>>,
-    verdict: Decision,
+    verdict: Verdict,
 }
 
 impl CountingGate {
-    fn new(verdict: Decision) -> Self {
+    fn new(verdict: Verdict) -> Self {
         Self {
             asked: Mutex::new(Vec::new()),
             verdict,
@@ -24,7 +24,7 @@ impl CountingGate {
 }
 
 impl ConsentGate for CountingGate {
-    fn decide(&self, _client: &ClientId, tool: &str) -> Decision {
+    fn decide(&self, _client: &ClientId, tool: &str) -> Verdict {
         self.asked.lock().expect("lock").push(tool.to_string());
         self.verdict
     }
@@ -64,11 +64,11 @@ fn each_tool_call_asks_the_gate_once() {
 
     // The gate is boxed into the host, so the count is read through a leaked
     // reference to the same object.
-    let gate = Box::leak(Box::new(CountingGate::new(Decision::Allow)));
+    let gate = Box::leak(Box::new(CountingGate::new(Verdict::Allow)));
     let counted: &'static CountingGate = gate;
     struct Forwarding(&'static CountingGate);
     impl ConsentGate for Forwarding {
-        fn decide(&self, client: &ClientId, tool: &str) -> Decision {
+        fn decide(&self, client: &ClientId, tool: &str) -> Verdict {
             self.0.decide(client, tool)
         }
     }
@@ -107,46 +107,64 @@ fn each_tool_call_asks_the_gate_once() {
     );
 }
 
-/// A refusal ends the call before the host: nothing is read and nothing lands.
+/// A refusal ends the call before the host: nothing is read and nothing lands,
+/// whichever reason the gate gave.
 #[test]
 fn a_refusal_reaches_no_host_call() {
-    let fixture = fixture();
-    let note = fixture.notes.join("Launch.md");
-    std::fs::write(&note, "before\n").expect("seed");
+    for (verdict, refused) in [
+        (Verdict::Off, "NotEnabled"),
+        (Verdict::Unnamed, "Unnamed"),
+        (Verdict::Waiting, "NotApproved"),
+        (Verdict::NotGranted, "NotAllowed"),
+    ] {
+        let fixture = fixture();
+        let note = fixture.notes.join("Launch.md");
+        std::fs::write(&note, "before\n").expect("seed");
 
-    let host = ToolHost::open(
-        &fixture.notes,
-        &fixture.db,
-        &fixture.writ,
-        Box::new(FixedAppFolder(fixture.notes.clone())),
-        Box::new(CountingGate::new(Decision::Refuse)),
-    )
-    .expect("host");
-    let client = client();
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(CountingGate::new(verdict)),
+        )
+        .expect("host");
+        let client = client();
 
-    assert!(matches!(
-        host.read_note(&client, "Launch.md").unwrap_err(),
-        ToolError::NotApproved { .. }
-    ));
-    assert!(matches!(
-        host.write_note(&client, "Launch.md", "after\n", None, false)
-            .unwrap_err(),
-        ToolError::NotApproved { .. }
-    ));
-    assert!(matches!(
-        host.create_note(&client, "Ship it", "body\n").unwrap_err(),
-        ToolError::NotApproved { .. }
-    ));
-    assert_eq!(
-        std::fs::read_to_string(&note).expect("read back"),
-        "before\n"
-    );
-    assert!(!fixture.notes.join("Ship it.md").exists());
-    assert!(!fixture.db.exists(), "a refused call opened no database");
-    assert!(
-        !fixture.writ.join("history.db").exists(),
-        "a refused write opened no version store"
-    );
+        let answers = [
+            host.read_note(&client, "Launch.md").map(|_| ()),
+            host.write_note(&client, "Launch.md", "after\n", None, false)
+                .map(|_| ()),
+            host.create_note(&client, "Ship it", "body\n").map(|_| ()),
+        ];
+        for answer in answers {
+            let error = answer.expect_err("refused");
+            assert!(
+                format!("{error:?}").starts_with(refused),
+                "{verdict:?} answered {error:?}"
+            );
+            assert!(
+                matches!(
+                    error,
+                    ToolError::NotEnabled
+                        | ToolError::Unnamed
+                        | ToolError::NotApproved { .. }
+                        | ToolError::NotAllowed { .. }
+                ),
+                "{error:?}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "before\n"
+        );
+        assert!(!fixture.notes.join("Ship it.md").exists());
+        assert!(!fixture.db.exists(), "a refused call opened no database");
+        assert!(
+            !fixture.writ.join("history.db").exists(),
+            "a refused write opened no version store"
+        );
+    }
 }
 
 /// An unparseable `expected_hash` on a path the folder does not hold: the
@@ -162,7 +180,7 @@ fn an_unparseable_hash_outranks_the_path_check() {
         &fixture.db,
         &fixture.writ,
         Box::new(FixedAppFolder(fixture.notes.clone())),
-        Box::new(CountingGate::new(Decision::Allow)),
+        Box::new(CountingGate::new(Verdict::Allow)),
     )
     .expect("host");
 

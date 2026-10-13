@@ -35,6 +35,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   configStore.setSidebarSectionHidden("folder", false);
+  configStore.setSidebarSectionCollapsed("folder", false);
 });
 
 describe("the sidebar's folder", () => {
@@ -71,9 +72,6 @@ describe("the sidebar's folder", () => {
 });
 
 describe("whether a tag filters the tree", () => {
-  // A folder opened by hand is listed by the rule for a code folder, which
-  // leaves out names the notes index reads, so even the notes folder opened by
-  // hand can miss a file a tag names.
   it("lists under the tag for the notes folder itself opened by hand", async () => {
     await folders("/Users/me/Writ", "/Users/me/Writ");
 
@@ -104,5 +102,15 @@ describe("whether a tag filters the tree", () => {
     configStore.setSidebarSectionHidden("folder", true);
 
     expect(sidebarFolderStore.showsNotes()).toBe(false);
+  });
+
+  it("lists under the tag while the Files section is folded, and filters once it opens", async () => {
+    await folders("/Users/me/Writ", null);
+
+    configStore.setSidebarSectionCollapsed("folder", true);
+    expect(sidebarFolderStore.showsNotes()).toBe(false);
+
+    configStore.setSidebarSectionCollapsed("folder", false);
+    expect(sidebarFolderStore.showsNotes()).toBe(true);
   });
 });

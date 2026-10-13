@@ -12,7 +12,9 @@
 //!
 //! Variants without a frontend mapping are intentionally dropped:
 //! [`WritEvent::HotkeyToggle`] and [`WritEvent::PluginEvent`] are
-//! domain-only signals with no current frontend consumer.
+//! domain-only signals with no current frontend consumer, and
+//! [`WritEvent::McpPendingChanged`] is answered by a subscriber of its own in
+//! `lib.rs`, which reads the waiting list with the app's state in hand.
 
 use std::sync::Arc;
 
@@ -121,7 +123,9 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             Some(WritFrontendEvent::InboxFileArrived { path: path.clone() })
         }
         WritEvent::FlushBeforeQuit => Some(WritFrontendEvent::FlushBeforeQuit {}),
-        WritEvent::HotkeyToggle | WritEvent::PluginEvent { .. } => None,
+        WritEvent::HotkeyToggle | WritEvent::PluginEvent { .. } | WritEvent::McpPendingChanged => {
+            None
+        }
     }
 }
 

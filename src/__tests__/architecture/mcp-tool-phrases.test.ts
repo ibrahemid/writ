@@ -3,14 +3,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   TOOL_PHRASES,
+  describeCall,
   describeReadTools,
   describeWriteTools,
-} from "../../components/SettingsModal/SettingsModal";
+} from "../../lib/tool-phrases";
 
-// The settings row says what a program may do in words the user did not have to
-// learn, so every tool the server registers has to be named here. A tool added
-// to the server and missing from the table fails this, rather than reaching the
-// user as a bare id.
+// The settings row says what a program may do, and the Activity list says what
+// it did, in words the user did not have to learn, so every tool the server
+// registers has to be named here. A tool added to the server and missing from
+// the tables fails this, rather than reaching the user as a bare id.
 
 const TOOLS_RS = readFileSync(resolve(process.cwd(), "crates/writ-core/src/tools.rs"), "utf8");
 
@@ -59,6 +60,14 @@ describe("the tool table names every tool the server registers", () => {
     expect(describeWriteTools(SERVER_WRITE)).toBe(
       "replace a file's text, make a new file, rename a file",
     );
+  });
+
+  it("names every call the server records in the Activity list", () => {
+    for (const id of [...SERVER_READ, ...SERVER_WRITE]) {
+      expect(describeCall(id, false, "allow"), `${id} has a call phrase`).not.toBe(
+        id.replace(/_/g, " "),
+      );
+    }
   });
 
   it("keeps a tool it cannot name, rather than dropping it", () => {

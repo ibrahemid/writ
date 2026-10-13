@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::path::Path;
 use std::time::{Instant, UNIX_EPOCH};
 
-use crate::commands::note_index::{announce_indexed, index_copy};
+use crate::commands::note_index::{announce_indexed, holds_own_write, index_copy};
 use crate::fts_scheduler::{PollOutcome, FTS_REINDEX_DEBOUNCE};
 use crate::poison::recover_poison;
 use crate::state::AppState;
@@ -193,17 +193,29 @@ pub fn read_failure_message(error: &StorageError) -> String {
 /// The stable code for a failed read.
 ///
 /// `InvalidData` is what `read_to_string` reports for bytes that are not
-/// UTF-8, and nothing else on the read path raises it.
+/// UTF-8, and nothing else on the read path raises it. A file past the size
+/// Writ opens carries the code an open of it answers with
+/// ([`writ_core::file_ops::ERR_OPEN_TOO_LARGE`]); the size the editor states
+/// is on the row, which [`read_buffer_content_inner`] records.
 pub fn read_failure_code(error: &StorageError) -> &'static str {
     match error {
-        StorageError::Io(io) => match io.kind() {
-            std::io::ErrorKind::InvalidData => ERR_READ_NOT_UTF8,
-            std::io::ErrorKind::PermissionDenied => ERR_READ_PERMISSION_DENIED,
-            std::io::ErrorKind::ResourceBusy => ERR_READ_FILE_IN_USE,
-            std::io::ErrorKind::NotFound => ERR_READ_FILE_MISSING,
-            std::io::ErrorKind::TimedOut => ERR_READ_TIMED_OUT,
-            _ => ERR_READ_FAILED,
-        },
+        StorageError::Io(io) => io_read_failure_code(io.kind()),
+        StorageError::FileTooLarge { .. } => writ_core::file_ops::ERR_OPEN_TOO_LARGE,
+        _ => ERR_READ_FAILED,
+    }
+}
+
+/// The stable code for a read the filesystem failed, by the kind of failure.
+///
+/// Shared by the editor's read and the open's: both read the same file, so a
+/// person is told the same thing about it from either.
+pub fn io_read_failure_code(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::InvalidData => ERR_READ_NOT_UTF8,
+        std::io::ErrorKind::PermissionDenied => ERR_READ_PERMISSION_DENIED,
+        std::io::ErrorKind::ResourceBusy => ERR_READ_FILE_IN_USE,
+        std::io::ErrorKind::NotFound => ERR_READ_FILE_MISSING,
+        std::io::ErrorKind::TimedOut => ERR_READ_TIMED_OUT,
         _ => ERR_READ_FAILED,
     }
 }
@@ -614,16 +626,17 @@ pub fn close_debounce_window(state: &AppState, id: &str, seen: u64) -> Option<u6
 /// Reindexes a buffer whose edits have settled: the step the deferred worker
 /// runs once its debounce window passes with no newer edit (ADR-020).
 ///
-/// A file in the notes folder is announced once its rows land
+/// A file the notes index holds is announced once its rows land
 /// ([`announce_indexed`]): the watcher drops the save, so this is how the
-/// outline, the tags and the graph hear of it. A file anywhere else has no
-/// rows to change and is not announced.
+/// outline, the tags and the graph hear of it. A file anywhere else, or under
+/// a name the walk of the notes folder skips, has no rows to change and is not
+/// announced.
 pub fn reindex_settled_buffer(state: &AppState, id: &str) {
     announce_indexed(&state.event_bus, reindex_buffer_now(state, id));
 }
 
 /// Reindexes a buffer's file, and returns the path to announce it under when
-/// the file is in the notes folder.
+/// the notes index holds the file.
 fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
     let indexed = match state.store.lock() {
         Ok(store) => match store.reindex_buffer(id) {
@@ -639,7 +652,7 @@ fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
         }
     };
     let path = indexed?;
-    crate::commands::notes::path_is_inside_notes(state, &path)
+    holds_own_write(state, Path::new(&path))
         .then(|| writ_storage::notes_index::index_key(Path::new(&path)))
 }
 
@@ -657,15 +670,29 @@ fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
 /// recorded.
 ///
 /// A note with no file yet has nothing on disk to record.
+///
+/// A file past the size Writ opens is measured and not read
+/// ([`BufferStore::read_content`]). The size found goes on the row: the
+/// editor states it from there, and the reads that pick files by the row's
+/// size (the heartbeat snapshot, the index) leave the file alone. The record
+/// of what the file held does not move, since nothing was read.
 pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
     let store = state
         .store
         .lock()
         .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?;
     let doc = store.get(id).map_err(|e| read_failure_message(&e))?;
-    let content = store
-        .read_content(id)
-        .map_err(|e| read_failure_message(&e))?;
+    let content = match store.read_content(id) {
+        Ok(content) => content,
+        Err(error) => {
+            if let StorageError::FileTooLarge { size_bytes } = error {
+                if let Err(e) = store.record_size(id, size_bytes) {
+                    tracing::debug!(buffer_id = %id, error = %e, "the measured size was not recorded");
+                }
+            }
+            return Err(read_failure_message(&error));
+        }
+    };
     if let Some(source_path) = doc.source_path.as_deref() {
         let path = Path::new(source_path);
         if doc.read_only {
@@ -1056,24 +1083,65 @@ pub fn record_unsaved_notes(
     Ok(())
 }
 
-/// IPC: the tabs the last session left open.
+/// IPC: [`list_active_buffers_inner`].
+#[tauri::command]
+pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
+    list_active_buffers_inner(&state)
+}
+
+/// The tabs the last session left open, each file measured before anything
+/// reads it.
+///
+/// A file can change size while Writ is closed, and the row is where the
+/// editor, the crash snapshot and the index read its tier from. Each file is
+/// measured with a stat, outside the store's lock and never with a read, and
+/// a size that moved is recorded on the row without the stamp a read leaves.
+/// A path with no file behind it is listed at no size, so nothing waits on the
+/// size it had and its read says at once what became of it. Its row keeps the
+/// size on record: a file that comes back large is still one the reads that
+/// pick files by the row's size leave alone.
 ///
 /// This is also where a restored tab starts being followed. A tab nobody has
 /// brought to the front is the one most likely to be sitting on a file that
 /// moved on, so waiting for the user to click it would leave the whole
 /// restored session unwatched.
-#[tauri::command]
-pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
-    let docs = {
+pub fn list_active_buffers_inner(state: &AppState) -> Result<Vec<BufferDocument>, String> {
+    let mut docs = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         store
             .list_by_status(BufferStatus::Active)
             .map_err(|e| e.to_string())?
     };
+    let mut moved: Vec<(String, u64)> = Vec::new();
+    for doc in docs.iter_mut().filter(|doc| doc.source_path.is_some()) {
+        match measured_size(doc) {
+            Some(size) if size != doc.size_bytes => {
+                doc.size_bytes = size;
+                moved.push((doc.id.clone(), size));
+            }
+            Some(_) => {}
+            None => doc.size_bytes = 0,
+        }
+    }
+    if !moved.is_empty() {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        for (id, size) in moved {
+            if let Err(e) = store.record_size(&id, size) {
+                tracing::debug!(buffer_id = %id, error = %e, "the measured size was not recorded");
+            }
+        }
+    }
     for doc in &docs {
         state.follow_note_file(doc);
     }
     Ok(docs)
+}
+
+/// The size of the file behind `doc`, from a stat: `None` for a note with no
+/// file, and for a path that holds no file.
+pub(crate) fn measured_size(doc: &BufferDocument) -> Option<u64> {
+    let meta = std::fs::metadata(doc.source_path.as_deref()?).ok()?;
+    meta.is_file().then_some(meta.len())
 }
 
 /// Drops the stamp the note's last save left, so a stamp cannot outlive the
@@ -1179,6 +1247,30 @@ pub fn rename_buffer(state: State<'_, AppState>, id: String, title: String) -> R
     store.rename(&id, &title).map_err(|e| e.to_string())
 }
 
+/// Records the language chosen for a buffer with Change Language, or clears
+/// the choice with `None`, and answers the buffer as it now stands.
+pub fn set_buffer_language_inner(
+    state: &AppState,
+    id: &str,
+    language: Option<&str>,
+) -> Result<BufferDocument, String> {
+    writ_core::buffer::language::validate_language_choice(language).map_err(|e| e.to_string())?;
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store
+        .update_language(id, language)
+        .map_err(|e| e.to_string())?;
+    store.get(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_buffer_language(
+    state: State<'_, AppState>,
+    id: String,
+    language: Option<String>,
+) -> Result<BufferDocument, String> {
+    set_buffer_language_inner(&state, &id, language.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1199,6 +1291,12 @@ mod tests {
             (io(ErrorKind::NotFound), ERR_READ_FILE_MISSING),
             (io(ErrorKind::TimedOut), ERR_READ_TIMED_OUT),
             (io(ErrorKind::Interrupted), ERR_READ_FAILED),
+            (
+                StorageError::FileTooLarge {
+                    size_bytes: 600_000_000,
+                },
+                writ_core::file_ops::ERR_OPEN_TOO_LARGE,
+            ),
             (
                 StorageError::Consistency {
                     message: "row and disk disagree".to_string(),

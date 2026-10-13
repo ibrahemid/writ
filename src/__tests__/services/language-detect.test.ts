@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { detectLanguage, detectFromContent, MAX_DETECT_BYTES } from "../../services/language-detect";
+import {
+  detectLanguage,
+  detectFromContent,
+  extensionOf,
+  namesPlainText,
+  textMayNameLanguage,
+  MAX_DETECT_BYTES,
+} from "../../services/language-detect";
 
 describe("detectLanguage", () => {
   describe("extension-based detection", () => {
@@ -7,7 +14,7 @@ describe("detectLanguage", () => {
       ["file.js", "javascript"],
       ["file.jsx", "javascript"],
       ["file.ts", "typescript"],
-      ["file.tsx", "typescript"],
+      ["file.tsx", "tsx"],
       ["file.py", "python"],
       ["file.rb", "ruby"],
       ["file.rs", "rust"],
@@ -23,6 +30,7 @@ describe("detectLanguage", () => {
       ["file.sql", "sql"],
       ["file.sh", "shell"],
       ["file.bash", "shell"],
+      ["file.zsh", "shell"],
       ["file.toml", "toml"],
       ["file.xml", "xml"],
     ])("detects %s as %s", (filename, expected) => {
@@ -67,20 +75,38 @@ describe("detectLanguage", () => {
     });
   });
 
-  describe("code fence detection", () => {
-    it("detects language from first code fence", () => {
+  // ADR-041 §2: a .txt file gets the plain editor. A fence's info string names
+  // the language of the fence, never of the file around it.
+  describe("a fence never names the file's language", () => {
+    it("keeps a .txt holding a python fence plain", () => {
+      const content = "Groceries\n\n```python\nprint('hi')\n```\n";
+      expect(detectLanguage(content, "list.txt")).toBeNull();
+    });
+
+    it("keeps a file whose extension the map does not know plain", () => {
       const content = "# Readme\n\n```typescript\nconst x = 1;\n```";
-      expect(detectLanguage(content)).toBe("typescript");
+      expect(detectLanguage(content, "server.log")).toBeNull();
     });
 
-    it("lowercases the fence language", () => {
-      const content = "```JavaScript\ncode\n```";
-      expect(detectLanguage(content)).toBe("javascript");
+    it("keeps a name with no extension plain when only a fence speaks", () => {
+      expect(detectLanguage("intro\n```js\nlet a = 1\n```\n", "README")).toBeNull();
+      expect(detectLanguage("```JavaScript\ncode\n```")).toBeNull();
     });
 
-    it("ignores fences without a language tag", () => {
-      const content = "```\nplain code\n```";
-      expect(detectLanguage(content)).toBeNull();
+    it("leaves an unlabelled fence plain too", () => {
+      expect(detectLanguage("```\nplain code\n```", "notes.txt")).toBeNull();
+    });
+  });
+
+  describe("a name that spells a format decides", () => {
+    it("keeps a .txt plain whatever its first line says", () => {
+      expect(detectLanguage("#!/bin/bash\necho hi\n", "script.txt")).toBeNull();
+      expect(detectLanguage("#!/usr/bin/python3\nprint(1)\n", "notes.TEXT")).toBeNull();
+    });
+
+    it("reads a shebang only when the name has no extension", () => {
+      expect(detectLanguage("#!/bin/bash\necho hi\n", "deploy")).toBe("shell");
+      expect(detectLanguage("#!/bin/bash\necho hi\n", "deploy.cgi")).toBeNull();
     });
   });
 
@@ -195,5 +221,50 @@ describe("detectFromContent", () => {
       expect(tailOnly.length).toBeGreaterThan(MAX_DETECT_BYTES);
       expect(detectFromContent(tailOnly)).toBeNull();
     });
+  });
+});
+
+describe("extensionOf", () => {
+  it("answers the last extension, lower case", () => {
+    expect(extensionOf("Main.RS")).toBe("rs");
+    expect(extensionOf("archive.tar.GZ")).toBe("gz");
+  });
+
+  it("reads only the last part of a path", () => {
+    expect(extensionOf("/Users/me/notes.d/README")).toBeNull();
+    expect(extensionOf("C:\\Users\\me\\build.d\\deploy")).toBeNull();
+    expect(extensionOf("C:\\Users\\me\\deploy.yaml")).toBe("yaml");
+  });
+
+  it("gives a leading dot no extension", () => {
+    expect(extensionOf(".bashrc")).toBeNull();
+    expect(extensionOf(".bashrc.sh")).toBe("sh");
+  });
+
+  it("gives a trailing dot no extension", () => {
+    expect(extensionOf("notes.")).toBeNull();
+  });
+});
+
+describe("namesPlainText", () => {
+  it("is true for .txt and .text in any case", () => {
+    expect(namesPlainText("list.txt")).toBe(true);
+    expect(namesPlainText("notes.TEXT")).toBe(true);
+  });
+
+  it("is false for any other name", () => {
+    expect(namesPlainText("server.log")).toBe(false);
+    expect(namesPlainText("txt")).toBe(false);
+    expect(namesPlainText("main.rs")).toBe(false);
+  });
+});
+
+describe("textMayNameLanguage", () => {
+  it("lets the text speak only for a name with no extension", () => {
+    expect(textMayNameLanguage("deploy")).toBe(true);
+    expect(textMayNameLanguage(undefined)).toBe(true);
+    expect(textMayNameLanguage("")).toBe(true);
+    expect(textMayNameLanguage("list.txt")).toBe(false);
+    expect(textMayNameLanguage("server.log")).toBe(false);
   });
 });

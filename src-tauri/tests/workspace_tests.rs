@@ -14,6 +14,7 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
+use writ_tauri_lib::commands::notes::move_notes_folder_to;
 use writ_tauri_lib::commands::workspace::{
     clear_workspace_root_inner, list_workspace_dir_inner, set_workspace_root_from_path,
 };
@@ -249,6 +250,137 @@ fn workspace_watcher_emits_change_events_on_bus() {
         assert!(
             std::time::Instant::now() < deadline,
             "workspace change event never arrived"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// The notes folder opened as the workspace lists what the notes walk reads:
+/// a note under `vendor/` is in the tree as it is in search and backlinks, and
+/// only what another tool keeps for itself is left out (RC-D4).
+#[test]
+fn the_notes_folder_as_the_workspace_lists_the_notes_under_vendor() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    std::fs::create_dir_all(notes.join("vendor")).unwrap();
+    std::fs::write(notes.join("vendor").join("Acme.md"), "supplier").unwrap();
+    std::fs::create_dir(notes.join("build")).unwrap();
+    std::fs::create_dir(notes.join(".obsidian")).unwrap();
+    std::fs::write(notes.join("Home.md"), "see [[Acme]]").unwrap();
+
+    let root = set_workspace_root_from_path(&state, &notes).expect("set root");
+
+    let entries = list_workspace_dir_inner(&state, &root).expect("list");
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["build", "vendor", "Home.md"]);
+    let vendor = &entries[1].path;
+    let entries = list_workspace_dir_inner(&state, vendor).expect("list vendor");
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["Acme.md"]);
+}
+
+/// Any other folder opened as the workspace keeps the code-workspace list.
+#[test]
+fn a_code_workspace_still_hides_vendor() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let ws = TempDir::new().unwrap();
+    std::fs::create_dir(ws.path().join("vendor")).unwrap();
+    std::fs::write(ws.path().join("vendor").join("Acme.md"), "supplier").unwrap();
+    std::fs::write(ws.path().join("main.rs"), "fn main() {}").unwrap();
+
+    let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
+
+    let entries = list_workspace_dir_inner(&state, &root).expect("list");
+    let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["main.rs"]);
+}
+
+/// The tree of the notes folder opened as the workspace hears about a note
+/// written under `vendor/`, so the folder it lists stays current.
+#[test]
+fn the_notes_folder_as_the_workspace_hears_a_note_under_vendor() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    std::fs::create_dir_all(notes.join("vendor")).unwrap();
+
+    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    state.event_bus.subscribe(move |event| {
+        if let writ_core::events::bus::WritEvent::WorkspaceChanged { path, .. } = event {
+            received_clone.lock().unwrap().push(path.clone());
+        }
+    });
+
+    set_workspace_root_from_path(&state, &notes).expect("set root");
+
+    std::fs::write(notes.join("vendor").join("Acme.md"), "supplier").unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if received
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.ends_with("Acme.md"))
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the change under vendor/ never reached the tree"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// When the notes folder moves into the folder open as the workspace, that
+/// folder's tree lists and hears what the notes walk reads from then on.
+#[test]
+fn the_workspace_the_notes_folder_moves_into_lists_and_hears_vendor() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let ws = TempDir::new().unwrap();
+    std::fs::create_dir(ws.path().join("vendor")).unwrap();
+
+    let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
+    let names = |state: &AppState| -> Vec<String> {
+        list_workspace_dir_inner(state, &root)
+            .expect("list")
+            .into_iter()
+            .map(|e| e.name)
+            .collect()
+    };
+    assert!(names(&state).is_empty(), "a code workspace hides vendor/");
+
+    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    state.event_bus.subscribe(move |event| {
+        if let writ_core::events::bus::WritEvent::WorkspaceChanged { path, .. } = event {
+            received_clone.lock().unwrap().push(path.clone());
+        }
+    });
+
+    move_notes_folder_to(&state, std::path::Path::new(&root)).expect("move");
+    assert_eq!(names(&state), ["vendor"]);
+
+    std::fs::write(ws.path().join("vendor").join("Acme.md"), "supplier").unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if received
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.ends_with("Acme.md"))
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the change under vendor/ never reached the tree after the move"
         );
         std::thread::sleep(std::time::Duration::from_millis(50));
     }

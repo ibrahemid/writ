@@ -1,0 +1,81 @@
+/* The confirm dialog's shell, so the question reads as every other question
+   Writ asks. Open keeps the panel where it is and swaps the buttons for the
+   track. */
+
+.large-file-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--writ-overlay-scrim);
+  z-index: var(--writ-z-modal);
+}
+
+.large-file-dialog {
+  width: min(420px, calc(100vw - 48px));
+  background: var(--writ-bg-raised);
+  border: 0;
+  border-radius: var(--writ-r-modal);
+  padding: var(--writ-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-4);
+  box-shadow: var(--writ-shadow-modal);
+  font-family: var(--writ-font-ui);
+}
+
+.large-file-title {
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  font-weight: 600;
+  color: var(--writ-fg);
+  overflow-wrap: anywhere;
+}
+
+.large-file-message {
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg-muted);
+  line-height: 1.5;
+}
+
+.large-file-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--writ-space-3);
+  margin-top: var(--writ-space-3);
+}
+
+.large-file-track {
+  position: relative;
+  height: 4px;
+  border-radius: var(--writ-r-indicator);
+  background: var(--writ-bg-sidebar);
+  overflow: hidden;
+}
+
+/* With no share of the read to show, the track fills, so reduced motion reads
+   as under way rather than as stalled at 40%. The animation below narrows it. */
+.large-file-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--writ-r-indicator);
+  background: var(--writ-accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .large-file-fill {
+    width: 40%;
+    animation: large-file-indeterminate calc(var(--writ-motion-ambient) * 11 / 7) var(--writ-ease)
+      infinite;
+  }
+
+  @keyframes large-file-indeterminate {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(350%);
+    }
+  }
+}
