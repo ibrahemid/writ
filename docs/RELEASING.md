@@ -377,6 +377,8 @@ machine:
   has never held the certificate; if one appears, stop and find out why
   instead of clicking through. As a secondary check, mount the `.dmg`, drag
   `Writ.app` to `/Applications`, and confirm it launches the same version.
+  Then take the WKWebView measurement in `docs/perf-budgets.md` (editor
+  responsiveness per file tier) on the installed build and record it there.
 - Windows: run the `.msi`, launch from Start menu, confirm hotkey and
   autosave work.
 - Linux: install the `.deb` with `sudo dpkg -i`, or run the `.AppImage`

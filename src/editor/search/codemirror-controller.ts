@@ -1,3 +1,4 @@
+import { StateEffect } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import {
   SearchQuery,
@@ -8,7 +9,7 @@ import {
   replaceNext,
   replaceAll,
 } from "@codemirror/search";
-import { countMatches, MATCH_COUNT_CAP } from "./count";
+import { findMatches, findMatchesPlugin } from "./find-matches";
 import type {
   EditorSearchController,
   MatchState,
@@ -34,52 +35,51 @@ export function createCodeMirrorSearchController(
   function setQuery(term: SearchTerm) {
     const view = getView();
     if (!view) return;
-    view.dispatch({ effects: setSearchQuery.of(toQuery(term)) });
+    const query = toQuery(term.query.trim().length > 0 ? term : { ...term, query: "" });
+    // The count lives in a plugin the editor installs; a view built without it
+    // gets it with the first query, the way @codemirror/search adds its own
+    // state on first use.
+    const effects: StateEffect<unknown>[] = [setSearchQuery.of(query)];
+    if (!view.plugin(findMatchesPlugin)) effects.push(StateEffect.appendConfig.of(findMatches()));
+    view.dispatch({ effects });
+  }
+
+  // CodeMirror's commands open their own panel for a query that does not
+  // compile, and walk the whole document for one that matches nothing. Neither
+  // is a move Find makes.
+  function canMove(view: EditorView): boolean {
+    if (!getSearchQuery(view.state).valid) return false;
+    return !view.plugin(findMatchesPlugin)?.foundNothing();
   }
 
   function next() {
     const view = getView();
-    if (view) findNext(view);
+    if (view && canMove(view)) findNext(view);
   }
 
   function previous() {
     const view = getView();
-    if (view) findPrevious(view);
+    if (view && canMove(view)) findPrevious(view);
   }
 
   function replaceCurrent() {
     const view = getView();
-    if (view) replaceNext(view);
+    if (view && canMove(view)) replaceNext(view);
   }
 
   function replaceEvery() {
     const view = getView();
-    if (view) replaceAll(view);
+    if (view && canMove(view)) replaceAll(view);
   }
 
   function matchState(): MatchState {
     const view = getView();
-    if (!view) return EMPTY_STATE;
-    const query = getSearchQuery(view.state);
-    return countMatches(view.state, query, MATCH_COUNT_CAP);
+    return view?.plugin(findMatchesPlugin)?.matchState() ?? EMPTY_STATE;
   }
 
   function matchPositions(limit: number): MatchTick[] {
     const view = getView();
-    if (!view) return [];
-    const query = getSearchQuery(view.state);
-    if (!query.search || !query.valid) return [];
-
-    const length = view.state.doc.length || 1;
-    const ticks: MatchTick[] = [];
-    const cursor = query.getCursor(view.state);
-
-    let res = cursor.next();
-    while (!res.done && ticks.length < limit) {
-      ticks.push({ fraction: res.value.from / length });
-      res = cursor.next();
-    }
-    return ticks;
+    return view?.plugin(findMatchesPlugin)?.ticks(limit) ?? [];
   }
 
   function clear() {

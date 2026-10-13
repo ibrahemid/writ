@@ -4,6 +4,14 @@ import { describe, expect, it } from "vitest";
 import { MCP_TOOLS, PROVIDERS } from "../backend/ai";
 import { MAX_ATTACHED_NOTES, MISSING_CONVERSATION } from "../backend/commands/ai-chat";
 import { NAME_IS_EMPTY } from "../backend/commands/buffers";
+import {
+  BINARY_CHECK_BYTES,
+  ERR_OPEN_TOO_LARGE,
+  HEX_DUMP_MAX_BYTES,
+  THRESHOLD_LARGE_BYTES,
+  THRESHOLD_MAX_BYTES,
+  THRESHOLD_NORMAL_BYTES,
+} from "../backend/classify";
 
 // The page answers from copies of Rust tables and refusals. These hold the
 // copies to the source, so a provider, a tool or a sentence changed in Rust
@@ -38,6 +46,12 @@ function numberConstant(source: string, name: string): number | undefined {
   return value === undefined ? undefined : Number(value);
 }
 
+/** A `u64` or `usize` constant written as a product of literals, such as `5 * 1024 * 1024`. */
+function productConstant(source: string, name: string): number | undefined {
+  const value = source.match(new RegExp(`const ${name}: (?:u64|usize) = ([\\d\\s*]+);`))?.[1];
+  return value === undefined ? undefined : value.split("*").reduce((product, factor) => product * Number(factor.trim()), 1);
+}
+
 describe("the demo's copies of Rust tables", () => {
   const providers = providerTable(rust("crates/writ-core/src/ai/providers.rs"));
 
@@ -69,6 +83,16 @@ describe("the demo's copies of Rust tables", () => {
     const tools = rust("crates/writ-core/src/tools.rs");
     expect(MCP_TOOLS.read).toEqual(list(tools, "READ_TOOLS"));
     expect(MCP_TOOLS.write).toEqual(list(tools, "WRITE_TOOLS"));
+  });
+
+  it("opens in the tiers writ_core::file_ops sets", () => {
+    const fileOps = rust("crates/writ-core/src/file_ops.rs");
+    expect(productConstant(fileOps, "THRESHOLD_NORMAL_BYTES")).toBe(THRESHOLD_NORMAL_BYTES);
+    expect(productConstant(fileOps, "THRESHOLD_LARGE_BYTES")).toBe(THRESHOLD_LARGE_BYTES);
+    expect(productConstant(fileOps, "THRESHOLD_MAX_BYTES")).toBe(THRESHOLD_MAX_BYTES);
+    expect(productConstant(fileOps, "BINARY_CHECK_BYTES")).toBe(BINARY_CHECK_BYTES);
+    expect(productConstant(fileOps, "HEX_DUMP_MAX_BYTES")).toBe(HEX_DUMP_MAX_BYTES);
+    expect(stringConstant(fileOps, "ERR_OPEN_TOO_LARGE")).toBe(ERR_OPEN_TOO_LARGE);
   });
 
   it("refuses in the sentences the Rust commands use", () => {

@@ -1,6 +1,7 @@
 import type { BufferDocument, FileOpenResult } from "../../../src/types/buffer";
 import type { RenamePropagation, SkippedFile } from "../../../src/services/tauri";
 import { countUtf8Bytes } from "../history";
+import { classifySize, formatHexDump, onceOpen, sniffsBinary } from "../classify";
 import { getNoteDisplayName, rewriteLinks, parseStoredTarget, stripNoteExtension } from "../links";
 import { formatDateStem, dedupeStem, deriveFirstLineTitle, formatMintedStem, deriveNoteFileStem, sanitizeTitle } from "../naming";
 import {
@@ -70,8 +71,13 @@ export function createBufferCommands(state: DemoState): CommandTable {
   // Files Writ named itself whose first line may still rename them.
   const renameable = new Set<string>();
 
-  const readBufferContent = (doc: BufferDocument): string =>
-    doc.source_path ? folder.read(doc.source_path) : "";
+  /** commands::buffer::read_buffer_content: the file's bytes, or the hex dump a binary file opened as. */
+  const readBufferContent = (doc: BufferDocument): Uint8Array => {
+    if (!doc.source_path) return new Uint8Array(0);
+    const bytes = state.readBytes(doc.source_path);
+    if (doc.read_only && sniffsBinary(bytes)) return new TextEncoder().encode(formatHexDump(bytes, bytes.length));
+    return bytes;
+  };
 
   /** note_ops::create_note, then the tab: an empty file first, deduped on a taken name. */
   const createNoteIn = (dir: string, base: string, ext: string): BufferDocument => {
@@ -81,13 +87,20 @@ export function createBufferCommands(state: DemoState): CommandTable {
     return { ...state.createBufferFor(path, stem(path)) };
   };
 
-  /** history::restore_buffer: the demo's files are small, so a closed one reopens at once. */
-  const reopenClosed = (id: unknown): FileOpenResult => {
+  /** history::reopen_closed: the file's size now decides the tier, as an open's does. */
+  const reopenClosed = (id: unknown, confirmed: boolean): FileOpenResult => {
     const doc = state.getBuffer(id);
+    const sizeBytes =
+      doc.source_path && folder.has(doc.source_path) ? state.readBytes(doc.source_path).length : doc.size_bytes;
+    const mode = classifySize(sizeBytes, doc.read_only);
+    if (mode.kind === "Refused" || (mode.kind === "LargeFileConfirm" && !confirmed)) {
+      return { doc: null, mode, size_bytes: sizeBytes };
+    }
     doc.status = "active";
     doc.closed_at = null;
     doc.tab_order = buffers.size;
-    return { doc: { ...doc }, mode: { kind: "Normal" }, size_bytes: doc.size_bytes };
+    doc.size_bytes = sizeBytes;
+    return { doc: { ...doc }, mode: onceOpen(mode), size_bytes: sizeBytes };
   };
 
   /** note_ops::rename_note: the file moves inside its folder, or the refusal. */
@@ -168,9 +181,9 @@ export function createBufferCommands(state: DemoState): CommandTable {
         .map((b) => ({ ...b })),
     get_recovered_buffers: () => [],
     get_buffer: (args) => ({ ...state.getBuffer(args.id) }),
-    read_buffer_content: (args) => new TextEncoder().encode(readBufferContent(state.getBuffer(args.id))).buffer,
+    read_buffer_content: (args) => readBufferContent(state.getBuffer(args.id)).slice().buffer,
     open_file: (args) => state.openPath(String(args.path)),
-    open_file_confirmed: (args) => state.openPath(String(args.path)),
+    open_file_confirmed: (args) => state.openConfirmedPath(String(args.path)),
     create_buffer: (args) => {
       const ext = state.config.files.default_extension;
       const typed = typeof args.title === "string" ? sanitizeTitle(args.title) : null;
@@ -242,8 +255,8 @@ export function createBufferCommands(state: DemoState): CommandTable {
         .filter((b) => b.status === "history")
         .sort((a, b) => (b.closed_at ?? "").localeCompare(a.closed_at ?? ""))
         .map((b) => ({ ...b })),
-    restore_buffer: (args): Answer<"restoreBuffer"> => reopenClosed(args.id),
-    restore_buffer_confirmed: (args): Answer<"restoreBufferConfirmed"> => reopenClosed(args.id),
+    restore_buffer: (args): Answer<"restoreBuffer"> => reopenClosed(args.id, false),
+    restore_buffer_confirmed: (args): Answer<"restoreBufferConfirmed"> => reopenClosed(args.id, true),
     delete_buffer: (args) => {
       buffers.delete(String(args.id));
       return null;
@@ -306,13 +319,7 @@ export function createBufferCommands(state: DemoState): CommandTable {
     open_third_party_notices: async (): Promise<Answer<"openThirdPartyNotices">> => {
       const path = `${HOME}/.writ/generated/${NOTICES_TITLE}.md`;
       const content = (await import("../../../THIRD-PARTY-NOTICES.md?raw")).default;
-      folder.write(path, content);
-      const opened = state.openPath(path);
-      const doc = buffers.get(opened.doc.id) as BufferDocument;
-      doc.title = NOTICES_TITLE;
-      doc.read_only = true;
-      doc.size_bytes = countUtf8Bytes(content);
-      return { ...opened, doc: { ...doc }, size_bytes: doc.size_bytes };
+      return state.openGeneratedDocument(path, NOTICES_TITLE, content);
     },
     // The file manager is the host's; a page has none to show a file in.
     show_note_in_file_manager: () => null,

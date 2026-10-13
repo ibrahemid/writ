@@ -37,8 +37,16 @@ WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
 
 step "perf gate: inline markdown decorations (frontend)"
 WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
-    --disable-console-intercept \
-    src/__tests__/editor/markdown-inline-perf.test.ts
+    src/__tests__/editor/markdown-inline-perf.test.ts \
+    --disable-console-intercept
+
+step "perf gate: find on large documents (frontend)"
+WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
+    src/__tests__/editor/find-perf.test.ts \
+    --disable-console-intercept
+
+step "perf gate: editor in headless Chromium (frontend)"
+WRIT_PERF_GATE=1 node scripts/perf-editor.mjs
 
 step "perf gate: storage budget (writ-storage, release, one test at a time)"
 WRIT_PERF_GATE=1 cargo test \

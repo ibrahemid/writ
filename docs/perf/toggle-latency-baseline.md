@@ -78,14 +78,30 @@ what users feel every day.
 
 ## Baseline run
 
-No capture has been recorded yet. Regression comparison against the targets
-above is qualitative until one lands.
+### Frontend half in headless Chromium
 
-To record a baseline: run the capture steps above on a developer-class macOS
-machine using `cargo tauri dev` (not `release`), note the platform and build
-profile, then commit the cold first-paint number, the warm Rust elapsed
-number, and the warm frontend first-paint number (five samples, drop the
-first) into this section.
+`scripts/perf-editor.mjs` measures the frontend half on every run of the editor
+perf gate, in Chromium rather than WKWebView: the cold path once per page load,
+and the warm path from six `writ://window-shown` events with the first dropped.
+The page is never hidden, so the warm number is the event-to-paint path alone.
+The gate fails when either p95 passes the hard-fail column above, which is more
+than three times the worst p95 of these runs.
+
+Measured 2026-10-13 (Chromium 153.0.8010.12 headless, Apple M1 Pro with 16 GiB,
+macOS 26.5; one-minute load average 3.3 to 8.9 across the runs):
+
+| Mode | p50 | p95 | Max | Samples |
+| ---- | --: | --: | --: | ------: |
+| Cold (frontend onMount → first paint) | 57.9 ms | 63.8 ms | 69.3 ms | 60 |
+| Warm frontend (window-shown → first paint) | 9.3 ms | 16.7 ms | 18.2 ms | 150 |
+
+### WKWebView and the Rust half
+
+No capture of the running app has been recorded yet. To record one: run the
+capture steps above on a developer-class macOS machine using `cargo tauri dev`
+(not `release`), note the platform and build profile, then commit the cold
+first-paint number, the warm Rust elapsed number, and the warm frontend
+first-paint number (five samples, drop the first) into this section.
 
 ## How to regress against this
 
@@ -96,7 +112,7 @@ When reviewing a PR that touches:
 - `src-tauri/src/commands/window.rs`
 - `src/App.tsx` `onMount`
 - `src/components/Editor/EditorInstance.tsx` initialization
-- `src/stores/buffers.ts` `load`
+- `src/stores/global/buffer-registry.ts` `load`
 
 …re-capture the warm and cold numbers using the same procedure. If either
 moves past the *Hard fail* column, request explicit justification in the PR

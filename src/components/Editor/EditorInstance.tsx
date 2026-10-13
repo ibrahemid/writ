@@ -59,6 +59,7 @@ import { unreadTabs } from "../../stores/global/unread-tabs";
 import { describeUnreadTab, type UnreadTab } from "../../lib/unread-tab";
 import { canShowInFileManager, describeReadFailure } from "../../lib/read-failure";
 import { findStore } from "../../stores/global/find-store";
+import { findMatches } from "../../editor/search/find-matches";
 import { aiRewriteStore } from "../../stores/global/ai-rewrite";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { registerCommand, unregisterCommand, executeCommand } from "../../commands/registry";
@@ -110,6 +111,10 @@ const RESTRICTED_CONTENT_PUBLISH_MS = 400;
 // Spell check is skipped above this document size (UTF-16 code units ≈ 1MB of
 // text): a full re-lint of a megabyte on every edit burst is not worth it.
 const SPELLING_MAX_CHARS = 1_000_000;
+
+function refreshOpenFind(): void {
+  if (findStore.isOpen()) findStore.refresh();
+}
 
 export default function EditorInstance(props: Props) {
   const win = useWindow();
@@ -410,7 +415,6 @@ export default function EditorInstance(props: Props) {
       if (!view) return;
       const content = view.state.doc.toString();
       win.editor.setCurrentText(content);
-      if (findStore.isOpen()) findStore.refresh();
     }, RESTRICTED_CONTENT_PUBLISH_MS);
   }
 
@@ -465,6 +469,7 @@ export default function EditorInstance(props: Props) {
       history(),
       highlightSelectionMatches(),
       search({ top: true }),
+      findMatches({ onChange: refreshOpenFind }),
       syntaxHighlighting(writHighlight, { fallback: true }),
       keymap.of([
         ...stripOwnedBindings(defaultKeymap, OWNED_CM_COMMANDS),
@@ -514,7 +519,6 @@ export default function EditorInstance(props: Props) {
             ) {
               spellingStore.requestCheck(content);
             }
-            if (findStore.isOpen()) findStore.refresh();
           }
           // Keep any live rewrite preview's anchored range in sync, and abort it
           // if this edit lands inside that range.
@@ -775,6 +779,7 @@ export default function EditorInstance(props: Props) {
     win.editor.clearReadFailure();
     applySpelling();
     if (mode.kind === "Normal") requestGrammar(lang);
+    if (findStore.isOpen()) findStore.retarget();
     view.focus();
   }
 

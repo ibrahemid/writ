@@ -22,6 +22,11 @@ release or after a change that touches a transform, the notes index, or note
 I/O. The storage budgets run one test at a time (`--test-threads=1`): two
 budgets that each walk thousands of notes would otherwise time each other.
 
+`scripts/perf-editor.mjs` is the browser half: it builds the real app over the
+demo backend and measures it in headless Chromium, per file tier. The perf gate
+runs it, and so does CI, on the Linux leg of every pull request. It reads the
+same variable; see [editor: responsiveness per file tier](#editor-responsiveness-per-file-tier-headless-chromium).
+
 ---
 
 ## Test projects (frontend)
@@ -112,6 +117,230 @@ Rationale:
 The budget is the frame, not a machine number: it does not move. If detection
 legitimately needs more work per open, cut the input further rather than
 raising the bound.
+
+---
+
+## frontend: Find on large documents
+
+**Test file:** `src/__tests__/editor/find-perf.test.ts`
+
+**What is measured:** in an editor carrying the extensions `EditorInstance`
+gives it, the longest main-thread task from one keystroke in the find field
+(the query applied as the field's debounce applies it, counting every slice
+the count is then read in), the same for one edit made with the overlay open,
+and the time from each to the final count, for:
+
+- a word, on generated prose of 4.9 MiB and 5.1 MiB, either side of the Normal
+  tier's limit;
+- regular expressions that cross lines, which the library's cursor reads in
+  one pass over the whole document: `\s+zebrafish` on 4.9 MiB, and
+  `\s+qxjzv` and `[^ ]qxjzv|zebrafish\s+qq` on 20 MiB, since V8 reads 5 MiB of
+  these in under a frame.
+
+On one generated 5 MiB line of JSON carrying accented words, a word
+(`résumé`) and a pattern (`na.ve`) are read in 6 ms slices; the longest slice
+and one edit, which must read only around itself, are held to the task budget.
+
+Every timed figure is the best of three runs of its operation: the query typed
+again into an empty field, the edit made again, the line read again from its
+start. Other work on the machine can slow a run but never speed one up, and a
+slower Find slows all three.
+
+Each count is checked against a plain count of the query in the text, on every
+run. For a regular expression that crosses lines that is its matches over the
+whole text, which Find counts while a match and its lookarounds stay within
+4 KiB of where it starts; ADR-013 records that bound and where the count
+differs from the matches `SearchCursor` steps through.
+
+**Budgets: 16 ms per task (one frame at 60 Hz); 250 ms to the final count**
+
+Rationale:
+
+- Before the count ran in slices, one keystroke in the find field held the
+  main thread for 547 ms on the 4.9 MiB file (editor-perf audit, 2026-10-03,
+  Chromium); under vitest the same keystroke measured 989 ms. A slice stops
+  after 6 ms, and neither a slice nor the keystroke itself may take a frame.
+- Before patterns that cross lines and lines over 64 KiB were read in windows,
+  the 20 MiB patterns held the main thread for 230 ms and 75 ms on each
+  keystroke and each edit, and the 5 MiB line for 19.5 ms in one slice, an
+  edit reading the whole line again (under vitest, 2026-10-13).
+- Node runs V8, as Chromium does. Keystroke to paint in a browser is the
+  editor gate's measure, below.
+- Measured (five runs of the file under vitest, Node 26.4.0, Apple M1 Pro,
+  2026-10-13, load average 8.4 to 8.8 at the start and end of each; the
+  slowest of the five best-of-three figures): the longest task 6.3 ms on a
+  keystroke and 0.9 ms on an edit, the final count at most 88 ms (`\s+qxjzv`
+  on 20 MiB); on the 5 MiB line the longest slice 6.2 ms, the whole read
+  21 ms, an edit 1.6 ms. The slowest single run took 7.7 ms on a keystroke and
+  93 ms to the final count. Before figures were the best of three, one of
+  eight runs at load 6.3 to 8.0 read the 5 MiB line with one 27.5 ms slice and
+  failed the task budget.
+
+The assertions are skipped unless `WRIT_PERF_GATE=1`. By hand:
+`WRIT_PERF_GATE=1 pnpm exec vitest run src/__tests__/editor/find-perf.test.ts --disable-console-intercept`.
+
+### Re-baselining
+
+The task budget is the frame and does not move. The time to the final count
+moves only with a deliberate change to the slice length, the size counted in
+one go (`SLICE_MS` and `SYNC_SCAN_MAX_CHARS` in
+`src/editor/search/find-matches.ts`) or the windows (`DEFAULT_SCAN_LIMITS` in
+`src/editor/search/scanner.ts`); record the new measurement here.
+
+---
+
+## editor: responsiveness per file tier (headless Chromium)
+
+**Gate:** `scripts/perf-editor.mjs`. The budgets live in
+`scripts/perf-editor/budgets.mjs`; `scripts/perf-editor/__tests__/budgets.test.ts`
+holds them to the table below.
+
+**How it runs:** the gate builds `scripts/perf-editor/app` with the app's own
+Vite config: the real `App` over the demo's in-memory backend, which answers
+opens of generated files the way the Rust commands do (the tier from the size
+and the binary sniff, the size question from 50 MiB to 500 MiB, the raw bytes
+on a read; `demo/backend/classify.ts` mirrors `writ_core::file_ops`). Every
+command's arguments go through Tauri's JSON serialisation at call time, so the
+page pays the IPC send cost. Each scenario opens its file in a fresh headless
+Chromium page at 1280x800, device scale 2, and drives it with key events. The
+Rust side of an open (reads, hashes, the guarded write) is not in these
+numbers.
+
+```
+WRIT_PERF_GATE=1 node scripts/perf-editor.mjs                    # every scenario but prose-300MiB
+WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --only prose-50MiB
+WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large            # adds prose-300MiB
+```
+
+Chromium comes from `playwright-core`, a pinned dev dependency: install the
+browser once per machine with `pnpm exec playwright-core install chromium`;
+CI installs it in the job. `WRIT_PLAYWRIGHT_CORE` (the path to another copy's
+`index.mjs`) and `WRIT_PERF_CHROMIUM` (a browser executable) override them.
+The results, with the machine and the load average at the start and end of
+every scenario, are written as JSON (`--out <file>`, by default to the system
+temporary directory). Exit 1 means a budget was missed or a check failed; 2,
+that the gate could not measure.
+
+**What is measured** in each scenario:
+
+| Metric | From and to |
+|---|---|
+| First paint | The open (in the confirm tier, Open in the size question) to the first frame after the editor shows the file |
+| JS heap growth | The heap before the open to the heap after it, each after two forced collections |
+| Jump to end | Cmd or Ctrl+End to the first frame that shows the end of the file |
+| Typing p50, p95, max | Keydown to the end of the next frame, for 30 characters typed at the end 110 ms apart |
+| Longest task after typing | The longest main-thread task in the 3.5 s after typing stops (the hash, the autosave) |
+| Find keystroke p50, max | Keydown to the end of the next frame, typing in the find field a word that occurs about once per 100 KB and then one that occurs nowhere, 150 ms apart |
+| Find to final count | The last keystroke in the find field to the first frame whose overlay shows the final count |
+| Longest task typing in Find | The longest main-thread task from the first keystroke in the find field to the final count |
+| Typing with Find open p50, max | Keydown to the end of the next frame, typing at the end with the overlay open on the first word |
+| Longest task typing with Find open | The longest main-thread task from the first of those keystrokes to 3.5 s after the last, the hash and the autosave included |
+
+A long task is one the browser reports, so over 50 ms; none is 0. A window
+counts a long task only when it started inside the window: the browser reports
+a task after it ends, so one that began before a window opened can be reported
+during it. Each scenario also checks that the file opens in the mode its tier
+gives it, that the size question is asked for the confirm tier and only there,
+that the jump reaches the end, and that the count equals the word's occurrences
+in the file before and after the edit. A page error fails the scenario.
+
+**Scenarios** (fixed seeds, `src/__tests__/editor/fixtures/editor-corpus.ts`):
+
+| Scenario | File | Bytes | Tier | Opens as |
+|---|---|---:|---|---|
+| `prose-1MiB` | prose | 1,048,576 | Normal | Normal |
+| `prose-4.9MiB` | prose | 5,138,022 | Normal | Normal |
+| `md-4.9MiB` | Markdown, a heading every 10,480 bytes, shown Inline | 5,138,022 | Normal | Normal |
+| `json-1line-5MiB` | JSON on one line | 5,242,880 | Normal | LongLines |
+| `prose-5.1MiB` | prose | 5,347,738 | LargeFile | LargeFile |
+| `log-200k` | a log of 200,000 lines | 22,442,145 | LargeFile | LargeFile |
+| `log-450k` | a log of 450,000 lines, the 50 MB log of the acceptance check | 50,494,988 | LargeFile | LargeFile |
+| `prose-50MiB` | prose | 52,428,800 | LargeFile | LargeFile |
+| `prose-60MiB` | prose, opened through the size question | 62,914,560 | LargeFileConfirm | LargeFile |
+| `prose-300MiB` | prose, opened through the size question; `--large` only | 314,572,800 | LargeFileConfirm | LargeFile |
+
+**Budgets**
+
+<!-- editor-perf-budgets:start -->
+| Scenario | Tier | First paint (ms) | JS heap growth (MiB) | Jump to end (ms) | Typing p50 (ms) | Typing p95 (ms) | Typing max (ms) | Longest task after typing (ms) | Find keystroke p50 (ms) | Find keystroke max (ms) | Find to final count (ms) | Longest task typing in Find (ms) | Typing with Find open p50 (ms) | Typing with Find open max (ms) | Longest task typing with Find open (ms) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `prose-1MiB` | Normal | 80 | 4 | 65 | 40 | 60 | 100 | 100 | 35 | 100 | 475 | 100 | 50 | 100 | 100 |
+| `prose-4.9MiB` | Normal | 145 | 11 | 75 | 35 | 55 | 100 | 100 | 35 | 100 | 465 | 100 | 40 | 100 | 100 |
+| `md-4.9MiB` | Normal | 235 | 15 | 70 | 100 | 160 | 305 | 305 | 35 | 100 | 465 | 100 | 110 | 305 | 305 |
+| `json-1line-5MiB` | Normal | 260 | 4 | 60 | 70 | 85 | 110 | 100 | 35 | 100 | 465 | 100 | 120 | 150 | 100 |
+| `prose-5.1MiB` | LargeFile | 120 | 11 | 55 | 35 | 55 | 100 | 100 | 35 | 100 | 465 | 100 | 55 | 100 | 100 |
+| `log-200k` | LargeFile | 305 | 41 | 55 | 40 | 60 | 210 | 210 | 35 | 100 | 465 | 100 | 45 | 240 | 240 |
+| `log-450k` | LargeFile | 655 | 91 | 60 | 40 | 65 | 490 | 490 | 40 | 100 | 635 | 100 | 45 | 580 | 580 |
+| `prose-50MiB` | LargeFile | 980 | 101 | 70 | 35 | 60 | 530 | 530 | 40 | 100 | 950 | 100 | 35 | 630 | 630 |
+| `prose-60MiB` | LargeFileConfirm | 1195 | 121 | 60 | 35 | 55 | 800 | 800 | 45 | 100 | 1150 | 100 | 45 | 1170 | 1155 |
+| `prose-300MiB` | LargeFileConfirm | 6515 | 605 | 75 | 35 | 60 | 4625 | 4625 | 40 | 100 | 4345 | 100 | 40 | 4625 | 4625 |
+<!-- editor-perf-budgets:end -->
+
+**How they were set:** three runs of each scenario, each started while the
+one-minute load average was under 20 and taken again when it ended at 20 or
+more. A time budget is three times the worst of the three runs and a heap
+budget one and a half times, at least 4 MiB. A keystroke may take at least
+34 ms (two frames at 60 Hz) and a longest task at least 100 ms. Typing with
+Find open is allowed at least what typing is, and a keystroke's max at least
+the longest task of its window, since a keystroke typed while Writ hashes the
+document (150 ms after the last edit, 150 to 400 ms of work at 50 to 60 MiB)
+waits for it. Every budget outside Find is at least the editor-perf audit's
+figure for the same file (its section 6, 2026-10-03, Chrome for Testing 153,
+Apple M1 Pro); `log-450k` and `prose-60MiB` are held to the 50 MiB figures.
+The Find budgets stand on this gate's own measurements, with no audit floor:
+section 6 measured the count this gate replaced, which held the main thread
+for 547 ms per keystroke at 4.9 MiB and 4,003 to 6,061 ms at 50 MiB, and whose
+refresh on an edit put a 4.0 s task in the 50 MiB file's typing with Find
+open. Held to those figures, the gate would pass a Find as slow as the one it
+replaced. Two Find budgets sit below the audit's figures: Find keystroke p50 on
+every file, and typing with Find open p50 on `prose-1MiB`, `prose-4.9MiB` and
+`md-4.9MiB`. Times are rounded up to 5 ms and heap to 1 MiB. The headroom is for
+CI's Linux runners, which are slower than the machine the runs were taken on.
+
+**Measured** (worst of three runs; Chromium 153.0.8010.12 headless, Apple M1 Pro with 16 GiB, macOS 26.5, 2026-10-13; the one-minute load average at the start and end of each run beside every row; taken before a window counted only the long tasks that started in it, which can only lower the three longest-task columns):
+
+| Scenario | Load average (start to end, per run) | First paint (ms) | JS heap growth (MiB) | Jump to end (ms) | Typing p50 (ms) | Typing p95 (ms) | Typing max (ms) | Longest task after typing (ms) | Find keystroke p50 (ms) | Find keystroke max (ms) | Find to final count (ms) | Longest task typing in Find (ms) | Typing with Find open p50 (ms) | Typing with Find open max (ms) | Longest task typing with Find open (ms) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `prose-1MiB` | 6.6-5.5, 11.0-8.9, 6.6-6.1 | 26 | 1.5 | 21 | 12 | 19 | 21 | 0 | 2 | 11 | 158 | 0 | 16 | 20 | 0 |
+| `prose-4.9MiB` | 5.5-5.1, 8.6-6.8, 5.9-5.0 | 47 | 6.9 | 24 | 11 | 18 | 19 | 0 | 9 | 20 | 154 | 0 | 13 | 17 | 0 |
+| `md-4.9MiB` | 5.2-4.4, 6.8-5.5, 5.0-5.3 | 77 | 9.4 | 23 | 32 | 52 | 77 | 101 | 11 | 20 | 154 | 0 | 36 | 39 | 0 |
+| `json-1line-5MiB` | 4.2-4.7, 5.2-5.1, 5.0-5.0 | 87 | 0.2 | 19 | 23 | 28 | 35 | 0 | 2 | 13 | 154 | 0 | 40 | 50 | 0 |
+| `prose-5.1MiB` | 4.8-4.5, 5.0-4.0, 5.0-5.1 | 40 | 7.1 | 17 | 9 | 18 | 18 | 0 | 7 | 16 | 154 | 0 | 17 | 19 | 0 |
+| `log-200k` | 4.2-5.5, 4.3-4.1, 5.1-5.4 | 101 | 26.9 | 18 | 13 | 19 | 21 | 70 | 7 | 16 | 154 | 0 | 15 | 20 | 79 |
+| `log-450k` | 3.5-3.3, 4.0-3.6, 5.2-5.0 | 217 | 60.0 | 19 | 13 | 21 | 21 | 163 | 13 | 23 | 211 | 0 | 14 | 18 | 193 |
+| `prose-50MiB` | 5.6-5.4, 3.9-5.0, 5.0-4.6 | 326 | 66.9 | 22 | 11 | 19 | 23 | 176 | 13 | 23 | 316 | 0 | 11 | 19 | 210 |
+| `prose-60MiB` | 5.4-5.3, 5.4-6.6, 4.4-3.8 | 398 | 80.2 | 20 | 11 | 17 | 18 | 266 | 13 | 24 | 383 | 0 | 14 | 390 | 385 |
+| `prose-300MiB` | 6.2-8.9, 6.7-6.9, 3.7-3.6 | 2170 | 402.9 | 24 | 11 | 19 | 19 | 1541 | 13 | 23 | 1447 | 0 | 13 | 19 | 1533 |
+
+The toggle's frontend half is measured on every run too; its numbers and
+budget are in [toggle-latency-baseline.md](perf/toggle-latency-baseline.md).
+
+### WKWebView, once per release
+
+macOS Writ runs in WKWebView (WebKit and JavaScriptCore), which the gate does
+not drive. Once per release, on the installed build from the draft release:
+
+1. `node scripts/perf-editor.mjs --write-files ~/Desktop/writ-perf` writes the
+   scenarios' files (Node 22.18 or later).
+2. Open `prose-4.9MiB.txt`, `notes-4.9MiB.md`, `prose-50MiB.txt` and
+   `prose-60MiB.txt` from that folder, the last through Open in the size
+   question, with a 60 fps screen recording running.
+3. In each: Cmd+End, type a line at the end, Cmd+F and type `zebrafish`, then
+   type at the end of the file with Find open.
+4. From the recording, note the time from the open (or Open) to the text, the
+   time from the last letter of `zebrafish` to the final count, the count, and
+   any frame where typing stalled.
+
+Record the results in this section with the version and date, newest first.
+A result past the Chromium budget for the same file is a finding for that
+release.
+
+### Re-baselining
+
+Re-measure with the procedure above (three quiet runs, load average under 20,
+recorded beside the numbers) when a change moves a number on purpose, and
+update `scripts/perf-editor/budgets.mjs` and this section together. A budget
+other than a Find budget never drops below the audit figure for its file.
 
 ---
 
