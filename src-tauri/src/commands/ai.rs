@@ -625,7 +625,8 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
 
 /// The model a provider starts from: the row's own default when the list it
 /// answered this session holds it, else the first of the row's suggestions
-/// that list holds, and nothing when no list has been read for it yet.
+/// that list holds, else the one model a local runtime lists, and nothing
+/// when no list has been read for it yet.
 ///
 /// The rule lives in `writ_core::ai::models::seed_model`; this reads the
 /// catalog held for the provider and applies it. Nothing is written that the
@@ -642,10 +643,10 @@ fn seed_model_for(app: &AppHandle, provider: &str) -> String {
 /// First use of a provider: the row is chosen before anything is known about
 /// what it serves, so the model is written when its own list arrives rather
 /// than guessed from the table. A model already in the file is left alone. A
-/// list that could not be read, or that holds none of the row's ids, writes
-/// nothing and leaves the choice to the picker. A list that names another
-/// provider is ignored, because the connection may have moved while it was in
-/// flight.
+/// list that could not be read, or that holds none of the row's ids and is not
+/// a local runtime's list of one, writes nothing and leaves the choice to the
+/// picker. A list that names another provider is ignored, because the
+/// connection may have moved while it was in flight.
 fn seed_from_catalog(app: &AppHandle, catalog: &ModelCatalog) {
     let seed = seed_model(&catalog.provider, Some(catalog));
     if seed.is_empty() {

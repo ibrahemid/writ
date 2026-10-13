@@ -35,6 +35,11 @@ pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// Anthropic requires the field. The OpenAI-compatible servers do not, and
 /// their defaults are small enough to cut a whole-note reply in half: a reply
 /// that carries a note back has to fit inside this, so both bodies carry it.
+///
+/// On `api.openai.com` the ceiling also counts a reasoning model's reasoning
+/// tokens, so a long run can end the reply as truncated, at worst before any
+/// text. OpenAI's reasoning guide suggests 25,000 to start with; the gpt-4o
+/// models still offered take at most 16,384, so the ceiling stays under that.
 pub const MAX_REPLY_TOKENS: u32 = 16_000;
 
 /// Which wire format the configured endpoint speaks.

@@ -228,7 +228,10 @@ async fn a_tool_call_from_a_client_the_user_has_not_turned_the_server_on_for_is_
     let message = refused["error"]["message"]
         .as_str()
         .expect("a refusal message");
-    assert!(message.contains("Test Client"), "{message}");
+    assert_eq!(
+        message,
+        "Connected programs is off in Writ. Turn it on in Settings, Apps."
+    );
     assert!(!message.contains("the text"), "{message}");
 
     drop(writer);

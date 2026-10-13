@@ -26,7 +26,7 @@ jobs:
       tag_name: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
 
@@ -143,13 +143,18 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30  # stable
-        with:
-          toolchain: stable
-          targets: ${{ matrix.rust_targets }}
+        shell: bash
+        env:
+          RUSTUP_PERMIT_COPY_RENAME: 1
+          RUST_TARGETS: ${{ matrix.rust_targets }}
+        run: |
+          set -euo pipefail
+          rustup toolchain install --no-self-update
+          IFS=',' read -ra TRIPLES <<< "$RUST_TARGETS"
+          rustup target add "${TRIPLES[@]}"
 
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-22.04'
@@ -166,13 +171,13 @@ jobs:
             squashfs-tools
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271  # v6.0.9
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
         with:
           version: 10.13.1
           run_install: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 22
           cache: pnpm
@@ -181,7 +186,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Cache Rust
-        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32  # v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
         with:
           workspaces: ". -> target"
           shared-key: release-${{ matrix.os }}
@@ -288,7 +293,7 @@ jobs:
           mkdir -p src-tauri/binaries
           IFS=',' read -ra TRIPLES <<< "$RUST_TARGETS"
           for t in "${TRIPLES[@]}"; do
-            cargo build -p writ-cli --release --target "$t"
+            cargo build -p writ-cli --release --locked --target "$t"
           done
           case "$MATRIX_OS" in
             macos-latest)
@@ -346,7 +351,7 @@ jobs:
           releaseDraft: true
           prerelease: ${{ contains(needs.create-release.outputs.tag_name, '-') }}
           includeUpdaterJson: false
-          args: ${{ matrix.tauri_args }} --bundles ${{ matrix.bundles }}
+          args: ${{ matrix.tauri_args }} --bundles ${{ matrix.bundles }} -- --locked
           projectPath: src-tauri
 
       - name: Require every AppImage file to be readable and runnable by any user
@@ -580,7 +585,7 @@ jobs:
     needs: [create-release, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Download release assets
         env:

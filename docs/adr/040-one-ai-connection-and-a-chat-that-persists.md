@@ -545,29 +545,43 @@ sections 1, 3 and 7.
 
 **Amended 2026-10-13.** The first model is the row's own when the account's list holds it, and a
 request is written the way its host accepts it. This supersedes the first bullet of this section,
-the prefix filter of section 3 and "one of six variants" in section 11, and makes section 3's
-5-second timeout the budget of the whole list.
+section 2's first-installed model for the local rows and its Together base URL, the prefix filter
+of section 3 and "one of six variants" in section 11, and makes section 3's 5-second timeout the
+budget of the whole list.
 
 - **The first model.** `seed_model(provider, catalog)` answers the row's `default_model` when a
   live list the provider answered holds it, else the first of the row's `curated_models`, in the
-  table's order, that the list holds, and otherwise nothing, which leaves the model for the person
-  to pick: the settings list asks for a model rather than offering a blank custom id, and the
-  pane's control opens again on its models when a provider picked there seeds none, unless focus
-  has left the control by the time the list is read. The list's own order decides nothing. Sorted
-  by id, the lists of 2026-10-13 open on `babbage-002`, a completion-only model, at OpenAI and on
-  an image model at Together. A curated id is still written only when the account's own list
-  holds it, so an id a provider retires falls through to the next suggestion or to the picker
-  rather than failing a send. The hosted rows' ids were read from each provider's documentation on
-  2026-10-13, and the lists they were read from are fixtures in
-  `crates/writ-core/tests/fixtures/ai-models/`.
+  table's order, that the list holds, else, on Ollama or LM Studio, the model a list of one holds,
+  and otherwise nothing, which leaves the model for the person to pick: the settings list asks for
+  a model rather than offering a blank custom id, and the pane's control opens again on its models
+  when a provider picked there lists models and seeds none, unless focus has left the control by
+  the time the list is read. The list's own order decides nothing. Sorted by id, the lists of
+  2026-10-13 open on `babbage-002`, a completion-only model, at OpenAI and on an image model at
+  Together, and a local runtime's first model is as likely an embedding model as a chat model. A
+  runtime with one model installed holds the choice its owner made.
+- **The curated ids are data in the crate.** They are one table, `providers::PROVIDERS`, read from
+  each provider's documentation on 2026-10-13. `crates/writ-core/tests/fixtures/ai-models/` holds
+  the dated lists five rows were checked against, and its `SOURCES.md` names the page and date
+  behind every hosted row's ids. No table is fetched at run time and `config.toml` holds no
+  override. A curated id is still written only when the account's own list holds it, so an id a
+  provider retires falls through to the next suggestion or to the picker rather than failing a
+  send, until a release corrects the row.
+- **The rows read again.** Groq shut Llama 3.3 70B and Llama 3.1 8B down for its free and
+  developer tiers on 2026-08-16 and xAI retired `grok-4` on 2026-05-15, so those rows start from
+  the replacements each provider's pages name. Fireworks no longer serves Llama 3.3 70B serverless,
+  so its row starts from the model its quickstart uses. Together's requests and list go to
+  `api.together.ai`, the only host its API reference names. Consent is recorded per host (ADR-031
+  rule 6.4), so a person who allowed `api.together.xyz` is asked once for the new host.
 - **OpenAI's list.** An id is offered when its family is `gpt`, `chatgpt`, `chat`, `o1`, `o3` or
   `o4` and none of its parts names a model that does not answer `chat/completions`, such as `pro`,
-  `codex`, `realtime`, `transcribe`, `tts`, `image`, `instruct` or `embedding`. GPT-Rosalind
-  (`rosalind`), offered only to approved organizations with no model page to say what it answers,
-  is left out too. An id carrying `audio` or `search` answers `chat/completions` and stays. A
-  fine-tuned id is judged by the model it was tuned from. An OpenAI-shaped list is read whether it
-  is wrapped in `data` or bare, which is how Together answers, and an entry whose `type` names an
-  image, embedding, moderation, rerank, audio, transcription or video model is dropped.
+  `codex`, `realtime`, `transcribe`, `tts`, `image` or `embedding`. GPT-Rosalind (`rosalind`),
+  offered only to approved organizations with no model page to say what it answers, is left out
+  too, and so is `gpt-3.5-turbo-instruct`, by name and with its dated snapshots, because its own
+  page says it answers the legacy Completions endpoint and not Chat Completions. An id carrying
+  `audio` or `search` answers `chat/completions` and stays. A fine-tuned id is judged by the model
+  it was tuned from. An OpenAI-shaped list is read whether it is wrapped in `data` or bare, which
+  is how Together answers, and an entry whose `type` names an image, embedding, moderation,
+  rerank, audio, transcription or video model is dropped.
 - **Bodies per host.** `providers::body_rules(host)` decides the ceiling field and whether a
   temperature is sent. `api.openai.com` takes `max_completion_tokens` and no temperature, which
   its reasoning models refuse, and so do its regional hosts: `eu.api.openai.com` and the others
@@ -577,7 +591,11 @@ the prefix filter of section 3 and "one of six variants" in section 11, and make
   any value but the default. Every other host takes `max_tokens` and Rewrite's 0.3. OpenRouter is
   one of them: its API reference, read on 2026-10-13, ignores a parameter the chosen model does
   not take, and its own list names no `temperature` for the OpenAI reasoning models or Claude 4.7
-  and later. Chat sends no temperature to any host.
+  and later. Chat sends no temperature to any host. On `api.openai.com` the 16,000-token ceiling
+  also counts a reasoning model's reasoning tokens, as OpenAI's reasoning guide says, so a long run
+  can end the reply as truncated, at worst before any text. The guide suggests reserving 25,000 to
+  start with; the gpt-4o models still offered take at most 16,384 output tokens, so the ceiling
+  stays at 16,000.
 - **Refusals.** `RejectCode` gains `UnsupportedParameter` and `UnsupportedValue`. Each carries
   the parameter when the envelope's `param` names one Writ sends (`RequestParam`, itself a closed
   set), so the sentence names it in Writ's words and never in the host's. Eight reasons in all,

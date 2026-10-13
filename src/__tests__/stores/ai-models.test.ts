@@ -98,9 +98,16 @@ describe("seedModel", () => {
 
   it("seeds nothing from a list that holds none of the row's ids", () => {
     expect(seedModel("ollama", ["all-minilm:latest", "mistral:latest"])).toBe("");
-    expect(seedModel("lmstudio", ["qwen2.5-7b-instruct"])).toBe("");
+    expect(seedModel("lmstudio", ["gemma-3-12b", "qwen2.5-7b-instruct"])).toBe("");
     expect(seedModel("groq", [])).toBe("");
     expect(seedModel("nope", ["anything"])).toBe("");
+  });
+
+  it("seeds the one model a local runtime lists, and only a local runtime", () => {
+    expect(seedModel("lmstudio", ["qwen2.5-7b-instruct"])).toBe("qwen2.5-7b-instruct");
+    expect(seedModel("ollama", ["phi4"])).toBe("phi4");
+    expect(seedModel("groq", ["allam-2-7b"])).toBe("");
+    expect(seedModel("custom", ["my-model"])).toBe("");
   });
 });
 
@@ -109,8 +116,12 @@ describe("resolveAutoModel", () => {
     expect(resolveAutoModel({ provider: "ollama", model: "", live: ["phi4", "qwen3:4b"], userSelected: false })).toBe(
       "qwen3:4b",
     );
-    // An id the list holds but nobody chose is left for the picker.
-    expect(resolveAutoModel({ provider: "ollama", model: "", live: ["phi4"], userSelected: false })).toBeNull();
+    // Ids the list holds but nobody chose are left for the picker.
+    expect(
+      resolveAutoModel({ provider: "ollama", model: "", live: ["mistral:latest", "phi4"], userSelected: false }),
+    ).toBeNull();
+    // A runtime that has one model installed starts from it.
+    expect(resolveAutoModel({ provider: "ollama", model: "", live: ["phi4"], userSelected: false })).toBe("phi4");
     // A suggestion is not the account's inventory: the row a person picked is
     // left without a model until its own list answers, rather than filled with
     // an id the provider may have retired.
@@ -132,8 +143,17 @@ describe("resolveAutoModel", () => {
     // With nothing to seed, the model the file names is left for the picker to
     // replace rather than swapped for whatever is installed.
     expect(
-      resolveAutoModel({ provider: "ollama", model: "phi4", live: ["mistral:latest"], userSelected: false }),
+      resolveAutoModel({
+        provider: "ollama",
+        model: "phi4",
+        live: ["llama3.1:8b", "mistral:latest"],
+        userSelected: false,
+      }),
     ).toBeNull();
+    // The one model installed is the seed.
+    expect(
+      resolveAutoModel({ provider: "ollama", model: "phi4", live: ["mistral:latest"], userSelected: false }),
+    ).toBe("mistral:latest");
   });
 
   it("does not second-guess a hosted model that is set", () => {

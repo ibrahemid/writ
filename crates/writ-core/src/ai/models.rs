@@ -22,8 +22,8 @@ const OPENAI_CHAT_FAMILIES: &[&str] = &["gpt", "chatgpt", "chat", "o1", "o3", "o
 
 /// Segments that take an id in one of [`OPENAI_CHAT_FAMILIES`] out of the
 /// picker: the Responses-only variants (`-pro`, `-codex`, `-deep-research`),
-/// speech, images, realtime and live audio, the open-weight and
-/// restricted-access models, and the completion-only `-instruct`.
+/// speech, images, realtime and live audio, and the open-weight and
+/// restricted-access models.
 ///
 /// `audio` and `search` are deliberately absent: `gpt-4o-audio-preview` and
 /// `gpt-4o-search-preview` answer `chat/completions` like any other chat
@@ -42,11 +42,16 @@ const OPENAI_NOT_CHAT_SEGMENTS: &[&str] = &[
     "cyber",
     "daybreak",
     "rosalind",
-    "instruct",
     "embedding",
     "moderation",
     "whisper",
 ];
+
+/// OpenAI models in a chat family whose own page says they do not answer
+/// `chat/completions`, each taken out with its dated snapshots. The page of
+/// `gpt-3.5-turbo-instruct`, read on 2026-10-13, says it is "Compatible with
+/// legacy Completions endpoint and not Chat Completions."
+const OPENAI_NOT_CHAT_MODELS: &[&str] = &["gpt-3.5-turbo-instruct"];
 
 /// The `type` values an OpenAI-shaped list entry carries when it is not a
 /// text model. Together types every entry this way; a list whose entries carry
@@ -204,8 +209,9 @@ impl ModelCatalog {
 
 /// The model a provider starts from: the row's `default_model` when the
 /// provider's own list holds it, else the first of the row's
-/// `curated_models` that the list holds, and nothing otherwise, which leaves
-/// the picker open (ADR-040 section 12).
+/// `curated_models` that the list holds, else, on a runtime on this machine
+/// whose list holds one model, that model, and nothing otherwise, which
+/// leaves the picker open (ADR-040 section 12).
 ///
 /// Only an id that is both the table's choice and the account's inventory is
 /// seeded. The list alone is not a choice: sorted, its first id is whatever
@@ -215,11 +221,14 @@ impl ModelCatalog {
 /// `deepseek-chat` while the table still named it, so an id the list does not
 /// hold is a send that fails for a reason nobody chose. An empty model is a
 /// state both surfaces already hold: nothing is sent and each one asks for a
-/// model.
+/// model. A local runtime lists only what its owner installed, so a list of
+/// one is a choice already made; with several installed and none suggested,
+/// the first sorted is as likely an embedding model as a chat model.
 ///
-/// The ids themselves are data in the provider table, so a retired one is
-/// corrected there without touching this rule, and until it is, the rule
-/// falls through to the next suggestion or to the picker.
+/// The ids themselves are data in the provider table, read against the dated
+/// fixtures, so a retired one is corrected there in a release without touching
+/// this rule, and until it is, the rule falls through to the next suggestion
+/// or to the picker.
 ///
 /// The list counts only while it names this provider, so an answer that
 /// arrives after a provider change never seeds the row that replaced it.
@@ -237,11 +246,13 @@ pub fn seed_model(provider: &str, catalog: Option<&ModelCatalog>) -> String {
     if !row.default_model.is_empty() && listed(row.default_model) {
         return row.default_model.to_string();
     }
-    row.curated_models
-        .iter()
-        .find(|id| listed(id))
-        .map(|id| id.to_string())
-        .unwrap_or_default()
+    if let Some(suggested) = row.curated_models.iter().find(|id| listed(id)) {
+        return suggested.to_string();
+    }
+    match held.models.as_slice() {
+        [only] if row.group == super::providers::ProviderGroup::Local => only.clone(),
+        _ => String::new(),
+    }
 }
 
 /// One page of Anthropic's model list, with the cursor for the next one.
@@ -381,7 +392,8 @@ pub fn parse_anthropic_page(body: &str) -> Result<AnthropicPage, ModelListError>
 
 /// Keeps the OpenAI ids that answer a chat request: the chat families of
 /// [`OPENAI_CHAT_FAMILIES`] without the segments of
-/// [`OPENAI_NOT_CHAT_SEGMENTS`]. The rest keeps its order, which is by id.
+/// [`OPENAI_NOT_CHAT_SEGMENTS`] and the models of [`OPENAI_NOT_CHAT_MODELS`].
+/// The rest keeps its order, which is by id.
 pub fn filter_openai_ids(ids: Vec<String>) -> Vec<String> {
     let kept = ids.into_iter().filter(|id| answers_chat(id)).collect();
     sort_ids(kept)
@@ -404,6 +416,20 @@ fn answers_chat(id: &str) -> bool {
     let family = segments.next().unwrap_or_default();
     OPENAI_CHAT_FAMILIES.contains(&family)
         && !segments.any(|segment| OPENAI_NOT_CHAT_SEGMENTS.contains(&segment))
+        && !OPENAI_NOT_CHAT_MODELS
+            .iter()
+            .any(|model| is_model_or_snapshot(base, model))
+}
+
+/// Whether `id` is `model` or one of its dated snapshots, which OpenAI names
+/// by a `-` and a number after the model (`gpt-3.5-turbo-0125`).
+fn is_model_or_snapshot(id: &str, model: &str) -> bool {
+    id.strip_prefix(model).is_some_and(|rest| {
+        rest.is_empty()
+            || rest
+                .strip_prefix('-')
+                .is_some_and(|date| date.starts_with(|c: char| c.is_ascii_digit()))
+    })
 }
 
 /// Sorts model ids the way the dropdown shows them.
@@ -675,6 +701,7 @@ mod tests {
 
 #[cfg(test)]
 mod catalog_tests {
+    use super::super::providers::ProviderGroup;
     use super::*;
 
     #[test]
@@ -751,11 +778,48 @@ mod catalog_tests {
     #[test]
     fn a_list_holding_none_of_the_rows_ids_seeds_nothing() {
         // Every row: an id the provider answered but nobody chose is not a
-        // model to send to, so the row is left for the picker.
+        // model to send to, so the row is left for the picker. A runtime on
+        // this machine that lists one model seeds it, so the local rows are
+        // given two.
         for row in super::super::providers::PROVIDERS {
-            let live = ModelCatalog::live(row.id, vec!["answered-id".to_string()]);
+            let mut answered = vec!["answered-id".to_string()];
+            if row.group == ProviderGroup::Local {
+                answered.push("another-id".to_string());
+            }
+            let live = ModelCatalog::live(row.id, answered);
             assert_eq!(seed_model(row.id, Some(&live)), "", "{}", row.id);
         }
+    }
+
+    #[test]
+    fn a_local_runtime_that_lists_one_model_seeds_it() {
+        for id in ["ollama", "lmstudio"] {
+            let one = ModelCatalog::live(id, vec!["the-only-model".to_string()]);
+            assert_eq!(seed_model(id, Some(&one)), "the-only-model", "{id}");
+        }
+        // One id a hosted or typed endpoint answers is still not a choice
+        // anyone made.
+        for id in ["deepseek", "custom"] {
+            let one = ModelCatalog::live(id, vec!["the-only-model".to_string()]);
+            assert_eq!(seed_model(id, Some(&one)), "", "{id}");
+        }
+        // The one model counts only from the runtime's own list.
+        let fallback = ModelCatalog::fallback("lmstudio", ModelListError::Unreachable);
+        assert_eq!(seed_model("lmstudio", Some(&fallback)), "");
+    }
+
+    #[test]
+    fn a_local_runtime_that_lists_several_models_and_no_suggestion_seeds_nothing() {
+        let ollama = ModelCatalog::live(
+            "ollama",
+            vec!["llama3.1:8b".to_string(), "mistral:latest".to_string()],
+        );
+        assert_eq!(seed_model("ollama", Some(&ollama)), "");
+        let lmstudio = ModelCatalog::live(
+            "lmstudio",
+            vec!["model-a".to_string(), "model-b".to_string()],
+        );
+        assert_eq!(seed_model("lmstudio", Some(&lmstudio)), "");
     }
 
     #[test]

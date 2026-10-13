@@ -29,8 +29,9 @@ export function modelOptions(provider: string, live: readonly string[]): string[
 
 /**
  * The model a provider starts from: the row's own default when the provider's
- * list holds it, else the first of the row's suggestions the list holds, else
- * nothing, which leaves the picker open. The rule `seed_model` applies in
+ * list holds it, else the first of the row's suggestions the list holds, else,
+ * on a local runtime that lists one model, that model, else nothing, which
+ * leaves the picker open. The rule `seed_model` applies in
  * `writ_core::ai::models` (ADR-040 section 12).
  *
  * The list's own order decides nothing: sorted, its first id is whatever sorts
@@ -41,7 +42,9 @@ export function seedModel(provider: string, live: readonly string[]): string {
   const row = aiProvidersStore.byId(provider);
   if (!row || live.length === 0) return "";
   if (row.default_model && live.includes(row.default_model)) return row.default_model;
-  return row.curated_models.find((id) => live.includes(id)) ?? "";
+  const suggested = row.curated_models.find((id) => live.includes(id));
+  if (suggested) return suggested;
+  return row.group === "local" && live.length === 1 ? live[0] : "";
 }
 
 export interface AutoModelInput {

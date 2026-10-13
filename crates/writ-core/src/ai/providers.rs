@@ -73,9 +73,8 @@ pub struct ProviderInfo {
     ///
     /// These are read by hand from each provider's documentation or list and
     /// go stale when a provider retires an id; a stale one costs a row its
-    /// seed, never a failed send. Refreshed rows carry the date they were
-    /// read; the rest were written for 0.6 and have not been checked against a
-    /// live list since.
+    /// seed, never a failed send, and is corrected here in a release. Each
+    /// hosted row carries the date it was read.
     pub curated_models: &'static [&'static str],
 }
 
@@ -186,11 +185,14 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.groq.com/openai/v1",
         models_url: "https://api.groq.com/openai/v1/models",
         key_page_url: Some("https://console.groq.com/keys"),
-        default_model: "llama-3.3-70b-versatile",
+        // Read from the models and deprecations pages on 2026-10-13. Llama
+        // 3.3 70B and 3.1 8B left the free and developer tiers on 2026-08-16;
+        // these are the replacements the deprecation page names for them.
+        default_model: "openai/gpt-oss-120b",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+        curated_models: &["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
     },
     ProviderInfo {
         id: "deepseek",
@@ -200,10 +202,11 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.deepseek.com",
         models_url: "https://api.deepseek.com/models",
         key_page_url: Some("https://platform.deepseek.com/api_keys"),
-        // Read from the live list on 2026-09-18. `deepseek-chat` and
-        // `deepseek-reasoner` are gone from it; the endpoint still answers a
-        // request for `deepseek-reasoner` as an alias, which is why a stale
-        // suggestion is not a safe thing to write into the file.
+        // Read from the live list on 2026-09-18 and the models page on
+        // 2026-10-13. `deepseek-chat` and `deepseek-reasoner` are gone from
+        // it; the endpoint still answers a request for `deepseek-reasoner` as
+        // an alias, which is why a stale suggestion is not a safe thing to
+        // write into the file.
         default_model: "deepseek-flash",
         needs_key: true,
         supports_connect: false,
@@ -218,6 +221,8 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.mistral.ai/v1",
         models_url: "https://api.mistral.ai/v1/models",
         key_page_url: Some("https://console.mistral.ai/api-keys"),
+        // Read from the model pages on 2026-10-13: the aliases name Mistral
+        // Small 4 and Mistral Large 3.
         default_model: "mistral-small-latest",
         needs_key: true,
         supports_connect: false,
@@ -231,21 +236,26 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         wire: Wire::OpenAi,
         base_url: "https://api.x.ai/v1",
         models_url: "https://api.x.ai/v1/models",
-        key_page_url: Some("https://console.x.ai"),
-        default_model: "grok-4",
+        key_page_url: Some("https://console.x.ai/team/default/api-keys"),
+        // Read from the models page and the retirement guide on 2026-10-13.
+        // `grok-4` was retired on 2026-05-15 and is answered by `grok-4.3`,
+        // the model the guide names in its place; `grok-4.7` is the one the
+        // models page recommends for chat.
+        default_model: "grok-4.3",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["grok-4", "grok-3-mini"],
+        curated_models: &["grok-4.3", "grok-4.7"],
     },
     ProviderInfo {
         id: "together",
         label: "Together",
         group: ProviderGroup::Hosted,
         wire: Wire::OpenAi,
-        base_url: "https://api.together.xyz/v1",
-        models_url: "https://api.together.xyz/v1/models",
-        key_page_url: Some("https://api.together.ai/settings/api-keys"),
+        // The host the API reference and quickstart name on 2026-10-13.
+        base_url: "https://api.together.ai/v1",
+        models_url: "https://api.together.ai/v1/models",
+        key_page_url: Some("https://api.together.ai/settings/projects/~current/api-keys"),
         // Read from the serverless catalogue on 2026-10-13, which no longer
         // serves the Llama 3.3 Turbo model this row named.
         default_model: "openai/gpt-oss-120b",
@@ -266,11 +276,17 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.fireworks.ai/inference/v1",
         models_url: "https://api.fireworks.ai/inference/v1/models",
         key_page_url: Some("https://app.fireworks.ai/settings/users/api-keys"),
-        default_model: "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        // Read from the serverless pricing page and the quickstart on
+        // 2026-10-13. Llama 3.3 70B is no longer served serverless; GLM 5.3
+        // Flash is the quickstart's model and the cheaper of these two.
+        default_model: "accounts/fireworks/models/glm-5p3-flash",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["accounts/fireworks/models/llama-v3p3-70b-instruct"],
+        curated_models: &[
+            "accounts/fireworks/models/glm-5p3-flash",
+            "accounts/fireworks/models/gpt-oss-120b",
+        ],
     },
     ProviderInfo {
         id: "custom",
@@ -519,7 +535,7 @@ mod tests {
         assert_eq!(provider("ollama").unwrap().curated_models[0], "qwen3:4b");
         assert_eq!(
             provider("groq").unwrap().curated_models,
-            ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+            ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
         );
         assert_eq!(
             provider("deepseek").unwrap().curated_models,

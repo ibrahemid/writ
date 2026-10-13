@@ -3,34 +3,55 @@
 //! A client's name is a label it chose for itself and never an identity
 //! (ADR-031 rule 3.1), so the gate decides on what the user approved, not on
 //! what the client claims to be. [`ClientId`] and [`Decision`] are
-//! `writ_core::activity`'s, re-exported here: the name the server saw, the
-//! verdict it reached and the line the log keeps are one set of types.
+//! `writ_core::activity`'s, re-exported here: the name the server saw and the
+//! line the log keeps are one set of types. The gate answers with a
+//! [`Verdict`], which says why as well as what: the log keeps the three
+//! answers a [`Decision`] holds, and the client is told the reason, because
+//! each reason has a different fix.
 //!
 //! [`ConfigGate`] is the gate the server runs on. [`DenyAll`] is the default a
 //! host takes when nothing was supplied, and [`EnabledReads`] is a fixture the
 //! protocol tests drive; nothing in production constructs either.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::Deserialize;
-use writ_core::activity::{ActivityRecord, Actor};
 use writ_core::config::mcp::McpConfig;
 
 use crate::tools::READ_TOOLS;
 
 pub use writ_core::activity::{ClientId, Decision};
 
-/// Decides whether one client may run one tool.
-pub trait ConsentGate: Send + Sync {
-    /// The decision for `client` calling `tool`.
-    fn decide(&self, client: &ClientId, tool: &str) -> Decision;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    Allow,
+    Off,
+    Unnamed,
+    Waiting,
+    NotGranted,
 }
 
-/// Refuses everything.
+impl Verdict {
+    pub fn decision(self) -> Decision {
+        match self {
+            Verdict::Allow => Decision::Allow,
+            Verdict::Waiting => Decision::Pending,
+            Verdict::Off | Verdict::Unnamed | Verdict::NotGranted => Decision::Refuse,
+        }
+    }
+}
+
+/// Decides whether one client may run one tool.
+pub trait ConsentGate: Send + Sync {
+    /// The verdict on `client` calling `tool`.
+    fn decide(&self, client: &ClientId, tool: &str) -> Verdict;
+}
+
+/// Refuses everything, the way a server that is off does.
 ///
 /// The default a host takes when nothing else was supplied, so a wiring mistake
 /// costs a refusal rather than a read.
@@ -38,8 +59,8 @@ pub trait ConsentGate: Send + Sync {
 pub struct DenyAll;
 
 impl ConsentGate for DenyAll {
-    fn decide(&self, _client: &ClientId, _tool: &str) -> Decision {
-        Decision::Refuse
+    fn decide(&self, _client: &ClientId, _tool: &str) -> Verdict {
+        Verdict::Off
     }
 }
 
@@ -62,17 +83,17 @@ impl EnabledReads {
 }
 
 impl ConsentGate for EnabledReads {
-    fn decide(&self, client: &ClientId, tool: &str) -> Decision {
-        if client.name.trim().is_empty() {
-            return Decision::Refuse;
-        }
+    fn decide(&self, client: &ClientId, tool: &str) -> Verdict {
         if !self.enabled {
-            return Decision::Refuse;
+            return Verdict::Off;
+        }
+        if client.name.trim().is_empty() {
+            return Verdict::Unnamed;
         }
         if READ_TOOLS.contains(&tool) {
-            Decision::Allow
+            Verdict::Allow
         } else {
-            Decision::Refuse
+            Verdict::NotGranted
         }
     }
 }
@@ -107,40 +128,47 @@ struct Cached {
 /// The list is re-read on every call, guarded by the file's modified time and
 /// length, so approving a client in the app reaches a running server on its
 /// next call and an unchanged file costs one `stat` (ADR-031 rule 3.5). The
-/// gate never writes: approval is granted in the app, and no protocol message
-/// can grant one (rule 3.4).
+/// gate never writes the settings: approval is granted in the app, and no
+/// protocol message can grant one (rule 3.4).
 ///
-/// Every call it decides on is appended to the activity log, whichever way it
-/// went (rule 5.5). The gate sees the client and the tool and not the path, so
-/// the record names the tool; a consumer that knows which note it touched adds
-/// that where it writes.
+/// The gate writes no line of the activity log. The tool host records each
+/// call once, after the gate has answered, with the file the gate never sees
+/// (rule 5.5).
 ///
-/// A client it has nobody's decision about is also written to
-/// `mcp-pending.json`, once, however many calls it makes. The log is capped, so
-/// a program looping calls it is refusing would otherwise push its own pending
-/// rows off the end and leave the user nothing to decide on.
+/// A client it has nobody's decision about is written to `mcp-pending.json`
+/// whenever that file does not list it, and while the file lists it, its entry
+/// is rewritten at most once a minute however many calls it makes. That file
+/// is the waiting list the app watches and shows. The app drops the entry when
+/// the person decides. Not allowing a program is a decision too, so it is not
+/// written there again until the person forgets it.
 #[derive(Debug)]
 pub struct ConfigGate {
     writ_dir: PathBuf,
     cached: Mutex<Cached>,
     parses: AtomicUsize,
     waiting: Mutex<HashMap<String, Waiting>>,
+    listing: Mutex<Option<Listing>>,
 }
 
-/// How often one client's entry in `mcp-pending.json` is rewritten. The first
-/// call from a name is written at once; after that the file moves at most this
-/// often, whatever rate the client calls at.
+/// How often one client's entry in `mcp-pending.json` is rewritten while the
+/// file lists it, whatever rate the client calls at.
 const PENDING_WRITE_EVERY: Duration = Duration::from_secs(60);
 
 /// What this process knows about one waiting client since it started.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Waiting {
-    /// When its entry was last written.
-    written: Instant,
+    /// When its entry was last written, `None` before the first write.
+    written: Option<Instant>,
     /// Calls counted since that write. Carried into the next one, so a client
     /// calling faster than the file is written still has every call counted
     /// unless the process exits first.
     unwritten: u64,
+}
+
+#[derive(Debug)]
+struct Listing {
+    stamp: Option<(SystemTime, u64)>,
+    names: HashSet<String>,
 }
 
 impl ConfigGate {
@@ -151,6 +179,7 @@ impl ConfigGate {
             cached: Mutex::new(Cached::default()),
             parses: AtomicUsize::new(0),
             waiting: Mutex::new(HashMap::new()),
+            listing: Mutex::new(None),
         }
     }
 
@@ -181,86 +210,105 @@ impl ConfigGate {
         config
     }
 
-    /// Appends the decision, dropping a log that could not be written.
+    /// Lists the client in `mcp-pending.json`.
     ///
     /// A data folder that cannot be written to is not a reason to answer a call
-    /// differently: the decision already stands, and the write is the record of
-    /// it.
-    fn record(&self, client: &ClientId, tool: &str, decision: Decision) {
-        let record = ActivityRecord::now(Actor::from(client), tool, decision);
-        let _ = writ_storage::activity_log::append(&self.writ_dir, &record);
-        if decision == Decision::Pending {
-            self.note_waiting(client);
-        }
-    }
-
-    /// Adds the client to `mcp-pending.json`, at most once a minute.
+    /// differently: the verdict already stands.
     ///
-    /// The first call from a name is written straight away, so the user sees it
-    /// as soon as it happens. After that the counted calls accumulate here and
-    /// go in with the next write.
+    /// A call from a name the file does not list is written straight away, so
+    /// the user sees it as soon as it happens. That includes a name this
+    /// process wrote before: the app drops the entry when the person decides,
+    /// and a Forget can follow before the program calls again. While the file
+    /// lists the name, the counted calls accumulate here and go in with a
+    /// write at most once a minute.
     fn note_waiting(&self, client: &ClientId) {
         let now = Instant::now();
-        let due = {
+        let recent = {
             let mut waiting = self
                 .waiting
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            match waiting.get_mut(&client.name) {
-                Some(seen) => {
-                    seen.unwritten += 1;
-                    if now.duration_since(seen.written) < PENDING_WRITE_EVERY {
-                        None
-                    } else {
-                        Some(std::mem::replace(&mut seen.unwritten, 0))
-                    }
-                }
-                None => {
-                    waiting.insert(
-                        client.name.clone(),
-                        Waiting {
-                            written: now,
-                            unwritten: 0,
-                        },
-                    );
-                    Some(1)
-                }
-            }
+            let seen = waiting.entry(client.name.clone()).or_default();
+            seen.unwritten += 1;
+            seen.written
+                .is_some_and(|at| now.duration_since(at) < PENDING_WRITE_EVERY)
         };
+        if recent && self.lists(&client.name) {
+            return;
+        }
 
-        let Some(calls) = due else { return };
+        let calls = {
+            let mut waiting = self
+                .waiting
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let seen = waiting.entry(client.name.clone()).or_default();
+            seen.written = Some(now);
+            std::mem::take(&mut seen.unwritten)
+        };
         let _ = writ_storage::pending_clients::note_calls(&self.writ_dir, client, calls);
-        let mut waiting = self
-            .waiting
+        *self
+            .listing
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    }
+
+    /// Whether `mcp-pending.json` lists `name` now.
+    ///
+    /// Guarded by the file's modified time and length, as the settings are, so
+    /// a file nobody rewrote costs one `stat`. The stamp is taken before the
+    /// read, so a write landing during the read is caught on the next call.
+    fn lists(&self, name: &str) -> bool {
+        let stamp = stamp_of(&writ_storage::pending_clients::path(&self.writ_dir));
+        if stamp.is_none() {
+            return false;
+        }
+        let mut listing = self
+            .listing
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(seen) = waiting.get_mut(&client.name) {
-            seen.written = now;
+        if let Some(seen) = listing.as_ref().filter(|seen| seen.stamp == stamp) {
+            return seen.names.contains(name);
         }
+        let names: HashSet<String> = writ_storage::pending_clients::read(&self.writ_dir)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        let listed = names.contains(name);
+        *listing = Some(Listing { stamp, names });
+        listed
     }
 }
 
 impl ConsentGate for ConfigGate {
-    fn decide(&self, client: &ClientId, tool: &str) -> Decision {
+    fn decide(&self, client: &ClientId, tool: &str) -> Verdict {
         let config = self.current();
-        let decision = verdict(&config, client, tool);
-        self.record(client, tool, decision);
-        decision
+        let verdict = verdict(&config, client, tool);
+        if verdict == Verdict::Waiting {
+            self.note_waiting(client);
+        }
+        verdict
     }
 }
 
-/// The decision `config` reaches about `client` calling `tool`.
+/// The verdict `config` reaches about `client` calling `tool`.
 ///
-/// Pure, so the table of cases is testable without a folder. `Pending` is only
-/// ever reached with the server on and a name to show: turning the server on
+/// Pure, so the table of cases is testable without a folder. A server that is
+/// off answers that before anything else. [`Verdict::Waiting`] is only ever
+/// reached with the server on and a name to show: turning the server on
 /// approves nobody (ADR-031 rule 7.2), and a client that sent no name leaves
-/// nothing for the user to approve or revoke later.
-fn verdict(config: &McpConfig, client: &ClientId, tool: &str) -> Decision {
-    if !config.enabled || client.name.trim().is_empty() {
-        return Decision::Refuse;
+/// nothing for the user to approve or revoke later. Writing implies reading by
+/// the time the section is loaded (`ClientApproval`), so the read check reads
+/// one field.
+fn verdict(config: &McpConfig, client: &ClientId, tool: &str) -> Verdict {
+    if !config.enabled {
+        return Verdict::Off;
+    }
+    if client.name.trim().is_empty() {
+        return Verdict::Unnamed;
     }
     let Some(approval) = config.approval_for(&client.name) else {
-        return Decision::Pending;
+        return Verdict::Waiting;
     };
     let granted = if READ_TOOLS.contains(&tool) {
         approval.read
@@ -268,9 +316,9 @@ fn verdict(config: &McpConfig, client: &ClientId, tool: &str) -> Decision {
         approval.write
     };
     if granted {
-        Decision::Allow
+        Verdict::Allow
     } else {
-        Decision::Refuse
+        Verdict::NotGranted
     }
 }
 
@@ -299,21 +347,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deny_all_refuses_a_read_tool() {
+    fn deny_all_answers_as_a_server_that_is_off() {
         let gate = DenyAll;
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Refuse
+            Verdict::Off
         );
     }
 
     #[test]
-    fn a_disabled_server_refuses_every_read_tool() {
+    fn a_disabled_server_refuses_every_read_tool_as_off() {
         let gate = EnabledReads::new(false);
         for tool in READ_TOOLS {
             assert_eq!(
                 gate.decide(&ClientId::named("Claude Code"), tool),
-                Decision::Refuse,
+                Verdict::Off,
                 "{tool}"
             );
         }
@@ -325,7 +373,7 @@ mod tests {
         for tool in READ_TOOLS {
             assert_eq!(
                 gate.decide(&ClientId::named("Claude Code"), tool),
-                Decision::Allow,
+                Verdict::Allow,
                 "{tool}"
             );
         }
@@ -337,7 +385,7 @@ mod tests {
         for tool in ["write_note", "create_note", "rename_note", "trash_note"] {
             assert_eq!(
                 gate.decide(&ClientId::named("Claude Code"), tool),
-                Decision::Refuse,
+                Verdict::NotGranted,
                 "{tool}"
             );
         }
@@ -349,9 +397,18 @@ mod tests {
         for name in ["", "   "] {
             assert_eq!(
                 gate.decide(&ClientId::named(name), "read_note"),
-                Decision::Refuse,
+                Verdict::Unnamed,
                 "{name:?}"
             );
+        }
+    }
+
+    #[test]
+    fn the_log_keeps_three_answers_and_the_client_hears_five_reasons() {
+        assert_eq!(Verdict::Allow.decision(), Decision::Allow);
+        assert_eq!(Verdict::Waiting.decision(), Decision::Pending);
+        for refused in [Verdict::Off, Verdict::Unnamed, Verdict::NotGranted] {
+            assert_eq!(refused.decision(), Decision::Refuse, "{refused:?}");
         }
     }
 
@@ -371,44 +428,25 @@ mod tests {
         )
     }
 
-    fn records(dir: &std::path::Path) -> Vec<writ_core::activity::ActivityRecord> {
-        writ_storage::activity_log::read_recent(dir, 100)
+    fn waiting_names(dir: &std::path::Path) -> Vec<String> {
+        writ_storage::pending_clients::read(dir)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect()
     }
 
     #[test]
-    fn an_unknown_client_is_pending_and_leaves_one_record_to_decide_on() {
+    fn an_unknown_client_waits_and_is_put_on_the_waiting_list() {
         let dir = config_dir();
         write_config(dir.path(), "[mcp]\nenabled = true\n");
         let gate = ConfigGate::new(dir.path());
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Pending
+            Verdict::Waiting
         );
 
-        let logged = records(dir.path());
-        assert_eq!(logged.len(), 1);
-        assert_eq!(logged[0].decision, Decision::Pending);
-        assert_eq!(logged[0].action, "read_note");
-        assert_eq!(
-            logged[0].actor,
-            Actor::Client {
-                name: "Claude Code".to_string(),
-                version: None
-            }
-        );
-    }
-
-    #[test]
-    fn each_call_from_an_unknown_client_leaves_exactly_one_record() {
-        let dir = config_dir();
-        write_config(dir.path(), "[mcp]\nenabled = true\n");
-        let gate = ConfigGate::new(dir.path());
-
-        gate.decide(&ClientId::named("Claude Code"), "read_note");
-        gate.decide(&ClientId::named("Claude Code"), "list_notes");
-
-        assert_eq!(records(dir.path()).len(), 2);
+        assert_eq!(waiting_names(dir.path()), ["Claude Code"]);
     }
 
     /// The activity log is capped, so a program looping calls it is not allowed
@@ -424,7 +462,7 @@ mod tests {
         for _ in 0..10_000 {
             assert_eq!(
                 gate.decide(&ClientId::named("Claude Code"), "read_note"),
-                Decision::Pending
+                Verdict::Waiting
             );
         }
 
@@ -454,6 +492,22 @@ mod tests {
     }
 
     #[test]
+    fn a_program_the_person_did_not_allow_is_refused_and_not_listed_again() {
+        let dir = config_dir();
+        write_config(dir.path(), &approving("Claude Code", false, false));
+        let gate = ConfigGate::new(dir.path());
+
+        for tool in ["list_notes", "read_note", "write_note"] {
+            assert_eq!(
+                gate.decide(&ClientId::named("Claude Code"), tool),
+                Verdict::NotGranted,
+                "{tool}"
+            );
+        }
+        assert!(writ_storage::pending_clients::read(dir.path()).is_empty());
+    }
+
+    #[test]
     fn two_waiting_clients_are_two_entries() {
         let dir = config_dir();
         write_config(dir.path(), "[mcp]\nenabled = true\n");
@@ -462,20 +516,17 @@ mod tests {
         gate.decide(&ClientId::named("Claude Code"), "read_note");
         gate.decide(&ClientId::named("Zed"), "read_note");
 
-        let names: Vec<String> = writ_storage::pending_clients::read(dir.path())
-            .into_iter()
-            .map(|entry| entry.name)
-            .collect();
+        let names = waiting_names(dir.path());
         assert_eq!(names.len(), 2);
         assert!(names.contains(&"Claude Code".to_string()));
         assert!(names.contains(&"Zed".to_string()));
     }
 
     /// Approval is granted in the app and nowhere else (ADR-031 rule 3.4). What
-    /// the server writes is the log and the file naming who is waiting; the
-    /// settings it decides from it only ever reads.
+    /// the gate writes is the file naming who is waiting; the settings it
+    /// decides from it only ever reads, and the log is the tool host's.
     #[test]
-    fn deciding_writes_the_log_and_the_waiting_file_and_nothing_else() {
+    fn deciding_writes_the_waiting_file_and_nothing_else() {
         let dir = config_dir();
         let settings = "[mcp]\nenabled = true\n";
         write_config(dir.path(), settings);
@@ -498,12 +549,7 @@ mod tests {
         written.sort();
         assert_eq!(
             written,
-            [
-                "activity.jsonl",
-                "activity.lock",
-                "config.toml",
-                "mcp-pending.json"
-            ]
+            ["activity.lock", "config.toml", "mcp-pending.json"]
         );
     }
 
@@ -515,11 +561,19 @@ mod tests {
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Refuse
+            Verdict::Off
         );
-        let logged = records(dir.path());
-        assert_eq!(logged.len(), 1);
-        assert_eq!(logged[0].decision, Decision::Refuse);
+        assert!(writ_storage::pending_clients::read(dir.path()).is_empty());
+        assert!(!writ_storage::pending_clients::path(dir.path()).exists());
+    }
+
+    #[test]
+    fn a_server_that_is_off_says_so_before_anything_else() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = false\n");
+        let gate = ConfigGate::new(dir.path());
+
+        assert_eq!(gate.decide(&ClientId::named(""), "read_note"), Verdict::Off);
     }
 
     #[test]
@@ -529,7 +583,7 @@ mod tests {
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Refuse
+            Verdict::Off
         );
     }
 
@@ -541,7 +595,7 @@ mod tests {
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Refuse
+            Verdict::Off
         );
     }
 
@@ -556,7 +610,7 @@ mod tests {
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Allow
+            Verdict::Allow
         );
     }
 
@@ -568,27 +622,27 @@ mod tests {
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Allow
+            Verdict::Allow
         );
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "write_note"),
-            Decision::Refuse
+            Verdict::NotGranted
         );
     }
 
     #[test]
-    fn approving_writing_does_not_approve_reading() {
+    fn approving_writing_approves_reading_too() {
         let dir = config_dir();
         write_config(dir.path(), &approving("Claude Code", false, true));
         let gate = ConfigGate::new(dir.path());
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Refuse
+            Verdict::Allow
         );
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "write_note"),
-            Decision::Allow
+            Verdict::Allow
         );
     }
 
@@ -600,34 +654,127 @@ mod tests {
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Pending
+            Verdict::Waiting
         );
 
         write_config(dir.path(), &approving("Claude Code", true, false));
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Allow,
+            Verdict::Allow,
             "the same live gate, with no restart"
         );
     }
 
     #[test]
-    fn forgetting_a_client_returns_it_to_pending_on_the_next_call() {
+    fn forgetting_a_client_returns_it_to_waiting_on_the_next_call() {
         let dir = config_dir();
         write_config(dir.path(), &approving("Claude Code", true, true));
         let gate = ConfigGate::new(dir.path());
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Allow
+            Verdict::Allow
         );
 
         write_config(dir.path(), "[mcp]\nenabled = true\n");
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "read_note"),
-            Decision::Pending
+            Verdict::Waiting
+        );
+    }
+
+    #[test]
+    fn a_program_approved_and_then_forgotten_is_listed_again_on_its_next_call() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+        let program = ClientId::named("Claude Code");
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::Waiting);
+
+        write_config(dir.path(), &approving("Claude Code", true, false));
+        writ_storage::pending_clients::forget(dir.path(), "Claude Code", |_| {})
+            .expect("the app drops the entry");
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::Allow);
+
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::Waiting);
+
+        assert_eq!(waiting_names(dir.path()), ["Claude Code"]);
+    }
+
+    #[test]
+    fn a_decision_undone_before_the_program_calls_again_lists_it_on_that_call() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+        let program = ClientId::named("Claude Code");
+        for _ in 0..3 {
+            assert_eq!(gate.decide(&program, "read_note"), Verdict::Waiting);
+        }
+
+        write_config(dir.path(), &approving("Claude Code", true, false));
+        writ_storage::pending_clients::forget(dir.path(), "Claude Code", |_| {})
+            .expect("the app drops the entry");
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::Waiting);
+        assert_eq!(waiting_names(dir.path()), ["Claude Code"]);
+    }
+
+    #[test]
+    fn a_program_not_allowed_and_then_forgotten_is_listed_again_on_its_next_call() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+        let program = ClientId::named("Claude Code");
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::Waiting);
+
+        write_config(dir.path(), &approving("Claude Code", false, false));
+        writ_storage::pending_clients::forget(dir.path(), "Claude Code", |_| {})
+            .expect("the app drops the entry");
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::NotGranted);
+
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::Waiting);
+
+        assert_eq!(waiting_names(dir.path()), ["Claude Code"]);
+    }
+
+    #[test]
+    fn a_waiting_file_taken_away_is_written_again_on_the_next_call() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+        let program = ClientId::named("Claude Code");
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::Waiting);
+
+        std::fs::remove_file(writ_storage::pending_clients::path(dir.path()))
+            .expect("remove the file");
+        assert_eq!(gate.decide(&program, "read_note"), Verdict::Waiting);
+
+        assert_eq!(waiting_names(dir.path()), ["Claude Code"]);
+    }
+
+    #[test]
+    fn a_program_the_file_still_lists_is_not_written_again_within_the_minute() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+
+        for _ in 0..5 {
+            assert_eq!(
+                gate.decide(&ClientId::named("Claude Code"), "read_note"),
+                Verdict::Waiting
+            );
+        }
+
+        let waiting = writ_storage::pending_clients::read(dir.path());
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(
+            waiting[0].calls, 1,
+            "a later call was written within the minute"
         );
     }
 
@@ -639,14 +786,14 @@ mod tests {
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "write_note"),
-            Decision::Allow
+            Verdict::Allow
         );
 
         write_config(dir.path(), &approving("Claude Code", true, false));
 
         assert_eq!(
             gate.decide(&ClientId::named("Claude Code"), "write_note"),
-            Decision::Refuse
+            Verdict::NotGranted
         );
     }
 
@@ -659,7 +806,7 @@ mod tests {
         for _ in 0..5 {
             assert_eq!(
                 gate.decide(&ClientId::named("Claude Code"), "read_note"),
-                Decision::Allow
+                Verdict::Allow
             );
         }
 
@@ -688,7 +835,7 @@ mod tests {
         for name in ["claude code", "CLAUDE CODE", " Claude Code", "Claude Code "] {
             assert_eq!(
                 gate.decide(&ClientId::named(name), "read_note"),
-                Decision::Pending,
+                Verdict::Waiting,
                 "{name:?}"
             );
         }
@@ -703,48 +850,10 @@ mod tests {
         for name in ["", "   "] {
             assert_eq!(
                 gate.decide(&ClientId::named(name), "read_note"),
-                Decision::Refuse,
+                Verdict::Unnamed,
                 "{name:?}"
             );
         }
-    }
-
-    #[test]
-    fn a_decision_reaches_the_log_whichever_way_it_went() {
-        let dir = config_dir();
-        write_config(dir.path(), &approving("Claude Code", true, false));
-        let gate = ConfigGate::new(dir.path());
-
-        gate.decide(&ClientId::named("Claude Code"), "read_note");
-        gate.decide(&ClientId::named("Claude Code"), "write_note");
-        gate.decide(&ClientId::named("Another Client"), "read_note");
-
-        let logged = records(dir.path());
-        let decisions: Vec<Decision> = logged.iter().map(|r| r.decision).collect();
-        assert_eq!(
-            decisions,
-            [Decision::Pending, Decision::Refuse, Decision::Allow],
-            "newest first"
-        );
-    }
-
-    #[test]
-    fn a_record_the_gate_writes_holds_no_note_text() {
-        let dir = config_dir();
-        write_config(dir.path(), &approving("Claude Code", true, false));
-        let gate = ConfigGate::new(dir.path());
-        gate.decide(&ClientId::named("Claude Code"), "read_note");
-
-        let line = std::fs::read_to_string(writ_storage::activity_log::current_path(dir.path()))
-            .expect("read log");
-        let value: serde_json::Value = serde_json::from_str(line.trim()).expect("parse");
-        let mut keys: Vec<&str> = value
-            .as_object()
-            .expect("object")
-            .keys()
-            .map(|k| k.as_str())
-            .collect();
-        keys.sort();
-        assert_eq!(keys, ["action", "actor", "at", "bytes", "decision", "path"]);
+        assert!(writ_storage::pending_clients::read(dir.path()).is_empty());
     }
 }

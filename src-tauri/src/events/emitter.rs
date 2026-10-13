@@ -167,6 +167,11 @@ pub enum WritFrontendEvent {
     #[serde(rename = "activity:changed")]
     ActivityChanged {},
 
+    #[serde(rename = "mcp:pending")]
+    McpPending {
+        waiting: Vec<writ_core::activity::PendingClient>,
+    },
+
     /// Whether the OS gave Writ the chord that shows and hides the window.
     /// Raised at startup and again on every rebind, so the shortcut editor can
     /// say a chord is taken rather than leaving a dead key.
@@ -197,6 +202,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::FlushBeforeQuit { .. } => "writ://flush-before-quit",
         WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
         WritFrontendEvent::ActivityChanged { .. } => "writ://activity",
+        WritFrontendEvent::McpPending { .. } => "writ://mcp-pending",
         WritFrontendEvent::HotkeyStatus(..) => "writ://hotkey-status",
     }
 }

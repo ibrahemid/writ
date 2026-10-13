@@ -203,6 +203,35 @@ fn a_model_offered_only_to_approved_organizations_stays_out_of_the_picker() {
 }
 
 #[test]
+fn a_model_whose_page_says_it_answers_only_completions_stays_out_with_its_snapshots() {
+    // The page of `gpt-3.5-turbo-instruct`, read on 2026-10-13: "Compatible
+    // with legacy Completions endpoint and not Chat Completions."
+    let kept = filter_openai_ids(
+        [
+            "gpt-3.5-turbo-instruct",
+            "gpt-3.5-turbo-instruct-0914",
+            "ft:gpt-3.5-turbo-instruct:acme::XyZ",
+            "gpt-3.5-turbo",
+            "gpt-3.5-turbo-0125",
+        ]
+        .map(String::from)
+        .to_vec(),
+    );
+    assert_eq!(
+        kept,
+        vec![
+            "gpt-3.5-turbo".to_string(),
+            "gpt-3.5-turbo-0125".to_string()
+        ]
+    );
+    assert_eq!(
+        openai_chat_support().get("gpt-3.5-turbo-instruct"),
+        Some(&false),
+        "the support table records what the model's page says"
+    );
+}
+
+#[test]
 fn togethers_bare_list_is_read_and_holds_only_text_models() {
     let ids = listed("together");
     assert!(ids.iter().any(|id| id == "openai/gpt-oss-120b"));
