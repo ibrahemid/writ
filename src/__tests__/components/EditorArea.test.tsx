@@ -7,7 +7,7 @@ import type { BufferDocument } from "../../types/buffer";
 
 const mocks = vi.hoisted(() => ({
   config: vi.fn(),
-  currentText: vi.fn(() => "one two three"),
+  counts: vi.fn(() => ({ words: 3, characters: 13, exact: true })),
   activeBuffer: (() => ({ id: "b1" }) as unknown as BufferDocument | null) as Accessor<
     BufferDocument | null
   >,
@@ -37,10 +37,10 @@ vi.mock("../../components/Graph/FolderGraphView", () => ({
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
     editor: {
-      currentText: mocks.currentText,
       isRemovedOnDisk: () => false,
       noteFileState: () => "present" as const,
     },
+    counts: { counts: mocks.counts, watch: () => () => {} },
     folderGraph: { isOpen: mocks.graphOpen },
   }),
 }));

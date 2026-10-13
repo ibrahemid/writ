@@ -1,5 +1,5 @@
 import { EditorView } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import type { Extension, Text } from "@codemirror/state";
 import { findLinkTargets, type LinkRange } from "./link-layer";
 import type { SpellingEntry } from "./spelling";
 import { IS_MAC } from "../lib/platform";
@@ -213,9 +213,20 @@ export interface EditorContextMenuDeps {
   };
   aiEnabled(): boolean;
   editable(view: EditorView): boolean;
+  /** Whether the file is one the menu looks through for `{{placeholders}}`: not a large one. */
+  looksForPlaceholders(): boolean;
 }
 
 const PLACEHOLDER = /\{\{[A-Za-z_][A-Za-z0-9_]*\}\}/;
+
+// A placeholder never holds a line break, so the document is read a line at a
+// time, from its own strings, and the walk stops at the first one found.
+function holdsPlaceholder(doc: Text): boolean {
+  for (const cursor = doc.iter(); !cursor.next().done; ) {
+    if (!cursor.lineBreak && PLACEHOLDER.test(cursor.value)) return true;
+  }
+  return false;
+}
 
 export function editorContextMenu(deps: EditorContextMenuDeps): Extension {
   return EditorView.domEventHandlers({
@@ -256,7 +267,7 @@ export function editorContextMenu(deps: EditorContextMenuDeps): Extension {
             ? { range: linkRange, text: view.state.doc.sliceString(linkRange.from, linkRange.to) }
             : null,
           aiEnabled: deps.aiEnabled(),
-          hasPlaceholders: PLACEHOLDER.test(view.state.doc.toString()),
+          hasPlaceholders: deps.looksForPlaceholders() && holdsPlaceholder(view.state.doc),
           editable: deps.editable(view),
         },
         {

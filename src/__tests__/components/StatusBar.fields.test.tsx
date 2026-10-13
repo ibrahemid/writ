@@ -17,10 +17,6 @@ vi.mock("../../stores/global/config", () => ({
 vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: { getActive: () => null },
 }));
-vi.mock("../../stores/global/token-estimate", () => ({
-  tokenEstimateStore: { count: () => 42, request: vi.fn() },
-  formatTokenCount: (value: number) => String(value),
-}));
 vi.mock("../../stores/global/renderer-registry", () => ({
   rendererRegistry: { hasRenderer: (type: string | null) => type !== null },
 }));
@@ -33,8 +29,8 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       cursorLine,
       cursorCol,
       isUpdatedFromDisk: () => false,
-      currentText: () => "one two three",
     },
+    counts: { counts: () => ({ words: 3, characters: 13, exact: true }), watch: () => () => {} },
     tabs: { activeTabId: () => "tab-1" },
     layout: { get: () => ({ kind: "inline" as const }), set: vi.fn() },
   }),
@@ -96,7 +92,7 @@ describe("StatusBar fields", () => {
     expect(right(container).querySelector(".statusbar-field--words")!.textContent).toBe(
       "3 words, 13 characters",
     );
-    expect(right(container).querySelector(".statusbar-tokens")!.textContent).toContain("42 tokens");
+    expect(right(container).querySelector(".statusbar-tokens")!.textContent).toBe("≈ 4 tokens");
   });
 
   it("carries the fields in reading order", () => {

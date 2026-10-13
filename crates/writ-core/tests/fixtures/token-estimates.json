@@ -1,0 +1,75 @@
+{
+  "note": "Shared by crates/writ-core/tests/token_estimate_fixture.rs and src/__tests__/lib/token-estimate.fixture.test.ts. words and characters are what a document holding text counts (runs between whitespace, code points); tokens is what writ_core::prompt::estimate_tokens gives for text.",
+  "cases": [
+    {
+      "name": "empty",
+      "text": "",
+      "words": 0,
+      "characters": 0,
+      "tokens": 0
+    },
+    {
+      "name": "whitespace only",
+      "text": "   \n\t  \n",
+      "words": 0,
+      "characters": 8,
+      "tokens": 0
+    },
+    {
+      "name": "one word",
+      "text": "a",
+      "words": 1,
+      "characters": 1,
+      "tokens": 1
+    },
+    {
+      "name": "sentence",
+      "text": "The quick brown fox jumps over the lazy dog.",
+      "words": 9,
+      "characters": 44,
+      "tokens": 11
+    },
+    {
+      "name": "lines and blank lines",
+      "text": "one two\nthree\n\nfour  five\n",
+      "words": 5,
+      "characters": 26,
+      "tokens": 7
+    },
+    {
+      "name": "astral emoji",
+      "text": "😀 ok",
+      "words": 2,
+      "characters": 4,
+      "tokens": 2
+    },
+    {
+      "name": "arabic with a no-break space",
+      "text": "نص\u00a0عربي here",
+      "words": 3,
+      "characters": 12,
+      "tokens": 3
+    },
+    {
+      "name": "cjk run",
+      "text": "中文文本 and words",
+      "words": 3,
+      "characters": 14,
+      "tokens": 4
+    },
+    {
+      "name": "paragraph",
+      "text": "Writ opens any text file. It counts words the way a writer does: runs of characters between spaces, tabs and line breaks.\nThe estimate blends two rules of thumb.",
+      "words": 29,
+      "characters": 161,
+      "tokens": 40
+    },
+    {
+      "name": "markdown",
+      "text": "# Title\n\n- [ ] task one\n- [x] task two\n\n```js\nconst a = 1;\n```\n",
+      "words": 17,
+      "characters": 63,
+      "tokens": 19
+    }
+  ]
+}

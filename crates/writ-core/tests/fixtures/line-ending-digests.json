@@ -1,5 +1,5 @@
 {
-  "note": "Shared by crates/writ-core/tests/line_ending_digests.rs and src/__tests__/lib/doc-hash.fixture.test.ts. digest is sha256 of the UTF-8 text with line endings normalised; rawDigest is sha256 of the text as written.",
+  "note": "Shared by crates/writ-core/tests/line_ending_digests.rs and demo/__tests__/digest.fixture.test.ts. digest is sha256 of the UTF-8 text with line endings normalised; rawDigest is sha256 of the text as written.",
   "cases": [
     {
       "name": "lf",

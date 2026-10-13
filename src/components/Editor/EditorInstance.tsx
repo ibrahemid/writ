@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect, createMemo, on, Show } from "solid-js";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, type Text } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap,
@@ -16,7 +16,12 @@ import { isMarkdownBuffer } from "../../lib/content-type";
 import { markdownInlineExtension } from "../../editor/markdown-typography";
 import type { InlineImageDeps } from "../../editor/markdown-images";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
-import { spellingExtension } from "../../editor/spelling";
+import {
+  recheckSpelling,
+  sameSpellingRules,
+  spellingExtension,
+  type SpellingRules,
+} from "../../editor/spelling";
 import { linkLayer } from "../../editor/link-layer";
 import { wikilinkDecorationLayer } from "../../editor/wikilink-decorations";
 import { wikilinkCompletion, wikilinkCompletionForFile } from "../../editor/wikilink-complete";
@@ -102,12 +107,6 @@ const CONTENT_DETECT_DELTA = 40;
 // quarter-megabyte-plus buffer on every edit burst is pure jank for a buffer
 // that, if it had a detectable language, would carry a recognizable extension.
 const CONTENT_DETECT_MAX_LENGTH = 256 * 1024;
-// In large-file / binary mode, materializing the whole document into a string
-// on every keystroke to publish `currentText` is the measured jank
-// (1.4 ms @ 5 MB, 2.9 ms @ 9 MB). Preview is disabled in that mode, so the
-// publish only feeds a heuristic token count that can lag; coalesce it onto
-// this idle interval instead of running per keystroke.
-const RESTRICTED_CONTENT_PUBLISH_MS = 400;
 // Spell check is skipped above this document size (UTF-16 code units ≈ 1MB of
 // text): a full re-lint of a megabyte on every edit burst is not worth it.
 const SPELLING_MAX_CHARS = 1_000_000;
@@ -127,7 +126,6 @@ export default function EditorInstance(props: Props) {
   let viewBufferId: string | undefined;
   let appliedLanguageKey = "";
   let lastDetectLen = 0;
-  let restrictedPublishTimer: ReturnType<typeof setTimeout> | null = null;
   const languageCompartment = new Compartment();
   const themeCompartment = new Compartment();
   const typographyCompartment = new Compartment();
@@ -227,6 +225,10 @@ export default function EditorInstance(props: Props) {
     spellingEntries: () => spellingStore.entries(),
     aiEnabled: () => configStore.config().ai.rewrite.enabled,
     editable: (view) => !view.state.readOnly,
+    looksForPlaceholders: () => {
+      const kind = win.editor.largeFileMode()?.kind ?? "Normal";
+      return kind === "Normal" || kind === "LongLines";
+    },
     clipboard: {
       copy: (view) => void copySelection(view),
       cut: (view) => void cutSelection(view),
@@ -274,19 +276,23 @@ export default function EditorInstance(props: Props) {
 
   // Reconfigures the spelling compartment: when the buffer is eligible and the
   // feature is on, attach the store and kick a first lint; otherwise clear the
-  // decorations.
-  function applySpelling() {
+  // decorations. `recheck` sends the whole note again, for a change to what the
+  // checker reads: the marks outside an edit would keep the old verdict.
+  function applySpelling(recheck = false) {
     const eligible = spellingIsEligible();
     if (!view) return;
     const active = eligible && configStore.config().spelling.enabled;
     view.dispatch({
-      effects: spellingCompartment.reconfigure(
-        active ? spellingExtension((n) => spellingStore.publishCount(n)) : [],
-      ),
+      effects: [
+        spellingCompartment.reconfigure(
+          active ? spellingExtension((n) => spellingStore.publishCount(n)) : [],
+        ),
+        ...(active && recheck ? [recheckSpelling.of()] : []),
+      ],
     });
     if (active) {
       spellingStore.attach(view);
-      spellingStore.requestCheck(view.state.doc.toString());
+      spellingStore.requestCheck();
     } else {
       spellingStore.deactivate();
     }
@@ -385,7 +391,7 @@ export default function EditorInstance(props: Props) {
   // A file whose name says nothing gets its language from what it holds once
   // there is enough of it. A name with an extension, or a language chosen for
   // the file, settles it: a .txt stays plain text whatever is typed into it.
-  function maybeDetectFromContent(content: string, force: boolean) {
+  function maybeDetectFromContent(doc: Text, force: boolean) {
     const mode = win.editor.largeFileMode();
     if (mode && mode.kind !== "Normal") return;
     if (win.editor.language() !== null) return;
@@ -397,32 +403,12 @@ export default function EditorInstance(props: Props) {
     ) {
       return;
     }
-    if (content.length < CONTENT_DETECT_MIN_LENGTH) return;
-    if (content.length > CONTENT_DETECT_MAX_LENGTH) return;
-    if (!force && content.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
-    lastDetectLen = content.length;
-    const detected = win.editor.detectFromContent(content);
+    if (doc.length < CONTENT_DETECT_MIN_LENGTH) return;
+    if (doc.length > CONTENT_DETECT_MAX_LENGTH) return;
+    if (!force && doc.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
+    lastDetectLen = doc.length;
+    const detected = win.editor.detectFromDocument(doc);
     if (detected) applyDetectedLanguage(detected);
-  }
-
-  // Coalesced publish of the document text for restricted (large/binary)
-  // buffers. Reads the live view, so a fire after a buffer switch is harmless
-  // only if cleared on load — see loadBuffer / onCleanup.
-  function scheduleRestrictedContentPublish() {
-    if (restrictedPublishTimer) clearTimeout(restrictedPublishTimer);
-    restrictedPublishTimer = setTimeout(() => {
-      restrictedPublishTimer = null;
-      if (!view) return;
-      const content = view.state.doc.toString();
-      win.editor.setCurrentText(content);
-    }, RESTRICTED_CONTENT_PUBLISH_MS);
-  }
-
-  function clearRestrictedContentPublish() {
-    if (restrictedPublishTimer) {
-      clearTimeout(restrictedPublishTimer);
-      restrictedPublishTimer = null;
-    }
   }
 
   function createExtensions(bufferId: string, langId: string | null, markdown: boolean, mode: FileOpenMode): Extension[] {
@@ -484,40 +470,24 @@ export default function EditorInstance(props: Props) {
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           // A reload-from-disk must never trigger a save-back (it would rewrite
-          // the file with the content we just pulled from it). Live editor
-          // state (line count, currentText) still updates so the view reflects
-          // the reloaded content.
+          // the file with the content we just pulled from it). The view's
+          // own state still moves, so its readers hear about the change.
           const isExternalReload = update.transactions.some(
             (t) => t.annotation(ExternalReloadTxn) === true,
           );
-          // Line count is cheap (no materialization) — keep it live.
           win.editor.setLineCount(update.state.doc.lines);
-          if (isRestricted) {
-            // Defer the full-document materialization off the keystroke loop.
-            // Autosave gets a lazy getter so its flush reads the live document
-            // rather than a value captured keystrokes ago (ADR-020).
-            if (!isBinary && !isExternalReload) {
-              // Bound to the view this edit was made in: a getter over the
-              // component's `view` would read the incoming note after a switch.
-              const editedView = update.view;
-              const liveText = () => editedView.state.doc.toString();
-              win.editor.scheduleAutosave(bufferId, liveText, autosaveDebounce);
-              win.editor.noteEdited(bufferId, liveText);
-            }
-            scheduleRestrictedContentPublish();
-          } else {
-            const content = update.state.doc.toString();
-            if (!isExternalReload) {
-              win.editor.scheduleAutosave(bufferId, content, autosaveDebounce);
-              win.editor.noteEdited(bufferId, content);
-            }
-            win.editor.setCurrentText(content);
-            maybeDetectFromContent(content, false);
+          win.editor.noteDocChanged();
+          if (!isBinary && !isExternalReload) {
+            win.editor.noteEdited(bufferId, update.state.doc);
+            win.editor.scheduleAutosave(bufferId, update.state.doc, autosaveDebounce);
+          }
+          if (!isRestricted) {
+            maybeDetectFromContent(update.state.doc, false);
             if (
               configStore.config().spelling.enabled &&
               update.state.doc.length <= SPELLING_MAX_CHARS
             ) {
-              spellingStore.requestCheck(content);
+              spellingStore.requestCheck();
             }
           }
           // Keep any live rewrite preview's anchored range in sync, and abort it
@@ -535,7 +505,7 @@ export default function EditorInstance(props: Props) {
         paste: () => {
           queueMicrotask(() => {
             if (!view) return;
-            maybeDetectFromContent(view.state.doc.toString(), true);
+            maybeDetectFromContent(view.state.doc, true);
           });
           return false;
         },
@@ -580,7 +550,8 @@ export default function EditorInstance(props: Props) {
     });
   }
 
-  type LoadedText = { ok: true; text: string } | { ok: false; error: unknown };
+  // `fromFile` is whether the text is what Rust has just read from the file.
+  type LoadedText = { ok: true; text: string; fromFile: boolean } | { ok: false; error: unknown };
 
   // The incoming note's text. A note can arrive with its own typing still
   // queued, left by the cleanup of a view that was unmounted. That write goes
@@ -590,10 +561,10 @@ export default function EditorInstance(props: Props) {
     const pending = await win.editor.flushAutosave(buffer.id);
     if (!pending.ok) {
       const unsaved = win.editor.unsavedTextOf(buffer.id);
-      if (unsaved !== undefined) return { ok: true, text: unsaved };
+      if (unsaved !== undefined) return { ok: true, text: unsaved, fromFile: false };
     }
     try {
-      return { ok: true, text: await bufferRegistry.readContent(buffer.id) };
+      return { ok: true, text: await bufferRegistry.readContent(buffer.id), fromFile: true };
     } catch (error) {
       // Every failed read gets the failure, held or not. A note whose file is
       // gone or changed and that kept no text has nothing to show: an empty
@@ -611,7 +582,6 @@ export default function EditorInstance(props: Props) {
     win.editor.setLargeFileMode(null);
     win.editor.setLanguage(null);
     win.editor.setLineCount(0);
-    win.editor.setCurrentText("");
     win.editor.setCurrentBufferId(null);
   }
 
@@ -685,9 +655,6 @@ export default function EditorInstance(props: Props) {
     await saveCurrentContent();
     if (ticket !== loadTicket) return;
     keepTextOfOutgoingHeldNote();
-    // A pending publish belongs to the outgoing buffer; a late fire after the
-    // swap would push stale text into the shared currentText signal.
-    clearRestrictedContentPublish();
     // Drop the outgoing buffer's spell-check state so an in-flight result can
     // never land on the incoming buffer's view.
     spellingStore.detach();
@@ -720,6 +687,7 @@ export default function EditorInstance(props: Props) {
     // the other program's text lands in the view, the typing the bar is
     // holding is gone, and the answer then writes the file its own text.
     let content: string;
+    let fromFile = false;
     const kept = win.editor.textOfRemoved(buffer.id);
     if (kept !== undefined) {
       content = kept;
@@ -735,6 +703,7 @@ export default function EditorInstance(props: Props) {
         return;
       }
       content = loaded.text;
+      fromFile = loaded.fromFile;
     }
 
     // Mode is content-aware: byte size drives the large-file tiers, but a
@@ -767,14 +736,9 @@ export default function EditorInstance(props: Props) {
 
     win.editor.registerView(view);
     win.editor.setLineCount(view.state.doc.lines);
-    // One bounded materialization on open keeps currentText consistent with the
-    // id published below; the per-keystroke materialization (the real jank for
-    // restricted buffers) is what's deferred, on the update path.
-    const loaded = view.state.doc.toString();
-    win.editor.setCurrentText(loaded);
-    win.editor.noteOpened(buffer.id, loaded);
-    // Publish the loaded id last so it never leads currentText: a preview pane
-    // gating on this id is guaranteed to read the matching buffer's text.
+    win.editor.noteOpened(buffer.id, view.state.doc, fromFile);
+    // Publish the loaded id last, after the view holding its document: a
+    // preview pane gating on this id reads the matching buffer's text.
     win.editor.setCurrentBufferId(buffer.id);
     win.editor.clearReadFailure();
     applySpelling();
@@ -997,16 +961,21 @@ export default function EditorInstance(props: Props) {
     { defer: true },
   ));
 
-  // Re-apply spell check when the master switch or dialect changes. Buffer
-  // switches and file-mode changes are handled in loadBuffer.
-  createEffect(on(
-    () => [
-      configStore.config().spelling.enabled,
-      configStore.config().spelling.dialect,
-    ] as const,
-    () => applySpelling(),
-    { defer: true },
-  ));
+  // Re-apply spell check when the master switch or what the checker reads
+  // changes, and only then: the config signal also moves on every zoom step
+  // and palette command. Buffer switches and file-mode changes are handled in
+  // loadBuffer.
+  const spellingEnabled = createMemo(() => configStore.config().spelling.enabled);
+  const spellingRules = createMemo(
+    (): SpellingRules => {
+      const { dialect, ignored_words } = configStore.config().spelling;
+      return { dialect, ignored_words };
+    },
+    undefined,
+    { equals: sameSpellingRules },
+  );
+  createEffect(on(spellingEnabled, () => applySpelling(), { defer: true }));
+  createEffect(on(spellingRules, () => applySpelling(true), { defer: true }));
 
   // Fix-all / preview commands exist only while the active buffer has flagged
   // words, so the palette never offers a no-op.
@@ -1095,7 +1064,6 @@ export default function EditorInstance(props: Props) {
       }
     }
     win.editor.clearReadFailure();
-    clearRestrictedContentPublish();
     win.editor.setLargeFileMode(null);
     win.editor.registerView(null);
     win.editor.setCurrentBufferId(null);

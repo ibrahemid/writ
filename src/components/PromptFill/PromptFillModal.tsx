@@ -3,7 +3,7 @@ import { installFocusTrap } from "../../lib/focus-trap";
 import Button from "../Button/Button";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { promptEstimateStore } from "../../stores/global/prompt-estimate";
-import { formatTokenCount } from "../../stores/global/token-estimate";
+import { formatTokenCount } from "../../lib/token-estimate";
 import "./PromptFillModal.css";
 
 export type PlaceholderValues = Record<string, string>;

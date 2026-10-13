@@ -36,11 +36,15 @@ vi.mock("../../services/tauri", () => ({
 vi.mock("../../components/Editor/EditorInstance", async () => {
   const { createEffect, onCleanup } = await import("solid-js");
   const { useWindow } = await import("../../components/WindowProvider/WindowProvider");
+  const { showInEditor } = await import("../fixtures/editor-view");
   return {
     default: (props: { buffer: { id: string } }) => {
       const win = useWindow();
-      createEffect(() => win.editor.setCurrentBufferId(props.buffer.id));
-      onCleanup(() => win.editor.setCurrentBufferId(null));
+      createEffect(() => showInEditor(win, props.buffer.id, ""));
+      onCleanup(() => {
+        win.editor.registerView(null);
+        win.editor.setCurrentBufferId(null);
+      });
       return <div data-testid="editor-stub" />;
     },
   };

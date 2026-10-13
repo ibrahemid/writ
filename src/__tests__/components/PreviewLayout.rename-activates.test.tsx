@@ -52,15 +52,17 @@ vi.mock("../../services/tauri", () => ({
 
 // The real EditorInstance pulls CodeMirror; this regression is about the
 // layout decision and iframe mount, not the editor. The stub still honors the
-// editor's contract that the preview pane depends on: publish the loaded
-// buffer id so PreviewPane's render gate matches (see #97).
+// editor's contract that the preview pane depends on: register a view and
+// publish the loaded buffer id after it so PreviewPane's render gate matches
+// (see #97).
 vi.mock("../../components/Editor/EditorInstance", async () => {
   const { createEffect } = await import("solid-js");
   const { useWindow } = await import("../../components/WindowProvider/WindowProvider");
+  const { showInEditor } = await import("../fixtures/editor-view");
   return {
     default: (props: { buffer: { id: string } }) => {
       const win = useWindow();
-      createEffect(() => win.editor.setCurrentBufferId(props.buffer.id));
+      createEffect(() => showInEditor(win, props.buffer.id, ""));
       return <div data-testid="editor-stub" />;
     },
   };

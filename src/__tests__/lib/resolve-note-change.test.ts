@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Text } from "@codemirror/state";
 
 // The one path that can lose a note's text: the answer to a file that changed
 // while the document held text the file does not. What is sent as "mine" is
@@ -22,9 +23,12 @@ vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
 }));
 vi.mock("../../lib/log", () => ({ logFailure: vi.fn() }));
 
+const ON_SCREEN = Text.of(["my unsaved text", ""]);
+
 const editor = vi.hoisted(() => ({
   currentBufferId: vi.fn(() => "n-1"),
   getActiveText: vi.fn(() => ({ text: "my unsaved text\n", usedSelection: false })),
+  liveDoc: vi.fn((): unknown => null),
   liveTextOf: vi.fn(() => "my unsaved text\n"),
   recordFileEvent: vi.fn(),
   scheduleAutosave: vi.fn(),
@@ -44,6 +48,7 @@ beforeEach(() => {
   editor.currentBufferId.mockReturnValue("n-1");
   editor.getActiveText.mockReturnValue({ text: "my unsaved text\n", usedSelection: false });
   editor.liveTextOf.mockReturnValue("my unsaved text\n");
+  editor.liveDoc.mockReturnValue(ON_SCREEN);
   api.readBufferContent.mockResolvedValue("the file's own text\n");
   tabs.openFile.mockResolvedValue(undefined);
 });
@@ -111,8 +116,22 @@ describe("answering a file that changed outside Writ", () => {
 
     await resolveNoteChange("n-1", "keep_mine");
 
-    expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi", false);
+    expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi", false, { source: ON_SCREEN, current: true });
     expect(editor.applyExternalContent).not.toHaveBeenCalled();
+  });
+
+  it("says the text it wrote is not the note's own any more when typing landed during the answer", async () => {
+    api.resolveExternalChange.mockResolvedValue({
+      conflict_copy_path: "/notes/note (conflict).md",
+      content: null,
+      disk_hash: "ghi",
+    });
+    editor.liveTextOf.mockReturnValue("my unsaved text\nand more\n");
+
+    await resolveNoteChange("n-1", "keep_mine");
+
+    expect(editor.noteSaved).toHaveBeenCalledWith("n-1", "ghi", false, { source: ON_SCREEN, current: false });
+    expect(editor.scheduleAutosave).toHaveBeenCalledWith("n-1", "my unsaved text\nand more\n", 0);
   });
 
   it("opens the copy only for the answer that asked for both", async () => {

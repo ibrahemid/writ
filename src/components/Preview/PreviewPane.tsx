@@ -6,6 +6,7 @@ import { themeStore } from "../../stores/global/theme";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { createPreviewBridge } from "../../lib/preview-bridge";
 import { createPreviewSearchController } from "../../editor/search/preview-search-controller";
+import { utf8Length } from "../../editor/document-counts";
 import { findStore } from "../../stores/global/find-store";
 import { linkStore } from "../../stores/global/link";
 import { notesStore } from "../../stores/global/notes";
@@ -50,7 +51,7 @@ export default function PreviewPane(props: Props) {
   const [linkRequest, setLinkRequest] = createSignal<LinkRequest | null>(null);
   let nextLinkId = 0;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-  let lastRenderedText: string | null = null;
+  let lastRenderedDoc: ReturnType<typeof win.editor.liveDoc> = null;
   let iframeEl: HTMLIFrameElement | undefined;
 
   function editorScroller(): HTMLElement | undefined {
@@ -192,14 +193,18 @@ export default function PreviewPane(props: Props) {
     // Capture the target id once: the pane is persistent, so props.buffer can
     // change under us across the await below.
     const bufferId = buffer.id;
-    const text = win.editor.currentText();
+    // Null when no view holds a document: a tab whose open has not answered
+    // shows a pane in the editor's place, and renders here as empty rather
+    // than as the note shown before it.
+    const doc = win.editor.liveDoc();
     // Skip a debounced re-render that would reproduce the already-cached HTML.
-    if (!force && text === lastRenderedText) return;
+    if (!force && doc !== null && lastRenderedDoc !== null && doc.eq(lastRenderedDoc)) return;
 
     const cfg = configStore.config().preview;
-    const bytes = new TextEncoder().encode(text).length;
+    const refuseAbove = cfg.render_refuse_threshold_mb * MB;
+    const bytes = doc === null ? 0 : utf8Length(doc, refuseAbove);
 
-    if (bytes > cfg.render_refuse_threshold_mb * MB) {
+    if (bytes > refuseAbove) {
       setState("too_large");
       return;
     }
@@ -209,6 +214,7 @@ export default function PreviewPane(props: Props) {
     }
 
     setState("rendering");
+    const text = doc === null ? "" : doc.toString();
     try {
       // Zoom is read untracked: a zoom change must apply over the bridge to the
       // loaded document (no re-render), and only ride the next text/theme-driven
@@ -227,7 +233,7 @@ export default function PreviewPane(props: Props) {
       if (result.kind === "rendered") {
         setWarnings(result.parser_warnings);
         setState("ok");
-        lastRenderedText = text;
+        lastRenderedDoc = doc;
         setRenderVersion((prev) => prev + 1);
         const v = renderVersion();
         // Cache-busting query param forces a fresh load; the protocol parser
@@ -259,7 +265,7 @@ export default function PreviewPane(props: Props) {
           }
         } else {
           if (debounceTimer) clearTimeout(debounceTimer);
-          lastRenderedText = null;
+          lastRenderedDoc = null;
           setState("rendering");
           setRenderedSrc(BLANK_SRC);
         }
@@ -280,10 +286,11 @@ export default function PreviewPane(props: Props) {
     ),
   );
 
-  // Debounced live re-render on edits to the loaded buffer.
+  // Debounced live re-render on edits to the loaded buffer. The text is read
+  // when the render runs.
   createEffect(
     on(
-      () => win.editor.currentText(),
+      () => win.editor.docVersion(),
       () => {
         if (!props.isActive) return;
         if (debounceTimer) clearTimeout(debounceTimer);

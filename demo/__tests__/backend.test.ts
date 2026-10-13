@@ -3,7 +3,7 @@ import type { IpcBridge } from "../ipc";
 import { formatRenameError } from "../../src/lib/save-error";
 import { createBackend, DemoCommandError } from "../backend/backend";
 import { SEED_FILES, SEED_VERSIONS } from "../backend/seed";
-import { VersionsNotSeededError } from "../backend/state";
+import { VersionsNotSeededError, digestText } from "../backend/state";
 import { NOTES_ROOT } from "../backend/vfs";
 
 function backend() {
@@ -56,12 +56,11 @@ describe("the demo backend", () => {
     expect(notes).toEqual(names(await handle("list_workspace_dir", { dirPath: NOTES_ROOT })));
   });
 
-  it("reports the digest the app computes for the same text", async () => {
+  it("reports the digest of the text with its line breaks as LF", async () => {
     const { handle } = backend();
     const [doc] = (await handle("list_active_buffers", {})) as { id: string }[];
     const saved = await handle("save_buffer_content", { id: doc.id, content: "writ\r\n" });
-    const { hashDocument } = await import("../../src/lib/doc-hash");
-    expect(saved).toBe(await hashDocument("writ\n"));
+    expect(saved).toBe(await digestText("writ\n"));
   });
 
   it("writes a new file on its first save and renames it from its first line", async () => {

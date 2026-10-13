@@ -5,6 +5,7 @@ import {
   StateField,
   type Extension,
   type Text,
+  type Transaction,
 } from "@codemirror/state";
 import {
   Decoration,
@@ -97,32 +98,88 @@ const CODE_NODES = new Set(["FencedCode", "CodeBlock", "InlineCode"]);
 // a `[[…]]` written in a property value is text the index never held a link
 // for. The markdown grammar the editor loads gives no node for the block, so
 // its extent is read from the text under the rule the Rust side shares.
-//
-// Cached per document version: a note that opens with a `---` rule and never
-// closes it is body text, and finding that out costs a walk of the whole
-// document, which a repaint must not pay for again on every keystroke.
-const frontmatterEnds = new WeakMap<Text, number>();
-
-function frontmatterEndOf(state: EditorState): number {
-  const held = frontmatterEnds.get(state.doc);
-  if (held !== undefined) return held;
-  const end = scanFrontmatterEnd(state);
-  frontmatterEnds.set(state.doc, end);
-  return end;
+interface FrontmatterExtent {
+  /** Where the block ends: everything before it is frontmatter. Zero for none. */
+  end: number;
+  /** Whether the first line is a `---` fence. */
+  opens: boolean;
+  /** The end of the closing fence's line; -1 while nothing closes the block. */
+  closingLineTo: number;
 }
 
-function scanFrontmatterEnd(state: EditorState): number {
-  const iterator = state.doc.iterLines();
-  let first = iterator.next();
-  if (first.done || !isFrontmatterFence(first.value)) return 0;
+const NO_FRONTMATTER: FrontmatterExtent = { end: 0, opens: false, closingLineTo: -1 };
+
+function scanFrontmatter(doc: Text): FrontmatterExtent {
+  const iterator = doc.iterLines();
+  const first = iterator.next();
+  if (first.done || !isFrontmatterFence(first.value)) return NO_FRONTMATTER;
   // Every line break counts as one character in a document's positions,
   // whatever the file's line ending is on disk.
   let offset = first.value.length + 1;
   for (let line = iterator.next(); !line.done; line = iterator.next()) {
     offset += line.value.length + 1;
-    if (isFrontmatterFence(line.value)) return Math.min(offset, state.doc.length);
+    if (isFrontmatterFence(line.value)) {
+      return { end: Math.min(offset, doc.length), opens: true, closingLineTo: offset - 1 };
+    }
   }
-  return 0;
+  return { end: 0, opens: true, closingLineTo: -1 };
+}
+
+// Whether any change starts at or before `pos` in the document before it.
+function changesReach(tr: Transaction, pos: number): boolean {
+  let reached = false;
+  tr.changes.iterChangedRanges((fromA) => {
+    if (fromA <= pos) reached = true;
+  });
+  return reached;
+}
+
+// The extent after `tr`, reading only what the change can have moved. A
+// document that opens with a `---` nothing closes would otherwise be walked to
+// its end on every keystroke.
+function nextFrontmatter(extent: FrontmatterExtent, tr: Transaction): FrontmatterExtent {
+  const firstLineTouched = changesReach(tr, tr.startState.doc.line(1).to);
+  if (!extent.opens) return firstLineTouched ? scanFrontmatter(tr.state.doc) : extent;
+  if (extent.closingLineTo >= 0) {
+    return changesReach(tr, extent.closingLineTo) ? scanFrontmatter(tr.state.doc) : extent;
+  }
+  const doc = tr.state.doc;
+  if (firstLineTouched && !isFrontmatterFence(doc.line(1).text)) return NO_FRONTMATTER;
+  // No line below the first was a fence, so only a line the change wrote can
+  // have become the closing one.
+  let closing = 0;
+  tr.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+    const last = doc.lineAt(toB).number;
+    for (let number = Math.max(2, doc.lineAt(fromB).number); number <= last; number++) {
+      if (closing !== 0 && number >= closing) break;
+      if (isFrontmatterFence(doc.line(number).text)) {
+        closing = number;
+        break;
+      }
+    }
+  });
+  if (closing === 0) return { end: 0, opens: true, closingLineTo: -1 };
+  const line = doc.line(closing);
+  return { end: Math.min(line.to + 1, doc.length), opens: true, closingLineTo: line.to };
+}
+
+const frontmatterField = StateField.define<FrontmatterExtent>({
+  create: (state) => scanFrontmatter(state.doc),
+  update: (extent, tr) => (tr.docChanged ? nextFrontmatter(extent, tr) : extent),
+});
+
+// A state without the link layer, which only a caller outside the editor
+// builds, is scanned once per document.
+const scannedFrontmatter = new WeakMap<Text, number>();
+
+function frontmatterEndOf(state: EditorState): number {
+  const extent = state.field(frontmatterField, false);
+  if (extent) return extent.end;
+  const held = scannedFrontmatter.get(state.doc);
+  if (held !== undefined) return held;
+  const end = scanFrontmatter(state.doc).end;
+  scannedFrontmatter.set(state.doc, end);
+  return end;
 }
 
 const linkMark = Decoration.mark({ class: "writ-link" });
@@ -459,6 +516,7 @@ function syncModifier(view: EditorView, next: boolean): void {
 
 export function linkLayer(deps: LinkDeps): Extension {
   return [
+    frontmatterField,
     modifierField,
     linkPlugin,
     // Above the newline binding, which claims every Enter, and below the

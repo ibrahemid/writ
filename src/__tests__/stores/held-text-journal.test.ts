@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Text } from "@codemirror/state";
 
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(null),
@@ -115,6 +116,50 @@ describe("text held under a bar", () => {
 
     expect(mockedRecord).not.toHaveBeenCalled();
     expect(mockedDiscard).not.toHaveBeenCalled();
+  });
+});
+
+describe("typing in a note whose saves are held", () => {
+  it.each(["modified", "removed"] as const)(
+    "materialises no keystroke once the file is %s, and every reader gets the newest text",
+    async (event) => {
+      const store = showing("one", "what the view holds");
+      store.recordFileEvent("one", event);
+      await vi.advanceTimersByTimeAsync(1000);
+      mockedRecord.mockClear();
+
+      let doc = Text.of(["what the view holds"]);
+      const toString = vi.spyOn(Text.prototype, "toString");
+      for (const char of " and more") {
+        doc = doc.replace(doc.length, doc.length, Text.of([char]));
+        store.noteEdited("one", doc);
+        store.scheduleAutosave("one", doc, 500);
+      }
+      const typingCalls = toString.mock.calls.length;
+      toString.mockRestore();
+      expect(typingCalls).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(mockedRecord).toHaveBeenCalledTimes(1);
+      expect(mockedRecord).toHaveBeenCalledWith([{ id: "one", content: "what the view holds and more" }]);
+      expect(store.textOfRemoved("one")).toBe("what the view holds and more");
+      expect(collectUnsavedContent()).toEqual([{ id: "one", content: "what the view holds and more" }]);
+      expect(mockedSave).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reads a getter when it is handed over, not when the hold is read", async () => {
+    const store = showing("one", "what the view holds");
+    store.recordFileEvent("one", "modified");
+    let live = "typed under the bar";
+    store.scheduleAutosave("one", () => live, 500);
+    live = "another note's text";
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(store.textOfRemoved("one")).toBe("typed under the bar");
+    expect(collectUnsavedContent()).toEqual([{ id: "one", content: "typed under the bar" }]);
+    expect(mockedRecord).toHaveBeenLastCalledWith([{ id: "one", content: "typed under the bar" }]);
   });
 });
 

@@ -189,6 +189,49 @@ one go (`SLICE_MS` and `SYNC_SCAN_MAX_CHARS` in
 
 ---
 
+## frontend: word and character counts on large documents
+
+**Test file:** `src/__tests__/lib/document-counts-perf.test.ts`
+
+**What is measured:** the status bar's count (`TextCounter`,
+`src/editor/document-counts.ts`) run the way the counts store runs it, in 6 ms
+slices: on the 50 MiB prose of `prose-50MiB`, the longest slice, how far the
+heap grows while the document is counted, and the recount after one
+keystroke; on a 300 MiB document of one repeated line, the longest slice. Each
+count is checked against the document: at 50 MiB against `trim().split(/\s+/)`
+and `[...text]`, at 300 MiB against the line count.
+
+**Budgets: 16 ms per slice and per recount (one frame at 60 Hz); 16 MiB of
+heap growth while 50 MiB is counted**
+
+Rationale:
+
+- Before the counts were read from the document's own strings, every publish
+  of the text split all of it and spread it into code points: at 50 MiB the
+  split took 706 to 845 ms and allocated 533 to 564 MiB, the spread 1,348 to
+  1,761 ms and 932 to 1,294 MiB (three runs under Node 26.4.0, Apple M1 Pro,
+  2026-10-13, load average 3.7 to 5.0). With the status-bar counts on, the
+  editor-perf audit typed at p50 72 ms in the 4.9 MiB file and crashed the
+  renderer opening 300 MiB.
+- 16 MiB is under a third of the 50 MiB document, so a copy of the text, or of
+  its words, cannot fit in it. What the count allocates is one cursor per leaf
+  of the document's tree, collected as it goes.
+- Measured (three runs, Node 26.4.0, Apple M1 Pro, 2026-10-13, load average
+  3.1 at the start): the longest slice 6.0 to 6.1 ms at 50 MiB and 6.0 to
+  9.3 ms at 300 MiB, heap growth 4.3 to 5.6 MiB, a recount 0.26 to 0.31 ms.
+
+Each budget holds the fastest of three runs. The assertions are skipped unless
+`WRIT_PERF_GATE=1`. By hand:
+`WRIT_PERF_GATE=1 pnpm exec vitest run src/__tests__/lib/document-counts-perf.test.ts --disable-console-intercept`.
+
+### Re-baselining
+
+The slice and recount budgets are the frame and do not move. The heap budget
+moves only with a deliberate change to what the count keeps or makes per leaf
+(`src/editor/document-counts.ts`); record the new measurement here.
+
+---
+
 ## editor: responsiveness per file tier (headless Chromium)
 
 **Gate:** `scripts/perf-editor.mjs`. The budgets live in
@@ -207,9 +250,9 @@ Rust side of an open (reads, hashes, the guarded write) is not in these
 numbers.
 
 ```
-WRIT_PERF_GATE=1 node scripts/perf-editor.mjs                    # every scenario but prose-300MiB
+WRIT_PERF_GATE=1 node scripts/perf-editor.mjs                    # every scenario but the two 300 MiB ones
 WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --only prose-50MiB
-WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large            # adds prose-300MiB
+WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large            # adds prose-300MiB and log-300MiB-counts
 ```
 
 Chromium comes from `playwright-core`, a pinned dev dependency: install the
@@ -229,12 +272,12 @@ that the gate could not measure.
 | JS heap growth | The heap before the open to the heap after it, each after two forced collections |
 | Jump to end | Cmd or Ctrl+End to the first frame that shows the end of the file |
 | Typing p50, p95, max | Keydown to the end of the next frame, for 30 characters typed at the end 110 ms apart |
-| Longest task after typing | The longest main-thread task in the 3.5 s after typing stops (the hash, the autosave) |
+| Longest task after typing | The longest main-thread task in the 3.5 s after typing stops (the autosave) |
 | Find keystroke p50, max | Keydown to the end of the next frame, typing in the find field a word that occurs about once per 100 KB and then one that occurs nowhere, 150 ms apart |
 | Find to final count | The last keystroke in the find field to the first frame whose overlay shows the final count |
 | Longest task typing in Find | The longest main-thread task from the first keystroke in the find field to the final count |
 | Typing with Find open p50, max | Keydown to the end of the next frame, typing at the end with the overlay open on the first word |
-| Longest task typing with Find open | The longest main-thread task from the first of those keystrokes to 3.5 s after the last, the hash and the autosave included |
+| Longest task typing with Find open | The longest main-thread task from the first of those keystrokes to 3.5 s after the last, the autosave included |
 
 A long task is one the browser reports, so over 50 ms; none is 0. A window
 counts a long task only when it started inside the window: the browser reports
@@ -242,7 +285,9 @@ a task after it ends, so one that began before a window opened can be reported
 during it. Each scenario also checks that the file opens in the mode its tier
 gives it, that the size question is asked for the confirm tier and only there,
 that the jump reaches the end, and that the count equals the word's occurrences
-in the file before and after the edit. A page error fails the scenario.
+in the file before and after the edit. With the counts on, it checks that the
+status bar's counts finish, shown without `≈`, and up to 8 MiB that they equal
+a count of the whole text. A page error fails the scenario.
 
 **Scenarios** (fixed seeds, `src/__tests__/editor/fixtures/editor-corpus.ts`):
 
@@ -250,6 +295,7 @@ in the file before and after the edit. A page error fails the scenario.
 |---|---|---:|---|---|
 | `prose-1MiB` | prose | 1,048,576 | Normal | Normal |
 | `prose-4.9MiB` | prose | 5,138,022 | Normal | Normal |
+| `prose-4.9MiB-counts` | the same prose, with the word, character and token counts on in the status bar | 5,138,022 | Normal | Normal |
 | `md-4.9MiB` | Markdown, a heading every 10,480 bytes, shown Inline | 5,138,022 | Normal | Normal |
 | `json-1line-5MiB` | JSON on one line | 5,242,880 | Normal | LongLines |
 | `prose-5.1MiB` | prose | 5,347,738 | LargeFile | LargeFile |
@@ -258,6 +304,7 @@ in the file before and after the edit. A page error fails the scenario.
 | `prose-50MiB` | prose | 52,428,800 | LargeFile | LargeFile |
 | `prose-60MiB` | prose, opened through the size question | 62,914,560 | LargeFileConfirm | LargeFile |
 | `prose-300MiB` | prose, opened through the size question; `--large` only | 314,572,800 | LargeFileConfirm | LargeFile |
+| `log-300MiB-counts` | a log of 2,800,000 lines, the 300 MB log of the acceptance check, with the counts on, opened through the size question; `--large` only | 314,198,768 | LargeFileConfirm | LargeFile |
 
 **Budgets**
 
@@ -266,6 +313,7 @@ in the file before and after the edit. A page error fails the scenario.
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | `prose-1MiB` | Normal | 80 | 4 | 65 | 40 | 60 | 100 | 100 | 35 | 100 | 475 | 100 | 50 | 100 | 100 |
 | `prose-4.9MiB` | Normal | 145 | 11 | 75 | 35 | 55 | 100 | 100 | 35 | 100 | 465 | 100 | 40 | 100 | 100 |
+| `prose-4.9MiB-counts` | Normal | 145 | 11 | 75 | 35 | 55 | 100 | 100 | 35 | 100 | 465 | 100 | 40 | 100 | 100 |
 | `md-4.9MiB` | Normal | 235 | 15 | 70 | 100 | 160 | 305 | 305 | 35 | 100 | 465 | 100 | 110 | 305 | 305 |
 | `json-1line-5MiB` | Normal | 260 | 4 | 60 | 70 | 85 | 110 | 100 | 35 | 100 | 465 | 100 | 120 | 150 | 100 |
 | `prose-5.1MiB` | LargeFile | 120 | 11 | 55 | 35 | 55 | 100 | 100 | 35 | 100 | 465 | 100 | 55 | 100 | 100 |
@@ -274,6 +322,7 @@ in the file before and after the edit. A page error fails the scenario.
 | `prose-50MiB` | LargeFile | 980 | 101 | 70 | 35 | 60 | 530 | 530 | 40 | 100 | 950 | 100 | 35 | 630 | 630 |
 | `prose-60MiB` | LargeFileConfirm | 1195 | 121 | 60 | 35 | 55 | 800 | 800 | 45 | 100 | 1150 | 100 | 45 | 1170 | 1155 |
 | `prose-300MiB` | LargeFileConfirm | 6515 | 605 | 75 | 35 | 60 | 4625 | 4625 | 40 | 100 | 4345 | 100 | 40 | 4625 | 4625 |
+| `log-300MiB-counts` | LargeFileConfirm | 2190 | 403 | 70 | 40 | 60 | 2335 | 2335 | 45 | 75 | 2485 | 100 | 40 | 2690 | 2690 |
 <!-- editor-perf-budgets:end -->
 
 **How they were set:** three runs of each scenario, each started while the
@@ -282,11 +331,18 @@ more. A time budget is three times the worst of the three runs and a heap
 budget one and a half times, at least 4 MiB. A keystroke may take at least
 34 ms (two frames at 60 Hz) and a longest task at least 100 ms. Typing with
 Find open is allowed at least what typing is, and a keystroke's max at least
-the longest task of its window, since a keystroke typed while Writ hashes the
-document (150 ms after the last edit, 150 to 400 ms of work at 50 to 60 MiB)
-waits for it. Every budget outside Find is at least the editor-perf audit's
-figure for the same file (its section 6, 2026-10-03, Chrome for Testing 153,
-Apple M1 Pro); `log-450k` and `prose-60MiB` are held to the 50 MiB figures.
+the longest task of its window, since a keystroke typed during the autosave's
+write of the whole document waits for it. Every budget outside Find is at
+least the editor-perf audit's figure for the same file (its section 6,
+2026-10-03, Chrome for Testing 153, Apple M1 Pro); `log-450k` and
+`prose-60MiB` are held to the 50 MiB figures. With the counts on, the audit
+typed at p50 72 ms in the 4.9 MiB file and crashed the renderer opening
+300 MiB, so `prose-4.9MiB-counts` is held to the counts-off 4.9 MiB figures and
+`log-300MiB-counts` to the 300 MiB ones. `prose-4.9MiB-counts` carries the
+`prose-4.9MiB` budgets as they stand rather than three times its own runs:
+with the counts on, typing is held to what it is with them off, and three
+paired runs measured the two alike (typing p50 11 to 12 ms on, 13 to 15 ms
+off; max 19 to 22 ms on, 20 to 22 ms off).
 The Find budgets stand on this gate's own measurements, with no audit floor:
 section 6 measured the count this gate replaced, which held the main thread
 for 547 ms per keystroke at 4.9 MiB and 4,003 to 6,061 ms at 50 MiB, and whose
@@ -311,6 +367,13 @@ CI's Linux runners, which are slower than the machine the runs were taken on.
 | `prose-50MiB` | 5.6-5.4, 3.9-5.0, 5.0-4.6 | 326 | 66.9 | 22 | 11 | 19 | 23 | 176 | 13 | 23 | 316 | 0 | 11 | 19 | 210 |
 | `prose-60MiB` | 5.4-5.3, 5.4-6.6, 4.4-3.8 | 398 | 80.2 | 20 | 11 | 17 | 18 | 266 | 13 | 24 | 383 | 0 | 14 | 390 | 385 |
 | `prose-300MiB` | 6.2-8.9, 6.7-6.9, 3.7-3.6 | 2170 | 402.9 | 24 | 11 | 19 | 19 | 1541 | 13 | 23 | 1447 | 0 | 13 | 19 | 1533 |
+| `prose-4.9MiB-counts` | 4.7-3.7, 3.4-3.2, 3.5-3.0 | 47 | 2.0 | 22 | 12 | 21 | 22 | 0 | 1 | 20 | 154 | 0 | 17 | 19 | 0 |
+| `log-300MiB-counts` | 4.5-4.7, 4.4-7.4, 6.8-6.0 | 590 | 78.5 | 23 | 12 | 19 | 20 | 778 | 14 | 24 | 827 | 0 | 12 | 19 | 896 |
+
+The `prose-4.9MiB-counts` and `log-300MiB-counts` rows were taken later the
+same day, with the window rule in place and the counts read from the
+document's strings; the status bar showed the finished counts in every run
+(995,271 words and 25,202,816 words).
 
 The toggle's frontend half is measured on every run too; its numbers and
 budget are in [toggle-latency-baseline.md](perf/toggle-latency-baseline.md).
@@ -327,7 +390,11 @@ not drive. Once per release, on the installed build from the draft release:
    question, with a 60 fps screen recording running.
 3. In each: Cmd+End, type a line at the end, Cmd+F and type `zebrafish`, then
    type at the end of the file with Find open.
-4. From the recording, note the time from the open (or Open) to the text, the
+4. With Settings, Word, character and token counts on, open
+   `prose-4.9MiB.txt` and type a line at the end, then `server-300MiB.log`
+   (written with `--large`) through Open in the size question, and watch the
+   counts in the status bar go from `≈` to exact.
+5. From the recording, note the time from the open (or Open) to the text, the
    time from the last letter of `zebrafish` to the final count, the count, and
    any frame where typing stalled.
 

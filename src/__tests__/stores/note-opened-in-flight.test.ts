@@ -17,10 +17,14 @@ vi.mock("../../services/tauri", () => ({
   ),
 }));
 
+import { Text } from "@codemirror/state";
 import { createEditorStore } from "../../stores/window/editor-store";
-import { hashDocument } from "../../lib/doc-hash";
 import { planExternalEdit } from "../../services/external-edit";
 import { resetAutosave } from "../../services/autosave";
+
+function doc(text: string): Text {
+  return Text.of(text.split("\n"));
+}
 
 /** Lets the store's awaits run without answering any of them. */
 async function turns(count = 12): Promise<void> {
@@ -48,7 +52,7 @@ describe("a note whose open has not answered yet", () => {
     store.recordFileEvent("one", "modified");
     store.keepTextOfRemoved("one", "typing no file has\n");
 
-    store.noteOpened("one", "typing no file has\n");
+    store.noteOpened("one", doc("typing no file has\n"), false);
     await turns();
 
     expect(backend.pending.length).toBe(1);
@@ -70,12 +74,12 @@ describe("a note whose open has not answered yet", () => {
     // The fail-closed answer is for the reload decision and not for the tab's
     // mark, which is what `isTracked` is asked first to keep out of it.
     const store = createEditorStore();
-    store.noteOpened("one", "as Writ opened it\n");
+    store.noteOpened("one", doc("as Writ opened it\n"), true);
     await turns();
 
     expect(store.isTracked("one")).toBe(false);
 
-    backend.pending[0](described(await hashDocument("as Writ opened it\n")));
+    backend.pending[0](described("as-opened".padEnd(64, "0")));
     await turns();
 
     expect(store.isTracked("one")).toBe(true);
@@ -93,7 +97,7 @@ describe("a note whose open has not answered yet", () => {
     store.recordFileEvent("one", "removed");
     store.keepTextOfRemoved("one", "the only copy of it\n");
 
-    store.noteOpened("one", "the only copy of it\n");
+    store.noteOpened("one", doc("the only copy of it\n"), false);
     await turns();
     backend.pending[0]({ state: "no_file" });
     await turns();
@@ -106,7 +110,7 @@ describe("a note whose open has not answered yet", () => {
 
   it("stops reading dirty once its file turns out not to exist", async () => {
     const store = createEditorStore();
-    store.noteOpened("one", "never saved\n");
+    store.noteOpened("one", doc("never saved\n"), true);
     await turns();
 
     backend.pending[0]({ state: "no_file" });
@@ -125,10 +129,10 @@ describe("two opens of one note in flight at once", () => {
     // (`applyExternalContent`), so two round trips for one note is the
     // ordinary case and not a contrived one.
     const store = createEditorStore();
-    const asOpened = await hashDocument("as Writ opened it\n");
-    const asRewritten = await hashDocument("rewritten while it was behind\n");
+    const asOpened = "as-opened".padEnd(64, "0");
+    const asRewritten = "as-rewritten".padEnd(64, "0");
 
-    store.noteOpened("one", "as Writ opened it\n");
+    store.noteOpened("one", doc("as Writ opened it\n"), true);
     await turns();
     store.applyExternalContent("one", "rewritten while it was behind\n");
     await turns();
@@ -144,7 +148,6 @@ describe("two opens of one note in flight at once", () => {
     await turns();
 
     expect(store.lastKnownDiskHash("one")).toBe(asRewritten);
-    expect(store.docHash("one")).toBe(asRewritten);
     expect(store.isDirty("one")).toBe(false);
 
     store.stopSaveListener();
@@ -154,9 +157,9 @@ describe("two opens of one note in flight at once", () => {
     // The other exit from the same async body. A call that fails after being
     // overtaken must not take the live record with it.
     const store = createEditorStore();
-    const asRewritten = await hashDocument("rewritten while it was behind\n");
+    const asRewritten = "as-rewritten".padEnd(64, "0");
 
-    store.noteOpened("one", "as Writ opened it\n");
+    store.noteOpened("one", doc("as Writ opened it\n"), true);
     await turns();
     store.applyExternalContent("one", "rewritten while it was behind\n");
     await turns();
@@ -180,13 +183,13 @@ describe("a write landing while the open is still out", () => {
     // moments, and the write's moment is the later one. Nothing orders them
     // but the record, because a write moves no generation.
     const store = createEditorStore();
-    const text = "what the tab holds\n";
-    const written = await hashDocument(text);
+    const opened = doc("what the tab holds\n");
+    const written = "written".padEnd(64, "0");
 
-    store.noteOpened("one", text);
+    store.noteOpened("one", opened, true);
     await turns();
 
-    store.noteSaved("one", written, false);
+    store.noteSaved("one", written, false, { source: opened });
     await turns();
 
     backend.pending[0](described("read before the write landed"));
@@ -202,23 +205,23 @@ describe("a write landing while the open is still out", () => {
     // The skip belongs to the call that was overtaken and not to the note:
     // an open that starts after the write reads the file the write left.
     const store = createEditorStore();
-    const text = "what the tab holds\n";
-    const written = await hashDocument(text);
+    const opened = doc("what the tab holds\n");
+    const written = "written".padEnd(64, "0");
 
-    store.noteOpened("one", text);
+    store.noteOpened("one", opened, true);
     await turns();
-    store.noteSaved("one", written, false);
+    store.noteSaved("one", written, false, { source: opened });
     await turns();
     backend.pending[0](described("read before the write landed"));
     await turns();
 
-    store.noteOpened("one", text);
+    store.noteOpened("one", doc("what another program left\n"), true);
     await turns();
     backend.pending[1](described("what another program left"));
     await turns();
 
     expect(store.lastKnownDiskHash("one")).toBe("what another program left");
-    expect(store.isDirty("one")).toBe(true);
+    expect(store.isDirty("one")).toBe(false);
 
     store.stopSaveListener();
   });

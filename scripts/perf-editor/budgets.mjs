@@ -31,6 +31,13 @@ export const SCENARIOS = [
     spec: { name: "prose-4.9MiB.txt", kind: "prose", size: Math.round(4.9 * MiB) },
   },
   {
+    id: "prose-4.9MiB-counts",
+    tier: "Normal",
+    opensAs: "Normal",
+    counts: true,
+    spec: { name: "prose-4.9MiB.txt", kind: "prose", size: Math.round(4.9 * MiB) },
+  },
+  {
     id: "md-4.9MiB",
     tier: "Normal",
     opensAs: "Normal",
@@ -79,13 +86,25 @@ export const SCENARIOS = [
     large: true,
     spec: { name: "prose-300MiB.txt", kind: "prose", size: 300 * MiB },
   },
+  {
+    id: "log-300MiB-counts",
+    tier: "LargeFileConfirm",
+    opensAs: "LargeFile",
+    large: true,
+    counts: true,
+    spec: { name: "server-300MiB.log", kind: "log", size: 0, lines: 2_800_000 },
+  },
 ];
 
 // The editor-perf audit's figures (2026-10-03, Chrome for Testing 153, Apple
-// M1 Pro); log-450k and prose-60MiB take the 50 MiB row.
+// M1 Pro); log-450k and prose-60MiB take the 50 MiB row. With the counts on,
+// the audit typed at p50 72 ms in the 4.9 MiB file and crashed the renderer
+// opening 300 MiB, so prose-4.9MiB-counts takes the counts-off 4.9 MiB row and
+// log-300MiB-counts the 300 MiB row.
 export const AUDIT_FIGURES = {
   "prose-1MiB": { firstPaintMs: 30, heapMiB: 1.7, jumpToEndMs: 9, typingP50Ms: 12.2, typingP95Ms: 19.6, typingMaxMs: 20.2, idleTaskMs: 0, findKeyP50Ms: 124, findTypingP50Ms: 121 },
   "prose-4.9MiB": { firstPaintMs: 57, heapMiB: 7.0, jumpToEndMs: 13, typingP50Ms: 8.9, typingP95Ms: 17.6, typingMaxMs: 18.4, idleTaskMs: 0, findKeyP50Ms: 547, findTypingP50Ms: 558 },
+  "prose-4.9MiB-counts": { firstPaintMs: 57, heapMiB: 7.0, jumpToEndMs: 13, typingP50Ms: 8.9, typingP95Ms: 17.6, typingMaxMs: 18.4, idleTaskMs: 0, findKeyP50Ms: 583, findTypingP50Ms: 614 },
   "md-4.9MiB": { firstPaintMs: 66, heapMiB: 9.1, jumpToEndMs: 19, typingP50Ms: 31.5, typingP95Ms: 49.5, typingMaxMs: 71.2, idleTaskMs: 0, findKeyP50Ms: 555, findTypingP50Ms: 570 },
   "json-1line-5MiB": { firstPaintMs: 83, heapMiB: 0.3, jumpToEndMs: 6, typingP50Ms: 20.7, typingP95Ms: 29.9, typingMaxMs: 30.0, idleTaskMs: 0, findKeyP50Ms: 542, findTypingP50Ms: 24 },
   "prose-5.1MiB": { firstPaintMs: 49, heapMiB: 7.2, jumpToEndMs: 20, typingP50Ms: 10.9, typingP95Ms: 18.3, typingMaxMs: 20.9, idleTaskMs: 0, findKeyP50Ms: 570, findTypingP50Ms: 14 },
@@ -94,11 +113,13 @@ export const AUDIT_FIGURES = {
   "prose-50MiB": { firstPaintMs: 330, heapMiB: 67, jumpToEndMs: 20, typingP50Ms: 12.4, typingP95Ms: 17.6, typingMaxMs: 17.7, idleTaskMs: 84, findKeyP50Ms: 6061, findTypingP50Ms: 7 },
   "prose-60MiB": { firstPaintMs: 330, heapMiB: 67, jumpToEndMs: 20, typingP50Ms: 12.4, typingP95Ms: 17.6, typingMaxMs: 17.7, idleTaskMs: 84, findKeyP50Ms: 6061, findTypingP50Ms: 7 },
   "prose-300MiB": { firstPaintMs: 2187, heapMiB: 403, jumpToEndMs: 20, typingP50Ms: 9.9, typingP95Ms: 17.8, typingMaxMs: 17.8, idleTaskMs: 736, findKeyP50Ms: 34673, findTypingP50Ms: 16 },
+  "log-300MiB-counts": { firstPaintMs: 2187, heapMiB: 403, jumpToEndMs: 20, typingP50Ms: 9.9, typingP95Ms: 17.8, typingMaxMs: 17.8, idleTaskMs: 736, findKeyP50Ms: 34673, findTypingP50Ms: 16 },
 };
 
 export const BUDGETS = {
   "prose-1MiB": { firstPaintMs: 80, heapMiB: 4, jumpToEndMs: 65, typingP50Ms: 40, typingP95Ms: 60, typingMaxMs: 100, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 475, findTaskMs: 100, findTypingP50Ms: 50, findTypingMaxMs: 100, findTypingTaskMs: 100 },
   "prose-4.9MiB": { firstPaintMs: 145, heapMiB: 11, jumpToEndMs: 75, typingP50Ms: 35, typingP95Ms: 55, typingMaxMs: 100, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 40, findTypingMaxMs: 100, findTypingTaskMs: 100 },
+  "prose-4.9MiB-counts": { firstPaintMs: 145, heapMiB: 11, jumpToEndMs: 75, typingP50Ms: 35, typingP95Ms: 55, typingMaxMs: 100, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 40, findTypingMaxMs: 100, findTypingTaskMs: 100 },
   "md-4.9MiB": { firstPaintMs: 235, heapMiB: 15, jumpToEndMs: 70, typingP50Ms: 100, typingP95Ms: 160, typingMaxMs: 305, idleTaskMs: 305, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 110, findTypingMaxMs: 305, findTypingTaskMs: 305 },
   "json-1line-5MiB": { firstPaintMs: 260, heapMiB: 4, jumpToEndMs: 60, typingP50Ms: 70, typingP95Ms: 85, typingMaxMs: 110, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 120, findTypingMaxMs: 150, findTypingTaskMs: 100 },
   "prose-5.1MiB": { firstPaintMs: 120, heapMiB: 11, jumpToEndMs: 55, typingP50Ms: 35, typingP95Ms: 55, typingMaxMs: 100, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 55, findTypingMaxMs: 100, findTypingTaskMs: 100 },
@@ -107,6 +128,7 @@ export const BUDGETS = {
   "prose-50MiB": { firstPaintMs: 980, heapMiB: 101, jumpToEndMs: 70, typingP50Ms: 35, typingP95Ms: 60, typingMaxMs: 530, idleTaskMs: 530, findKeyP50Ms: 40, findKeyMaxMs: 100, findSettleMs: 950, findTaskMs: 100, findTypingP50Ms: 35, findTypingMaxMs: 630, findTypingTaskMs: 630 },
   "prose-60MiB": { firstPaintMs: 1195, heapMiB: 121, jumpToEndMs: 60, typingP50Ms: 35, typingP95Ms: 55, typingMaxMs: 800, idleTaskMs: 800, findKeyP50Ms: 45, findKeyMaxMs: 100, findSettleMs: 1150, findTaskMs: 100, findTypingP50Ms: 45, findTypingMaxMs: 1170, findTypingTaskMs: 1155 },
   "prose-300MiB": { firstPaintMs: 6515, heapMiB: 605, jumpToEndMs: 75, typingP50Ms: 35, typingP95Ms: 60, typingMaxMs: 4625, idleTaskMs: 4625, findKeyP50Ms: 40, findKeyMaxMs: 100, findSettleMs: 4345, findTaskMs: 100, findTypingP50Ms: 40, findTypingMaxMs: 4625, findTypingTaskMs: 4625 },
+  "log-300MiB-counts": { firstPaintMs: 2190, heapMiB: 403, jumpToEndMs: 70, typingP50Ms: 40, typingP95Ms: 60, typingMaxMs: 2335, idleTaskMs: 2335, findKeyP50Ms: 45, findKeyMaxMs: 75, findSettleMs: 2485, findTaskMs: 100, findTypingP50Ms: 40, findTypingMaxMs: 2690, findTypingTaskMs: 2690 },
 };
 
 export const TOGGLE_BUDGETS = { coldP95Ms: 250, warmP95Ms: 80 };

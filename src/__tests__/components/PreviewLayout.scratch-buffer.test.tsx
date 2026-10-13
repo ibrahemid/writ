@@ -47,21 +47,24 @@ vi.mock("../../services/tauri", () => ({
 
 // The real EditorInstance pulls CodeMirror + bufferRegistry.readContent.
 // This regression is about the preview-layout decision and iframe mount,
-// not the editor; stub it out. The stub still publishes the loaded buffer id
-// so PreviewPane's render gate matches (the editor contract relied on by #97).
+// not the editor; stub it out. The stub still registers a view and publishes
+// the loaded buffer id after it, so PreviewPane's render gate matches (the
+// editor contract relied on by #97).
 vi.mock("../../components/Editor/EditorInstance", async () => {
   const { createEffect } = await import("solid-js");
   const { useWindow } = await import("../../components/WindowProvider/WindowProvider");
+  const { showInEditor } = await import("../fixtures/editor-view");
   return {
     default: (props: { buffer: { id: string } }) => {
       const win = useWindow();
-      createEffect(() => win.editor.setCurrentBufferId(props.buffer.id));
+      createEffect(() => showInEditor(win, props.buffer.id, ""));
       return <div data-testid="editor-stub" />;
     },
   };
 });
 
 import PreviewLayout from "../../components/Preview/PreviewLayout";
+import { retypeInEditor } from "../fixtures/editor-view";
 
 function scratchHtmlBuffer(overrides: Partial<BufferDocument> = {}): BufferDocument {
   return {
@@ -157,11 +160,13 @@ describe("PreviewLayout — scratch buffer with renderable title (regression for
       await Promise.resolve();
       mocks.forceRender.mockClear();
 
-      // Drive content through the production path: EditorInstance's
-      // updateListener calls setCurrentText after every doc change.
+      // Drive content the way EditorInstance's updateListener does: the
+      // document changes and the version moves.
       const win = windowRegistry.getActive();
       expect(win, "WindowProvider registered the window state").not.toBeNull();
-      win!.editor.setCurrentText("<h1>hi</h1>");
+      const view = win!.editor.getView();
+      expect(view, "the editor stub registered a view").not.toBeNull();
+      retypeInEditor(win!, view!, "<h1>hi</h1>");
 
       // Default debounce is 200ms.
       await vi.advanceTimersByTimeAsync(250);

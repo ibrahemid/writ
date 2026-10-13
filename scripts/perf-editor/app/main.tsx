@@ -10,6 +10,7 @@ import { classifySize, formatHexDump, onceOpen, sniffsBinary } from "../../../de
 import { windowRegistry } from "../../../src/stores/global/window-registry";
 import { findStore } from "../../../src/stores/global/find-store";
 import { largeFileOpen } from "../../../src/stores/global/large-file-open";
+import { configStore } from "../../../src/stores/global/config";
 import type { BufferDocument, FileOpenMode, FileOpenResult } from "../../../src/types/buffer";
 import { generateCorpus, RARE_WORD, type CorpusSpec } from "../../../src/__tests__/editor/fixtures/editor-corpus";
 import { filterTasksStartedIn, type LongTask } from "../budgets.mjs";
@@ -332,6 +333,32 @@ async function waitFindSettled(timeoutMs: number): Promise<number | null> {
   return null;
 }
 
+/** Shows the word, character and token counts in the status bar, or hides them. */
+async function setCounts(on: boolean): Promise<void> {
+  const config = configStore.config();
+  await configStore.save({ ...config, editor: { ...config.editor, status_bar_counts: on } });
+}
+
+/** The counts the status bar shows, once they are exact; null on timeout. */
+async function waitCountsExact(timeoutMs: number) {
+  const started = performance.now();
+  while (performance.now() - started < timeoutMs) {
+    const counts = activeWindow().counts.counts();
+    if (counts?.exact) {
+      return { ...counts, settledAt: performance.now(), shown: document.querySelector(".statusbar-field--words")?.textContent ?? "" };
+    }
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+  return null;
+}
+
+/** The counts of the document in the view, the way the status bar counted them before it counted the document's strings. */
+function wholeTextCounts() {
+  const text = activeWindow().editor.getView()?.state.doc.toString() ?? "";
+  const trimmed = text.trim();
+  return { words: trimmed === "" ? 0 : trimmed.split(/\s+/).length, characters: [...text].length };
+}
+
 function emitWindowShown(): void {
   emitEvent?.("writ://window-shown", { kind: "window:shown", payload: { rust_elapsed_us: 0 } });
 }
@@ -352,6 +379,9 @@ Object.assign(window, {
     waitViewportAtEnd,
     findStatus,
     waitFindSettled,
+    setCounts,
+    waitCountsExact,
+    wholeTextCounts,
     resetObservations,
     observations,
     firstPaints: () => firstPaints.slice(),

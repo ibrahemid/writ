@@ -104,6 +104,7 @@ async function windowWithADownloadRunning() {
   const downloads = createDownloadStore();
   mocks.win = {
     editor,
+    counts: { counts: () => null, watch: () => () => {} },
     tabs: { closeTab: vi.fn() },
     downloads,
     folderGraph: { isOpen: () => false },

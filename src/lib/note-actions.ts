@@ -188,9 +188,10 @@ export async function resolveNoteChange(
 ): Promise<void> {
   const win = windowRegistry.getActive();
   if (!win) return;
-  const live =
-    win.editor.currentBufferId() === id ? win.editor.getActiveText(false) : null;
-  if (!live) {
+  const inView = win.editor.currentBufferId() === id;
+  const live = inView ? win.editor.getActiveText(false) : null;
+  const read = inView ? win.editor.liveDoc() : null;
+  if (!live || !read) {
     logFailure("a change outside Writ was answered for a note the editor was not holding");
     return;
   }
@@ -225,7 +226,10 @@ export async function resolveNoteChange(
   if (outcome.content !== null) {
     win.editor.applyExternalContent(id, outcome.content);
   } else {
-    win.editor.noteSaved(id, outcome.disk_hash, false);
+    win.editor.noteSaved(id, outcome.disk_hash, false, {
+      source: read,
+      current: typedSince === undefined || typedSince === content,
+    });
     // The write that has landed carried the text as it was read, so the typing
     // above is in the document and nowhere else. It goes on the queue the way
     // a keystroke would put it there, and reaches the file under the same rate

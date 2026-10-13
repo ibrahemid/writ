@@ -1,9 +1,9 @@
 //! The Rust half of the shared line-ending fixture.
 //!
-//! `src/__tests__/lib/doc-hash.fixture.test.ts` reads the same file and
-//! asserts the same digests. The dirty predicate compares one side's answer
-//! with the other's, so the two implementations agreeing is the whole
-//! contract; the fixture's digests were produced by neither of them.
+//! `demo/__tests__/digest.fixture.test.ts` reads the same file and asserts
+//! the same digests from the site demo's host, which answers the app's disk
+//! questions the way this crate does. The fixture's digests were produced by
+//! neither of them.
 
 use writ_core::hash::{comparison_digest_hex, normalise_line_endings, sha256_hex};
 

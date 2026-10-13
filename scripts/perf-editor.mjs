@@ -31,6 +31,9 @@ const TYPED_WITH_FIND = " jumps";
 const WARM_TOGGLES = 6;
 const SETTLE_TIMEOUT_MS = 120_000;
 const MATCH_COUNT_CAP = 10_000;
+// The whole-text count the page checks the status bar against allocates many
+// times the document, so only files up to this size are checked by it.
+const WHOLE_TEXT_CHECK_MAX_BYTES = 8 * MiB;
 
 class GateSetupError extends Error {
   constructor(message) {
@@ -167,6 +170,25 @@ function expectCount(status, expected, word, problems) {
   }
 }
 
+async function checkCounts(page, file, result, problems) {
+  const counted = await page.evaluate((timeout) => window.__harness.waitCountsExact(timeout), SETTLE_TIMEOUT_MS);
+  if (counted === null) {
+    problems.push("the counts never finished");
+    return;
+  }
+  result.counts = { words: counted.words, characters: counted.characters, shown: counted.shown };
+  if (!/\bwords?\b/.test(counted.shown) || counted.shown.includes("≈")) {
+    problems.push(`the status bar showed "${counted.shown}" for finished counts`);
+  }
+  if (file.size > WHOLE_TEXT_CHECK_MAX_BYTES) return;
+  const whole = await page.evaluate(() => window.__harness.wholeTextCounts());
+  if (whole.words !== counted.words || whole.characters !== counted.characters) {
+    problems.push(
+      `the status bar counted ${counted.words} words and ${counted.characters} characters, the text holds ${whole.words} and ${whole.characters}`,
+    );
+  }
+}
+
 async function runScenario(browser, base, scenario) {
   const problems = [];
   const result = { id: scenario.id, tier: scenario.tier, loadAverage: os.loadavg()[0], problems };
@@ -174,6 +196,7 @@ async function runScenario(browser, base, scenario) {
   try {
     const cdp = await context.newCDPSession(page);
     await cdp.send("HeapProfiler.enable");
+    await page.evaluate((on) => window.__harness.setCounts(on), scenario.counts === true);
     const file = await page.evaluate((spec) => window.__harness.addFile(spec), scenario.spec);
     result.file = { size: file.size, lines: file.lines, rareWordCount: file.rareWordCount };
     const heapBefore = await heapUsed(cdp);
@@ -248,6 +271,8 @@ async function runScenario(browser, base, scenario) {
     measured.findTypingTaskMs = longestTask(withFindObserved);
     measured.findTaskMs = Math.max(rare.taskMs, absent.taskMs, again.taskMs);
 
+    if (scenario.counts) await checkCounts(page, file, result, problems);
+
     result.measured = measured;
     problems.push(...overBudget(scenario.id, measured));
   } catch (error) {
@@ -291,6 +316,7 @@ function printScenario(scenario, result) {
       `  ${metric.label.padEnd(28)} ${formatValue(value, metric.unit).padStart(10)}  budget ${formatValue(budget[metric.key], metric.unit).padStart(10)}${over ? "  OVER" : ""}`,
     );
   }
+  if (result.counts) console.log(`  ${"Counts shown".padEnd(28)} ${result.counts.shown}`);
   for (const problem of result.problems) console.log(`  problem: ${problem}`);
 }
 

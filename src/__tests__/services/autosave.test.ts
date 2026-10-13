@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Text } from "@codemirror/state";
 
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(undefined),
@@ -19,6 +20,7 @@ import {
   resetAutosave,
   materializePendingSave,
   peekUnsavedContent,
+  peekUnsavedText,
   currentSaveGeneration,
   holdUnsavedContent,
   releaseUnsavedContent,
@@ -187,7 +189,46 @@ describe("autosave", () => {
       await vi.advanceTimersByTimeAsync(50);
 
       expect(listener).toHaveBeenCalledOnce();
-      expect(listener).toHaveBeenCalledWith("buf-ok", "abc123", false);
+      expect(listener).toHaveBeenCalledWith("buf-ok", "abc123", false, {
+        source: "content",
+        generation: currentSaveGeneration("buf-ok"),
+      });
+      unsubscribe();
+      mockedSave.mockResolvedValue(null);
+    });
+
+    it("hands a success listener the snapshot the write carried, not a copy of it", async () => {
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveSuccess(listener);
+      mockedSave.mockResolvedValue("abc123");
+      const snapshot = Text.of(["first line", "second line"]);
+
+      debouncedSave("buf-snapshot", snapshot, 50);
+      await vi.advanceTimersByTimeAsync(50);
+
+      expect(mockedSave).toHaveBeenCalledWith("buf-snapshot", "first line\nsecond line");
+      expect(listener).toHaveBeenCalledOnce();
+      expect(listener.mock.calls[0][3].source).toBe(snapshot);
+      expect(listener.mock.calls[0][3].generation).toBe(currentSaveGeneration("buf-snapshot"));
+      unsubscribe();
+      mockedSave.mockResolvedValue(null);
+    });
+
+    it("writes a failed snapshot again as the snapshot it was", async () => {
+      const listener = vi.fn();
+      const unsubscribe = onAutosaveSuccess(listener);
+      mockedSave.mockRejectedValueOnce(new Error("disk full")).mockResolvedValueOnce("abc123");
+      const snapshot = Text.of(["kept"]);
+
+      debouncedSave("buf-retry", snapshot, 50);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(listener).not.toHaveBeenCalled();
+      expect(peekUnsavedContent("buf-retry")).toBe("kept");
+
+      await flushAutosave("buf-retry");
+
+      expect(listener).toHaveBeenCalledOnce();
+      expect(listener.mock.calls[0][3].source).toBe(snapshot);
       unsubscribe();
       mockedSave.mockResolvedValue(null);
     });
@@ -202,7 +243,10 @@ describe("autosave", () => {
       await saveNow("buf-back", "content", writeBack);
 
       expect(writeBack).toHaveBeenCalledWith("buf-back", "content");
-      expect(listener).toHaveBeenCalledWith("buf-back", "def456", true);
+      expect(listener).toHaveBeenCalledWith("buf-back", "def456", true, {
+        source: "content",
+        generation: currentSaveGeneration("buf-back"),
+      });
       unsubscribe();
     });
 
@@ -699,6 +743,45 @@ describe("autosave", () => {
       expect(result.failures.map((f) => f.bufferId).sort()).toEqual(["buf-x", "buf-y"]);
       cancelAutosave("buf-x");
       cancelAutosave("buf-y");
+    });
+  });
+
+  describe("peekUnsavedText", () => {
+    it("names the queued write's generation for queued text", () => {
+      debouncedSave("peek-queued", "queued", 300);
+
+      expect(peekUnsavedText("peek-queued")).toEqual({
+        content: "queued",
+        generation: currentSaveGeneration("peek-queued"),
+      });
+      cancelAutosave("peek-queued");
+    });
+
+    it("names no write for text a hold keeps", () => {
+      holdUnsavedContent("peek-held", "held");
+
+      expect(peekUnsavedText("peek-held")).toEqual({ content: "held", generation: null });
+      releaseUnsavedContent("peek-held");
+    });
+
+    it("keeps the failed write's own generation while a newer write is on its way", async () => {
+      mockedSave.mockRejectedValueOnce(new Error("ERR_FILE_NOT_DOWNLOADED: still downloading"));
+      debouncedSave("peek-failed", "first", 300);
+      await vi.advanceTimersByTimeAsync(300);
+      const failedGeneration = currentSaveGeneration("peek-failed");
+
+      let land: (digest: string) => void = () => {};
+      mockedSave.mockImplementationOnce(() => new Promise<string>((resolve) => (land = resolve)));
+      debouncedSave("peek-failed", "second", 300);
+      const second = flushAutosave("peek-failed");
+
+      expect(currentSaveGeneration("peek-failed")).toBeGreaterThan(failedGeneration);
+      expect(peekUnsavedText("peek-failed")).toEqual({ content: "first", generation: failedGeneration });
+      expect(peekUnsavedContent("peek-failed")).toBe("first");
+
+      land("d".repeat(64));
+      await second;
+      expect(peekUnsavedText("peek-failed")).toBeUndefined();
     });
   });
 });

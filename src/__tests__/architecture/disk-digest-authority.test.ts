@@ -11,8 +11,9 @@ const SRC = resolve(process.cwd(), "src");
 // can drift, the dirty predicate rests on a number whose author nobody knows,
 // and only the side that read the file can see it change underneath.
 //
-// The document's own digest is the frontend's to compute. `hashDocument` is
-// for that side and no other.
+// The frontend computes no digest at all: whether the document says what the
+// file says is the document compared with the text the file was last known to
+// hold (`Text.eq`), and the digest it keeps is the one Rust sent.
 const DISK_HASH_SOURCES = new Set([
   // The store's own field name, threaded through from a service result.
   "diskHash",
@@ -58,16 +59,9 @@ describe("the digest of a note's file comes from the backend", () => {
     ).toEqual([]);
   });
 
-  it("keeps hashDocument to the document side", () => {
-    // Every call site hashes text the editor holds. A call whose result went
-    // on to stand for a file would be the same defect wearing another name.
-    const callers = tsFiles(SRC).filter((file) =>
-      /\bhashDocument\s*\(/.test(readFileSync(file, "utf8")),
-    );
+  it("computes no digest of its own", () => {
+    const callers = tsFiles(SRC).filter((file) => /\bsubtle\s*\.\s*digest\s*\(/.test(readFileSync(file, "utf8")));
 
-    expect(callers.map((file) => relative(SRC, file)).sort()).toEqual([
-      "lib/doc-hash.ts",
-      "stores/window/editor-store.ts",
-    ]);
+    expect(callers.map((file) => relative(SRC, file))).toEqual([]);
   });
 });

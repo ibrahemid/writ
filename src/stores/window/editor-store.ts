@@ -1,20 +1,26 @@
 import { createSignal } from "solid-js";
-import { EditorSelection } from "@codemirror/state";
+import { EditorSelection, type Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { FileOpenMode } from "../../types/buffer";
 import {
   debouncedSave,
   cancelAutosave as cancelAutosaveService,
+  currentSaveGeneration,
   flushAutosave as flushAutosaveService,
   holdUnsavedContent,
   materializePendingSave,
   peekHeldContent,
   onAutosaveSuccess,
   peekUnsavedContent,
+  peekUnsavedText,
   releaseUnsavedContent,
   saveNow as saveNowService,
+  materializeContent,
   type ContentSource,
+  type DocumentSnapshot,
+  type HeldContent,
   type SaveResult,
+  type UnsavedText,
 } from "../../services/autosave";
 import {
   noteDiskState,
@@ -24,9 +30,12 @@ import {
   type UnmadeFile,
 } from "../../services/tauri";
 import { applyExternalDocument } from "../../editor/external-reload";
-import { hashDocument } from "../../lib/doc-hash";
+import { sameDocument } from "../../editor/same-document";
 import { readFailureOf, type ReadFailure } from "../../lib/read-failure";
-import { detectFromContent as detectFromContentService } from "../../services/language-detect";
+import {
+  detectFromContent as detectFromContentService,
+  MAX_DETECT_BYTES,
+} from "../../services/language-detect";
 
 export type TransformFn = (input: string) => Promise<string>;
 
@@ -48,14 +57,17 @@ export type EditorStore = ReturnType<typeof createEditorStore>;
 const NOTHING_TO_SAVE: SaveResult = { ok: true, failures: [] };
 
 /**
- * How long a note has to stop changing before its document is hashed.
+ * How long a note has to stop changing before its document is compared with
+ * the text its file was last known to hold.
  *
- * Hashing is O(document) and a keystroke is not, so it waits for a pause
- * rather than running on every transaction. Nothing waits on the hash: a
- * document that has changed since its last one already reads dirty
- * ([`isDirty`]).
+ * The comparison ([`sameDocument`]) skips every subtree the two documents
+ * share where their trees line up, which an edit and its undo leave them
+ * doing, so it reads the stretches the edits since the save touched rather
+ * than the document between them; it still waits for a pause rather than
+ * running on every transaction. Nothing waits on it: a document that has
+ * changed since its last comparison already reads dirty ([`isDirty`]).
  */
-export const DOC_HASH_IDLE_MS = 150;
+export const DIRTY_COMPARE_IDLE_MS = 150;
 
 /**
  * How long `Updated from disk` stays in the status region.
@@ -69,13 +81,20 @@ export const UPDATED_FROM_DISK_MS = 4000;
 /**
  * What is known about one note's text against the file behind it.
  *
- * `docGeneration` counts transactions; `hashedGeneration` records the one
- * `docHash` was taken at. They diverge for as long as an edit has not been
- * hashed, which is what makes an unhashed edit read dirty rather than clean.
+ * `docGeneration` counts transactions; `comparedGeneration` records the one
+ * `matchesFile` was decided at. They diverge for as long as an edit has not
+ * been compared, which is what makes an uncompared edit read dirty rather
+ * than clean.
  */
 interface NoteHashes {
   docGeneration: number;
-  hashedGeneration: number;
+  comparedGeneration: number;
+  /**
+   * Whether the document at `comparedGeneration` says what the file holds:
+   * the open read it from the file, a write that landed carried it, or it
+   * compared equal (`Text.eq`) with the text one of those left.
+   */
+  matchesFile: boolean;
   /**
    * Which call to [`noteOpened`] this record belongs to. Counted per store and
    * never reset, so a call that a later one has overtaken can tell: the
@@ -98,11 +117,42 @@ interface NoteHashes {
    * with the flight, and by the next call, which replaces the record whole.
    */
   writtenDuringOpen?: boolean;
-  docHash?: string;
   diskHash?: string;
 }
 
-const FRESH: NoteHashes = { docGeneration: 0, hashedGeneration: 0 };
+const FRESH: NoteHashes = { docGeneration: 0, comparedGeneration: 0, matchesFile: false };
+
+/**
+ * The note whose document the view holds, with the documents its dirty answer
+ * is read from. Only this note keeps a `Text`: a note with no view cannot
+ * change, and keeping its document would hold a closed view's text in memory.
+ */
+interface ViewedNote {
+  id: string;
+  /** The newest document. */
+  doc: Text;
+  /** The newest document known to be on the file, when one is known. */
+  saved: Text | null;
+  /** The document the last open read, until that open answers. */
+  opened: Text;
+}
+
+/** What a write that landed carried, as far as the dirty answer needs it. */
+export interface SavedText {
+  source: string | DocumentSnapshot;
+  /** The note's save generation the text was queued at, for a write the autosave made. */
+  generation?: number;
+  /** Set by a caller that knows the text is the note's document as it stands when the write lands. */
+  current?: boolean;
+}
+
+// Whether two documents are the same text, when that is plain without reading
+// either of them.
+function sameTextAtAGlance(a: Text, b: Text): boolean | null {
+  if (a === b) return true;
+  if (a.length !== b.length || a.lines !== b.lines) return false;
+  return null;
+}
 
 /**
  * What the note's file is doing, as far as the tab knows.
@@ -176,12 +226,15 @@ export function createEditorStore() {
   const [largeFileMode, setLargeFileMode] = createSignal<FileOpenMode | null>(
     null,
   );
-  // Live text of the active editor view, updated on every document change.
-  // The preview pane tracks this and debounces it into a render request.
-  const [currentText, setCurrentText] = createSignal("");
+  // Bumped on every change to the document in the view and whenever the view
+  // takes another document. Nothing reads the text through it: a reader that
+  // needs the text fetches it from the view ([`liveDoc`]) when it does its
+  // work, after the keystroke rather than inside it.
+  const [docVersion, setDocVersion] = createSignal(0);
   // Id of the buffer whose content is currently loaded into the active view.
-  // Published by EditorInstance.loadBuffer only after the buffer's content is
-  // read in, so it stays consistent with currentText. The preview pane gates
+  // Published by EditorInstance.loadBuffer only after the view holding the
+  // buffer's content is registered, so [`liveDoc`] is that buffer's document
+  // whenever this names it. The preview pane gates
   // rendering on this matching its own buffer id: during a tab switch
   // props.buffer.id flips reactively while the editor is still mid-load on the
   // outgoing buffer, and rendering then would cache the wrong buffer's HTML
@@ -234,11 +287,40 @@ export function createEditorStore() {
   const [noteHashes, setNoteHashes] = createSignal<
     ReadonlyMap<string, NoteHashes>
   >(new Map());
-  const hashTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const compareTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Handed out by `noteOpened`, one per call, and never reset. A counter that
   // started again would let a call read its own number off a record a later
   // call happens to have stamped with the same one.
   let openTickets = 0;
+  let viewed: ViewedNote | null = null;
+  // The save generations of the writes that carry each note's document as it
+  // stands, emptied by the next edit, held or not. A write that lands with one
+  // of them wrote what the note holds.
+  const currentTextWrites = new Map<string, Set<number>>();
+
+  function noteWriteOfCurrentText(id: string) {
+    let writes = currentTextWrites.get(id);
+    if (writes === undefined) {
+      writes = new Set();
+      currentTextWrites.set(id, writes);
+    }
+    writes.add(currentSaveGeneration(id));
+  }
+
+  function carriesCurrentText(id: string, generation: number | undefined): boolean {
+    return generation !== undefined && currentTextWrites.get(id)?.has(generation) === true;
+  }
+
+  /**
+   * Whether `unsaved` is the note's document as it stands. Text a hold keeps
+   * is: every keystroke into a held note and every switch away from one
+   * replaces it. A queued or failed write's text is only while that write
+   * carried the document and nothing was typed since, because a failed text
+   * stays outstanding after a newer write has gone out with newer text.
+   */
+  function isCurrentText(id: string, unsaved: UnsavedText): boolean {
+    return unsaved.generation === null || carriesCurrentText(id, unsaved.generation);
+  }
 
   function hashesOf(id: string): NoteHashes {
     return noteHashes().get(id) ?? FRESH;
@@ -275,7 +357,7 @@ export function createEditorStore() {
   // kept here and not in the editor view because a tab switch destroys the
   // view, and there is no file left to read the text back from: a note that
   // lost its file and then its view has lost the note.
-  const [removedText, setRemovedText] = createSignal<ReadonlyMap<string, string>>(
+  const [removedText, setRemovedText] = createSignal<ReadonlyMap<string, HeldContent>>(
     new Map(),
   );
 
@@ -312,7 +394,7 @@ export function createEditorStore() {
     // and reading a large document there would put the cost ADR-020 keeps off
     // the keystroke back onto the save.
     const wantsText = after !== "present" || event === "moved";
-    const kept = wantsText ? (liveTextOfNote(id) ?? peekUnsavedContent(id)) : undefined;
+    const kept = wantsText ? outstandingTextOf(id) : undefined;
     const writesKeptText = event === "moved" && kept !== undefined && isDirty(id);
 
     // The note may write again, and every way a hold ends has already dealt
@@ -347,7 +429,7 @@ export function createEditorStore() {
       // run would answer for the person, and the guard would refuse it and
       // stack a second bar under the first.
       cancelAutosaveService(id);
-      if (kept !== undefined) holdText(id, kept);
+      if (kept !== undefined) holdText(id, kept.content);
       return;
     }
 
@@ -356,7 +438,8 @@ export function createEditorStore() {
     // and what it has been holding since the deletion is the only copy of it:
     // the queue went when the hold went on, so nothing else would write it.
     if (writesKeptText) {
-      debouncedSave(id, kept, 0);
+      debouncedSave(id, kept.content, 0);
+      if (kept.current) noteWriteOfCurrentText(id);
     }
   }
 
@@ -378,6 +461,19 @@ export function createEditorStore() {
   }
 
   /**
+   * The newest text of `id` that no file is known to hold: the live document,
+   * else what autosave has outstanding, and whether it is the note's document
+   * as it stands ([`isCurrentText`]).
+   */
+  function outstandingTextOf(id: string): { content: string; current: boolean } | undefined {
+    const live = liveTextOfNote(id);
+    if (live !== undefined) return { content: live, current: true };
+    const unsaved = peekUnsavedText(id);
+    if (unsaved === undefined) return undefined;
+    return { content: unsaved.content, current: isCurrentText(id, unsaved) };
+  }
+
+  /**
    * Keeps `text` where a close, a quit and the next load can find it.
    *
    * Two readers. The recovery handover reads the autosave service's hold; the
@@ -390,7 +486,7 @@ export function createEditorStore() {
    * `removed -> changed` the entry is whatever the note holds now, and it is
    * dropped only when the note reaches `present` ([`recordFileEvent`]).
    */
-  function holdText(id: string, text: string, keepAfterMs?: number) {
+  function holdText(id: string, text: HeldContent, keepAfterMs?: number) {
     holdUnsavedContent(id, text, keepAfterMs);
     if (!savesAreHeld(id)) return;
     setRemovedText((current) => {
@@ -561,10 +657,11 @@ export function createEditorStore() {
     const view = activeView;
     if (view && currentBufferId() === id) {
       applyExternalDocument(view, text);
-      setCurrentText(text);
       setLineCount(view.state.doc.lines);
+      noteOpened(id, view.state.doc, true);
+    } else {
+      noteOpened(id, null, true);
     }
-    noteOpened(id, text);
     // The note now holds what its file holds, so whatever was being asked
     // about the difference between them is answered.
     recordFileEvent(id, "settled");
@@ -603,7 +700,8 @@ export function createEditorStore() {
 
   /** The kept text of a note that may not write, when there is one. */
   function textOfRemoved(id: string): string | undefined {
-    return removedText().get(id);
+    const kept = removedText().get(id);
+    return kept === undefined ? undefined : materializeContent(kept);
   }
 
   /** The newest text of a removed note: the live document, else what is kept. */
@@ -624,7 +722,9 @@ export function createEditorStore() {
   async function restoreRemovedFile(id: string): Promise<SaveResult> {
     const text = liveTextOfRemoved(id);
     if (text === undefined) return NOTHING_TO_SAVE;
-    const result = await saveNowService(id, text, restoreNoteFile);
+    const written = saveNowService(id, text, restoreNoteFile);
+    noteWriteOfCurrentText(id);
+    const result = await written;
     if (result.ok) clearRemovedOnDisk(id);
     return result;
   }
@@ -640,9 +740,11 @@ export function createEditorStore() {
   async function saveRemovedNoteTo(id: string, path: string): Promise<SaveResult> {
     const text = liveTextOfRemoved(id);
     if (text === undefined) return NOTHING_TO_SAVE;
-    const result = await saveNowService(id, text, (bufferId, content) =>
+    const written = saveNowService(id, text, (bufferId, content) =>
       saveNoteTo(bufferId, content, path),
     );
+    noteWriteOfCurrentText(id);
+    const result = await written;
     if (result.ok) clearRemovedOnDisk(id);
     return result;
   }
@@ -656,47 +758,56 @@ export function createEditorStore() {
     });
   }
 
-  function clearHashTimer(id: string) {
-    const timer = hashTimers.get(id);
+  function clearCompareTimer(id: string) {
+    const timer = compareTimers.get(id);
     if (timer) {
       clearTimeout(timer);
-      hashTimers.delete(id);
+      compareTimers.delete(id);
     }
   }
 
-  async function hashNow(id: string, content: ContentSource) {
-    const generation = hashesOf(id).docGeneration;
-    let text: string;
-    try {
-      text = typeof content === "function" ? content() : content;
-    } catch {
-      // The view was torn down between the edit and the timer. The note keeps
-      // reading dirty, which is the honest answer for text nobody can measure.
-      return;
-    }
-    const hash = await hashDocument(text);
-    // A transaction that arrived while the digest was being computed has
-    // already bumped the generation; stamping this one would call the note
-    // clean on the strength of text it no longer holds.
-    if (hashesOf(id).docGeneration !== generation) return;
-    patchHashes(id, { docHash: hash, hashedGeneration: generation });
+  function scheduleCompare(id: string) {
+    clearCompareTimer(id);
+    compareTimers.set(
+      id,
+      setTimeout(() => {
+        compareTimers.delete(id);
+        compareNow(id);
+      }, DIRTY_COMPARE_IDLE_MS),
+    );
+  }
+
+  // Decides `matchesFile` for the newest generation of the note in the view.
+  // A note with no view has no document to compare, and keeps its answer.
+  function compareNow(id: string) {
+    const record = noteHashes().get(id);
+    if (record === undefined || record.openInFlight === true) return;
+    if (record.comparedGeneration === record.docGeneration) return;
+    const note = viewed;
+    if (note === null || note.id !== id || note.saved === null) return;
+    patchHashes(id, {
+      comparedGeneration: record.docGeneration,
+      matchesFile: sameDocument(note.doc, note.saved),
+    });
   }
 
   /**
    * Records what a note holds the moment it is loaded or reloaded from disk.
    *
-   * Two digests, from the two sides they describe: the document's is computed
-   * here, the file's comes from Rust, which read the file
-   * (`writ_core::hash::comparison_digest_hex`). The frontend never computes a
-   * digest for a file. It could compute one that agrees, since both sides
-   * normalise line endings the same way, but then the number the dirty
-   * predicate rests on would have two authors and only one of them would ever
-   * see the file change under it.
+   * `opened` is the document the view holds right after the load, or null
+   * for a note that is not in the view. `fromFile` says whether that text is
+   * what Rust has just read from the note's file: text a hold kept, or typing
+   * a save could not write, is not the file's and reads dirty.
    *
-   * A note with no file yet records neither digest. The two sides then agree
-   * that nothing is known to differ, which is right for a new empty note; the
-   * first keystroke moves the generation and the note reads dirty from there
-   * until a save gives it a file.
+   * The file's digest comes from Rust, which read the file
+   * (`writ_core::hash::comparison_digest_hex`), and is kept as the record of
+   * what the file holds ([`lastKnownDiskHash`]). The frontend computes no
+   * digest: whether the document says what the file says is the document
+   * compared (`Text.eq`) with the text the file was last known to hold.
+   *
+   * A note with no file yet reads clean until it is typed into, which is
+   * right for a new empty note; the first keystroke moves the generation and
+   * the note reads dirty from there until a save gives it a file.
    *
    * A note whose file could not be described — not there, or its bytes not on
    * this machine — drops its record instead, the same as the call failing
@@ -704,19 +815,17 @@ export function createEditorStore() {
    * it against, and `isDirty` answers dirty for a note it holds no record of,
    * which is what stops a later reload replacing text no file holds.
    */
-  function noteOpened(id: string, content: string) {
-    clearHashTimer(id);
+  function noteOpened(id: string, opened: Text | null, fromFile: boolean) {
+    clearCompareTimer(id);
+    currentTextWrites.delete(id);
     const ticket = ++openTickets;
     setNoteHashes((current) => {
       const next = new Map(current);
-      next.set(id, {
-        docGeneration: 0,
-        hashedGeneration: 0,
-        openTicket: ticket,
-        openInFlight: true,
-      });
+      next.set(id, { ...FRESH, openTicket: ticket, openInFlight: true });
       return next;
     });
+    if (opened !== null) viewed = { id, doc: opened, saved: null, opened };
+    else if (viewed?.id === id) viewed = null;
     void (async () => {
       // Every exit below is guarded, not only the one that fills the record.
       // A superseded call that dropped its record instead would take the
@@ -736,38 +845,53 @@ export function createEditorStore() {
       }
       if (answer.state === "no_file") {
         // A note the tab is holding text for is a different question. Reading
-        // clean off two empty digests would let the file's return be reloaded
-        // over that text, so it answers the way an undescribed file does and
-        // the person is asked. The backend reaches this only for a note that
-        // names no file at all, and this does not depend on that.
+        // it clean would let the file's return be reloaded over that text, so
+        // it answers the way an undescribed file does and the person is asked.
+        // The backend reaches this only for a note that names no file at all,
+        // and this does not depend on that.
         if (savesAreHeld(id)) {
           forgetHashes(id);
           return;
         }
-        // Nothing to compare against and nothing more coming: the note reads
-        // untracked from here rather than in flight forever.
-        patchHashes(id, { openInFlight: false, writtenDuringOpen: false });
+        settleOpen(id, opened, true, undefined);
         return;
       }
-      const documentHash = await hashDocument(content);
-      if (supersededOpen(id, ticket)) return;
-      // An edit that landed while either answer was in flight has moved the
-      // generation, and this pair describes a document that is already gone.
-      if (hashesOf(id).docGeneration !== 0) {
-        patchHashes(id, { openInFlight: false, writtenDuringOpen: false });
-        return;
-      }
-      // A write that landed since this read went out knows the file better
-      // than this read does, and it already recorded what it wrote.
-      const wroteSince = hashesOf(id).writtenDuringOpen === true;
-      patchHashes(id, {
-        docHash: documentHash,
-        ...(wroteSince ? {} : { diskHash: answer.disk.hash }),
-        hashedGeneration: 0,
-        openInFlight: false,
-        writtenDuringOpen: false,
-      });
+      settleOpen(id, opened, fromFile, answer.disk.hash);
     })();
+  }
+
+  // Fills the record an open left in flight.
+  function settleOpen(
+    id: string,
+    opened: Text | null,
+    fileHoldsOpened: boolean,
+    diskHash: string | undefined,
+  ) {
+    const record = hashesOf(id);
+    // A write that landed since this read went out knows the file better
+    // than this read does, and it already recorded what it wrote. A
+    // comparison it left for later decides nothing while the open is out, so
+    // it is scheduled again now.
+    if (record.writtenDuringOpen === true) {
+      patchHashes(id, { openInFlight: false, writtenDuringOpen: false });
+      if (record.comparedGeneration !== record.docGeneration) scheduleCompare(id);
+      return;
+    }
+    const note = viewed;
+    if (fileHoldsOpened && opened !== null && note !== null && note.id === id && note.opened === opened) {
+      note.saved = opened;
+    }
+    const unedited = record.docGeneration === 0;
+    patchHashes(id, {
+      ...(diskHash === undefined ? {} : { diskHash }),
+      comparedGeneration: 0,
+      matchesFile: unedited && fileHoldsOpened,
+      openInFlight: false,
+      writtenDuringOpen: false,
+    });
+    // Typing that landed while the answer was out is compared with what the
+    // open read, so undoing it reads clean again.
+    if (!unedited) scheduleCompare(id);
   }
 
   /** Whether a later [`noteOpened`] has taken the note off this call's answer. */
@@ -776,27 +900,34 @@ export function createEditorStore() {
   }
 
   /**
-   * Records that a note's document changed, and hashes it once the edits
-   * settle. Until that lands the note reads dirty.
+   * Records that the document in the view changed, and compares it with the
+   * text its file holds once the edits settle. Until then the note reads
+   * dirty.
    */
-  function noteEdited(id: string, content: ContentSource) {
+  function noteEdited(id: string, doc: Text) {
+    currentTextWrites.get(id)?.clear();
     patchHashes(id, { docGeneration: hashesOf(id).docGeneration + 1 });
-    clearHashTimer(id);
-    hashTimers.set(
-      id,
-      setTimeout(() => {
-        hashTimers.delete(id);
-        void hashNow(id, content);
-      }, DOC_HASH_IDLE_MS),
-    );
+    if (viewed !== null && viewed.id === id) viewed.doc = doc;
+    else viewed = { id, doc, saved: null, opened: doc };
+    scheduleCompare(id);
   }
 
   /**
    * Records what the note's file holds after a write landed on it.
    *
    * `diskHash` is the digest the save command computed over what it wrote, so
-   * the file's side of the comparison comes from Rust here too. Null when the
-   * note had nothing in it and no file to mint one for.
+   * the record of the file comes from Rust here too, and a digest is Rust's
+   * acknowledgement that the write is on the file. Null when the note had
+   * nothing in it and no file to mint one for.
+   *
+   * `write` is what the write carried. For the note in the view, the document
+   * the write was taken from becomes the text the file is known to hold, and
+   * the note is clean while it still holds that document. A write handed over
+   * as a string says what it wrote through its save generation: a write the
+   * store issued with the document as it stands, with no edit since, wrote
+   * that document. A note with no view is clean after such a write, or after one
+   * whose caller knew it carried the note's current text (`current`), and
+   * dirty after any other.
    *
    * `viaWriteBack` separates the two writes that can land here. The write-back
    * put the file at the note's path again, so the removed mark comes off here
@@ -805,21 +936,53 @@ export function createEditorStore() {
    * over a file that is back. An ordinary save says only that there was a file
    * when it left ([`nextNoteFileState`]).
    */
-  function noteSaved(id: string, diskHash: string | null, viaWriteBack: boolean) {
+  function noteSaved(
+    id: string,
+    diskHash: string | null,
+    viaWriteBack: boolean,
+    write?: SavedText,
+  ) {
     recordFileEvent(id, viaWriteBack ? "settled" : "written");
     if (diskHash === null) return;
+    const record = hashesOf(id);
+    const newest = write?.current === true || carriesCurrentText(id, write?.generation);
+    let matches: boolean | null;
+    const note = viewed;
+    if (note !== null && note.id === id) {
+      const written =
+        write === undefined
+          ? null
+          : typeof write.source === "object"
+            ? (write.source as Text)
+            : newest
+              ? note.doc
+              : null;
+      note.saved = written;
+      matches = written === null ? false : sameTextAtAGlance(note.doc, written);
+    } else {
+      matches = newest;
+    }
     // An open that is still out read the file before this write changed it,
     // and its answer would otherwise land on top of this one.
-    const duringOpen = hashesOf(id).openInFlight === true;
-    patchHashes(id, duringOpen ? { diskHash, writtenDuringOpen: true } : { diskHash });
+    const duringOpen = record.openInFlight === true;
+    patchHashes(id, {
+      diskHash,
+      ...(duringOpen ? { writtenDuringOpen: true } : {}),
+      ...(matches === null
+        ? { comparedGeneration: record.docGeneration - 1 }
+        : { comparedGeneration: record.docGeneration, matchesFile: matches }),
+    });
+    if (matches === null) scheduleCompare(id);
   }
 
   /** Drops everything held for a note whose tab has gone. */
   function noteClosed(id: string) {
-    clearHashTimer(id);
+    clearCompareTimer(id);
+    currentTextWrites.delete(id);
     forgetHashes(id);
     forgetFileState(id);
     clearUpdatedFromDisk(id);
+    if (viewed?.id === id) viewed = null;
   }
 
   /**
@@ -836,16 +999,20 @@ export function createEditorStore() {
    * question is whether there is anything to tell the person about.
    *
    * A record whose open is still out is the same "no idea" and answers the
-   * same way. Its two digests are both `undefined`, so comparing them reads
-   * clean, and a note the tab is still opening would let a change arriving in
-   * that window reload the file over text the tab is holding and no file has.
+   * same way: a note the tab is still opening would otherwise let a change
+   * arriving in that window reload the file over text the tab is holding and
+   * no file has.
+   *
+   * Reads stored answers only. The comparison that decides them runs after a
+   * pause in typing ([`DIRTY_COMPARE_IDLE_MS`]), never here, since this sits
+   * under every tab's mark.
    */
   function isDirty(id: string): boolean {
     const state = noteHashes().get(id);
     if (state === undefined) return true;
     if (state.openInFlight === true) return true;
-    if (state.docGeneration !== state.hashedGeneration) return true;
-    return state.docHash !== state.diskHash;
+    if (state.docGeneration !== state.comparedGeneration) return true;
+    return !state.matchesFile;
   }
 
   /**
@@ -860,10 +1027,6 @@ export function createEditorStore() {
     return state !== undefined && state.openInFlight !== true;
   }
 
-  function docHash(id: string): string | undefined {
-    return noteHashes().get(id)?.docHash;
-  }
-
   function lastKnownDiskHash(id: string): string | undefined {
     return noteHashes().get(id)?.diskHash;
   }
@@ -875,8 +1038,21 @@ export function createEditorStore() {
 
   let activeView: EditorView | null = null;
 
+  // A new view holds no note until its open says which.
   function registerView(view: EditorView | null) {
     activeView = view;
+    viewed = null;
+    setDocVersion((version) => version + 1);
+  }
+
+  /** The document in the view, for a reader doing its work after a change. */
+  function liveDoc(): Text | null {
+    return activeView?.state.doc ?? null;
+  }
+
+  /** Says the document in the view changed. */
+  function noteDocChanged() {
+    setDocVersion((version) => version + 1);
   }
 
   function getView(): EditorView | null {
@@ -995,15 +1171,21 @@ export function createEditorStore() {
     // on this same debounce, and for a note whose file is gone to the copy the
     // next load of its tab reads ([`holdText`]).
     //
-    // Materialized here rather than held as a getter. A getter reads the
-    // editor's single view, and the next tab switch destroys that view and
-    // builds another note's in its place, so a held getter would report the
-    // incoming note's document under this one's name.
+    // A snapshot is held as it is: it is the document as it stood, so no
+    // keystroke turns the document into a string. A getter is read here rather
+    // than held. It reads the editor's single view, and the next tab switch
+    // destroys that view and builds another note's in its place, so a held
+    // getter would report the incoming note's document under this one's name.
+    //
+    // The text is the caller's newest, so the writes issued before it are no
+    // longer known to carry the same text.
+    currentTextWrites.get(bufferId)?.clear();
     if (savesAreHeld(bufferId)) {
       holdText(bufferId, typeof content === "function" ? content() : content, delayMs);
       return;
     }
     debouncedSave(bufferId, content, delayMs);
+    noteWriteOfCurrentText(bufferId);
   }
 
   function cancelAutosave(bufferId: string) {
@@ -1070,7 +1252,9 @@ export function createEditorStore() {
     if (largeFileMode()?.kind === "Binary")
       return Promise.resolve(NOTHING_TO_SAVE);
     if (isRemovedOnDisk(bufferId)) return restoreRemovedFile(bufferId);
-    return saveNowService(bufferId, () => view.state.doc.toString());
+    const written = saveNowService(bufferId, view.state.doc);
+    noteWriteOfCurrentText(bufferId);
+    return written;
   }
 
   /**
@@ -1088,13 +1272,20 @@ export function createEditorStore() {
    * flight when the watcher reported keeps the text it could not write, so
    * this can still be reached under the bar, and it would write into the same
    * refusal the question is about.
+   *
+   * The write counts as carrying the note's document only when the text it
+   * repeats is that document ([`isCurrentText`]). A failed text pressed again
+   * while a newer write is on its way is older than the note.
    */
   function retrySave(id: string): Promise<SaveResult> {
     if (isRemovedOnDisk(id)) return restoreRemovedFile(id);
     if (savesAreHeld(id)) return Promise.resolve(NOTHING_TO_SAVE);
-    const content = peekUnsavedContent(id);
-    if (content === undefined) return Promise.resolve(NOTHING_TO_SAVE);
-    return saveNowService(id, content);
+    const unsaved = peekUnsavedText(id);
+    if (unsaved === undefined) return Promise.resolve(NOTHING_TO_SAVE);
+    const current = isCurrentText(id, unsaved);
+    const written = saveNowService(id, unsaved.content);
+    if (current) noteWriteOfCurrentText(id);
+    return written;
   }
 
   /** What the backend can say about the note's file right now. */
@@ -1102,8 +1293,10 @@ export function createEditorStore() {
     return noteDiskState(id);
   }
 
-  function detectFromContent(content: string): string | null {
-    return detectFromContentService(content);
+  // Detection reads the head of the text only, so only the head is
+  // materialized.
+  function detectFromDocument(doc: Text): string | null {
+    return detectFromContentService(doc.sliceString(0, MAX_DETECT_BYTES));
   }
 
   return {
@@ -1112,7 +1305,7 @@ export function createEditorStore() {
     lineCount, setLineCount,
     language, setLanguage,
     selectionCount, setSelectionCount,
-    currentText, setCurrentText,
+    docVersion, noteDocChanged, liveDoc,
     currentBufferId, setCurrentBufferId,
     externalReload, requestExternalReload,
     pendingReveal, requestReveal, clearReveal,
@@ -1134,7 +1327,7 @@ export function createEditorStore() {
     savesAreHeld,
     retrySave,
     readDiskState,
-    detectFromContent,
+    detectFromDocument,
     noteOpened,
     noteEdited,
     noteSaved,
@@ -1159,7 +1352,6 @@ export function createEditorStore() {
     isUpdatedFromDisk,
     clearUpdatedFromDisk,
     applyExternalContent,
-    docHash,
     lastKnownDiskHash,
     stopSaveListener,
   };

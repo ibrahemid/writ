@@ -286,7 +286,7 @@ describe("a tab whose file grew past the size Writ opens", () => {
     expect(paneLine(container)).toBe(REFUSED_LINE);
     expect(container.querySelector(".cm-editor")).toBeNull();
     expect(win().editor.currentBufferId()).toBeNull();
-    expect(win().editor.currentText()).toBe("");
+    expect(win().editor.liveDoc()).toBeNull();
   });
 
   // A log that keeps growing changes under its tab with every line. A tab

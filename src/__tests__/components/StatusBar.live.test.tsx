@@ -29,8 +29,8 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       cursorCol: () => 1,
       language: () => null,
       isUpdatedFromDisk: () => fixtures.updated(),
-      currentText: () => "",
     },
+    counts: { counts: () => null, watch: () => () => {} },
     tabs: { activeTabId: () => "note-1" },
   }),
 }));

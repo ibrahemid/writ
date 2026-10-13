@@ -32,6 +32,8 @@ export interface Scenario {
   tier: Tier;
   opensAs: OpensAs;
   large?: true;
+  /** The status bar shows the word, character and token counts. */
+  counts?: true;
   spec: CorpusSpec;
 }
 
