@@ -411,6 +411,7 @@ pub fn run() {
         }
     };
     let config_path = app_state.writ_dir.join("config.toml");
+    let pending_path = writ_storage::pending_clients::path(&app_state.writ_dir);
     let watcher_ignore = app_state.watcher_ignore.clone();
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -621,7 +622,9 @@ pub fn run() {
             commands::activity::mcp_clients,
             commands::activity::mcp_set_client_permission,
             commands::activity::mcp_forget_client,
-            commands::activity::mcp_refuse_waiting_client,
+            commands::activity::mcp_deny_client,
+            commands::activity::mcp_return_to_waiting,
+            commands::activity::mcp_restore_client,
             commands::activity::mcp_server_command,
             commands::activity::mcp_tools,
         ])
@@ -652,6 +655,17 @@ pub fn run() {
                     let _ = emit_event(&bridge_handle, frontend_event);
                 });
                 info!("event bus bridge attached");
+            }
+
+            {
+                use writ_core::events::bus::WritEvent;
+                let state = app.state::<AppState>();
+                let pending_handle = handle.clone();
+                state.event_bus.subscribe(move |event| {
+                    if let WritEvent::McpPendingChanged = event {
+                        commands::activity::announce_waiting(&pending_handle);
+                    }
+                });
             }
 
             // Maintain the workspace file-name index from watcher events
@@ -820,7 +834,12 @@ pub fn run() {
             }
 
             let watcher_bus = app.state::<AppState>().event_bus.clone();
-            match watcher::handler::start_file_watcher(watcher_bus, config_path, watcher_ignore) {
+            match watcher::handler::start_file_watcher(
+                watcher_bus,
+                config_path,
+                pending_path,
+                watcher_ignore,
+            ) {
                 Ok(handle) => {
                     let state = app.state::<AppState>();
                     let mut slot =

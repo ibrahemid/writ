@@ -13,6 +13,8 @@ set -euo pipefail
 #     installed: pnpm install --frozen-lockfile
 #   - cargo-about, for the third-party notices check:
 #       cargo install cargo-about --version 0.9.1 --locked --features cli
+#   - cargo-deny, for the advisory, licence, ban and source checks:
+#       cargo install cargo-deny --version 0.20.2 --locked
 #   - Docker (only required for the act-driven Linux dry run)
 #   - act (https://github.com/nektos/act, optional; install with `brew install act`)
 #
@@ -67,8 +69,8 @@ refresh_mac_sidecars() {
   # Resolve the real target dir: a local .cargo/config.toml or CARGO_TARGET_DIR
   # override moves it away from ./target.
   TARGET_DIR="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
-  cargo build -p writ-cli --release --target aarch64-apple-darwin
-  cargo build -p writ-cli --release --target x86_64-apple-darwin
+  cargo build -p writ-cli --release --locked --target aarch64-apple-darwin
+  cargo build -p writ-cli --release --locked --target x86_64-apple-darwin
   mkdir -p src-tauri/binaries
   # The universal target builds each arch separately; every pass resolves the
   # sidecar by its own triple, so all three names must exist.
@@ -80,40 +82,43 @@ refresh_mac_sidecars() {
     -output src-tauri/binaries/writ-universal-apple-darwin
 }
 
-step "0/9 rebuild the mac sidecars"
+step "0/10 rebuild the mac sidecars"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping sidecar rebuild: this script is running on $(uname -s), not Darwin."
 else
   refresh_mac_sidecars
 fi
 
-step "1/9 cargo fmt --all --check"
+step "1/10 cargo deny --locked check advisories bans licenses sources"
+cargo deny --locked check advisories bans licenses sources
+
+step "2/10 cargo fmt --all --check"
 cargo fmt --all --check
 
-step "2/9 cargo test --workspace"
-cargo test --workspace
+step "3/10 cargo test --workspace --locked"
+cargo test --workspace --locked
 
-step "3/9 cargo clippy --workspace -- -D warnings"
-cargo clippy --workspace -- -D warnings
+step "4/10 cargo clippy --workspace --locked -- -D warnings"
+cargo clippy --workspace --locked -- -D warnings
 
-step "4/9 npx tsc --noEmit"
+step "5/10 npx tsc --noEmit"
 npx tsc --noEmit
 
 # Runs before the bundle so the notices copied into the installers are the ones
 # that were checked. The check needs cargo-about and the root node_modules; a
 # missing prerequisite fails rather than skips, or the file rots unnoticed.
-step "5/9 scripts/gen-third-party-notices.py --check"
+step "6/10 scripts/gen-third-party-notices.py --check"
 python3 scripts/gen-third-party-notices.py --check
 
 # The release workflow fails a tag build whose committed release.json names
 # another version, so it is worth knowing before the tag is pushed.
-step "6/9 node scripts/check-release-json.mjs"
+step "7/10 node scripts/check-release-json.mjs"
 node scripts/check-release-json.mjs
 
-step "7/9 pnpm --dir site build"
+step "8/10 pnpm --dir site build"
 pnpm --dir site build
 
-step "8/9 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
+step "9/10 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
 else
@@ -121,14 +126,15 @@ else
   APPLE_SIGNING_IDENTITY="-" \
     npx tauri build \
       --target universal-apple-darwin \
-      --bundles app,dmg
+      --bundles app,dmg \
+      -- --locked
   bash scripts/build-mac-pkg.sh
   echo
   echo "Mac artefacts:"
   find "${TARGET_DIR}/universal-apple-darwin/release/bundle" -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
 fi
 
-step "9/9 act --dryrun (Linux release leg)"
+step "10/10 act --dryrun (Linux release leg)"
 if ! command -v act >/dev/null 2>&1; then
   warn "act not installed; skipping Linux dry run."
   warn "Install with: brew install act"

@@ -27,7 +27,8 @@ export const APPS: readonly AppEntry[] = [
   {
     id: "programs",
     label: "Connected programs",
-    detail: "Read and write access to your folder for programs you approve.",
+    detail:
+      "An MCP server that lets Claude Code, Cursor and other programs you approve read the files in your folder, and write them if you allow it.",
     settingId: "mcp.enabled",
   },
   {

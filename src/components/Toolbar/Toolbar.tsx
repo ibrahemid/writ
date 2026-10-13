@@ -6,6 +6,7 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { executeCommand } from "../../commands/registry";
 import { CHAT_TOGGLE_COMMAND_ID } from "../../commands/chat";
 import { configStore } from "../../stores/global/config";
+import { activityStore } from "../../stores/global/activity";
 import { useEffectiveBinding } from "../../commands/keybindings";
 import { formatKeybinding } from "../../lib/keybinding-format";
 import { resolvePlatform } from "../../lib/platform";
@@ -31,8 +32,18 @@ export default function Toolbar() {
   let barRef: HTMLDivElement | undefined;
 
   const appControls = createMemo(
-    () => `${configStore.isAppOn("connections")}:${configStore.isAppOn("chat")}`,
+    () =>
+      `${configStore.isAppOn("connections")}:${configStore.isAppOn("chat")}:${configStore.isAppOn("programs")}`,
   );
+
+  const waitingCount = () => activityStore.pending().length;
+  const programsLabel = () => {
+    const waiting = waitingCount();
+    if (waiting === 0) return "Program activity";
+    return waiting === 1
+      ? "Program activity, 1 program waiting"
+      : `Program activity, ${waiting} programs waiting`;
+  };
 
   /**
    * The roving stops: the search field keeps its own tab stop and its arrows,
@@ -133,6 +144,22 @@ export default function Toolbar() {
             pressed={win.chatPanel.isOpen()}
             onClick={() => executeCommand(CHAT_TOGGLE_COMMAND_ID)}
           />
+        </Tooltip>
+      </Show>
+
+      <Show when={configStore.isAppOn("programs")}>
+        <Tooltip label={programsLabel()}>
+          <Button
+            variant="ghost"
+            class="writ-toolbar-btn writ-toolbar-programs"
+            icon="plugs-connected"
+            aria-label={programsLabel()}
+            onClick={() => executeCommand("activity.open")}
+          >
+            <Show when={waitingCount() > 0}>
+              <span class="writ-toolbar-dot" data-waiting aria-hidden="true" />
+            </Show>
+          </Button>
         </Tooltip>
       </Show>
 

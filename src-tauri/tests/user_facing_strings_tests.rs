@@ -176,19 +176,19 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 118,
+        line: 132,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 124,
+        line: 138,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 127,
+        line: 141,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },

@@ -4,11 +4,13 @@ updates:
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
-      interval: "quarterly"
+      interval: "weekly"
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "rust"
@@ -23,11 +25,13 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "quarterly"
+      interval: "weekly"
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "frontend"
@@ -42,11 +46,13 @@ updates:
   - package-ecosystem: "npm"
     directory: "/site"
     schedule:
-      interval: "quarterly"
+      interval: "weekly"
       day: "monday"
       time: "06:00"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "site"
@@ -56,6 +62,11 @@ updates:
     groups:
       site-all:
         patterns: ["*"]
+    ignore:
+      # `astro check` refuses TypeScript 7.0; type-checking .astro files on 7
+      # needs @astrojs/ts-content-mapper and TypeScript 7.1.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -66,6 +77,8 @@ updates:
       time: "06:00"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "ci"
