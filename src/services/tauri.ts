@@ -1513,15 +1513,18 @@ export interface RequestIdentity {
   host: string;
 }
 
-/** The reason a provider gave for a refusal, when it is one of the six Writ
- * has a sentence for. No other part of a response body ever reaches here. */
+/** The reason a provider gave for a refusal, when it is one of the eight Writ
+ * has a sentence for, as the word Rust serializes it to. No other part of a
+ * response body ever reaches here. */
 export type RejectCode =
   | "model_not_found"
   | "invalid_request"
   | "invalid_api_key"
   | "insufficient_quota"
   | "rate_limited"
-  | "context_length_exceeded";
+  | "context_length_exceeded"
+  | "unsupported_parameter"
+  | "unsupported_value";
 
 /** What the pane is told when a reply fails. `message` is Writ's own sentence;
  * `kind` is what a recovery action is chosen from. */

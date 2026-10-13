@@ -12,6 +12,7 @@ import {
   defaultModelFor,
   modelOptions,
   resolveAutoModel,
+  seedModel,
 } from "../../stores/global/ai-models";
 import { aiProvidersStore } from "../../stores/global/ai-providers";
 
@@ -82,9 +83,34 @@ describe("model picker options", () => {
   });
 });
 
+describe("seedModel", () => {
+  it("starts from the row's default when the list holds it, whatever sorts first", () => {
+    expect(seedModel("gemini", ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"])).toBe(
+      "gemini-2.5-flash",
+    );
+    expect(seedModel("groq", ["allam-2-7b", "llama-3.3-70b-versatile"])).toBe("llama-3.3-70b-versatile");
+  });
+
+  it("falls to the first suggestion the list holds, in the row's order", () => {
+    expect(seedModel("gemini", ["gemini-2.0-flash", "gemini-2.5-flash-lite"])).toBe("gemini-2.5-flash-lite");
+    expect(seedModel("ollama", ["mistral:latest", "qwen3:8b"])).toBe("qwen3:8b");
+  });
+
+  it("seeds nothing from a list that holds none of the row's ids", () => {
+    expect(seedModel("ollama", ["all-minilm:latest", "mistral:latest"])).toBe("");
+    expect(seedModel("lmstudio", ["qwen2.5-7b-instruct"])).toBe("");
+    expect(seedModel("groq", [])).toBe("");
+    expect(seedModel("nope", ["anything"])).toBe("");
+  });
+});
+
 describe("resolveAutoModel", () => {
-  it("fills an empty model from the live list, and from nothing else", () => {
-    expect(resolveAutoModel({ provider: "ollama", model: "", live: ["phi4"], userSelected: false })).toBe("phi4");
+  it("fills an empty model with the seed, and from nothing else", () => {
+    expect(resolveAutoModel({ provider: "ollama", model: "", live: ["phi4", "qwen3:4b"], userSelected: false })).toBe(
+      "qwen3:4b",
+    );
+    // An id the list holds but nobody chose is left for the picker.
+    expect(resolveAutoModel({ provider: "ollama", model: "", live: ["phi4"], userSelected: false })).toBeNull();
     // A suggestion is not the account's inventory: the row a person picked is
     // left without a model until its own list answers, rather than filled with
     // an id the provider may have retired.
@@ -96,12 +122,17 @@ describe("resolveAutoModel", () => {
     expect(resolveAutoModel({ provider: "ollama", model: "phi4", live: ["phi4"], userSelected: false })).toBeNull();
   });
 
-  it("switches Ollama off a not-installed model, unless the user chose it", () => {
+  it("switches Ollama off a not-installed model to the seed, unless the user chose it", () => {
     expect(resolveAutoModel({ provider: "ollama", model: "phi4", live: ["qwen3:8b"], userSelected: false })).toBe(
       "qwen3:8b",
     );
     expect(
       resolveAutoModel({ provider: "ollama", model: "phi4", live: ["qwen3:8b"], userSelected: true }),
+    ).toBeNull();
+    // With nothing to seed, the model the file names is left for the picker to
+    // replace rather than swapped for whatever is installed.
+    expect(
+      resolveAutoModel({ provider: "ollama", model: "phi4", live: ["mistral:latest"], userSelected: false }),
     ).toBeNull();
   });
 

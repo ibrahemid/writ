@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed, 2026-09-14. Lands in front of the 1.0 tag.
+Accepted, 2026-10-13. Proposed 2026-09-14 and shipped in 0.5.0. Amended 2026-10-13: the
+OpenRouter callback carries its state in the path and the receiver waits for it (section 6), and
+the first model, request bodies, refusals, Stop and applied proposals follow what providers accept
+(section 12).
 
 Amends [ADR-031](./031-the-ai-harness-and-what-leaves-the-machine.md) in four places (rules 2.1,
 2.4, 5.2 and 7.1, stated in section 10). Stands on [ADR-028](./028-files-are-the-only-copy.md),
@@ -272,6 +275,31 @@ There is also a Writ-side reason that outlives any vendor's terms: a key another
 that program's consent, given to it, and reading it would be Writ sending a person's notes on a
 credential they never handed to Writ.
 
+**Amended 2026-10-13.** The state rides in the callback path, and the receiver waits for it.
+This supersedes steps 2 and 3 above, "a mismatched state is refused and reported as a failure
+without detail", and the clause "it accepts one request and closes" in the rule 2.4 text of
+section 10.
+
+- The callback is `http://127.0.0.1:<port>/callback/<state>` (`pkce::callback_url`), and the
+  authorization URL carries no `state` parameter. OpenRouter's PKCE guide, read on 2026-10-13,
+  returns a `state` parameter only after the user authorizes and not on a denial, and names
+  `localhost` callbacks on any port. A state carried in the path comes back with the callback
+  whether or not the provider echoes a parameter of its own. The comparison stays constant-time
+  (`pkce::check_state`) and runs on the path segment. That OpenRouter returns to a `127.0.0.1`
+  callback with its path intact is checked by one live Connect from a release build before the
+  0.6 tag.
+- The listener accepts until a request carries this flow's state, the five-minute deadline passes,
+  or the flow is cancelled. Connections are served one at a time, and each has two seconds in all
+  to send its request line, cut short by the deadline. A client that sends a byte at a time is
+  dropped then like one that sends nothing, so a Cancel is acted on within two seconds and the
+  deadline on time. A request that is not this flow's callback is answered `404` and the wait goes
+  on, so a browser's preconnect, a knock on the port or a stale link cannot end the flow. A return
+  to this flow without a code, which is what a denial would send, ends it at once.
+- The browser is answered after the exchange: the page says the window can be closed once the key
+  is stored, and that Connect failed otherwise.
+- The listener is dropped as soon as the callback is read. The threat-model check is unchanged:
+  no port is open at rest, and none after a completed or abandoned Connect.
+
 ### 7. Consent does not change shape
 
 ADR-031 rules 2.2, 2.5, 2.6, 4.3, 4.4 and section 6 stand as written. The consent sentence is
@@ -514,6 +542,60 @@ sections 1, 3 and 7.
   through `aiConnectionStore.consentHost`, which re-reads the config after the command answers, so
   the model list is read as soon as the host is allowed and the pane shows the provider's own rows
   without a relaunch.
+
+**Amended 2026-10-13.** The first model is the row's own when the account's list holds it, and a
+request is written the way its host accepts it. This supersedes the first bullet of this section,
+the prefix filter of section 3 and "one of six variants" in section 11, and makes section 3's
+5-second timeout the budget of the whole list.
+
+- **The first model.** `seed_model(provider, catalog)` answers the row's `default_model` when a
+  live list the provider answered holds it, else the first of the row's `curated_models`, in the
+  table's order, that the list holds, and otherwise nothing, which leaves the model for the person
+  to pick: the settings list asks for a model rather than offering a blank custom id, and the
+  pane's control opens again on its models when a provider picked there seeds none, unless focus
+  has left the control by the time the list is read. The list's own order decides nothing. Sorted
+  by id, the lists of 2026-10-13 open on `babbage-002`, a completion-only model, at OpenAI and on
+  an image model at Together. A curated id is still written only when the account's own list
+  holds it, so an id a provider retires falls through to the next suggestion or to the picker
+  rather than failing a send. The hosted rows' ids were read from each provider's documentation on
+  2026-10-13, and the lists they were read from are fixtures in
+  `crates/writ-core/tests/fixtures/ai-models/`.
+- **OpenAI's list.** An id is offered when its family is `gpt`, `chatgpt`, `chat`, `o1`, `o3` or
+  `o4` and none of its parts names a model that does not answer `chat/completions`, such as `pro`,
+  `codex`, `realtime`, `transcribe`, `tts`, `image`, `instruct` or `embedding`. GPT-Rosalind
+  (`rosalind`), offered only to approved organizations with no model page to say what it answers,
+  is left out too. An id carrying `audio` or `search` answers `chat/completions` and stays. A
+  fine-tuned id is judged by the model it was tuned from. An OpenAI-shaped list is read whether it
+  is wrapped in `data` or bare, which is how Together answers, and an entry whose `type` names an
+  image, embedding, moderation, rerank, audio, transcription or video model is dropped.
+- **Bodies per host.** `providers::body_rules(host)` decides the ceiling field and whether a
+  temperature is sent. `api.openai.com` takes `max_completion_tokens` and no temperature, which
+  its reasoning models refuse, and so do its regional hosts: `eu.api.openai.com` and the others
+  OpenAI's data residency guide lists, read on 2026-10-13, each a prefix on `api.openai.com`. A
+  host written with the root's trailing dot, such as `api.openai.com.`, takes the same rules.
+  `api.anthropic.com` takes `max_tokens` and no temperature, which Claude 4.7 and later refuse at
+  any value but the default. Every other host takes `max_tokens` and Rewrite's 0.3. OpenRouter is
+  one of them: its API reference, read on 2026-10-13, ignores a parameter the chosen model does
+  not take, and its own list names no `temperature` for the OpenAI reasoning models or Claude 4.7
+  and later. Chat sends no temperature to any host.
+- **Refusals.** `RejectCode` gains `UnsupportedParameter` and `UnsupportedValue`. Each carries
+  the parameter when the envelope's `param` names one Writ sends (`RequestParam`, itself a closed
+  set), so the sentence names it in Writ's words and never in the host's. Eight reasons in all,
+  serialized as their words. Rewrite reads a refusal through the same reader and the same sentence
+  as chat, so one host's refusal reads the same in either.
+- **Stop.** A request is raced against a cancellation token at the send, at the refusal body and
+  at every chunk, so Stop ends one still waiting for its first byte. The reply emits `stopped`,
+  the pane settles on it, and the conversation takes the next send.
+- **Bounds.** A stream line is capped at 1 MiB, past which the reply fails with `stream_failed`,
+  and each byte of a stream is scanned once. A model list, every page of it included, runs inside
+  one budget: 5 seconds for the picker's list and 3 for the connection check.
+- **An applied proposal keeps its file's shape.** A proposal's text takes the line ending most of
+  the target's lines use and the target's final-newline state when it is parsed, and the card's
+  diff is taken over those exact bytes, when the reply ends and again whenever the conversation is
+  opened, so a change to either still counts as a changed line. What Apply writes is what the card
+  showed. A pending proposal stored before this amendment holds `\n` lines: it is given the
+  target's line ending when the conversation is opened, and it keeps the final newline it was
+  stored with, which the card counts.
 
 ### 13. Context is any open tab, amended 2026-09-19
 

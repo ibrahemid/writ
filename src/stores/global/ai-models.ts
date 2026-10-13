@@ -27,6 +27,23 @@ export function modelOptions(provider: string, live: readonly string[]): string[
   return live.length > 0 ? [...live] : curatedModels(provider);
 }
 
+/**
+ * The model a provider starts from: the row's own default when the provider's
+ * list holds it, else the first of the row's suggestions the list holds, else
+ * nothing, which leaves the picker open. The rule `seed_model` applies in
+ * `writ_core::ai::models` (ADR-040 section 12).
+ *
+ * The list's own order decides nothing: sorted, its first id is whatever sorts
+ * first, which is a completion-only model on OpenAI's list and an embedding
+ * model as readily as a chat model on a local runtime's.
+ */
+export function seedModel(provider: string, live: readonly string[]): string {
+  const row = aiProvidersStore.byId(provider);
+  if (!row || live.length === 0) return "";
+  if (row.default_model && live.includes(row.default_model)) return row.default_model;
+  return row.curated_models.find((id) => live.includes(id)) ?? "";
+}
+
 export interface AutoModelInput {
   provider: string;
   model: string;
@@ -37,13 +54,9 @@ export interface AutoModelInput {
 
 /**
  * The model to auto-assign, or `null` to leave the choice alone. Fills an empty
- * model with the first id the provider's own list answered, and for Ollama
- * replaces a not-installed model with the first installed one — but never
- * overrides a model the user explicitly chose.
- *
- * A curated suggestion is never assigned. The picker offers the suggestions
- * while the provider's list cannot be read, but the value saved is the value a
- * send carries, and a provider can retire an id the table still names.
+ * model with `seedModel`, and for Ollama replaces a not-installed model with
+ * it. A model the user explicitly chose is never overridden, and an id the
+ * provider's own list does not hold is never filled in.
  */
 export function resolveAutoModel({
   provider,
@@ -52,10 +65,10 @@ export function resolveAutoModel({
   userSelected,
 }: AutoModelInput): string | null {
   if (!model.trim()) {
-    return live[0] ?? null;
+    return seedModel(provider, live) || null;
   }
   if (provider === "ollama" && live.length > 0 && !live.includes(model) && !userSelected) {
-    return live[0];
+    return seedModel(provider, live) || null;
   }
   return null;
 }

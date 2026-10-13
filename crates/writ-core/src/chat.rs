@@ -25,7 +25,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::ai::providers::Wire;
+use crate::ai::providers::{BodyRules, Wire};
 
 /// The version of the Anthropic Messages API this module is written against.
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -146,15 +146,70 @@ pub struct Proposal {
     pub hunks: Vec<crate::diff::Hunk>,
 }
 
-/// A reason a provider gave for refusing a request, when it is one of the six
-/// Writ has a sentence for.
+/// A parameter Writ writes into a request body.
+///
+/// Named so a refusal can say which parameter a model did not take. Only the
+/// parameters Writ itself sends are here, so the name a sentence carries is
+/// always Writ's own word, matched against the envelope's `param`, and never
+/// the host's text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestParam {
+    /// `model`.
+    Model,
+    /// `messages`.
+    Messages,
+    /// `system`, the Messages API's instruction field.
+    System,
+    /// `stream`.
+    Stream,
+    /// `max_tokens`.
+    MaxTokens,
+    /// `max_completion_tokens`.
+    MaxCompletionTokens,
+    /// `temperature`.
+    Temperature,
+}
+
+impl RequestParam {
+    /// The parameter's name as the body carries it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Model => "model",
+            Self::Messages => "messages",
+            Self::System => "system",
+            Self::Stream => "stream",
+            Self::MaxTokens => "max_tokens",
+            Self::MaxCompletionTokens => "max_completion_tokens",
+            Self::Temperature => "temperature",
+        }
+    }
+
+    /// The parameter a refusal names, when it is one Writ sends.
+    fn from_token(token: &str) -> Option<Self> {
+        [
+            Self::Model,
+            Self::Messages,
+            Self::System,
+            Self::Stream,
+            Self::MaxTokens,
+            Self::MaxCompletionTokens,
+            Self::Temperature,
+        ]
+        .into_iter()
+        .find(|param| param.as_str() == token)
+    }
+}
+
+/// A reason a provider gave for refusing a request, when it is one of the
+/// eight Writ has a sentence for.
 ///
 /// The enum is the whole of what may be taken out of a refusal body. Nothing
 /// carries the provider's own words, so "no response text is shown, stored or
 /// logged" is a property of the type rather than a habit of its callers
-/// (ADR-031 rule 5.2, narrowed by the ADR-040 amendment of 2026-09-17).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+/// (ADR-031 rule 5.2, narrowed by the ADR-040 amendments of 2026-09-17 and
+/// 2026-10-13). The two that name a parameter carry a [`RequestParam`], which
+/// is itself a closed set. It serializes as its word, [`RejectCode::as_str`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RejectCode {
     /// The model id is not one the provider serves.
     ModelNotFound,
@@ -168,18 +223,37 @@ pub enum RejectCode {
     RateLimited,
     /// The conversation is longer than the model takes.
     ContextLengthExceeded,
+    /// The model does not take a parameter the request carried.
+    UnsupportedParameter(Option<RequestParam>),
+    /// The model does not take the value one parameter was given.
+    UnsupportedValue(Option<RequestParam>),
 }
 
 impl RejectCode {
     /// The clause Writ writes for this reason, in Writ's words.
-    pub fn reason(self) -> &'static str {
+    pub fn reason(self) -> String {
         match self {
-            Self::ModelNotFound => "the model does not exist",
-            Self::InvalidRequest => "the request was not accepted",
-            Self::InvalidApiKey => "the API key was not accepted",
-            Self::InsufficientQuota => "the account is out of credit",
-            Self::RateLimited => "too many requests were sent",
-            Self::ContextLengthExceeded => "the conversation is too long",
+            Self::ModelNotFound => "the model does not exist".to_string(),
+            Self::InvalidRequest => "the request was not accepted".to_string(),
+            Self::InvalidApiKey => "the API key was not accepted".to_string(),
+            Self::InsufficientQuota => "the account is out of credit".to_string(),
+            Self::RateLimited => "too many requests were sent".to_string(),
+            Self::ContextLengthExceeded => "the conversation is too long".to_string(),
+            Self::UnsupportedParameter(Some(param)) => {
+                format!("the model does not accept the {} parameter", param.as_str())
+            }
+            Self::UnsupportedParameter(None) => {
+                "the model does not accept a parameter the request carried".to_string()
+            }
+            Self::UnsupportedValue(Some(param)) => {
+                format!(
+                    "the model does not accept the value given for {}",
+                    param.as_str()
+                )
+            }
+            Self::UnsupportedValue(None) => {
+                "the model does not accept a value the request carried".to_string()
+            }
         }
     }
 
@@ -193,11 +267,15 @@ impl RejectCode {
             Self::InsufficientQuota => "insufficient_quota",
             Self::RateLimited => "rate_limited",
             Self::ContextLengthExceeded => "context_length_exceeded",
+            Self::UnsupportedParameter(_) => "unsupported_parameter",
+            Self::UnsupportedValue(_) => "unsupported_value",
         }
     }
 
     /// The reason a token names, or `None` when it is not on the allowlist.
-    fn from_token(token: &str) -> Option<Self> {
+    /// `param` is the parameter the envelope named, already narrowed to one
+    /// Writ sends.
+    fn from_token(token: &str, param: Option<RequestParam>) -> Option<Self> {
         match token {
             "model_not_found" | "not_found_error" => Some(Self::ModelNotFound),
             "invalid_request_error" | "invalid_request" => Some(Self::InvalidRequest),
@@ -205,8 +283,16 @@ impl RejectCode {
             "insufficient_quota" => Some(Self::InsufficientQuota),
             "rate_limit_exceeded" | "rate_limit_error" => Some(Self::RateLimited),
             "context_length_exceeded" => Some(Self::ContextLengthExceeded),
+            "unsupported_parameter" => Some(Self::UnsupportedParameter(param)),
+            "unsupported_value" => Some(Self::UnsupportedValue(param)),
             _ => None,
         }
+    }
+}
+
+impl Serialize for RejectCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
     }
 }
 
@@ -214,15 +300,20 @@ impl RejectCode {
 ///
 /// Both shapes carry it under `error`: OpenAI-compatible hosts in `code` with
 /// the family in `type`, Anthropic in `type` alone. The narrower field is read
-/// first. Everything else in the body, the provider's own sentence included,
+/// first. `param` is read only to be matched against the parameters Writ
+/// sends. Everything else in the body, the provider's own sentence included,
 /// is never looked at.
 pub fn parse_reject_code(body: &str) -> Option<RejectCode> {
     let value: serde_json::Value = serde_json::from_str(body).ok()?;
     let error = value.get("error")?;
+    let param = error
+        .get("param")
+        .and_then(serde_json::Value::as_str)
+        .and_then(RequestParam::from_token);
     ["code", "type"]
         .into_iter()
         .filter_map(|field| error.get(field)?.as_str())
-        .find_map(RejectCode::from_token)
+        .find_map(|token| RejectCode::from_token(token, param))
 }
 
 /// The label the provider table gives an id, or the id when it is not ours.
@@ -234,7 +325,10 @@ fn provider_label(id: &str) -> &str {
 
 /// The sentence a refusal reads as. Writ's words around a status and, when the
 /// allowlist matched, one clause naming the reason.
-fn reject_sentence(provider: &str, status: u16, code: Option<RejectCode>) -> String {
+///
+/// Chat and Rewrite both say it, so one host's refusal reads the same in
+/// either.
+pub fn reject_sentence(provider: &str, status: u16, code: Option<RejectCode>) -> String {
     let label = provider_label(provider);
     match code {
         Some(code) => format!(
@@ -531,8 +625,14 @@ fn context_block(context: &[AttachedNote]) -> String {
 /// field, outside `messages`. For [`Provider::OpenAiCompatible`] it is the
 /// first message, which is the shape [`crate::polish::build_messages`] already
 /// produces for a rewrite.
+///
+/// `rules` is how the request's host wants the body written
+/// ([`crate::ai::providers::body_rules`]): the ceiling goes under the field it
+/// reads, so OpenAI's reasoning models are sent `max_completion_tokens`. The
+/// chat sends no temperature anywhere.
 pub fn build_request_body(
     provider: Provider,
+    rules: BodyRules,
     model: &str,
     system: &str,
     turns: &[ChatTurn],
@@ -550,21 +650,21 @@ pub fn build_request_body(
         messages.push(json!({ "role": turn.role.as_str(), "content": turn.content }));
     }
 
-    match provider {
+    let mut body = match provider {
         Provider::Anthropic => json!({
             "model": model.trim(),
-            "max_tokens": MAX_REPLY_TOKENS,
             "stream": true,
             "system": system,
             "messages": messages,
         }),
         Provider::OpenAiCompatible => json!({
             "model": model.trim(),
-            "max_tokens": MAX_REPLY_TOKENS,
             "stream": true,
             "messages": messages,
         }),
-    }
+    };
+    body[rules.ceiling.as_str()] = json!(MAX_REPLY_TOKENS);
+    body
 }
 
 /// What one line of a stream turned out to be.
@@ -1091,13 +1191,19 @@ pub fn parse_proposals(reply: &str, context: &[AttachedNote], truncated: bool) -
                     reason: DropReason::Duplicate,
                 })
             }
-            Ok(note) => parsed.proposals.push(Proposal {
-                path: note.path.clone(),
-                before_hash: note.before_hash.clone(),
-                hunks: crate::diff::line_diff(&note.text, &body).unwrap_or_default(),
-                new_content: body,
-                summary,
-            }),
+            Ok(note) => {
+                // The note keeps its own line ending and final newline, and
+                // the card counts every line the write would change.
+                let new_content = crate::notes::line_ending::in_shape_of(&note.text, &body);
+                parsed.proposals.push(Proposal {
+                    path: note.path.clone(),
+                    before_hash: note.before_hash.clone(),
+                    hunks: crate::diff::line_diff_exact(&note.text, &new_content)
+                        .unwrap_or_default(),
+                    new_content,
+                    summary,
+                })
+            }
             Err(reason) => parsed.dropped.push(DroppedProposal { named, reason }),
         }
     }
@@ -1871,6 +1977,61 @@ mod reject_tests {
     }
 
     #[test]
+    fn an_unsupported_parameter_is_named_in_the_sentence() {
+        let parameter = r#"{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.","type":"invalid_request_error","param":"max_tokens","code":"unsupported_parameter"}}"#;
+        let refused = ChatError::ProviderRejected {
+            provider: "openai".to_string(),
+            status: 400,
+            code: parse_reject_code(parameter),
+        };
+        assert_eq!(
+            refused.to_string(),
+            "OpenAI rejected the request (400): the model does not accept the max_tokens parameter."
+        );
+
+        let value = r#"{"error":{"message":"Unsupported value: 'temperature' does not support 0.3 with this model. Only the default (1) value is supported.","type":"invalid_request_error","param":"temperature","code":"unsupported_value"}}"#;
+        let refused = ChatError::ProviderRejected {
+            provider: "openai".to_string(),
+            status: 400,
+            code: parse_reject_code(value),
+        };
+        assert_eq!(
+            refused.to_string(),
+            "OpenAI rejected the request (400): the model does not accept the value given for temperature."
+        );
+
+        // A parameter Writ never sends is the host's own text, so it is not
+        // repeated: the sentence says a parameter was refused and stops.
+        let unknown = r#"{"error":{"type":"invalid_request_error","param":"ZZ-server-text","code":"unsupported_parameter"}}"#;
+        let refused = ChatError::ProviderRejected {
+            provider: "openai".to_string(),
+            status: 400,
+            code: parse_reject_code(unknown),
+        };
+        assert_eq!(
+            refused.to_string(),
+            "OpenAI rejected the request (400): the model does not accept a parameter the request carried."
+        );
+        assert!(!refused.to_string().contains("ZZ-server-text"));
+    }
+
+    #[test]
+    fn a_reason_serializes_as_the_word_it_is_logged_under() {
+        for code in [
+            RejectCode::ModelNotFound,
+            RejectCode::InvalidApiKey,
+            RejectCode::UnsupportedParameter(Some(RequestParam::Temperature)),
+            RejectCode::UnsupportedParameter(None),
+            RejectCode::UnsupportedValue(Some(RequestParam::MaxTokens)),
+        ] {
+            assert_eq!(
+                serde_json::to_value(code).expect("serializes"),
+                json!(code.as_str())
+            );
+        }
+    }
+
+    #[test]
     fn anything_else_is_no_code_at_all() {
         // A word nobody allowed, a body that is not JSON, an envelope without
         // an error, and an empty body all answer the same: the status is the
@@ -1983,6 +2144,7 @@ mod tests {
         let expected: Value = serde_json::from_str(ANTHROPIC_REQUEST).expect("fixture");
         let built = build_request_body(
             Provider::Anthropic,
+            BodyRules::default(),
             "claude-opus-5",
             "SYSTEM",
             &fixture_turns(),
@@ -1996,12 +2158,49 @@ mod tests {
         let expected: Value = serde_json::from_str(OPENAI_REQUEST).expect("fixture");
         let built = build_request_body(
             Provider::OpenAiCompatible,
+            BodyRules::default(),
             "llama3",
             "SYSTEM",
             &fixture_turns(),
             &[note("Ideas/Launch.md", "The launch is in March.")],
         );
         assert_eq!(built, expected);
+    }
+
+    #[test]
+    fn openai_s_host_reads_the_ceiling_as_max_completion_tokens() {
+        let built = build_request_body(
+            Provider::OpenAiCompatible,
+            crate::ai::providers::body_rules("api.openai.com"),
+            "gpt-5-mini",
+            "SYSTEM",
+            &fixture_turns(),
+            &[],
+        );
+        assert_eq!(built["max_completion_tokens"], MAX_REPLY_TOKENS);
+        assert!(built.get("max_tokens").is_none(), "{built}");
+        assert!(built.get("temperature").is_none(), "{built}");
+
+        // Everything else in the body is what any other host is sent.
+        let mut elsewhere = build_request_body(
+            Provider::OpenAiCompatible,
+            BodyRules::default(),
+            "gpt-5-mini",
+            "SYSTEM",
+            &fixture_turns(),
+            &[],
+        );
+        let ceiling = elsewhere
+            .as_object_mut()
+            .and_then(|body| body.remove("max_tokens"))
+            .expect("a ceiling");
+        let mut built = built;
+        let renamed = built
+            .as_object_mut()
+            .and_then(|body| body.remove("max_completion_tokens"))
+            .expect("a ceiling");
+        assert_eq!(ceiling, renamed);
+        assert_eq!(built, elsewhere);
     }
 
     #[test]
@@ -2081,6 +2280,7 @@ mod tests {
     fn the_anthropic_body_keeps_the_system_prompt_outside_messages() {
         let body = build_request_body(
             Provider::Anthropic,
+            BodyRules::default(),
             " claude-opus-5 ",
             &system_prompt(&[note("Ideas/Launch.md", "the note text")]),
             &turns(),
@@ -2113,6 +2313,7 @@ mod tests {
         let context = [attached];
         let body = build_request_body(
             Provider::Anthropic,
+            BodyRules::default(),
             "claude-opus-5",
             &system_prompt(&context),
             &turns(),
@@ -2133,6 +2334,7 @@ mod tests {
     fn an_openai_body_caps_its_tokens() {
         let body = build_request_body(
             Provider::OpenAiCompatible,
+            BodyRules::default(),
             "llama3",
             &system_prompt(&[]),
             &turns(),
@@ -2170,6 +2372,7 @@ mod tests {
     fn the_openai_body_keeps_the_shape_a_rewrite_already_sends() {
         let body = build_request_body(
             Provider::OpenAiCompatible,
+            BodyRules::default(),
             "llama3",
             &system_prompt(&[note("Ideas/Launch.md", "the note text")]),
             &turns(),
@@ -2192,6 +2395,7 @@ mod tests {
     fn nothing_attached_sends_no_context_message() {
         let body = build_request_body(
             Provider::Anthropic,
+            BodyRules::default(),
             "claude-opus-5",
             &system_prompt(&[]),
             &turns(),
@@ -2206,6 +2410,7 @@ mod tests {
     fn the_body_holds_the_attached_notes_and_no_others() {
         let body = build_request_body(
             Provider::Anthropic,
+            BodyRules::default(),
             "claude-opus-5",
             &system_prompt(&[note("A.md", "the first note")]),
             &turns(),
@@ -2302,7 +2507,7 @@ mod tests {
 
     #[test]
     fn a_proposal_names_an_attached_note() {
-        let context = vec![note("Ideas/Launch.md", "old text")];
+        let context = vec![note("Ideas/Launch.md", "old text\n")];
         let reply = "Here is one change.\n\n\
 ```writ-proposal path=\"Ideas/Launch.md\" summary=\"Fold the intros\"\n\
 the new text\n\
@@ -2369,7 +2574,7 @@ owned\n\
 
     #[test]
     fn a_block_the_reply_never_closed_ends_where_the_reply_does() {
-        let context = vec![note("Ideas/Launch.md", "old text")];
+        let context = vec![note("Ideas/Launch.md", "old text\n")];
         let reply = "```writ-proposal path=\"Ideas/Launch.md\"\nthe whole note";
         let proposals = parse_proposals(reply, &context, false).proposals;
         assert_eq!(proposals.len(), 1);
@@ -2378,7 +2583,7 @@ owned\n\
 
     #[test]
     fn a_reply_can_carry_more_than_one_proposal() {
-        let context = vec![note("A.md", "a"), note("B.md", "b")];
+        let context = vec![note("A.md", "a\n"), note("B.md", "b\n")];
         let reply = "```writ-proposal path=\"A.md\"\nnew a\n```\n\
 between\n\
 ```writ-proposal path=\"B.md\" summary=\"tidy\"\nnew b\n```\n";

@@ -18,23 +18,24 @@
 //!   unavailable. A key read back from the keychain is also cached in memory for
 //!   the session, because each keychain read can raise a system password
 //!   prompt; that cache is process-local and dies with the process.
-//! - Only lengths and status codes are logged. Prompt text, response text, and
-//!   keys never reach the logs or error strings shown to the user.
+//! - Only lengths, status codes and a refusal's [`RejectCode`] word are logged.
+//!   Prompt text, response text, and keys never reach the logs or error
+//!   strings shown to the user.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+use tokio_util::sync::CancellationToken;
 use writ_core::ai::models::{
     filter_openai_ids, parse_anthropic_page, parse_model_list, seed_model, sort_ids, CatalogSource,
     ListFamily, ModelCatalog, ModelListError,
 };
 use writ_core::ai::providers::{self, ProviderGroup, ProviderInfo};
-use writ_core::chat::{self, Provider};
+use writ_core::chat::{self, Provider, RejectCode};
 use writ_core::config::AiConfig;
 use writ_core::polish::{self, PolishAction, PolishError};
 
@@ -172,8 +173,9 @@ pub struct AiState {
     /// instead of one per rewrite. Invalidated whenever a key is set or
     /// cleared. Never persisted, never logged.
     key_cache: Mutex<HashMap<String, Option<String>>>,
-    /// Cancel flags for in-flight streams, keyed by the frontend's request id.
-    tasks: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// The token that stops each in-flight stream, keyed by the frontend's
+    /// request id.
+    tasks: Mutex<HashMap<String, CancellationToken>>,
     /// The last list a provider answered for itself, keyed by provider id.
     ///
     /// Only a live list is kept: the table's suggestions are not the account's
@@ -621,26 +623,29 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
     Ok(endpoint_state_from(&config.ai, key_state))
 }
 
-/// The model a provider starts from: the first id of the list it answered this
-/// session, and nothing when no list has been read for it yet.
+/// The model a provider starts from: the row's own default when the list it
+/// answered this session holds it, else the first of the row's suggestions
+/// that list holds, and nothing when no list has been read for it yet.
 ///
 /// The rule lives in `writ_core::ai::models::seed_model`; this reads the
-/// catalog held for the provider and applies it. Picking a row is not a model
-/// decision, so nothing is guessed from the table: the list arriving is what
-/// writes the first model ([`seed_from_catalog`]).
+/// catalog held for the provider and applies it. Nothing is written that the
+/// account's own list does not hold, so the list arriving is what writes the
+/// first model ([`seed_from_catalog`]).
 fn seed_model_for(app: &AppHandle, provider: &str) -> String {
     let held = app.state::<AiState>().live_catalog(provider);
     seed_model(provider, held.as_ref())
 }
 
-/// Writes the first model of a list the provider answered, when the connection
+/// Writes the model a list the provider answered seeds, when the connection
 /// has none.
 ///
 /// First use of a provider: the row is chosen before anything is known about
 /// what it serves, so the model is written when its own list arrives rather
-/// than guessed from the table. A model already in the file is left alone, a
-/// list that could not be read writes nothing, and a list that names another
-/// provider is ignored — the connection may have moved while it was in flight.
+/// than guessed from the table. A model already in the file is left alone. A
+/// list that could not be read, or that holds none of the row's ids, writes
+/// nothing and leaves the choice to the picker. A list that names another
+/// provider is ignored, because the connection may have moved while it was in
+/// flight.
 fn seed_from_catalog(app: &AppHandle, catalog: &ModelCatalog) {
     let seed = seed_model(&catalog.provider, Some(catalog));
     if seed.is_empty() {
@@ -721,6 +726,8 @@ struct PreparedRequest {
     /// The wire the endpoint speaks, which decides the headers and how a
     /// frame of the stream is read.
     provider: Provider,
+    /// The provider row the request goes to, which a refusal is named by.
+    provider_id: String,
     body: serde_json::Value,
     api_key: Option<String>,
     is_localhost: bool,
@@ -779,7 +786,13 @@ fn prepare_request(
     Ok(PreparedRequest {
         endpoint: chat::endpoint(provider, &base_url),
         provider,
-        body: polish::build_request_body(wire, &cfg.model, &messages),
+        provider_id: cfg.provider.clone(),
+        body: polish::build_request_body(
+            wire,
+            providers::body_rules(&target.host),
+            &cfg.model,
+            &messages,
+        ),
         api_key,
         is_localhost: !target.is_hosted,
     })
@@ -829,26 +842,71 @@ fn parse_sse_line(provider: Provider, line: &str) -> SseLine {
     }
 }
 
-/// Drains every complete (newline-terminated) line from `buf`, leaving any
-/// trailing partial line in place. Splitting the byte buffer on `\n` is
-/// UTF-8-safe because a newline never appears inside a multibyte sequence, so a
-/// chunk boundary mid-character cannot corrupt a decoded line.
-pub(crate) fn drain_complete_lines(buf: &mut Vec<u8>) -> Vec<String> {
-    let mut lines = Vec::new();
-    while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
-        let raw: Vec<u8> = buf.drain(..=pos).collect();
-        lines.push(String::from_utf8_lossy(&raw).trim().to_string());
+/// The longest line a stream may hold before it is given up.
+///
+/// A frame is a few hundred bytes, so this is room for any real one and the
+/// bound on what a host that never ends a line can make Writ keep.
+pub(crate) const MAX_SSE_LINE_BYTES: usize = 1024 * 1024;
+
+/// What a stream says when its host sent a line past [`MAX_SSE_LINE_BYTES`].
+pub(crate) const LINE_TOO_LONG: &str = "The reply could not be read.";
+
+/// A stream sent a line longer than [`MAX_SSE_LINE_BYTES`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LineTooLong;
+
+/// The complete lines of a byte stream, as its chunks arrive.
+///
+/// Splitting on `\n` is UTF-8-safe because a newline never appears inside a
+/// multibyte sequence, so a chunk boundary mid-character cannot corrupt a
+/// decoded line. Each byte is scanned once: `scanned` is how much of the held
+/// partial line is already known to hold no newline, and the lines a chunk
+/// completes leave the buffer in one move.
+#[derive(Debug, Default)]
+pub(crate) struct SseLines {
+    pending: Vec<u8>,
+    scanned: usize,
+}
+
+impl SseLines {
+    /// Takes one chunk and hands back every line it completed, trimmed.
+    pub(crate) fn push(&mut self, chunk: &[u8]) -> Result<Vec<String>, LineTooLong> {
+        self.pending.extend_from_slice(chunk);
+        let mut lines = Vec::new();
+        let mut start = 0;
+        let mut from = self.scanned;
+        while let Some(offset) = self.pending[from..].iter().position(|&byte| byte == b'\n') {
+            let end = from + offset;
+            if end - start > MAX_SSE_LINE_BYTES {
+                return Err(LineTooLong);
+            }
+            lines.push(
+                String::from_utf8_lossy(&self.pending[start..end])
+                    .trim()
+                    .to_string(),
+            );
+            start = end + 1;
+            from = start;
+        }
+        self.pending.drain(..start);
+        self.scanned = self.pending.len();
+        if self.pending.len() > MAX_SSE_LINE_BYTES {
+            return Err(LineTooLong);
+        }
+        Ok(lines)
     }
-    lines
 }
 
 /// Sends the request and streams the response, invoking `on_event` for each
-/// delta, the terminal `Done`, or an `Error`. Stops early when `cancel` is set,
-/// emitting nothing further.
+/// delta, the terminal `Done`, or an `Error`.
+///
+/// `cancel` is raced against the send, the refusal body and every chunk, so a
+/// stop ends the request wherever it is waiting, a host that has not answered
+/// yet included, and nothing further is emitted.
 async fn run_rewrite_stream(
     client: &reqwest::Client,
     prepared: &PreparedRequest,
-    cancel: &AtomicBool,
+    cancel: &CancellationToken,
     mut on_event: impl FnMut(StreamEvent),
 ) {
     let mut builder = client.post(&prepared.endpoint).json(&prepared.body);
@@ -863,7 +921,12 @@ async fn run_rewrite_stream(
         (None, Provider::OpenAiCompatible) => builder,
     };
 
-    let response = match builder.send().await {
+    let sent = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return,
+        sent = builder.send() => sent,
+    };
+    let response = match sent {
         Ok(resp) => resp,
         Err(err) => {
             on_event(StreamEvent::Error(connection_error_message(
@@ -876,24 +939,33 @@ async fn run_rewrite_stream(
 
     let status = response.status();
     if !status.is_success() {
-        tracing::warn!(status = status.as_u16(), "rewrite request rejected");
-        on_event(StreamEvent::Error(format!(
-            "The model server returned status {}.",
-            status.as_u16()
+        let code = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return,
+            code = reject_code_of(response) => code,
+        };
+        tracing::warn!(
+            status = status.as_u16(),
+            code = code.map(RejectCode::as_str).unwrap_or("none"),
+            "rewrite request rejected"
+        );
+        on_event(StreamEvent::Error(chat::reject_sentence(
+            &prepared.provider_id,
+            status.as_u16(),
+            code,
         )));
         return;
     }
 
-    if cancel.load(Ordering::Relaxed) {
-        return;
-    }
-
     let mut stream = response.bytes_stream();
-    let mut buf: Vec<u8> = Vec::new();
-    while let Some(item) = stream.next().await {
-        if cancel.load(Ordering::Relaxed) {
-            return;
-        }
+    let mut lines = SseLines::default();
+    loop {
+        let item = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return,
+            item = stream.next() => item,
+        };
+        let Some(item) = item else { break };
         let bytes = match item {
             Ok(b) => b,
             Err(err) => {
@@ -901,8 +973,18 @@ async fn run_rewrite_stream(
                 return;
             }
         };
-        buf.extend_from_slice(&bytes);
-        for line in drain_complete_lines(&mut buf) {
+        let complete = match lines.push(&bytes) {
+            Ok(complete) => complete,
+            Err(LineTooLong) => {
+                tracing::warn!(
+                    cap = MAX_SSE_LINE_BYTES,
+                    "the model server sent a line past the cap"
+                );
+                on_event(StreamEvent::Error(LINE_TOO_LONG.to_string()));
+                return;
+            }
+        };
+        for line in complete {
             match parse_sse_line(prepared.provider, &line) {
                 SseLine::Chunk(content) => on_event(StreamEvent::Chunk(content)),
                 SseLine::Done => {
@@ -921,10 +1003,34 @@ async fn run_rewrite_stream(
         }
     }
 
-    if cancel.load(Ordering::Relaxed) {
+    if cancel.is_cancelled() {
         return;
     }
     on_event(StreamEvent::Done);
+}
+
+/// How much of a refusal body is read before the rest is dropped.
+///
+/// An envelope is a few hundred bytes; this is the ceiling on what a host can
+/// make Writ hold while looking for a reason [`RejectCode`] names.
+const MAX_REJECT_BODY_BYTES: usize = 8 * 1024;
+
+/// The reason a refusal names, when it names one on the allowlist.
+///
+/// The body is read here and nowhere else, is bounded, and leaves this
+/// function only as a [`RejectCode`]. Chat and Rewrite both read a refusal
+/// through it, so one host's refusal reads the same in either.
+pub(crate) async fn reject_code_of(response: reqwest::Response) -> Option<RejectCode> {
+    let mut stream = response.bytes_stream();
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(Ok(bytes)) = stream.next().await {
+        body.extend_from_slice(&bytes);
+        if body.len() >= MAX_REJECT_BODY_BYTES {
+            body.truncate(MAX_REJECT_BODY_BYTES);
+            break;
+        }
+    }
+    chat::parse_reject_code(&String::from_utf8_lossy(&body))
 }
 
 /// Turns a connection failure into a plain message, hinting at a stopped local
@@ -1046,10 +1152,10 @@ pub async fn ai_rewrite(
 
     let client = build_client()?;
 
-    let cancel = Arc::new(AtomicBool::new(false));
+    let cancel = CancellationToken::new();
 
-    // Register the cancel flag before spawning so a cancel that races the task
-    // can never miss it, and so the task's self-removal has an entry to remove.
+    // Register the token before spawning so a cancel that races the task can
+    // never miss it, and so the task's self-removal has an entry to remove.
     {
         let ai = app.state::<AiState>();
         let mut tasks = recover_poison(ai.tasks.lock(), "commands::ai::ai_rewrite");
@@ -1074,17 +1180,19 @@ pub async fn ai_rewrite(
     Ok(request_id)
 }
 
-/// Signals an in-flight stream to stop. Further deltas are dropped and no
-/// terminal event is emitted; the frontend already discarded the preview.
+/// Stops an in-flight rewrite, one still waiting for the host's first byte
+/// included. Nothing further is emitted; the frontend already discarded the
+/// preview.
 #[tauri::command]
 pub fn ai_cancel(ai: State<'_, AiState>, request_id: String) {
     let tasks = recover_poison(ai.tasks.lock(), "commands::ai::ai_cancel");
     if let Some(cancel) = tasks.get(&request_id) {
-        cancel.store(true, Ordering::Relaxed);
+        cancel.cancel();
     }
 }
 
-/// Timeout for the connection probe (connect and overall).
+/// Budget for the connection probe: each request's connect and overall time,
+/// and the whole list it reads.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// Budget for one model list, every page of it included.
 const MODEL_LIST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1352,21 +1460,25 @@ where
 
 /// The model ids a provider advertises, in the order the picker shows them.
 ///
-/// OpenAI's own catalogue is filtered to what can answer a chat request; every
-/// other family is shown whole, because the same words appear in ids that do
-/// answer one elsewhere.
+/// `budget` is the whole list's, every page of it included, so a slow host is
+/// given up on once rather than once per page. OpenAI's own catalogue is
+/// filtered to what can answer a chat request; every other family is shown
+/// whole, because the same words appear in ids that do answer one elsewhere.
 async fn fetch_model_ids(
     client: &reqwest::Client,
     provider: &str,
     list_url: &str,
     api_key: Option<&str>,
+    budget: Duration,
 ) -> Result<Vec<String>, ModelListError> {
     let family = ListFamily::for_provider(provider);
-    let ids = collect_list_pages(family, |cursor| async move {
+    let pages = collect_list_pages(family, |cursor| async move {
         let url = list_page_url(family, list_url, api_key, cursor.as_deref())?;
         fetch_list_page(client, family, &url, api_key).await
-    })
-    .await?;
+    });
+    let ids = tokio::time::timeout(budget, pages)
+        .await
+        .map_err(|_| ModelListError::Timeout)??;
     Ok(match provider {
         "openai" => filter_openai_ids(ids),
         _ => ids,
@@ -1482,6 +1594,7 @@ async fn read_catalog(app: &AppHandle, cfg: &AiConfig) -> ModelCatalog {
         &cfg.provider,
         &targets.list_url,
         api_key.as_deref(),
+        MODEL_LIST_TIMEOUT,
     )
     .await;
     match &ids {
@@ -1607,7 +1720,7 @@ async fn run_connection_check(
     chat_model: &str,
     host_port: &str,
 ) -> AiConnectionStatus {
-    let mut ids = match fetch_model_ids(client, provider, list_url, api_key).await {
+    let mut ids = match fetch_model_ids(client, provider, list_url, api_key, PROBE_TIMEOUT).await {
         Ok(ids) => ids,
         Err(error) => return check_status_for(&error, host_port),
     };
@@ -1751,7 +1864,8 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     fn base_cfg() -> AiConfig {
         AiConfig {
@@ -1840,13 +1954,18 @@ mod tests {
     }
 
     #[test]
-    fn drain_buffers_partial_lines_across_feeds() {
-        let mut buf = Vec::new();
-        buf.extend_from_slice(b"data: {\"choices\":[{\"delta\":{\"content\":\"He");
-        assert!(drain_complete_lines(&mut buf).is_empty(), "no newline yet");
-        buf.extend_from_slice(b"llo\"}}]}\ndata: [DONE]\n");
-        let lines = drain_complete_lines(&mut buf);
-        assert_eq!(lines.len(), 2);
+    fn a_line_split_across_chunks_comes_out_whole() {
+        let mut stream = SseLines::default();
+        let held = stream
+            .push(b"data: {\"choices\":[{\"delta\":{\"content\":\"He")
+            .expect("under the cap");
+        assert!(held.is_empty(), "no newline yet");
+        let lines = stream
+            .push(b"llo\"}}]}\r\n\ndata: [DONE]\n")
+            .expect("under the cap");
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[1], "");
+        let lines = [lines[0].clone(), lines[2].clone()];
         assert!(
             matches!(parse_sse_line(Provider::OpenAiCompatible, &lines[0]), SseLine::Chunk(c) if c == "Hello")
         );
@@ -1967,12 +2086,13 @@ mod tests {
         cfg.model = "claude-sonnet-5".to_string();
         let prepared = PreparedRequest {
             provider: Provider::Anthropic,
+            provider_id: "anthropic".to_string(),
             endpoint: chat::endpoint(Provider::Anthropic, &base),
             body: serde_json::json!({ "model": "claude-sonnet-5" }),
             api_key: Some(SECRET_KEY.to_string()),
             is_localhost: true,
         };
-        drain_stream(&prepared, Arc::new(AtomicBool::new(false)));
+        drain_stream(&prepared, CancellationToken::new());
 
         let request = seen.lock().expect("seen").clone();
         let lowered = request.to_lowercase();
@@ -1998,12 +2118,13 @@ mod tests {
         cfg.consented_hosts = vec![];
         let prepared = PreparedRequest {
             provider: Provider::OpenAiCompatible,
+            provider_id: "custom".to_string(),
             endpoint: chat::endpoint(Provider::OpenAiCompatible, &base),
             body: serde_json::json!({ "model": cfg.model }),
             api_key: Some(SECRET_KEY.to_string()),
             is_localhost: true,
         };
-        drain_stream(&prepared, Arc::new(AtomicBool::new(false)));
+        drain_stream(&prepared, CancellationToken::new());
 
         let request = seen.lock().expect("seen").clone();
         let lowered = request.to_lowercase();
@@ -2024,12 +2145,13 @@ mod tests {
         );
         let prepared = PreparedRequest {
             provider: Provider::Anthropic,
+            provider_id: "anthropic".to_string(),
             endpoint: chat::endpoint(Provider::Anthropic, &base),
             body: serde_json::json!({ "model": "claude-sonnet-5" }),
             api_key: None,
             is_localhost: true,
         };
-        let events = drain_stream(&prepared, Arc::new(AtomicBool::new(false)));
+        let events = drain_stream(&prepared, CancellationToken::new());
 
         // What the chat pane's parser makes of the same frames.
         let expected: String = ANTHROPIC_STREAM
@@ -2529,7 +2651,7 @@ mod tests {
     }
 
     /// Runs one prepared request to the end and collects what it emitted.
-    fn drain_stream(prepared: &PreparedRequest, cancel: Arc<AtomicBool>) -> Vec<String> {
+    fn drain_stream(prepared: &PreparedRequest, cancel: CancellationToken) -> Vec<String> {
         let events = Arc::new(Mutex::new(Vec::new()));
         let sink = events.clone();
         tauri::async_runtime::block_on(async move {
@@ -2550,7 +2672,7 @@ mod tests {
             .expect("events")
     }
 
-    fn run_against(base_url: String, cancel: Arc<AtomicBool>) -> Vec<String> {
+    fn run_against(base_url: String, cancel: CancellationToken) -> Vec<String> {
         let cfg = custom_cfg(&base_url);
         let prepared = prepare_request(&cfg, "proofread", "hello", None, |_| None).unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
@@ -2580,7 +2702,7 @@ mod tests {
             "Content-Type: text/event-stream\r\nConnection: close\r\n",
             body,
         );
-        let events = run_against(base, Arc::new(AtomicBool::new(false)));
+        let events = run_against(base, CancellationToken::new());
         assert_eq!(events, vec!["chunk:Hel", "chunk:lo", "done"]);
     }
 
@@ -2591,7 +2713,7 @@ mod tests {
             "Content-Length: 0\r\nConnection: close\r\n",
             "",
         );
-        let events = run_against(base, Arc::new(AtomicBool::new(false)));
+        let events = run_against(base, CancellationToken::new());
         assert_eq!(events.len(), 1);
         assert!(events[0].contains("429"), "got: {:?}", events);
     }
@@ -2630,7 +2752,7 @@ mod tests {
         });
 
         let base = format!("http://127.0.0.1:{port}/v1");
-        let events = run_against(base, Arc::new(AtomicBool::new(false)));
+        let events = run_against(base, CancellationToken::new());
 
         assert!(
             !hit_target.load(Ordering::SeqCst),
@@ -2830,7 +2952,7 @@ mod tests {
 
     #[test]
     fn the_list_and_probe_budgets_are_the_ones_the_record_names() {
-        // ADR-040 section 3: the model list's timeout is 5 seconds.
+        // ADR-040 sections 3 and 12: a model list gets 5 seconds, every page.
         assert_eq!(MODEL_LIST_TIMEOUT, Duration::from_secs(5));
         // ADR-040 section 4: each knock on a local runtime gets 1 second.
         assert_eq!(LOCAL_PROBE_TIMEOUT, Duration::from_secs(1));
@@ -3280,7 +3402,214 @@ mod tests {
             "Content-Type: text/event-stream\r\nConnection: close\r\n",
             body,
         );
-        let events = run_against(base, Arc::new(AtomicBool::new(true)));
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let events = run_against(base, cancel);
         assert!(events.is_empty(), "cancelled stream emitted: {:?}", events);
+    }
+
+    /// A hosted row, allowed and keyed, for the body each host is sent.
+    fn hosted(provider: &str, model: &str) -> AiConfig {
+        let mut cfg = AiConfig {
+            provider: provider.to_string(),
+            model: model.to_string(),
+            ..base_cfg()
+        };
+        let host = polish::resolve_endpoint(&cfg.effective_base_url())
+            .expect("the row resolves")
+            .host;
+        cfg.consented_hosts = vec![host];
+        cfg
+    }
+
+    #[test]
+    fn a_rewrite_sent_where_temperature_is_refused_carries_none() {
+        // OpenAI's reasoning models and current Claude models answer 400 to
+        // any temperature but their own.
+        for (provider, model) in [("openai", "gpt-5-mini"), ("anthropic", "claude-haiku-4-5")] {
+            let prepared = prepare_request(
+                &hosted(provider, model),
+                "proofread",
+                "teh text",
+                None,
+                |_| Some("k".to_string()),
+            )
+            .expect("prepared");
+            assert!(
+                prepared.body.get("temperature").is_none(),
+                "{provider}: {}",
+                prepared.body
+            );
+        }
+        // A GPT-5 model refuses `max_tokens` too, and a rewrite sends OpenAI no
+        // ceiling at all.
+        let openai = prepare_request(
+            &hosted("openai", "gpt-5-mini"),
+            "proofread",
+            "teh text",
+            None,
+            |_| Some("k".to_string()),
+        )
+        .expect("prepared");
+        assert!(openai.body.get("max_tokens").is_none(), "{}", openai.body);
+        let mut typed = custom_cfg("https://api.openai.com/v1");
+        typed.consented_hosts = vec!["api.openai.com".to_string()];
+        let prepared = prepare_request(&typed, "proofread", "teh text", None, |_| {
+            Some("k".to_string())
+        })
+        .expect("prepared");
+        assert!(
+            prepared.body.get("temperature").is_none(),
+            "{}",
+            prepared.body
+        );
+
+        // Everywhere else the low temperature that keeps a proofread faithful
+        // is still sent.
+        for cfg in [
+            base_cfg(),
+            hosted("groq", "a-model"),
+            hosted("gemini", "a-model"),
+        ] {
+            let prepared = prepare_request(&cfg, "proofread", "teh text", None, |_| {
+                Some("k".to_string())
+            })
+            .expect("prepared");
+            let sent = prepared.body["temperature"]
+                .as_f64()
+                .expect("a temperature");
+            assert!((sent - 0.3).abs() < 1e-6, "{}: {sent}", cfg.provider);
+        }
+    }
+
+    #[test]
+    fn a_rewrite_refusal_reads_as_the_providers_reason() {
+        let base = spawn_mock(
+            "HTTP/1.1 401 Unauthorized",
+            "Content-Type: application/json\r\nConnection: close\r\n",
+            r#"{"error":{"message":"Incorrect API key provided: ZZ-server-text","type":"invalid_request_error","code":"invalid_api_key"}}"#,
+        );
+        let events = run_against(base, CancellationToken::new());
+        assert_eq!(
+            events,
+            vec![
+                "error:Custom (OpenAI-compatible) rejected the request (401): the API key was not accepted."
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_that_never_ends_is_not_held_past_the_cap() {
+        let mut stream = SseLines::default();
+        let chunk = vec![b'x'; 64 * 1024];
+        let fits = MAX_SSE_LINE_BYTES / chunk.len();
+        for _ in 0..fits {
+            assert_eq!(stream.push(&chunk), Ok(Vec::new()));
+        }
+        assert_eq!(stream.push(&chunk), Err(LineTooLong));
+    }
+
+    #[test]
+    fn a_line_as_long_as_the_cap_is_still_read() {
+        let mut stream = SseLines::default();
+        let mut line = vec![b'x'; MAX_SSE_LINE_BYTES];
+        line.push(b'\n');
+        let lines = stream.push(&line).expect("a line at the cap");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].len(), MAX_SSE_LINE_BYTES);
+    }
+
+    #[test]
+    fn a_rewrite_whose_host_never_ends_a_line_fails_once() {
+        let body: &'static str = Box::leak("x".repeat(2 * MAX_SSE_LINE_BYTES).into_boxed_str());
+        let base = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            body,
+        );
+        let events = run_against(base, CancellationToken::new());
+        assert_eq!(events, vec![format!("error:{LINE_TOO_LONG}")]);
+    }
+
+    /// A Gemini list that answers each page after `pause`, and always has
+    /// another.
+    fn spawn_slow_pages(pause: Duration) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            for (page, stream) in listener.incoming().enumerate() {
+                let Ok(mut stream) = stream else { return };
+                std::thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    let _ = stream.read(&mut buf);
+                    std::thread::sleep(pause);
+                    let body = format!(
+                        r#"{{"models":[{{"name":"models/m-{page}","supportedGenerationMethods":["generateContent"]}}],"nextPageToken":"p{page}"}}"#
+                    );
+                    let _ = stream.write_all(
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                        .as_bytes(),
+                    );
+                });
+            }
+        });
+        format!("http://127.0.0.1:{port}/v1beta/models")
+    }
+
+    #[test]
+    fn a_list_is_read_inside_one_budget_however_many_pages_it_has() {
+        // Each page answers well inside the client's own per-request timeout;
+        // twenty of them do not fit the budget.
+        let url = spawn_slow_pages(Duration::from_millis(300));
+        let budget = Duration::from_secs(1);
+        let started = std::time::Instant::now();
+        let listed = tauri::async_runtime::block_on(async {
+            let client = build_http_client(MODEL_LIST_TIMEOUT).expect("client");
+            fetch_model_ids(&client, "gemini", &url, Some("k"), budget).await
+        });
+        assert_eq!(listed, Err(ModelListError::Timeout));
+        assert!(
+            started.elapsed() < budget + Duration::from_millis(700),
+            "the list took {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// A host that takes the request and says nothing.
+    fn spawn_silent() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = stream.read(&mut buf);
+                std::thread::sleep(Duration::from_secs(30));
+            }
+        });
+        format!("http://127.0.0.1:{port}/v1")
+    }
+
+    #[test]
+    fn a_rewrite_stopped_before_the_first_byte_ends_at_once() {
+        let base = spawn_silent();
+        let cancel = CancellationToken::new();
+        let (finished, ended) = std::sync::mpsc::channel();
+        let task_cancel = cancel.clone();
+        std::thread::spawn(move || {
+            let events = run_against(base, task_cancel);
+            let _ = finished.send(events);
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        let stopped_at = std::time::Instant::now();
+        cancel.cancel();
+        let events = ended
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the stop ended a rewrite that had not started arriving");
+        assert!(stopped_at.elapsed() < Duration::from_secs(2));
+        assert!(events.is_empty(), "a stopped rewrite emitted {events:?}");
     }
 }

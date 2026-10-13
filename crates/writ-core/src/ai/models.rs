@@ -8,21 +8,57 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Substrings that mark an OpenAI model id as something other than a chat
-/// model. Without them the dropdown is mostly embeddings and speech.
+/// The OpenAI families that answer `chat/completions`, named by the first
+/// `-`-separated segment of an id. Anything else OpenAI lists (`babbage-002`,
+/// `davinci-002`, `computer-use-preview`, `text-embedding-3-small`,
+/// `whisper-1`, `tts-1`, `omni-moderation-latest`, `dall-e-3`) is left out.
 ///
-/// `audio` is deliberately absent: `gpt-4o-audio-preview` answers
-/// `chat/completions` like any other chat model, and a marker for it would
-/// take that row out of the picker.
-const NON_CHAT_MARKERS: &[&str] = &[
-    "embedding",
-    "tts",
-    "whisper",
-    "dall-e",
-    "moderation",
+/// An allowlist rather than a list of exceptions, because the ids that break a
+/// first send are the ones nobody thought to exclude: a completion-only id
+/// sorted first and became the model. Checked against the documented
+/// Chat Completions support of every model OpenAI lists
+/// (`tests/fixtures/ai-models/`).
+const OPENAI_CHAT_FAMILIES: &[&str] = &["gpt", "chatgpt", "chat", "o1", "o3", "o4"];
+
+/// Segments that take an id in one of [`OPENAI_CHAT_FAMILIES`] out of the
+/// picker: the Responses-only variants (`-pro`, `-codex`, `-deep-research`),
+/// speech, images, realtime and live audio, the open-weight and
+/// restricted-access models, and the completion-only `-instruct`.
+///
+/// `audio` and `search` are deliberately absent: `gpt-4o-audio-preview` and
+/// `gpt-4o-search-preview` answer `chat/completions` like any other chat
+/// model, and the picker is the only place a person can reach them.
+const OPENAI_NOT_CHAT_SEGMENTS: &[&str] = &[
+    "pro",
+    "codex",
+    "deep",
+    "research",
     "realtime",
+    "live",
     "transcribe",
+    "tts",
     "image",
+    "oss",
+    "cyber",
+    "daybreak",
+    "rosalind",
+    "instruct",
+    "embedding",
+    "moderation",
+    "whisper",
+];
+
+/// The `type` values an OpenAI-shaped list entry carries when it is not a
+/// text model. Together types every entry this way; a list whose entries carry
+/// no `type`, or another meaning of it (Mistral's `base`), keeps them all.
+const NON_TEXT_KINDS: &[&str] = &[
+    "image",
+    "embedding",
+    "moderation",
+    "rerank",
+    "audio",
+    "transcribe",
+    "video",
 ];
 
 /// The body shape a provider answers its model list in.
@@ -166,26 +202,46 @@ impl ModelCatalog {
     }
 }
 
-/// The model a provider starts from: the first id its own list answered, and
-/// nothing otherwise.
+/// The model a provider starts from: the row's `default_model` when the
+/// provider's own list holds it, else the first of the row's
+/// `curated_models` that the list holds, and nothing otherwise, which leaves
+/// the picker open (ADR-040 section 12).
 ///
-/// A curated id is never seeded. The table's suggestions are offered as
-/// suggestions where the picker names them, but a value written to
-/// `config.toml` is the value a send carries, and only the provider's own list
-/// is the account's inventory: DeepSeek stopped serving `deepseek-chat` while
-/// the table still named it, so a seeded suggestion is a send that fails for a
-/// reason nobody chose. An empty model is a state both surfaces already hold:
-/// nothing is sent and each one asks for a model.
+/// Only an id that is both the table's choice and the account's inventory is
+/// seeded. The list alone is not a choice: sorted, its first id is whatever
+/// sorts first, which on OpenAI's list is a completion-only model, on
+/// Anthropic's the dearest Claude, and on OpenRouter's an arbitrary vendor's.
+/// The table alone is not an inventory: DeepSeek stopped serving
+/// `deepseek-chat` while the table still named it, so an id the list does not
+/// hold is a send that fails for a reason nobody chose. An empty model is a
+/// state both surfaces already hold: nothing is sent and each one asks for a
+/// model.
+///
+/// The ids themselves are data in the provider table, so a retired one is
+/// corrected there without touching this rule, and until it is, the rule
+/// falls through to the next suggestion or to the picker.
 ///
 /// The list counts only while it names this provider, so an answer that
 /// arrives after a provider change never seeds the row that replaced it.
 pub fn seed_model(provider: &str, catalog: Option<&ModelCatalog>) -> String {
-    match catalog {
-        Some(held) if held.provider == provider && held.source == CatalogSource::Live => {
-            held.models.first().cloned().unwrap_or_default()
-        }
-        _ => String::new(),
+    let Some(held) = catalog else {
+        return String::new();
+    };
+    if held.provider != provider || held.source != CatalogSource::Live {
+        return String::new();
     }
+    let Some(row) = super::providers::provider(provider) else {
+        return String::new();
+    };
+    let listed = |id: &str| held.models.iter().any(|model| model == id);
+    if !row.default_model.is_empty() && listed(row.default_model) {
+        return row.default_model.to_string();
+    }
+    row.curated_models
+        .iter()
+        .find(|id| listed(id))
+        .map(|id| id.to_string())
+        .unwrap_or_default()
 }
 
 /// One page of Anthropic's model list, with the cursor for the next one.
@@ -197,19 +253,48 @@ pub struct AnthropicPage {
     pub next_cursor: Option<String>,
 }
 
+/// An OpenAI-shaped list: `{ "data": [...] }` as OpenAI and most hosts answer
+/// it, or the bare array Together answers.
 #[derive(Deserialize)]
-struct OpenAiList {
-    data: Vec<OpenAiEntry>,
+#[serde(untagged)]
+enum OpenAiList {
+    Wrapped { data: Vec<OpenAiEntry> },
+    Bare(Vec<OpenAiEntry>),
+}
+
+impl OpenAiList {
+    fn entries(self) -> Vec<OpenAiEntry> {
+        match self {
+            Self::Wrapped { data } => data,
+            Self::Bare(entries) => entries,
+        }
+    }
 }
 
 #[derive(Deserialize)]
 struct OpenAiEntry {
     id: String,
+    /// What kind of model the entry is, where the host says.
+    #[serde(default, rename = "type")]
+    kind: Option<String>,
+}
+
+impl OpenAiEntry {
+    fn is_text(&self) -> bool {
+        self.kind
+            .as_deref()
+            .is_none_or(|kind| !NON_TEXT_KINDS.contains(&kind))
+    }
+}
+
+#[derive(Deserialize)]
+struct AnthropicEntry {
+    id: String,
 }
 
 #[derive(Deserialize)]
 struct AnthropicList {
-    data: Vec<OpenAiEntry>,
+    data: Vec<AnthropicEntry>,
     #[serde(default)]
     has_more: bool,
     #[serde(default)]
@@ -241,11 +326,12 @@ struct OllamaEntry {
 
 /// The model ids in a response body, sorted by id.
 ///
-/// The OpenAI family is returned whole; [`filter_openai_ids`] drops what
-/// cannot answer a chat request, which is worth doing for OpenAI itself and
-/// wrong for a provider whose ids happen to carry the same words. The
-/// Anthropic family returns one page; [`parse_anthropic_page`] carries the
-/// cursor for the rest.
+/// The OpenAI family is returned whole but for entries the host itself types
+/// as something other than a text model; [`filter_openai_ids`] drops what
+/// cannot answer a chat request on OpenAI's own list, which is worth doing for
+/// OpenAI itself and wrong for a provider whose ids happen to carry the same
+/// words. The Anthropic family returns one page; [`parse_anthropic_page`]
+/// carries the cursor for the rest.
 pub fn parse_model_list(
     wire_family: ListFamily,
     body: &str,
@@ -253,7 +339,13 @@ pub fn parse_model_list(
     match wire_family {
         ListFamily::OpenAi => {
             let list: OpenAiList = parse(body)?;
-            Ok(sort_ids(list.data.into_iter().map(|e| e.id).collect()))
+            let ids = list
+                .entries()
+                .into_iter()
+                .filter(OpenAiEntry::is_text)
+                .map(|entry| entry.id)
+                .collect();
+            Ok(sort_ids(ids))
         }
         ListFamily::Anthropic => Ok(parse_anthropic_page(body)?.ids),
         ListFamily::Gemini => {
@@ -287,17 +379,31 @@ pub fn parse_anthropic_page(body: &str) -> Result<AnthropicPage, ModelListError>
     })
 }
 
-/// Drops the ids that cannot answer a chat request: embeddings, speech,
-/// images and moderation. The rest keeps its order, which is by id.
+/// Keeps the OpenAI ids that answer a chat request: the chat families of
+/// [`OPENAI_CHAT_FAMILIES`] without the segments of
+/// [`OPENAI_NOT_CHAT_SEGMENTS`]. The rest keeps its order, which is by id.
 pub fn filter_openai_ids(ids: Vec<String>) -> Vec<String> {
-    let kept = ids
-        .into_iter()
-        .filter(|id| {
-            let id = id.to_ascii_lowercase();
-            !NON_CHAT_MARKERS.iter().any(|marker| id.contains(marker))
-        })
-        .collect();
+    let kept = ids.into_iter().filter(|id| answers_chat(id)).collect();
     sort_ids(kept)
+}
+
+/// Whether an OpenAI id answers `chat/completions`.
+///
+/// A fine-tuned model (`ft:gpt-4o-mini-2024-07-18:org:suffix:id`) is judged
+/// by the model it was tuned from; the organisation and suffix after it are
+/// the account's own words and decide nothing.
+fn answers_chat(id: &str) -> bool {
+    let id = id.to_ascii_lowercase();
+    let base = id
+        .strip_prefix("ft:")
+        .unwrap_or(&id)
+        .split(':')
+        .next()
+        .unwrap_or_default();
+    let mut segments = base.split('-');
+    let family = segments.next().unwrap_or_default();
+    OPENAI_CHAT_FAMILIES.contains(&family)
+        && !segments.any(|segment| OPENAI_NOT_CHAT_SEGMENTS.contains(&segment))
 }
 
 /// Sorts model ids the way the dropdown shows them.
@@ -614,19 +720,88 @@ mod catalog_tests {
     }
 
     #[test]
-    fn a_live_list_seeds_its_first_id_and_no_curated_one() {
-        // Every row: a list that holds none of the row's suggestions seeds the
-        // id the provider answered, and no suggestion can reach the file.
-        for row in super::super::providers::PROVIDERS {
-            let live = ModelCatalog::live(row.id, vec!["answered-id".to_string()]);
-            let seed = seed_model(row.id, Some(&live));
-            assert_eq!(seed, "answered-id", "{} seeded something else", row.id);
-            assert!(
-                !row.curated_models.contains(&seed.as_str()),
-                "{} seeded a curated id",
+    fn a_live_list_seeds_the_rows_default_when_it_holds_it() {
+        for row in super::super::providers::PROVIDERS
+            .iter()
+            .filter(|row| !row.default_model.is_empty())
+        {
+            // Sorted first on purpose: the order of the list decides nothing.
+            let live = ModelCatalog::live(
+                row.id,
+                vec!["0-sorts-first".to_string(), row.default_model.to_string()],
+            );
+            assert_eq!(
+                seed_model(row.id, Some(&live)),
+                row.default_model,
+                "{}",
                 row.id
             );
         }
+    }
+
+    #[test]
+    fn without_its_default_a_list_seeds_the_first_suggestion_it_holds() {
+        let row = super::super::providers::provider("openai").expect("a row");
+        let second = row.curated_models[1].to_string();
+        let third = row.curated_models[2].to_string();
+        let live = ModelCatalog::live("openai", vec![third, second.clone()]);
+        assert_eq!(seed_model("openai", Some(&live)), second);
+    }
+
+    #[test]
+    fn a_list_holding_none_of_the_rows_ids_seeds_nothing() {
+        // Every row: an id the provider answered but nobody chose is not a
+        // model to send to, so the row is left for the picker.
+        for row in super::super::providers::PROVIDERS {
+            let live = ModelCatalog::live(row.id, vec!["answered-id".to_string()]);
+            assert_eq!(seed_model(row.id, Some(&live)), "", "{}", row.id);
+        }
+    }
+
+    #[test]
+    fn a_local_runtime_seeds_an_installed_suggestion_and_nothing_else() {
+        let installed = ModelCatalog::live(
+            "ollama",
+            vec!["mistral:latest".to_string(), "qwen3:8b".to_string()],
+        );
+        assert_eq!(seed_model("ollama", Some(&installed)), "qwen3:8b");
+
+        // An embedding model sorts first as readily as a chat model does.
+        let unknown = ModelCatalog::live(
+            "ollama",
+            vec![
+                "all-minilm:latest".to_string(),
+                "mistral:latest".to_string(),
+            ],
+        );
+        assert_eq!(seed_model("ollama", Some(&unknown)), "");
+    }
+
+    #[test]
+    fn a_bare_list_is_read_and_entries_typed_as_other_kinds_are_dropped() {
+        let body = r#"[
+          { "id": "openai/gpt-oss-120b", "object": "model", "type": "chat" },
+          { "id": "Qwen/Qwen3.5-9B", "object": "model", "type": "language" },
+          { "id": "BAAI/bge-large-en-v1.5", "object": "model", "type": "embedding" },
+          { "id": "black-forest-labs/FLUX.2-pro", "object": "model", "type": "image" }
+        ]"#;
+        assert_eq!(
+            parse_model_list(ListFamily::OpenAi, body).unwrap(),
+            vec![
+                "Qwen/Qwen3.5-9B".to_string(),
+                "openai/gpt-oss-120b".to_string()
+            ]
+        );
+
+        // A host whose `type` means something else keeps every entry.
+        let mistral = r#"{ "object": "list", "data": [
+          { "id": "mistral-small-latest", "type": "base" },
+          { "id": "ft:open-mistral-7b:acme", "type": "fine-tuned" }
+        ] }"#;
+        assert_eq!(
+            parse_model_list(ListFamily::OpenAi, mistral).unwrap().len(),
+            2
+        );
     }
 
     #[test]
