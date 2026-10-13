@@ -72,7 +72,7 @@ describe("closing the last tab of a note whose file changed outside Writ", () =>
     resetAutosave();
   });
 
-  it("hands the typing nobody has answered for to the recovery snapshot", async () => {
+  it("hands the typing nobody has answered for to the unsaved-text journal", async () => {
     const EditorInstance = (await import("../EditorInstance")).default;
     const { keepUnsavedForRecovery, collectUnsavedContent } = await import(
       "../../../services/autosave"

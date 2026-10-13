@@ -164,7 +164,7 @@ describe("inboxStore", () => {
     vi.runOnlyPendingTimers();
 
     expect(mockedToast).toHaveBeenCalledTimes(1);
-    expect(mockedToast).toHaveBeenCalledWith("2 new files in inbox", "info");
+    expect(mockedToast).toHaveBeenCalledWith("2 new files in the watched folder", "info");
   });
 
   it("uses singular toast copy for a single overflow file", async () => {
@@ -178,7 +178,7 @@ describe("inboxStore", () => {
 
     vi.runOnlyPendingTimers();
 
-    expect(mockedToast).toHaveBeenCalledWith("1 new file in inbox", "info");
+    expect(mockedToast).toHaveBeenCalledWith("1 new file in the watched folder", "info");
   });
 
   it("opens again once the burst window has passed", async () => {

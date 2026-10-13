@@ -4,7 +4,7 @@ import { configStore } from "../../stores/global/config";
 import { aiConnectionStore, modelListDisplay } from "../../stores/global/ai-connection";
 import { aiProvidersStore } from "../../stores/global/ai-providers";
 import { aiRewriteStore } from "../../stores/global/ai-rewrite";
-import { modelOptions } from "../../stores/global/ai-models";
+import { modelOptions, seedModel } from "../../stores/global/ai-models";
 import { openSettings } from "../SettingsModal/SettingsModal";
 
 // Singleton state — Writ is single-window. A failed reply offers to change the
@@ -30,7 +30,10 @@ export default function ChatConnectionControl() {
   const [keys, setKeys] = createSignal<Record<string, boolean>>({});
   let button: HTMLButtonElement | undefined;
   let menu: HTMLDivElement | undefined;
+  let modelGroup: HTMLDivElement | undefined;
   let root: HTMLDivElement | undefined;
+  // Set when the list opens again for a model, so focus starts on the models.
+  let focusModels = false;
 
   const ai = () => configStore.config().ai;
   const provider = () => aiProvidersStore.byId(ai().provider);
@@ -89,6 +92,29 @@ export default function ChatConnectionControl() {
     if (returnFocus) button?.focus();
   }
 
+  // A provider picked here whose own list seeds no model opens the list again,
+  // so the model a send needs is the next choice on offer. The seed rule is
+  // the one Rust writes by, so a list that does seed a model opens nothing.
+  const [awaitingModel, setAwaitingModel] = createSignal<string | null>(null);
+  createEffect(() => {
+    const pending = awaitingModel();
+    if (!pending) return;
+    if (ai().provider !== pending) {
+      setAwaitingModel(null);
+      return;
+    }
+    const held = catalog();
+    if (aiConnectionStore.listing() || !held || held.provider !== pending) return;
+    setAwaitingModel(null);
+    const listed = held.source === "live" ? held.models : [];
+    if (listed.length === 0 || model().trim() || seedModel(pending, listed)) return;
+    // Only while focus is still on this control: a list that lands after the
+    // person has moved on to the composer must not take the keys typed there.
+    if (!root?.contains(document.activeElement)) return;
+    focusModels = true;
+    setOpen(true);
+  });
+
   // Opened from elsewhere: a failure that names the model offers to change it.
   let seen = openRequests();
   createEffect(() => {
@@ -119,13 +145,15 @@ export default function ChatConnectionControl() {
   // The rows take focus as they are walked, so the list is left through the
   // same key that opened it rather than by tabbing out of the column.
   createEffect(() => {
+    const models = focusModels;
+    focusModels = false;
     if (!open()) return;
-    queueMicrotask(() => rows()[0]?.focus());
+    queueMicrotask(() => ((models ? rows(modelGroup)[0] : undefined) ?? rows()[0])?.focus());
   });
 
-  function rows(): HTMLButtonElement[] {
-    if (!menu) return [];
-    return Array.from(menu.querySelectorAll<HTMLButtonElement>(".chat-menu-row:not([disabled])"));
+  function rows(within: HTMLElement | undefined = menu): HTMLButtonElement[] {
+    if (!within) return [];
+    return Array.from(within.querySelectorAll<HTMLButtonElement>(".chat-menu-row:not([disabled])"));
   }
 
   function step(by: number) {
@@ -176,6 +204,7 @@ export default function ChatConnectionControl() {
     close(true);
     if (id === ai().provider) return;
     await aiConnectionStore.selectProvider(id);
+    setAwaitingModel(id);
   }
 
   async function chooseModel(id: string) {
@@ -237,7 +266,7 @@ export default function ChatConnectionControl() {
             </For>
           </div>
 
-          <div class="chat-menu-group" role="group" aria-label="Model">
+          <div class="chat-menu-group" role="group" aria-label="Model" ref={modelGroup}>
             <p class="chat-menu-label" aria-hidden="true">
               Model
             </p>

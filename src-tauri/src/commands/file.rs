@@ -555,6 +555,69 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
     Ok(out)
 }
 
+/// IPC: asks the person where a note with no file goes ("Save As…" on the
+/// bar of a note whose first file could not be made), and answers the path
+/// they chose, or `None` when they cancelled.
+///
+/// The panel opens where [`suggest_note_save_path`] says, and the path chosen
+/// is answered through [`accept_note_save_path`].
+#[tauri::command]
+pub async fn pick_note_save_path(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Option<String>, String> {
+    let (folder, name) = suggest_note_save_path(&app.state::<AppState>(), &id)?;
+
+    let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
+    app.dialog()
+        .file()
+        .set_title("Save As")
+        .set_directory(&folder)
+        .set_file_name(name)
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+
+    let Some(picked) = rx.recv().map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let picked = picked.into_path().map_err(|e| e.to_string())?;
+    accept_note_save_path(&app.state::<AppState>(), &picked).map(Some)
+}
+
+/// Where the save panel opens for note `id`: the notes folder, with the name
+/// the note's first save gives it.
+pub fn suggest_note_save_path(
+    state: &AppState,
+    id: &str,
+) -> Result<(std::path::PathBuf, String), String> {
+    let notes_root = state.notes_root();
+    // Read before the store lock: the config lock is never taken under it.
+    let extension = state.default_extension();
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let doc = store.get(id).map_err(|e| e.to_string())?;
+    let suggested =
+        crate::notes::mint_note_path(&notes_root, &doc.title, chrono::Utc::now(), extension);
+    let name = suggested
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    Ok((notes_root, name))
+}
+
+/// Takes the path the person chose in the save panel: resolved the way the
+/// write gate resolves a path, and recorded as one the person picked, so the
+/// write that follows ([`crate::commands::buffer::save_note_to`]) may land
+/// outside the notes folder. Answers the resolved path.
+pub fn accept_note_save_path(state: &AppState, picked: &Path) -> Result<String, String> {
+    let resolved = crate::security::resolve_for_containment(picked)
+        .ok_or_else(|| format!("{} cannot be written to", picked.display()))?;
+    state
+        .authorized_paths
+        .record_blessed_source(resolved.clone());
+    Ok(resolved)
+}
+
 /// Brings an already-open buffer back in line with its file on disk.
 ///
 /// Reopening is how the user says "show me this file" — the CLI reopening a

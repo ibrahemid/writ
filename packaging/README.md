@@ -53,8 +53,14 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 | Linux deb | `Writ_<version>_amd64.deb` (and `.sig`) |
 | macOS updater bundle | `Writ_<version>_universal.app.tar.gz` (and `.sig`) |
 | Checksums | `SHA256SUMS.txt` |
+| Checksum signature (updater key) | `SHA256SUMS.txt.minisig` |
+| SBOMs (CycloneDX) | `writ-tauri_<version>_<target>.cdx.json`, `writ-cli_<version>_<target>.cdx.json`, `writ-frontend_<version>.cdx.json` |
 | Tauri updater manifest | `latest.json` |
 | macOS signing outcomes | `release-meta.json` |
+
+Every asset carries a build provenance attestation, and each SBOM is attested
+against the installers it describes (`gh attestation verify <file> --repo
+ibrahemid/writ`).
 
 Tauri v2 signs the platform installer directly instead of wrapping it, so the
 Windows and Linux updater payloads are the `.msi` and `.AppImage` themselves,

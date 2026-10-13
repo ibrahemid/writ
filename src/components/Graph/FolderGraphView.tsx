@@ -12,7 +12,7 @@ import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { useActiveBuffer } from "../../lib/use-active-buffer";
-import { noteFactsStore } from "../../stores/global/note-facts";
+import { indexCacheStore } from "../../stores/global/index-cache";
 import { themeStore } from "../../stores/global/theme";
 import { FOLDER_LAYOUT_OPTIONS } from "../../lib/graph/layout";
 import { folderColors } from "../../lib/graph/color";
@@ -40,11 +40,11 @@ const ROOT_TOKEN = "--writ-fg-muted";
 export default function FolderGraphView() {
   const win = useWindow();
   const activeBuffer = useActiveBuffer();
-  const graph = noteFactsStore.graph();
-  const graphError = noteFactsStore.graphError();
   // The folder graph is one read for the whole app; handing the hold back is
-  // what stops it being re-read on every change on disk once this is closed.
-  onCleanup(() => noteFactsStore.releaseGraph());
+  // what stops it being re-read on every change once this is closed.
+  onCleanup(indexCacheStore.holdGraph());
+  const graph = indexCacheStore.graph();
+  const graphError = indexCacheStore.graphError();
 
   let layer: HTMLDivElement | undefined;
   let field: HTMLInputElement | undefined;

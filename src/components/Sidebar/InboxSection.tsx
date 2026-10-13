@@ -8,12 +8,6 @@ import Tooltip from "../Tooltip/Tooltip";
 import SidebarSection from "./SidebarSection";
 import "./InboxSection.css";
 
-// "Inbox · Inbox" says nothing twice; the folder name only earns its place
-// when it differs from the feature's own name.
-export function inboxTitle(folder: string): string {
-  return folder.trim().toLowerCase() === "inbox" ? "Inbox" : `Inbox · ${folder}`;
-}
-
 // A watched folder with nothing in it yet is a setting, not a list, so the
 // section waits for its first file the way every section waits for a row.
 export default function InboxSection() {
@@ -28,7 +22,7 @@ export default function InboxSection() {
       {(root) => (
         <SidebarSection
           id="inbox"
-          heading={inboxTitle(basename(root()))}
+          heading={`Watched · ${basename(root())}`}
           class="inbox-section"
           action={
             <Tooltip label="Stop watching folder">

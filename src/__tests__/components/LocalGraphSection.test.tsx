@@ -30,13 +30,13 @@ vi.mock("../../stores/global/theme", () => ({
   themeStore: { resolvedTokens: () => TOKEN_VALUES },
 }));
 
-vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: {
-    graph: () => {
+vi.mock("../../stores/global/index-cache", () => ({
+  indexCacheStore: {
+    holdGraph: () => {
       h.holdGraph();
-      return () => h.graph;
+      return h.releaseGraph;
     },
-    releaseGraph: h.releaseGraph,
+    graph: () => () => h.graph,
   },
 }));
 

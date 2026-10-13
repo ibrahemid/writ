@@ -16,8 +16,11 @@
 //! [`WritEvent::McpPendingChanged`] is answered by a subscriber of its own in
 //! `lib.rs`, which reads the waiting list with the app's state in hand.
 
+use std::sync::Arc;
+
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::change_event::ExternalChange;
+use writ_storage::notes_index::NotesIndexStore;
 
 use crate::events::WritFrontendEvent;
 
@@ -31,6 +34,44 @@ where
             on_emit(frontend_event);
         }
     });
+}
+
+/// [`attach_bridge`], behind a subscriber that patches `notes_index` with each
+/// file another program changed in the notes folder (ADR-028 section 7).
+///
+/// The bus delivers in the order it was subscribed, so the index holds the
+/// change by the time the frontend hears `notes:changed` and reads it again.
+/// The other way round, that read could land first and keep the rows from
+/// before the change, with nothing after it to say they moved.
+///
+/// The subscriber patches the one path and nothing else. It must never reload
+/// the document registry: that recreates a loaded `writ-preview://` iframe and
+/// hard-freezes the macOS webview (PR #127).
+pub fn attach_bridge_behind_notes_index<F>(
+    bus: &EventBus,
+    notes_index: Arc<NotesIndexStore>,
+    on_emit: F,
+) where
+    F: Fn(WritFrontendEvent) + Send + Sync + 'static,
+{
+    bus.subscribe(move |event| {
+        let WritEvent::NotesChanged { path, removed } = event else {
+            return;
+        };
+        let path = std::path::Path::new(path);
+        // A rename arrives as one delete and one create, so both arms have to
+        // be replayable: forgetting a path the index does not hold, and
+        // indexing one it already has, are both no-ops rather than errors.
+        let result = if *removed {
+            notes_index.forget_path(path)
+        } else {
+            notes_index.index_path(path).map(|_| ())
+        };
+        if let Err(e) = result {
+            tracing::warn!(path = %path.display(), error = %e, "notes index update failed");
+        }
+    });
+    attach_bridge(bus, on_emit);
 }
 
 fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
@@ -75,6 +116,9 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
         WritEvent::NotesSwept { root } => {
             Some(WritFrontendEvent::NotesSwept { root: root.clone() })
         }
+        WritEvent::NotesIndexed { paths } => Some(WritFrontendEvent::NotesIndexed {
+            paths: paths.clone(),
+        }),
         WritEvent::InboxFileArrived { path } => {
             Some(WritFrontendEvent::InboxFileArrived { path: path.clone() })
         }
@@ -328,6 +372,35 @@ mod tests {
                 path: "/inbox/report.md".to_string(),
             }]
         );
+    }
+
+    #[test]
+    fn bridge_translates_notes_indexed_to_frontend_event() {
+        let bus = EventBus::new();
+        let received = capture(&bus);
+
+        bus.emit(WritEvent::NotesIndexed {
+            paths: vec!["/notes/Old.md".to_string(), "/notes/New.md".to_string()],
+        });
+
+        let events = received.lock().unwrap();
+        assert_eq!(
+            events.as_slice(),
+            [WritFrontendEvent::NotesIndexed {
+                paths: vec!["/notes/Old.md".to_string(), "/notes/New.md".to_string()],
+            }]
+        );
+    }
+
+    #[test]
+    fn notes_indexed_serialises_under_the_kind_and_payload_the_frontend_reads() {
+        let json = serde_json::to_value(WritFrontendEvent::NotesIndexed {
+            paths: vec!["/notes/Plan.md".to_string()],
+        })
+        .expect("serialise");
+
+        assert_eq!(json["kind"], "notes:indexed");
+        assert_eq!(json["payload"]["paths"][0], "/notes/Plan.md");
     }
 
     #[test]

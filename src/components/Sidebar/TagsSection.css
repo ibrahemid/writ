@@ -76,3 +76,63 @@
   background: var(--writ-border-soft);
   pointer-events: none;
 }
+
+/* What the section says instead of rows: how a tag is made, or why the list
+   could not be read. The folder tree's own empty line, in the same ink. */
+.tags-note {
+  margin: 0;
+  padding: var(--writ-space-2) var(--writ-space-4);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg-faint);
+}
+
+.tags-section-note {
+  padding-left: var(--writ-space-5);
+}
+
+/* A tag's files listed under its row: the folder tree's file row, one step in. */
+.tags-file {
+  display: flex;
+  align-items: center;
+  padding-right: var(--writ-space-3-5);
+  cursor: pointer;
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  white-space: nowrap;
+  overflow: hidden;
+  user-select: none;
+  transition: background var(--writ-motion);
+}
+
+.tags-file:hover,
+.tags-file:focus-visible {
+  background: var(--writ-bg-hover);
+}
+
+.tags-file > .writ-tooltip-anchor {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.tags-file-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tags-file-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  margin-left: var(--writ-space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}

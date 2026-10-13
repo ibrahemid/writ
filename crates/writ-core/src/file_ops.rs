@@ -11,7 +11,7 @@ use crate::errors::{WritError, WritResult};
 pub const THRESHOLD_NORMAL_BYTES: u64 = 5 * 1024 * 1024;
 
 /// Files up to this size open in large-file mode (syntax / typography / wrap
-/// disabled, FTS skipped, snapshots excluded).
+/// disabled, FTS skipped).
 pub const THRESHOLD_LARGE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Files up to this size open in large-file mode after a confirm dialog.
@@ -46,8 +46,8 @@ pub const ERR_OPEN_TOO_LARGE: &str = "ERR_OPEN_TOO_LARGE";
 pub enum FileOpenMode {
     /// Full feature set. ≤ [`THRESHOLD_NORMAL_BYTES`].
     Normal,
-    /// Syntax, typography, and line-wrap disabled. FTS and snapshots
-    /// excluded. `(THRESHOLD_NORMAL_BYTES, THRESHOLD_LARGE_BYTES]`.
+    /// Syntax, typography, and line-wrap disabled. Not FTS-indexed.
+    /// `(THRESHOLD_NORMAL_BYTES, THRESHOLD_LARGE_BYTES]`.
     LargeFile,
     /// Same restrictions as [`FileOpenMode::LargeFile`], asked about before
     /// anything reads the file. `(THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES]`.
@@ -58,7 +58,7 @@ pub enum FileOpenMode {
     /// ([`FileOpenMode::once_open`]).
     LargeFileConfirm,
     /// NUL byte found in first [`BINARY_CHECK_BYTES`]. Opens as read-only
-    /// hex dump. Never FTS-indexed, never snapshotted, never saved back.
+    /// hex dump. Never FTS-indexed, never journaled, never saved back.
     Binary,
     /// File exceeds [`THRESHOLD_MAX_BYTES`]. Nothing is read and no row is
     /// made.

@@ -15,7 +15,7 @@ pub struct LogicalWindowPosition {
 }
 
 /// Reports that the frontend has written everything it was holding, so the
-/// shutdown path can stop waiting and take its snapshot.
+/// shutdown path can stop waiting and write what is left.
 ///
 /// Safe to call twice, or after the wait has already given up: both leave the
 /// exit taking the same course.

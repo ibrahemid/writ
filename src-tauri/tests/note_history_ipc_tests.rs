@@ -221,7 +221,6 @@ impl Running {
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(HashMap::new()),
             source_records: Mutex::new(HashMap::new()),
-            unsaved_on_exit: Mutex::new(HashMap::new()),
         };
         Self {
             _dir: dir,

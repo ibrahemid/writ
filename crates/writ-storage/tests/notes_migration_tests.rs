@@ -463,6 +463,37 @@ fn empty_rows_are_deleted_and_write_no_file() {
 }
 
 #[test]
+fn a_row_with_no_file_whose_text_is_in_the_journal_is_left_for_the_next_launch() {
+    let fixture = Fixture::new();
+    // Typed into, and the launch's restore could not give it a file.
+    fixture.add_scratch("journaled", "writ-1", b"", BufferStatus::Active);
+    fixture
+        .store
+        .record_unsaved_text("journaled", "the only copy", Utc::now())
+        .expect("journal");
+    fixture.add_scratch("empty", "writ-2", b"", BufferStatus::Active);
+
+    let report = fixture.run();
+
+    assert_eq!(fixture.outcome(&report, "empty"), RowOutcome::DeletedEmpty);
+    assert!(fixture.store.get("empty").is_err());
+    assert!(
+        report.rows.iter().all(|(id, _)| id != "journaled"),
+        "{:?}",
+        report.rows
+    );
+    assert!(
+        fixture.store.get("journaled").is_ok(),
+        "the row was deleted, and its journal entry with it"
+    );
+    let journal = fixture.store.unsaved_text().expect("read the journal");
+    assert_eq!(journal.entries.len(), 1);
+    assert_eq!(journal.entries[0].buffer_id, "journaled");
+    assert_eq!(journal.entries[0].text, "the only copy");
+    assert!(names_in(&fixture.notes()).is_empty());
+}
+
+#[test]
 fn files_of_piped_input_become_notes_and_the_folder_is_left_empty() {
     let fixture = Fixture::new();
     let piped = fixture.piped().join("build-log.txt");

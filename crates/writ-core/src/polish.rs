@@ -9,7 +9,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::ai::providers::Wire;
+use crate::ai::providers::{BodyRules, Wire};
 use crate::chat::MAX_REPLY_TOKENS;
 
 /// Sampling temperature used for every rewrite. Low, to keep edits faithful.
@@ -172,13 +172,22 @@ pub fn resolve_endpoint(base_url: &str) -> Result<EndpointTarget, PolishError> {
 /// already the OpenAI shape. The Messages API carries the instruction in a
 /// `system` field outside `messages` and requires an output ceiling, so the
 /// pair is split here rather than built twice.
-pub fn build_request_body(wire: Wire, model: &str, messages: &[ChatMessage]) -> Value {
-    match wire {
+///
+/// `rules` is how the request's host wants the body written
+/// ([`crate::ai::providers::body_rules`]). [`POLISH_TEMPERATURE`] is sent only
+/// where the host takes a temperature other than the model's own: OpenAI's
+/// reasoning models and current Claude models refuse one with a 400.
+pub fn build_request_body(
+    wire: Wire,
+    rules: BodyRules,
+    model: &str,
+    messages: &[ChatMessage],
+) -> Value {
+    let mut body = match wire {
         Wire::OpenAi => json!({
             "model": model.trim(),
             "messages": messages,
             "stream": true,
-            "temperature": POLISH_TEMPERATURE,
         }),
         Wire::Anthropic => {
             let system: Vec<&str> = messages
@@ -190,16 +199,20 @@ pub fn build_request_body(wire: Wire, model: &str, messages: &[ChatMessage]) -> 
                 .iter()
                 .filter(|message| message.role != "system")
                 .collect();
-            json!({
+            let mut body = json!({
                 "model": model.trim(),
-                "max_tokens": MAX_REPLY_TOKENS,
                 "stream": true,
-                "temperature": POLISH_TEMPERATURE,
                 "system": system.join("\n\n"),
                 "messages": rest,
-            })
+            });
+            body[rules.ceiling.as_str()] = json!(MAX_REPLY_TOKENS);
+            body
         }
+    };
+    if rules.takes_temperature {
+        body["temperature"] = json!(POLISH_TEMPERATURE);
     }
+    body
 }
 
 const RETURN_ONLY: &str = "Return only the resulting text, with no preamble, \
@@ -273,26 +286,52 @@ mod tests {
     #[test]
     fn the_openai_body_carries_the_instruction_as_the_first_message() {
         let messages = build_messages(&PolishAction::Proofread, "teh text").expect("messages");
-        let body = build_request_body(Wire::OpenAi, "  gpt-5-mini  ", &messages);
+        let body = build_request_body(
+            Wire::OpenAi,
+            BodyRules::default(),
+            "  gpt-5-mini  ",
+            &messages,
+        );
         assert_eq!(body["model"], "gpt-5-mini");
         assert_eq!(body["stream"], true);
         assert_eq!(body["messages"][0]["role"], "system");
         assert_eq!(body["messages"][1]["content"], "teh text");
         assert!(body.get("system").is_none());
         assert!(body.get("max_tokens").is_none());
+        let sent = body["temperature"].as_f64().expect("a temperature");
+        assert!((sent - f64::from(POLISH_TEMPERATURE)).abs() < 1e-6);
     }
 
     #[test]
     fn the_anthropic_body_lifts_the_instruction_out_of_the_messages() {
         let messages = build_messages(&PolishAction::Proofread, "teh text").expect("messages");
-        let body = build_request_body(Wire::Anthropic, "claude-sonnet-5", &messages);
-        assert_eq!(body["model"], "claude-sonnet-5");
+        let body = build_request_body(
+            Wire::Anthropic,
+            crate::ai::providers::body_rules("api.anthropic.com"),
+            "claude-sonnet-5-5",
+            &messages,
+        );
+        assert_eq!(body["model"], "claude-sonnet-5-5");
         assert_eq!(body["stream"], true);
         assert_eq!(body["max_tokens"], MAX_REPLY_TOKENS);
         assert_eq!(body["system"], messages[0].content);
         assert_eq!(body["messages"].as_array().expect("messages").len(), 1);
         assert_eq!(body["messages"][0]["role"], "user");
         assert_eq!(body["messages"][0]["content"], "teh text");
+        assert!(body.get("temperature").is_none(), "{body}");
+    }
+
+    #[test]
+    fn a_host_that_refuses_a_temperature_is_sent_none() {
+        let messages = build_messages(&PolishAction::Proofread, "teh text").expect("messages");
+        let body = build_request_body(
+            Wire::OpenAi,
+            crate::ai::providers::body_rules("api.openai.com"),
+            "gpt-5-mini",
+            &messages,
+        );
+        assert!(body.get("temperature").is_none(), "{body}");
+        assert!(body.get("max_tokens").is_none(), "{body}");
     }
 
     use super::*;

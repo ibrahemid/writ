@@ -1,13 +1,11 @@
-use std::collections::HashMap;
-
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
-/// Maximum number of session snapshots retained per database.
+/// Maximum number of session markers retained per database.
 ///
-/// Older snapshots are pruned on each write so the table stays bounded.
-/// Five snapshots gives roughly 5 × (autosave interval) of history at
-/// minimal storage cost.
+/// A marker records whether a session is running or ended cleanly and holds
+/// no text (ADR-044). Older markers are pruned on each write so the table
+/// stays bounded.
 pub const MAX_SNAPSHOTS: usize = 5;
 
 /// How long the shutdown path waits for the frontend to confirm it flushed
@@ -20,20 +18,36 @@ pub fn should_force_exit(waited: std::time::Duration, flush_confirmed: bool) -> 
     flush_confirmed || waited >= QUIT_FLUSH_TIMEOUT
 }
 
-/// A single buffer whose content was restored from a crash snapshot.
+/// A single note whose text the launch took from the unsaved-text journal.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecoveredBuffer {
     /// Buffer id.
     pub id: String,
-    /// Content recovered from the snapshot.
+    /// The text the journal held for it.
     pub content: String,
-    /// The note's path had no file, so nothing was written and this content is
-    /// the last copy of it. Set by the launch, not by the snapshot.
+    /// Nothing was written, so this content is the last copy of it: the note's
+    /// file was deleted, or the launch could not give a note with no file its
+    /// first one. Set by the launch, not by the journal.
     #[serde(default)]
     pub removed_on_disk: bool,
+    /// The first file the launch could not make for a note that never had
+    /// one, which the tab names in place of a deleted file. Set with
+    /// `removed_on_disk`, and `None` for a note whose file was deleted.
+    #[serde(default)]
+    pub unmade_file: Option<UnmadeFile>,
 }
 
-/// What a relaunch does with the text a snapshot kept for a note.
+/// The first file a launch could not make for a note: its name, and the
+/// folder it was to be made in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnmadeFile {
+    /// The file's name, as the note's first save would have given it.
+    pub name: String,
+    /// The name of the folder it was to be made in.
+    pub folder: String,
+}
+
+/// What a relaunch does with the text the journal kept for a note.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryPlan {
     /// Write it into the note's file.
@@ -46,7 +60,7 @@ pub enum RecoveryPlan {
 /// Decides whether a relaunch may write a note's recovered text to its path.
 ///
 /// A note that never had a file has one minted for it at the relaunch, and the
-/// snapshot is the only place its text is, so the write is what saves it. A
+/// journal is the only place its text is, so the write is what saves it. A
 /// note that had a file and no longer has one is a file somebody deleted, and
 /// writing it back at the next launch puts back what was thrown away, on every
 /// device in a synced folder. That is the harm ADR-033 decision 14 exists to
@@ -60,7 +74,51 @@ pub fn plan_recovery(had_file: bool, file_is_there: bool) -> RecoveryPlan {
     }
 }
 
-/// Outcome of comparing a snapshot entry against the persisted buffer state.
+/// Whether a relaunch reads a note's file of `size_bytes` to compare it with
+/// the text the journal kept for the note.
+///
+/// A file over the size Writ opens without asking is read only once the person
+/// says Open, and its tab comes up unread until then
+/// ([`crate::file_ops::FileOpenMode::LargeFileConfirm`]). A relaunch that read
+/// it to compare would be that read with nobody asked, so the text goes beside
+/// the file and the file is left unread, as one whose bytes are not on this
+/// machine is.
+pub fn reads_file_to_restore(size_bytes: u64) -> bool {
+    matches!(
+        crate::file_ops::classify_size(size_bytes, false),
+        crate::file_ops::FileOpenMode::Normal | crate::file_ops::FileOpenMode::LargeFile
+    )
+}
+
+/// Where a launch writes journaled text whose note's row has been deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrphanPlan {
+    /// Beside the file the entry names, as a dated copy.
+    BesideItsFile,
+    /// In the notes folder, as a dated copy named for the file the entry
+    /// names, or for the day when it names none.
+    InNotesFolder,
+}
+
+/// Decides where a launch writes text whose note's row was deleted
+/// ("Remove from history", "Clear history").
+///
+/// The entry keeps its own lifetime, so the text still reaches a file: there
+/// is no row left to hand it to a tab. A dated copy goes beside the file the
+/// entry names while that file is there, which is where the person will look.
+/// A file that is gone was deleted, and a copy in the folder somebody cleared
+/// is a file they did not ask for (ADR-033 decision 15), so the text goes to
+/// the notes folder instead, as it does for a note that never had a file.
+pub fn plan_orphan_recovery(file_is_there: bool) -> OrphanPlan {
+    if file_is_there {
+        OrphanPlan::BesideItsFile
+    } else {
+        OrphanPlan::InNotesFolder
+    }
+}
+
+/// Outcome of comparing an entry of a 0.5 session snapshot against the
+/// persisted buffer state.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RecoveryResolution {
     /// The snapshot is newer than the stored buffer; use snapshot content.
@@ -74,6 +132,10 @@ pub enum RecoveryResolution {
 /// Compares timestamps to decide whether a snapshot entry should override
 /// the stored buffer content.
 ///
+/// The rule a 0.5 relaunch applied to its crash snapshot. It now decides only
+/// which entries of a snapshot left by 0.5 move into the journal at the first
+/// launch after the upgrade (ADR-044 §7).
+///
 /// `snapshot_created_at` and `buffer_updated_at` are ISO 8601 strings as
 /// produced by SQLite's `datetime('now')`.
 pub fn resolve_recovery(snapshot_created_at: &str, buffer_updated_at: &str) -> RecoveryResolution {
@@ -84,149 +146,76 @@ pub fn resolve_recovery(snapshot_created_at: &str, buffer_updated_at: &str) -> R
     }
 }
 
-/// Stable fingerprint of a set of buffer contents.
-///
-/// Two collections with the same buffer ids and the same content produce the
-/// same fingerprint regardless of iteration order.
+/// Text a note's save could not write, as the unsaved-text journal keeps it
+/// (ADR-044).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsavedText {
+    /// The entry's own id, which tells two entries of one note apart.
+    pub entry_id: i64,
+    /// The note's buffer id.
+    pub buffer_id: String,
+    /// The note's file when the entry was written, for the log. The launch
+    /// writes to the file the note's row names now, which a move since then
+    /// has changed.
+    pub path: Option<String>,
+    /// What the editor held.
+    pub text: String,
+    /// When the entry was written.
+    pub recorded_at: DateTime<Utc>,
+    /// Whether the entry is the text of the tab that typed it, which that
+    /// tab's next landed save clears. An entry no tab holds is no save's to
+    /// clear, and stays until a launch puts it on disk (ADR-044 §3).
+    pub in_tab: bool,
+}
+
+/// What became of the text a save carried.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SnapshotFingerprint([u8; 32]);
-
-impl SnapshotFingerprint {
-    /// Returns the raw 32-byte digest.
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
+pub enum SaveLanding {
+    /// The note's file holds the text. Also a note with no file and no text,
+    /// which had nothing to write.
+    Landed,
+    /// The note's file was left alone and the text was written beside it, as
+    /// the copy a refused save leaves.
+    WrittenBeside,
+    /// The text reached no file: the file is not downloaded, read-only,
+    /// missing, deleted, on a volume that is gone or that stopped answering,
+    /// or the note's first file could not be made.
+    NotLanded,
+    /// The note is read-only (a generated document, a binary file's view), so
+    /// a refused write carried nothing the person typed.
+    ReadOnlyNote,
 }
 
-/// Computes the fingerprint of the buffer contents destined for a snapshot.
-///
-/// Ids are sorted so a `HashMap`'s iteration order cannot change the result,
-/// and each id and content is length-prefixed so no pair of buffers can be
-/// concatenated into the same byte stream as a different pair.
-pub fn fingerprint_buffers(buffer_contents: &HashMap<String, String>) -> SnapshotFingerprint {
-    let mut ids: Vec<&String> = buffer_contents.keys().collect();
-    ids.sort();
-
-    let mut hasher = Sha256::new();
-    for id in ids {
-        let content = &buffer_contents[id];
-        hasher.update((id.len() as u64).to_le_bytes());
-        hasher.update(id.as_bytes());
-        hasher.update((content.len() as u64).to_le_bytes());
-        hasher.update(content.as_bytes());
-    }
-    let digest = hasher.finalize();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    SnapshotFingerprint(out)
+/// What a save's outcome does to the journal entry of the tab it came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JournalStep {
+    /// Keep the text: nothing else holds it.
+    Record,
+    /// Drop the entry: the text it held has reached a file, or newer text has.
+    Clear,
+    /// Leave the entry as it is.
+    Leave,
 }
 
-/// Decides whether a heartbeat snapshot is worth writing.
+/// Decides what a save's outcome does to the journal.
 ///
-/// A snapshot is written only when the content differs from the last one
-/// persisted. Writing an identical snapshot every heartbeat costs an insert
-/// and a delete per interval and leaves the freed pages behind, which is what
-/// grew the database without bound.
-pub fn should_snapshot(
-    previous: Option<SnapshotFingerprint>,
-    current: SnapshotFingerprint,
-) -> bool {
-    previous != Some(current)
-}
-
-/// The snapshot a shutdown records, and whether that shutdown counts as clean.
-///
-/// `on_disk` is what each open note's file holds; `unsaved` is text a save
-/// could not write, keyed the same way.
-///
-/// With nothing unsaved this is the ordinary clean-shutdown record of every
-/// open note. With anything unsaved the snapshot narrows to those notes alone
-/// and is marked unclean, because an unclean snapshot is read back on the next
-/// launch and every entry in it is written back over its file: carrying the
-/// other notes would restore files nothing had gone wrong with, and any of
-/// them edited outside Writ in the meantime would collect a dated copy beside
-/// it for no reason.
-pub fn shutdown_snapshot(
-    on_disk: HashMap<String, String>,
-    unsaved: HashMap<String, String>,
-) -> (HashMap<String, String>, bool) {
-    if unsaved.is_empty() {
-        return (on_disk, true);
+/// The journal is the one copy of text outside a file ADR-028 §1 allows, and
+/// only for text that has not reached one, so a tab's entry lives exactly from
+/// the save that could not land to the next save of that tab that does. A copy
+/// beside the note is a file holding the text, so it clears the entry as a
+/// landed save does. An entry no tab holds is not touched by any save
+/// (ADR-044 §3).
+pub fn journal_step(landing: SaveLanding) -> JournalStep {
+    match landing {
+        SaveLanding::Landed | SaveLanding::WrittenBeside => JournalStep::Clear,
+        SaveLanding::NotLanded => JournalStep::Record,
+        SaveLanding::ReadOnlyNote => JournalStep::Leave,
     }
-    (unsaved, false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn map(entries: &[(&str, &str)]) -> HashMap<String, String> {
-        entries
-            .iter()
-            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
-            .collect()
-    }
-
-    #[test]
-    fn fingerprint_is_stable_across_insertion_order() {
-        let a = map(&[("buf-1", "alpha"), ("buf-2", "beta")]);
-        let mut b = HashMap::new();
-        b.insert("buf-2".to_string(), "beta".to_string());
-        b.insert("buf-1".to_string(), "alpha".to_string());
-
-        assert_eq!(fingerprint_buffers(&a), fingerprint_buffers(&b));
-    }
-
-    #[test]
-    fn fingerprint_changes_when_content_changes() {
-        let before = map(&[("buf-1", "alpha")]);
-        let after = map(&[("buf-1", "alpha!")]);
-
-        assert_ne!(fingerprint_buffers(&before), fingerprint_buffers(&after));
-    }
-
-    #[test]
-    fn fingerprint_changes_when_a_buffer_is_added_or_removed() {
-        let one = map(&[("buf-1", "alpha")]);
-        let two = map(&[("buf-1", "alpha"), ("buf-2", "")]);
-
-        assert_ne!(fingerprint_buffers(&one), fingerprint_buffers(&two));
-    }
-
-    #[test]
-    fn fingerprint_separates_ids_from_content() {
-        let split = map(&[("ab", "cd")]);
-        let shifted = map(&[("a", "bcd")]);
-
-        assert_ne!(fingerprint_buffers(&split), fingerprint_buffers(&shifted));
-    }
-
-    #[test]
-    fn empty_collections_fingerprint_equal() {
-        assert_eq!(
-            fingerprint_buffers(&HashMap::new()),
-            fingerprint_buffers(&HashMap::new())
-        );
-    }
-
-    #[test]
-    fn should_snapshot_is_true_without_a_previous_fingerprint() {
-        let current = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
-        assert!(should_snapshot(None, current));
-    }
-
-    #[test]
-    fn should_snapshot_is_false_when_nothing_changed() {
-        let current = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
-        assert!(!should_snapshot(Some(current), current));
-    }
-
-    #[test]
-    fn should_snapshot_is_true_after_an_edit() {
-        let previous = fingerprint_buffers(&map(&[("buf-1", "alpha")]));
-        let current = fingerprint_buffers(&map(&[("buf-1", "alpha beta")]));
-        assert!(should_snapshot(Some(previous), current));
-    }
 
     #[test]
     fn a_note_whose_file_was_deleted_is_not_written_back_at_the_next_launch() {
@@ -244,29 +233,80 @@ mod tests {
     }
 
     #[test]
-    fn a_shutdown_with_nothing_unsaved_is_clean_and_records_the_files() {
-        let (contents, is_clean) = shutdown_snapshot(map(&[("a", "on disk")]), HashMap::new());
-        assert!(is_clean);
-        assert_eq!(contents, map(&[("a", "on disk")]));
+    fn a_file_writ_opens_without_asking_is_read_to_restore() {
+        assert!(reads_file_to_restore(0));
+        assert!(reads_file_to_restore(
+            crate::file_ops::THRESHOLD_LARGE_BYTES
+        ));
     }
 
     #[test]
-    fn only_the_notes_a_save_could_not_write_are_kept_for_the_next_launch() {
-        // `b` is on disk and was never at risk. Restoring it would rewrite a
-        // file nothing had gone wrong with, and if somebody edited it while
-        // Writ was closed the restore leaves a dated copy beside it.
-        let (contents, is_clean) = shutdown_snapshot(
-            map(&[("a", "on disk"), ("b", "kept")]),
-            map(&[("a", "typed")]),
+    fn a_file_over_the_size_writ_opens_without_asking_is_left_unread() {
+        assert!(!reads_file_to_restore(
+            crate::file_ops::THRESHOLD_LARGE_BYTES + 1
+        ));
+        assert!(!reads_file_to_restore(
+            crate::file_ops::THRESHOLD_MAX_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn text_whose_row_is_gone_goes_beside_its_file_while_the_file_is_there() {
+        assert_eq!(plan_orphan_recovery(true), OrphanPlan::BesideItsFile);
+    }
+
+    #[test]
+    fn text_whose_row_and_file_are_gone_goes_to_the_notes_folder() {
+        assert_eq!(plan_orphan_recovery(false), OrphanPlan::InNotesFolder);
+    }
+
+    #[test]
+    fn a_launch_record_without_an_unmade_file_still_reads() {
+        let read: RecoveredBuffer =
+            serde_json::from_str(r#"{"id":"n","content":"t","removed_on_disk":true}"#)
+                .expect("decode");
+        assert_eq!(read.unmade_file, None);
+        let unmade = RecoveredBuffer {
+            unmade_file: Some(UnmadeFile {
+                name: "2026-10-13.txt".to_string(),
+                folder: "Writ".to_string(),
+            }),
+            ..read
+        };
+        let json = serde_json::to_value(&unmade).expect("encode");
+        assert_eq!(json["unmade_file"]["name"], "2026-10-13.txt");
+        assert_eq!(json["unmade_file"]["folder"], "Writ");
+    }
+
+    #[test]
+    fn a_save_that_landed_clears_the_journal_entry() {
+        assert_eq!(journal_step(SaveLanding::Landed), JournalStep::Clear);
+    }
+
+    #[test]
+    fn text_written_beside_the_note_has_reached_a_file_and_clears_the_entry() {
+        assert_eq!(journal_step(SaveLanding::WrittenBeside), JournalStep::Clear);
+    }
+
+    #[test]
+    fn text_that_reached_no_file_is_recorded() {
+        assert_eq!(journal_step(SaveLanding::NotLanded), JournalStep::Record);
+    }
+
+    #[test]
+    fn a_read_only_note_leaves_the_journal_alone() {
+        assert_eq!(journal_step(SaveLanding::ReadOnlyNote), JournalStep::Leave);
+    }
+
+    #[test]
+    fn a_snapshot_entry_newer_than_its_row_moves_into_the_journal() {
+        assert_eq!(
+            resolve_recovery("2024-01-01 12:00:01", "2024-01-01 12:00:00"),
+            RecoveryResolution::Restore
         );
-        assert!(!is_clean);
-        assert_eq!(contents, map(&[("a", "typed")]));
-    }
-
-    #[test]
-    fn a_note_with_no_readable_file_still_reaches_the_snapshot() {
-        let (contents, is_clean) = shutdown_snapshot(HashMap::new(), map(&[("a", "typed")]));
-        assert!(!is_clean);
-        assert_eq!(contents, map(&[("a", "typed")]));
+        assert_eq!(
+            resolve_recovery("2024-01-01 12:00:00", "2024-01-01 12:00:00"),
+            RecoveryResolution::Ignore
+        );
     }
 }

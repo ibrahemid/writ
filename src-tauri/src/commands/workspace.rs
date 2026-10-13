@@ -6,8 +6,9 @@ use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use tracing::warn;
 use writ_core::workspace::file_search::FileHit;
-use writ_core::workspace::WorkspaceEntry;
+use writ_core::workspace::{WorkspaceEntry, WorkspaceKind};
 use writ_storage::workspace_grep::{
     self, ContentHit, GrepLimits, GrepOutcome, GrepRequest, ScanObserver,
 };
@@ -41,14 +42,56 @@ pub fn set_workspace_root_from_path(state: &AppState, raw: &Path) -> Result<Stri
 
     workspace_index::set_root_and_rebuild(&state.workspace_index, Some(canonical.clone()));
 
-    let handle = start_workspace_watcher(state.event_bus.clone(), canonical.clone())
-        .map_err(|e| e.to_string())?;
+    let handle = start_workspace_watcher(
+        state.event_bus.clone(),
+        canonical.clone(),
+        workspace_kind(state, &canonical),
+    )
+    .map_err(|e| e.to_string())?;
     {
         let mut watcher = state.workspace_watcher.lock().map_err(|e| e.to_string())?;
         *watcher = Some(handle);
     }
 
     Ok(canonical.to_string_lossy().into_owned())
+}
+
+/// Whether `root`, the folder open as the workspace, is the notes folder.
+///
+/// Both are resolved the same way before they are compared, so the notes folder
+/// reached through a symlink, or spelled with a Windows verbatim prefix, is
+/// still the notes folder. A folder that will not resolve is any other folder.
+pub(crate) fn workspace_kind(state: &AppState, root: &Path) -> WorkspaceKind {
+    let notes = crate::security::canonicalize_root(&state.notes_root());
+    match (notes, crate::security::canonicalize_root(root)) {
+        (Ok(notes), Ok(root)) if notes == root => WorkspaceKind::Notes,
+        _ => WorkspaceKind::Code,
+    }
+}
+
+/// Starts the watcher of the folder open as the workspace again, when one is
+/// open, so it leaves out what that folder's tree leaves out after the notes
+/// folder moved to it or away from it.
+pub(crate) fn rewatch_workspace(state: &AppState) {
+    let root = state
+        .workspace_root
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let Some(root) = root else {
+        return;
+    };
+    let kind = workspace_kind(state, &root);
+    match start_workspace_watcher(state.event_bus.clone(), root, kind) {
+        Ok(handle) => {
+            let mut watcher = state
+                .workspace_watcher
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            *watcher = Some(handle);
+        }
+        Err(e) => warn!(error = %e, "the workspace watcher did not follow the notes folder"),
+    }
 }
 
 pub fn clear_workspace_root_inner(state: &AppState) -> Result<(), String> {
@@ -84,7 +127,12 @@ pub fn list_workspace_dir_inner(
         .clone()
         .ok_or("no workspace folder is open")?;
 
-    workspace_store::list_dir(&root, Path::new(dir_path)).map_err(|e| e.to_string())
+    let dir = Path::new(dir_path);
+    match workspace_kind(state, &root) {
+        WorkspaceKind::Notes => workspace_store::list_notes_dir(&root, dir),
+        WorkspaceKind::Code => workspace_store::list_dir(&root, dir),
+    }
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

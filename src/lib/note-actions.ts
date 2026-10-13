@@ -141,6 +141,31 @@ export async function saveCopyOfNote(id: string): Promise<void> {
 }
 
 /**
+ * Saves a note whose first file could not be made to a place the person picks
+ * in the save panel, which becomes the note's file.
+ *
+ * Cancelling the panel changes nothing. A write that does not land reports to
+ * the save failure bar like any other, and the note stays held without a file.
+ */
+export async function saveNoteAs(id: string): Promise<void> {
+  const win = windowRegistry.getActive();
+  if (!win) return;
+
+  let path: string | null;
+  try {
+    path = await api.pickNoteSavePath(id);
+  } catch {
+    logFailure("the save panel for a note with no file could not be shown");
+    showToast(`Couldn't save "${noteName(id)}"`, "error");
+    return;
+  }
+  if (path === null) return;
+
+  const result = await win.editor.saveRemovedNoteTo(id, path);
+  if (result.ok) await bufferRegistry.refreshBuffer(id).catch(() => undefined);
+}
+
+/**
  * Carries out what the person chose about a file that changed outside Writ.
  *
  * The text sent is the one on screen, because that is the only place the
@@ -207,7 +232,7 @@ export async function resolveNoteChange(
     // cap every other write obeys.
     //
     // The tab keeps the delta on the way out too, because the queue is what
-    // the close and quit paths hand to the recovery snapshot.
+    // the close and quit paths hand to the unsaved-text journal.
     //
     // Only this branch has a delta to keep. `Use the file on disk` replaces
     // the document with what the file holds, on purpose, and there is nothing

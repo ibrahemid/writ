@@ -104,7 +104,7 @@ describe("window lifecycle", () => {
     expect(mockedConfirm).toHaveBeenCalledOnce();
   });
 
-  it("a_failed_save_survives_the_quit_path_into_the_snapshot", async () => {
+  it("a_failed_save_survives_the_quit_path_into_the_journal", async () => {
     await startWindowLifecycle();
     mockedSave.mockRejectedValueOnce(new Error("ERR_PERMISSION_DENIED: no"));
 
@@ -164,7 +164,7 @@ describe("window lifecycle", () => {
     ]);
   });
 
-  it("a_snapshot_that_refuses_the_text_still_lets_the_quit_through", async () => {
+  it("a_journal_that_refuses_the_text_still_lets_the_quit_through", async () => {
     await startWindowLifecycle();
     mockedSave.mockRejectedValueOnce(new Error("ERR_WRITE_FAILED: no"));
     mockedRecord.mockRejectedValueOnce(new Error("database is locked"));

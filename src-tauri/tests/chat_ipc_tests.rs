@@ -406,7 +406,7 @@ fn chat_stop_raises_the_flag_of_a_live_conversation_and_no_other() {
     let (cancel, first) = begin_request(&state, "c1", "r-1").expect("accepted");
     let (_other, _second) = begin_request(&state, "c2", "r-2").expect("accepted");
     assert!(state.cancel("c1", Some("r-1")));
-    assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
+    assert!(cancel.is_cancelled());
     assert_eq!(state.live(), 2);
 
     drop(first);

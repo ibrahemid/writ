@@ -204,8 +204,19 @@ jobs:
         if: matrix.cross_only == false || github.event_name == 'push'
         run: cargo test --workspace --locked
 
+      - name: Install minisign
+        id: minisign
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          MINISIGN="$(bash scripts/install-minisign.sh "$RUNNER_TEMP/minisign")"
+          echo "path=$MINISIGN" >> "$GITHUB_OUTPUT"
+
       - name: Release script tests
         if: matrix.os == 'ubuntu-latest'
+        env:
+          MINISIGN: ${{ steps.minisign.outputs.path }}
         run: python3 -m unittest discover -s .github/scripts -t .github/scripts
 
       - name: Script tests

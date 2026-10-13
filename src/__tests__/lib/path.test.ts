@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { basename, dirname, joinPath, pathKey, resolveWithinRoot } from "../../lib/path";
+import {
+  basename,
+  dirname,
+  isSameOrInside,
+  joinPath,
+  pathKey,
+  resolveWithinRoot,
+} from "../../lib/path";
 
 describe("basename", () => {
   it("returns the last segment of a posix path", () => {
@@ -77,6 +84,24 @@ describe("pathKey", () => {
 
   it("keeps distinct files distinct", () => {
     expect(pathKey("/repo/src/a.rs")).not.toBe(pathKey("/repo/src/b.rs"));
+  });
+});
+
+describe("isSameOrInside", () => {
+  it("holds the folder itself and every path under it", () => {
+    expect(isSameOrInside("/notes", "/notes")).toBe(true);
+    expect(isSameOrInside("/notes/a.md", "/notes")).toBe(true);
+    expect(isSameOrInside("/notes/deep/b.md", "/notes/")).toBe(true);
+  });
+
+  it("leaves out a sibling that only shares the start of the name", () => {
+    expect(isSameOrInside("/notes2/a.md", "/notes")).toBe(false);
+    expect(isSameOrInside("/not", "/notes")).toBe(false);
+  });
+
+  it("reads a windows base in its own separator", () => {
+    expect(isSameOrInside("C:\\Users\\me\\Writ\\a.md", "C:\\Users\\me\\Writ")).toBe(true);
+    expect(isSameOrInside("C:\\Users\\me\\Writer", "C:\\Users\\me\\Writ")).toBe(false);
   });
 });
 

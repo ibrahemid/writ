@@ -6,6 +6,7 @@ use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::file_ops::{self, FileOpenMode};
 use writ_core::search::SearchHit;
 use writ_core::workspace::file_search::FileHit;
+use writ_storage::buffer_store::BufferStore;
 
 /// Caps the number of ranked hits returned to the UI; `total` still reports the
 /// full match count so the footer can show "N of M".
@@ -64,6 +65,11 @@ pub fn restore_buffer_confirmed(
 /// and the file has had every moment since then to change. A tab restored at
 /// launch has been followed since the launch listed it, and is not followed
 /// again: on a volume with no file id, naming the file reads all of it.
+///
+/// A closed file another tab has open answers with that tab, and the closed
+/// row stays closed: a file is one open tab, and two tabs on it would each
+/// save over the other. Save As can give a note a file that is still in the
+/// history list under a row of its own.
 pub fn restore_buffer_inner(state: &AppState, id: &str) -> Result<FileOpenResult, String> {
     reopen_closed(state, id, false)
 }
@@ -81,6 +87,14 @@ fn reopen_closed(state: &AppState, id: &str, confirmed: bool) -> Result<FileOpen
     let (doc, mode, size_bytes, reopened) = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let closed = store.get(id).map_err(|e| e.to_string())?;
+        if let Some(open) = open_elsewhere(&store, &closed)? {
+            let mode = file_ops::classify_file(open.size_bytes, open.read_only).once_open();
+            return Ok(FileOpenResult {
+                mode,
+                size_bytes: open.size_bytes,
+                doc: Some(open),
+            });
+        }
         let size_now = crate::commands::buffer::measured_size(&closed);
         let (mode, size_bytes) = match size_now {
             Some(size) => (file_ops::classify_size(size, closed.read_only), size),
@@ -119,6 +133,24 @@ fn reopen_closed(state: &AppState, id: &str, confirmed: bool) -> Result<FileOpen
         size_bytes,
         doc: Some(doc),
     })
+}
+
+/// The open tab on the file a closed row names, when one other than the row
+/// itself has it open.
+fn open_elsewhere(
+    store: &BufferStore,
+    closed: &BufferDocument,
+) -> Result<Option<BufferDocument>, String> {
+    if closed.status != BufferStatus::History {
+        return Ok(None);
+    }
+    let Some(path) = closed.source_path.as_deref() else {
+        return Ok(None);
+    };
+    let open = store
+        .find_active_by_source_path(path)
+        .map_err(|e| e.to_string())?;
+    Ok(open.filter(|open| open.id != closed.id))
 }
 
 #[tauri::command]

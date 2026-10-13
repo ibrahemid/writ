@@ -16,7 +16,7 @@ import {
   saveNow,
 } from "../../services/autosave";
 import { handleExternalEdit, type ExternalEditDeps } from "../../services/external-edit";
-import { restoreNoteFile, saveBufferContent } from "../../services/tauri";
+import { noteDiskState, restoreNoteFile, saveBufferContent } from "../../services/tauri";
 
 vi.mock("../../services/autosave", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../services/autosave")>();
@@ -208,8 +208,29 @@ describe("a note whose file is gone: the store's machine", () => {
     expect(queued).not.toHaveBeenCalled();
     expect(mockedSave).not.toHaveBeenCalled();
     // Still the only copy of the tab's text, and still on its way to the
-    // shutdown snapshot rather than to the file.
+    // unsaved-text journal rather than to the file.
     expect(peekUnsavedContent("one")).toBe("the tab's text");
+  });
+
+  it("asks about a tab the launch handed journaled text when its file comes back", async () => {
+    // The launch seeds a note whose file was deleted with the text the
+    // unsaved-text journal kept, and makes that entry the tab's (ADR-044 §4).
+    // Nothing was typed, and the file is not there to describe. Read clean,
+    // the file's return would be reloaded over the text, and the tab's next
+    // save would settle an entry whose text no file holds.
+    const store = showing("one", "text the journal kept");
+    store.markRemovedOnDisk("one", "text the journal kept");
+    vi.mocked(noteDiskState).mockResolvedValueOnce({ state: "undescribed" });
+    store.noteOpened("one", "text the journal kept");
+    await vi.waitFor(() => expect(vi.mocked(noteDiskState)).toHaveBeenCalledWith("one"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(store.isDirty("one")).toBe(true);
+
+    await handleExternalEdit(backAtItsPath("one"), depsFor(store));
+
+    expect(store.isFileChangedOnDisk("one")).toBe(true);
+    expect(store.externalReload()).toBeNull();
+    expect(mockedSave).not.toHaveBeenCalled();
   });
 
   it("keeps a keystroke it does not queue", async () => {
@@ -293,7 +314,7 @@ describe("a note whose file is gone: the store's machine", () => {
     expect(store.textOfRemoved("one")).toBe("what the view holds");
   });
 
-  it("hands the text to the shutdown snapshot when the tab closes", async () => {
+  it("hands the text to the journal when the tab closes", async () => {
     const store = showing("one", "what the view holds");
     await handleExternalEdit(removed("one"), depsFor(store));
 
@@ -303,7 +324,7 @@ describe("a note whose file is gone: the store's machine", () => {
     expect(peekUnsavedContent("one")).toBe("what the view holds");
   });
 
-  it("hands the text to the shutdown snapshot when the window quits", async () => {
+  it("hands the text to the journal when the window quits", async () => {
     const store = showing("one", "what the view holds");
     await handleExternalEdit(removed("one"), depsFor(store));
     store.scheduleAutosave("one", () => "typed after the file went", 0);
@@ -317,7 +338,7 @@ describe("a note whose file is gone: the store's machine", () => {
 
   it("comes up removed at the next launch, with its text and no write", () => {
     // The launch wrote nothing for this note (ADR-033 decision 15), so the
-    // snapshot's text is seeded straight into the store before any tab loads.
+    // journal's text is seeded straight into the store before any tab loads.
     const store = newStore();
 
     store.markRemovedOnDisk("one", "the line typed after the file went");

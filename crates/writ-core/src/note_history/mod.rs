@@ -11,7 +11,7 @@
 //! to ([`VersionKey`]), and which entries have to go ([`prune_plan`]).
 //!
 //! This is not [`crate::history`], which is the list of recently closed tabs,
-//! and not [`crate::recovery`], which is the crash snapshot.
+//! and not [`crate::recovery`], which is the unsaved-text journal.
 
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};

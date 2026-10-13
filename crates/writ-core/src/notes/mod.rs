@@ -511,13 +511,13 @@ pub fn conflict_file_name(stem: &str, extension: &str, now: DateTime<Utc>) -> St
     dated_copy_name(stem, extension, "conflict", now)
 }
 
-/// The name text recovered from the crash snapshot takes when the file it
-/// belongs to has moved on: `<stem> (recovered YYYY-MM-DD HH.MM.SS)` plus the
-/// extension.
+/// The name text recovered from the unsaved-text journal takes when the file
+/// it belongs to has moved on: `<stem> (recovered YYYY-MM-DD HH.MM.SS)` plus
+/// the extension.
 ///
-/// A relaunch must not write a pre-crash snapshot over a version a sync client
-/// delivered while Writ was down, and it must not drop the snapshot either, so
-/// the snapshot lands under this name and both are on disk.
+/// A relaunch must not write the older text over a version a sync client
+/// delivered while Writ was down, and it must not drop that text either, so
+/// it lands under this name and both are on disk.
 pub fn recovered_file_name(stem: &str, extension: &str, now: DateTime<Utc>) -> String {
     dated_copy_name(stem, extension, "recovered", now)
 }

@@ -1,6 +1,6 @@
 import { isRetryableSaveError } from "../lib/save-error";
 import { logFailure } from "../lib/log";
-import { recordUnsavedNotes, saveBufferContent } from "./tauri";
+import { discardUnsavedText, recordUnsavedNotes, saveBufferContent } from "./tauri";
 
 // `generation` is the failed write's own generation, not the note's current
 // one, so a listener can tell a refusal about a write it still cares about from
@@ -100,7 +100,7 @@ const startListeners = new Set<AutosaveStartListener>();
 // it when the file could not. Kept beside the queue rather than in it because
 // a guard-stopped write deliberately leaves the queue empty (writing the same
 // text again is stopped the same way), and that text still has to reach the
-// recovery snapshot.
+// unsaved-text journal.
 const lastFailedContent = new Map<string, string>();
 
 export function onAutosaveError(listener: AutosaveErrorListener): () => void {
@@ -144,7 +144,23 @@ export function onAutosaveStart(listener: AutosaveStartListener): () => void {
 const heldContent = new Map<string, string>();
 
 /**
- * Keeps a note's newest text without scheduling anything to write it.
+ * How long a hold waits after its newest text before handing it to the
+ * unsaved-text journal, when the caller names no wait: the debounce
+ * [`debouncedSave`] waits by default.
+ */
+const DEFAULT_KEEP_DELAY_MS = 1000;
+
+// One per note whose held text is waiting to be journaled.
+const keepTimers = new Map<string, ReturnType<typeof setTimeout>>();
+// Notes whose held text has gone to the journal since their hold began, so
+// the end of the hold knows there is an entry to answer for.
+const keptHolds = new Set<string>();
+
+/**
+ * Keeps a note's newest text without scheduling anything to write it, and
+ * hands it to the unsaved-text journal once `keepAfterMs` pass with no newer
+ * text: the same debounce a save waits, so text a bar holds survives a crash
+ * the way the text of a refused save does (ADR-044 §2).
  *
  * Read by the recovery handover ([`peekUnsavedContent`],
  * [`collectUnsavedContent`]) and by nothing that writes. Released when the
@@ -152,13 +168,71 @@ const heldContent = new Map<string, string>();
  *
  * `content` is a string on purpose; see [`heldContent`].
  */
-export function holdUnsavedContent(bufferId: string, content: string) {
+export function holdUnsavedContent(
+  bufferId: string,
+  content: string,
+  keepAfterMs: number = DEFAULT_KEEP_DELAY_MS,
+) {
   heldContent.set(bufferId, content);
+  clearKeepTimer(bufferId);
+  keepTimers.set(
+    bufferId,
+    setTimeout(() => {
+      keepTimers.delete(bufferId);
+      void keepHeldContent(bufferId);
+    }, keepAfterMs),
+  );
 }
 
-/** Drops what [`holdUnsavedContent`] was keeping for a note that may write again. */
-export function releaseUnsavedContent(bufferId: string) {
+/**
+ * Hands what the hold is keeping for `bufferId` to the journal. Marked kept
+ * before the call leaves, so a hold that ends while it is out still answers
+ * for the entry it is about to write.
+ */
+async function keepHeldContent(bufferId: string) {
+  const content = heldContent.get(bufferId);
+  if (content === undefined) return;
+  keptHolds.add(bufferId);
+  try {
+    await recordUnsavedNotes([{ id: bufferId, content }]);
+  } catch {
+    logFailure("the text of a note whose saves are held could not be kept");
+  }
+}
+
+function clearKeepTimer(bufferId: string) {
+  const existing = keepTimers.get(bufferId);
+  if (existing !== undefined) {
+    clearTimeout(existing);
+    keepTimers.delete(bufferId);
+  }
+}
+
+/**
+ * Drops what [`holdUnsavedContent`] was keeping for a note that may write
+ * again.
+ *
+ * Whatever ended the hold has dealt with its text: an answer or a write that
+ * landed wrote it, or the person chose the file's text over it. So the entry
+ * a keep wrote goes too, unless a write of that text follows this call
+ * (`writeFollows`), which settles the entry itself when it lands or keeps
+ * the text when it does not. Sent before any later write of the note, so the
+ * journal sees the two in that order.
+ */
+export function releaseUnsavedContent(bufferId: string, writeFollows = false) {
   heldContent.delete(bufferId);
+  clearKeepTimer(bufferId);
+  if (keptHolds.delete(bufferId) && !writeFollows) void dropKeptContent(bufferId);
+}
+
+// The call leaves before this returns its promise, so it is on its way ahead
+// of any write the caller starts next.
+async function dropKeptContent(bufferId: string) {
+  try {
+    await discardUnsavedText([bufferId]);
+  } catch {
+    logFailure("the kept text of a note whose hold ended could not be dropped");
+  }
 }
 
 /**
@@ -243,8 +317,12 @@ function clearTimer(bufferId: string) {
 
 function queueContent(bufferId: string, content: ContentSource, writer?: SaveWriter) {
   // The note is writing again, so the queue is the newer record of its text
-  // and anything held for it is the older one.
+  // and anything held for it is the older one. The write answers to the
+  // journal from here: it clears the tab's entry when it lands and records
+  // its text when it does not.
   heldContent.delete(bufferId);
+  clearKeepTimer(bufferId);
+  keptHolds.delete(bufferId);
   pendingContent.set(bufferId, {
     source: content,
     generation: bumpGeneration(bufferId),
@@ -286,20 +364,19 @@ export function hasPendingAutosave(bufferId: string): boolean {
 }
 
 /**
- * Hands a closing note's unwritten text to the recovery snapshot, then drops
- * the record of it.
+ * Hands a closing note's unwritten text to the unsaved-text journal, then
+ * drops the record of it.
  *
  * A save the guard refused does not go back on the queue — writing the same
  * text into the same refusal is stopped the same way — so closing that tab
  * finds nothing to flush and closes without a word, while the text is still
  * only in this module. Left there it is lost when the process goes.
  *
- * What happens to it after the handover: the next quit writes it into the
- * shutdown snapshot, and the launch after that writes it back to the note's
- * file through the guarded path, which leaves a dated copy beside the file
- * rather than over it if the file has moved on
- * (`BufferStore::restore_recovered_content`). The note stays closed; the text
- * comes back as a file, and the toast counts it.
+ * What happens to it after the handover: the journal keeps it from that
+ * moment, and the next launch writes it back to the note's file through the
+ * guarded path, which leaves a dated copy beside the file rather than over it
+ * if the file has moved on (`BufferStore::restore_recovered_content`). The
+ * note stays closed; the text comes back as a file, and the toast counts it.
  *
  * The record is kept when the handover fails: text nobody can read again is a
  * worse outcome than a note restored twice.
@@ -315,6 +392,8 @@ export async function keepUnsavedForRecovery(bufferId: string): Promise<void> {
     }
   }
   cancelAutosave(bufferId);
+  // The closed tab's entry is the journal's to keep now.
+  keptHolds.delete(bufferId);
 }
 
 /**
@@ -341,6 +420,9 @@ export function cancelAutosave(bufferId: string) {
   clearTimer(bufferId);
   pendingContent.delete(bufferId);
   heldContent.delete(bufferId);
+  // The record of a kept hold stays: a move from one hold into another
+  // cancels here and holds again at once, and the entry is still there.
+  clearKeepTimer(bufferId);
   lastWriteAt.delete(bufferId);
   lastFailedContent.delete(bufferId);
   // Retire the current generation so a write already in flight cannot put the
@@ -357,6 +439,9 @@ export function resetAutosave() {
   timers.clear();
   pendingContent.clear();
   heldContent.clear();
+  for (const timer of keepTimers.values()) clearTimeout(timer);
+  keepTimers.clear();
+  keptHolds.clear();
   lastWriteAt.clear();
   generations.clear();
   inFlight.clear();
@@ -468,8 +553,9 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // generation has been retired was superseded while it was out: by a
     // keystroke, by a tab closing, or by the person answering a question about
     // this file, which is the case that matters. Kept here it would fall
-    // through [`peekUnsavedContent`] into the shutdown snapshot, and the next
-    // launch would put the version they answered against back beside the note.
+    // through [`peekUnsavedContent`] into the unsaved-text journal, and the
+    // next launch would put the version they answered against back beside the
+    // note.
     if (isNewest) lastFailedContent.set(bufferId, content);
     for (const listener of errorListeners) {
       listener(bufferId, error, queued.generation);
