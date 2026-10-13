@@ -9698,7 +9698,7 @@ dependencies = [
 
 [[package]]
 name = "writ-cli"
-version = "0.5.1"
+version = "0.6.0-1"
 dependencies = [
  "chrono",
  "clap",
@@ -9715,7 +9715,7 @@ dependencies = [
 
 [[package]]
 name = "writ-core"
-version = "0.5.1"
+version = "0.6.0-1"
 dependencies = [
  "chrono",
  "dom_query",
@@ -9736,7 +9736,7 @@ dependencies = [
 
 [[package]]
 name = "writ-lint"
-version = "0.5.1"
+version = "0.6.0-1"
 dependencies = [
  "harper-core",
  "serde",
@@ -9745,7 +9745,7 @@ dependencies = [
 
 [[package]]
 name = "writ-mcp"
-version = "0.5.1"
+version = "0.6.0-1"
 dependencies = [
  "rmcp",
  "serde",
@@ -9760,7 +9760,7 @@ dependencies = [
 
 [[package]]
 name = "writ-plugin"
-version = "0.5.1"
+version = "0.6.0-1"
 dependencies = [
  "criterion",
  "serde",
@@ -9771,7 +9771,7 @@ dependencies = [
 
 [[package]]
 name = "writ-render"
-version = "0.5.1"
+version = "0.6.0-1"
 dependencies = [
  "pulldown-cmark",
  "serde",
@@ -9781,7 +9781,7 @@ dependencies = [
 
 [[package]]
 name = "writ-storage"
-version = "0.5.1"
+version = "0.6.0-1"
 dependencies = [
  "chrono",
  "criterion",
@@ -9805,7 +9805,7 @@ dependencies = [
 
 [[package]]
 name = "writ-tauri"
-version = "0.5.1"
+version = "0.6.0-1"
 dependencies = [
  "chrono",
  "core-foundation 0.10.1",
