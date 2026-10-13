@@ -58,6 +58,7 @@ export function createConfigCommands(state: DemoState): CommandTable {
       sync_provider: null,
     }),
     list_workspace_dir: (args) => state.folder.list(String(args.dirPath)),
+    list_notes_dir: (args) => state.folder.list(String(args.dirPath)),
     workspace_index_status: (): IndexStatus => ({
       file_count: state.listFolderNotes().length,
       truncated: false,

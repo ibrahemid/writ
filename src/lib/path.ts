@@ -40,6 +40,16 @@ export function pathKey(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
+// Whether `path` is `base` or a path under it, in the separator `base` uses.
+// A sibling that only shares the start of its name ("/notes2" beside
+// "/notes") is outside.
+export function isSameOrInside(path: string, base: string): boolean {
+  if (path === base) return true;
+  const separator = base.includes("\\") ? "\\" : "/";
+  const prefix = base.endsWith(separator) ? base : base + separator;
+  return path.startsWith(prefix);
+}
+
 const WINDOWS_DRIVE = /^[A-Za-z]:[\\/]/;
 const CONTROL_CHAR = /[\u0000-\u001f\u007f]/;
 

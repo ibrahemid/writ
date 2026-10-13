@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildTagTree, type TagNode } from "../../lib/tag-tree";
-import type { TagCount } from "../../stores/global/note-facts";
+import type { TagCount } from "../../stores/global/index-cache";
 
 function tags(...rows: [string, number][]): TagCount[] {
   return rows.map(([tag, count]) => ({ tag, count }));

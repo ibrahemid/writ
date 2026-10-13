@@ -41,6 +41,7 @@ import { saveStatusStore } from "./stores/global/save-status";
 import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
 import { openBootTab } from "./stores/window/boot-tab";
+import { applyRecoveredNotes } from "./stores/window/recovered-notes";
 import FirstRunHint from "./components/Editor/FirstRunHint";
 import FirstRunSetup from "./components/FirstRun/FirstRunSetup";
 import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
@@ -61,6 +62,7 @@ import { findStore } from "./stores/global/find-store";
 import { registerTransformCommands } from "./commands/transforms";
 import { registerPromptCommands } from "./commands/prompt";
 import { toggleChat } from "./commands/chat";
+import { openRecent } from "./commands/recent";
 import { defineAppCommands, definedAppCommandIds } from "./commands/app-commands";
 import { followAppSwitches } from "./commands/app-switches";
 import { chatStore } from "./stores/global/chat";
@@ -261,23 +263,8 @@ function AppShell() {
     await notesStore.load();
     void activityStore.watchWaiting();
 
-    // Only notes whose text never reached their file are restored, so the
-    // count is how many of those there were, not how many tabs were open. The
-    // launch lists each note once, however many of its texts it wrote.
-    //
-    // A note whose file was deleted is not among them: the launch wrote
-    // nothing for it (ADR-033 decision 15), so its text is seeded into the
-    // store instead, before any tab loads, and its tab comes up carrying the
-    // bar and the three ways out. So is a note whose first file the launch
-    // could not make, under a bar that names that file. Counting either as
-    // restored would say a file is back that is not.
     const recovered = await getRecoveredBuffers().catch(() => []);
-    for (const note of recovered) {
-      if (note.removed_on_disk) {
-        win.editor.markRemovedOnDisk(note.id, note.content, note.unmade_file ?? undefined);
-      }
-    }
-    const restored = recovered.filter((note) => !note.removed_on_disk);
+    const restored = applyRecoveredNotes(win.editor, recovered);
     if (restored.length > 0) {
       showToast(
         restored.length === 1
@@ -387,7 +374,7 @@ function AppShell() {
       id: "workspace.openFolder",
       icon: "folder-open",
       label: "Open folder…",
-      description: "Open a folder as the workspace",
+      description: "Show a folder's files in the sidebar",
       scope: "app",
       execute: () => {
         void workspaceStore.openFolder().then((root) => {
@@ -402,7 +389,7 @@ function AppShell() {
     registerCommand({
       id: "workspace.closeFolder",
       label: "Close folder",
-      description: "Close the open workspace folder",
+      description: "Stop showing this folder in the sidebar",
       scope: "app",
       execute: () => void workspaceStore.closeFolder(),
     });
@@ -495,14 +482,14 @@ function AppShell() {
       label: "Open recent",
       description: "Show the files closed most recently",
       scope: "app",
-      execute: () => windowRegistry.getActive()?.sidebar.showRecent(),
+      execute: () => openRecent(),
     });
 
     registerCommand({
       id: "sidebar.toggle",
       icon: "sidebar-simple",
       label: "Toggle sidebar",
-      description: "Show or hide the tabs + history rail",
+      keywords: ["show", "hide"],
       keybinding: "CmdOrCtrl+\\",
       // Finder's own sidebar chord, for the hand that already knows it.
       keybindingAliases: ["CmdOrCtrl+Alt+S"],
@@ -750,16 +737,15 @@ function AppShell() {
 
     registerCommand({
       id: "history.clear",
-      label: "Clear history",
-      description: "Permanently remove all history entries",
+      label: "Clear Recent",
       scope: "app",
       execute: async () => {
         const count = bufferRegistry.historyList().length;
         if (count === 0) return;
         const confirmed = await requestConfirm({
-          title: "Clear all history?",
-          message: `This permanently removes ${count} closed tab${count === 1 ? "" : "s"} from history. This cannot be undone.`,
-          confirmLabel: "Clear history",
+          title: "Clear Recent?",
+          message: `This removes ${count} file${count === 1 ? "" : "s"} from Recent and cannot be undone. The files stay where they are.`,
+          confirmLabel: "Clear Recent",
           danger: true,
         });
         if (confirmed) void bufferRegistry.clearAllHistory();

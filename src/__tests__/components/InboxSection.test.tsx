@@ -47,20 +47,22 @@ describe("InboxSection", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("heads the section with the folder name once a file arrives", () => {
+  it("heads the section with the name Settings gives it and the folder's name", () => {
     h.setPath("/Users/me/Downloads/reports");
     h.setFiles([{ name: "a.md", path: "/Users/me/Downloads/reports/a.md", size_bytes: 1 }]);
     const { container } = render(() => <InboxSection />);
-    expect(container.querySelector(".sidebar-section-heading")!.textContent).toContain(
-      "Inbox · reports",
+    expect(container.querySelector(".sidebar-section-heading")!.textContent!.trim()).toBe(
+      "Watched · reports",
     );
   });
 
-  it("does not repeat the name when the folder is itself called Inbox", () => {
+  it("keeps the folder's own name whatever it is called", () => {
     h.setPath("/Users/me/Inbox");
     h.setFiles([{ name: "a.md", path: "/Users/me/Inbox/a.md", size_bytes: 1 }]);
     const { container } = render(() => <InboxSection />);
-    expect(container.querySelector(".sidebar-section-heading")!.textContent!.trim()).toBe("Inbox");
+    expect(container.querySelector(".sidebar-section-heading")!.textContent!.trim()).toBe(
+      "Watched · Inbox",
+    );
   });
 
   it("lists files with formatted sizes", () => {

@@ -586,7 +586,7 @@ fn a_note_read_back_from_disk_moves_its_row_forward() {
     let after = store.get("guard-1").expect("the row").updated_at;
     assert!(
         after > before,
-        "the stamp a relaunch compares the last snapshot against did not move"
+        "the stamp that records when Writ last learned what the file holds did not move"
     );
     assert_eq!(
         store.get("guard-1").expect("the row").size_bytes,

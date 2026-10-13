@@ -21,12 +21,16 @@ afterEach(() => {
 });
 
 describe("SidebarEmpty", () => {
-  it("offers New file and Open a folder as buttons with their keycaps", () => {
+  it("says the folder is empty and offers New file and Show folder as buttons", () => {
     const { container } = render(() => <SidebarEmpty />);
-    expect(container.querySelector(".sidebar-empty-title")!.textContent).toBe("No files yet.");
+    expect(container.querySelector(".sidebar-empty-title")!.textContent).toBe(
+      "This folder is empty.",
+    );
     expect(buttonNamed(container, "New file").classList).toContain("writ-btn-primary");
-    expect(buttonNamed(container, "Open a folder").classList).toContain("writ-btn-secondary");
-    // Only New file has a binding; CmdOrCtrl+O still opens a file.
+    expect(buttonNamed(container, "Show folder in Finder").classList).toContain(
+      "writ-btn-secondary",
+    );
+    // Only New file has a binding.
     const caps = Array.from(container.querySelectorAll(".kbd-chord")).map((el) =>
       el.getAttribute("aria-label"),
     );
@@ -39,10 +43,10 @@ describe("SidebarEmpty", () => {
     expect(h.executeCommand).toHaveBeenCalledWith("note.new");
   });
 
-  it("Open a folder runs the open-folder command", () => {
+  it("Show folder runs the command that shows the notes folder", () => {
     const { container } = render(() => <SidebarEmpty />);
-    fireEvent.click(buttonNamed(container, "Open a folder"));
-    expect(h.executeCommand).toHaveBeenCalledWith("workspace.openFolder");
+    fireEvent.click(buttonNamed(container, "Show folder in Finder"));
+    expect(h.executeCommand).toHaveBeenCalledWith("notes.showFolder");
   });
 
   it("never says buffer or scratch", () => {

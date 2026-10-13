@@ -128,6 +128,7 @@ fn spawn_notes_reconcile(
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     gate: std::sync::Arc<writ_core::watcher::reconcile::ReconcileGate>,
     root: std::path::PathBuf,
+    bus: std::sync::Arc<writ_core::events::bus::EventBus>,
 ) {
     use std::sync::atomic::Ordering;
 
@@ -139,14 +140,17 @@ fn spawn_notes_reconcile(
         let cancelled = || cancel.load(Ordering::Relaxed) || index.generation() != generation;
         let outcome = index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless);
         match outcome {
-            Ok(outcome) => info!(
-                added = outcome.added,
-                updated = outcome.updated,
-                removed = outcome.removed,
-                name_only = outcome.skipped_dataless,
-                cancelled = outcome.cancelled,
-                "notes index reconciled"
-            ),
+            Ok(outcome) => {
+                info!(
+                    added = outcome.added,
+                    updated = outcome.updated,
+                    removed = outcome.removed,
+                    name_only = outcome.skipped_dataless,
+                    cancelled = outcome.cancelled,
+                    "notes index reconciled"
+                );
+                commands::note_index::announce_walk(&bus, &root, &outcome);
+            }
             Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
         }
         // Shutdown takes precedence over anything owed: a walk asked for
@@ -509,6 +513,7 @@ pub fn run() {
             commands::notes::show_note_in_file_manager,
             commands::notes::show_notes_file_in_file_manager,
             commands::notes::get_notes_root,
+            commands::notes::list_notes_dir,
             commands::first_run::first_run_state,
             commands::first_run::dismiss_first_run_hint,
             commands::first_run::finish_first_run,
@@ -655,9 +660,13 @@ pub fn run() {
             {
                 let state = app.state::<AppState>();
                 let bridge_handle = handle.clone();
-                bus_bridge::attach_bridge(&state.event_bus, move |frontend_event| {
-                    let _ = emit_event(&bridge_handle, frontend_event);
-                });
+                bus_bridge::attach_bridge_behind_notes_index(
+                    &state.event_bus,
+                    state.notes_index.clone(),
+                    move |frontend_event| {
+                        let _ = emit_event(&bridge_handle, frontend_event);
+                    },
+                );
                 info!("event bus bridge attached");
             }
 
@@ -686,14 +695,10 @@ pub fn run() {
                 });
             }
 
-            // Keep the notes index honest about a file another program wrote
-            // (ADR-028 section 7). A separate subscriber from the frontend
-            // bridge, so both observe every NotesChanged.
-            //
-            // It patches the one path and nothing else. It must never reload
-            // the document registry: that recreates a loaded
-            // `writ-preview://` iframe and hard-freezes the macOS webview
-            // (PR #127).
+            // Keep the notes index honest when the watcher saw more change than
+            // it listed (ADR-028 section 7). A file another program wrote is
+            // patched in ahead of the bridge instead
+            // (`bus_bridge::attach_bridge_behind_notes_index`).
             {
                 use writ_core::events::bus::WritEvent;
                 let state = app.state::<AppState>();
@@ -711,29 +716,14 @@ pub fn run() {
                     // notes folder restarts the watcher, and the walk has to
                     // follow.
                     if let WritEvent::NotesSwept { .. } = event {
+                        let state = handle.state::<AppState>();
                         spawn_notes_reconcile(
                             index.clone(),
                             cancel.clone(),
                             reconcile_gate.clone(),
-                            handle.state::<AppState>().notes_root(),
+                            state.notes_root(),
+                            state.event_bus.clone(),
                         );
-                        return;
-                    }
-                    let WritEvent::NotesChanged { path, removed } = event else {
-                        return;
-                    };
-                    let path = std::path::Path::new(path);
-                    // A rename arrives as one delete and one create, so both
-                    // arms have to be replayable: forgetting a path the index
-                    // does not hold, and indexing one it already has, are both
-                    // no-ops rather than errors.
-                    let result = if *removed {
-                        index.forget_path(path)
-                    } else {
-                        index.index_path(path).map(|_| ())
-                    };
-                    if let Err(e) = result {
-                        tracing::warn!(path = %path.display(), error = %e, "notes index update failed");
                     }
                 });
             }
@@ -896,6 +886,7 @@ pub fn run() {
                     state.notes_index_cancel.clone(),
                     state.notes_reconcile.clone(),
                     notes_root.clone(),
+                    state.event_bus.clone(),
                 );
 
                 // The registry of open files goes up first: it is how the

@@ -29,6 +29,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 }));
 
 import FileTree from "../../components/Sidebar/FileTree";
+import { workspaceStore } from "../../stores/global/workspace";
 
 function entry(name: string): WorkspaceEntry {
   return { name, path: `/notes/${name}`, is_dir: false, conflict_copy: null };
@@ -48,7 +49,7 @@ describe("the folder tree marks the note the editor is showing", () => {
     h.activeTabId = "b1";
     h.tabs = [{ id: "b1", source_path: "/notes/launch.md" }];
 
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={workspaceStore} />);
     const rows = Array.from(container.querySelectorAll<HTMLElement>(".file-tree-item"));
 
     expect(rows[0].getAttribute("aria-selected")).toBe("true");
@@ -62,7 +63,7 @@ describe("the folder tree marks the note the editor is showing", () => {
     h.activeTabId = "b1";
     h.tabs = [{ id: "b1", source_path: null }];
 
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={workspaceStore} />);
     const row = container.querySelector<HTMLElement>(".file-tree-item")!;
 
     expect(row.getAttribute("aria-selected")).toBe("false");

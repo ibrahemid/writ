@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::config::WritConfig;
-use writ_core::events::bus::EventBus;
+use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::file_ops::{FileOpenMode, ERR_OPEN_TOO_LARGE, THRESHOLD_MAX_BYTES};
 use writ_core::notes::reload::ChangeChoice;
 use writ_core::preview::ContentRendererRegistry;
@@ -26,7 +26,7 @@ use writ_storage::config_store::ConfigStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
-use writ_storage::notes_index::NotesIndexStore;
+use writ_storage::notes_index::{self, NotesIndexStore};
 use writ_tauri_lib::commands::buffer::{
     close_buffer_inner, delete_buffer_inner, discard_unsaved_text_inner, list_active_buffers_inner,
     read_buffer_content_inner, record_unsaved_notes_inner, resolve_external_change_inner,
@@ -34,7 +34,9 @@ use writ_tauri_lib::commands::buffer::{
     ERR_FILE_CHANGED_ON_DISK, ERR_FILE_REMOVED_ON_DISK, ERR_NOTE_READ_ONLY,
     ERR_READ_ONLY_DESTINATION, ERR_WRITE_FAILED,
 };
-use writ_tauri_lib::commands::file::open_file_from_path;
+use writ_tauri_lib::commands::file::{
+    accept_note_save_path, open_file_from_path, suggest_note_save_path,
+};
 use writ_tauri_lib::commands::history::restore_buffer_inner;
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -1483,6 +1485,132 @@ fn save_as_that_does_not_land_takes_the_chosen_path_back() {
     );
 }
 
+/// Another spelling of a file is that file: Save As resolves the path it is
+/// given before it compares it with the open tabs, so a file another tab has
+/// open is refused however it is spelled, and a note given a file records the
+/// resolved spelling.
+#[test]
+fn save_as_takes_another_spelling_of_a_path_as_that_file() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    let (_, open_path) = open_note_at(&state, &notes.join("Open.md"), "the open tab's text\n");
+    std::fs::create_dir_all(notes.join("sub")).expect("folder");
+    insert_new_note(&state, "fresh", "Fresh");
+    state
+        .store
+        .lock()
+        .unwrap()
+        .record_unsaved_text("fresh", "the first words", chrono::Utc::now())
+        .expect("journal");
+
+    let open_respelled = notes.join("sub").join("..").join("Open.md");
+    let refused = save_note_to_inner(
+        &state,
+        "fresh",
+        "the first words",
+        &open_respelled.to_string_lossy(),
+    )
+    .expect_err("a file another tab has open is not replaced");
+    assert!(refused.starts_with(ERR_WRITE_FAILED), "{refused}");
+    assert_eq!(
+        std::fs::read_to_string(&open_path).unwrap(),
+        "the open tab's text\n"
+    );
+    assert_eq!(row_path(&state, "fresh"), None);
+    assert_eq!(
+        journaled(&state, "fresh").as_deref(),
+        Some("the first words")
+    );
+
+    let free_respelled = notes.join("sub").join("..").join("Free.md");
+    save_note_to_inner(
+        &state,
+        "fresh",
+        "the first words",
+        &free_respelled.to_string_lossy(),
+    )
+    .expect("a place nothing has open takes the text");
+    let free = canonicalize_for_authorization(&notes.join("Free.md")).expect("the file is there");
+    assert_eq!(row_path(&state, "fresh").as_deref(), Some(free.as_str()));
+    assert_eq!(std::fs::read_to_string(&free).unwrap(), "the first words");
+    assert_eq!(journaled(&state, "fresh"), None);
+}
+
+/// A write through another spelling of the path that does not land takes the
+/// resolved path back off the row, the spelling the row was given.
+#[test]
+fn save_as_through_another_spelling_that_does_not_land_takes_the_path_back() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    std::fs::create_dir_all(notes.join("sub")).expect("folder");
+    let locked = notes.join("Locked.md");
+    std::fs::write(&locked, "what the file held\n").expect("write");
+    set_read_only(&locked, true);
+    insert_new_note(&state, "fresh", "Fresh");
+    state
+        .store
+        .lock()
+        .unwrap()
+        .record_unsaved_text("fresh", "the first words", chrono::Utc::now())
+        .expect("journal");
+
+    let respelled = notes.join("sub").join("..").join("Locked.md");
+    let refused = save_note_to_inner(
+        &state,
+        "fresh",
+        "the first words",
+        &respelled.to_string_lossy(),
+    )
+    .expect_err("a read-only file is not replaced");
+    set_read_only(&locked, false);
+    assert!(refused.starts_with(ERR_READ_ONLY_DESTINATION), "{refused}");
+    assert_eq!(row_path(&state, "fresh"), None);
+    assert_eq!(
+        std::fs::read_to_string(&locked).unwrap(),
+        "what the file held\n"
+    );
+    assert_eq!(
+        journaled(&state, "fresh").as_deref(),
+        Some("the first words")
+    );
+}
+
+/// The save panel opens on the notes folder with the name the note's first
+/// save gives it, and the place the person picks comes back resolved and
+/// recorded as theirs, so the Save As that follows lands there
+/// (`pick_note_save_path` around the panel).
+#[test]
+fn the_save_panel_opens_on_the_notes_folder_and_takes_the_place_picked() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    insert_new_note(&state, "fresh", "Fresh");
+
+    let (folder, name) = suggest_note_save_path(&state, "fresh").expect("a place to offer");
+    assert_eq!(folder, state.notes_root());
+    assert_eq!(name, unmade(&state, "Fresh").name);
+
+    let elsewhere = dir.path().join("Elsewhere");
+    std::fs::create_dir_all(elsewhere.join("sub")).expect("folders");
+    let picked = elsewhere.join("sub").join("..").join("Chosen.txt");
+    let answer = accept_note_save_path(&state, &picked).expect("the place resolves");
+    assert_eq!(
+        Some(answer.clone()),
+        resolve_for_containment(&elsewhere.join("Chosen.txt")),
+        "the answer is the place picked, resolved"
+    );
+
+    save_note_to_inner(&state, "fresh", "the first words", &answer)
+        .expect("the place picked takes the text");
+    assert_eq!(std::fs::read_to_string(&answer).unwrap(), "the first words");
+    assert_eq!(row_path(&state, "fresh").as_deref(), Some(answer.as_str()));
+    assert_eq!(journaled(&state, "fresh"), None);
+
+    accept_note_save_path(&state, Path::new("Chosen.txt"))
+        .expect_err("a path that names no folder is no place");
+}
+
 /// A closed file that Save As gave to another note is that note's now:
 /// reopening it from the history list answers with the tab that has it open,
 /// and the closed row stays closed, so the file has one open tab.
@@ -1719,6 +1847,127 @@ fn keep_mine_whose_write_the_guard_stops_keeps_nothing_a_copy_holds() {
         dated_copies(&notes, "recovered").is_empty(),
         "no second copy beside the note"
     );
+}
+
+/// Every `notes:indexed` the state's bus sends from now on, one list of paths
+/// per event (ADR-036 section 4).
+fn announcements(state: &AppState) -> Arc<Mutex<Vec<Vec<String>>>> {
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let sink = heard.clone();
+    state.event_bus.subscribe(move |event| {
+        if let WritEvent::NotesIndexed { paths } = event {
+            sink.lock().unwrap().push(paths.clone());
+        }
+    });
+    heard
+}
+
+/// A save the guard stops leaves its text in a copy beside the note. The
+/// journal settles on that copy and the index is told about it: the tab's
+/// entry clears, a handover of the same text keeps nothing, and the copy has
+/// rows and is announced once.
+#[test]
+fn a_save_the_guard_stops_clears_the_entry_and_indexes_its_copy() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    let (id, path) = open_note_at(&state, &notes.join("Shared.md"), "# On disk\n");
+
+    set_read_only(&path, true);
+    save_buffer_content_inner(&state, &id, "# Typed\n").expect_err("read-only");
+    set_read_only(&path, false);
+    assert_eq!(journaled(&state, &id).as_deref(), Some("# Typed\n"));
+
+    std::fs::write(&path, "# What a sync client delivered\n").expect("external write");
+    let heard = announcements(&state);
+    let refused = save_buffer_content_inner(&state, &id, "# Typed\n\n## More\n")
+        .expect_err("the guard stops a write over a change Writ never read");
+    assert!(refused.starts_with(ERR_FILE_CHANGED_ON_DISK), "{refused}");
+
+    let copies = dated_copies(&notes, "conflict");
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    let copy = notes_index::index_key(&copies[0]);
+    assert_eq!(
+        heard.lock().unwrap().clone(),
+        vec![vec![copy.clone()]],
+        "one announcement, naming the copy"
+    );
+    assert!(
+        state.notes_index.note_paths().unwrap().contains(&copy),
+        "the copy has rows"
+    );
+    assert_eq!(
+        journaled(&state, &id),
+        None,
+        "the copy is a file holding the text"
+    );
+
+    record_unsaved_notes_inner(
+        &state,
+        vec![UnsavedNote {
+            id: id.clone(),
+            content: "# Typed\n\n## More\n".to_string(),
+        }],
+    )
+    .expect("hand the text over");
+    assert_eq!(
+        journaled(&state, &id),
+        None,
+        "the copy the stopped save left holds this text"
+    );
+}
+
+/// `Keep mine` whose own write the guard stops writes two copies, what the
+/// file held and what the tab held, and the answer announces both as one
+/// event, with nothing left in the journal.
+#[test]
+fn keep_mine_whose_write_the_guard_stops_announces_both_copies_once() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    let (id, path) = open_note_at(&state, &notes.join("Raced.md"), "# On disk\n");
+    std::fs::write(&path, "# Theirs\n").expect("external write");
+    let heard = announcements(&state);
+
+    // Stops the answer between its read and its own write, as in
+    // `keep_mine_whose_write_the_guard_stops_keeps_nothing_a_copy_holds`.
+    let record = state.last_disk_hash.lock().expect("the record");
+    let answered = std::thread::scope(|scope| {
+        let answer = scope.spawn(|| {
+            resolve_external_change_inner(&state, &id, ChangeChoice::KeepMine, "# Mine\n")
+        });
+        let read = wait_until(|| !dated_copies(&notes, "conflict").is_empty());
+        std::fs::write(&path, "# Theirs again\n").expect("a second external write");
+        drop(record);
+        let answered = answer.join().expect("the answer ran");
+        assert!(read, "the answer read the file and set its text aside");
+        answered
+    });
+
+    let refused = answered.expect_err("the guard stopped the write");
+    assert!(refused.starts_with(ERR_FILE_CHANGED_ON_DISK), "{refused}");
+    let copy_holding = |text: &str| -> String {
+        let found: Vec<PathBuf> = dated_copies(&notes, "conflict")
+            .into_iter()
+            .filter(|copy| std::fs::read_to_string(copy).unwrap() == text)
+            .collect();
+        assert_eq!(found.len(), 1, "{text:?}: {found:?}");
+        notes_index::index_key(&found[0])
+    };
+    let read_copy = copy_holding("# Theirs\n");
+    let stopped_copy = copy_holding("# Mine\n");
+    assert_eq!(
+        heard.lock().unwrap().clone(),
+        vec![vec![read_copy.clone(), stopped_copy.clone()]],
+        "one answer is one announcement"
+    );
+    let rows = state.notes_index.note_paths().unwrap();
+    assert!(
+        rows.contains(&read_copy) && rows.contains(&stopped_copy),
+        "{rows:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Theirs again\n");
+    assert_eq!(journaled(&state, &id), None, "both texts are in files");
 }
 
 /// A tab whose file grew past the size Writ opens keeps the text its refused

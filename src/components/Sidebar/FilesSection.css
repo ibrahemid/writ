@@ -1,0 +1,48 @@
+/* The tag the tree is filtered by, in the Files heading: the same face as the
+   tag row's name, on the selected-row ground, with its own clear control. */
+.files-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--writ-space-1);
+  min-width: 0;
+  max-width: 120px;
+  margin-right: var(--writ-space-2);
+  padding: 0 var(--writ-space-1) 0 var(--writ-space-2);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-selected);
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}
+
+.files-tag-chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-tag-chip-clear {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: var(--writ-r-action);
+  background: transparent;
+  color: var(--writ-fg-muted);
+  cursor: pointer;
+}
+
+.files-tag-chip-clear:hover {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
+}
+
+.files-tag-chip-clear:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: -1px;
+}

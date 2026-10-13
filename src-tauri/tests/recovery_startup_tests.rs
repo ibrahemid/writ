@@ -136,7 +136,7 @@ fn an_unclean_relaunch_keeps_what_arrived_while_writ_was_down_and_seeds_the_guar
     assert_eq!(
         std::fs::read_to_string(&moved_on).unwrap(),
         "what a sync client delivered",
-        "a relaunch must not write a pre-crash snapshot over a newer version"
+        "a relaunch must not write journaled text over a newer version"
     );
     let copies = dated_copies(notes.path(), "recovered");
     assert_eq!(copies.len(), 1, "{copies:?}");

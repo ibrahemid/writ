@@ -74,6 +74,10 @@ pub struct RestoredVersion {
 pub struct VersionCopy {
     /// The name of the new file, never the folder it sits in.
     pub name: String,
+    /// Where the file is, for the caller that indexes it. The panel names the
+    /// file and nothing more, so it is not sent.
+    #[serde(skip)]
+    pub path: PathBuf,
 }
 
 /// Every text the store holds for the note at `path`, newest first.
@@ -230,6 +234,7 @@ pub fn copy_note_version_inner(
             );
             Ok(VersionCopy {
                 name: file_name_only(&copy.to_string_lossy()),
+                path: copy,
             })
         }
         Err(_) => {
@@ -405,20 +410,41 @@ pub fn restore_note_version(
     restore_note_version_for_tab(&state, version_id)
 }
 
-/// IPC: [`copy_note_version_inner`].
-#[tauri::command]
-pub fn copy_note_version(
-    state: State<'_, AppState>,
+/// [`copy_note_version_inner`] in the app's notes folder, with the copy
+/// indexed and announced ([`crate::commands::note_index::index_copy`]).
+///
+/// The copy is stamped for the watcher, so nothing else tells search, the
+/// tags, the graph or the tree that a file appeared.
+///
+/// # Errors
+///
+/// Whatever the copy itself failed for.
+pub fn copy_note_version_and_index(
+    state: &AppState,
     version_id: i64,
 ) -> Result<VersionCopy, String> {
     let notes_root = state.notes_root();
-    let stamp = crate::commands::buffer::ignore_stamper(&state);
-    copy_note_version_inner(
+    let stamp = crate::commands::buffer::ignore_stamper(state);
+    let copy = copy_note_version_inner(
         &notes_root,
         &state.writ_dir,
         &state.note_history,
         version_id,
         Utc::now(),
         Some(&stamp),
-    )
+    )?;
+    crate::commands::note_index::announce_indexed(
+        &state.event_bus,
+        crate::commands::note_index::index_copy(state, &copy.path),
+    );
+    Ok(copy)
+}
+
+/// IPC: [`copy_note_version_and_index`].
+#[tauri::command]
+pub fn copy_note_version(
+    state: State<'_, AppState>,
+    version_id: i64,
+) -> Result<VersionCopy, String> {
+    copy_note_version_and_index(&state, version_id)
 }

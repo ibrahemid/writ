@@ -377,8 +377,8 @@ pub fn update_filename(conn: &Connection, id: &str, filename: &str) -> StorageRe
 }
 
 /// Records a buffer's file size as a stat measured it, leaving `updated_at`
-/// alone: a stat is not a read, and the stamp is what a relaunch compares a
-/// crash snapshot against.
+/// alone: a stat is not a read, and the stamp records when Writ last learned
+/// what the file holds.
 pub fn update_size(conn: &Connection, id: &str, size_bytes: u64) -> StorageResult<()> {
     conn.execute(
         "UPDATE buffers SET size_bytes = ?1 WHERE id = ?2",
@@ -390,9 +390,10 @@ pub fn update_size(conn: &Connection, id: &str, size_bytes: u64) -> StorageResul
 /// Records the length a buffer's file was last read at, and stamps
 /// `updated_at` to now.
 ///
-/// The stamp is the point: it is what a relaunch compares the last crash
-/// snapshot against, so a note Writ re-read has to look newer than a snapshot
-/// taken before it.
+/// The stamp is the point: it records when Writ last learned what the file
+/// holds. The one comparison that reads it is the carry-over of a 0.5
+/// snapshot (`crate::recovery::legacy`), which leaves alone a note read after
+/// that snapshot was taken.
 pub fn update_size_and_timestamp(
     conn: &Connection,
     id: &str,

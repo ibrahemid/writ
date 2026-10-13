@@ -33,7 +33,7 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
-    sidebar: { recentRequest: h.recentRequest[0] },
+    sidebar: { recentRequest: h.recentRequest[0], isOpen: () => true },
     tabs: { restoreFromHistory: vi.fn() },
   }),
 }));
