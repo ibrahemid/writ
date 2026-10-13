@@ -25,8 +25,9 @@ env:
 # and signing-config name it. Those jobs run Apple's tools, pinned minisign and
 # the repository's own scripts; sign-windows adds the Tauri CLI, installed with
 # package scripts off, which runs signtool and its WiX tools. No dependency
-# build script, proc macro or Vite plugin runs beside a key, and only publish
-# holds a write token.
+# build script, proc macro or Vite plugin runs beside a key. Only publish can
+# write repository contents; publish and attest-sboms can also mint an OIDC
+# token and write attestations. No job restores or saves an Actions cache.
 jobs:
   plan:
     name: Plan release
@@ -34,21 +35,19 @@ jobs:
     outputs:
       tag_name: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
-      ref: ${{ steps.tag.outputs.ref }}
       sbom_matrix: ${{ steps.sboms.outputs.matrix }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/{0}', inputs.tag) || github.ref }}
-          fetch-depth: 0
-          persist-credentials: false
-
+      # A manual run works in the cache scope of the branch it was started
+      # from, usually main, and every job checks out the tag it names. Before
+      # anything is checked out, that tag must exist and its commit must
+      # already be on the default branch.
       - name: Resolve tag
         id: tag
         env:
           INPUT_TAG: ${{ inputs.tag }}
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         shell: bash
         run: |
           set -euo pipefail
@@ -57,20 +56,57 @@ jobs:
           else
             TAG="$REF_NAME"
           fi
-          if [ -z "$TAG" ]; then
-            echo "No tag resolved" >&2
+          TAG_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
+          if [[ ! "$TAG" =~ $TAG_PATTERN ]]; then
+            printf '::error::Refusing to release %q: a release tag is v<major>.<minor>.<patch>, with an optional -<candidate> suffix\n' "$TAG"
             exit 1
           fi
-          case "$TAG" in
-            v*.*.*) ;;
-            *) echo "Refusing to release non-semver tag: $TAG" >&2; exit 1 ;;
-          esac
-          VERSION="${TAG#v}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -z "$DEFAULT_BRANCH" ]; then
+              echo "::error::The event names no default branch to check $TAG against"
+              exit 1
+            fi
+            export GIT_TERMINAL_PROMPT=0
+            CHECK="$RUNNER_TEMP/release-tag-check.git"
+            git init --quiet --bare "$CHECK"
+            git -C "$CHECK" remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+            if ! git -C "$CHECK" fetch --quiet --no-tags --filter=tree:0 origin "+refs/heads/$DEFAULT_BRANCH:refs/heads/$DEFAULT_BRANCH"; then
+              echo "::error::Could not fetch $DEFAULT_BRANCH to check $TAG against"
+              exit 1
+            fi
+            if ! git -C "$CHECK" fetch --quiet --no-tags --filter=tree:0 origin "+refs/tags/$TAG:refs/tags/$TAG"; then
+              if git -C "$CHECK" ls-remote --exit-code origin "refs/heads/$TAG" > /dev/null; then
+                echo "::error::$TAG is a branch, not a tag. A manual run releases an existing tag."
+              else
+                echo "::error::No tag named $TAG exists."
+              fi
+              exit 1
+            fi
+            if ! COMMIT="$(git -C "$CHECK" rev-parse --verify --quiet "refs/tags/$TAG^{commit}")"; then
+              echo "::error::Tag $TAG does not point to a commit."
+              exit 1
+            fi
+            STATUS=0
+            git -C "$CHECK" merge-base --is-ancestor "$COMMIT" "refs/heads/$DEFAULT_BRANCH" || STATUS=$?
+            if [ "$STATUS" -eq 1 ]; then
+              echo "::error::Tag $TAG ($COMMIT) is not on $DEFAULT_BRANCH. A manual run releases only a tag whose commit is already on $DEFAULT_BRANCH."
+              exit 1
+            elif [ "$STATUS" -ne 0 ]; then
+              echo "::error::Could not check whether $TAG is on $DEFAULT_BRANCH: git merge-base exited with $STATUS."
+              exit 1
+            fi
+            echo "$TAG ($COMMIT) is on $DEFAULT_BRANCH"
+          fi
           {
             echo "tag=$TAG"
-            echo "version=$VERSION"
-            echo "ref=refs/tags/$TAG"
+            echo "version=${TAG#v}"
           } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
 
       # The site regenerates release.json at deploy, so a committed copy naming
       # an older release is invisible until the download page serves the wrong
@@ -140,7 +176,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ needs.plan.outputs.ref }}
+          ref: refs/tags/${{ needs.plan.outputs.tag_name }}
           persist-credentials: false
 
       - name: Install Rust toolchain
@@ -178,16 +214,10 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: 22
-          cache: pnpm
+          package-manager-cache: false
 
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
-        with:
-          workspaces: ". -> target"
-          shared-key: release-${{ matrix.os }}
 
       - name: Build CLI sidecar
         shell: bash
@@ -337,7 +367,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ needs.plan.outputs.ref }}
+          ref: refs/tags/${{ needs.plan.outputs.tag_name }}
           persist-credentials: false
 
       - name: Install Rust toolchain
@@ -422,7 +452,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ needs.plan.outputs.ref }}
+          ref: refs/tags/${{ needs.plan.outputs.tag_name }}
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -713,7 +743,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ needs.plan.outputs.ref }}
+          ref: refs/tags/${{ needs.plan.outputs.tag_name }}
           persist-credentials: false
 
       - name: Install Rust toolchain
@@ -728,8 +758,8 @@ jobs:
           version: 10.13.1
           run_install: false
 
-      # setup-node restores a pnpm cache unless told not to, because
-      # package.json names a packageManager; a signing job restores no cache.
+      # setup-node is given no cache input, so it restores none; a signing job
+      # restores no cache.
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
@@ -849,7 +879,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ needs.plan.outputs.ref }}
+          ref: refs/tags/${{ needs.plan.outputs.tag_name }}
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -1051,7 +1081,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ needs.plan.outputs.ref }}
+          ref: refs/tags/${{ needs.plan.outputs.tag_name }}
           persist-credentials: false
           sparse-checkout-cone-mode: false
           sparse-checkout: |

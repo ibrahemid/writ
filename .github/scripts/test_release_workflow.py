@@ -6,8 +6,11 @@ Run from the repository root:
 
 from __future__ import annotations
 
+import os
 import pathlib
 import re
+import subprocess
+import tempfile
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -15,7 +18,8 @@ RELEASE = REPO_ROOT / ".github/workflows/release.yml"
 CI = REPO_ROOT / ".github/workflows/ci.yml"
 
 SIGNING_JOBS = {"signing-config", "sign-macos", "sign-windows", "sign-updater"}
-PLAN_REF = "ref: ${{ needs.plan.outputs.ref }}"
+PLAN_REF = "ref: refs/tags/${{ needs.plan.outputs.tag_name }}"
+CACHE_ACTIONS = ("Swatinem/rust-cache@", "actions/cache@", "actions/cache/restore@", "actions/cache/save@")
 
 
 class WorkflowShapeError(LookupError):
@@ -97,6 +101,20 @@ def job_steps(job: str) -> list[str]:
 def step_uses(step: str) -> str | None:
     match = re.search(r"^      (?:- |  )uses: (\S+)", step, re.MULTILINE)
     return match.group(1) if match else None
+
+
+def step_script(step: str) -> str:
+    lines = step.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() == "run: |":
+            indent = len(line) - len(line.lstrip()) + 2
+            body = []
+            for text in lines[index + 1 :]:
+                if text.strip() and len(text) - len(text.lstrip()) < indent:
+                    break
+                body.append(text[indent:])
+            return "\n".join(body).rstrip() + "\n"
+    raise WorkflowShapeError(f"no run block in {lines[0].strip()!r}")
 
 
 def secret_names(text: str) -> set[str]:
@@ -202,8 +220,32 @@ class ReleaseWorkflowTests(unittest.TestCase):
             for step in self.steps_using(name, "actions/checkout"):
                 with self.subTest(job=name):
                     self.assertIn("persist-credentials: false", step)
-                    if name != "plan":
+                    if name == "plan":
+                        self.assertIn("ref: refs/tags/${{ steps.tag.outputs.tag }}", step)
+                    else:
                         self.assertIn(PLAN_REF, step)
+
+    def test_plan_checks_the_tag_before_it_checks_out_or_runs_repository_code(self) -> None:
+        steps = job_steps(self.jobs["plan"])
+        resolve = next(i for i, step in enumerate(steps) if step.startswith("      - name: Resolve tag"))
+        checkout = next(i for i, step in enumerate(steps) if (step_uses(step) or "").startswith("actions/checkout@"))
+        runs_code = [i for i, step in enumerate(steps) if re.search(r"\b(node|python3) (scripts|\.github)/", step)]
+        self.assertTrue(runs_code)
+        self.assertEqual(resolve, 0, "the tag check is the plan job's first step")
+        self.assertLess(checkout, min(runs_code))
+        self.assertNotIn("${{", step_script(steps[resolve]), "the tag check reads its inputs from env only")
+
+    def test_no_job_restores_or_saves_an_actions_cache(self) -> None:
+        for name, job in self.jobs.items():
+            for step in job_steps(job):
+                uses = step_uses(step) or ""
+                with self.subTest(job=name, step=step.splitlines()[0].strip()):
+                    self.assertFalse(uses.startswith(CACHE_ACTIONS), f"{name} uses {uses}: release builds start cold")
+                    if uses.startswith("actions/setup-node@"):
+                        self.assertIn("package-manager-cache: false", step)
+                        self.assertNotRegex(step, r"(?m)^\s+cache(-dependency-path)?:")
+                    if uses.startswith("pnpm/action-setup@"):
+                        self.assertNotRegex(step, r"(?m)^\s+cache:\s*['\"]?true")
 
     def test_the_build_job_holds_no_secret_and_signs_nothing(self) -> None:
         job = self.jobs["build"]
@@ -288,6 +330,142 @@ class ReleaseWorkflowTests(unittest.TestCase):
                             pattern.startswith("/") or "/" in pattern.rstrip("/"),
                             f"{pattern} also matches every file of that name below the root",
                         )
+
+
+class DispatchedTagTests(unittest.TestCase):
+    """Runs plan's Resolve tag script, verbatim from release.yml, against a local origin."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        steps = job_steps(workflow_jobs(RELEASE.read_text())["plan"])
+        [step] = [step for step in steps if step.startswith("      - name: Resolve tag")]
+        cls.script = step_script(step)
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory(prefix="writ-release-tag-test-")
+        self.addCleanup(tmp.cleanup)
+        self.root = pathlib.Path(tmp.name)
+        self.env = {
+            "PATH": os.environ["PATH"],
+            "HOME": str(self.root),
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_AUTHOR_NAME": "Release Test",
+            "GIT_AUTHOR_EMAIL": "release-test@example.invalid",
+            "GIT_COMMITTER_NAME": "Release Test",
+            "GIT_COMMITTER_EMAIL": "release-test@example.invalid",
+        }
+        work = self.root / "work"
+        self.git("init", "--quiet", "--initial-branch=main", str(work))
+        self.commit(work, "first")
+        self.git("-C", str(work), "tag", "v0.5.0")
+        self.commit(work, "second")
+        self.git("-C", str(work), "tag", "--annotate", "--message", "Writ 0.5.1", "v0.5.1")
+        self.git("-C", str(work), "branch", "v9.9.9")
+        self.git("-C", str(work), "branch", "v0.6.0-1")
+        self.git("-C", str(work), "tag", "v0.7.0", "HEAD^{tree}")
+        self.git("-C", str(work), "switch", "--quiet", "--create", "unmerged", "v0.5.0")
+        self.commit(work, "never merged")
+        self.git("-C", str(work), "tag", "v0.6.0-1")
+        self.unmerged = self.git("-C", str(work), "rev-parse", "HEAD").stdout.strip()
+        self.git("clone", "--quiet", "--bare", str(work), str(self.root / "server" / "ibrahemid" / "writ.git"))
+
+    def git(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["git", *args], env=self.env, capture_output=True, text=True, check=True)
+
+    def commit(self, work: pathlib.Path, message: str) -> None:
+        self.git("-C", str(work), "commit", "--quiet", "--allow-empty", "--message", message)
+
+    def resolve(
+        self, tag: str, event: str = "workflow_dispatch"
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, str], pathlib.Path]:
+        runner_temp = pathlib.Path(tempfile.mkdtemp(dir=self.root))
+        output = runner_temp / "github_output"
+        output.touch()
+        script = runner_temp / "resolve.sh"
+        script.write_text(self.script)
+        dispatched = event == "workflow_dispatch"
+        env = {
+            **self.env,
+            "EVENT_NAME": event,
+            "INPUT_TAG": tag if dispatched else "",
+            "REF_NAME": "main" if dispatched else tag,
+            "DEFAULT_BRANCH": "main",
+            "GITHUB_SERVER_URL": f"file://{self.root / 'server'}",
+            "GITHUB_REPOSITORY": "ibrahemid/writ",
+            "GITHUB_OUTPUT": str(output),
+            "RUNNER_TEMP": str(runner_temp),
+        }
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        return result, outputs, runner_temp
+
+    def assert_refused(self, result: subprocess.CompletedProcess[str], outputs: dict[str, str], message: str) -> None:
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(f"::error::{message}", result.stdout)
+        self.assertEqual(outputs, {})
+
+    def test_a_tag_on_main_is_released(self) -> None:
+        for tag in ("v0.5.0", "v0.5.1"):
+            with self.subTest(tag=tag):
+                result, outputs, _ = self.resolve(tag)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(outputs, {"tag": tag, "version": tag[1:]})
+                self.assertIn(f"{tag} (", result.stdout)
+                self.assertIn(") is on main", result.stdout)
+
+    def test_a_tag_whose_commit_is_not_on_main_is_refused(self) -> None:
+        result, outputs, _ = self.resolve("v0.6.0-1")
+        self.assert_refused(result, outputs, f"Tag v0.6.0-1 ({self.unmerged}) is not on main.")
+
+    def test_a_branch_name_is_refused(self) -> None:
+        result, outputs, runner_temp = self.resolve("main")
+        self.assert_refused(result, outputs, "Refusing to release main:")
+        self.assertFalse((runner_temp / "release-tag-check.git").exists())
+
+    def test_a_branch_named_like_a_release_is_refused(self) -> None:
+        result, outputs, _ = self.resolve("v9.9.9")
+        self.assert_refused(result, outputs, "v9.9.9 is a branch, not a tag.")
+
+    def test_a_missing_tag_is_refused(self) -> None:
+        result, outputs, _ = self.resolve("v1.0.0")
+        self.assert_refused(result, outputs, "No tag named v1.0.0 exists.")
+
+    def test_a_tag_that_names_no_commit_is_refused(self) -> None:
+        result, outputs, _ = self.resolve("v0.7.0")
+        self.assert_refused(result, outputs, "Tag v0.7.0 does not point to a commit.")
+
+    def test_revision_syntax_and_injected_text_are_refused_before_any_fetch(self) -> None:
+        for tag in (
+            "",
+            "v0.5",
+            "V0.5.1",
+            "v0.5.1-",
+            "v0.5.1^",
+            "v0.5.1~1",
+            "v0.5.1^{commit}",
+            "v0.5.1:refs/heads/main",
+            "refs/tags/v0.5.1",
+            "v0.5.1 --upload-pack=touch",
+            "v0.5.1\n::warning::injected",
+        ):
+            with self.subTest(tag=tag):
+                result, outputs, runner_temp = self.resolve(tag)
+                self.assert_refused(result, outputs, "Refusing to release ")
+                self.assertEqual(len(result.stdout.splitlines()), 1, result.stdout)
+                self.assertFalse((runner_temp / "release-tag-check.git").exists())
+
+    def test_a_pushed_tag_resolves_without_fetching(self) -> None:
+        result, outputs, runner_temp = self.resolve("v0.6.0-1", event="push")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(outputs, {"tag": "v0.6.0-1", "version": "0.6.0-1"})
+        self.assertFalse((runner_temp / "release-tag-check.git").exists())
 
 
 class CiWorkflowTests(unittest.TestCase):

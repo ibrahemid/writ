@@ -136,7 +136,10 @@ embeds (`MINISIGN_PUBKEY`): that release is signed with the old key through N
    the old key, which every installed copy accepts, and carries the new one.
 3. Once N is published, replace `TAURI_SIGNING_PRIVATE_KEY` and its password
    in the environment with the new key. Every later release is signed with it,
-   since the latest published release is now N.
+   since the latest published release is now N. Replace the preflight's copy
+   too: `~/.tauri/writ.key`, and its password in the Keychain item
+   `writ-tauri-signing` (2.3). Gate 9 checks the local key against the latest
+   published release and stops with the message in 5.4 until it is the new key.
 4. Leave N as the latest release long enough for most installed copies to take
    it. A copy that skips N keeps trusting the old key and cannot verify any
    later release: its owner has to reinstall from the site.
@@ -239,7 +242,11 @@ The push triggers `.github/workflows/release.yml`.
 ### 2.4 What the release workflow does
 
 The workflow token can only read the repository; the two jobs that need more
-say so. Every checkout is the tag `plan` resolved, on a manual run too.
+say so. Every checkout is the tag `plan` resolved, on a manual run too. A
+manual run (Run workflow with a `tag`) works in the cache scope of the branch
+it was started from, so before anything is checked out `plan` requires that the
+tag exists and that its commit is on `main`, and stops the run otherwise. No
+job restores or saves an Actions cache: every release build starts cold.
 
 1. `plan` resolves the tag, checks `site/src/data/release.json`, and writes the
    release notes, grouped by `feat:` / `fix:` / other conventional-commit
@@ -279,10 +286,11 @@ say so. Every checkout is the tag `plan` resolved, on a manual run too.
    writes `latest.json` (the Tauri updater manifest). It then verifies all of
    it against the key of the latest published release (1.5).
 8. `attest-sboms` attests each SBOM against the installers it describes.
-9. `publish`, the only job with a write token, downloads the signed set,
-   refuses a missing or extra file and any checksum mismatch, attests build
-   provenance for every asset, creates (or reuses) the **draft** release with
-   the notes, and uploads the assets.
+9. `publish`, the only job that can write release assets (`attest-sboms`
+   writes attestations), downloads the
+   signed set, refuses a missing or extra file and any checksum mismatch,
+   attests build provenance for every asset, creates (or reuses) the **draft**
+   release with the notes, and uploads the assets.
 
 The `.pkg` (with quit/relaunch scripts) and the `.dmg` (drag-to-Applications)
 ship on every release; the `.pkg` is the default recommendation and the source
@@ -530,8 +538,10 @@ failing. Safe to re-run after a failed build.
 
 The key in the `release` environment is not the key of the latest published
 release. Put the right key back, or finish the key move in 1.5 if one is under
-way. `TAURI_SIGNING_PRIVATE_KEY` unset or its password wrong fails the signing
-step itself, naming minisign's error.
+way. Gate 9 of `scripts/release-preflight.sh` stops with the same message when
+the local key (`~/.tauri/writ.key`, or `TAURI_SIGNING_PRIVATE_KEY_PATH`) is not
+that key. `TAURI_SIGNING_PRIVATE_KEY` unset or its password wrong fails the
+signing step itself, naming minisign's error.
 
 ## 6. Testing the update flow locally (no release, no CI)
 

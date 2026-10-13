@@ -1,7 +1,7 @@
 # ADR-007: In-App Updater
 
 **Status:** Accepted. Amended 2026-10-13: signing runs in its own jobs, apart
-from the build, and the updater key has offline copies and a transition path
+from the build, and the updater key has a custody rule and a transition path
 (Signing; Key custody and transition).
 **Date:** 2026-05-21
 
@@ -97,10 +97,11 @@ hold, and fails the release on any other key.
 
 ### Key custody and transition
 
-The key file and its password have two offline copies, on separate media in
-separate places. The environment secret is a working copy: GitHub never shows
-it again, and a lost key cannot be replaced by any release, because installed
-copies trust only the key built into them.
+The key file and its password must have two offline copies, on separate media
+in separate places (RELEASING 1.1). They are made by hand, and nothing in the
+repository records that they exist. The environment secret is a working copy:
+GitHub never shows it again, and a lost key cannot be replaced by any release,
+because installed copies trust only the key built into them.
 
 A new key reaches installed copies through one release (N) signed with the old
 key that carries the new public key. Every release after N is signed with the

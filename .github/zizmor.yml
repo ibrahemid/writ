@@ -1,9 +1,0 @@
-# The release build job restores the pnpm store, which pnpm checks for
-# integrity, and a Rust cache keyed release-<os> that only release runs write.
-# It holds no secret and no write token. Each entry names a line, so an edit
-# that moves one fails the audit.
-rules:
-  cache-poisoning:
-    ignore:
-      - release.yml:178
-      - release.yml:187
