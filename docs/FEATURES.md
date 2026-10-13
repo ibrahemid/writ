@@ -68,7 +68,7 @@ Six features are apps, each switched on under Settings, Apps, and all off on a f
 
 - **Chat**: a pane beside the file (`Cmd+Shift+A`) with the open file attached; `@` attaches another. Only attached files are sent, and the send dialog names the host and the byte count first. A proposed edit shows as a line diff with Apply and Discard. Conversations are kept and can be renamed or deleted.
 - **Rewrite**: proofread, rephrase, polish, improve prompt (which keeps `{{placeholders}}` as written), or your own instruction, on a selection.
-- **Connected programs**: an MCP server, `writ mcp`, that another program starts over stdio. Eight read tools and three write tools (write, create, rename), with separate read and write switches per program and nothing that deletes. Every program is refused until you approve it, and an Activity panel lists every call.
+- **Connected programs**: an MCP server, `writ mcp`, that another program starts over stdio. Eight read tools and three write tools (write, create, rename), with separate read and write switches per program and nothing that deletes. A program waits under Waiting for you, in Settings and in a notice, until you approve it or don't allow it, and Program activity lists every call.
 - **Connections**: a panel (`Cmd+Shift+\`) listing the files that link to the open one with the sentence each link sits in, its outline of headings, and its frontmatter properties.
 - **Graph**: the files around the open one, and a view of the whole folder with search and one colour per top-level folder.
 - **Tags**: `#tags` and frontmatter tags in the sidebar with counts. Nested tags group under their parent, and selecting one filters the file list.

@@ -1819,6 +1819,7 @@ export interface ActivityRecord {
   path: string | null;
   decision: ActivityDecision;
   bytes: number | null;
+  count?: number | null;
 }
 
 export async function activityRecent(limit: number): Promise<ActivityRecord[]> {
@@ -1868,13 +1869,19 @@ export async function mcpForgetClient(name: string): Promise<McpClients> {
 }
 
 /**
- * Turns one waiting program down without deciding about it.
- *
- * Nothing is written to the approval list, so the program is neither allowed
- * nor blocked: its next call puts it back on the waiting list.
+ * "Don't allow": stores a decision granting neither direction, so the program
+ * is answered as not allowed and is not put back on the waiting list.
  */
-export async function mcpRefuseWaitingClient(name: string): Promise<McpClients> {
-  return invoke("mcp_refuse_waiting_client", { name });
+export async function mcpDenyClient(name: string): Promise<McpClients> {
+  return invoke("mcp_deny_client", { name });
+}
+
+export async function mcpReturnToWaiting(name: string): Promise<McpClients> {
+  return invoke("mcp_return_to_waiting", { name });
+}
+
+export async function mcpRestoreClient(approval: ClientApproval): Promise<McpClients> {
+  return invoke("mcp_restore_client", { approval });
 }
 
 export interface McpServerCommand {

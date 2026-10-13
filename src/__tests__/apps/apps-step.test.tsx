@@ -94,6 +94,12 @@ describe("the Apps step", () => {
     expect(container.querySelector("[data-action='cancel-apps']")).toBeNull();
   });
 
+  it("names MCP and two programs on the Connected programs card", () => {
+    const { container } = mount();
+    const card = container.querySelector("[data-app='programs']")!.textContent ?? "";
+    for (const name of ["MCP", "Claude Code", "Cursor"]) expect(card).toContain(name);
+  });
+
   it("puts the reader on the first switch", () => {
     const { container } = mount();
     expect(document.activeElement).toBe(switchFor(container, "chat"));

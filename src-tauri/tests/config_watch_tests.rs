@@ -12,10 +12,12 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
+use writ_core::activity::ClientId;
 use writ_core::config::WritConfig;
 use writ_core::events::bus::{EventBus, WritEvent};
-use writ_core::watcher::ignore::{config_key, DEFAULT_IGNORE_TTL};
+use writ_core::watcher::ignore::{config_key, data_key, DEFAULT_IGNORE_TTL};
 use writ_storage::config_store::ConfigStore;
+use writ_storage::pending_clients;
 use writ_tauri_lib::security::resolve_for_containment;
 use writ_tauri_lib::watcher::handler::{create_ignore_set, start_file_watcher, IgnoreSet};
 
@@ -70,6 +72,23 @@ fn collect_config_changes(rx: &mpsc::Receiver<WritEvent>) -> Vec<WritEvent> {
     seen
 }
 
+fn count_pending_changes(rx: &mpsc::Receiver<WritEvent>) -> usize {
+    let deadline = Instant::now() + SETTLE;
+    let mut seen = 0;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match rx.recv_timeout(left) {
+            Ok(WritEvent::McpPendingChanged) => seen += 1,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    seen
+}
+
+fn pending_beside(config_path: &Path) -> PathBuf {
+    pending_clients::path(config_path.parent().expect("a data folder"))
+}
+
 fn bus_with_channel() -> (Arc<EventBus>, mpsc::Receiver<WritEvent>) {
     let bus = Arc::new(EventBus::new());
     let (tx, rx) = mpsc::channel();
@@ -87,8 +106,13 @@ fn assert_own_write_absorbed_and_later_edit_reported(config_path: &Path) {
 
     let ignore = create_ignore_set();
     let (bus, rx) = bus_with_channel();
-    let _watcher = start_file_watcher(bus, config_path.to_path_buf(), ignore.clone())
-        .expect("start the config watcher");
+    let _watcher = start_file_watcher(
+        bus,
+        config_path.to_path_buf(),
+        pending_beside(config_path),
+        ignore.clone(),
+    )
+    .expect("start the config watcher");
     // A late delivery of the seed write is the platform's business; the
     // assertions start from a quiet folder.
     collect_config_changes(&rx);
@@ -138,8 +162,13 @@ fn a_config_created_after_the_watcher_started_is_followed() {
     let config_path = data.path().join("config.toml");
 
     let (bus, rx) = bus_with_channel();
-    let _watcher = start_file_watcher(bus, config_path.clone(), create_ignore_set())
-        .expect("start the config watcher");
+    let _watcher = start_file_watcher(
+        bus,
+        config_path.clone(),
+        pending_beside(&config_path),
+        create_ignore_set(),
+    )
+    .expect("start the config watcher");
     collect_config_changes(&rx);
 
     write_by_temp_and_rename(&config_path, b"[editor]\nfont_size = 22\n");
@@ -148,5 +177,88 @@ fn a_config_created_after_the_watcher_started_is_followed() {
         seen.len(),
         1,
         "a config another program creates must reach the app exactly once, saw {seen:?}"
+    );
+}
+
+#[test]
+fn a_program_the_server_puts_on_the_waiting_list_reaches_the_app() {
+    let data = TempDir::new().expect("data dir");
+    let config_path = data.path().join("config.toml");
+    let (bus, rx) = bus_with_channel();
+    let _watcher = start_file_watcher(
+        bus,
+        config_path.clone(),
+        pending_beside(&config_path),
+        create_ignore_set(),
+    )
+    .expect("start the config watcher");
+    count_pending_changes(&rx);
+
+    pending_clients::note_calls(data.path(), &ClientId::named("Claude Code"), 1)
+        .expect("the server notes a waiting program");
+
+    assert_eq!(
+        count_pending_changes(&rx),
+        1,
+        "the server's write to the waiting file must reach the app exactly once"
+    );
+}
+
+#[test]
+fn the_app_s_own_write_to_the_waiting_list_does_not_come_back() {
+    let data = TempDir::new().expect("data dir");
+    let config_path = data.path().join("config.toml");
+    pending_clients::note_calls(data.path(), &ClientId::named("Claude Code"), 1)
+        .expect("seed the waiting file");
+    let ignore = create_ignore_set();
+    let (bus, rx) = bus_with_channel();
+    let _watcher = start_file_watcher(
+        bus,
+        config_path.clone(),
+        pending_beside(&config_path),
+        ignore.clone(),
+    )
+    .expect("start the config watcher");
+    count_pending_changes(&rx);
+
+    let key = data_key(&resolved(&pending_clients::path(data.path())));
+    pending_clients::forget(data.path(), "Claude Code", |bytes| {
+        ignore
+            .lock()
+            .expect("ignore set")
+            .record(key, bytes, Instant::now());
+    })
+    .expect("the app takes the program off the list");
+
+    assert_eq!(
+        count_pending_changes(&rx),
+        0,
+        "the app's own stamped write must not come back as a change"
+    );
+}
+
+#[test]
+fn a_waiting_file_written_in_place_reaches_the_app_once() {
+    let data = TempDir::new().expect("data dir");
+    let config_path = data.path().join("config.toml");
+    pending_clients::note_calls(data.path(), &ClientId::named("Claude Code"), 1)
+        .expect("seed the waiting file");
+    let (bus, rx) = bus_with_channel();
+    let _watcher = start_file_watcher(
+        bus,
+        config_path.clone(),
+        pending_beside(&config_path),
+        create_ignore_set(),
+    )
+    .expect("start the config watcher");
+    count_pending_changes(&rx);
+
+    std::fs::write(pending_clients::path(data.path()), b"{\"clients\":[]}")
+        .expect("rewrite the waiting file in place");
+
+    assert_eq!(
+        count_pending_changes(&rx),
+        1,
+        "a write in place must reach the app exactly once"
     );
 }

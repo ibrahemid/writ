@@ -1,7 +1,7 @@
 //! `mcp-pending.json`: one entry per waiting client, whatever the call volume.
 
 use chrono::{Duration, TimeZone, Utc};
-use writ_core::activity::ClientId;
+use writ_core::activity::{ClientId, PendingClient};
 use writ_storage::pending_clients::{self, note_calls_at};
 
 fn at(minute: i64) -> chrono::DateTime<Utc> {
@@ -74,7 +74,7 @@ fn forgetting_a_client_clears_its_entry() {
     note_calls_at(dir.path(), &client(), 1, at(0)).expect("note");
     note_calls_at(dir.path(), &ClientId::named("Zed"), 1, at(0)).expect("note");
 
-    pending_clients::forget(dir.path(), "Claude Code").expect("forget");
+    pending_clients::forget(dir.path(), "Claude Code", |_| {}).expect("forget");
 
     let waiting = pending_clients::read(dir.path());
     assert_eq!(waiting.len(), 1);
@@ -84,7 +84,7 @@ fn forgetting_a_client_clears_its_entry() {
 #[test]
 fn forgetting_a_client_that_was_never_there_is_not_an_error() {
     let dir = tempfile::TempDir::new().expect("temp dir");
-    pending_clients::forget(dir.path(), "Nobody").expect("forget");
+    pending_clients::forget(dir.path(), "Nobody", |_| {}).expect("forget");
     assert!(pending_clients::read(dir.path()).is_empty());
 }
 
@@ -109,6 +109,95 @@ fn a_file_that_does_not_parse_reads_as_nobody_waiting() {
     // And the next call replaces it rather than failing on it.
     note_calls_at(dir.path(), &client(), 1, at(0)).expect("note");
     assert_eq!(pending_clients::read(dir.path()).len(), 1);
+}
+
+#[test]
+fn a_half_written_file_is_not_settled_as_nobody_waiting() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    note_calls_at(dir.path(), &client(), 1, at(0)).expect("note");
+    let whole = std::fs::read(pending_clients::path(dir.path())).expect("the file");
+    std::fs::write(pending_clients::path(dir.path()), &whole[..whole.len() / 2])
+        .expect("cut it short");
+
+    assert_eq!(pending_clients::read_settled(dir.path()), None);
+    assert!(
+        pending_clients::read(dir.path()).is_empty(),
+        "the lenient read still answers"
+    );
+}
+
+#[test]
+fn a_file_that_is_not_there_is_settled_as_nobody_waiting() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+
+    assert_eq!(pending_clients::read_settled(dir.path()), Some(Vec::new()));
+}
+
+#[test]
+fn a_whole_file_is_settled_oldest_first() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    note_calls_at(dir.path(), &ClientId::named("Zed"), 1, at(1)).expect("note");
+    note_calls_at(dir.path(), &client(), 1, at(0)).expect("note");
+
+    let names: Vec<String> = pending_clients::read_settled(dir.path())
+        .expect("settled")
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    assert_eq!(names, ["Claude Code", "Zed"]);
+}
+
+#[test]
+fn forgetting_hands_over_the_bytes_it_writes_before_writing_them() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    note_calls_at(dir.path(), &client(), 1, at(0)).expect("note");
+    note_calls_at(dir.path(), &ClientId::named("Zed"), 1, at(0)).expect("note");
+    let file = pending_clients::path(dir.path());
+
+    let mut seen: Option<(Vec<u8>, Vec<u8>)> = None;
+    pending_clients::forget(dir.path(), "Claude Code", |bytes| {
+        let on_disk = std::fs::read(&file).expect("the file");
+        seen = Some((bytes.to_vec(), on_disk));
+    })
+    .expect("forget");
+
+    let (handed, before) = seen.expect("the bytes were handed over");
+    assert_ne!(handed, before, "handed over before the file changed");
+    assert_eq!(handed, std::fs::read(&file).expect("the file"));
+}
+
+#[test]
+fn putting_a_program_back_lists_it_as_waiting() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let entry = PendingClient::first_call(&client(), at(3));
+
+    let mut handed = Vec::new();
+    pending_clients::put_back(dir.path(), entry.clone(), |bytes| handed = bytes.to_vec())
+        .expect("put back");
+
+    assert_eq!(pending_clients::read(dir.path()), [entry]);
+    assert_eq!(
+        handed,
+        std::fs::read(pending_clients::path(dir.path())).expect("the file")
+    );
+}
+
+#[test]
+fn putting_back_a_name_already_waiting_keeps_the_entry_it_has() {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    note_calls_at(dir.path(), &client(), 7, at(0)).expect("note");
+
+    pending_clients::put_back(
+        dir.path(),
+        PendingClient::first_call(&client(), at(9)),
+        |_| {},
+    )
+    .expect("put back");
+
+    let waiting = pending_clients::read(dir.path());
+    assert_eq!(waiting.len(), 1);
+    assert_eq!(waiting[0].first_seen, at(0));
+    assert_eq!(waiting[0].calls, 7);
 }
 
 #[test]

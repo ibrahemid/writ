@@ -14,6 +14,8 @@ import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEdit
 import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import ActivityPanel, { openActivity } from "./components/Activity/ActivityPanel";
+import ProgramNotice from "./components/Activity/ProgramNotice";
+import { activityStore } from "./stores/global/activity";
 import NoteHistoryPanel, { openNoteVersions } from "./components/NoteHistory/NoteHistoryPanel";
 import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
@@ -257,6 +259,7 @@ function AppShell() {
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
     await notesStore.load();
+    void activityStore.watchWaiting();
 
     // Only notes whose text never reached their file are restored, so the
     // count is how many of those there were, not how many tabs were open.
@@ -797,9 +800,10 @@ function AppShell() {
     defineAppCommands("programs", [
       {
         id: "activity.open",
-        icon: "list-bullets",
-        label: "Activity",
+        icon: "plugs-connected",
+        label: "Program activity",
         description: "What connected programs did with your files",
+        keywords: ["mcp", "programs", "claude", "cursor", "connected"],
         scope: "app",
         execute: () => openActivity(),
       },
@@ -985,6 +989,7 @@ function AppShell() {
       <SearchPalette />
       <SettingsModal />
       <ActivityPanel />
+      <ProgramNotice />
       <NoteHistoryPanel />
       <ThemeEditor />
       <ShortcutEditor />
