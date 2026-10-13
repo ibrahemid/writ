@@ -17,6 +17,10 @@ Rules 1.3 and 1.4 amended 2026-10-05: the MCP process writes `history.db`, so a 
 keeps the text it replaced, and the two processes share SQLite's lock on that file. Until then the
 MCP process wrote no database and its writes kept no version.
 
+Rule 2.4 amended 2026-10-13: the OAuth loopback receiver answers any request that is not its
+flow's callback with a 404 and goes on waiting, until the callback arrives or the flow ends
+(ADR-040 section 6). Until then it accepted one request and closed.
+
 Rules 3.2, 5.1, 5.5 and 7.2 amended 2026-10-13: a client the user turns down is stored and
 answered as not allowed, the server records one line per call with repeated reads counted, and a
 server that is off answers `NotEnabled`. Until then every refusal was `NotApproved` with one
@@ -131,8 +135,9 @@ shipping the `writ` binary and showing the exact command to paste into the clien
 (`crates/writ-cli/src/main.rs:138`, U4 for the subcommand, U5 for the settings row). Writ listens on
 no port at rest. The one listener it ever opens is the OAuth loopback receiver of ADR-040 section
 6, bound to `127.0.0.1` on an ephemeral port for the duration of one Connect flow the user started;
-it accepts one request and closes. The threat-model check is that no port is open at rest and none
-after a completed or abandoned Connect.
+it answers any request that is not that flow's callback with a 404, and closes once the callback is
+read, the five-minute deadline passes or the flow is cancelled. The threat-model check is that no
+port is open at rest and none after a completed or abandoned Connect.
 
 2.5. The chat pane assembles its request from the notes the user attached and nothing else. No
 folder sweep, no index dump, no silent inclusion of neighbouring notes. The pane shows which notes

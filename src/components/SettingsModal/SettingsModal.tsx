@@ -979,11 +979,16 @@ function AiConnectionRows() {
 
   const modelOptionList = () => modelOptions(cfg().provider, liveModels());
   const usingCurated = () => liveModels().length === 0;
+  // An empty model is a choice still to make, so the list says there is none
+  // rather than showing an empty custom id.
+  const choosingModel = () => !customMode() && !cfg().model.trim();
   const modelSelectValue = () => {
     if (customMode()) return "__custom__";
+    if (choosingModel()) return "";
     return modelOptionList().includes(cfg().model) ? cfg().model : "__custom__";
   };
-  const showModelInput = () => customMode() || !modelOptionList().includes(cfg().model);
+  const showModelInput = () =>
+    customMode() || (!choosingModel() && !modelOptionList().includes(cfg().model));
   const modelOptionLabel = (id: string) => (usingCurated() ? `${id} (suggested)` : id);
 
   // Keep a working model without a setup decision: fill an empty one, and for a
@@ -1306,6 +1311,11 @@ function AiConnectionRows() {
             value={modelSelectValue()}
             onChange={(e) => onSelectModel(e.currentTarget.value)}
           >
+            <Show when={choosingModel()}>
+              <option value="" disabled>
+                No model
+              </option>
+            </Show>
             <For each={modelOptionList()}>
               {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
             </For>

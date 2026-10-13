@@ -102,12 +102,10 @@ function chatConfig(): WritConfig {
     chat_panel: { open: false, width: 380 },
     first_run: { hint_dismissed: false },
     editor: {
-      font_family: "monospace",
       font_size: 14,
       word_wrap: true,
       tab_size: 2,
       autosave_debounce_ms: 300,
-      markdown_typography: true,
       markdown_editing: true,
       status_bar: false,
       status_bar_counts: false,

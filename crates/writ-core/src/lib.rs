@@ -20,7 +20,7 @@
 //! - [`config`]: typed user configuration with serde defaults.
 //! - [`errors`]: crate-wide [`errors::WritError`] / [`errors::WritResult`].
 //! - [`events`]: strongly-typed domain events and an in-process event bus.
-//! - [`file_ops`]: pure helpers for file validation and language detection.
+//! - [`file_ops`]: pure helpers for file validation and the open tiers.
 //! - [`hash`]: SHA-256 helpers shared by the watcher, the write guard and
 //!   the notes migration.
 //! - [`history`]: recently-closed buffer history.
@@ -64,7 +64,7 @@ pub mod diff;
 pub mod errors;
 /// Strongly-typed domain events and an in-process event bus.
 pub mod events;
-/// Pure file helpers: validation, language detection, filename extraction.
+/// Pure file helpers: the open tiers, filename extraction, hex dumps.
 pub mod file_ops;
 /// SHA-256 helpers shared by the watcher, the write guard and the migration.
 pub mod hash;
