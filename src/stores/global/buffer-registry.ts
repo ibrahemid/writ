@@ -3,7 +3,14 @@ import type { BufferDocument, FileOpenMode, FileOpenResult } from "../../types/b
 import * as api from "../../services/tauri";
 import { cancelAutosave, flushAutosave, type SaveFailure } from "../../services/autosave";
 import { basename } from "../../lib/path";
-import { openFailureReason, refusalReason } from "../../lib/open-failure";
+import {
+  ERR_OPEN_TOO_LARGE,
+  MAX_OPEN_BYTES,
+  openFailureReason,
+  refusalReason,
+  tooLargeReason,
+} from "../../lib/open-failure";
+import { leadingCodeOf } from "../../lib/read-failure";
 import { THRESHOLD_NORMAL_BYTES } from "../../editor/large-file";
 import { largeFileOpen } from "./large-file-open";
 import { unreadTabs } from "./unread-tabs";
@@ -38,13 +45,14 @@ export class OpenRefusedError extends Error {
 }
 
 /**
- * A tab restored unread at launch was asked for its text before its open
- * answered. Its file is read once the person says Open, and never past the
- * size Writ opens.
+ * A tab whose file Writ has not read was asked for its text before its open
+ * answered: one restored unread at launch, or one whose read found the file
+ * past the size Writ opens. Its file is read once its open answers, and never
+ * past that size.
  */
 export class UnreadTabReadError extends Error {
   constructor(readonly bufferId: string) {
-    super("a tab restored at launch is read only once its open answers");
+    super("a tab whose file Writ has not read is read only once its open answers");
     this.name = "UnreadTabReadError";
   }
 }
@@ -155,6 +163,8 @@ function createBufferRegistry() {
     if (today.opened.mode.kind === "LargeFileConfirm") {
       return openAfterAsking(today.path, today.opened.size_bytes);
     }
+    const unread = unreadTabAnswered(today.opened);
+    if (unread !== null) return openUnreadTab(unread);
     return registerOpenResult(today.opened, today.path);
   }
 
@@ -165,8 +175,8 @@ function createBufferRegistry() {
     cancelAutosave(id);
     await api.deleteNote(id);
     void api.previewClose(id).catch(() => {});
-    unreadTabs.clear(id);
     setBuffers((prev) => prev.filter((b) => b.id !== id));
+    unreadTabs.clear(id);
   }
 
   // Returns the path the copy was written to, which the caller opens as a note
@@ -186,7 +196,6 @@ function createBufferRegistry() {
       if (!flushed.ok) return { closed: false, failures: flushed.failures };
     }
     await api.closeBuffer(id);
-    unreadTabs.clear(id);
     // The preview pane is a window-lifetime singleton (never unmounted, to
     // avoid the writ-preview:// iframe teardown freeze), so it no longer evicts
     // the host render cache per buffer. Evict here, at the close that ends the
@@ -198,6 +207,7 @@ function createBufferRegistry() {
         b.id === id ? { ...b, status: "history" as const, closed_at: closedAt } : b,
       ),
     );
+    unreadTabs.clear(id);
     return { closed: true, failures: [] };
   }
 
@@ -219,10 +229,7 @@ function createBufferRegistry() {
     }
     if (saved.length === 0) return { closedIds: [], failedIds, failures };
     await api.closeBuffers(saved);
-    for (const id of saved) {
-      unreadTabs.clear(id);
-      void api.previewClose(id).catch(() => {});
-    }
+    for (const id of saved) void api.previewClose(id).catch(() => {});
     const closedAt = new Date().toISOString();
     const closedIds = new Set(saved);
     setBuffers((prev) =>
@@ -232,6 +239,10 @@ function createBufferRegistry() {
           : b,
       ),
     );
+    // Only once the tabs have left the active set: the editor reads the tab in
+    // front as its unread state clears, and Close All Tabs does not move the
+    // selection first, so a tab cleared before it left was read as it closed.
+    for (const id of saved) unreadTabs.clear(id);
     return { closedIds: saved, failedIds, failures };
   }
 
@@ -396,7 +407,18 @@ function createBufferRegistry() {
     if (result.mode.kind === "LargeFileConfirm") {
       return openAfterAsking(path, result.size_bytes);
     }
+    const unread = unreadTabAnswered(result);
+    if (unread !== null) return openUnreadTab(unread);
     return registerOpenResult(result, path);
+  }
+
+  // A path that spells an unread tab's file another way (a link, a case
+  // variant in a link) is not the tab's path here, so Rust matches it and
+  // answers with the tab's row, having read nothing. That tab's own open
+  // answers: it measures the file, and asks or refuses.
+  function unreadTabAnswered(result: FileOpenResult): string | null {
+    const id = result.doc?.id;
+    return id !== undefined && unreadTabs.stateOf(id) !== null ? id : null;
   }
 
   async function showOpenFileDialog(): Promise<string | null> {
@@ -405,10 +427,34 @@ function createBufferRegistry() {
 
   // A tab restored unread at launch is read only once its open answers: a
   // read before that loads a file nobody said Open to, or one past the size
-  // Writ opens.
+  // Writ opens. Rust measures a file before it reads it, so one that grew
+  // past that size since its open comes back as the refusal's code: the tab
+  // is unread from then on, refused, and its pane says why.
   async function readContent(id: string): Promise<string> {
     if (unreadTabs.stateOf(id)) throw new UnreadTabReadError(id);
-    return api.readBufferContent(id);
+    try {
+      return await api.readBufferContent(id);
+    } catch (error) {
+      if (leadingCodeOf(error, [ERR_OPEN_TOO_LARGE]) === null) throw error;
+      // A size that could not be learned is worded as the limit itself, which
+      // reads "over the limit".
+      const size = (await recordedSizeOf(id)) ?? MAX_OPEN_BYTES;
+      unreadTabs.takeRefused(id, tooLargeReason(size));
+      throw new UnreadTabReadError(id);
+    }
+  }
+
+  // The size Rust recorded on the row when it declined to read the file. The
+  // registry's copy of the row takes it too, since the tab's tier is read off
+  // its row.
+  async function recordedSizeOf(id: string): Promise<number | null> {
+    try {
+      const doc = await api.getBuffer(id);
+      setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
+      return doc.size_bytes;
+    } catch {
+      return null;
+    }
   }
 
   /**

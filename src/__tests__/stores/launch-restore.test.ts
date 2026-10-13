@@ -46,8 +46,12 @@ let restored: BufferDocument[] = [];
 vi.mock("../../services/tauri", () => ({
   listActiveBuffers: vi.fn(async () => restored),
   listHistory: vi.fn(async () => []),
+  getBuffer: vi.fn(),
   restoreBuffer: vi.fn(),
   restoreBufferConfirmed: vi.fn(),
+  openFile: vi.fn(),
+  openFileConfirmed: vi.fn(),
+  todaysNote: vi.fn(),
   readBufferContent: vi.fn(async () => "a line of a log\n"),
   closeBuffer: vi.fn(async () => undefined),
   previewClose: vi.fn(async () => undefined),
@@ -68,7 +72,7 @@ vi.mock("../../components/Notifications/Toast", () => ({
 
 import * as api from "../../services/tauri";
 import { showToast } from "../../components/Notifications/Toast";
-import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { bufferRegistry, UnreadTabReadError } from "../../stores/global/buffer-registry";
 import { unreadTabs } from "../../stores/global/unread-tabs";
 import { largeFileOpen } from "../../stores/global/large-file-open";
 import { createTabStore } from "../../stores/window/tab-store";
@@ -324,5 +328,158 @@ describe("closing an unread tab", () => {
 
     expect(mockedApi.closeBuffer).toHaveBeenCalledWith(big.id);
     expect(unreadTabs.stateOf(big.id)).toBeNull();
+  });
+});
+
+// A path that spells an unread tab's file another way (a link, a case variant
+// in a link) does not match the tab's path here, so it reaches Rust, which
+// answers with the tab's row and reads nothing. The tab's own open answers it.
+describe("an open of an unread tab's file by another spelling", () => {
+  const link = "/Users/me/logs/link-to-big.log";
+
+  function rustAnswersTheTab(): void {
+    mockedApi.openFile.mockResolvedValue({
+      doc: big,
+      mode: { kind: "LargeFile" },
+      size_bytes: SIXTY_MB,
+    } as never);
+  }
+
+  it("asks with the tab's file, and Cancel leaves the tab unread", async () => {
+    await bufferRegistry.loadSession();
+    rustAnswersTheTab();
+    answerMeasure({ doc: null, mode: { kind: "LargeFileConfirm" }, size_bytes: SIXTY_MB });
+    const tabs = tabStore();
+    tabs.setActiveTabId(small.id);
+
+    const answer = tabs.openPath(link);
+    await vi.waitFor(() =>
+      expect(largeFileOpen.state()).toEqual({
+        phase: "asking",
+        name: "big.log",
+        sizeBytes: SIXTY_MB,
+      }),
+    );
+    largeFileOpen.respond(false);
+    const outcome = await answer;
+
+    expect(outcome.kind).toBe("declined");
+    expect(mockedApi.restoreBuffer).toHaveBeenCalledWith(big.id);
+    expect(unreadTabs.stateOf(big.id)).toEqual({ kind: "waiting", sizeBytes: SIXTY_MB });
+    expect(tabs.activeTabId()).toBe(small.id);
+    expect(mockedApi.readBufferContent).not.toHaveBeenCalled();
+  });
+
+  it("answers opened only once the tab's open did, and the tab is read after", async () => {
+    await bufferRegistry.loadSession();
+    rustAnswersTheTab();
+    answerMeasure({ doc: null, mode: { kind: "LargeFileConfirm" }, size_bytes: SIXTY_MB });
+    answerConfirmed({ doc: big, mode: { kind: "LargeFile" }, size_bytes: SIXTY_MB });
+    const tabs = tabStore();
+
+    const answer = tabs.openPath(link);
+    await vi.waitFor(() => expect(largeFileOpen.state()?.phase).toBe("asking"));
+    largeFileOpen.respond(true);
+    const outcome = await answer;
+
+    expect(outcome.kind).toBe("opened");
+    expect(mockedApi.restoreBufferConfirmed).toHaveBeenCalledWith(big.id);
+    expect(unreadTabs.stateOf(big.id)).toBeNull();
+    expect(tabs.activeTabId()).toBe(big.id);
+  });
+
+  // Rust answered from the size the row recorded; the tab's own open measures
+  // the file now, and what it finds is the answer, kept in the tab.
+  it("takes what the tab's own measure finds, a refusal included", async () => {
+    await bufferRegistry.loadSession();
+    rustAnswersTheTab();
+    answerMeasure({
+      doc: null,
+      mode: { kind: "Refused", reason: "ERR_OPEN_TOO_LARGE: 572.2 MiB is over the 500.0 MiB limit" },
+      size_bytes: SIX_HUNDRED_MB,
+    });
+    const tabs = tabStore();
+
+    const outcome = await tabs.openPath(link);
+
+    expect(outcome.kind).toBe("refused");
+    expect(unreadTabs.stateOf(big.id)).toEqual({
+      kind: "refused",
+      reason: "it is 600 MB, and Writ opens files up to 524 MB.",
+    });
+    expect(mockedApi.readBufferContent).not.toHaveBeenCalled();
+  });
+
+  it("is Today's File's answer too when today's file is an unread tab", async () => {
+    await bufferRegistry.loadSession();
+    mockedApi.todaysNote.mockResolvedValue({
+      path: big.source_path!,
+      opened: { doc: big, mode: { kind: "LargeFile" }, size_bytes: SIXTY_MB },
+    } as never);
+    answerMeasure({ doc: null, mode: { kind: "LargeFileConfirm" }, size_bytes: SIXTY_MB });
+    const tabs = tabStore();
+    tabs.setActiveTabId(small.id);
+
+    const answer = tabs.todaysNote();
+    await vi.waitFor(() => expect(largeFileOpen.state()?.phase).toBe("asking"));
+    largeFileOpen.respond(false);
+
+    expect(await answer).toBeNull();
+    expect(mockedApi.restoreBuffer).toHaveBeenCalledWith(big.id);
+    expect(unreadTabs.stateOf(big.id)).toEqual({ kind: "waiting", sizeBytes: SIXTY_MB });
+    expect(tabs.activeTabId()).toBe(small.id);
+  });
+});
+
+// The launch measured a file under the size Writ opens and it grew past it
+// before anything read it. Rust measures before it reads, records the size it
+// found on the row and answers with the refusal's code instead of the text.
+describe("a read Rust declines for the size", () => {
+  const tooLarge = "ERR_OPEN_TOO_LARGE: the file is 600000000 bytes, over the size Writ opens";
+
+  it("leaves the tab unread, refused with the size on its row", async () => {
+    restored = [small];
+    await bufferRegistry.loadSession();
+    mockedApi.readBufferContent.mockRejectedValueOnce(tooLarge);
+    mockedApi.getBuffer.mockResolvedValue({ ...small, size_bytes: SIX_HUNDRED_MB } as never);
+
+    await expect(bufferRegistry.readContent(small.id)).rejects.toBeInstanceOf(UnreadTabReadError);
+
+    expect(mockedApi.getBuffer).toHaveBeenCalledWith(small.id);
+    expect(unreadTabs.stateOf(small.id)).toEqual({
+      kind: "refused",
+      reason: "it is 600 MB, and Writ opens files up to 524 MB.",
+    });
+    expect(bufferRegistry.buffers().find((b) => b.id === small.id)?.size_bytes).toBe(
+      SIX_HUNDRED_MB,
+    );
+    mockedApi.readBufferContent.mockClear();
+    await expect(bufferRegistry.readContent(small.id)).rejects.toBeInstanceOf(UnreadTabReadError);
+    expect(mockedApi.readBufferContent).not.toHaveBeenCalled();
+  });
+
+  it("names the limit when the row with the size could not be read", async () => {
+    restored = [small];
+    await bufferRegistry.loadSession();
+    mockedApi.readBufferContent.mockRejectedValueOnce(tooLarge);
+    mockedApi.getBuffer.mockRejectedValue("ERR_READ_FAILED: database is locked");
+
+    await expect(bufferRegistry.readContent(small.id)).rejects.toBeInstanceOf(UnreadTabReadError);
+
+    expect(unreadTabs.stateOf(small.id)).toEqual({
+      kind: "refused",
+      reason: "it is over the 524 MB limit.",
+    });
+  });
+
+  it("passes any other failure through as it came", async () => {
+    restored = [small];
+    await bufferRegistry.loadSession();
+    mockedApi.readBufferContent.mockRejectedValueOnce("ERR_READ_FILE_MISSING: gone");
+
+    await expect(bufferRegistry.readContent(small.id)).rejects.toBe("ERR_READ_FILE_MISSING: gone");
+
+    expect(unreadTabs.stateOf(small.id)).toBeNull();
+    expect(mockedApi.getBuffer).not.toHaveBeenCalled();
   });
 });

@@ -237,8 +237,6 @@ fn open_authorized_path(state: &AppState, canonical: &str) -> Result<FileOpenRes
     let classification = file_ops::classify_path(file_path).map_err(open_failure_message)?;
 
     if let Some(answer) = unopened_answer(&classification) {
-        // Answering a tab reads its file again, which a refused file must not
-        // cost.
         if classification.mode == FileOpenMode::LargeFileConfirm {
             if let Some(shown) = open_tab_answer(state, &canonical)? {
                 return Ok(shown);
@@ -281,17 +279,31 @@ fn shown_tab_answer(
     }))
 }
 
-/// [`shown_tab_answer`] under its own lock, with the tab followed the way
-/// [`open_file_classified`] follows every row it answers.
+/// The answer for a file in the confirm tier that a tab shows: that tab's
+/// row, in the mode the row gives. `None` when no tab shows it.
+///
+/// Nothing reads the file or follows it again: the tab has been followed since
+/// it opened, and an open of the tab's own path, which the frontend answers
+/// without Rust, costs nothing either. A tab restored at launch whose file
+/// Writ has not read answers through its own open, which measures the file
+/// and asks first (ADR-019).
 fn open_tab_answer(state: &AppState, canonical: &str) -> Result<Option<FileOpenResult>, String> {
-    let shown = {
-        let store = state.store.lock().map_err(|e| e.to_string())?;
-        shown_tab_answer(state, &store, canonical)?
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let Some(existing) = store
+        .find_active_by_source_path(canonical)
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(None);
     };
-    if let Some(doc) = shown.as_ref().and_then(|answer| answer.doc.as_ref()) {
-        state.follow_note_file(doc);
-    }
-    Ok(shown)
+    state
+        .authorized_paths
+        .record_blessed_source(canonical.to_string());
+    let mode = file_ops::classify_file(existing.size_bytes, existing.read_only).once_open();
+    Ok(Some(FileOpenResult {
+        mode,
+        size_bytes: existing.size_bytes,
+        doc: Some(existing),
+    }))
 }
 
 /// The answer for a tier that opens nothing yet, or `None` for one that opens.

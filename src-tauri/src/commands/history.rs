@@ -61,7 +61,9 @@ pub fn restore_buffer_confirmed(
 /// stays where it is and nothing is restored.
 ///
 /// The tab starts being followed again here. Its watch went when it closed,
-/// and the file has had every moment since then to change.
+/// and the file has had every moment since then to change. A tab restored at
+/// launch has been followed since the launch listed it, and is not followed
+/// again: on a volume with no file id, naming the file reads all of it.
 pub fn restore_buffer_inner(state: &AppState, id: &str) -> Result<FileOpenResult, String> {
     reopen_closed(state, id, false)
 }
@@ -76,14 +78,10 @@ pub fn restore_buffer_confirmed_inner(
 }
 
 fn reopen_closed(state: &AppState, id: &str, confirmed: bool) -> Result<FileOpenResult, String> {
-    let (doc, mode, size_bytes) = {
+    let (doc, mode, size_bytes, reopened) = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let closed = store.get(id).map_err(|e| e.to_string())?;
-        let size_now = closed
-            .source_path
-            .as_deref()
-            .and_then(|path| std::fs::metadata(path).ok())
-            .map(|meta| meta.len());
+        let size_now = crate::commands::buffer::measured_size(&closed);
         let (mode, size_bytes) = match size_now {
             Some(size) => (file_ops::classify_size(size, closed.read_only), size),
             None => (
@@ -99,7 +97,8 @@ fn reopen_closed(state: &AppState, id: &str, confirmed: bool) -> Result<FileOpen
                 doc: None,
             });
         }
-        if closed.status == BufferStatus::History {
+        let reopened = closed.status == BufferStatus::History;
+        if reopened {
             store.restore(id).map_err(|e| e.to_string())?;
         }
         // The editor reads the tier off the row, so the row carries the size
@@ -110,9 +109,11 @@ fn reopen_closed(state: &AppState, id: &str, confirmed: bool) -> Result<FileOpen
                 .map_err(|e| e.to_string())?;
         }
         let doc = store.get(id).map_err(|e| e.to_string())?;
-        (doc, mode.once_open(), size_bytes)
+        (doc, mode.once_open(), size_bytes, reopened)
     };
-    state.follow_note_file(&doc);
+    if reopened {
+        state.follow_note_file(&doc);
+    }
     Ok(FileOpenResult {
         mode,
         size_bytes,

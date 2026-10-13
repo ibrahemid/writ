@@ -28,7 +28,9 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{close_buffer_inner, list_active_buffers_inner};
+use writ_tauri_lib::commands::buffer::{
+    close_buffer_inner, list_active_buffers_inner, read_buffer_content_inner,
+};
 use writ_tauri_lib::commands::file::{
     open_file_confirmed_from_path, open_file_from_path, ERR_OPEN_NOT_AUTHORIZED,
 };
@@ -115,8 +117,12 @@ fn make_state(dir: &TempDir) -> AppState {
 /// hole. The binary sniff reads only the head, so the size alone decides the
 /// tier, and nothing near `size` bytes is written to the test machine's disk.
 fn sparse_text_file(path: &std::path::Path, size: u64) {
+    sparse_file_of(path, b"2026-10-13 10:30:00 INFO a line of a log\n", size);
+}
+
+/// [`sparse_text_file`] with the head made of `line`.
+fn sparse_file_of(path: &std::path::Path, line: &[u8], size: u64) {
     let mut file = std::fs::File::create(path).expect("create");
-    let line = b"2026-10-13 10:30:00 INFO a line of a log\n";
     let mut written = 0usize;
     while written < 8192 {
         file.write_all(line).expect("write head");
@@ -542,21 +548,24 @@ fn a_tab_restored_at_launch_carries_the_size_its_file_has_now() {
     assert_eq!(updated_at_of(&state, &id), stamped);
 }
 
-// A tab whose file is gone keeps the size on record: nothing is there to
-// measure, and its read says what became of it.
+// A tab whose file is gone has nothing to measure. It is listed at no size,
+// so nothing waits on the size it had and its read says at once what became
+// of it. The row keeps the size on record: a file that comes back large is
+// still one the reads that go by the row's size leave alone.
 #[test]
-fn a_restored_tab_whose_file_is_gone_keeps_its_recorded_size() {
+fn a_restored_tab_whose_file_is_gone_is_listed_with_nothing_to_measure() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let (file, id) = open_tab(&state, "gone.log");
-    let recorded = size_of(&state, &id);
+    grow(&file, SIXTY_MB);
+    list_active_buffers_inner(&state).expect("a launch that measured it");
     std::fs::remove_file(&file).unwrap();
 
     let restored = list_active_buffers_inner(&state).expect("the tabs");
 
     let row = restored.iter().find(|doc| doc.id == id).expect("the tab");
-    assert_eq!(row.size_bytes, recorded);
-    assert_eq!(size_of(&state, &id), recorded);
+    assert_eq!(row.size_bytes, 0);
+    assert_eq!(size_of(&state, &id), SIXTY_MB);
 }
 
 // A tab restored over 50 MiB opens the way a closed file does from History:
@@ -681,4 +690,123 @@ fn a_missing_file_under_a_link_out_of_the_notes_folder_answers_not_authorized() 
         error.starts_with(&format!("{ERR_OPEN_NOT_AUTHORIZED}: ")),
         "{error}"
     );
+}
+
+fn is_followed(state: &AppState, id: &str) -> bool {
+    state.source_records.lock().unwrap().contains_key(id)
+}
+
+// A file the launch measured under the size Writ opens can grow past it before
+// its tab is shown, or while it is open. The read measures it first and reads
+// none of it: the answer is the refusal's code, and the row records the size
+// found, so the editor states it and the reads that go by the row's size
+// leave the file alone. The reload after a change outside Writ is this same
+// read. A stat is not a read, so the stamp a read leaves is not moved.
+#[test]
+fn a_tab_whose_file_grew_past_the_limit_is_measured_by_its_read_and_not_read() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (file, id) = open_tab(&state, "grown.log");
+    list_active_buffers_inner(&state).expect("the launch");
+    let stamped = updated_at_of(&state, &id);
+    grow(&file, THRESHOLD_MAX_BYTES + 1);
+
+    let error = match read_buffer_content_inner(&state, &id) {
+        Ok(bytes) => panic!("the read handed over {} bytes", bytes.len()),
+        Err(message) => message,
+    };
+
+    assert!(
+        error.starts_with(&format!("{ERR_OPEN_TOO_LARGE}: ")),
+        "{error}"
+    );
+    assert_eq!(size_of(&state, &id), THRESHOLD_MAX_BYTES + 1);
+    assert_eq!(updated_at_of(&state, &id), stamped);
+}
+
+// The frontend finds a tab by the path it was asked for, so a link to a file
+// a tab restored at launch shows reaches Rust. The answer is that tab's row
+// and nothing reads the file, nor follows it again: the tab's own open
+// measures it and asks.
+#[cfg(unix)]
+#[test]
+fn a_link_to_a_file_a_restored_tab_shows_answers_the_tab_and_reads_nothing() {
+    use writ_core::notes::line_ending::LineEnding;
+    let line_ending_of =
+        |state: &AppState, id: &str| state.store.lock().unwrap().get(id).unwrap().line_ending;
+    let dir = TempDir::new().unwrap();
+    let (file, id) = {
+        let last_session = make_state(&dir);
+        open_tab(&last_session, "restored.log")
+    };
+    let state = make_state(&dir);
+    // Its endings changed with it, which a read would follow onto the row.
+    sparse_file_of(
+        &file,
+        b"2026-10-13 10:30:00 INFO a line of a log\r\n",
+        SIXTY_MB,
+    );
+    list_active_buffers_inner(&state).expect("the launch");
+    assert_eq!(line_ending_of(&state, &id), LineEnding::Lf);
+    state.source_records.lock().unwrap().clear();
+    let link = state.notes_root().join("link.log");
+    std::os::unix::fs::symlink(&file, &link).unwrap();
+
+    let answer = open_file_from_path(&state, &link.to_string_lossy()).expect("an answer");
+
+    assert_eq!(answer.mode, FileOpenMode::LargeFile);
+    assert_eq!(answer.doc.expect("the tab's row").id, id);
+    assert_eq!(line_ending_of(&state, &id), LineEnding::Lf);
+    assert!(!is_followed(&state, &id));
+}
+
+// A path that holds a folder holds no file to measure: the row keeps the size
+// on record rather than taking the folder's.
+#[test]
+fn a_closed_file_whose_path_is_now_a_folder_keeps_its_recorded_size() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (file, id) = closed_file(&state, "was-a-file.log");
+    let recorded = size_of(&state, &id);
+    std::fs::remove_file(&file).unwrap();
+    std::fs::create_dir(&file).unwrap();
+    for index in 0..8 {
+        std::fs::write(file.join(format!("{index}.txt")), "x").unwrap();
+    }
+
+    restore_buffer_inner(&state, &id).expect("an answer");
+
+    assert_eq!(size_of(&state, &id), recorded);
+}
+
+// A tab restored at launch is followed from the launch on. Its open after Open
+// does not follow it again: on a volume with no file id, naming the file means
+// reading all of it.
+#[test]
+fn opening_a_tab_restored_at_launch_does_not_follow_its_file_again() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (file, id) = open_tab(&state, "restored.log");
+    grow(&file, SIXTY_MB);
+    list_active_buffers_inner(&state).expect("the launch");
+    assert!(is_followed(&state, &id));
+    state.source_records.lock().unwrap().clear();
+
+    restore_buffer_confirmed_inner(&state, &id).expect("open after Open");
+
+    assert!(!is_followed(&state, &id));
+}
+
+// Closing a tab stops following its file, so reopening it from History starts
+// again.
+#[test]
+fn a_file_reopened_from_history_is_followed_again() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (_file, id) = closed_file(&state, "closed.log");
+    assert!(!is_followed(&state, &id));
+
+    restore_buffer_inner(&state, &id).expect("reopen");
+
+    assert!(is_followed(&state, &id));
 }

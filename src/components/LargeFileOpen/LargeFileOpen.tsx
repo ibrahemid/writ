@@ -2,6 +2,7 @@ import { Show, createEffect, on, onCleanup } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { formatBytes } from "../../lib/format-bytes";
 import { largeFileOpen } from "../../stores/global/large-file-open";
+import { unreadTabs } from "../../stores/global/unread-tabs";
 import Button from "../Button/Button";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import "./LargeFileOpen.css";
@@ -56,8 +57,9 @@ export default function LargeFileOpen() {
   });
 
   // The progress ends when the editor shows the file, when its read failed
-  // and the editor says so instead, or when the tab it was opened into is no
-  // longer the one in front.
+  // and the editor says so instead (a file that grew past the size Writ opens
+  // leaves its tab refused), or when the tab it was opened into is no longer
+  // the one in front.
   let shownInTab = false;
   createEffect(() => {
     const current = opening();
@@ -66,7 +68,11 @@ export default function LargeFileOpen() {
       return;
     }
     const id = current.bufferId;
-    if (win.editor.currentBufferId() === id || win.editor.readFailure()?.bufferId === id) {
+    if (
+      win.editor.currentBufferId() === id ||
+      win.editor.readFailure()?.bufferId === id ||
+      unreadTabs.stateOf(id)?.kind === "refused"
+    ) {
       largeFileOpen.finishFor(id);
       return;
     }

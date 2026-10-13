@@ -56,7 +56,7 @@ import { configStore } from "../../stores/global/config";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { unreadTabs } from "../../stores/global/unread-tabs";
-import { describeUnreadTab } from "../../lib/unread-tab";
+import { describeUnreadTab, type UnreadTab } from "../../lib/unread-tab";
 import { canShowInFileManager, describeReadFailure } from "../../lib/read-failure";
 import { findStore } from "../../stores/global/find-store";
 import { aiRewriteStore } from "../../stores/global/ai-rewrite";
@@ -629,6 +629,16 @@ export default function EditorInstance(props: Props) {
     });
   }
 
+  // The pane takes the view's place until the tab's open answers. A tab
+  // waiting on the question asks it; a refused one says why and waits for
+  // Try again.
+  function showUnreadPane(id: string, unread: UnreadTab) {
+    dropView();
+    win.editor.clearReadFailure();
+    unreadPaneFor = id;
+    if (unread.kind === "waiting") openUnreadTab(id);
+  }
+
   // The language this file is shown in: the one chosen for it, else what its
   // name says (src/editor/file-language.ts holds the rule).
   function languageOf(buffer: BufferDocument, content: string): string | null {
@@ -688,10 +698,7 @@ export default function EditorInstance(props: Props) {
     // size Writ opens is not read at all.
     const unread = unreadTabs.stateOf(buffer.id);
     if (unread) {
-      dropView();
-      win.editor.clearReadFailure();
-      unreadPaneFor = buffer.id;
-      if (unread.kind === "waiting") openUnreadTab(buffer.id);
+      showUnreadPane(buffer.id, unread);
       return;
     }
 
@@ -716,7 +723,11 @@ export default function EditorInstance(props: Props) {
       const loaded = await loadText(buffer);
       if (ticket !== loadTicket) return;
       if (!loaded.ok) {
-        showReadFailure(buffer.id, loaded.error);
+        // A file that grew past the size Writ opens was measured and not
+        // read, and the tab is unread now.
+        const unreadNow = unreadTabs.stateOf(buffer.id);
+        if (unreadNow) showUnreadPane(buffer.id, unreadNow);
+        else showReadFailure(buffer.id, loaded.error);
         return;
       }
       content = loaded.text;
@@ -777,10 +788,17 @@ export default function EditorInstance(props: Props) {
   // of a file that has changed reads dirty against a file it matches, and the
   // next change to it asks a question that has no reason to be asked.
   async function reloadFromDisk(id: string) {
+    const wasUnread = unreadTabs.stateOf(id) !== null;
     let content: string;
     try {
       content = await bufferRegistry.readContent(id);
     } catch {
+      // A file that grew past the size Writ opens was measured and not read:
+      // the view in front is dropped rather than left on text the file no
+      // longer holds. A tab that was unread already keeps its pane, and is
+      // not asked about again for every change to its file.
+      const unread = unreadTabs.stateOf(id);
+      if (!wasUnread && unread && id === currentBufferId) showUnreadPane(id, unread);
       return;
     }
     win.editor.applyExternalContent(id, content);

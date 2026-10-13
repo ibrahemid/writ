@@ -3,11 +3,12 @@ import type { BufferDocument } from "../../types/buffer";
 import { unreadTabFor, type UnreadTab } from "../../lib/unread-tab";
 
 /**
- * The tabs restored at launch whose files Writ has not read, by row id.
+ * The open tabs whose files Writ has not read, by row id.
  *
- * Set once, from the rows the launch listed: every tab opened after that came
- * through an open that measured its file. A tab leaves the set when its open
- * answers with its row, or when it closes.
+ * Taken from the rows the launch listed, and from a read Rust declined
+ * because the file had grown past the size Writ opens since it was measured:
+ * every other tab came through an open that measured its file. A tab leaves
+ * the set when its open answers with its row, or when it closes.
  */
 function createUnreadTabs() {
   // Singleton state — Writ is single-window
@@ -46,6 +47,14 @@ function createUnreadTabs() {
     update(id, { kind: "refused", reason });
   }
 
+  /**
+   * Takes a tab whose read Rust declined: its file is past the size Writ
+   * opens, for `reason`, and stays unread until its open answers.
+   */
+  function takeRefused(id: string, reason: string): void {
+    setUnread((prev) => new Map(prev).set(id, { kind: "refused", reason }));
+  }
+
   /** The tab's file opened, or the tab closed. */
   function clear(id: string): void {
     setUnread((prev) => {
@@ -56,7 +65,7 @@ function createUnreadTabs() {
     });
   }
 
-  return { stateOf, takeRestored, wait, refuse, clear };
+  return { stateOf, takeRestored, wait, refuse, takeRefused, clear };
 }
 
 export const unreadTabs = createRoot(createUnreadTabs);

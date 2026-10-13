@@ -192,10 +192,14 @@ pub fn read_failure_message(error: &StorageError) -> String {
 /// The stable code for a failed read.
 ///
 /// `InvalidData` is what `read_to_string` reports for bytes that are not
-/// UTF-8, and nothing else on the read path raises it.
+/// UTF-8, and nothing else on the read path raises it. A file past the size
+/// Writ opens carries the code an open of it answers with
+/// ([`writ_core::file_ops::ERR_OPEN_TOO_LARGE`]); the size the editor states
+/// is on the row, which [`read_buffer_content_inner`] records.
 pub fn read_failure_code(error: &StorageError) -> &'static str {
     match error {
         StorageError::Io(io) => io_read_failure_code(io.kind()),
+        StorageError::FileTooLarge { .. } => writ_core::file_ops::ERR_OPEN_TOO_LARGE,
         _ => ERR_READ_FAILED,
     }
 }
@@ -600,15 +604,29 @@ fn spawn_deferred_reindex(app: AppHandle, id: String, first_generation: u64) {
 /// recorded.
 ///
 /// A note with no file yet has nothing on disk to record.
+///
+/// A file past the size Writ opens is measured and not read
+/// ([`BufferStore::read_content`]). The size found goes on the row: the
+/// editor states it from there, and the reads that pick files by the row's
+/// size (the heartbeat snapshot, the index) leave the file alone. The record
+/// of what the file held does not move, since nothing was read.
 pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
     let store = state
         .store
         .lock()
         .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?;
     let doc = store.get(id).map_err(|e| read_failure_message(&e))?;
-    let content = store
-        .read_content(id)
-        .map_err(|e| read_failure_message(&e))?;
+    let content = match store.read_content(id) {
+        Ok(content) => content,
+        Err(error) => {
+            if let StorageError::FileTooLarge { size_bytes } = error {
+                if let Err(e) = store.record_size(id, size_bytes) {
+                    tracing::debug!(buffer_id = %id, error = %e, "the measured size was not recorded");
+                }
+            }
+            return Err(read_failure_message(&error));
+        }
+    };
     if let Some(source_path) = doc.source_path.as_deref() {
         let path = Path::new(source_path);
         if doc.read_only {
@@ -995,8 +1013,10 @@ pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocum
 /// editor, the crash snapshot and the index read its tier from. Each file is
 /// measured with a stat, outside the store's lock and never with a read, and
 /// a size that moved is recorded on the row without the stamp a read leaves.
-/// A path with no file behind it keeps the size on record; its read says what
-/// became of it.
+/// A path with no file behind it is listed at no size, so nothing waits on the
+/// size it had and its read says at once what became of it. Its row keeps the
+/// size on record: a file that comes back large is still one the reads that
+/// pick files by the row's size leave alone.
 ///
 /// This is also where a restored tab starts being followed. A tab nobody has
 /// brought to the front is the one most likely to be sitting on a file that
@@ -1009,21 +1029,22 @@ pub fn list_active_buffers_inner(state: &AppState) -> Result<Vec<BufferDocument>
             .list_by_status(BufferStatus::Active)
             .map_err(|e| e.to_string())?
     };
-    let moved: Vec<(usize, u64)> = docs
-        .iter()
-        .enumerate()
-        .filter_map(|(index, doc)| {
-            let size = measured_size(doc)?;
-            (size != doc.size_bytes).then_some((index, size))
-        })
-        .collect();
+    let mut moved: Vec<(String, u64)> = Vec::new();
+    for doc in docs.iter_mut().filter(|doc| doc.source_path.is_some()) {
+        match measured_size(doc) {
+            Some(size) if size != doc.size_bytes => {
+                doc.size_bytes = size;
+                moved.push((doc.id.clone(), size));
+            }
+            Some(_) => {}
+            None => doc.size_bytes = 0,
+        }
+    }
     if !moved.is_empty() {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        for (index, size) in moved {
-            let doc = &mut docs[index];
-            doc.size_bytes = size;
-            if let Err(e) = store.record_size(&doc.id, size) {
-                tracing::debug!(buffer_id = %doc.id, error = %e, "the measured size was not recorded");
+        for (id, size) in moved {
+            if let Err(e) = store.record_size(&id, size) {
+                tracing::debug!(buffer_id = %id, error = %e, "the measured size was not recorded");
             }
         }
     }
@@ -1035,7 +1056,7 @@ pub fn list_active_buffers_inner(state: &AppState) -> Result<Vec<BufferDocument>
 
 /// The size of the file behind `doc`, from a stat: `None` for a note with no
 /// file, and for a path that holds no file.
-fn measured_size(doc: &BufferDocument) -> Option<u64> {
+pub(crate) fn measured_size(doc: &BufferDocument) -> Option<u64> {
     let meta = std::fs::metadata(doc.source_path.as_deref()?).ok()?;
     meta.is_file().then_some(meta.len())
 }
@@ -1187,6 +1208,12 @@ mod tests {
             (io(ErrorKind::NotFound), ERR_READ_FILE_MISSING),
             (io(ErrorKind::TimedOut), ERR_READ_TIMED_OUT),
             (io(ErrorKind::Interrupted), ERR_READ_FAILED),
+            (
+                StorageError::FileTooLarge {
+                    size_bytes: 600_000_000,
+                },
+                writ_core::file_ops::ERR_OPEN_TOO_LARGE,
+            ),
             (
                 StorageError::Consistency {
                     message: "row and disk disagree".to_string(),

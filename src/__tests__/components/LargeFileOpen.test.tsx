@@ -3,6 +3,7 @@ import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
 import LargeFileOpen from "../../components/LargeFileOpen/LargeFileOpen";
 import { largeFileOpen } from "../../stores/global/large-file-open";
+import { unreadTabs } from "../../stores/global/unread-tabs";
 
 // The question states the size before anything reads the file; Open turns it
 // into progress that lasts until the editor shows the text.
@@ -37,6 +38,7 @@ afterEach(() => {
     largeFileOpen.respond(false);
     largeFileOpen.finish();
   }
+  unreadTabs.clear("big");
   cleanup();
 });
 
@@ -99,6 +101,22 @@ describe("LargeFileOpen", () => {
     win().editor.failRead("big", "ERR_READ_PERMISSION_DENIED: denied");
 
     expect(container.querySelector(".large-file-dialog")).toBeNull();
+  });
+
+  // The file grew past the size Writ opens between Open and the editor's read,
+  // which measured it and read nothing: the tab says why in the editor's place.
+  it("goes when the editor's read found the file past the size Writ opens", async () => {
+    const { container, win } = mount();
+    const answer = largeFileOpen.ask("server.log", 60_000_000);
+    fireEvent.click(button(container, "Open"));
+    await answer;
+    largeFileOpen.handOff("big");
+    win().tabs.setActiveTabId("big");
+
+    unreadTabs.takeRefused("big", "it is 600 MB, and Writ opens files up to 524 MB.");
+
+    expect(container.querySelector(".large-file-dialog")).toBeNull();
+    expect(largeFileOpen.state()).toBeNull();
   });
 
   it("goes when another tab takes the front before the editor showed it", async () => {

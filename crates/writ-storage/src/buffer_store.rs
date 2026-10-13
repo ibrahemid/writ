@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use writ_core::file_ops::THRESHOLD_NORMAL_BYTES;
+use writ_core::file_ops::{FileOpenMode, THRESHOLD_NORMAL_BYTES};
 
 use rusqlite::Connection;
 use tracing::warn;
@@ -371,11 +371,23 @@ impl BufferStore {
     /// the file on every read rather than stored anywhere. Bytes that sniff
     /// as text but are not valid UTF-8 fall back to a lossy decode rather
     /// than failing the read.
+    ///
+    /// The file is measured before anything reads it. A file can grow past
+    /// the size Writ opens after its open measured it, while its tab waits to
+    /// be shown or while it is open, and such a file answers
+    /// [`StorageError::FileTooLarge`] with the size a stat found, none of it
+    /// read (ADR-019).
     pub fn read_content(&self, id: &str) -> StorageResult<String> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let Some(source_path) = doc.source_path.as_deref() else {
             return Ok(String::new());
         };
+        let size_bytes = std::fs::metadata(source_path)?.len();
+        if let FileOpenMode::Refused { .. } =
+            writ_core::file_ops::classify_size(size_bytes, doc.read_only)
+        {
+            return Err(StorageError::FileTooLarge { size_bytes });
+        }
         if doc.read_only {
             let bytes = std::fs::read(source_path)?;
             if writ_core::file_ops::is_binary_bytes(&bytes) {
