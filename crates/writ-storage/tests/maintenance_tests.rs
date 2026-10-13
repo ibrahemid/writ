@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-
+use chrono::Utc;
 use tempfile::TempDir;
+use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::maintenance::{needs_vacuum, VACUUM_MIN_FREE_PAGES};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
@@ -17,12 +17,13 @@ fn setup_store() -> (TempDir, BufferStore) {
     (dir, BufferStore::new(conn, buffers_dir))
 }
 
-/// Fills the snapshot table the way an always-on heartbeat used to: many
-/// oversized rows, all but the retained few of which are then pruned away,
-/// leaving a file that is almost entirely freelist.
+/// Fills the snapshot table the way 0.5's always-on heartbeat did: many
+/// oversized rows, each a copy of the open notes. The first launch of 0.6
+/// empties the text out of them and the next marker prunes all but the
+/// retained few, leaving a file that is almost entirely freelist.
 fn bloat_with_snapshots(dir: &TempDir, store: &BufferStore, rows: usize) {
     let conn = open_database(&dir.path().join("writ.db")).expect("open db");
-    let payload = "x".repeat(256 * 1024);
+    let payload = serde_json::json!({ "buffers": { "note": "x".repeat(256 * 1024) } }).to_string();
     for i in 0..rows {
         conn.execute(
             "INSERT INTO session_snapshots (id, format_version, state_json, created_at, is_clean)
@@ -31,11 +32,34 @@ fn bloat_with_snapshots(dir: &TempDir, store: &BufferStore, rows: usize) {
         )
         .expect("insert");
     }
+    store
+        .carry_over_legacy_snapshots()
+        .expect("empty the text out of the snapshots");
     // The prune (and the checkpoint that follows it) is what moves those rows
     // onto the freelist of the database file.
-    store
-        .write_session_snapshot(&HashMap::new(), false)
-        .expect("snapshot write");
+    store.mark_session_clean().expect("marker write");
+}
+
+/// A note's row, which a journal entry needs to belong to.
+fn note_row(id: &str) -> BufferDocument {
+    let now = Utc::now();
+    BufferDocument {
+        id: id.to_string(),
+        title: id.to_string(),
+        filename: format!("{id}.txt"),
+        status: BufferStatus::Active,
+        language: None,
+        source_path: None,
+        cursor_pos: 0,
+        scroll_pos: 0,
+        tab_order: 0,
+        created_at: now,
+        updated_at: now,
+        closed_at: None,
+        read_only: false,
+        size_bytes: 0,
+        line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+    }
 }
 
 #[test]
@@ -125,33 +149,24 @@ fn checkpoint_truncates_the_write_ahead_log() {
     );
 }
 
-/// The heartbeat runs for as long as Writ is open. Sixty passes over an
-/// unchanged set of notes is two hours of it, and it must leave the database
-/// the size it found it: the bloat this guards against was a snapshot row per
-/// pass, each one a full copy of every open note.
+/// The heartbeat runs for as long as Writ is open. Sixty beats is two hours
+/// of it, and after its first it must leave the database the size it found
+/// it: the bloat this guards against was a snapshot row per beat, each one a
+/// full copy of every open note.
 #[test]
-fn sixty_identical_heartbeats_write_no_new_snapshot_rows_and_do_not_grow_the_database() {
+fn sixty_heartbeats_write_one_marker_and_do_not_grow_the_database() {
     let (dir, mut store) = setup_store();
-    let contents = HashMap::from([
-        ("note-a".to_string(), "x".repeat(64 * 1024)),
-        ("note-b".to_string(), "y".repeat(64 * 1024)),
-    ]);
 
     assert!(
-        store
-            .write_session_snapshot_if_changed(&contents)
-            .expect("first heartbeat"),
-        "the first heartbeat has nothing to compare against and must record one"
+        store.mark_session_running().expect("first beat"),
+        "the first beat records the running session"
     );
+    let baseline = store.database_stats().expect("stats after the first beat");
 
-    let baseline = store.database_stats().expect("stats after the first pass");
-
-    for pass in 1..60 {
+    for beat in 1..60 {
         assert!(
-            !store
-                .write_session_snapshot_if_changed(&contents)
-                .expect("heartbeat"),
-            "heartbeat {pass} rewrote a snapshot the notes had not changed since"
+            !store.mark_session_running().expect("beat"),
+            "beat {beat} wrote another marker"
         );
     }
 
@@ -161,12 +176,44 @@ fn sixty_identical_heartbeats_write_no_new_snapshot_rows_and_do_not_grow_the_dat
             row.get(0)
         })
         .expect("count snapshots");
-    assert_eq!(rows, 1, "sixty identical heartbeats left more than one row");
+    assert_eq!(rows, 1, "sixty beats left more than one row");
 
-    let after = writ_storage::maintenance::read_stats(&conn).expect("stats after sixty passes");
+    let after = writ_storage::maintenance::read_stats(&conn).expect("stats after sixty beats");
     assert_eq!(
         after.file_bytes(),
         baseline.file_bytes(),
-        "sixty identical heartbeats grew the database file"
+        "sixty beats grew the database file"
     );
+}
+
+/// A note whose saves keep failing and landing cycles its journal entry:
+/// written as one fails, cleared as the next lands. The pages the first entry
+/// freed are what the next one takes, so sixty cycles of a large note leave
+/// the database the size the first left it.
+#[test]
+fn sixty_record_and_clear_cycles_do_not_grow_the_database() {
+    let (_dir, store) = setup_store();
+    store.insert(&note_row("note-a")).expect("insert the note");
+    let text = "y".repeat(256 * 1024);
+
+    store
+        .record_unsaved_text("note-a", &text, Utc::now())
+        .expect("record");
+    store.clear_unsaved_text("note-a").expect("clear");
+    let baseline = store.database_stats().expect("stats after the first cycle");
+
+    for cycle in 1..60 {
+        let typed = format!("{cycle}{text}");
+        store
+            .record_unsaved_text("note-a", &typed, Utc::now())
+            .expect("record");
+        assert!(store.clear_unsaved_text("note-a").expect("clear"));
+    }
+
+    let after = store.database_stats().expect("stats after sixty cycles");
+    assert!(
+        after.file_bytes() <= baseline.file_bytes() + 4 * after.page_size,
+        "sixty cycles grew the database file: {baseline:?} -> {after:?}"
+    );
+    assert_eq!(store.unsaved_text_count().expect("count"), 0);
 }

@@ -930,7 +930,7 @@ export default function EditorInstance(props: Props) {
     // file whose bytes are not here, a crash screen) has written the typing,
     // so the text stays where that path finds it; only an explicit discard
     // cancels. A held note's text goes back into the hold, which the close
-    // and the quit hand to the recovery snapshot (ADR-033 decision 15). Any
+    // and the quit hand to the unsaved-text journal (ADR-033 decision 15). Any
     // other note keeps its queued write, as text read from the view now.
     if (view && viewBufferId) {
       if (win.editor.savesAreHeld(viewBufferId)) {

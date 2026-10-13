@@ -12,7 +12,7 @@ use crate::notes::extensions::{is_markdown_extension, is_text_extension};
 pub const THRESHOLD_NORMAL_BYTES: u64 = 5 * 1024 * 1024;
 
 /// Files up to this size open in large-file mode (syntax / typography / wrap
-/// disabled, FTS skipped, snapshots excluded).
+/// disabled, FTS skipped).
 pub const THRESHOLD_LARGE_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Files up to this size open in large-file mode after a confirm dialog.
@@ -39,14 +39,14 @@ pub const LARGE_FILE_AUTOSAVE_DEBOUNCE_MS: u64 = 2000;
 pub enum FileOpenMode {
     /// Full feature set. ≤ [`THRESHOLD_NORMAL_BYTES`].
     Normal,
-    /// Syntax, typography, and line-wrap disabled. FTS and snapshots
-    /// excluded. `(THRESHOLD_NORMAL_BYTES, THRESHOLD_LARGE_BYTES]`.
+    /// Syntax, typography, and line-wrap disabled. Not FTS-indexed.
+    /// `(THRESHOLD_NORMAL_BYTES, THRESHOLD_LARGE_BYTES]`.
     LargeFile,
     /// Same restrictions as [`FileOpenMode::LargeFile`] but the frontend
     /// must confirm before loading. `(THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES]`.
     LargeFileConfirm,
     /// NUL byte found in first [`BINARY_CHECK_BYTES`]. Opens as read-only
-    /// hex dump. Never FTS-indexed, never snapshotted, never saved back.
+    /// hex dump. Never FTS-indexed, never journaled, never saved back.
     Binary,
     /// File exceeds [`THRESHOLD_MAX_BYTES`]. Refused with a message.
     Refused {

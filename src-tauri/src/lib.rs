@@ -4,6 +4,7 @@ pub mod events;
 pub mod first_run;
 pub mod fts_scheduler;
 pub mod generated;
+pub mod heartbeat;
 pub mod hotkey;
 pub mod logging;
 pub mod menu;
@@ -30,16 +31,6 @@ use tauri::{Listener, Manager};
 use tracing::info;
 use writ_core::startup::{StartupFailure, StartupStage};
 
-/// How often the running app records a crash-recovery snapshot of the open
-/// notes.
-///
-/// The snapshot is a safety net behind autosave, not a second save path, so
-/// the interval trades recovery granularity against the writes it costs. A
-/// pass that finds nothing changed writes nothing
-/// ([`writ_storage::buffer_store::BufferStore::write_session_snapshot_if_changed`]),
-/// which is what keeps an idle session from growing the database.
-pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(120);
-
 /// Writes everything the next launch needs before the process goes away.
 ///
 /// A live reply is stopped first: its partial text is the streaming task's
@@ -48,12 +39,13 @@ pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_se
 /// Deferred FTS reindexes go first: a reindex still inside its debounce window
 /// would otherwise be lost, leaving search stale, because the startup
 /// consistency check only removes orphan rows and never adds missing content
-/// (ADR-020). The shutdown snapshot follows, and it must be the last thing
-/// written, so it records the notes as the flush left them.
+/// (ADR-020). The clean marker follows, and it must be the last thing written,
+/// so a quit cut short reads as unclean.
 ///
-/// Text the flush could not write is folded in over the files
-/// ([`writ_core::recovery::shutdown_snapshot`]), which is what keeps a quit
-/// with a failed save from ending with that text nowhere.
+/// The marker reads no file. Text a save could not write is already in the
+/// unsaved-text journal, put there as each save returned or as the frontend
+/// handed it over on its way out (ADR-044), so the next launch restores it
+/// whatever this does.
 pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
 
@@ -77,20 +69,21 @@ pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
         }
     }
 
-    let unsaved = state.take_unsaved_on_exit();
-    let unsaved_count = unsaved.len();
-    let snapshot_result = state.store.lock().ok().map(|store| {
-        store.collect_buffer_contents().and_then(|on_disk| {
-            let (contents, is_clean) = writ_core::recovery::shutdown_snapshot(on_disk, unsaved);
-            store.write_session_snapshot(&contents, is_clean)
-        })
+    let marked = state.store.lock().ok().map(|store| {
+        let kept = store.unsaved_text_count();
+        store.mark_session_clean().map(|()| kept)
     });
-    match snapshot_result {
-        Some(Ok(())) if unsaved_count > 0 => {
-            info!(notes = unsaved_count, "shutdown snapshot kept unsaved text")
+    match marked {
+        Some(Ok(Ok(kept))) if kept > 0 => {
+            info!(
+                notes = kept,
+                "clean-shutdown marker written; unsaved text stays in the journal"
+            )
         }
-        Some(Ok(())) => info!("clean-shutdown snapshot written"),
-        Some(Err(e)) => tracing::warn!(error = %e, "shutdown snapshot failed"),
+        Some(Ok(_)) => info!("clean-shutdown marker written"),
+        Some(Err(e)) => {
+            tracing::warn!(error = %e, "the clean-shutdown marker could not be written")
+        }
         None => {}
     }
 }
@@ -494,6 +487,7 @@ pub fn run() {
             commands::buffer::note_disk_state,
             commands::buffer::resolve_external_change,
             commands::buffer::record_unsaved_notes,
+            commands::buffer::discard_unsaved_text,
             commands::buffer::list_active_buffers,
             commands::buffer::close_buffer,
             commands::buffer::close_buffers,
@@ -964,20 +958,10 @@ pub fn run() {
                 }
             }
 
-            let snapshot_handle = handle.clone();
+            let heartbeat_handle = handle.clone();
             std::thread::spawn(move || loop {
-                std::thread::sleep(SNAPSHOT_HEARTBEAT);
-                let snapshot_error = {
-                    let state = snapshot_handle.state::<AppState>();
-                    state.store.lock().ok().map(|mut store| {
-                        store
-                            .collect_buffer_contents()
-                            .and_then(|contents| store.write_session_snapshot_if_changed(&contents))
-                    })
-                };
-                if let Some(Err(e)) = snapshot_error {
-                    tracing::warn!(error = %e, "periodic snapshot failed");
-                }
+                std::thread::sleep(heartbeat::SNAPSHOT_HEARTBEAT);
+                heartbeat::beat(&heartbeat_handle.state::<AppState>());
             });
 
             let updater_auto_check = {
@@ -1076,7 +1060,7 @@ pub fn run() {
                     }
                     finish_shutdown(&shutdown_handle);
                     // Only now may a repeat request exit: until the writes are
-                    // on disk, one would take the process down mid-snapshot.
+                    // on disk, one would take the process down mid-write.
                     quit_state.finish();
                     shutdown_handle.exit(quit_state.exit_code());
                 });

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
@@ -201,12 +201,12 @@ pub struct AppState {
     /// The shutdown path waits on that answer, but only as far as
     /// [`writ_core::recovery::QUIT_FLUSH_TIMEOUT`].
     pub quit: Arc<QuitState>,
-    /// Buffers restored from the crash snapshot on this launch.
-    /// Consumed by the `get_recovered_buffers` command and cleared.
+    /// Notes whose text this launch took from the unsaved-text journal
+    /// (ADR-044). Consumed by the `get_recovered_buffers` command and cleared.
     pub recovered_buffers: Mutex<Vec<RecoveredBuffer>>,
-    /// `true` when the previous session ended without a clean snapshot.
-    /// Recovery itself is pull-based via `recovered_buffers`; this flag
-    /// records the detection for diagnostics and test assertions.
+    /// `true` when the previous session ended without a clean marker. For
+    /// diagnostics and test assertions: the journal is read on every launch,
+    /// so nothing is restored on this flag's account.
     pub was_dirty_shutdown: bool,
     /// Canonical root of the open workspace folder, if any.
     pub workspace_root: Mutex<Option<PathBuf>>,
@@ -249,14 +249,6 @@ pub struct AppState {
     /// filesystem as it is now. A relaunch reads it back from the file when
     /// the tab is restored.
     pub source_records: Mutex<HashMap<String, SourceRecord>>,
-    /// Text a save could not write, handed over by the editor on its way out,
-    /// keyed by buffer id.
-    ///
-    /// The shutdown snapshot is the last thing written and it reads every open
-    /// note's file, so a note whose write failed would otherwise contribute
-    /// the stale bytes on disk and the text the person typed would be nowhere.
-    /// Emptied by [`Self::take_unsaved_on_exit`] as the snapshot is composed.
-    pub unsaved_on_exit: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {
@@ -348,49 +340,26 @@ impl AppState {
             Err(e) => warn!(error = %e, "failed to reconcile buffer filenames"),
         }
 
-        // Recovery must run before reclaim_empty_scratch: a note that crashed
-        // before its autosave flushed holds nothing on disk but has text in
-        // the snapshot, and reclaiming first would delete it. A note that
-        // never reached a file gets one here, minted by the same policy the
-        // first keystroke would have used, because there is nowhere else the
-        // text can go now (ADR-028 §1).
+        // Recovery must run before reclaim_empty_scratch: a note whose first
+        // file could not be made holds nothing on disk but has text in the
+        // journal, and the restore is what gives it a file. A note that never
+        // reached a file gets one here, minted by the same policy the first
+        // keystroke would have used, because there is nowhere else the text
+        // can go now (ADR-028 §1). The journal is read whatever the last
+        // shutdown was: a quit with a failed save leaves entries behind as
+        // surely as a crash does (ADR-044).
         let was_dirty_shutdown = store.is_dirty_shutdown().unwrap_or(false);
+        if was_dirty_shutdown {
+            info!("the last session did not shut down cleanly");
+        }
         // What each recovered note's file holds once recovery is done, which
-        // seeds the write guard. Without it the first save after an unclean
-        // relaunch would have nothing to compare against and would write over
-        // whatever arrived while Writ was down.
-        let mut recovered_disk_states: HashMap<String, DiskState> = HashMap::new();
-        let recovered_buffers = if was_dirty_shutdown {
-            info!("dirty shutdown detected; resolving recovery");
-            let mut recovered = store.resolve_recovery().unwrap_or_default();
-            info!(count = recovered.len(), "buffers eligible for recovery");
-            for buf in &mut recovered {
-                match restore_recovered_buffer(
-                    &store,
-                    &notes_root,
-                    buf,
-                    config.files.default_extension,
-                ) {
-                    // Nothing is recorded for a note whose file was never
-                    // read, so its first save reads it rather than trusting a
-                    // record nobody took.
-                    Ok(RecoveryLanding::Written(Some(state))) => {
-                        recovered_disk_states.insert(buf.id.clone(), state);
-                    }
-                    Ok(RecoveryLanding::Written(None)) => {}
-                    // The frontend seeds the tab from this rather than reading
-                    // a file that is not there.
-                    Ok(RecoveryLanding::Withheld) => {
-                        info!(buffer_id = %buf.id, "the note's file is gone; its text goes to the tab");
-                        buf.removed_on_disk = true;
-                    }
-                    Err(e) => warn!(buffer_id = %buf.id, error = %e, "recovery write failed"),
-                }
-            }
-            recovered
-        } else {
-            Vec::new()
-        };
+        // seeds the write guard. Without it the first save after a relaunch
+        // would have nothing to compare against and would write over whatever
+        // arrived while Writ was down.
+        let RestoredText {
+            recovered: recovered_buffers,
+            disk_states: recovered_disk_states,
+        } = restore_unsaved_text(&store, &notes_root, config.files.default_extension);
 
         // Every note becomes a file (ADR-028 §4). After recovery, so the text
         // the last session never flushed is in place before the pass reads
@@ -573,7 +542,6 @@ impl AppState {
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(recovered_disk_states),
             source_records: Mutex::new(HashMap::new()),
-            unsaved_on_exit: Mutex::new(HashMap::new()),
         })
     }
 
@@ -990,38 +958,139 @@ impl AppState {
         let map = recover_poison(self.last_disk_hash.lock(), "state::disk_hash_matches");
         map.get(buffer_id).map(|state| state.hash) == Some(writ_core::hash::sha256_bytes(bytes))
     }
-
-    /// Records text a save could not write, for the shutdown snapshot to keep.
-    ///
-    /// The editor hands the same note over on both ways out (the quit flush
-    /// and the window closing), so a later handover replaces an earlier one:
-    /// it carries the newer text.
-    pub fn record_unsaved_on_exit(&self, buffer_id: &str, content: String) {
-        let mut map = recover_poison(self.unsaved_on_exit.lock(), "state::record_unsaved_on_exit");
-        map.insert(buffer_id.to_string(), content);
-    }
-
-    /// Takes everything recorded, leaving the map empty.
-    pub fn take_unsaved_on_exit(&self) -> HashMap<String, String> {
-        let mut map = recover_poison(self.unsaved_on_exit.lock(), "state::take_unsaved_on_exit");
-        std::mem::take(&mut *map)
-    }
 }
 
-/// Writes a note restored from the crash snapshot back into its file, minting
-/// one first when the note never reached a file, and returns what that file
-/// holds afterwards, when that was established.
+/// What the launch did with the unsaved-text journal.
+#[derive(Default)]
+pub struct RestoredText {
+    /// Every note whose text was written to disk, or handed to its tab because
+    /// its file is gone. The frontend's restore toast counts the first kind.
+    pub recovered: Vec<RecoveredBuffer>,
+    /// What each restored note's file holds afterwards, when that was
+    /// established, keyed by buffer id. It seeds the write guard.
+    pub disk_states: HashMap<String, DiskState>,
+}
+
+/// Puts the text the unsaved-text journal holds where it belongs (ADR-044).
+///
+/// First the text a 0.5 snapshot was holding is moved into the journal, which
+/// does nothing after the first launch of 0.6. Then every entry is released
+/// from its tab: each tab comes up showing its file, so no save of a tab
+/// carries any of this text, and none may clear it
+/// ([`BufferStore::release_unsaved_text`]). Then each entry goes through
+/// [`restore_recovered_buffer`], newest first: written into the note's file,
+/// or beside it when the file moved on, and removed from the journal once it
+/// is on disk. Newest first gives a note with no file its newest text as that
+/// file, with any older text beside it.
+///
+/// An entry stays in the journal when its text reached no file. A note whose
+/// file was deleted outside Writ, or whose first file the launch could not
+/// make, has its newest text handed to its tab instead, and that entry becomes
+/// the tab's again, which putting the file back settles. Older text of that
+/// note stays released for a later launch. Any other write that failed is left
+/// out of what the toast counts, because nothing was restored, and the next
+/// launch tries again. A row that does not decode is logged and stays too
+/// ([`BufferStore::unsaved_text`]).
+///
+/// Nothing here fails the launch. Every failure is a line in the log, and the
+/// text it concerns is still in the journal for the next one.
+pub fn restore_unsaved_text(
+    store: &BufferStore,
+    notes_root: &Path,
+    default_extension: writ_core::config::FileExtension,
+) -> RestoredText {
+    match store.carry_over_legacy_snapshots() {
+        Ok(carried) if carried.journaled > 0 || carried.emptied > 0 => info!(
+            journaled = carried.journaled,
+            emptied = carried.emptied,
+            "moved the text of the last 0.5 snapshot into the unsaved-text journal"
+        ),
+        Ok(_) => {}
+        Err(e) => warn!(error = %e, "the 0.5 snapshots could not be read"),
+    }
+    if let Err(e) = store.release_unsaved_text() {
+        warn!(error = %e, "the unsaved-text journal could not be released from its tabs");
+    }
+
+    let journal = match store.unsaved_text() {
+        Ok(journal) => journal,
+        Err(e) => {
+            warn!(error = %e, "the unsaved-text journal could not be read");
+            return RestoredText::default();
+        }
+    };
+    if journal.entries.is_empty() {
+        return RestoredText::default();
+    }
+    info!(
+        count = journal.entries.len(),
+        "restoring text the last session could not save"
+    );
+
+    let mut restored = RestoredText::default();
+    let mut handed_to_tabs = HashSet::new();
+    for entry in journal.entries.into_iter().rev() {
+        let entry_id = entry.entry_id;
+        let mut recovered = RecoveredBuffer {
+            id: entry.buffer_id,
+            content: entry.text,
+            removed_on_disk: false,
+        };
+        match restore_recovered_buffer(store, notes_root, &recovered, default_extension) {
+            // Nothing is recorded for a note whose file was never read, so its
+            // first save reads it rather than trusting a record nobody took.
+            Ok(RecoveryLanding::Written(state)) => {
+                if let Some(state) = state {
+                    restored.disk_states.insert(recovered.id.clone(), state);
+                }
+                if let Err(e) = store.remove_unsaved_text_entry(entry_id) {
+                    warn!(buffer_id = %recovered.id, error = %e, "a restored journal entry could not be cleared");
+                }
+                restored.recovered.push(recovered);
+            }
+            // The frontend seeds the tab from this rather than reading a file
+            // that is not there, and the entry stays until the person puts
+            // the file back. A tab shows one text, so only the newest goes.
+            Ok(RecoveryLanding::Withheld) => {
+                if handed_to_tabs.insert(recovered.id.clone()) {
+                    if let Err(e) = store.give_unsaved_text_to_tab(entry_id) {
+                        warn!(buffer_id = %recovered.id, error = %e, "a journal entry handed to its tab could not be marked as the tab's");
+                    }
+                    recovered.removed_on_disk = true;
+                    restored.recovered.push(recovered);
+                }
+            }
+            Err(e) => warn!(
+                buffer_id = %recovered.id,
+                error = %e,
+                "recovery write failed; the text stays in the journal for the next launch"
+            ),
+        }
+    }
+    restored
+}
+
+/// Writes a note's journaled text back into its file, minting one first when
+/// the note never reached a file, and returns what that file holds afterwards,
+/// when that was established.
 ///
 /// The mint is the same policy the first keystroke uses
 /// ([`crate::notes::attach_note_file`]), so a note recovered after a crash
-/// carries the name it would have had if the crash had not happened.
+/// carries the name it would have had if the crash had not happened. When the
+/// launch cannot give the note that file, because the path cannot be recorded
+/// or the write fails, a recorded path comes back off the row, as a refused
+/// first save's does, so the next launch mints again rather than reading it as
+/// a file somebody deleted. The text stays in the journal and goes to the tab
+/// the way a withheld note's does: a tab that came up empty would let its next
+/// save replace the text, and putting the file back mints the file then.
 ///
 /// The write goes through
 /// [`restore_recovered_content`](BufferStore::restore_recovered_content),
 /// which leaves a file that moved on while Writ was down exactly as it is and
-/// writes the snapshot beside it. A relaunch is precisely when a sync client
-/// has had time to deliver a newer version, and the snapshot is the older
-/// text by definition.
+/// writes the text beside it. A relaunch is precisely when a sync client has
+/// had time to deliver a newer version, and the journaled text is the older
+/// one by definition. The destination is the file the note's row names now, so
+/// a note moved since its save failed keeps its new name.
 ///
 /// A note whose file was never opened, because its bytes are not on this
 /// machine, comes back with nothing: the first save reads it instead.
@@ -1035,9 +1104,9 @@ impl AppState {
 /// the only case that reaches no write at all
 /// ([`writ_core::recovery::plan_recovery`]). Its file was deleted, and putting
 /// it back at a relaunch is the same harm as putting it back at a save, so the
-/// text stays in the snapshot's hands and the tab comes up removed on disk
-/// (ADR-033 decision 15). Nothing is left beside the path either: a dated copy
-/// in a folder somebody cleared is a file they did not ask for.
+/// text stays in the journal and the tab comes up removed on disk (ADR-033
+/// decision 15). Nothing is left beside the path either: a dated copy in a
+/// folder somebody cleared is a file they did not ask for.
 fn restore_recovered_buffer(
     store: &BufferStore,
     notes_root: &std::path::Path,
@@ -1053,22 +1122,41 @@ fn restore_recovered_buffer(
     if writ_core::recovery::plan_recovery(had_file, file_is_there)
         == writ_core::recovery::RecoveryPlan::Withhold
     {
+        info!(buffer_id = %recovered.id, "the note's file is gone; its text goes to the tab");
         return Ok(RecoveryLanding::Withheld);
     }
-    if !had_file {
-        crate::notes::attach_note_file(
+    let minted = if had_file {
+        None
+    } else {
+        match crate::notes::attach_note_file(
             store,
             notes_root,
             &recovered.id,
             &doc.title,
             chrono::Utc::now(),
             default_extension,
-        )?;
+        ) {
+            Ok(path) => Some(path),
+            Err(e) => {
+                warn!(buffer_id = %recovered.id, error = %e, "the first file could not be named; its text goes to the tab");
+                return Ok(RecoveryLanding::Withheld);
+            }
+        }
+    };
+    match (
+        store.restore_recovered_content(&recovered.id, &recovered.content, None, None),
+        minted,
+    ) {
+        (Ok(outcome), _) => Ok(RecoveryLanding::Written(outcome.disk_state())),
+        (Err(e), Some(path)) => {
+            warn!(buffer_id = %recovered.id, error = %e, "the first file could not be made; its text goes to the tab");
+            if let Err(e) = store.detach_source_path_with_no_file(&recovered.id, &path) {
+                warn!(buffer_id = %recovered.id, error = %e, "a minted path could not be taken back");
+            }
+            Ok(RecoveryLanding::Withheld)
+        }
+        (Err(e), None) => Err(e.to_string()),
     }
-    store
-        .restore_recovered_content(&recovered.id, &recovered.content, None, None)
-        .map(|outcome| RecoveryLanding::Written(outcome.disk_state()))
-        .map_err(|e| e.to_string())
 }
 
 /// Where a note's recovered text ended up at the relaunch.
@@ -1076,8 +1164,9 @@ enum RecoveryLanding {
     /// It was written into the note's file, which then held what the
     /// [`DiskState`] describes when the file could be described at all.
     Written(Option<DiskState>),
-    /// Nothing was written. The note's file is gone and the text goes to the
-    /// tab, which comes up removed on disk.
+    /// Nothing was written: the note's file is gone, or the launch could not
+    /// give a note with no file its first one. The text goes to the tab, which
+    /// comes up removed on disk.
     Withheld,
 }
 

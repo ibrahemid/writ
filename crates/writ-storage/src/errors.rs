@@ -1,4 +1,5 @@
 use thiserror::Error;
+use writ_core::recovery::SaveLanding;
 
 /// Crate-wide error type for `writ-storage` operations.
 ///
@@ -245,6 +246,26 @@ pub enum StorageError {
         /// Highest migration version embedded in this binary.
         binary_version: i32,
     },
+}
+
+impl StorageError {
+    /// What became of the text a save carried, when the save failed with this
+    /// error (ADR-044).
+    ///
+    /// A refusal over a file that changed under Writ writes the text beside
+    /// the note when it can, and that copy is a file holding it. Every other
+    /// failure here left the text with the editor alone: a file that is not
+    /// downloaded, read-only, hard-linked or missing, a folder that would not
+    /// take the write, a volume that stopped answering, any other I/O error.
+    pub fn save_landing(&self) -> SaveLanding {
+        match self {
+            StorageError::SourceChangedOnDisk {
+                conflict_copy: Some(_),
+                ..
+            } => SaveLanding::WrittenBeside,
+            _ => SaveLanding::NotLanded,
+        }
+    }
 }
 
 /// Shorthand for a result whose error arm is [`StorageError`].

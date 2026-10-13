@@ -253,6 +253,20 @@ describe("autosave", () => {
       expect(mockedSave).toHaveBeenCalledOnce();
       expect(mockedSave).toHaveBeenCalledWith("buf-b", "b");
     });
+
+    it("leaves nothing of a failed write for the way out to hand over", async () => {
+      mockedSave.mockRejectedValueOnce(new Error("ERR_READ_ONLY_DESTINATION: /notes/a.md"));
+      await saveNow("buf-lost", "text the file refused");
+      expect(collectUnsavedContent()).toEqual([
+        { id: "buf-lost", content: "text the file refused" },
+      ]);
+
+      cancelAutosave("buf-lost");
+
+      expect(collectUnsavedContent()).toEqual([]);
+      await keepUnsavedForRecovery("buf-lost");
+      expect(mockedRecord).not.toHaveBeenCalled();
+    });
   });
 
   describe("flushAutosave", () => {
@@ -338,7 +352,7 @@ describe("autosave", () => {
     it("hands a closing note's unwritten text over and stops holding it", async () => {
       // The guard refuses this one, so autosave deliberately does not queue it
       // again. The flush a close runs finds nothing, the tab goes, and without
-      // this the text would sit here until the next quit snapshotted a note
+      // this the text would sit here until the next quit journaled a note
       // the person had closed.
       mockedSave.mockRejectedValueOnce(new Error("ERR_FILE_CHANGED_ON_DISK: /notes/a.md"));
       await saveNow("buf-closing", "text the file refused");

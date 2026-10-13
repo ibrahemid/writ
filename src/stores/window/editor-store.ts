@@ -382,7 +382,7 @@ export function createEditorStore() {
    * Records that a note's file is gone, keeping whatever text only Writ holds.
    *
    * `text` is passed only by the launch, which seeds a note the last session
-   * left removed from the shutdown snapshot rather than from anything live.
+   * left removed from the unsaved-text journal rather than from anything live.
    * Everything else is [`recordFileEvent`]'s, including the read-then-cancel
    * order and the early return for a note already marked.
    */
@@ -406,7 +406,7 @@ export function createEditorStore() {
 
   // The state and the text, dropped without saying anything about the file. A
   // closed tab has no file either way, and its text has not reached the
-  // snapshot yet: `keepUnsavedForRecovery` reads it after this and cancels the
+  // journal yet: `keepUnsavedForRecovery` reads it after this and cancels the
   // note, which is what takes it back out.
   function forgetFileState(id: string) {
     setNoteFileStates((current) => {
@@ -444,7 +444,7 @@ export function createEditorStore() {
    * tab's text reaches disk from here.
    *
    * Held, not dropped. The text stays in the document, it is kept for the
-   * recovery snapshot so closing the tab or quitting does not lose it
+   * unsaved-text journal so closing the tab or quitting does not lose it
    * (`holdUnsavedContent`), and the note saves normally again the moment its
    * state is `present`.
    *

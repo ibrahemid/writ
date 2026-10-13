@@ -12,6 +12,7 @@ use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::guard::is_not_downloaded;
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
+use writ_core::recovery::{journal_step, JournalStep, SaveLanding};
 use writ_core::watcher::pending::HoldAnswer;
 use writ_storage::buffer_store::{dataless_flags, BufferStore, NoteFileState};
 use writ_storage::errors::StorageError;
@@ -294,6 +295,10 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
 /// Returns what the file holds once the write has landed, so the tab can stop
 /// reading dirty without going back to disk for the answer. A note with
 /// nothing in it and no file yet wrote nothing and has no state to report.
+///
+/// A save that does not land leaves its text in the unsaved-text journal
+/// before it returns, and one that lands clears the tab's entry
+/// ([`keep_unsaved_text`], ADR-044).
 pub fn save_buffer_content_inner(
     state: &AppState,
     id: &str,
@@ -316,45 +321,204 @@ pub enum RemovedFile {
     WriteBack,
 }
 
+/// Why a write did not land, before it is rendered for the frontend.
+struct SaveRefused {
+    /// What became of the text the write carried, which decides what the
+    /// journal does ([`keep_unsaved_text`]).
+    landing: SaveLanding,
+    /// The coded message the frontend reads.
+    message: String,
+    /// The path the write minted for the note's first file, which the journal
+    /// step takes back when nothing was made at it ([`take_back_minted_file`]).
+    minted: Option<String>,
+}
+
+impl SaveRefused {
+    /// A refusal that left the text with the editor alone.
+    fn not_landed(message: String) -> Self {
+        Self {
+            landing: SaveLanding::NotLanded,
+            message,
+            minted: None,
+        }
+    }
+
+    /// A refusal from the store, which knows whether the text went beside the
+    /// note ([`StorageError::save_landing`]).
+    fn storage(error: &StorageError) -> Self {
+        Self {
+            landing: error.save_landing(),
+            message: save_failure_message(error),
+            minted: None,
+        }
+    }
+
+    /// This refusal, from a write that minted `path` for the note's first
+    /// file.
+    fn with_minted(self, path: String) -> Self {
+        Self {
+            minted: Some(path),
+            ..self
+        }
+    }
+}
+
 /// The write every save lands through, with the removed-file question left to
 /// the caller.
+///
+/// Every way out of it reaches the journal, which is why the write itself is
+/// one function and this wrapper the only caller: a refusal that returned
+/// early and skipped the journal would be text a crash could lose.
 fn write_note_source(
     state: &AppState,
     id: &str,
     content: &str,
     removed: RemovedFile,
 ) -> Result<Option<String>, String> {
-    wait_out_a_held_removal(state, id, removed)?;
+    let written = land_note_source(state, id, content, removed);
+    let (landing, minted) = match &written {
+        Ok(_) => (SaveLanding::Landed, None),
+        Err(refused) => (refused.landing, refused.minted.as_deref()),
+    };
+    keep_unsaved_text(state, id, content, landing, minted);
+    written.map_err(|refused| refused.message)
+}
+
+/// Records or clears the unsaved-text journal entry of note `id`'s tab, as the
+/// outcome of a write that carried `content` decides
+/// ([`writ_core::recovery::journal_step`], ADR-044).
+///
+/// Runs after the write has let go of the store, and a journal that cannot be
+/// written is a line in the log rather than a second error for the frontend:
+/// the write's own answer is the one the tab acts on, and the editor still
+/// holds the text and hands it over again on the way out.
+///
+/// `minted` is the path a refused write minted for the note's first file. It
+/// comes off the row once the journal holds the text, under the same hold of
+/// the store ([`take_back_minted_file`]).
+///
+/// Only the tab's own entry is touched. Text an earlier tab of the note handed
+/// over, or a launch could not write, was released when the note's tab
+/// stopped being that tab, and no save of this one carries it (ADR-044 §3).
+/// Within the tab, the frontend writes one note at a time and hands text over
+/// only after its flush, so no write of this note is still running when a
+/// later one lands or a handover arrives.
+pub(crate) fn keep_unsaved_text(
+    state: &AppState,
+    id: &str,
+    content: &str,
+    landing: SaveLanding,
+    minted: Option<&str>,
+) {
+    let step = journal_step(landing);
+    if step == JournalStep::Leave {
+        return;
+    }
+    let store = recover_poison(state.store.lock(), "commands::buffer::keep_unsaved_text");
+    let held = match step {
+        JournalStep::Record => store.record_unsaved_text(id, content, chrono::Utc::now()),
+        JournalStep::Clear => store.clear_unsaved_text(id).map(|_| false),
+        JournalStep::Leave => Ok(false),
+    };
+    match held {
+        Ok(true) => {
+            if let Some(path) = minted {
+                take_back_minted_file(state, &store, id, path);
+            }
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!(buffer_id = %id, error = %e, "the unsaved-text journal could not be updated");
+        }
+    }
+}
+
+/// Takes the path a refused write minted for note `id`'s first file back off
+/// its row, now that the journal holds the text.
+///
+/// A path on a row says the note has a file, and a relaunch reads a path with
+/// nothing at it as a file somebody deleted: the text would come back to its
+/// tab as deleted and no file would be made (ADR-044 §4). Without the path the
+/// note is one that never had a file, which the relaunch gives one, and the
+/// next save mints again. The journal entry is what keeps such a note from
+/// being reused for a new tab or reclaimed at the launch, so a text that could
+/// not be recorded leaves the path where it is.
+///
+/// The tab stops following the path with it. A path something is at stays
+/// ([`BufferStore::detach_source_path_with_no_file`]).
+fn take_back_minted_file(state: &AppState, store: &BufferStore, id: &str, path: &str) {
+    match store.detach_source_path_with_no_file(id, path) {
+        Ok(true) => {
+            state.stop_following_note(id);
+            state.forget_source_record(id);
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!(buffer_id = %id, error = %e, "a minted path could not be taken back");
+        }
+    }
+}
+
+/// [`write_note_source`]'s write, answering with what became of the text when
+/// it did not land.
+fn land_note_source(
+    state: &AppState,
+    id: &str,
+    content: &str,
+    removed: RemovedFile,
+) -> Result<Option<String>, SaveRefused> {
+    wait_out_a_held_removal(state, id, removed).map_err(SaveRefused::not_landed)?;
     // Read before the store lock, and unconditionally: the config lock is
     // never taken under a held store lock, and finding out whether this write
     // needs the format at all takes the store lock first.
     let default_extension = state.default_extension();
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(id).map_err(|e| e.to_string())?;
+    let store = state
+        .store
+        .lock()
+        .map_err(|e| SaveRefused::not_landed(e.to_string()))?;
+    let doc = store
+        .get(id)
+        .map_err(|e| SaveRefused::not_landed(e.to_string()))?;
     if doc.read_only {
-        return Err(format!("{ERR_NOTE_READ_ONLY}: file {id} is read-only"));
+        return Err(SaveRefused {
+            landing: SaveLanding::ReadOnlyNote,
+            message: format!("{ERR_NOTE_READ_ONLY}: file {id} is read-only"),
+            minted: None,
+        });
     }
     // A file the user deleted is not recreated by the next keystroke. The
     // write gate cannot answer this on its own: a path that is not there
     // resolves and passes, which is what lets a new note be minted and is
     // right everywhere except here (spec W4).
     if removed == RemovedFile::Refuse && state.is_removed_on_disk(id) {
-        return Err(format!(
+        return Err(SaveRefused::not_landed(format!(
             "{ERR_FILE_REMOVED_ON_DISK}: file {id} is on disk nowhere any more"
-        ));
+        )));
     }
 
-    let source_path = match doc.source_path.as_deref() {
-        Some(path) => path.to_string(),
+    let (source_path, minted) = match doc.source_path.as_deref() {
+        Some(path) => (path.to_string(), false),
         None if content.is_empty() => return Ok(None),
-        None => attach_new_note_file(state, &store, &doc, default_extension)?,
+        None => (
+            attach_new_note_file(state, &store, &doc, default_extension)
+                .map_err(SaveRefused::not_landed)?,
+            true,
+        ),
     };
 
-    crate::commands::file::authorize_source_write(state, &source_path)?;
-    let stamp = ignore_stamper(state);
-    let written = store
-        .save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp))
-        .map_err(|e| save_failure_message(&e))?;
+    let landed = crate::commands::file::authorize_source_write(state, &source_path)
+        .map_err(SaveRefused::not_landed)
+        .and_then(|()| {
+            let stamp = ignore_stamper(state);
+            store
+                .save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp))
+                .map_err(|e| SaveRefused::storage(&e))
+        });
+    let written = match landed {
+        Ok(written) => written,
+        Err(refused) if minted => return Err(refused.with_minted(source_path)),
+        Err(refused) => return Err(refused),
+    };
     state.set_disk_state(id, written);
     // Every save writes a temporary file and renames it over the note, so the
     // file behind this tab is a new file now. A record taken before the save
@@ -610,11 +774,8 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
         } else {
             let bytes = content.as_bytes();
             // The reload of an externally changed note comes through here, so
-            // this is where the tab learns what the file holds — and where the
-            // row learns it too. Without the row's stamp moving, a crash
-            // snapshot taken before the change still reads as newer than the
-            // row at the next unclean relaunch, and is written back over the
-            // note Writ just refreshed.
+            // this is where the tab learns what the file holds, and where the
+            // row learns it too (`BufferStore::note_synced_from_disk`).
             match store.note_synced_from_disk(
                 id,
                 writ_core::hash::sha256_bytes(bytes),
@@ -803,28 +964,59 @@ pub struct ResolveOutcome {
 /// copy of a note (ADR-028 §1), so the one place the unsaved version exists is
 /// the document, and Rust reading the note back would read the very change
 /// being asked about.
+///
+/// An answer is a write of the tab's text, so it reaches the unsaved-text
+/// journal like a save does ([`keep_unsaved_text`]). Every answer that returns
+/// leaves that text in a file, the note's own or the copy beside it, and
+/// clears the tab's entry; one that fails keeps the text.
 pub fn resolve_external_change_inner(
     state: &AppState,
     id: &str,
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, String> {
+    let answered = answer_external_change(state, id, choice, content);
+    let landing = match &answered {
+        Ok(_) => SaveLanding::Landed,
+        Err(refused) => refused.landing,
+    };
+    keep_unsaved_text(state, id, content, landing, None);
+    answered.map_err(|refused| refused.message)
+}
+
+/// [`resolve_external_change_inner`]'s answer, saying what became of the
+/// tab's text when there was none.
+fn answer_external_change(
+    state: &AppState,
+    id: &str,
+    choice: ChangeChoice,
+    content: &str,
+) -> Result<ResolveOutcome, SaveRefused> {
     // An answer is a write, so it waits out a held removal like any other one
     // and for the same reasons ([`wait_out_a_held_removal`]): the path read
     // below is the one a move has already left the row on, and a file that
     // turned out to be gone is refused rather than written back. Before the
     // store lock, which answering a hold needs.
-    wait_out_a_held_removal(state, id, RemovedFile::Refuse)?;
+    wait_out_a_held_removal(state, id, RemovedFile::Refuse).map_err(SaveRefused::not_landed)?;
     let (source_path, line_ending) = {
-        let store = state.store.lock().map_err(|e| e.to_string())?;
-        let doc = store.get(id).map_err(|e| e.to_string())?;
+        let store = state
+            .store
+            .lock()
+            .map_err(|e| SaveRefused::not_landed(e.to_string()))?;
+        let doc = store
+            .get(id)
+            .map_err(|e| SaveRefused::not_landed(e.to_string()))?;
         if doc.read_only {
-            return Err(format!("{ERR_NOTE_READ_ONLY}: file {id} is read-only"));
+            return Err(SaveRefused {
+                landing: SaveLanding::ReadOnlyNote,
+                message: format!("{ERR_NOTE_READ_ONLY}: file {id} is read-only"),
+                minted: None,
+            });
         }
         let ending = doc.line_ending;
-        let path = doc
-            .source_path
-            .ok_or_else(|| format!("{ERR_FILE_MISSING}: file {id} is on disk nowhere"))?;
+        let path = doc.source_path.ok_or_else(|| {
+            SaveRefused::not_landed(format!("{ERR_FILE_MISSING}: file {id} is on disk nowhere"))
+        })?;
         (path, ending)
     };
     let path = Path::new(&source_path);
@@ -837,6 +1029,7 @@ pub fn resolve_external_change_inner(
         choice,
         content,
     )
+    .map_err(SaveRefused::not_landed)
 }
 
 /// [`resolve_external_change_inner`] once the file's path and flags are known.
@@ -957,19 +1150,65 @@ pub struct UnsavedNote {
     pub content: String,
 }
 
-/// IPC: keeps text a save could not write until the shutdown snapshot takes
-/// it (spec S2, the quit-with-a-failed-save case).
+/// IPC: keeps text the editor holds that no save could write in the
+/// unsaved-text journal (ADR-044; spec S2, the quit-with-a-failed-save case).
 ///
-/// Writ is quitting by the time this is called and the file is the one place
-/// the text could not go, so the snapshot is where it goes instead; the next
-/// launch restores it ([`crate::finish_shutdown`]).
+/// Called on the way out: when a tab closes, when the window closes and when
+/// Writ quits, with whatever the editor holds that is not known to be on disk.
+/// A save that failed has journaled its text already. What this adds is text
+/// the editor held back while a bar was asking about the note's file, which no
+/// save ever carried. The next launch restores all of it
+/// ([`crate::state::restore_unsaved_text`]).
 #[tauri::command]
 pub fn record_unsaved_notes(
     state: State<'_, AppState>,
     notes: Vec<UnsavedNote>,
 ) -> Result<(), String> {
+    record_unsaved_notes_inner(&state, notes)
+}
+
+/// [`record_unsaved_notes`] as everything but the IPC boundary sees it.
+///
+/// Every note is tried. A note whose text could not be kept is logged, and
+/// the call fails once the rest are written, so the editor keeps its own copy
+/// of that text rather than drop it.
+pub fn record_unsaved_notes_inner(state: &AppState, notes: Vec<UnsavedNote>) -> Result<(), String> {
+    let store = recover_poison(state.store.lock(), "commands::buffer::record_unsaved_notes");
+    let now = chrono::Utc::now();
+    let total = notes.len();
+    let mut unkept = 0usize;
     for note in notes {
-        state.record_unsaved_on_exit(&note.id, note.content);
+        if let Err(e) = store.record_unsaved_text(&note.id, &note.content, now) {
+            tracing::warn!(buffer_id = %note.id, error = %e, "unsaved text could not be journaled");
+            unkept += 1;
+        }
+    }
+    if unkept > 0 {
+        return Err(format!(
+            "{ERR_WRITE_FAILED}: the unsaved text of {unkept} of {total} files could not be kept"
+        ));
+    }
+    Ok(())
+}
+
+/// IPC: drops the unsaved-text journal entries of the tabs whose unsaved text
+/// the person chose to lose ("Close and lose changes").
+///
+/// The editor drops its own copy at the same moment. Without this, the text
+/// the save that failed left in the journal would come back at the next
+/// launch, beside the note, after the person was told it was gone. Text an
+/// earlier tab of the note handed over was never in the closing tab, so it is
+/// not what the person chose to lose, and it stays (ADR-044 §3).
+#[tauri::command]
+pub fn discard_unsaved_text(state: State<'_, AppState>, ids: Vec<String>) -> Result<(), String> {
+    discard_unsaved_text_inner(&state, &ids)
+}
+
+/// [`discard_unsaved_text`] as everything but the IPC boundary sees it.
+pub fn discard_unsaved_text_inner(state: &AppState, ids: &[String]) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    for id in ids {
+        store.clear_unsaved_text(id).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

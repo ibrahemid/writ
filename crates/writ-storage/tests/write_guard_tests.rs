@@ -559,22 +559,16 @@ fn a_note_read_back_from_disk_moves_its_row_forward() {
 }
 
 #[test]
-fn a_note_writ_itself_re_read_is_ignored_by_recovery() {
+fn a_note_writ_itself_re_read_leaves_nothing_for_the_next_launch_to_write_back() {
     let (_db, mut store) = setup();
     let notes = TempDir::new().unwrap();
     let path = open_note_from_an_earlier_launch(&store, &notes, "# What the tab opened with");
 
-    // The heartbeat: every open note's file, read from disk, kept as an
-    // unclean snapshot.
-    let contents = store.collect_buffer_contents().expect("collect");
+    // The heartbeat, which used to copy every open note's file into a
+    // snapshot the next launch wrote back.
     store
-        .write_session_snapshot_if_changed(&contents)
-        .expect("write the snapshot");
-    assert_eq!(
-        store.resolve_recovery().expect("resolve").len(),
-        1,
-        "the snapshot must be newer than the row, or this proves nothing"
-    );
+        .mark_session_running()
+        .expect("the running-session marker");
 
     // Another program writes the note and Writ reads it back into the tab.
     let refreshed = b"# What another program wrote";
@@ -584,8 +578,8 @@ fn a_note_writ_itself_re_read_is_ignored_by_recovery() {
         .expect("the row takes the read");
 
     assert!(
-        store.resolve_recovery().expect("resolve").is_empty(),
-        "the last snapshot would be written back over the text Writ just read"
+        store.unsaved_text().expect("read").entries.is_empty(),
+        "the next launch would write something back over the text Writ just read"
     );
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),

@@ -599,14 +599,21 @@ export interface UnsavedNote {
 }
 
 /**
- * Hands text no save could write to the shutdown snapshot.
+ * Hands text no save could write to the unsaved-text journal.
  *
- * Called on the way out, once, after the last flush: the file has already
- * refused this text, so the snapshot is the only place left that the next
- * launch reads.
+ * Called on the way out, after the last flush: the file has already refused
+ * this text, so the journal is the only place left that the next launch reads.
  */
 export async function recordUnsavedNotes(notes: readonly UnsavedNote[]): Promise<void> {
   return invoke("record_unsaved_notes", { notes });
+}
+
+/**
+ * Drops what the unsaved-text journal holds for the tabs whose unsaved text
+ * the person chose to lose, so the next launch does not bring it back.
+ */
+export async function discardUnsavedText(ids: readonly string[]): Promise<void> {
+  return invoke("discard_unsaved_text", { ids });
 }
 
 export async function readBufferContent(id: string): Promise<string> {

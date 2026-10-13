@@ -4,6 +4,7 @@ import * as api from "../../services/tauri";
 import { cancelAutosave, flushAutosave, type SaveFailure } from "../../services/autosave";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
 import { formatBytes } from "../../lib/format-bytes";
+import { logFailure } from "../../lib/log";
 
 // What an open of a path came to. A file whose bytes a sync provider has not
 // put on this machine opens no note: it is downloaded first, and opened again
@@ -117,12 +118,25 @@ function createBufferRegistry() {
     return api.saveNoteCopy(id, content);
   }
 
+  // A discard drops what a failed save left in the unsaved-text journal, or the
+  // next launch would bring back text the person was told is gone. When that
+  // fails the close still goes ahead, and the next launch writes the text
+  // beside the file.
+  async function dropJournaledText(ids: string[]): Promise<void> {
+    try {
+      await api.discardUnsavedText(ids);
+    } catch {
+      logFailure("discarded text could not be dropped from the unsaved-text journal");
+    }
+  }
+
   async function closeBuffer(id: string, options: CloseOptions = {}): Promise<CloseOutcome> {
     // Closing a tab whose text did not reach disk would destroy it: the tab is
     // the only place that text still exists. Report the failure instead so the
     // caller can offer the choice, and keep the tab open until it does.
     if (options.discard) {
       cancelAutosave(id);
+      await dropJournaledText([id]);
     } else {
       const flushed = await flushAutosave(id);
       if (!flushed.ok) return { closed: false, failures: flushed.failures };
@@ -150,6 +164,7 @@ function createBufferRegistry() {
     let failures: SaveFailure[] = [];
     if (options.discard) {
       for (const id of ids) cancelAutosave(id);
+      await dropJournaledText(ids);
     } else {
       const flushed = await Promise.all(
         ids.map(async (id) => ({ id, result: await flushAutosave(id) })),

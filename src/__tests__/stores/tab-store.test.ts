@@ -44,6 +44,7 @@ vi.mock("../../services/tauri", () => ({
   closeBuffers: vi.fn().mockImplementation(async (ids: string[]) => {
     callLog.push(`closeBuffers:${ids.join(",")}`);
   }),
+  discardUnsavedText: vi.fn().mockResolvedValue(undefined),
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
   restoreBuffer: vi.fn().mockResolvedValue(undefined),
   clearHistory: vi.fn().mockResolvedValue(undefined),
@@ -108,7 +109,7 @@ describe("tabStore (per-window factory)", () => {
   });
 
   describe("closeTab", () => {
-    it("hands a closed note's unwritten text to the recovery snapshot", async () => {
+    it("hands a closed note's unwritten text to the unsaved-text journal", async () => {
       const tabs = freshTabStore();
       const doc = await tabs.createTab();
       // The guard refuses this write, so nothing goes back on the queue and

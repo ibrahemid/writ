@@ -29,6 +29,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
         43,
         include_str!("../../migrations/043_buffer_line_ending.sql"),
     ),
+    (44, include_str!("../../migrations/044_unsaved_text.sql")),
 ];
 
 /// Highest migration version embedded in this binary.

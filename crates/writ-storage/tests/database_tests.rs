@@ -210,7 +210,7 @@ fn the_schema_migrations_are_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 43);
+    assert_eq!(max_version, 44);
 }
 
 #[test]
@@ -255,9 +255,11 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
 
     // The shape a release before 043 leaves behind: rows with no ending
     // recorded, which the column's default has to answer for.
+    conn.execute("DROP TABLE unsaved_text", [])
+        .expect("failed to drop the table 044 added");
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
-    conn.execute("DELETE FROM schema_version WHERE version = 43", [])
+    conn.execute("DELETE FROM schema_version WHERE version >= 43", [])
         .expect("failed to roll the stamp back");
     conn.execute(
         "INSERT INTO buffers
@@ -288,6 +290,8 @@ fn a_database_at_041_gains_the_column_with_its_rows_intact() {
 
     // Roll the database back to the shape the release that ships 040 and 041
     // leaves behind, then migrate it forward again.
+    conn.execute("DROP TABLE unsaved_text", [])
+        .expect("failed to drop the table 044 added");
     conn.execute("ALTER TABLE files DROP COLUMN indexed_by", [])
         .expect("failed to drop the column");
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
@@ -422,7 +426,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 43);
+    assert_eq!(max_version, 44);
 }
 
 /// Column names of the `buffers` table.

@@ -207,7 +207,7 @@ export async function resolveNoteChange(
     // cap every other write obeys.
     //
     // The tab keeps the delta on the way out too, because the queue is what
-    // the close and quit paths hand to the recovery snapshot.
+    // the close and quit paths hand to the unsaved-text journal.
     //
     // Only this branch has a delta to keep. `Use the file on disk` replaces
     // the document with what the file holds, on purpose, and there is nothing

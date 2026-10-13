@@ -223,7 +223,10 @@ pub fn find_history_by_source_path(
 /// new-tab request reuses and startup reclaims. `migrated_path IS NULL`
 /// excludes the rows the notes migration wrote into the archive: those keep a
 /// `NULL` `source_path` until the user moves them into the notes folder, and
-/// they do have a file.
+/// they do have a file. A row with an entry in the unsaved-text journal is
+/// excluded too: its first file could not be made, and the journal holds what
+/// was typed into it until the next launch makes one (ADR-044). Deleting the
+/// row would take the entry with it.
 pub fn list_unsaved_notes(conn: &Connection) -> StorageResult<Vec<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
@@ -231,6 +234,7 @@ pub fn list_unsaved_notes(conn: &Connection) -> StorageResult<Vec<BufferDocument
                 read_only, size_bytes, line_ending
          FROM buffers
          WHERE source_path IS NULL AND migrated_path IS NULL
+           AND id NOT IN (SELECT buffer_id FROM unsaved_text)
          ORDER BY tab_order ASC",
     )?;
     let rows = stmt.query_map([], row_to_document)?;
@@ -251,6 +255,19 @@ pub fn update_source_path(conn: &Connection, id: &str, source_path: &str) -> Sto
         params![source_path, id],
     )?;
     Ok(())
+}
+
+/// Takes the file path off note `id`'s row while the row still names
+/// `source_path`, and answers whether it did.
+///
+/// The condition is what lets a caller take back the path it gave without
+/// taking one another write has put there since.
+pub fn clear_source_path(conn: &Connection, id: &str, source_path: &str) -> StorageResult<bool> {
+    let changed = conn.execute(
+        "UPDATE buffers SET source_path = NULL WHERE id = ?1 AND source_path = ?2",
+        params![id, source_path],
+    )?;
+    Ok(changed > 0)
 }
 
 /// Records that the notes migration wrote this row's text to `migrated_path`.

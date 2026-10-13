@@ -94,7 +94,6 @@ fn make_state(dir: &TempDir) -> AppState {
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
         source_records: Mutex::new(std::collections::HashMap::new()),
-        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 /// A state with the open-file watcher running, and every event it raises.
@@ -293,21 +292,9 @@ fn an_applied_edit_is_not_reverted_by_recovery() {
     let (file, hash) = seed_note(&state, "Launch.md", "before\n");
     open_row(&state, "note-1", &file, "before\n");
 
-    // The 120 s heartbeat: every open note's file, read from disk, written as
-    // an unclean snapshot.
-    {
-        let mut store = state.store.lock().expect("store");
-        let contents = store.collect_buffer_contents().expect("collect");
-        assert_eq!(contents.get("note-1").map(String::as_str), Some("before\n"));
-        store
-            .write_session_snapshot_if_changed(&contents)
-            .expect("write the snapshot");
-        assert_eq!(
-            store.resolve_recovery().expect("resolve").len(),
-            1,
-            "the snapshot must be newer than the row, or this proves nothing"
-        );
-    }
+    // The 120 s heartbeat, which used to copy every open note's file into an
+    // unclean snapshot that the next launch wrote back.
+    writ_tauri_lib::heartbeat::beat(&state);
 
     apply_proposal_inner(
         &state.notes_root(),
@@ -328,15 +315,19 @@ fn an_applied_edit_is_not_reverted_by_recovery() {
         .expect("the tab reloads");
     assert_eq!(String::from_utf8(read).expect("text"), "after\n");
 
-    let restored = state
-        .store
-        .lock()
-        .expect("store")
-        .resolve_recovery()
-        .expect("resolve");
+    // The next launch, after a crash: nothing it restores may land over the
+    // edit, because nothing but text a save could not write is kept for it.
+    let restored = {
+        let store = state.store.lock().expect("store");
+        writ_tauri_lib::state::restore_unsaved_text(
+            &store,
+            &state.notes_root(),
+            state.default_extension(),
+        )
+    };
     assert!(
-        restored.is_empty(),
-        "the last snapshot would be written back over the applied edit"
+        restored.recovered.is_empty(),
+        "the launch would write something back over the applied edit"
     );
     assert_eq!(std::fs::read_to_string(&file).expect("read"), "after\n");
 }

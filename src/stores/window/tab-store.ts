@@ -38,7 +38,7 @@ export function createTabStore(deps: {
   // registry refused to close is still open and keeps its record.
   //
   // Awaited rather than left running: text a save could not write is handed to
-  // the recovery snapshot here, and a close that races the quit is the case
+  // the unsaved-text journal here, and a close that races the quit is the case
   // that handover exists for.
   async function forgetClosed(ids: readonly string[]) {
     const open = new Set(registry.activeTabs().map((b) => b.id));

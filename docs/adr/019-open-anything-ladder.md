@@ -63,6 +63,8 @@ The FTS skip does **not** produce orphan rows because excluded buffers never rec
 
 ### Heartbeat snapshot exclusion
 
+[ADR-044](./044-unsaved-text-journal.md) retired the heartbeat snapshot and `collect_buffer_contents`. The heartbeat now runs every 120 s and reads no file, and a note's text reaches `writ.db` only when a save of it did not land, in the unsaved-text journal. The paragraph below records the decision as it was made.
+
 `buffer_store::collect_buffer_contents` skips buffers where the backing file size exceeds `THRESHOLD_LARGE_BYTES`. The 30-second heartbeat snapshot in `lib.rs` and the clean-shutdown snapshot both call this method, so both are bounded automatically. This prevents the periodic snapshot from allocating several hundred MB in RAM when large files are open. There is no consistency risk: snapshot recovery is best-effort; skipping a large file from the snapshot means it is not recovered if the app crashes, which is acceptable given the file still exists on disk.
 
 ### IPC fast path: raw bytes for read_buffer_content

@@ -3,7 +3,7 @@
 //! The storage tests drive `restore_recovered_content` directly; this one
 //! drives the launch, because what the launch does with the outcome is its own
 //! behaviour: a note whose file moved on while Writ was down must come back
-//! with its file intact and the snapshot beside it, and every recovered note
+//! with its file intact and the journaled text beside it, and every recovered note
 //! must leave the launch with the write guard seeded, or the first save after
 //! a crash is the unguarded one. A note whose file was deleted must come back
 //! with no file written at all: the tab is handed the text and shows it as
@@ -16,7 +16,6 @@
 //! binary would race it. Both cases therefore ride one launch, which is also
 //! how they arrive in life.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
@@ -73,8 +72,9 @@ fn dated_copies(dir: &Path, label: &str) -> Vec<PathBuf> {
     found
 }
 
-/// Leaves the data folder as a crash would: two notes with files, and a dirty
-/// snapshot newer than both rows holding what the editor had at the time.
+/// Leaves the data folder as a crash would: notes whose saves did not land,
+/// with what the editor had at the time in the unsaved-text journal, and a
+/// session marker that never got its clean successor.
 fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
     std::fs::create_dir_all(writ_dir.join("buffers")).expect("mirror folder");
 
@@ -89,7 +89,7 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
     let db_path = writ_dir.join("writ.db");
     let conn = open_database(&db_path).expect("open db");
     run_migrations(&conn).expect("migrations");
-    let store = BufferStore::new(conn, writ_dir.join("buffers"));
+    let mut store = BufferStore::new(conn, writ_dir.join("buffers"));
     store.insert(&row("moved-on", "Shared", &moved_on)).unwrap();
     store.insert(&row("steady", "Steady", &steady)).unwrap();
     store.insert(&row("deleted", "Deleted", &deleted)).unwrap();
@@ -97,24 +97,19 @@ fn seed_a_crashed_session(writ_dir: &Path, notes_dir: &Path) {
     // and the same observation at the relaunch as the deleted one.
     store.insert(&fileless_row("fresh", "Brand New")).unwrap();
 
-    // The snapshot is written now and the rows are stamped half a minute back,
-    // so it resolves as newer without the test having to sleep through
-    // SQLite's second-granularity clock. `is_clean = false` is the crash.
-    let snapshot: HashMap<String, String> = HashMap::from([
-        (
-            "moved-on".to_string(),
-            "what the crash was holding".to_string(),
-        ),
-        ("steady".to_string(), "steady text".to_string()),
-        (
-            "deleted".to_string(),
-            "the line typed after the file went".to_string(),
-        ),
-        ("fresh".to_string(), "typed and never saved".to_string()),
-    ]);
+    for (id, text) in [
+        ("moved-on", "what the crash was holding"),
+        ("steady", "steady text"),
+        ("deleted", "the line typed after the file went"),
+        ("fresh", "typed and never saved"),
+    ] {
+        assert!(store
+            .record_unsaved_text(id, text, Utc::now())
+            .expect("journal the text"));
+    }
     store
-        .write_session_snapshot(&snapshot, false)
-        .expect("write the dirty snapshot");
+        .mark_session_running()
+        .expect("the session was running");
     assert!(store.is_dirty_shutdown().expect("dirty check"));
 }
 
@@ -132,11 +127,11 @@ fn an_unclean_relaunch_keeps_what_arrived_while_writ_was_down_and_seeds_the_guar
 
     assert!(
         state.was_dirty_shutdown,
-        "the launch has to see the crash for any of this to run"
+        "the launch reads the marker the crashed session left"
     );
 
     // The note whose file moved on: the version that arrived survives, and the
-    // text the crash was holding is beside it rather than lost or written over.
+    // text the journal was holding is beside it rather than lost or written over.
     let moved_on = notes.path().join("Shared.md");
     assert_eq!(
         std::fs::read_to_string(&moved_on).unwrap(),
@@ -159,7 +154,7 @@ fn an_unclean_relaunch_keeps_what_arrived_while_writ_was_down_and_seeds_the_guar
         "what the crash was holding"
     );
 
-    // The guard is seeded from what is on disk, not from the snapshot, so the
+    // The guard is seeded from what is on disk, not from the journal, so the
     // first save after the relaunch is measured against the file.
     assert_eq!(
         state.disk_state("moved-on").map(|state| state.hash),
@@ -228,4 +223,18 @@ fn an_unclean_relaunch_keeps_what_arrived_while_writ_was_down_and_seeds_the_guar
         Some(sha256_bytes(b"typed and never saved")),
         "the note leaves the launch guarded like any other"
     );
+
+    // What reached a file left the journal. The deleted note's text reached
+    // none: it stays until the person puts the file back.
+    let left: Vec<String> = state
+        .store
+        .lock()
+        .expect("store")
+        .unsaved_text()
+        .expect("read the journal")
+        .entries
+        .into_iter()
+        .map(|entry| entry.buffer_id)
+        .collect();
+    assert_eq!(left, vec!["deleted".to_string()]);
 }

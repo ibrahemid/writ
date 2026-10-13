@@ -41,6 +41,7 @@ vi.mock("../../services/tauri", () => ({
   listHistory: vi.fn().mockResolvedValue([]),
   closeBuffer: vi.fn().mockResolvedValue(undefined),
   closeBuffers: vi.fn().mockResolvedValue(undefined),
+  discardUnsavedText: vi.fn().mockResolvedValue(undefined),
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
   restoreBuffer: vi.fn().mockResolvedValue(undefined),
   clearHistory: vi.fn().mockResolvedValue(undefined),
@@ -198,8 +199,27 @@ describe("bufferRegistry (app-global)", () => {
       expect(outcome.closed).toBe(true);
       expect(mockedFlush).not.toHaveBeenCalled();
       expect(mockedCancel).toHaveBeenCalledWith(doc.id);
+      // The text the failed save left in the journal goes with it, before
+      // the close, or the next launch brings it back.
+      expect(mockedApi.discardUnsavedText).toHaveBeenCalledWith([doc.id]);
+      expect(mockedApi.discardUnsavedText.mock.invocationCallOrder[0]).toBeLessThan(
+        mockedApi.closeBuffer.mock.invocationCallOrder[0],
+      );
       expect(mockedApi.closeBuffer).toHaveBeenCalledWith(doc.id);
       expect(bufferRegistry.historyList().find((h) => h.id === doc.id)).toBeDefined();
+    });
+
+    it("still closes when the journal cannot drop the discarded text", async () => {
+      const doc = await bufferRegistry.createBuffer();
+      mockedApi.discardUnsavedText.mockRejectedValueOnce(new Error("database is locked"));
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const outcome = await bufferRegistry.closeBuffer(doc.id, { discard: true });
+
+      expect(outcome.closed).toBe(true);
+      expect(mockedApi.closeBuffer).toHaveBeenCalledWith(doc.id);
+      expect(consoleSpy).toHaveBeenCalledOnce();
+      consoleSpy.mockRestore();
     });
   });
 
@@ -213,6 +233,7 @@ describe("bufferRegistry (app-global)", () => {
       expect(mockedApi.closeBuffers).toHaveBeenCalledOnce();
       expect(mockedApi.closeBuffers).toHaveBeenCalledWith([a.id, b.id]);
       expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
+      expect(mockedApi.discardUnsavedText).not.toHaveBeenCalled();
       expect(mockedApi.previewClose).toHaveBeenCalledWith(a.id);
       expect(mockedApi.previewClose).toHaveBeenCalledWith(b.id);
     });
@@ -269,9 +290,27 @@ describe("bufferRegistry (app-global)", () => {
       expect(mockedFlush).not.toHaveBeenCalled();
       expect(mockedCancel).toHaveBeenCalledWith(a.id);
       expect(mockedCancel).toHaveBeenCalledWith(b.id);
+      expect(mockedApi.discardUnsavedText).toHaveBeenCalledWith([a.id, b.id]);
+      expect(mockedApi.discardUnsavedText.mock.invocationCallOrder[0]).toBeLessThan(
+        mockedApi.closeBuffers.mock.invocationCallOrder[0],
+      );
       expect(outcome.closedIds).toEqual([a.id, b.id]);
       expect(bufferRegistry.activeTabs().find((t) => t.id === a.id)).toBeUndefined();
       expect(bufferRegistry.activeTabs().find((t) => t.id === b.id)).toBeUndefined();
+    });
+
+    it("still closes discarded buffers when the journal cannot drop their text", async () => {
+      const a = await bufferRegistry.createBuffer();
+      const b = await bufferRegistry.createBuffer();
+      mockedApi.discardUnsavedText.mockRejectedValueOnce(new Error("database is locked"));
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const outcome = await bufferRegistry.closeBuffers([a.id, b.id], { discard: true });
+
+      expect(outcome.closedIds).toEqual([a.id, b.id]);
+      expect(mockedApi.closeBuffers).toHaveBeenCalledWith([a.id, b.id]);
+      expect(consoleSpy).toHaveBeenCalledOnce();
+      consoleSpy.mockRestore();
     });
   });
 

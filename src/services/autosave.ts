@@ -100,7 +100,7 @@ const startListeners = new Set<AutosaveStartListener>();
 // it when the file could not. Kept beside the queue rather than in it because
 // a guard-stopped write deliberately leaves the queue empty (writing the same
 // text again is stopped the same way), and that text still has to reach the
-// recovery snapshot.
+// unsaved-text journal.
 const lastFailedContent = new Map<string, string>();
 
 export function onAutosaveError(listener: AutosaveErrorListener): () => void {
@@ -286,20 +286,19 @@ export function hasPendingAutosave(bufferId: string): boolean {
 }
 
 /**
- * Hands a closing note's unwritten text to the recovery snapshot, then drops
- * the record of it.
+ * Hands a closing note's unwritten text to the unsaved-text journal, then
+ * drops the record of it.
  *
  * A save the guard refused does not go back on the queue — writing the same
  * text into the same refusal is stopped the same way — so closing that tab
  * finds nothing to flush and closes without a word, while the text is still
  * only in this module. Left there it is lost when the process goes.
  *
- * What happens to it after the handover: the next quit writes it into the
- * shutdown snapshot, and the launch after that writes it back to the note's
- * file through the guarded path, which leaves a dated copy beside the file
- * rather than over it if the file has moved on
- * (`BufferStore::restore_recovered_content`). The note stays closed; the text
- * comes back as a file, and the toast counts it.
+ * What happens to it after the handover: the journal keeps it from that
+ * moment, and the next launch writes it back to the note's file through the
+ * guarded path, which leaves a dated copy beside the file rather than over it
+ * if the file has moved on (`BufferStore::restore_recovered_content`). The
+ * note stays closed; the text comes back as a file, and the toast counts it.
  *
  * The record is kept when the handover fails: text nobody can read again is a
  * worse outcome than a note restored twice.
@@ -468,8 +467,9 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // generation has been retired was superseded while it was out: by a
     // keystroke, by a tab closing, or by the person answering a question about
     // this file, which is the case that matters. Kept here it would fall
-    // through [`peekUnsavedContent`] into the shutdown snapshot, and the next
-    // launch would put the version they answered against back beside the note.
+    // through [`peekUnsavedContent`] into the unsaved-text journal, and the
+    // next launch would put the version they answered against back beside the
+    // note.
     if (isNewest) lastFailedContent.set(bufferId, content);
     for (const listener of errorListeners) {
       listener(bufferId, error, queued.generation);

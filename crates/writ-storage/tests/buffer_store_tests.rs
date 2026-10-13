@@ -206,6 +206,44 @@ fn attach_source_path_makes_the_next_read_return_the_file() {
 }
 
 #[test]
+fn a_path_with_no_file_at_it_is_taken_back_and_one_with_a_file_is_kept() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("detach-1", "Never written"))
+        .unwrap();
+    let file = note_path("detach-1");
+    let path = file.to_str().unwrap();
+    store.attach_source_path("detach-1", path).unwrap();
+    let named = || store.get("detach-1").unwrap().source_path;
+
+    assert!(
+        !store
+            .detach_source_path_with_no_file("detach-1", "/elsewhere.md")
+            .unwrap(),
+        "a path the row does not name is not the row's to give back"
+    );
+    assert_eq!(named().as_deref(), Some(path));
+
+    std::fs::write(&file, "made").unwrap();
+    assert!(
+        !store
+            .detach_source_path_with_no_file("detach-1", path)
+            .unwrap(),
+        "a file at the path is the note's file"
+    );
+    assert_eq!(named().as_deref(), Some(path));
+
+    std::fs::remove_file(&file).unwrap();
+    assert!(store
+        .detach_source_path_with_no_file("detach-1", path)
+        .unwrap());
+    assert_eq!(named(), None);
+    store
+        .attach_source_path("detach-1", path)
+        .expect("a note with no file can be given one again");
+}
+
+#[test]
 fn a_binary_note_regenerates_its_hex_view_from_the_file() {
     let (_dir, store) = setup();
     let mut doc = make_doc("binary-1", "dump.bin");
@@ -239,22 +277,34 @@ fn a_read_only_text_note_reads_back_as_text_not_a_hex_view() {
 }
 
 #[test]
-fn collect_buffer_contents_reads_the_files() {
+fn the_unsaved_text_journal_names_the_file_a_note_lives_in() {
     let (_dir, store) = setup();
     store.insert(&make_doc("collect-1", "One")).unwrap();
     store.insert(&make_unwritten("collect-2", "Two")).unwrap();
-    std::fs::write(note_path("collect-1"), "on disk").unwrap();
 
-    let collected = store.collect_buffer_contents().unwrap();
+    let at = Utc::now();
+    assert!(store
+        .record_unsaved_text("collect-1", "typed into one", at)
+        .unwrap());
+    assert!(store
+        .record_unsaved_text("collect-2", "typed into two", at)
+        .unwrap());
 
+    let entries = store.unsaved_text().unwrap().entries;
+    let one = entries
+        .iter()
+        .find(|entry| entry.buffer_id == "collect-1")
+        .expect("the note with a file");
     assert_eq!(
-        collected.get("collect-1").map(String::as_str),
-        Some("on disk")
+        one.path.as_deref(),
+        Some(note_path("collect-1").to_string_lossy().as_ref())
     );
-    assert!(
-        !collected.contains_key("collect-2"),
-        "a note with no file has nothing to snapshot"
-    );
+    assert_eq!(one.text, "typed into one");
+    let two = entries
+        .iter()
+        .find(|entry| entry.buffer_id == "collect-2")
+        .expect("the note with no file");
+    assert_eq!(two.path, None, "a note with no file has none to name");
 }
 
 #[test]
