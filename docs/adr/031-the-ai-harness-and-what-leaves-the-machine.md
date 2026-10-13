@@ -17,6 +17,11 @@ Rules 1.3 and 1.4 amended 2026-10-05: the MCP process writes `history.db`, so a 
 keeps the text it replaced, and the two processes share SQLite's lock on that file. Until then the
 MCP process wrote no database and its writes kept no version.
 
+Rules 3.2, 5.1, 5.5 and 7.2 amended 2026-10-13: a client the user turns down is stored and
+answered as not allowed, the server records one line per call with repeated reads counted, and a
+server that is off answers `NotEnabled`. Until then every refusal was `NotApproved` with one
+sentence, the gate recorded each call without its file, and a write that landed left a second line.
+
 The rule numbers below are the contract the units that build the harness are reviewed against.
 Each rule names either the code that already satisfies it or the unit that will. Rules 3.1, 3.6,
 4.1 and 4.2 are the premises the rest are argued from rather than work an implementer does, so they
@@ -165,8 +170,13 @@ that carried a key would be a send under rule 2.2.
 identity.
 
 3.2. Consent is trust on first use, granted by the user inside Writ, per client. An unknown client
-is `Pending`: its call is refused, and one pending record is appended so the user can see it and
-decide (U4 declares the gate, U5 implements it against `[mcp] approved_clients`).
+is `Pending`: its call is refused with `NotApproved`, whose text names where the waiting list is
+(Settings, Apps, Connected programs, Waiting for you); the client is added to `mcp-pending.json`,
+which the app watches; and the call is recorded as pending, so the user can see it and decide. A
+client the user turns down is stored as an approval granting neither direction (`read = false`,
+`write = false`): its calls are refused with `NotAllowed` and it does not wait again until the
+entry is removed (U4 declares the gate, U5 implements it against `[mcp] approved_clients`, U14
+adds the denial).
 
 3.3. Read and write are separate permissions. Approving a client for reading never grants it
 writing (U5).
@@ -230,9 +240,10 @@ section 13).
 
 ### 5. What is logged, and what is not
 
-5.1. The activity log records time, actor, action, note path, decision and byte count. The record
-type carries no field capable of holding note text (`writ_core::activity::ActivityRecord`, U5), so
-this rule is enforced by the type rather than by review.
+5.1. The activity log records time, actor, action, note path, decision, byte count and, on a line
+that stands for repeated reads, the number of calls (`count`). The record type carries no field
+capable of holding note text (`writ_core::activity::ActivityRecord`, U5), so this rule is enforced
+by the type rather than by review.
 
 5.2. No note content, prompt text, response text or API key reaches `config.toml`, `writ.db`, the
 activity log, a `tracing` line, or an error string shown to the user. Lengths, hashes, paths, tool
@@ -251,7 +262,13 @@ a CLI-hosted server process can both append without a lock. It rotates at 5 MB a
 generation. A malformed line is skipped, never fatal (U5).
 
 5.5. Every tool call is recorded, whether it was allowed, refused or left pending, and so is every
-chat proposal, whether it was applied or discarded (U5, U6, U7).
+chat proposal, whether it was applied or discarded (U5, U6, U7). The server records one line per
+call once the gate has decided, naming the file the call named. Reads of one file by one client,
+decided alike within 60 seconds, are written as the first read's line and then one line carrying
+the count of the rest (`writ_core::activity::RepeatFold`), so a client reading in a loop cannot
+rotate other lines out of the capped log. A count is written with the first call after its window
+ends, or as the server exits cleanly. A server killed before then loses it, so a count is a floor
+(U14).
 
 5.6. Per-file history stores content, so it is bounded and it stays out of the notes folder.
 Content-addressed blobs and a `history.db` index live in Writ's data directory, so a sync client
@@ -282,8 +299,9 @@ provider never covers another, which is the shipped behaviour the config comment
 `false` (U4), and `ai.chat.enabled` is `false` (U7). A fresh configuration reaches no network and
 answers no client.
 
-7.2. With `mcp.enabled` false, every tool returns `NotApproved`. Turning it on does not approve a
-client; rule 3.2 still applies to the first call from each one (U4, U5).
+7.2. With `mcp.enabled` false, every tool returns `NotEnabled`, whose text says Connected programs
+is off and where to turn it on. Turning it on does not approve a client; rule 3.2 still applies to
+the first call from each one (U4, U5, U14).
 
 7.3. Per-file history is the one thing on by default, because a version store that the user has to
 find and enable is a version store that is empty on the day it is needed. It writes only inside

@@ -3,6 +3,7 @@ import type {
   ChatDroppedProposal,
   ChatErrorFrame,
   ChatProposal,
+  PendingClient,
   RequestIdentity,
 } from "../services/tauri";
 
@@ -81,6 +82,7 @@ export type WritEvent =
     }
   | { kind: "quit:flush"; payload: Record<string, never> }
   | { kind: "activity:changed"; payload: Record<string, never> }
+  | { kind: "mcp:pending"; payload: { waiting: PendingClient[] } }
   | { kind: "titlebar:maximize-hit"; payload: { phase: CaptionHitPhase } };
 
 export type CaptionHitPhase = "enter" | "leave" | "press" | "click";
