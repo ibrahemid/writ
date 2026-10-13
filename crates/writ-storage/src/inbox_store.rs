@@ -1,14 +1,16 @@
 use std::path::Path;
 
 use writ_core::inbox::{sort_inbox_files, InboxFile};
-use writ_core::workspace::is_ignored;
+use writ_core::workspace::is_ignored_name;
 
 use crate::errors::StorageResult;
 
 /// Lists the immediate regular-file children of the watched inbox `root`.
 ///
-/// Directories are skipped (the inbox auto-opens files, not folders) and names
-/// in the default ignore set (`.DS_Store`, `.git`, …) are excluded. Each file
+/// Directories are skipped (the inbox auto-opens files, not folders), and so
+/// are names in the default ignore set (`.DS_Store`, `.git`, …) and temp-file
+/// names: a download still arriving (`*.crdownload`) and the file a save
+/// renames into place (`.writ-tmp-*`) are not files anybody finished. Each file
 /// carries its byte size; a file whose metadata cannot be read is reported with
 /// size `0` rather than failing the whole listing. The result is sorted
 /// case-insensitively by name.
@@ -20,7 +22,7 @@ pub fn list_files(root: &Path) -> StorageResult<Vec<InboxFile>> {
         let Ok(entry) = entry else { continue };
         let name = entry.file_name().to_string_lossy().into_owned();
 
-        if is_ignored(&name) {
+        if is_ignored_name(&name) {
             continue;
         }
 
@@ -79,6 +81,19 @@ mod tests {
     fn skips_ignored_names() {
         let root = setup();
         fs::write(root.path().join(".DS_Store"), "").unwrap();
+        fs::write(root.path().join("keep.md"), "").unwrap();
+
+        let files = list_files(root.path()).unwrap();
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["keep.md"]);
+    }
+
+    #[test]
+    fn skips_downloads_still_arriving_and_saves_in_flight() {
+        let root = setup();
+        fs::write(root.path().join("report.pdf.crdownload"), "").unwrap();
+        fs::write(root.path().join("archive.zip.partial"), "").unwrap();
+        fs::write(root.path().join(".writ-tmp-a1b2c3"), "").unwrap();
         fs::write(root.path().join("keep.md"), "").unwrap();
 
         let files = list_files(root.path()).unwrap();

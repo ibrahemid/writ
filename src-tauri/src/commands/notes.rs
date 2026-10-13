@@ -817,6 +817,10 @@ fn recorded_disk_state(state: &AppState, path: &Path) -> Option<DiskState> {
 /// note would be empty and an undo would find nothing to put back. A row that
 /// cannot be written is logged and not fatal — a rename that landed on disk is
 /// not undone because an index lagged.
+///
+/// A walk under way keeps running. The index records these writes, and the
+/// walk leaves alone every path written after it looked (ADR-036 section 7),
+/// so retiring it would only leave the rest of the folder unread.
 fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[String]) {
     let index = &state.notes_index;
     if from != to {
@@ -829,7 +833,6 @@ fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[Str
             warn!(path = %path, error = %error, "the notes index was not updated after a rename");
         }
     }
-    index.bump_generation();
 }
 
 /// What the editor says when a delete names a file the notes folder does not

@@ -7,13 +7,16 @@
 //! that typing `tok` finds `token` and `tokenize` (search-as-you-type), backed
 //! by the prefix index from migration 030.
 //!
-//! Beyond query construction, this module also turns a matched buffer into a
-//! display [`SearchHit`]: the line number of the first matching content line
-//! and a highlighted snippet built from [`SnippetSegment`]s. Highlighting is
-//! literal and ASCII-case-insensitive; the FTS index folds diacritics, so a
-//! diacritic-only difference (e.g. `cafe` matching `café`) is found but not
-//! visually highlighted. Snippets are returned as pre-split segments rather
-//! than embedded markup so the renderer never has to parse HTML.
+//! Beyond query construction, this module also turns a matched note into a
+//! display [`SearchHit`]: the line number of the matching content line and a
+//! highlighted snippet built from [`SnippetSegment`]s. The notes index hands
+//! over the fragment its own `snippet()` chose, with the matches marked by the
+//! index's tokenizer ([`MarkedFragment`]), so a diacritic-only difference
+//! (e.g. `cafe` matching `café`) is highlighted as well as found.
+//! [`build_hit`], for a caller holding a note's whole text, highlights
+//! literally and ASCII-case-insensitively. Snippets are returned as pre-split
+//! segments rather than embedded markup so the renderer never has to parse
+//! HTML.
 
 use serde::{Deserialize, Serialize};
 
@@ -137,7 +140,21 @@ fn match_spans(chars: &[char], terms: &[String]) -> Vec<(usize, usize)> {
 fn highlight_window(text: &str, terms: &[String]) -> Vec<SnippetSegment> {
     let chars: Vec<char> = text.chars().collect();
     let spans = match_spans(&chars, terms);
+    window_segments(&chars, &spans, false, false)
+}
 
+/// Cuts `chars` to a window of at most [`SNIPPET_MAX_CHARS`] around the first
+/// of `spans`, which are ascending char ranges, and splits it into segments.
+///
+/// `cut_before` and `cut_after` say the text itself was already cut short at
+/// that end, so the window carries an ellipsis there even when it reaches the
+/// edge.
+fn window_segments(
+    chars: &[char],
+    spans: &[(usize, usize)],
+    cut_before: bool,
+    cut_after: bool,
+) -> Vec<SnippetSegment> {
     let mut start = 0usize;
     let mut lead = false;
     if let Some(&(first, _)) = spans.first() {
@@ -156,11 +173,11 @@ fn highlight_window(text: &str, terms: &[String]) -> Vec<SnippetSegment> {
     let tail = end < chars.len();
 
     let mut out = Vec::new();
-    if lead {
+    if lead || cut_before {
         out.push(ellipsis());
     }
     let mut pos = start;
-    for &(s, e) in &spans {
+    for &(s, e) in spans {
         let s = s.max(start);
         let e = e.min(end);
         if s >= e {
@@ -175,10 +192,138 @@ fn highlight_window(text: &str, terms: &[String]) -> Vec<SnippetSegment> {
     if pos < end {
         out.push(segment(&chars[pos..end], false));
     }
-    if tail {
+    if tail || cut_after {
         out.push(ellipsis());
     }
     out
+}
+
+/// The mark the notes index asks the full-text `snippet()` function to put
+/// before each match. A control character, which note text seldom holds; a
+/// note that does cannot have its own told apart from the marks.
+pub const FRAGMENT_MATCH_OPEN: char = '\u{2}';
+/// The mark after each match.
+pub const FRAGMENT_MATCH_CLOSE: char = '\u{3}';
+/// The mark `snippet()` puts at an end where it cut the note's text short.
+pub const FRAGMENT_CUT: char = '\u{4}';
+
+/// The stretch of a note the full-text index chose to show for a match, with
+/// its marks read out ([`FRAGMENT_MATCH_OPEN`], [`FRAGMENT_MATCH_CLOSE`],
+/// [`FRAGMENT_CUT`]).
+///
+/// The index picks the stretch and marks the matches with its own tokenizer, so
+/// a diacritic-only difference (`cafe` finding `café`) is highlighted as well
+/// as found, and the note's text never has to leave the index to be shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkedFragment {
+    /// The fragment with every mark removed: a run of the note's text exactly
+    /// as it stands, which is what lets the index find where it sits. A mark
+    /// character the note itself holds inside the fragment is removed with
+    /// the rest, and such a fragment is found nowhere in the note.
+    pub text: String,
+    /// Matched ranges, as character offsets into [`MarkedFragment::text`], in
+    /// order.
+    pub spans: Vec<(usize, usize)>,
+    /// The note's text goes on before the fragment.
+    pub cut_before: bool,
+    /// The note's text goes on after the fragment.
+    pub cut_after: bool,
+}
+
+impl MarkedFragment {
+    /// Reads the marks out of what `snippet()` returned.
+    pub fn read(marked: &str) -> Self {
+        let cut_before = marked.starts_with(FRAGMENT_CUT);
+        let cut_after = marked.len() > FRAGMENT_CUT.len_utf8() && marked.ends_with(FRAGMENT_CUT);
+        let mut text = String::with_capacity(marked.len());
+        let mut spans = Vec::new();
+        let mut open: Option<usize> = None;
+        let mut count = 0usize;
+        for ch in marked.chars() {
+            match ch {
+                FRAGMENT_CUT => {}
+                FRAGMENT_MATCH_OPEN => open = Some(count),
+                FRAGMENT_MATCH_CLOSE => {
+                    if let Some(start) = open.take() {
+                        if count > start {
+                            spans.push((start, count));
+                        }
+                    }
+                }
+                other => {
+                    text.push(other);
+                    count += 1;
+                }
+            }
+        }
+        Self {
+            text,
+            spans,
+            cut_before,
+            cut_after,
+        }
+    }
+
+    /// Character offset of the first match in [`MarkedFragment::text`], or
+    /// `None` when nothing in the fragment matched (the query matched the
+    /// note's name only).
+    pub fn first_match(&self) -> Option<usize> {
+        self.spans.first().map(|&(start, _)| start)
+    }
+
+    /// The display hit for a note whose text the index returned this fragment
+    /// from.
+    ///
+    /// `line` is the 1-based line of the first match, which the index works
+    /// out from the note's text. The snippet is the part of the fragment on
+    /// that line, windowed to [`SNIPPET_MAX_CHARS`], with an ellipsis wherever
+    /// the line goes on. A fragment with no match falls back as
+    /// [`build_hit`] does: its first non-empty line, then the title, with
+    /// `terms` highlighted and no line number.
+    pub fn into_hit(self, title: &str, line: Option<u32>, terms: &[String]) -> SearchHit {
+        let chars: Vec<char> = self.text.chars().collect();
+        let Some(first) = self.first_match() else {
+            let fallback = self.text.lines().find(|l| !l.trim().is_empty());
+            return SearchHit {
+                buffer_id: String::new(),
+                title: title.to_string(),
+                line: None,
+                snippet: highlight_window(fallback.unwrap_or(title), terms),
+                path: None,
+            };
+        };
+
+        let line_start = chars[..first]
+            .iter()
+            .rposition(|c| *c == '\n')
+            .map_or(0, |at| at + 1);
+        let mut line_end = chars[first..]
+            .iter()
+            .position(|c| *c == '\n')
+            .map_or(chars.len(), |at| first + at);
+        let reaches_end = line_end == chars.len();
+        if line_end > line_start && chars[line_end - 1] == '\r' {
+            line_end -= 1;
+        }
+        let spans: Vec<(usize, usize)> = self
+            .spans
+            .iter()
+            .filter(|&&(s, e)| s < line_end && e > line_start)
+            .map(|&(s, e)| (s.max(line_start) - line_start, e.min(line_end) - line_start))
+            .collect();
+        SearchHit {
+            buffer_id: String::new(),
+            title: title.to_string(),
+            line,
+            snippet: window_segments(
+                &chars[line_start..line_end],
+                &spans,
+                line_start == 0 && self.cut_before,
+                reaches_end && self.cut_after,
+            ),
+            path: None,
+        }
+    }
 }
 
 fn segment(chars: &[char], matched: bool) -> SnippetSegment {
@@ -407,6 +552,94 @@ mod tests {
         // "tok" and "token" overlap; the merged span highlights "token" once.
         let hit = build_hit("b", "t", "a token here", &terms("tok token"));
         assert_eq!(matched_text(&hit), vec!["token"]);
+    }
+
+    fn fragment(marked: &str) -> MarkedFragment {
+        MarkedFragment::read(
+            &marked
+                .replace('[', "\u{2}")
+                .replace(']', "\u{3}")
+                .replace('~', "\u{4}"),
+        )
+    }
+
+    #[test]
+    fn a_fragment_reads_its_marks_out_of_the_text() {
+        let read = fragment("a [rust] and [rusty] b");
+        assert_eq!(read.text, "a rust and rusty b");
+        assert_eq!(read.spans, vec![(2, 6), (11, 16)]);
+        assert_eq!(read.first_match(), Some(2));
+        assert!(!read.cut_before && !read.cut_after);
+    }
+
+    #[test]
+    fn a_fragment_knows_where_the_note_was_cut() {
+        let read = fragment("~x [y] z~");
+        assert_eq!(read.text, "x y z");
+        assert!(read.cut_before);
+        assert!(read.cut_after);
+    }
+
+    #[test]
+    fn a_fragment_hit_shows_the_line_its_first_match_is_on() {
+        let hit = fragment("first line\nthe [rerank] ceiling here\ntail").into_hit(
+            "notes.md",
+            Some(2),
+            &terms("rerank"),
+        );
+        assert_eq!(hit.title, "notes.md");
+        assert_eq!(hit.line, Some(2));
+        assert_eq!(snippet_text(&hit), "the rerank ceiling here");
+        assert_eq!(matched_text(&hit), vec!["rerank"]);
+    }
+
+    #[test]
+    fn a_fragment_hit_highlights_the_whole_token_the_index_matched() {
+        let hit = fragment("the [café] opens early").into_hit("a.md", Some(1), &terms("cafe"));
+        assert_eq!(matched_text(&hit), vec!["café"]);
+    }
+
+    #[test]
+    fn a_fragment_hit_drops_a_windows_line_ending() {
+        let hit = fragment("a\r\n[b]c\r\nd").into_hit("a.md", Some(2), &terms("b"));
+        assert_eq!(snippet_text(&hit), "bc");
+    }
+
+    #[test]
+    fn a_fragment_cut_mid_line_says_so() {
+        let hit =
+            fragment("~middle of [word] here\nnext line").into_hit("a.md", Some(4), &terms("word"));
+        assert_eq!(hit.snippet.first().map(|s| s.text.as_str()), Some("…"));
+        assert_eq!(snippet_text(&hit), "…middle of word here");
+        let hit = fragment("start [word] goes on~").into_hit("a.md", Some(1), &terms("word"));
+        assert_eq!(snippet_text(&hit), "start word goes on…");
+    }
+
+    #[test]
+    fn a_fragment_hit_windows_a_long_line_around_the_match() {
+        let long = format!("{} [needle] {}", "x".repeat(200), "y".repeat(200));
+        let hit = fragment(&long).into_hit("a.md", Some(1), &terms("needle"));
+        assert_eq!(hit.snippet.first().map(|s| s.text.as_str()), Some("…"));
+        assert_eq!(hit.snippet.last().map(|s| s.text.as_str()), Some("…"));
+        assert_eq!(matched_text(&hit), vec!["needle"]);
+        let shown: usize = hit
+            .snippet
+            .iter()
+            .filter(|s| s.text != "…")
+            .map(|s| s.text.chars().count())
+            .sum();
+        assert!(shown <= SNIPPET_MAX_CHARS);
+    }
+
+    #[test]
+    fn a_fragment_with_no_match_falls_back_like_build_hit() {
+        let hit = fragment("\n\nfirst words\nmore").into_hit("rust.md", None, &terms("rust"));
+        assert_eq!(hit.line, None);
+        assert_eq!(snippet_text(&hit), "first words");
+
+        let hit = fragment("").into_hit("rust notes.md", None, &terms("rust"));
+        assert_eq!(snippet_text(&hit), "rust notes.md");
+        assert_eq!(matched_text(&hit), vec!["rust"]);
     }
 
     #[test]

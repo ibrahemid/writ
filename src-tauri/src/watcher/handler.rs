@@ -564,7 +564,7 @@ pub fn route_replaced_note_to_open_tab(
     told: &mut HashSet<String>,
     vanished: &VanishedContext<'_>,
 ) -> Option<WritEvent> {
-    if !path.starts_with(root) || writ_core::workspace::path_has_ignored_name(root, path) {
+    if !path.starts_with(root) || writ_core::workspace::path_has_notes_ignored_name(root, path) {
         return None;
     }
     // A path holding nothing is already a change the classifier reports, and a
@@ -645,13 +645,15 @@ pub fn report_notes_event(
 
 /// Classifies a notes-folder event into a domain event, or suppresses it.
 ///
-/// Suppressed: a path outside `root`, a path under a folder another client
-/// left behind (`.obsidian`, `.trash`, `.stfolder`, `.stversions`), a name
-/// `writ_core::workspace::is_ignored_name` answers for — the temp file every
-/// atomic write creates beside its target, a sync client's in-flight file, an
-/// undownloaded placeholder, an editor swap file — and a write Writ itself
-/// made, which the ignore set recognises by canonical path and content
-/// fingerprint under the source namespace (ADR-028 section 6).
+/// Suppressed: a path outside `root`, a path under `.git` or a folder another
+/// client left behind (`.obsidian`, `.trash`, `.stfolder`, `.stversions`),
+/// Finder's `.DS_Store`, a name `writ_core::workspace::is_notes_ignored_name`
+/// answers for — the temp file every atomic write creates beside its target, a
+/// sync client's in-flight file, an undownloaded placeholder, an editor swap
+/// file — and a write Writ itself made, which the ignore set recognises by
+/// canonical path and content fingerprint under the source namespace (ADR-028
+/// section 6). A note under `vendor/` or `build/` is a note like any other
+/// (section 7).
 ///
 /// Filtering those names is a correctness rule rather than a tidiness one:
 /// `write_atomic` persists through a `NamedTempFile` created beside its target,
@@ -669,7 +671,7 @@ pub fn classify_notes_event(
     if !path.starts_with(root) {
         return None;
     }
-    if writ_core::workspace::path_has_ignored_name(root, path) {
+    if writ_core::workspace::path_has_notes_ignored_name(root, path) {
         return None;
     }
     // A path with no file name is the root itself, which is not a change to a
@@ -1501,6 +1503,48 @@ mod tests {
                 .is_none(),
             "a folder inside the notes root must never surface as a note change"
         );
+    }
+
+    #[test]
+    fn a_note_under_a_build_folder_changes_and_what_another_tool_keeps_does_not() {
+        // The notes folder holds writing, not a build: a note under `vendor/`
+        // or `build/` is reported like any other, while `.git`, what another
+        // client or Finder keeps and a file still arriving stay quiet (ADR-028
+        // section 7).
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let now = Instant::now();
+        for rel in [
+            "vendor/Acme.md",
+            "build/Plan.md",
+            "coverage/Report.md",
+            "node_modules/Pkg.md",
+        ] {
+            let note = root.join(rel);
+            fs::create_dir_all(note.parent().unwrap()).unwrap();
+            fs::write(&note, b"a note\n").unwrap();
+            assert!(
+                classify_notes_event(&note, root, &make_set(), DEFAULT_IGNORE_TTL, now).is_some(),
+                "{rel} is a note"
+            );
+        }
+        for rel in [
+            ".git/notes.md",
+            ".obsidian/workspace.md",
+            ".trash/old.md",
+            ".writ-tmp-a1b2c3",
+            "Report.md.crdownload",
+            ".DS_Store",
+            "vendor/.DS_Store",
+        ] {
+            let path = root.join(rel);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, b"not a note\n").unwrap();
+            assert!(
+                classify_notes_event(&path, root, &make_set(), DEFAULT_IGNORE_TTL, now).is_none(),
+                "{rel} stays quiet"
+            );
+        }
     }
 
     #[test]

@@ -120,29 +120,73 @@ const IGNORE_GLOBS: &[&str] = &[
 /// churn stops being uploaded.
 pub const TEMP_FILE_PREFIX: &str = ".writ-tmp-";
 
+/// The names the notes walk leaves out: git's own folder, the folders another
+/// note app or sync client keeps for itself inside a notes folder, and the
+/// file Finder keeps in every folder it has shown.
+///
+/// A notes folder holds writing, not a build. A folder called `vendor`,
+/// `build` or `coverage` in it holds notes like any other, and a `.gitignore`
+/// there, or the person's global one, says what to commit rather than what to
+/// read, so neither hides anything from the index (ADR-028 section 7).
+const NOTES_IGNORED_NAMES: &[&str] = &[
+    ".git",
+    ".obsidian",
+    ".trash",
+    ".stfolder",
+    ".stversions",
+    ".DS_Store",
+];
+
 /// Returns `true` if `name` is in the default ignore set and should be
 /// excluded from workspace directory listings.
 pub fn is_ignored(name: &str) -> bool {
     DEFAULT_IGNORES.contains(&name)
 }
 
-/// Returns `true` when a file or directory called `name` is one Writ never
-/// lists, indexes or reports a change for: a [`DEFAULT_IGNORES`] name, or a
-/// name matching [`IGNORE_GLOBS`].
+/// Returns `true` when a file or directory called `name` is one the workspace
+/// tree and the watched inbox never list: a [`DEFAULT_IGNORES`] name, or a
+/// temp-file name ([`is_temp_file_name`]).
 ///
-/// This is the one answer the tree listing, the notes index walk and the notes
-/// watcher share, so a file that is invisible in one is invisible in all three
-/// (ADR-028 section 6).
+/// The notes folder asks [`is_notes_ignored_name`] instead, which leaves the
+/// build-directory names out.
 ///
 /// Matching folds ASCII case, because the filesystems Writ runs on mostly do
 /// and a `.CRDOWNLOAD` is the same file as a `.crdownload`.
 pub fn is_ignored_name(name: &str) -> bool {
-    if is_ignored(name) {
-        return true;
-    }
+    is_ignored(name) || is_temp_file_name(name)
+}
+
+/// Returns `true` when `name` matches one of [`IGNORE_GLOBS`]: a file nobody
+/// wrote on purpose, such as a download still arriving, a sync client's
+/// in-flight copy, an editor swap file or the temp file a save renames into
+/// place.
+pub fn is_temp_file_name(name: &str) -> bool {
     IGNORE_GLOBS
         .iter()
         .any(|pattern| glob_matches(pattern, name))
+}
+
+/// Returns `true` when a file or directory called `name` inside the notes
+/// folder is one Writ never lists, indexes or reports a change for: one of
+/// [`NOTES_IGNORED_NAMES`], or a temp-file name ([`is_temp_file_name`]).
+///
+/// This is the one answer the notes index walk, the notes watcher and the
+/// listing a connected program reads share, so a note that is visible in one
+/// is visible in all of them (ADR-028 sections 6 and 7).
+pub fn is_notes_ignored_name(name: &str) -> bool {
+    NOTES_IGNORED_NAMES.contains(&name) || is_temp_file_name(name)
+}
+
+/// Returns `true` when any component of `path` below `root` is a name
+/// [`is_notes_ignored_name`] answers for: a file inside `.obsidian` is as
+/// invisible as the folder is, and a file inside `vendor` is not.
+pub fn path_has_notes_ignored_name(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    relative
+        .components()
+        .any(|c| is_notes_ignored_name(&c.as_os_str().to_string_lossy()))
 }
 
 /// Matches `name` against a `*`/`?` pattern, folding ASCII case.
@@ -238,8 +282,9 @@ fn is_writ_stamp(stamp: &str) -> bool {
 ///
 /// The set also carries the folders a note folder imported from another tool
 /// or synced by another client leaves behind — `.obsidian`, `.trash`,
-/// `.stfolder`, `.stversions` — so the tree, the walk and the watcher all skip
-/// them from the one constant.
+/// `.stfolder`, `.stversions` — so the workspace tree and the workspace walk
+/// skip them too. The notes folder has its own, shorter list
+/// ([`is_notes_ignored_name`]).
 pub fn default_ignored_dirs() -> &'static [&'static str] {
     DEFAULT_IGNORES
 }
@@ -257,13 +302,15 @@ pub fn path_has_ignored_component(root: &Path, path: &Path) -> bool {
 }
 
 /// Returns `true` when any component of `path` below `root` is a name
-/// [`is_ignored_name`] answers for, which is the notes folder's question:
+/// [`is_ignored_name`] answers for, which is the watched inbox's question:
 /// a file inside a folder a sync client keeps for itself (`.dropbox.cache`) is
-/// as invisible as the folder is.
+/// as invisible as the folder is, and a download still arriving is not a file
+/// to open.
 ///
 /// [`path_has_ignored_component`] answers the narrower question and stays as
-/// it is: the workspace grep, the inbox and the workspace watcher still walk
-/// into a directory named `build~`.
+/// it is: the workspace grep and the workspace watcher still walk into a
+/// directory named `build~`. The notes folder asks
+/// [`path_has_notes_ignored_name`].
 pub fn path_has_ignored_name(root: &Path, path: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(root) else {
         return false;
@@ -328,14 +375,14 @@ mod tests {
     #[test]
     fn obsidian_folder_is_ignored_so_an_imported_note_folder_lists_only_notes() {
         // A folder imported from another editor carries its settings folder.
-        // One constant feeds the tree, the search walk and the watcher, so
-        // ignoring the name here ignores it everywhere.
+        // Both policies skip it: the workspace one and the notes one.
         assert!(is_ignored(".obsidian"));
         assert!(default_ignored_dirs().contains(&".obsidian"));
         assert!(path_has_ignored_component(
             Path::new("/notes"),
             Path::new("/notes/.obsidian/workspace.json")
         ));
+        assert!(is_notes_ignored_name(".obsidian"));
         assert!(!is_ignored("notes.md"));
     }
 
@@ -376,6 +423,87 @@ mod tests {
             Path::new("/notes"),
             Path::new("/elsewhere/.dropbox.cache/copy.md")
         ));
+    }
+
+    #[test]
+    fn the_notes_policy_keeps_folders_a_code_workspace_skips() {
+        for name in &[
+            "vendor",
+            "build",
+            "coverage",
+            "dist",
+            "target",
+            "node_modules",
+            "__pycache__",
+            ".cache",
+            ".next",
+        ] {
+            assert!(is_ignored(name), "{name} is a code-workspace ignore");
+            assert!(
+                !is_notes_ignored_name(name),
+                "{name} holds notes like any other folder"
+            );
+        }
+        let root = Path::new("/notes");
+        for path in &[
+            "/notes/vendor/Acme.md",
+            "/notes/build/Plan.md",
+            "/notes/coverage/Report.md",
+        ] {
+            assert!(
+                !path_has_notes_ignored_name(root, Path::new(path)),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_notes_policy_skips_what_another_tool_keeps_for_itself() {
+        for name in &[
+            ".git",
+            ".obsidian",
+            ".trash",
+            ".stfolder",
+            ".stversions",
+            ".DS_Store",
+        ] {
+            assert!(is_notes_ignored_name(name), "{name} should be ignored");
+        }
+        let root = Path::new("/notes");
+        assert!(path_has_notes_ignored_name(
+            root,
+            Path::new("/notes/vendor/.DS_Store")
+        ));
+        assert!(path_has_notes_ignored_name(
+            root,
+            Path::new("/notes/.obsidian/workspace.json")
+        ));
+        assert!(path_has_notes_ignored_name(
+            root,
+            Path::new("/notes/.git/COMMIT_EDITMSG")
+        ));
+        assert!(!path_has_notes_ignored_name(
+            root,
+            Path::new("/elsewhere/.git/COMMIT_EDITMSG")
+        ));
+    }
+
+    #[test]
+    fn the_notes_policy_skips_temp_files() {
+        for name in &[
+            "report.pdf.crdownload",
+            "report.pdf.partial",
+            ".writ-tmp-a1b2c3",
+            ".note.md.swp",
+            ".note.md.icloud",
+            "note.md~",
+        ] {
+            assert!(is_temp_file_name(name), "{name} is a temp file");
+            assert!(is_notes_ignored_name(name), "{name} should be ignored");
+        }
+        assert!(!is_temp_file_name("node_modules"));
+        assert!(!is_temp_file_name("Plan.md"));
+        assert!(!is_notes_ignored_name("Plan.md"));
     }
 
     #[test]

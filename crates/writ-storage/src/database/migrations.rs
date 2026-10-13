@@ -1,4 +1,4 @@
-use crate::database::index_repair::repair_notes_index;
+use crate::database::index_repair::{object_exists, repair_notes_index};
 use crate::errors::{StorageError, StorageResult};
 use rusqlite::Connection;
 use tracing::info;
@@ -29,7 +29,34 @@ const MIGRATIONS: &[(i32, &str)] = &[
         43,
         include_str!("../../migrations/043_buffer_line_ending.sql"),
     ),
+    // A column on a derived table, added by `migrate_rows` (044_links_name_key.sql).
+    (44, ""),
 ];
+
+/// Work a migration needs that its SQL cannot do, run inside the same
+/// transaction as the SQL so the two are applied together or not at all.
+fn migrate_rows(version: i32, conn: &Connection) -> StorageResult<()> {
+    match version {
+        44 => add_link_name_keys(conn),
+        _ => Ok(()),
+    }
+}
+
+/// Migration 44: `links.name_key`, its index, and the key of every link
+/// already stored.
+///
+/// The key is a Unicode fold of each stored target, which SQL has no function
+/// for, so the rows are filled from here. A database that lost `links` has
+/// nothing to add the column to; the repair that ends the run recreates the
+/// table with it ([`repair_notes_index`]), and the next walk fills it.
+fn add_link_name_keys(conn: &Connection) -> StorageResult<()> {
+    if !object_exists(conn, "links")? {
+        return Ok(());
+    }
+    conn.execute_batch(include_str!("../../migrations/044_links_name_key.sql"))?;
+    crate::notes_index::backfill_link_name_keys(conn)?;
+    Ok(())
+}
 
 /// Highest migration version embedded in this binary.
 pub fn binary_schema_version() -> i32 {
@@ -106,6 +133,9 @@ pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
                     message: format!("migration v{} begin failed: {}", version, e),
                 })?;
             tx.execute_batch(sql).map_err(|e| StorageError::Migration {
+                message: format!("migration v{} failed: {}", version, e),
+            })?;
+            migrate_rows(*version, &tx).map_err(|e| StorageError::Migration {
                 message: format!("migration v{} failed: {}", version, e),
             })?;
             tx.execute(

@@ -40,12 +40,12 @@ WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
     --disable-console-intercept \
     src/__tests__/editor/markdown-inline-perf.test.ts
 
-step "perf gate: storage budget (writ-storage, release)"
+step "perf gate: storage budget (writ-storage, release, one test at a time)"
 WRIT_PERF_GATE=1 cargo test \
     --release \
     -p writ-storage \
     --test perf_budget \
-    -- --nocapture
+    -- --nocapture --test-threads=1
 
 if [[ "${RUN_BENCHES}" -eq 1 ]]; then
     step "criterion benchmarks: writ-plugin transforms"

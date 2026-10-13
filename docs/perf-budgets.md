@@ -18,8 +18,9 @@ bash scripts/perf-gate.sh --benches  # budget tests + criterion benches
 ```
 
 The gate exits non-zero on any budget violation. Run it before tagging a
-release or after a change that touches a transform, the FTS layer, or buffer
-I/O.
+release or after a change that touches a transform, the notes index, or note
+I/O. The storage budgets run one test at a time (`--test-threads=1`): two
+budgets that each walk thousands of notes would otherwise time each other.
 
 ---
 
@@ -116,26 +117,23 @@ raising the bound.
 
 ## writ-storage: FTS search latency
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs`
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`fts_search_budget`)
 
-**What is measured:** median wall time (9-sample) of `BufferStore::search`
-over a seeded corpus of 500 buffers with varied content sizes (512–4096 bytes
-per buffer), using four representative queries.
+**What is measured:** median wall time (9-sample) of `NotesIndexStore::count`
+over a folder of 500 generated notes (512–4096 bytes of text each, with
+frontmatter, a heading, a tag and two links) walked into the index, using four
+representative queries.
 
-**Budget: 200 ms median per query over 500 buffers**
+**Budget: 200 ms median per query over 500 notes**
 
 Rationale:
 
-- FTS5 queries on a warm SQLite connection with 500 rows are expected to
-  complete in single-digit milliseconds on any developer machine. The 200ms
-  budget is intentionally very generous to avoid flakiness from I/O startup
-  cost on the first query in a test process.
-- The corpus is 500 buffers because that is a realistic upper bound for a
-  power user's scratch session. Beyond this count the user would typically use
-  a project-level search tool, not Writ's buffer FTS.
+- FTS5 queries on a warm SQLite connection over 500 rows complete in
+  single-digit milliseconds on any developer machine. The 200 ms budget is
+  generous on purpose, to avoid flakiness from I/O startup cost on the first
+  query in a test process.
 - Cold-start noise (opening the SQLite file, page cache miss on first query)
-  is absorbed by the 9-sample median. The test suite warms the corpus before
-  timing.
+  is absorbed by the 9-sample median.
 
 ### Re-baselining
 
@@ -149,29 +147,23 @@ numbers and rationale.
 
 **Test file:** `crates/writ-storage/tests/perf_budget.rs` (`fts_prefix_search_budget`)
 
-**What is measured:** median wall time (9-sample) of `BufferStore::search`
-over the same 500-buffer corpus, using the quoted prefix queries the live
+**What is measured:** median wall time (9-sample) of `NotesIndexStore::count`
+over the same 500-note folder, using the quoted prefix queries the live
 search-as-you-type path actually issues (`writ_core::search::to_prefix_match`,
 e.g. `"rus"*`). Each query is asserted to match at least one row before
 timing, so a silently-broken index cannot pass by matching nothing.
 
-**Budget: 50 ms median per prefix query over 500 buffers**
+**Budget: 50 ms median per prefix query over 500 notes**
 
 Rationale:
 
-- The prefix index (`prefix='2 3 4'`, migration 030) turns a 2–4 character
-  prefix term from a full term-list scan into a seek. The 2026-05-22 audit
-  measured the *unindexed* scan at 14 ms median over 10k buffers; with the
-  index the same query is sub-millisecond. The 50 ms budget is tighter than
-  the exact-match `FTS_BUDGET_MS` (200 ms) on purpose: it is the regression
-  guard that fails if the prefix index is dropped, the migration is reordered,
-  or the prefix query stops resolving. At 500 buffers a correctly indexed
-  prefix query sits far under 50 ms, while a structural regression is visible
-  well below the bound.
-- The end-to-end 14 ms → sub-millisecond win is at the 10k scale of the audit
-  bench; this gate proves the prefix path stays correct and fast at the
-  realistic 500-buffer corpus rather than re-measuring the audit's 10k number
-  on every CI run.
+- The prefix index (`prefix='2 3 4'`, created by migration 040 the way 030
+  created it for the old buffer table) turns a 2–4 character prefix term from
+  a full term-list scan into a seek. The 2026-05-22 audit measured the
+  *unindexed* scan at 14 ms median over 10k rows; with the index the same
+  query is sub-millisecond. The 50 ms budget is tighter than the exact-match
+  `FTS_BUDGET_MS` (200 ms) on purpose: it is the regression guard that fails
+  if the prefix index is dropped or the prefix query stops resolving.
 
 ### Re-baselining
 
@@ -180,32 +172,211 @@ changes in a way that legitimately raises latency, and document the change.
 
 ---
 
-## writ-storage: buffer save/load round-trip
+## writ-storage: guarded save round trip
 
-**Test file:** `crates/writ-storage/tests/perf_budget.rs`
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`guarded_save_round_trip_budget`)
 
-**What is measured:** median wall time (9-sample) of `save_content` and
-`read_content` on a single 4 KB buffer.
+**What is measured:** median wall time (9-sample) of the save the app makes,
+`BufferStore::save_to_source_without_index` with the state the previous save
+returned (the guarded write, `guarded::write_note_guarded`, judged against what
+Writ last saw on disk, ADR-028 §5), and of `read_content`, on a 4 KB note in a
+notes folder. The two timed texts alternate, so every save writes: the guard
+leaves alone a file that already holds the incoming bytes. The index's half of
+a save is the next budget. The criterion bench `buffer_round_trip/save_4kb`
+times the same save.
 
 **Budget: 50 ms median per operation**
 
 Rationale:
 
-- 4KB represents a typical scratch buffer or short note. Autosave fires on
-  every keypress debounce (500ms default); a 50ms save budget leaves 90% of
-  the autosave window free for other work.
-- File I/O on a local SSD completes in well under 1ms; the 50ms budget
-  accounts for kernel scheduling overhead and the SQLite timestamp update that
-  accompanies every save. Any regression that pushes this above 50ms indicates
-  a structural change (e.g., unnecessary fsync, N+1 query).
+- 4 KB is a typical note. Autosave fires on the keypress debounce (500 ms
+  default); a 50 ms save leaves 90% of the window free.
+- The write is a temp file, an fsync and a rename beside the note, plus the
+  read the guard compares against. On a local SSD that is a few milliseconds;
+  a regression to 50 ms means a structural change (a second fsync, a read of
+  the whole folder).
 
 ### Re-baselining
 
-If the buffer store gains a new on-write step (e.g., checksumming, encryption)
-that legitimately raises wall time, update `ROUND_TRIP_BUDGET_MS` and document
-the new step here.
+If the guarded write gains a mandatory step (a checksum, an encryption pass),
+update `ROUND_TRIP_BUDGET_MS` and document the step here.
 
 ---
+
+## writ-storage: per-save index upsert at 5,000 notes
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`per_save_upsert_at_5000_notes_stays_under_budget`)
+
+**What is measured:** the slowest of 21 `NotesIndexStore::upsert` calls on one
+note in a walked folder of 5,000 notes, the write the deferred reindex makes
+after every save.
+
+**Budget: 50 ms, the slowest call**
+
+Rationale:
+
+- The upsert used to read every path in `files` and every row in `links` to
+  write one note's rows, so its cost grew with the folder (RC-14, EP-16). It
+  now resolves against the names kept in memory and touches no other note's
+  rows, so its cost is the note's own. Measured 2026-10-13 on an M-series
+  laptop, release: median and slowest both under 1 ms.
+
+### Re-baselining
+
+The budget is the save budget: it does not move with the folder. A failure
+here is a write that reads the folder again.
+
+---
+
+## writ-storage: a rename with its links at 5,000 notes
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`a_rename_with_its_links_at_5000_notes_stays_under_budget`)
+
+**What is measured:** the storage calls a rename with its links makes, in the
+order the command makes them, for a note 22 others link to in a walked folder
+of 5,000: the linking notes and every name a link could reach, read from the
+index; the walk for files of the same name the index does not hold
+(`note_ops::files_named`); the move; and, after the rewrites, the index brought
+in line (the old path forgotten, the new one and every rewritten note
+indexed). The rewrites run but are not timed: each is a guarded save, held to
+the save round trip budget above. The command's own work around these calls is
+not timed either.
+
+**Budget: 300 ms** (RC-47). Measured 2026-10-13, release, at a load average
+near 40: 102 to 150 ms over three runs, most of it the walk for same-named
+files; the 22 rewrites took 321 to 429 ms besides.
+
+Rationale: this is the part of a rename that grows with the folder. The walk
+reads every entry of it, and the index writes re-resolve only the links that
+name the note (ADR-036 section 7). A write that read every name again, or a
+resolution that scanned every note per link, would cost the folder once per
+linking note and breach the budget.
+
+### Re-baselining
+
+Raise the budget only for a change that legitimately adds work per rename,
+and record the new measurement here. A rename that stops walking the whole
+folder lowers it.
+
+---
+
+## writ-storage: notes index walk (5,000 notes)
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`index_5000_notes_reconcile_stays_under_budget`)
+
+**What is measured:** one `NotesIndexStore::reconcile` over a fresh index and
+a folder of 5,000 generated notes in fifty subfolders.
+
+**Budget: 30 s** (`RECONCILE_BUDGET_MS`). Measured 2026-10-13, release: 2,489 ms.
+
+Rationale: the walk runs on its own thread and holds the writer for one file
+at a time, so its length is not the user's wait (the next budget is). The
+budget catches a walk that becomes quadratic.
+
+---
+
+## writ-storage: commands during a walk
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`index_backed_commands_answer_within_budget_while_a_walk_holds_the_index`)
+
+**What is measured:** while a walk of 5,000 notes runs on another thread, the
+test issues, in turn and for as long as the walk lasts, a content search
+keystroke, a quick open keystroke (which `[[` completion also reads), the
+backlink list, a link's resolution, the folder graph and Cmd+N's writes for a
+new note: its file, its row through the app's own connection, and the note in
+the index. Every command is issued after the walk has started.
+
+**Budget: 150 ms for the slowest command, 50 ms at p95, at least 20 commands
+issued during the walk; for the folder graph, 50 ms at the median of at least
+3 graphs drawn during the walk** (ADR-028 §7).
+
+Rationale:
+
+- The slowest command is the measure. One command that waits for the whole
+  walk is the freeze, and a percentile over a few hundred samples discards
+  exactly that command: the p99 this budget measured before 2026-10-13 read
+  2 ms on the build where the first command issued during the walk took
+  6,976 ms.
+- The graph reads every note in the folder through a read connection, so its
+  time is the folder's, not the walk's, and it never waits for the writer. It
+  is held to the graph budget below, at its median, rather than to the
+  ceiling: on a busy machine its own cost reached 96 to 170 ms with no walk
+  running, which would decide the ceiling whatever the walk did.
+- Cmd+N is timed as all of its storage writes. Its row goes through the
+  app's own connection and meets the walk at SQLite's write lock: with
+  SQLite's own busy handler, which waits up to 100 ms between tries, that row
+  took 75 to 295 ms in three runs while the walk went on through up to 293
+  more entries, and the command failed this budget at 321 ms. With the app's
+  connections to `writ.db` retrying each millisecond (ADR-036 §7) it took 11
+  to 19 ms.
+- Measured 2026-10-13, release, after the writer went to waiting writes ahead
+  of the walk and the app's connections retry each millisecond (ADR-036 §7),
+  on a machine at a load average of 28 to 35, three runs: 710 to 730 commands
+  besides the graph during each walk, p95 16 ms, slowest 29 to 36 ms (Cmd+N:
+  its file 9 to 17 ms, its row 11 to 19 ms, the index 0 to 2 ms); the graph's
+  median 2 ms and its slowest 13 to 15 ms.
+- The minimum counts are what make a pass mean something: a run in which no
+  command overlapped the walk has measured nothing.
+- The budget is for a machine at rest. With other builds saturating the one
+  these were measured on (load averages up to 72), the same code read 53 to
+  151 ms at the slowest, readers included, which never wait for the writer.
+
+---
+
+## writ-storage: graph over 5,000 notes
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`graph_over_5000_notes_stays_under_the_query_budget`)
+
+**What is measured:** `NotesIndexStore::graph` over a walked folder of 5,000
+notes, nine times. **Budget: 50 ms at the median**, the keystroke budget
+(ADR-036 §3), the measure the search budgets take: one read that lost the
+processor to another program does not decide it. Measured 2026-10-13,
+release: 16 and 21 ms at load averages of 21 to 35; a third run, on a machine
+busy enough that the 5,000-note walk took 14.8 s rather than 3.7 to 5.1 s,
+read 303 ms.
+
+---
+
+## writ-storage: vault scale (10,000 notes, 200,000 links)
+
+**Test file:** `crates/writ-storage/tests/perf_budget.rs` (`vault_of_10000_notes_and_200000_links_stays_under_budget`).
+**Bench:** `crates/writ-storage/benches/storage.rs`, group
+`vault_10k_notes_200k_links` (`cargo bench -p writ-storage --bench storage -- vault`).
+
+**What is measured:** a folder of 10,000 notes in a hundred subfolders, each
+writing twenty links, five of them to one of the hundred notes most linked to
+(about five hundred links each), walked into a fresh index. Then:
+
+| Measure | Budget | Measured 2026-10-13, release |
+|---|---|---|
+| The walk from an empty index | 120 s | 28.7 s |
+| Migration 044 over the 200,000 stored links | 10 s | 726 ms |
+| A save of a linked note (slowest of 21) | 50 ms | 5 ms |
+| Cmd+N, a new note (slowest of 21) | 50 ms | 4 ms |
+| A note arriving and leaving under a name 500 links use (slowest of 21) | 50 ms | 13 ms |
+| Backlinks of a much-linked note (slowest of 21) | 50 ms | 6 ms |
+| A link resolved (slowest of 21) | 50 ms | 0 ms |
+| Quick open keystroke (slowest of 21) | 50 ms | 4 ms |
+| Content search keystroke (slowest of 21) | 50 ms | 2 ms |
+
+Rationale:
+
+- Every save, every new note and every keystroke is held to the 50 ms
+  keystroke budget whatever the folder holds: the names are in memory, a link
+  row carries the name it names (`links.name_key`, migration 044), and the
+  backlink list and search read through indexes rather than the whole table
+  (EP-16, RC-34).
+- The names are read again only after another connection adds, removes or
+  re-keys a note. The test rolls migration 044 back and runs it again through
+  another connection before it times the first save, which reads no names.
+- The migration runs once, at the first launch after the upgrade, inside the
+  migration transaction. It reads no note.
+
+### Re-baselining
+
+The write and read budgets are the keystroke budget and do not move. Raise
+the walk or migration budgets only for a change that legitimately adds work per
+note or per link, and record the new measurement here.
 
 ---
 

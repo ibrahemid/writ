@@ -200,7 +200,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "src-tauri/src/commands/notes.rs",
-        line: 1250,
+        line: 1253,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },
@@ -212,13 +212,13 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 418,
+        line: 419,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 476,
+        line: 477,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },

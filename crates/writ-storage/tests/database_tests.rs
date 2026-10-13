@@ -10,6 +10,16 @@ fn setup_temp_db() -> (TempDir, rusqlite::Connection) {
     (dir, conn)
 }
 
+/// Takes back what migration 044 added, leaving `links` in the shape a release
+/// before it wrote. The stamp is the caller's to remove.
+fn roll_back_044(conn: &rusqlite::Connection) {
+    conn.execute_batch(
+        "DROP INDEX idx_links_name_key;
+         ALTER TABLE links DROP COLUMN name_key;",
+    )
+    .expect("failed to drop the name key");
+}
+
 #[test]
 fn open_database_creates_file_in_wal_mode() {
     let (_dir, conn) = setup_temp_db();
@@ -210,7 +220,7 @@ fn the_schema_migrations_are_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 43);
+    assert_eq!(max_version, 44);
 }
 
 #[test]
@@ -257,7 +267,8 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
     // recorded, which the column's default has to answer for.
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
-    conn.execute("DELETE FROM schema_version WHERE version = 43", [])
+    roll_back_044(&conn);
+    conn.execute("DELETE FROM schema_version WHERE version >= 43", [])
         .expect("failed to roll the stamp back");
     conn.execute(
         "INSERT INTO buffers
@@ -292,6 +303,7 @@ fn a_database_at_041_gains_the_column_with_its_rows_intact() {
         .expect("failed to drop the column");
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
+    roll_back_044(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 42", [])
         .expect("failed to roll the stamp back");
     conn.execute(
@@ -422,7 +434,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 43);
+    assert_eq!(max_version, 44);
 }
 
 /// Column names of the `buffers` table.
@@ -484,4 +496,89 @@ fn apply_0_3_5_schema(conn: &rusqlite::Connection) {
         )
         .expect("failed to stamp version");
     }
+}
+
+#[test]
+fn a_database_at_043_gains_the_name_key_of_every_stored_link() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    roll_back_044(&conn);
+    conn.execute("DELETE FROM schema_version WHERE version = 44", [])
+        .expect("failed to roll the stamp back");
+    conn.execute(
+        "INSERT INTO files (path, size, mtime, hash, indexed_at)
+         VALUES ('/notes/From.md', 1, 1, NULL, '2026-10-13T00:00:00Z')",
+        [],
+    )
+    .expect("failed to insert file row");
+    // Targets as the scanner stored them: no alias, no heading, a note
+    // extension already taken off, a folder kept.
+    for target in ["Weekly Review", "projects/Plan", "Cafe\u{301}", "list.txt"] {
+        conn.execute(
+            "INSERT INTO links (from_path, to_target, to_path, kind, line, col)
+             VALUES ('/notes/From.md', ?1, NULL, 'wikilink', 1, 0)",
+            [target],
+        )
+        .expect("failed to insert link row");
+    }
+
+    run_migrations(&conn).expect("migration to 044 failed");
+
+    let keys: Vec<(String, Option<String>)> = {
+        let mut stmt = conn
+            .prepare("SELECT to_target, name_key FROM links ORDER BY rowid")
+            .expect("failed to prepare statement");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("query failed")
+            .map(|r| r.expect("row error"))
+            .collect()
+    };
+    assert_eq!(
+        keys,
+        vec![
+            (
+                "Weekly Review".to_string(),
+                Some("weekly review".to_string())
+            ),
+            ("projects/Plan".to_string(), Some("plan".to_string())),
+            ("Cafe\u{301}".to_string(), Some("café".to_string())),
+            ("list.txt".to_string(), Some("list.txt".to_string())),
+        ]
+    );
+    let index: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name = 'idx_links_name_key'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed to look for the index");
+    assert_eq!(index, 1);
+}
+
+#[test]
+fn a_database_at_043_that_lost_its_links_table_still_migrates() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    conn.execute("DROP TABLE links", [])
+        .expect("failed to drop the table");
+    conn.execute("DELETE FROM schema_version WHERE version = 44", [])
+        .expect("failed to roll the stamp back");
+
+    run_migrations(&conn).expect("a lost derived table must not stop the launch");
+
+    let columns: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT name FROM pragma_table_info('links')")
+            .expect("failed to prepare statement");
+        stmt.query_map([], |row| row.get(0))
+            .expect("query failed")
+            .map(|r| r.expect("row error"))
+            .collect()
+    };
+    assert!(
+        columns.contains(&"name_key".to_string()),
+        "the repair puts links back with the name key: {columns:?}"
+    );
 }

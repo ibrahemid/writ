@@ -53,7 +53,9 @@ pub struct NoteFacts {
 /// (`writ_storage::notes_index::reconcile`).
 ///
 /// 2: a colour and an anchor in pasted markup are not tags.
-pub const READING: u32 = 2;
+/// 3: facts are read out of Markdown files only; a `.txt` file has none
+/// (ADR-041 §2).
+pub const READING: u32 = 3;
 
 /// Reads every fact out of `text`.
 pub fn extract(text: &str) -> NoteFacts {

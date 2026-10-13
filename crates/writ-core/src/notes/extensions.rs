@@ -40,3 +40,16 @@ pub fn has_text_extension(path: &Path) -> bool {
         .and_then(|extension| extension.to_str())
         .is_some_and(is_text_extension)
 }
+
+/// Whether the file name at the end of `path` carries one of
+/// [`MARKDOWN_EXTENSIONS`].
+///
+/// The one test for which files the index reads links, tags, headings and
+/// properties out of, and which files the graph draws: a Markdown file is a
+/// note a link can reach and a graph can show, and a `.txt` file is plain text
+/// (ADR-041 §2).
+pub fn has_markdown_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(is_markdown_extension)
+}

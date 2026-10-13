@@ -913,3 +913,98 @@ fn a_note_that_stops_being_indexable_loses_its_row() {
     assert_eq!(outcome.removed, 2);
     assert!(search(&conn, "searchable").is_empty());
 }
+
+/// The snippet comes from the index's own `snippet()`, so the line number is
+/// worked out from where that fragment sits in the note, however far down.
+#[test]
+fn a_hit_deep_in_a_long_note_carries_its_own_line_number() {
+    let (_dir, conn, notes) = fixture();
+    let mut body = String::new();
+    for line in 1..300 {
+        body.push_str(&format!("filler line {line}\n"));
+    }
+    body.push_str("the kestrel hovered here\nmore filler\n");
+    write_note(&notes, "long.md", &body);
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
+
+    let hits = NotesIndex::new(&conn)
+        .search_hits("\"kestrel\"*", &["kestrel".to_string()], 10)
+        .expect("search_hits");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].line, Some(300));
+    let snippet: String = hits[0].snippet.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(snippet, "the kestrel hovered here");
+}
+
+/// A note found by its name and nothing in its text shows its first line, with
+/// no line to jump to.
+#[test]
+fn a_hit_on_the_name_alone_shows_the_first_line_and_no_line_number() {
+    let (_dir, conn, notes) = fixture();
+    write_note(&notes, "kestrel.md", "\n\nfirst words here\nsecond line\n");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
+
+    let hits = NotesIndex::new(&conn)
+        .search_hits("\"kestrel\"*", &["kestrel".to_string()], 10)
+        .expect("search_hits");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].line, None);
+    let snippet: String = hits[0].snippet.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(snippet, "first words here");
+}
+
+/// The tokenizer that found a match marks it, so a match that differs only by
+/// a diacritic is highlighted as well as found.
+#[test]
+fn a_match_that_differs_by_a_diacritic_is_highlighted() {
+    let (_dir, conn, notes) = fixture();
+    write_note(&notes, "menu.md", "lunch at the café today\n");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
+
+    let hits = NotesIndex::new(&conn)
+        .search_hits("\"cafe\"*", &["cafe".to_string()], 10)
+        .expect("search_hits");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].line, Some(1));
+    assert!(hits[0]
+        .snippet
+        .iter()
+        .any(|s| s.matched && s.text == "café"));
+}
+
+/// A note can hold the control characters the index marks a match with. Its
+/// hit still names the line the match is on and highlights the match alone.
+#[test]
+fn a_note_holding_a_mark_character_keeps_the_line_of_its_match() {
+    let (_dir, conn, notes) = fixture();
+    write_note(
+        &notes,
+        "opening.md",
+        "first line\nsecond \u{2}line with kestrel here\n",
+    );
+    write_note(&notes, "pair.md", "first line\n\u{2}ab\u{3} then kestrel\n");
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
+
+    let hits = NotesIndex::new(&conn)
+        .search_hits("\"kestrel\"*", &["kestrel".to_string()], 10)
+        .expect("search_hits");
+
+    assert_eq!(hits.len(), 2);
+    for hit in &hits {
+        assert_eq!(hit.line, Some(2), "{:?}", hit.path);
+        let matched: Vec<&str> = hit
+            .snippet
+            .iter()
+            .filter(|s| s.matched)
+            .map(|s| s.text.as_str())
+            .collect();
+        assert_eq!(matched, ["kestrel"], "{:?}", hit.path);
+    }
+}
