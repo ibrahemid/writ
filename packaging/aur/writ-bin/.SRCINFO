@@ -1,6 +1,6 @@
 pkgbase = writ-bin
 	pkgdesc = Light text editor for any text file, with full-text search and inline Markdown
-	pkgver = 0.5.1
+	pkgver = 0.6.0-1
 	pkgrel = 1
 	url = https://github.com/ibrahemid/writ
 	arch = x86_64
@@ -13,10 +13,10 @@ pkgbase = writ-bin
 	provides = writ
 	conflicts = writ
 	options = !strip
-	source = writ-0.5.1.AppImage::https://github.com/ibrahemid/writ/releases/download/v0.5.1/Writ_0.5.1_amd64.AppImage
-	source = LICENSE-0.5.1::https://github.com/ibrahemid/writ/raw/v0.5.1/LICENSE
-	noextract = writ-0.5.1.AppImage
-	sha256sums = 7117f308ebafd4715717e0214ea207c581e4164fe646ac15600ebe27d296c9b0
+	source = writ-0.6.0-1.AppImage::https://github.com/ibrahemid/writ/releases/download/v0.6.0-1/Writ_0.6.0-1_amd64.AppImage
+	source = LICENSE-0.6.0-1::https://github.com/ibrahemid/writ/raw/v0.6.0-1/LICENSE
+	noextract = writ-0.6.0-1.AppImage
+	sha256sums = 7e431e628e2ac33c1ec292d18d55166c4036a593d6f7325e89f8e57572c8629d
 	sha256sums = SKIP
 
 pkgname = writ-bin
