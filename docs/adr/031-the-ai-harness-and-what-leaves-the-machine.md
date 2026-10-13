@@ -70,7 +70,7 @@ its own. Writes go through the single guarded facade (U3), which is the only cal
 `:357`).
 
 1.3. The MCP process reads the index read-only through `NotesIndexStore::open_read_only`
-(`crates/writ-storage/src/notes_index.rs`) and writes `writ.db` never. It writes one other database
+(`crates/writ-storage/src/notes_index/store.rs`) and writes `writ.db` never. It writes one other database
 of the app's, `history.db`, so a write a connected program makes keeps the text it replaced the
 way a save in the app does (rule 5.6). It opens the store at the first write a client is allowed
 to make (`ToolHost::history`, `crates/writ-mcp/src/tools.rs`), through the same

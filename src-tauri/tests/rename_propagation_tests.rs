@@ -25,7 +25,7 @@ use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::ERR_READ_ONLY_DESTINATION;
 use writ_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK};
 use writ_tauri_lib::commands::notes::{
-    count_links_to_inner, new_note_inner, rename_note_with_links_inner,
+    count_links_to_inner, new_note_named_inner, rename_note_with_links_inner,
     undo_rename_with_links_inner, ERR_LINK_NAME_NOT_UNIQUE, ERR_LINK_NOT_FOUND,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -688,7 +688,8 @@ fn every_reason_is_a_bare_failure_code() {
 #[test]
 fn a_note_something_else_rewrote_is_named_rather_than_rewritten() {
     let (_dir, state) = seeded(&[("Old note.md", "the note itself\n")]);
-    let linking = new_note_inner(&state).expect("new note");
+    // Markdown, because a plain-text file holds no links (ADR-041 section 2).
+    let linking = new_note_named_inner(&state, "Linking.md").expect("new note");
     save_buffer_content_inner(&state, &linking.id, "see [[Old note]]\n").expect("save");
     let path = {
         let store = state.store.lock().expect("lock");
@@ -713,5 +714,134 @@ fn a_note_something_else_rewrote_is_named_rather_than_rewritten() {
         std::fs::read_to_string(&path).expect("read"),
         "somebody else wrote this, and [[Old note]]\n",
         "the rewrite carried text Writ had never seen"
+    );
+}
+
+/// Where the walk below stands with the note it reached first.
+#[derive(Debug)]
+enum RenameDuringWalk {
+    /// Neither note reached yet.
+    Waiting,
+    /// The walk reached this note, and it was renamed with its links.
+    Renamed(
+        std::path::PathBuf,
+        writ_tauri_lib::commands::notes::RenamePropagationDto,
+    ),
+    /// The walk moved on, and the rename was undone.
+    Undone(std::path::PathBuf),
+}
+
+/// A rename and its undo made while a walk is under way neither stop the walk
+/// nor lose the note. The walk reads every note it had not read yet, and the
+/// note the undo put back is in the index when the walk ends, under its own
+/// name, with the link to it resolved.
+///
+/// The store is wired the way `AppState::initialize` wires it, and the walk
+/// polls what the app's walk polls: shutdown, and whether the notes folder
+/// moved since it started. The renamed note is whichever of two the walk
+/// reaches first, so the walk always reaches the other one after it.
+#[test]
+fn a_rename_and_its_undo_during_a_walk_leave_the_walk_running_and_the_note_indexed() {
+    use std::cell::RefCell;
+    use std::sync::atomic::Ordering;
+    use writ_core::notes::links::Resolution;
+    use writ_storage::notes_index::index_key;
+
+    let (_dir, state) = seeded(&[
+        ("Home.md", "see [[Plan]] and [[Kestrel]]\n"),
+        ("a/Plan.md", "plan body\n"),
+        ("b/Kestrel.md", "kestrel body\n"),
+    ]);
+    {
+        let mut store = state.store.lock().expect("store");
+        store.set_notes_root(state.notes_root());
+        store.set_notes_index(Arc::clone(&state.notes_index));
+    }
+    let late: Vec<std::path::PathBuf> = (0..12)
+        .map(|idx| {
+            let path = note(&state, &format!("c/late-{idx:02}.md"));
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("folder");
+            std::fs::write(&path, "written after the last walk\n").expect("write");
+            path
+        })
+        .collect();
+    let candidates = [note(&state, "a/Plan.md"), note(&state, "b/Kestrel.md")];
+
+    let index = Arc::clone(&state.notes_index);
+    let cancel = Arc::clone(&state.notes_index_cancel);
+    let generation = index.generation();
+    let cancelled = || cancel.load(Ordering::Relaxed) || index.generation() != generation;
+    let step = RefCell::new(RenameDuringWalk::Waiting);
+    let hook = |path: &std::path::Path| {
+        let mut step = step.borrow_mut();
+        match &*step {
+            RenameDuringWalk::Waiting if candidates.iter().any(|note| note == path) => {
+                let stem = path.file_stem().expect("stem").to_string_lossy();
+                let renamed = rename_note_with_links_inner(
+                    &state,
+                    &path.to_string_lossy(),
+                    &format!("{stem} 2"),
+                    true,
+                )
+                .expect("rename during the walk");
+                *step = RenameDuringWalk::Renamed(path.to_path_buf(), renamed);
+            }
+            RenameDuringWalk::Renamed(original, renamed) => {
+                let original = original.clone();
+                let stem = original.file_stem().expect("stem").to_string_lossy();
+                undo_rename_with_links_inner(
+                    &state,
+                    &renamed.renamed_path,
+                    &stem,
+                    &renamed.updated_paths,
+                )
+                .expect("undo during the walk");
+                *step = RenameDuringWalk::Undone(original);
+            }
+            _ => {}
+        }
+        false
+    };
+    let outcome = index
+        .reconcile(&state.notes_root(), &cancelled, &hook)
+        .expect("walk");
+
+    assert!(!outcome.cancelled, "a rename stopped the walk under way");
+    let RenameDuringWalk::Undone(original) = step.into_inner() else {
+        panic!("the walk did not reach a note after the renamed one");
+    };
+    let indexed: Vec<String> = index
+        .snapshot()
+        .expect("snapshot")
+        .into_iter()
+        .map(|(path, ..)| path)
+        .collect();
+    for path in &late {
+        assert!(
+            indexed.contains(&index_key(path)),
+            "{} was never read",
+            path.display()
+        );
+    }
+    assert!(original.exists());
+    assert!(
+        indexed.contains(&index_key(&original)),
+        "the note the undo put back is missing from the index"
+    );
+    let stem = original
+        .file_stem()
+        .expect("stem")
+        .to_string_lossy()
+        .into_owned();
+    let renamed_key = index_key(&original.with_file_name(format!("{stem} 2.md")));
+    assert!(
+        !indexed.contains(&renamed_key),
+        "the name the undo left is still indexed"
+    );
+    assert_eq!(
+        index
+            .resolve_link(&path_text(&state, "Home.md"), &stem)
+            .expect("resolve"),
+        Resolution::Resolved(index_key(&original))
     );
 }

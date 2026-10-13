@@ -238,9 +238,9 @@ trait in `writ-plugin` instead would force a `writ-storage` edge to it, which CL
 `writ-storage` line forbids, and that is the reason the types sit where they do.
 
 That constrains the signatures, and it is the part U9 has to get right. A trait in `writ-core`
-cannot name a `writ-storage` type, and the index read model is `writ-storage`'s: `LinkRow`
-(`crates/writ-storage/src/notes_index.rs:126`), `BacklinkRow` (`:180`), `NoteFactsRow` (`:211`),
-and `StorageResult` itself. So the trait's return types are declared beside the trait,
+cannot name a `writ-storage` type, and the index read model is `writ-storage`'s: `LinkRow`,
+`BacklinkRow` and `NoteFactsRow` (`crates/writ-storage/src/notes_index/mod.rs`), and
+`StorageResult` itself. So the trait's return types are declared beside the trait,
 `NoteHostImpl` maps the rows into them, and every method returns `Result<_, HostError>`.
 
 `search_notes` returns a note-shaped hit of its own rather than `writ_core::search::SearchHit`.

@@ -15,6 +15,7 @@
 
 use std::collections::HashSet;
 use std::ops::Range;
+use std::sync::OnceLock;
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -863,7 +864,70 @@ pub fn candidate_name_keys(path: &str) -> Vec<String> {
 /// [`Resolution::Ambiguous`]**, not a coin flip: the candidates are handed back
 /// in byte order for the user to choose between, and alphabetical order is used
 /// to present them, never to pick one (ADR-034).
+///
+/// Every candidate's name is folded on every call. A caller resolving many
+/// links against one set of notes keeps [`NameCandidate`]s and calls
+/// [`resolve_candidates`], which gives the same answer.
 pub fn resolve(target: &WikilinkTarget, from: &str, candidates: &[String]) -> Resolution {
+    let candidates: Vec<NameCandidate> = candidates
+        .iter()
+        .map(|path| NameCandidate::new(path.as_str()))
+        .collect();
+    resolve_candidates(target, from, &candidates)
+}
+
+/// A note path and the folded forms resolution compares it by, worked out
+/// once.
+///
+/// The name keys ([`candidate_name_keys`]) are worked out when the candidate
+/// is made. The folded folders are worked out the first time two notes answer
+/// to one name, because only the tie-break between them reads them, and most
+/// names belong to one note.
+#[derive(Debug, Clone)]
+pub struct NameCandidate {
+    path: String,
+    keys: Vec<String>,
+    folded_segments: OnceLock<Vec<String>>,
+}
+
+impl NameCandidate {
+    /// The candidate for the note at `path`.
+    pub fn new(path: impl Into<String>) -> Self {
+        let path = path.into();
+        let keys = candidate_name_keys(&path);
+        Self {
+            path,
+            keys,
+            folded_segments: OnceLock::new(),
+        }
+    }
+
+    /// The path, as it was given.
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// The keys a link can name this note by ([`candidate_name_keys`]).
+    pub fn keys(&self) -> &[String] {
+        &self.keys
+    }
+
+    /// Every segment of the path, folded with [`name_key`].
+    fn folded_segments(&self) -> &[String] {
+        self.folded_segments
+            .get_or_init(|| fold_segments(&self.path))
+    }
+}
+
+/// [`resolve`] over candidates whose keys were worked out beforehand.
+///
+/// The same rules and the same answer: a caller holding a folder's worth of
+/// [`NameCandidate`]s resolves every link in a pass without folding any
+/// note's name a second time.
+pub fn resolve_candidates<'a, I>(target: &WikilinkTarget, from: &str, candidates: I) -> Resolution
+where
+    I: IntoIterator<Item = &'a NameCandidate>,
+{
     let wanted = name_key(&target.name);
     let folder: Option<Vec<String>> = target.folder.as_ref().map(|f| {
         f.split(['/', '\\'])
@@ -872,69 +936,75 @@ pub fn resolve(target: &WikilinkTarget, from: &str, candidates: &[String]) -> Re
             .collect()
     });
 
-    let mut matched: Vec<&String> = candidates
-        .iter()
-        .filter(|path| {
-            if !candidate_name_keys(path).contains(&wanted) {
+    let mut matched: Vec<&NameCandidate> = candidates
+        .into_iter()
+        .filter(|candidate| {
+            if !candidate.keys.contains(&wanted) {
                 return false;
             }
             match &folder {
                 None => true,
-                Some(wanted) => folder_matches(path, wanted),
+                Some(wanted) => folder_matches(candidate.folded_segments(), wanted),
             }
         })
         .collect();
-    if matched.is_empty() {
-        return Resolution::Missing;
+    matched.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+    matched.dedup_by(|a, b| a.path == b.path);
+    match matched.as_slice() {
+        [] => return Resolution::Missing,
+        [only] => return Resolution::Resolved(only.path.clone()),
+        _ => {}
     }
 
-    let from_segments = segments(from);
-    let rank = |path: &str| {
-        let count = segments(path).len();
-        let shared = shared_prefix(&segments(path), &from_segments);
-        (count, usize::MAX - shared)
+    let from_segments = fold_segments(from);
+    let rank = |candidate: &NameCandidate| {
+        let segments = candidate.folded_segments();
+        let shared = shared_prefix(segments, &from_segments);
+        (segments.len(), usize::MAX - shared)
     };
     let best = matched
         .iter()
-        .map(|path| rank(path))
+        .map(|candidate| rank(candidate))
         .min()
-        .expect("matched is not empty");
-    matched.retain(|path| rank(path) == best);
-    matched.sort_unstable();
-    matched.dedup();
+        .expect("matched holds at least two candidates");
+    matched.retain(|candidate| rank(candidate) == best);
 
-    match matched.len() {
-        1 => Resolution::Resolved(matched[0].clone()),
-        _ => Resolution::Ambiguous(matched.into_iter().cloned().collect()),
+    match matched.as_slice() {
+        [only] => Resolution::Resolved(only.path.clone()),
+        _ => Resolution::Ambiguous(
+            matched
+                .into_iter()
+                .map(|candidate| candidate.path.clone())
+                .collect(),
+        ),
     }
 }
 
-/// Whether `path`'s folders end with `wanted`.
-fn folder_matches(path: &str, wanted: &[String]) -> bool {
-    let all = segments(path);
-    let Some(folders) = all.split_last().map(|(_, rest)| rest) else {
+/// Whether the folders of a path, folded, end with `wanted`.
+fn folder_matches(folded: &[String], wanted: &[String]) -> bool {
+    let Some((_, folders)) = folded.split_last() else {
         return wanted.is_empty();
     };
     if wanted.len() > folders.len() {
         return false;
     }
-    folders[folders.len() - wanted.len()..]
-        .iter()
-        .map(|s| name_key(s))
-        .eq(wanted.iter().cloned())
+    folders[folders.len() - wanted.len()..] == *wanted
 }
 
-/// `path` split into its segments, with either separator accepted so a Windows
-/// key and a posix key rank the same way.
-fn segments(path: &str) -> Vec<&str> {
-    path.split(['/', '\\']).filter(|s| !s.is_empty()).collect()
+/// `path` split into its segments and folded with [`name_key`], with either
+/// separator accepted so a Windows key and a posix key rank the same way.
+fn fold_segments(path: &str) -> Vec<String> {
+    path.split(['/', '\\'])
+        .filter(|s| !s.is_empty())
+        .map(name_key)
+        .collect()
 }
 
-/// How many leading segments two paths share, folded.
-fn shared_prefix(left: &[&str], right: &[&str]) -> usize {
+/// How many leading segments two folded paths share.
+fn shared_prefix(left: &[String], right: &[String]) -> usize {
     left.iter()
         .zip(right.iter())
-        .take_while(|(a, b)| name_key(a) == name_key(b))
+        .take_while(|(a, b)| a == b)
         .count()
 }
 
@@ -1224,6 +1294,99 @@ mod tests {
     fn candidate_name_keys_cover_the_stem_and_the_whole_name() {
         assert_eq!(candidate_name_keys("/n/Note.md"), vec!["note", "note.md"]);
         assert_eq!(candidate_name_keys("/n/list.txt"), vec!["list.txt"]);
+    }
+
+    #[test]
+    fn a_candidate_keeps_its_path_and_the_keys_a_link_names_it_by() {
+        let candidate = NameCandidate::new("/n/Projects/Cafe\u{301} Plan.md");
+        assert_eq!(candidate.path(), "/n/Projects/Cafe\u{301} Plan.md");
+        assert_eq!(
+            candidate.keys(),
+            candidate_name_keys("/n/Projects/Cafe\u{301} Plan.md").as_slice()
+        );
+        assert_eq!(candidate.keys(), ["café plan", "café plan.md"]);
+    }
+
+    /// One set of candidates serves every link of a pass, and the folders
+    /// folded for one tie-break are reused by the next: each answer is the one
+    /// the rules give, on the first pass over the candidates and on the second.
+    #[test]
+    fn candidates_kept_across_calls_keep_their_answers() {
+        let kept: Vec<NameCandidate> = [
+            "/n/a/Note.md",
+            "/n/b/Note.md",
+            "/n/deep/inner/Note.md",
+            "/n/Weekly Review.md",
+            "/n/Cafe\u{301}.md",
+            "/n/list.txt",
+            "/n/b/sub/Other.md",
+            "/n/a/Note.md",
+        ]
+        .iter()
+        .map(|path| NameCandidate::new(*path))
+        .collect();
+        let resolved = |path: &str| Resolution::Resolved(path.to_string());
+        let tied =
+            Resolution::Ambiguous(vec!["/n/a/Note.md".to_string(), "/n/b/Note.md".to_string()]);
+        let cases = [
+            ("Note", "/n/c/From.md", tied.clone()),
+            ("Note", "/n/b/From.md", resolved("/n/b/Note.md")),
+            ("Note", "/n/deep/inner/x/From.md", tied),
+            ("b/Note", "/n/c/From.md", resolved("/n/b/Note.md")),
+            ("B/NOTE", "/n/c/From.md", resolved("/n/b/Note.md")),
+            (
+                "inner/Note",
+                "/n/From.md",
+                resolved("/n/deep/inner/Note.md"),
+            ),
+            (
+                "weekly review",
+                "/n/From.md",
+                resolved("/n/Weekly Review.md"),
+            ),
+            ("Café", "/n/From.md", resolved("/n/Cafe\u{301}.md")),
+            ("list.txt", "/n/From.md", resolved("/n/list.txt")),
+            ("list", "/n/From.md", Resolution::Missing),
+            ("sub/Other", "/n/From.md", resolved("/n/b/sub/Other.md")),
+            ("Missing", "/n/From.md", Resolution::Missing),
+        ];
+        for pass in 1..=2 {
+            for (target, from, expected) in &cases {
+                assert_eq!(
+                    &resolve_candidates(&parse_target(target), from, &kept),
+                    expected,
+                    "[[{target}]] from {from}, pass {pass}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_path_offered_twice_is_one_candidate() {
+        let kept = [
+            NameCandidate::new("/n/Note.md"),
+            NameCandidate::new("/n/Note.md"),
+        ];
+        assert_eq!(
+            resolve_candidates(&parse_target("Note"), "/n/From.md", &kept),
+            Resolution::Resolved("/n/Note.md".to_string())
+        );
+    }
+
+    #[test]
+    fn windows_separators_rank_and_match_like_posix_ones() {
+        let kept = [
+            NameCandidate::new("C:\\n\\a\\Note.md"),
+            NameCandidate::new("C:\\n\\b\\Note.md"),
+        ];
+        assert_eq!(
+            resolve_candidates(&parse_target("Note"), "C:\\n\\b\\From.md", &kept),
+            Resolution::Resolved("C:\\n\\b\\Note.md".to_string())
+        );
+        assert_eq!(
+            resolve_candidates(&parse_target("a/Note"), "C:\\n\\b\\From.md", &kept),
+            Resolution::Resolved("C:\\n\\a\\Note.md".to_string())
+        );
     }
 
     #[test]

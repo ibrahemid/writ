@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use writ_core::notes::extensions::{
-    has_text_extension, is_markdown_extension, is_text_extension, MARKDOWN_EXTENSIONS,
-    TEXT_EXTENSIONS,
+    has_markdown_extension, has_text_extension, is_markdown_extension, is_text_extension,
+    MARKDOWN_EXTENSIONS, TEXT_EXTENSIONS,
 };
 
 #[test]
@@ -42,4 +42,18 @@ fn a_path_is_judged_by_its_last_extension() {
     assert!(!has_text_extension(Path::new("/notes/Launch.md.png")));
     assert!(!has_text_extension(Path::new("/notes/README")));
     assert!(!has_text_extension(Path::new("/notes/.md")));
+}
+
+#[test]
+fn a_markdown_path_is_named_by_either_spelling_in_any_case() {
+    for name in ["a.md", "a.markdown", "A.MD", "dir/b.Markdown"] {
+        assert!(has_markdown_extension(Path::new(name)), "{name}");
+    }
+}
+
+#[test]
+fn plain_text_and_other_paths_are_not_markdown() {
+    for name in ["a.txt", "a.text", "a.json", "a.py", "a", "md", "a.md.txt"] {
+        assert!(!has_markdown_extension(Path::new(name)), "{name}");
+    }
 }

@@ -821,6 +821,10 @@ fn recorded_disk_state(state: &AppState, path: &Path) -> Option<DiskState> {
 /// note would be empty and an undo would find nothing to put back. A row that
 /// cannot be written is logged and not fatal — a rename that landed on disk is
 /// not undone because an index lagged.
+///
+/// A walk under way keeps running. The index records these writes, and the
+/// walk leaves alone every path written after it looked (ADR-036 section 7),
+/// so retiring it would only leave the rest of the folder unread.
 fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[String]) {
     let index = &state.notes_index;
     if from != to {
@@ -833,7 +837,6 @@ fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[Str
             warn!(path = %path, error = %error, "the notes index was not updated after a rename");
         }
     }
-    index.bump_generation();
 }
 
 /// What the editor says when a delete names a file the notes folder does not
@@ -1201,7 +1204,7 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Brings the notes index and the notes watcher to the folder Writ now uses.
+/// Brings the notes index and the watchers to the folder Writ now uses.
 ///
 /// Nothing here can fail the move: the files are already in their new home, so
 /// a failure is logged and left to the walk this spawns. The order matters.
@@ -1236,6 +1239,7 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
         }
         Err(e) => warn!(error = %e, "notes watcher could not follow the folder"),
     }
+    crate::commands::workspace::rewatch_workspace(state);
 
     let index = state.notes_index.clone();
     let cancel = state.notes_index_cancel.clone();

@@ -731,22 +731,28 @@ fn a_note_is_found_by_name_in_either_format() {
 
 #[test]
 fn the_configured_format_is_tried_before_markdown() {
+    // A plain-text file holds no links of its own (ADR-041 section 2), so
+    // which of the two files answers is read from the notes linking to each.
     let fixture = Fixture::new();
-    write(&fixture.notes.join("Same.txt"), "see [[Alone]]\n");
-    write(&fixture.notes.join("Same.md"), "see [[Two]]\n");
+    write(&fixture.notes.join("Same.txt"), "plain\n");
+    write(&fixture.notes.join("Same.md"), "markdown\n");
+    write(&fixture.notes.join("ToPlain.md"), "see [[Same.txt]]\n");
+    write(&fixture.notes.join("ToMarkdown.md"), "see [[Same.md]]\n");
     fixture.indexed();
 
-    let plain = fixture.run(&["links", "Same"]);
+    let plain = fixture.run(&["backlinks", "Same"]);
+    assert_eq!(code(&plain), 0, "{}", stderr(&plain));
     assert!(
-        stdout(&plain).contains("Alone"),
+        stdout(&plain).contains("ToPlain") && !stdout(&plain).contains("ToMarkdown"),
         "plain text is configured, so Same.txt answers: {}",
         stdout(&plain)
     );
 
     fixture.defaults_to_markdown();
-    let markdown = fixture.run(&["links", "Same"]);
+    let markdown = fixture.run(&["backlinks", "Same"]);
+    assert_eq!(code(&markdown), 0, "{}", stderr(&markdown));
     assert!(
-        stdout(&markdown).contains("Two"),
+        stdout(&markdown).contains("ToMarkdown") && !stdout(&markdown).contains("ToPlain"),
         "Markdown is configured, so Same.md answers: {}",
         stdout(&markdown)
     );

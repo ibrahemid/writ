@@ -103,6 +103,12 @@ pub struct BufferStore {
     /// line and the MCP server write notes without writing any database of
     /// the app's (ADR-031, and §4's one-writer rule for each SQLite file).
     history: Option<Arc<NoteHistoryStore>>,
+    /// The notes index the app holds, which every write to the index goes
+    /// through (ADR-036 section 7).
+    ///
+    /// `None` in tests and tools that have no store: the index is then written
+    /// through this store's own connection.
+    notes_index: Option<Arc<notes_index::NotesIndexStore>>,
     last_snapshot_fingerprint: Option<SnapshotFingerprint>,
 }
 
@@ -114,6 +120,7 @@ impl BufferStore {
             buffers_dir,
             notes_root: None,
             history: None,
+            notes_index: None,
             last_snapshot_fingerprint: None,
         }
     }
@@ -134,6 +141,16 @@ impl BufferStore {
     /// it did before and keeps no versions.
     pub fn set_history(&mut self, history: Arc<NoteHistoryStore>) {
         self.history = Some(history);
+    }
+
+    /// Names the notes index the app holds, so a save's index write goes
+    /// through its one writer and keeps the names it holds in memory current.
+    ///
+    /// Set once, at startup, by the app. A save then holds the index's writer
+    /// for that one note, and a walk running at the time lets it in between
+    /// two files.
+    pub fn set_notes_index(&mut self, index: Arc<notes_index::NotesIndexStore>) {
+        self.notes_index = Some(index);
     }
 
     /// Returns the path to the retired mirror directory.
@@ -329,7 +346,10 @@ impl BufferStore {
         let Some(note) = notes_index::IndexedNote::from_file(path) else {
             return Ok(());
         };
-        notes_index::NotesIndex::new(&self.conn).upsert(&note, content)
+        match &self.notes_index {
+            Some(index) => index.upsert(&note, content),
+            None => notes_index::NotesIndex::new(&self.conn).upsert(&note, content),
+        }
     }
 
     /// Whether `path` is inside the folder the notes index holds. Both sides
@@ -429,14 +449,14 @@ impl BufferStore {
     /// Records a note's new file and the name that matches it, in one write.
     ///
     /// A rename moves the file and the name the tab shows together, so the two
-    /// are written in one transaction alongside the index refresh: two writes
-    /// leave a window where the row names one file and points at another, and
-    /// a crash inside that window is a note nobody can find.
+    /// are written in one transaction: two writes leave a window where the row
+    /// names one file and points at another, and a crash inside that window is
+    /// a note nobody can find.
     ///
-    /// `source_path` is where the file is now, so the index is re-keyed to it:
-    /// the row under the old path goes, and the file is indexed under the new
-    /// one. Writ's own rename is stamped into the watcher's ignore set, so the
-    /// notes watcher will not do this for it.
+    /// `source_path` is where the file is now, so once that transaction commits
+    /// the index is re-keyed to it: the row under the old path goes, and the
+    /// file is indexed under the new one. Writ's own rename is stamped into the
+    /// watcher's ignore set, so the notes watcher will not do this for it.
     pub fn rename_to_file(&self, id: &str, source_path: &str, title: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let old_path = doc.source_path.clone();
@@ -454,7 +474,11 @@ impl BufferStore {
         if let Some(old_path) = old_path {
             let old = Path::new(&old_path);
             if self.is_within_notes(old) {
-                notes_index::NotesIndex::new(&self.conn).remove(&notes_index::index_key(old))?;
+                match &self.notes_index {
+                    Some(index) => index.forget_path(old)?,
+                    None => notes_index::NotesIndex::new(&self.conn)
+                        .remove(&notes_index::index_key(old))?,
+                }
             }
         }
         self.index_note(&renamed, &content)
