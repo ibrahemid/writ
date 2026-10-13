@@ -15,6 +15,7 @@ What Writ does, at the level of detail that answers "does it do X".
 - Writ keeps a version of a file in its folder each time it is saved, for up to 30 days or 200 versions, outside that folder. A file over 2 MB is not versioned. File > Revert To puts one back.
 - Open tabs and unsaved text come back after a restart or a crash.
 - Binary files open as hex. Large files open with syntax colouring off.
+- A file over 50 MiB asks before it opens and says how large it is. A file over 500 MiB (524 MB) doesn't open, and Writ says why. Writ measures the tabs it restores at launch as it starts: one over 50 MiB asks when it is shown, and one over 500 MiB says why.
 - On macOS, Writ can register as the app that opens text, config, data and source files (Settings, Files).
 
 ## Markdown
@@ -34,7 +35,8 @@ What Writ does, at the level of detail that answers "does it do X".
 
 ## Editing
 
-- CodeMirror 6 with language detection.
+- CodeMirror 6. A file's name decides its language, and a `.txt` or `.text` file stays plain text whatever it holds. Change Language in the palette picks another language for one file, and the file keeps it.
+- Word wrap and tab size, under Settings, Editor, apply to open files at once.
 - The command palette opens on a double tap of `Shift`.
 - Line commands: duplicate (`Cmd+D`), delete (`Cmd+Shift+K`), move (`Shift+Alt+Up/Down`), select (`Cmd+L`), join (`Cmd+Shift+J`), insert below or above (`Cmd+Enter`, `Cmd+Shift+Enter`), toggle comment (`Cmd+/`) and select next occurrence (`Cmd+Shift+D`).
 - Text transforms in the palette: trim leading or trailing spaces, collapse repeated spaces, straighten quotes, remove shared indentation, end with one newline, fix spacing before punctuation, prepare as prompt, and tidy whitespace, which runs several of them.
@@ -66,7 +68,7 @@ Six features are apps, each switched on under Settings, Apps, and all off on a f
 
 - **Chat**: a pane beside the file (`Cmd+Shift+A`) with the open file attached; `@` attaches another. Only attached files are sent, and the send dialog names the host and the byte count first. A proposed edit shows as a line diff with Apply and Discard. Conversations are kept and can be renamed or deleted.
 - **Rewrite**: proofread, rephrase, polish, improve prompt (which keeps `{{placeholders}}` as written), or your own instruction, on a selection.
-- **Connected programs**: an MCP server, `writ mcp`, that another program starts over stdio. Eight read tools and three write tools (write, create, rename), with separate read and write switches per program and nothing that deletes. Every program is refused until you approve it, and an Activity panel lists every call.
+- **Connected programs**: an MCP server, `writ mcp`, that another program starts over stdio. Eight read tools and three write tools (write, create, rename), with separate read and write switches per program and nothing that deletes. A program waits under Waiting for you, in Settings and in a notice, until you approve it or don't allow it, and Program activity lists every call.
 - **Connections**: a panel (`Cmd+Shift+\`) listing the files that link to the open one with the sentence each link sits in, its outline of headings, and its frontmatter properties.
 - **Graph**: the files around the open one, and a view of the whole folder with search and one colour per top-level folder.
 - **Tags**: `#tags` and frontmatter tags in the sidebar with counts. Nested tags group under their parent, and selecting one filters the file list.

@@ -1,6 +1,6 @@
 # ADR-023: Markdown Writing Experience
 
-**Status:** Accepted
+**Status:** Accepted; `editor.markdown_typography` (decision 4) was removed on 2026-10-13 ([ADR-019](./019-open-anything-ladder.md)): nothing read it, and Inline | Source decides how Markdown is drawn
 **Date:** 2026-07-02
 
 ## Context

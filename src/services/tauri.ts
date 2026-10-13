@@ -5,6 +5,7 @@ import type {
   ChangeChoice,
   FileOpenResult,
   ResolveOutcome,
+  TodaysFile,
 } from "../types/buffer";
 import type {
   AiConfig,
@@ -70,8 +71,11 @@ export async function newNote(): Promise<BufferDocument> {
   return invoke("new_note");
 }
 
-/** The note named for today, created if the notes folder has none yet. */
-export async function todaysNote(): Promise<BufferDocument> {
+/**
+ * The file named for today, created if the notes folder has none yet, with
+ * what opening it came to.
+ */
+export async function todaysNote(): Promise<TodaysFile> {
   return invoke("todays_note");
 }
 
@@ -650,8 +654,18 @@ export async function listHistory(): Promise<BufferDocument[]> {
   return invoke("list_history");
 }
 
-export async function restoreBuffer(id: string): Promise<void> {
+/**
+ * Reopens a closed file, answering as an open does: a file that grew past the
+ * size Writ opens without asking is a question, and nothing reopens until
+ * `restoreBufferConfirmed`. A tab restored unread at launch answers the same
+ * way and stays where it is.
+ */
+export async function restoreBuffer(id: string): Promise<FileOpenResult> {
   return invoke("restore_buffer", { id });
+}
+
+export async function restoreBufferConfirmed(id: string): Promise<FileOpenResult> {
+  return invoke("restore_buffer_confirmed", { id });
 }
 
 export async function clearHistory(): Promise<void> {
@@ -687,6 +701,15 @@ export async function openFile(path: string): Promise<FileOpenResult> {
 
 export async function openFileConfirmed(path: string): Promise<FileOpenResult> {
   return invoke("open_file_confirmed", { path });
+}
+
+// The language chosen for a file, or null to let its name decide. Answers the
+// row as it now stands.
+export async function setBufferLanguage(
+  id: string,
+  language: string | null,
+): Promise<BufferDocument> {
+  return invoke("set_buffer_language", { id, language });
 }
 
 // Asks the sync provider for a note's bytes. Returns as soon as the download
@@ -1513,15 +1536,18 @@ export interface RequestIdentity {
   host: string;
 }
 
-/** The reason a provider gave for a refusal, when it is one of the six Writ
- * has a sentence for. No other part of a response body ever reaches here. */
+/** The reason a provider gave for a refusal, when it is one of the eight Writ
+ * has a sentence for, as the word Rust serializes it to. No other part of a
+ * response body ever reaches here. */
 export type RejectCode =
   | "model_not_found"
   | "invalid_request"
   | "invalid_api_key"
   | "insufficient_quota"
   | "rate_limited"
-  | "context_length_exceeded";
+  | "context_length_exceeded"
+  | "unsupported_parameter"
+  | "unsupported_value";
 
 /** What the pane is told when a reply fails. `message` is Writ's own sentence;
  * `kind` is what a recovery action is chosen from. */
@@ -1796,6 +1822,7 @@ export interface ActivityRecord {
   path: string | null;
   decision: ActivityDecision;
   bytes: number | null;
+  count?: number | null;
 }
 
 export async function activityRecent(limit: number): Promise<ActivityRecord[]> {
@@ -1845,13 +1872,19 @@ export async function mcpForgetClient(name: string): Promise<McpClients> {
 }
 
 /**
- * Turns one waiting program down without deciding about it.
- *
- * Nothing is written to the approval list, so the program is neither allowed
- * nor blocked: its next call puts it back on the waiting list.
+ * "Don't allow": stores a decision granting neither direction, so the program
+ * is answered as not allowed and is not put back on the waiting list.
  */
-export async function mcpRefuseWaitingClient(name: string): Promise<McpClients> {
-  return invoke("mcp_refuse_waiting_client", { name });
+export async function mcpDenyClient(name: string): Promise<McpClients> {
+  return invoke("mcp_deny_client", { name });
+}
+
+export async function mcpReturnToWaiting(name: string): Promise<McpClients> {
+  return invoke("mcp_return_to_waiting", { name });
+}
+
+export async function mcpRestoreClient(approval: ClientApproval): Promise<McpClients> {
+  return invoke("mcp_restore_client", { approval });
 }
 
 export interface McpServerCommand {

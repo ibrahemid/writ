@@ -85,7 +85,7 @@ beforeEach(() => {
   h.searchFiles.mockResolvedValue([]);
   h.streamContent.mockResolvedValue(undefined);
   h.searchBuffers.mockResolvedValue({ hits: [], total: 0 });
-  h.restoreFromHistory.mockResolvedValue(undefined);
+  h.restoreFromHistory.mockResolvedValue(null);
   h.openFile.mockResolvedValue(doc({ id: "opened", title: "opened" }));
   console.error = vi.fn();
 });
@@ -198,6 +198,7 @@ describe("content provider", () => {
 
   it("restores then reveals a history hit", async () => {
     h.historyList = [doc({ id: "b", title: "Bravo", status: "history" })];
+    h.restoreFromHistory.mockResolvedValue(doc({ id: "b", title: "Bravo" }));
     h.searchBuffers.mockResolvedValue({
       hits: [{ buffer_id: "b", title: "Bravo", line: 4, snippet: [] }],
       total: 1,
@@ -207,6 +208,19 @@ describe("content provider", () => {
     await Promise.resolve();
     expect(h.restoreFromHistory).toHaveBeenCalledWith("b");
     expect(h.requestReveal).toHaveBeenCalledWith("b", 4);
+  });
+
+  it("reveals nothing for a history hit that did not reopen", async () => {
+    h.historyList = [doc({ id: "b", title: "Bravo", status: "history" })];
+    h.searchBuffers.mockResolvedValue({
+      hits: [{ buffer_id: "b", title: "Bravo", line: 4, snippet: [] }],
+      total: 1,
+    });
+    const results = await createContentProvider().query("todo", signal(), "all");
+    results[0].execute();
+    await Promise.resolve();
+    expect(h.restoreFromHistory).toHaveBeenCalledWith("b");
+    expect(h.requestReveal).not.toHaveBeenCalled();
   });
 
   it("ignores buffer hits for buffers that are neither open nor in history", async () => {

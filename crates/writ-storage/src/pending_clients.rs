@@ -26,8 +26,9 @@ const FILE: &str = "mcp-pending.json";
 /// How many names the file holds. Past this the entry with the oldest last
 /// call is dropped, so a program spraying names cannot grow the file without
 /// end and cannot push the cost of one update up with it. What this does not
-/// bound is the number of writes: a name never seen before is written the
-/// moment it calls, by design, so each new name still costs one write.
+/// bound is the number of writes: a name the file does not list is written the
+/// moment it calls, by design, so each new name, and each name pushed out,
+/// still costs one write.
 pub const MAX_WAITING: usize = 64;
 
 /// The shape on disk. An object rather than a bare array, so a later field can
@@ -50,7 +51,31 @@ pub fn path(dir: &Path) -> PathBuf {
 /// not a reason to fail a call.
 pub fn read(dir: &Path) -> Vec<PendingClient> {
     let _guard = activity_log::shared_guard(dir);
-    let mut clients = read_unlocked(dir).clients;
+    oldest_first(read_unlocked(dir).clients)
+}
+
+/// Everyone waiting, oldest first seen first, or `None` while the file cannot
+/// be read whole.
+///
+/// The file is written by another process. Every Writ writer replaces it in
+/// one rename under the lock this read shares, so the read sees one version or
+/// the other. `None` is a file that is there and could not be opened, or one
+/// that does not parse, such as a write something else left half done: the
+/// caller keeps what it last had rather than taking it for nobody waiting, and
+/// the write that completes the file raises its own change. A file that is not
+/// there is nobody waiting.
+pub fn read_settled(dir: &Path) -> Option<Vec<PendingClient>> {
+    let _guard = activity_log::shared_guard(dir);
+    let bytes = match std::fs::read(path(dir)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let file: PendingFile = serde_json::from_slice(&bytes).ok()?;
+    Some(oldest_first(file.clients))
+}
+
+fn oldest_first(mut clients: Vec<PendingClient>) -> Vec<PendingClient> {
     clients.sort_by_key(|entry| entry.first_seen);
     clients
 }
@@ -71,44 +96,92 @@ pub fn note_calls_at(
     calls: u64,
     now: chrono::DateTime<chrono::Utc>,
 ) -> StorageResult<()> {
-    with_file(dir, |file| {
-        match file
-            .clients
-            .iter_mut()
-            .find(|entry| entry.name == client.name)
-        {
-            Some(entry) => {
-                entry.calls = entry.calls.saturating_add(calls);
-                entry.last_seen = now;
-                if client.version.is_some() {
-                    entry.version = client.version.clone();
+    with_file(
+        dir,
+        |file| {
+            match file
+                .clients
+                .iter_mut()
+                .find(|entry| entry.name == client.name)
+            {
+                Some(entry) => {
+                    entry.calls = entry.calls.saturating_add(calls);
+                    entry.last_seen = now;
+                    if client.version.is_some() {
+                        entry.version = client.version.clone();
+                    }
+                }
+                None => {
+                    let mut entry = PendingClient::first_call(client, now);
+                    entry.calls = calls.max(1);
+                    file.clients.push(entry);
                 }
             }
-            None => {
-                let mut entry = PendingClient::first_call(client, now);
-                entry.calls = calls.max(1);
-                file.clients.push(entry);
-            }
-        }
-        evict_oldest(file, &client.name);
-    })
+            evict_oldest(file, &client.name);
+        },
+        |_| {},
+    )
 }
 
 /// Drops the entry for `name`. A name that is not there is already forgotten.
-pub fn forget(dir: &Path, name: &str) -> StorageResult<()> {
-    with_file(dir, |file| {
-        file.clients.retain(|entry| entry.name != name);
-    })
+///
+/// `before_write` is handed the bytes the file is about to hold, before they
+/// are written, so the app can record its own write where its watcher looks.
+pub fn forget(dir: &Path, name: &str, before_write: impl FnOnce(&[u8])) -> StorageResult<()> {
+    with_file(
+        dir,
+        |file| {
+            file.clients.retain(|entry| entry.name != name);
+        },
+        before_write,
+    )
+}
+
+/// Puts `entry` back on the list: the undo of a decision, so the program waits
+/// to be decided on again.
+///
+/// A name already waiting keeps the entry it has, which holds the calls
+/// counted since. `before_write` is handed the bytes as [`forget`] hands them.
+pub fn put_back(
+    dir: &Path,
+    entry: PendingClient,
+    before_write: impl FnOnce(&[u8]),
+) -> StorageResult<()> {
+    with_file(
+        dir,
+        |file| {
+            if !file
+                .clients
+                .iter()
+                .any(|waiting| waiting.name == entry.name)
+            {
+                let name = entry.name.clone();
+                file.clients.push(entry);
+                evict_oldest(file, &name);
+            }
+        },
+        before_write,
+    )
 }
 
 /// Reads, applies `change`, and writes the result back, all under the exclusive
-/// lock so two servers cannot lose each other's edit.
-fn with_file(dir: &Path, change: impl FnOnce(&mut PendingFile)) -> StorageResult<()> {
+/// lock so two servers cannot lose each other's edit. `before_write` sees the
+/// bytes after they are serialised and before the file is replaced.
+fn with_file(
+    dir: &Path,
+    change: impl FnOnce(&mut PendingFile),
+    before_write: impl FnOnce(&[u8]),
+) -> StorageResult<()> {
     let lock = activity_log::open_lock(dir)?;
     lock.lock()?;
     let mut file = read_unlocked(dir);
     change(&mut file);
-    let written = write_unlocked(dir, &file);
+    let written = serde_json::to_vec_pretty(&file)
+        .map_err(Into::into)
+        .and_then(|text| {
+            before_write(&text);
+            crate::atomic::write_atomic(&path(dir), &text).map_err(Into::into)
+        });
     let _ = lock.unlock();
     written
 }
@@ -139,10 +212,4 @@ fn read_unlocked(dir: &Path) -> PendingFile {
         return PendingFile::default();
     };
     serde_json::from_str(&text).unwrap_or_default()
-}
-
-fn write_unlocked(dir: &Path, file: &PendingFile) -> StorageResult<()> {
-    let text = serde_json::to_vec_pretty(file)?;
-    crate::atomic::write_atomic(&path(dir), &text)?;
-    Ok(())
 }

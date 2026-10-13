@@ -53,8 +53,9 @@ export function openTarget(target: OpenTarget, line?: number): void {
 
   if (target.kind === "history") {
     win.tabs.restoreFromHistory(target.id).then(
-      () => {
-        if (line !== undefined) win.editor.requestReveal(target.id, line);
+      (doc) => {
+        // Cancel or a refusal reopened nothing, so there is no line to go to.
+        if (doc && line !== undefined) win.editor.requestReveal(doc.id, line);
       },
       () => {
         logFailure("a history entry could not be restored");

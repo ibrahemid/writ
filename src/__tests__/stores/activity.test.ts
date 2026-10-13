@@ -2,17 +2,27 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 import type { ActivityRecord, ClientApproval, PendingClient } from "../../services/tauri";
 
-const h = vi.hoisted(() => ({
-  activityRecent: vi.fn(),
-  activityClear: vi.fn().mockResolvedValue(undefined),
-  mcpClients: vi.fn(),
-  mcpSetClientPermission: vi.fn(),
-  mcpForgetClient: vi.fn(),
-  mcpServerCommand: vi.fn(),
-  mcpTools: vi.fn(),
-  writeClipboardText: vi.fn().mockResolvedValue(undefined),
-  onEvent: vi.fn().mockResolvedValue(() => {}),
-}));
+const h = vi.hoisted(() => {
+  const listeners = new Map<string, (payload: unknown) => void>();
+  return {
+    listeners,
+    activityRecent: vi.fn(),
+    activityClear: vi.fn().mockResolvedValue(undefined),
+    mcpClients: vi.fn(),
+    mcpSetClientPermission: vi.fn(),
+    mcpForgetClient: vi.fn(),
+    mcpDenyClient: vi.fn(),
+    mcpReturnToWaiting: vi.fn(),
+    mcpRestoreClient: vi.fn(),
+    mcpServerCommand: vi.fn(),
+    mcpTools: vi.fn(),
+    writeClipboardText: vi.fn().mockResolvedValue(undefined),
+    onEvent: vi.fn((name: string, handler: (payload: unknown) => void) => {
+      listeners.set(name, handler);
+      return Promise.resolve(() => {});
+    }),
+  };
+});
 
 vi.mock("../../services/tauri", () => ({
   activityRecent: h.activityRecent,
@@ -20,6 +30,9 @@ vi.mock("../../services/tauri", () => ({
   mcpClients: h.mcpClients,
   mcpSetClientPermission: h.mcpSetClientPermission,
   mcpForgetClient: h.mcpForgetClient,
+  mcpDenyClient: h.mcpDenyClient,
+  mcpReturnToWaiting: h.mcpReturnToWaiting,
+  mcpRestoreClient: h.mcpRestoreClient,
   mcpServerCommand: h.mcpServerCommand,
   mcpTools: h.mcpTools,
 }));
@@ -223,5 +236,151 @@ describe("activityStore", () => {
     await activityStore.copyCommand();
 
     expect(h.writeClipboardText).toHaveBeenCalledWith('"/usr/local/bin/writ" mcp');
+  });
+});
+
+describe("deciding on a program", () => {
+  it("Don't allow stores a decision by the name the program sent", async () => {
+    h.mcpDenyClient.mockResolvedValue(answer([approval("Claude Code", false, false)]));
+
+    await activityStore.deny("Claude Code");
+
+    expect(h.mcpDenyClient).toHaveBeenCalledWith("Claude Code");
+    expect(activityStore.clients()).toEqual([approval("Claude Code", false, false)]);
+    expect(activityStore.pending()).toEqual([]);
+  });
+
+  it("undoing Don't allow puts the program back to wait", async () => {
+    h.mcpReturnToWaiting.mockResolvedValue(answer([], [waiting("Claude Code")]));
+
+    await activityStore.undoDenial("Claude Code");
+
+    expect(h.mcpReturnToWaiting).toHaveBeenCalledWith("Claude Code");
+    expect(activityStore.clients()).toEqual([]);
+    expect(activityStore.pending()).toEqual([waiting("Claude Code")]);
+  });
+
+  it("undoing Forget puts the entry back as it was", async () => {
+    const entry = approval("Claude Code", true, true);
+    h.mcpRestoreClient.mockResolvedValue(answer([entry]));
+
+    await activityStore.restore(entry);
+
+    expect(h.mcpRestoreClient).toHaveBeenCalledWith(entry);
+    expect(activityStore.clients()).toEqual([entry]);
+  });
+
+  it("knows which programs are decided on and which are not allowed", async () => {
+    h.mcpClients.mockResolvedValue(
+      answer(
+        [approval("Claude Code", false, false), approval("Cursor", true, false)],
+        [waiting("Zed")],
+      ),
+    );
+
+    await activityStore.refreshClients();
+
+    expect(activityStore.isDecided("Claude Code")).toBe(true);
+    expect(activityStore.isDecided("Cursor")).toBe(true);
+    expect(activityStore.isDecided("Zed")).toBe(false);
+    expect(activityStore.isNotAllowed("Claude Code")).toBe(true);
+    expect(activityStore.isNotAllowed("Cursor")).toBe(false);
+    expect(activityStore.isNotAllowed("Zed")).toBe(false);
+  });
+});
+
+describe("a program asking while the app runs", () => {
+  // The notice queue is a session singleton, so each case starts a fresh one.
+  async function watching(atLaunch: PendingClient[]) {
+    vi.resetModules();
+    const fresh = await import("../../stores/global/activity");
+    h.mcpClients.mockResolvedValue(answer([], atLaunch));
+    await fresh.activityStore.watchWaiting();
+    const send = (list: PendingClient[]) => h.listeners.get("mcp:pending")!({ waiting: list });
+    return { store: fresh.activityStore, send };
+  }
+
+  it("is announced once the waiting list the app read gains it", async () => {
+    const { store, send } = await watching([]);
+    expect(store.notice()).toBeNull();
+
+    send([waiting("Claude Code")]);
+
+    expect(store.notice()?.name).toBe("Claude Code");
+    expect(store.pending()).toEqual([waiting("Claude Code")]);
+  });
+
+  it("is not announced when it was already waiting at launch", async () => {
+    const { store, send } = await watching([waiting("Zed")]);
+    expect(store.pending()).toEqual([waiting("Zed")]);
+
+    send([waiting("Zed")]);
+
+    expect(store.notice()).toBeNull();
+  });
+
+  it("listens once, however often the watch starts", async () => {
+    const { store } = await watching([]);
+
+    await store.watchWaiting();
+
+    expect(h.onEvent.mock.calls.filter(([name]) => name === "mcp:pending")).toHaveLength(1);
+  });
+
+  it("stays waiting when the notice is closed", async () => {
+    const { store, send } = await watching([]);
+    send([waiting("Claude Code")]);
+
+    store.dismissNotice("Claude Code");
+
+    expect(store.notice()).toBeNull();
+    expect(store.pending()).toEqual([waiting("Claude Code")]);
+  });
+
+  it("hands the notice to the next program once the first is answered", async () => {
+    const { store, send } = await watching([]);
+    send([waiting("Claude Code")]);
+    send([waiting("Claude Code"), waiting("Cursor")]);
+    expect(store.notice()?.name).toBe("Claude Code");
+
+    h.mcpSetClientPermission.mockResolvedValue(
+      answer([approval("Claude Code", true, false)], [waiting("Cursor")]),
+    );
+    h.activityRecent.mockResolvedValue([]);
+    await store.setPermission("Claude Code", true, false);
+
+    expect(store.notice()?.name).toBe("Cursor");
+  });
+
+  it("is announced again when it asks after the person forgot it", async () => {
+    const { store, send } = await watching([]);
+    send([waiting("Claude Code")]);
+    h.activityRecent.mockResolvedValue([]);
+    h.mcpSetClientPermission.mockResolvedValue(answer([approval("Claude Code", true, false)]));
+    await store.setPermission("Claude Code", true, false);
+    h.mcpForgetClient.mockResolvedValue(answer([]));
+    await store.forget("Claude Code");
+    expect(store.notice()).toBeNull();
+
+    send([waiting("Claude Code")]);
+
+    expect(store.notice()?.name).toBe("Claude Code");
+    expect(store.pending()).toEqual([waiting("Claude Code")]);
+  });
+
+  it("does not announce a program put back to wait by the person, until asked to", async () => {
+    const { store, send } = await watching([]);
+    send([waiting("Claude Code")]);
+
+    h.mcpDenyClient.mockResolvedValue(answer([approval("Claude Code", false, false)]));
+    await store.deny("Claude Code");
+    expect(store.notice()).toBeNull();
+
+    h.mcpReturnToWaiting.mockResolvedValue(answer([], [waiting("Claude Code")]));
+    await store.undoDenial("Claude Code");
+    expect(store.notice()).toBeNull();
+
+    store.announce("Claude Code");
+    expect(store.notice()?.name).toBe("Claude Code");
   });
 });

@@ -210,7 +210,7 @@ fn the_schema_migrations_are_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 43);
+    assert_eq!(max_version, 44);
 }
 
 #[test]
@@ -257,7 +257,7 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
     // recorded, which the column's default has to answer for.
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
-    conn.execute("DELETE FROM schema_version WHERE version = 43", [])
+    conn.execute("DELETE FROM schema_version WHERE version >= 43", [])
         .expect("failed to roll the stamp back");
     conn.execute(
         "INSERT INTO buffers
@@ -279,6 +279,73 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
         )
         .expect("failed to read the row back");
     assert_eq!(line_ending, "lf");
+}
+
+#[test]
+fn migration_044_clears_every_language_guessed_from_a_name() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    // The shape a release before 044 leaves behind: rows whose language the
+    // open path filled in from the extension.
+    conn.execute("DELETE FROM schema_version WHERE version >= 44", [])
+        .expect("failed to roll the stamp back");
+    for (id, language) in [
+        ("buf-tsx", Some("typescript")),
+        ("buf-log", Some("plaintext")),
+        ("buf-none", None),
+    ] {
+        conn.execute(
+            "INSERT INTO buffers
+                (id, title, filename, status, language, cursor_pos, scroll_pos, tab_order,
+                 created_at, updated_at, read_only, size_bytes)
+             VALUES (?1, ?1, ?1 || '.txt', 'history', ?2, 0, 0, 0,
+                     '2026-08-28T00:00:00Z', '2026-08-28T00:00:00Z', 0, 0)",
+            rusqlite::params![id, language],
+        )
+        .expect("failed to insert buffer row");
+    }
+
+    run_migrations(&conn).expect("migration to 044 failed");
+
+    let languages: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM buffers WHERE language IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed to count languages");
+    assert_eq!(languages, 0);
+    let rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM buffers", [], |row| row.get(0))
+        .expect("failed to count rows");
+    assert_eq!(rows, 3, "the rows themselves stay");
+}
+
+#[test]
+fn a_language_chosen_after_044_survives_the_next_run() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+    conn.execute(
+        "INSERT INTO buffers
+            (id, title, filename, status, language, cursor_pos, scroll_pos, tab_order,
+             created_at, updated_at, read_only, size_bytes)
+         VALUES ('buf-chosen', 'Chosen', 'buf-chosen.txt', 'active', 'python', 0, 0, 0,
+                 '2026-08-28T00:00:00Z', '2026-08-28T00:00:00Z', 0, 0)",
+        [],
+    )
+    .expect("failed to insert buffer row");
+
+    run_migrations(&conn).expect("second run failed");
+
+    let language: Option<String> = conn
+        .query_row(
+            "SELECT language FROM buffers WHERE id = 'buf-chosen'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed to read the row back");
+    assert_eq!(language.as_deref(), Some("python"));
 }
 
 #[test]
@@ -422,7 +489,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 43);
+    assert_eq!(max_version, 44);
 }
 
 /// Column names of the `buffers` table.

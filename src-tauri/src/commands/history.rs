@@ -1,7 +1,9 @@
+use crate::commands::file::FileOpenResult;
 use crate::state::AppState;
 use serde::Serialize;
 use tauri::State;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::file_ops::{self, FileOpenMode};
 use writ_core::search::SearchHit;
 use writ_core::workspace::file_search::FileHit;
 
@@ -29,19 +31,94 @@ pub fn list_history(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, S
         .map_err(|e| e.to_string())
 }
 
-/// IPC: brings a closed note back as an open tab.
+/// IPC: [`restore_buffer_inner`].
+#[tauri::command]
+pub fn restore_buffer(state: State<'_, AppState>, id: String) -> Result<FileOpenResult, String> {
+    restore_buffer_inner(&state, &id)
+}
+
+/// IPC: [`restore_buffer_confirmed_inner`].
+#[tauri::command]
+pub fn restore_buffer_confirmed(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<FileOpenResult, String> {
+    restore_buffer_confirmed_inner(&state, &id)
+}
+
+/// Brings a closed file back as an open tab, answering as an open does.
+///
+/// Reopening reads the file, and it may have grown while it was closed: one
+/// now over the size Writ opens without asking answers
+/// [`FileOpenMode::LargeFileConfirm`] and stays closed until
+/// [`restore_buffer_confirmed_inner`], and one over the size Writ opens is
+/// refused. The size comes from a stat, never a read, since reading a file
+/// whose bytes are with a sync provider fetches them. A file that is not there
+/// reopens as it always did, and its tab says what became of it.
+///
+/// A tab restored at launch whose file was over the size Writ opens without
+/// asking answers the same way when it is shown. It was never closed, so it
+/// stays where it is and nothing is restored.
 ///
 /// The tab starts being followed again here. Its watch went when it closed,
-/// and the file has had every moment since then to change.
-#[tauri::command]
-pub fn restore_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let doc = {
+/// and the file has had every moment since then to change. A tab restored at
+/// launch has been followed since the launch listed it, and is not followed
+/// again: on a volume with no file id, naming the file reads all of it.
+pub fn restore_buffer_inner(state: &AppState, id: &str) -> Result<FileOpenResult, String> {
+    reopen_closed(state, id, false)
+}
+
+/// [`restore_buffer_inner`] once the person said Open. The size is asked
+/// again, since the file can grow while the question is up.
+pub fn restore_buffer_confirmed_inner(
+    state: &AppState,
+    id: &str,
+) -> Result<FileOpenResult, String> {
+    reopen_closed(state, id, true)
+}
+
+fn reopen_closed(state: &AppState, id: &str, confirmed: bool) -> Result<FileOpenResult, String> {
+    let (doc, mode, size_bytes, reopened) = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        store.restore(&id).map_err(|e| e.to_string())?;
-        store.get(&id).map_err(|e| e.to_string())?
+        let closed = store.get(id).map_err(|e| e.to_string())?;
+        let size_now = crate::commands::buffer::measured_size(&closed);
+        let (mode, size_bytes) = match size_now {
+            Some(size) => (file_ops::classify_size(size, closed.read_only), size),
+            None => (
+                file_ops::classify_file(closed.size_bytes, closed.read_only).once_open(),
+                closed.size_bytes,
+            ),
+        };
+        let asks = mode == FileOpenMode::LargeFileConfirm && !confirmed;
+        if asks || matches!(mode, FileOpenMode::Refused { .. }) {
+            return Ok(FileOpenResult {
+                mode,
+                size_bytes,
+                doc: None,
+            });
+        }
+        let reopened = closed.status == BufferStatus::History;
+        if reopened {
+            store.restore(id).map_err(|e| e.to_string())?;
+        }
+        // The editor reads the tier off the row, so the row carries the size
+        // the file has now rather than the size it had when it was closed.
+        if size_bytes != closed.size_bytes {
+            store
+                .record_size(id, size_bytes)
+                .map_err(|e| e.to_string())?;
+        }
+        let doc = store.get(id).map_err(|e| e.to_string())?;
+        (doc, mode.once_open(), size_bytes, reopened)
     };
-    state.follow_note_file(&doc);
-    Ok(())
+    if reopened {
+        state.follow_note_file(&doc);
+    }
+    Ok(FileOpenResult {
+        mode,
+        size_bytes,
+        doc: Some(doc),
+    })
 }
 
 #[tauri::command]

@@ -36,10 +36,16 @@ export type FileOpenMode =
   | { kind: "NotDownloaded"; path: string; provider: string | null };
 
 export interface FileOpenResult {
-  // Null for NotDownloaded, the one mode that opens no buffer.
+  // Null when nothing opened: LargeFileConfirm, Refused and NotDownloaded.
   doc: BufferDocument | null;
   mode: FileOpenMode;
   size_bytes: number;
+}
+
+/** What Today's File answers: the dated file's path, and what opening it came to. */
+export interface TodaysFile {
+  path: string;
+  opened: FileOpenResult;
 }
 
 /**

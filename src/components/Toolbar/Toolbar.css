@@ -114,3 +114,17 @@
 :root[data-platform="mac"] .writ-toolbar.leads-lights {
   padding-left: var(--writ-window-lights-lead, 84px);
 }
+
+.writ-toolbar-programs {
+  position: relative;
+}
+
+.writ-toolbar-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--writ-r-pill);
+  background: var(--writ-accent);
+}

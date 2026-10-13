@@ -166,6 +166,8 @@ const SOURCE_NAMESPACE: &str = "source";
 /// Namespace for the config file.
 const CONFIG_NAMESPACE: &str = "config";
 
+const DATA_NAMESPACE: &str = "data";
+
 /// The stamp key for the file a note lives in.
 ///
 /// `canonical` must be a path that came through [`std::fs::canonicalize`], or,
@@ -196,6 +198,15 @@ pub fn config_key(canonical: &Path) -> String {
     namespaced_key(CONFIG_NAMESPACE, canonical)
 }
 
+/// The stamp key for a file in Writ's data folder other than the config, under
+/// its own namespace so neither a note nor the config can suppress a change to
+/// it.
+///
+/// Same canonicalisation contract as [`source_key`].
+pub fn data_key(canonical: &Path) -> String {
+    namespaced_key(DATA_NAMESPACE, canonical)
+}
+
 fn namespaced_key(namespace: &str, canonical: &Path) -> String {
     let path = canonical.to_string_lossy();
     if cfg!(any(target_os = "macos", target_os = "windows")) {
@@ -218,6 +229,15 @@ mod tests {
     use super::*;
 
     const TTL: Duration = Duration::from_secs(5);
+
+    #[test]
+    fn a_data_folder_file_has_a_key_of_its_own() {
+        let path = Path::new("/data/mcp-pending.json");
+        let key = data_key(path);
+        assert!(key.starts_with("data:"), "{key}");
+        assert_ne!(key, config_key(path));
+        assert_ne!(key, source_key(path));
+    }
 
     #[test]
     fn keeps_stamp_so_repeated_events_from_one_write_are_all_suppressed() {

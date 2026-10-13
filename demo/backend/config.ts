@@ -29,12 +29,10 @@ export const DEMO_CONFIG: WritConfig = {
     "hint_dismissed": true
   },
   "editor": {
-    "font_family": "monospace",
     "font_size": 16,
     "word_wrap": true,
     "tab_size": 2,
     "autosave_debounce_ms": 1000,
-    "markdown_typography": true,
     "markdown_editing": true,
     "status_bar": true,
     "status_bar_counts": false

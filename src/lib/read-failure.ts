@@ -40,6 +40,17 @@ function rawMessage(error: unknown): string {
   return typeof error === "string" ? error.trim() : "";
 }
 
+/** Which of `codes` a rejection leads with, or null when it leads with none. */
+export function leadingCodeOf(error: unknown, codes: readonly string[]): string | null {
+  const text = rawMessage(error);
+  return codes.find((candidate) => text === candidate || text.startsWith(`${candidate}:`)) ?? null;
+}
+
+/** The read code a rejection leads with, or null when it carries none. */
+export function readFailureCodeOf(error: unknown): string | null {
+  return leadingCodeOf(error, READ_FAILURE_CODES);
+}
+
 /**
  * The failure a rejected read stands for.
  *
@@ -48,17 +59,22 @@ function rawMessage(error: unknown): string {
  * so anything without a code of its own takes the general one.
  */
 export function readFailureOf(bufferId: string, error: unknown): ReadFailure {
-  const text = rawMessage(error);
-  const code = READ_FAILURE_CODES.find(
-    (candidate) => text === candidate || text.startsWith(`${candidate}:`),
-  );
-  return { bufferId, code: code ?? ERR_READ_FAILED };
+  return { bufferId, code: readFailureCodeOf(error) ?? ERR_READ_FAILED };
+}
+
+/** Why a read failed, as the second half of a sentence about the file. */
+export function readFailureReason(code: string): string {
+  return REASONS[code] ?? REASONS[ERR_READ_FAILED];
+}
+
+/** What the editor says in place of a file it did not open, from the reason. */
+export function describeUnopenedFile(reason: string): string {
+  return `Could not open this file: ${reason}`;
 }
 
 /** What the editor says in place of the file it could not open. */
 export function describeReadFailure(failure: ReadFailure): string {
-  const reason = REASONS[failure.code] ?? REASONS[ERR_READ_FAILED];
-  return `Could not open this file: ${reason}`;
+  return describeUnopenedFile(readFailureReason(failure.code));
 }
 
 /** Whether the file manager has a file to show: a file that is gone does not. */

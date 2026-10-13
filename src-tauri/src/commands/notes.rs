@@ -148,12 +148,19 @@ fn dated_name_candidates(now: DateTime<Utc>, configured: FileExtension) -> [Stri
     ]
 }
 
-/// The note today's date names, and whether this call is what made it.
-pub struct DatedNote {
-    /// The note, or `None` when the file is there and its bytes are not.
-    pub doc: Option<BufferDocument>,
-    /// Whether the file was created here rather than found.
-    pub minted: bool,
+/// What Today's File answers: the dated file's path, and what opening it came
+/// to, as any open answers.
+///
+/// A file over the size Writ opens without asking is a question the frontend
+/// asks before the confirmed open reads it, one over the size Writ opens is a
+/// refusal, and one whose bytes are elsewhere is downloaded first. A file a
+/// tab already shows answers that tab.
+#[derive(Debug, Clone, Serialize)]
+pub struct TodaysFile {
+    /// The dated file, found or made.
+    pub path: String,
+    /// The open's answer.
+    pub opened: crate::commands::file::FileOpenResult,
 }
 
 /// Opens `<notes>/<YYYY-MM-DD>.<ext>`, creating it only when it is not there
@@ -167,18 +174,15 @@ pub struct DatedNote {
 /// rewritten and a note already in a tab keeps that tab; the mint goes through
 /// [`create_note_at`], so the guard and the index see the file the same way
 /// they see every other new note.
-pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<DatedNote, String> {
+pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFile, String> {
     let root = state.notes_root();
     let names = dated_name_candidates(now, state.default_extension());
     for name in &names {
         let path = root.join(name);
         if path.is_file() {
-            let opened =
-                crate::commands::file::open_file_from_path(state, &path.to_string_lossy())?;
-            return Ok(DatedNote {
-                doc: opened.doc,
-                minted: false,
-            });
+            let path = path.to_string_lossy().into_owned();
+            let opened = crate::commands::file::open_file_from_path(state, &path)?;
+            return Ok(TodaysFile { path, opened });
         }
     }
     // The name about to be minted is already on something that is not a note
@@ -192,21 +196,21 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<D
         return Err(name_is_taken(&names[0]));
     }
     let doc = new_dated_note_inner(state, now)?;
-    Ok(DatedNote {
+    let path = doc
+        .source_path
+        .clone()
+        .unwrap_or_else(|| minting.to_string_lossy().into_owned());
+    let opened = crate::commands::file::FileOpenResult {
+        mode: writ_core::file_ops::classify_file(doc.size_bytes, doc.read_only),
+        size_bytes: doc.size_bytes,
         doc: Some(doc),
-        minted: true,
-    })
+    };
+    Ok(TodaysFile { path, opened })
 }
 
-/// What today's note is answered with when its file is here and its text is
-/// still with the sync provider.
-const NOTE_IS_NOT_HERE_YET: &str = "That file is still being downloaded.";
-
 /// [`open_or_mint_dated_note`] for the menu item and the command that share it.
-pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<BufferDocument, String> {
-    open_or_mint_dated_note(state, now)?
-        .doc
-        .ok_or_else(|| NOTE_IS_NOT_HERE_YET.to_string())
+pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFile, String> {
+    open_or_mint_dated_note(state, now)
 }
 
 /// Starts watching a freshly minted note, so its first line can be answered
@@ -335,7 +339,7 @@ pub fn new_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
 
 /// IPC: [`todays_note_inner`].
 #[tauri::command]
-pub fn todays_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
+pub fn todays_note(state: State<'_, AppState>) -> Result<TodaysFile, String> {
     todays_note_inner(&state, Utc::now())
 }
 

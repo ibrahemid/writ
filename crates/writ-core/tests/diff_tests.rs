@@ -1,6 +1,6 @@
 //! The line diff a proposal card is drawn from.
 
-use writ_core::diff::{line_diff, DiffError, Hunk, LineKind, MAX_DIFF_BYTES};
+use writ_core::diff::{line_diff, line_diff_exact, DiffError, Hunk, LineKind, MAX_DIFF_BYTES};
 
 /// Ten numbered lines, as a document whose middle is far from both edges.
 fn ten_lines() -> String {
@@ -215,4 +215,59 @@ fn a_hunk_serialises_with_lowercase_kinds() {
     assert!(json.contains("\"kind\":\"added\""), "{json}");
     let back: Vec<Hunk> = serde_json::from_str(&json).expect("hunks round-trip");
     assert_eq!(back, hunks);
+}
+
+#[test]
+fn an_exact_diff_counts_a_line_whose_ending_changed() {
+    let hunks = line_diff_exact("a\r\nb\r\nc\r\n", "a\r\nb\nc\r\n").expect("under the limit");
+    assert_eq!(hunks.len(), 1);
+    assert_eq!(of_kind(&hunks[0], LineKind::Removed), ["b"]);
+    assert_eq!(of_kind(&hunks[0], LineKind::Added), ["b"]);
+    // The words were never in question: the reader's diff sees no change.
+    assert_eq!(
+        line_diff("a\r\nb\r\nc\r\n", "a\r\nb\nc\r\n"),
+        Ok(Vec::new())
+    );
+}
+
+#[test]
+fn an_exact_diff_counts_a_final_newline_gained_or_lost() {
+    for (before, after) in [("one\ntwo", "one\ntwo\n"), ("one\ntwo\n", "one\ntwo")] {
+        let hunks = line_diff_exact(before, after).expect("under the limit");
+        assert_eq!(hunks.len(), 1, "{before:?} -> {after:?}");
+        assert_eq!(of_kind(&hunks[0], LineKind::Removed), ["two"]);
+        assert_eq!(of_kind(&hunks[0], LineKind::Added), ["two"]);
+        assert_eq!(of_kind(&hunks[0], LineKind::Context), ["one"]);
+    }
+}
+
+#[test]
+fn an_exact_diff_of_identical_bytes_differs_nowhere() {
+    for text in ["", "one\r\ntwo", "one\ntwo\n"] {
+        assert_eq!(line_diff_exact(text, text), Ok(Vec::new()), "{text:?}");
+    }
+}
+
+#[test]
+fn an_exact_diff_shows_its_lines_without_their_endings() {
+    let hunks = line_diff_exact("keep\r\nold\r\n", "keep\r\nnew\r\n").expect("under the limit");
+    let shown: Vec<&str> = hunks[0]
+        .lines
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(shown, ["keep", "old", "new"]);
+    assert!(hunks[0]
+        .lines
+        .iter()
+        .all(|line| !line.text.contains('\r') && !line.text.contains('\n')));
+}
+
+#[test]
+fn an_exact_diff_refuses_a_side_over_the_limit() {
+    let big = "x".repeat(MAX_DIFF_BYTES + 1);
+    assert!(matches!(
+        line_diff_exact(&big, ""),
+        Err(DiffError::TooLarge { .. })
+    ));
 }

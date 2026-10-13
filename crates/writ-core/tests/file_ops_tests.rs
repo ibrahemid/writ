@@ -1,128 +1,9 @@
 use std::path::Path;
 use writ_core::file_ops::{
-    classify_file, classify_path, detect_language_from_path, extract_filename, generate_hex_dump,
-    is_binary_bytes, FileOpenMode, THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES,
+    classify_file, classify_path, classify_size, extract_filename, generate_hex_dump,
+    is_binary_bytes, FileOpenMode, ERR_OPEN_TOO_LARGE, THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES,
     THRESHOLD_NORMAL_BYTES,
 };
-
-// ── language detection ────────────────────────────────────────────────────────
-
-#[test]
-fn detect_language_common_extensions() {
-    let cases = vec![
-        ("main.rs", "rust"),
-        ("app.js", "javascript"),
-        ("app.jsx", "javascript"),
-        ("index.ts", "typescript"),
-        ("page.tsx", "typescript"),
-        ("script.py", "python"),
-        ("main.go", "go"),
-        ("App.java", "java"),
-        ("style.css", "css"),
-        ("index.html", "html"),
-        ("page.htm", "html"),
-        ("data.json", "json"),
-        ("config.yaml", "yaml"),
-        ("config.yml", "yaml"),
-        ("Cargo.toml", "toml"),
-        ("README.md", "markdown"),
-        ("notes.markdown", "markdown"),
-        ("query.sql", "sql"),
-        ("deploy.sh", "shell"),
-        ("run.bash", "shell"),
-        ("file.txt", "plaintext"),
-    ];
-
-    for (filename, expected) in cases {
-        let result = detect_language_from_path(Path::new(filename));
-        assert_eq!(
-            result.as_deref(),
-            Some(expected),
-            "expected {} for {}",
-            expected,
-            filename
-        );
-    }
-}
-
-#[test]
-fn detect_language_systems_languages() {
-    let cases = vec![
-        ("lib.c", "c"),
-        ("header.h", "c"),
-        ("main.cpp", "cpp"),
-        ("util.cc", "cpp"),
-        ("header.hpp", "cpp"),
-        ("Program.cs", "csharp"),
-        ("main.swift", "swift"),
-        ("main.kt", "kotlin"),
-        ("build.kts", "kotlin"),
-        ("main.zig", "zig"),
-        ("main.dart", "dart"),
-    ];
-
-    for (filename, expected) in cases {
-        let result = detect_language_from_path(Path::new(filename));
-        assert_eq!(
-            result.as_deref(),
-            Some(expected),
-            "expected {} for {}",
-            expected,
-            filename
-        );
-    }
-}
-
-#[test]
-fn detect_language_web_and_config() {
-    let cases = vec![
-        ("style.scss", "scss"),
-        ("style.less", "less"),
-        ("schema.graphql", "graphql"),
-        ("schema.gql", "graphql"),
-        ("app.vue", "vue"),
-        ("App.svelte", "svelte"),
-        ("main.tf", "hcl"),
-        ("config.ini", "ini"),
-        ("data.csv", "csv"),
-        ("message.proto", "protobuf"),
-    ];
-
-    for (filename, expected) in cases {
-        let result = detect_language_from_path(Path::new(filename));
-        assert_eq!(
-            result.as_deref(),
-            Some(expected),
-            "expected {} for {}",
-            expected,
-            filename
-        );
-    }
-}
-
-#[test]
-fn detect_language_returns_none_for_unknown_extension() {
-    assert!(detect_language_from_path(Path::new("file.xyz")).is_none());
-    assert!(detect_language_from_path(Path::new("file.abc123")).is_none());
-}
-
-#[test]
-fn detect_language_returns_none_for_no_extension() {
-    assert!(detect_language_from_path(Path::new("Makefile")).is_none());
-    assert!(detect_language_from_path(Path::new("LICENSE")).is_none());
-}
-
-#[test]
-fn detect_language_is_case_insensitive() {
-    assert_eq!(
-        detect_language_from_path(Path::new("Main.RS")).as_deref(),
-        Some("rust")
-    );
-    assert_eq!(
-        detect_language_from_path(Path::new("App.TSX")).as_deref(),
-        Some("typescript")
-    );
-}
 
 // ── classify_file (pure, no I/O) ─────────────────────────────────────────────
 
@@ -287,10 +168,79 @@ fn classify_path_refused_above_max_threshold() {
     );
     if let FileOpenMode::Refused { reason } = &c.mode {
         assert!(
-            reason.contains("cannot be opened safely"),
-            "reason should mention safety: {}",
+            reason.starts_with(&format!("{ERR_OPEN_TOO_LARGE}: ")),
+            "the reason leads with its code: {}",
             reason
         );
+    }
+}
+
+#[test]
+fn classify_size_refuses_above_the_max_with_the_code_classify_path_gives() {
+    for is_binary in [false, true] {
+        let FileOpenMode::Refused { reason } = classify_size(THRESHOLD_MAX_BYTES + 1, is_binary)
+        else {
+            panic!("expected a refusal");
+        };
+        assert!(
+            reason.starts_with(&format!("{ERR_OPEN_TOO_LARGE}: ")),
+            "{reason}"
+        );
+    }
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("massive.txt");
+    std::fs::File::create(&path)
+        .unwrap()
+        .set_len(THRESHOLD_MAX_BYTES + 1)
+        .unwrap();
+    assert_eq!(
+        classify_size(THRESHOLD_MAX_BYTES + 1, false),
+        classify_path(&path).unwrap().mode
+    );
+}
+
+#[test]
+fn classify_size_follows_the_ladder_up_to_the_max() {
+    assert_eq!(classify_size(0, false), FileOpenMode::Normal);
+    assert_eq!(
+        classify_size(THRESHOLD_LARGE_BYTES, false),
+        FileOpenMode::LargeFile
+    );
+    assert_eq!(
+        classify_size(THRESHOLD_MAX_BYTES, false),
+        FileOpenMode::LargeFileConfirm
+    );
+    assert_eq!(
+        classify_size(THRESHOLD_MAX_BYTES, true),
+        FileOpenMode::Binary
+    );
+}
+
+#[test]
+fn an_open_file_in_the_confirm_tier_is_shown_as_a_large_file() {
+    assert_eq!(
+        FileOpenMode::LargeFileConfirm.once_open(),
+        FileOpenMode::LargeFile
+    );
+}
+
+#[test]
+fn once_open_keeps_every_mode_that_is_not_a_question() {
+    let kept = [
+        FileOpenMode::Normal,
+        FileOpenMode::LargeFile,
+        FileOpenMode::Binary,
+        FileOpenMode::Refused {
+            reason: format!("{ERR_OPEN_TOO_LARGE}: over"),
+        },
+        FileOpenMode::NotDownloaded {
+            path: "/n/a.md".to_string(),
+            provider: None,
+        },
+    ];
+    for mode in kept {
+        assert_eq!(mode.clone().once_open(), mode);
     }
 }
 
@@ -442,15 +392,6 @@ fn extract_filename_with_spaces() {
     assert_eq!(
         extract_filename(Path::new("/home/user/my notes.md")),
         "my notes.md"
-    );
-}
-
-#[test]
-fn detect_language_with_dotfile_path() {
-    assert!(detect_language_from_path(Path::new("/home/user/.gitignore")).is_none());
-    assert_eq!(
-        detect_language_from_path(Path::new("/home/user/.eslintrc.json")).as_deref(),
-        Some("json")
     );
 }
 

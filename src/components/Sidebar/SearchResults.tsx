@@ -48,8 +48,10 @@ export default function SearchResults() {
       });
       return;
     }
-    void win.tabs.restoreFromHistory(row.id);
-    if (row.line !== null) win.editor.requestReveal(row.id, row.line);
+    void win.tabs.restoreFromHistory(row.id).then((doc) => {
+      // Cancel or a refusal reopened nothing, so there is no line to go to.
+      if (doc && row.line !== null) win.editor.requestReveal(doc.id, row.line);
+    });
   }
 
   function contextMenu(e: MouseEvent, row: SearchRow) {

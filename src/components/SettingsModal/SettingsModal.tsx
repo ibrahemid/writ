@@ -1,16 +1,12 @@
 import {
   createSignal,
   createEffect,
-  createContext,
-  createUniqueId,
-  useContext,
   onCleanup,
   onMount,
   For,
   Show,
   Switch,
   Match,
-  type JSX,
 } from "solid-js";
 import {
   configStore,
@@ -27,7 +23,6 @@ import { PRESETS } from "../../styles/themes";
 import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
 import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
 import { installFocusTrap } from "../../lib/focus-trap";
-import { joinAnd } from "../../lib/join-and";
 import { logFailure } from "../../lib/log";
 import { FILE_MANAGER_NAME, IS_MAC, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -53,7 +48,6 @@ import { notesStore } from "../../stores/global/notes";
 import type { NotesFallbackReason } from "../../stores/global/notes";
 import { NotesSyncNote } from "./NotesSyncNote";
 import { copyStoragePath, fetchStorageInfo, revealStoragePath } from "../../stores/global/storage";
-import { activityStore } from "../../stores/global/activity";
 import { openActivity } from "../Activity/ActivityPanel";
 import type { StorageInfo } from "../../stores/global/storage";
 import type {
@@ -93,6 +87,14 @@ import { ACCENTS, TYPE } from "../../styles/generated/tokens";
 import { resolvePlatform } from "../../lib/platform";
 import { APPS, type AppEntry } from "../../lib/apps";
 import { firstRunStore } from "../../stores/global/first-run";
+import {
+  SearchContext,
+  SettingsRow,
+  ToggleSwitch,
+  useSearch,
+  type SearchContextValue,
+} from "./SettingsRow";
+import ProgramsRows from "./apps/ProgramsRows";
 import "./SettingsModal.css";
 
 // Singleton state — Writ is single-window
@@ -130,19 +132,6 @@ export function toggleSettings() {
 
 const isSearching = () => query().trim().length > 0;
 
-interface SearchContextValue {
-  rowVisible: (id: string) => boolean;
-  sectionVisible: (section: SettingsSection) => boolean;
-  highlighted: (id: string) => boolean;
-}
-
-const SearchContext = createContext<SearchContextValue>();
-
-function useSearch(): SearchContextValue {
-  const ctx = useContext(SearchContext);
-  if (!ctx) throw new Error("SettingsRow used outside SettingsModal");
-  return ctx;
-}
 
 const NAV_ITEMS: { id: SettingsSection; label: string }[] = SECTION_ORDER.filter(
   isSectionAvailable,
@@ -170,32 +159,6 @@ async function patchConfig(patch: (prev: ReturnType<typeof configStore.config>) 
   }
 }
 
-interface ToggleSwitchProps {
-  setting: string;
-  label: string;
-  checked: boolean;
-  disabled?: boolean;
-  onChange: () => void;
-}
-
-/** 32 x 18 track, 14px knob. A button, so Space and Enter activate it natively. */
-function ToggleSwitch(props: ToggleSwitchProps) {
-  return (
-    <button
-      type="button"
-      class="settings-switch"
-      classList={{ "settings-switch-on": props.checked }}
-      data-setting={props.setting}
-      role="switch"
-      aria-checked={props.checked}
-      aria-label={props.label}
-      disabled={props.disabled}
-      onClick={props.onChange}
-    >
-      <span class="settings-switch-knob" />
-    </button>
-  );
-}
 
 interface SegmentedProps<T extends string> {
   setting: string;
@@ -266,89 +229,6 @@ function Segmented<T extends string>(props: SegmentedProps<T>) {
   );
 }
 
-interface SettingsRowProps {
-  id: string;
-  label: string;
-  labelFor?: string;
-  /** What the row does, in the label's slot and a neutral tone. */
-  description?: string;
-  /** What the row warns about, in the same slot. */
-  caution?: string;
-  /** A control that belongs with the label rather than with the row's own
-   * control, such as the link to a provider's key page. */
-  labelAside?: JSX.Element;
-  align?: "start";
-  children: JSX.Element;
-}
-
-/** What a row's description can be attached to, in the order a row holds one. */
-const ROW_CONTROL = '[role="switch"], [role="radiogroup"], input, select, textarea, button';
-
-function SettingsRow(props: SettingsRowProps) {
-  const search = useSearch();
-  const descriptionId = createUniqueId();
-  const cautionId = createUniqueId();
-  let rowRef: HTMLDivElement | undefined;
-
-  const describedBy = () =>
-    [props.description ? descriptionId : "", props.caution ? cautionId : ""]
-      .filter(Boolean)
-      .join(" ");
-
-  // The control is `children`, so the row cannot hand it a prop. It finds the
-  // control inside its own element instead: the description belongs on the
-  // control as a description, not inside the label, where it became part of the
-  // control's accessible name.
-  createEffect(() => {
-    const ids = describedBy();
-    if (!rowRef) return;
-    // Not simply the first match: `labelAside` puts a control inside the label
-    // column, ahead of the row's own in document order.
-    const control = props.labelFor
-      ? rowRef.querySelector<HTMLElement>(`[id="${props.labelFor}"]`)
-      : (Array.from(rowRef.querySelectorAll<HTMLElement>(ROW_CONTROL)).find(
-          (el) => !el.closest(".settings-row-label"),
-        ) ?? null);
-    if (!control) return;
-    if (ids) control.setAttribute("aria-describedby", ids);
-    else control.removeAttribute("aria-describedby");
-  });
-
-  return (
-    <Show when={search.rowVisible(props.id)}>
-      <div
-        ref={rowRef}
-        class="settings-row"
-        classList={{ "settings-row-highlight": search.highlighted(props.id) }}
-        data-setting-id={props.id}
-        data-align={props.align}
-      >
-        <span class="settings-row-label">
-          <Show
-            when={props.labelFor}
-            fallback={<span class="settings-row-label-text">{props.label}</span>}
-          >
-            <label class="settings-row-label-text" for={props.labelFor}>
-              {props.label}
-            </label>
-          </Show>
-          {props.labelAside}
-          <Show when={props.description}>
-            <span id={descriptionId} class="settings-row-description">
-              {props.description}
-            </span>
-          </Show>
-          <Show when={props.caution}>
-            <span id={cautionId} class="settings-row-caution">
-              {props.caution}
-            </span>
-          </Show>
-        </span>
-        {props.children}
-      </div>
-    </Show>
-  );
-}
 
 function SectionLabel(props: { section: SettingsSection }) {
   const search = useSearch();
@@ -1099,11 +979,16 @@ function AiConnectionRows() {
 
   const modelOptionList = () => modelOptions(cfg().provider, liveModels());
   const usingCurated = () => liveModels().length === 0;
+  // An empty model is a choice still to make, so the list says there is none
+  // rather than showing an empty custom id.
+  const choosingModel = () => !customMode() && !cfg().model.trim();
   const modelSelectValue = () => {
     if (customMode()) return "__custom__";
+    if (choosingModel()) return "";
     return modelOptionList().includes(cfg().model) ? cfg().model : "__custom__";
   };
-  const showModelInput = () => customMode() || !modelOptionList().includes(cfg().model);
+  const showModelInput = () =>
+    customMode() || (!choosingModel() && !modelOptionList().includes(cfg().model));
   const modelOptionLabel = (id: string) => (usingCurated() ? `${id} (suggested)` : id);
 
   // Keep a working model without a setup decision: fill an empty one, and for a
@@ -1426,6 +1311,11 @@ function AiConnectionRows() {
             value={modelSelectValue()}
             onChange={(e) => onSelectModel(e.currentTarget.value)}
           >
+            <Show when={choosingModel()}>
+              <option value="" disabled>
+                No model
+              </option>
+            </Show>
             <For each={modelOptionList()}>
               {(id) => <option value={id}>{modelOptionLabel(id)}</option>}
             </For>
@@ -1901,204 +1791,6 @@ function AdvancedSection() {
   );
 }
 
-export type ToolPhrase =
-  | { group: "do"; phrase: string }
-  | { group: "see"; phrase: string }
-  | { group: "write"; phrase: string };
-
-export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
-  list_notes: { group: "do", phrase: "list" },
-  search_notes: { group: "do", phrase: "search" },
-  read_note: { group: "do", phrase: "open" },
-  note_links: { group: "see", phrase: "links" },
-  note_backlinks: { group: "see", phrase: "links" },
-  note_properties: { group: "see", phrase: "properties" },
-  note_tags: { group: "see", phrase: "tags" },
-  folder_tags: { group: "see", phrase: "tags" },
-  write_note: { group: "write", phrase: "replace a file's text" },
-  create_note: { group: "write", phrase: "make a new file" },
-  rename_note: { group: "write", phrase: "rename a file" },
-};
-
-export function describeReadTools(ids: readonly string[]): string {
-  const verbs: string[] = [];
-  const nouns: string[] = [];
-  const unnamed: string[] = [];
-  for (const id of ids) {
-    const named = TOOL_PHRASES[id];
-    if (named?.group === "do") {
-      if (!verbs.includes(named.phrase)) verbs.push(named.phrase);
-    } else if (named?.group === "see") {
-      if (!nouns.includes(named.phrase)) nouns.push(named.phrase);
-    } else {
-      unnamed.push(id);
-    }
-  }
-  const clauses: string[] = [];
-  if (verbs.length > 0) clauses.push(`${joinAnd(verbs)} files`);
-  if (nouns.length > 0) clauses.push(`see their ${joinAnd(nouns)}`);
-  return [...clauses, ...unnamed].join(", and ");
-}
-
-export function describeWriteTools(ids: readonly string[]): string {
-  return ids
-    .map((id) => {
-      const named = TOOL_PHRASES[id];
-      return named?.group === "write" ? named.phrase : id;
-    })
-    .join(", ");
-}
-
-/**
- * Which programs may reach the notes folder, and how one is pointed at it.
- *
- * Turning the switch on approves nobody: a program's first call waits for the
- * user to decide on it, in Activity (ADR-031 rules 3.2 and 7.2). Reading and
- * writing are separate grants, so a program approved to read never writes.
- *
- * The grants read as sentences: the server reports the tool ids it registers,
- * and TOOL_PHRASES turns them into the words under each grant.
- */
-function ProgramsRows() {
-  onMount(() => {
-    void activityStore.refreshClients();
-    void activityStore.loadCommand();
-    void activityStore.loadTools();
-  });
-
-  async function onCopyCommand() {
-    try {
-      await activityStore.copyCommand();
-      showToast("Command copied", "success");
-    } catch {
-      showToast("Could not copy the command", "error");
-    }
-  }
-
-  async function onSetPermission(name: string, read: boolean, write: boolean) {
-    try {
-      await activityStore.setPermission(name, read, write);
-    } catch {
-      showToast("Could not save the change", "error");
-    }
-  }
-
-  async function onForget(name: string) {
-    try {
-      await activityStore.forget(name);
-    } catch {
-      showToast("Could not forget the program", "error");
-    }
-  }
-
-  return (
-    <div class="settings-app-detail" data-app-detail="programs">
-      <SettingsRow id="mcp.command" label="Command to give a program">
-        <span class="settings-inbox-controls">
-          <Tooltip label={activityStore.serverCommand()?.command ?? ""}>
-            <span class="settings-inbox-path" data-mcp-command>
-              {activityStore.serverCommand()?.command ?? "…"}
-            </span>
-          </Tooltip>
-          <Button data-action="mcp-copy-command" onClick={() => void onCopyCommand()}>
-            Copy command
-          </Button>
-        </span>
-      </SettingsRow>
-
-      <SettingsRow
-        id="mcp.tools"
-        label="What a program can do"
-        align="start"
-        caution="Nothing deletes a file, and a rename leaves other files pointing at the old name."
-      >
-        <Show
-          when={activityStore.tools()}
-          fallback={<span class="settings-programs-none">…</span>}
-        >
-          {(tools) => (
-            <ul class="settings-tools">
-              <li class="settings-tool-grant" data-grant="read">
-                <span class="settings-tool-grant-name">Reading:</span>{" "}
-                <span class="settings-tool-names">{describeReadTools(tools().read)}.</span>
-              </li>
-              <li class="settings-tool-grant" data-grant="write">
-                <span class="settings-tool-grant-name">Writing:</span>{" "}
-                <span class="settings-tool-names">{describeWriteTools(tools().write)}.</span>
-              </li>
-            </ul>
-          )}
-        </Show>
-      </SettingsRow>
-
-      <SettingsRow id="mcp.clients" label="Programs you approved" align="start">
-        <Show
-          when={activityStore.clients().length > 0}
-          fallback={<span class="settings-programs-none">None yet.</span>}
-        >
-          <ul class="settings-programs">
-            <For each={activityStore.clients()}>
-              {(client) => (
-                <li class="settings-program" data-program={client.name}>
-                  <div class="settings-program-row">
-                    <span class="settings-program-name">{client.name}</span>
-                    <span class="settings-program-grants">
-                      <label class="settings-program-grant">
-                        Read
-                        <ToggleSwitch
-                          setting={`mcp_read_${client.name}`}
-                          label={`Let ${client.name} read your files`}
-                          checked={client.read || client.write}
-                          disabled={client.write}
-                          onChange={() => void onSetPermission(client.name, !client.read, false)}
-                        />
-                      </label>
-                      <label class="settings-program-grant">
-                        Write
-                        <ToggleSwitch
-                          setting={`mcp_write_${client.name}`}
-                          label={`Let ${client.name} write your files`}
-                          checked={client.write}
-                          onChange={() => void onSetPermission(client.name, true, !client.write)}
-                        />
-                      </label>
-                      <Button
-                        data-action="mcp-forget"
-                        onClick={() => void onForget(client.name)}
-                      >
-                        Forget
-                      </Button>
-                    </span>
-                  </div>
-                  <Show when={client.write}>
-                    <span class="settings-program-note" data-program-note="write">
-                      Writing includes reading.
-                    </span>
-                  </Show>
-                </li>
-              )}
-            </For>
-          </ul>
-          <span class="settings-program-note" data-program-note="forget">
-            Forget removes a program. It can ask again next time it connects.
-          </span>
-        </Show>
-      </SettingsRow>
-
-      <SettingsRow id="mcp.activity" label="Recent activity">
-        <Button
-          data-action="mcp-open-activity"
-          onClick={() => {
-            closeSettings();
-            openActivity();
-          }}
-        >
-          Open activity…
-        </Button>
-      </SettingsRow>
-    </div>
-  );
-}
 
 function AppRow(props: { app: AppEntry }) {
   const on = () => configStore.isAppOn(props.app.id);
@@ -2142,7 +1834,12 @@ function AppsSection() {
       </Show>
       <AppRow app={app("programs")} />
       <Show when={configStore.isAppOn("programs")}>
-        <ProgramsRows />
+        <ProgramsRows
+          onOpenActivity={() => {
+            closeSettings();
+            openActivity();
+          }}
+        />
       </Show>
       <AppRow app={app("connections")} />
       <AppRow app={app("graph")} />
