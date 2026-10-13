@@ -3,24 +3,29 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // The file, as the operating system holds it, keyed by note.
 const fileOnDisk = new Map<string, string>();
 
+// What Rust reports as the file's digest. The frontend only keeps and
+// compares it, so any stable stand-in for the text does.
+function digestOf(text: string): string {
+  return `digest of ${text}`;
+}
+
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(null),
   noteDiskState: vi.fn(async (id: string) => {
     const text = fileOnDisk.get(id);
     if (text === undefined) return { state: "no_file" };
-    const { hashDocument } = await import("../../lib/doc-hash");
     return {
       state: "described",
-      disk: { hash: await hashDocument(text), size: text.length, mtime_ms: null },
+      disk: { hash: digestOf(text), size: text.length, mtime_ms: null },
     };
   }),
 }));
 
+import { Text } from "@codemirror/state";
 import {
   createEditorStore,
   UPDATED_FROM_DISK_MS,
 } from "../../stores/window/editor-store";
-import { hashDocument } from "../../lib/doc-hash";
 import { resetAutosave } from "../../services/autosave";
 
 let stores: Array<{ stopSaveListener: () => void }> = [];
@@ -37,10 +42,10 @@ async function recordCatchesUp(
   id: string,
   text: string,
 ) {
-  const digest = await hashDocument(text);
-  // A budget rather than the one-second default: this waits on a digest and
-  // a mocked round trip, and a busy machine takes longer than a second to
-  // land both. A test that is genuinely stuck still fails, on the timeout.
+  const digest = digestOf(text);
+  // A budget rather than the one-second default: this waits on a mocked
+  // round trip, and a busy machine can take longer than a second to land it.
+  // A test that is genuinely stuck still fails, on the timeout.
   await vi.waitFor(() => expect(store.lastKnownDiskHash(id)).toBe(digest), {
     timeout: 4_000,
     interval: 10,
@@ -90,7 +95,7 @@ describe("text arriving from the file", () => {
     // it asks a question that has no reason to be asked.
     const store = newStore();
     fileOnDisk.set("one", "as Writ opened it\n");
-    store.noteOpened("one", "as Writ opened it\n");
+    store.noteOpened("one", Text.of(["as Writ opened it", ""]), true);
     await recordCatchesUp(store, "one", "as Writ opened it\n");
     expect(store.isDirty("one")).toBe(false);
 

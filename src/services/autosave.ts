@@ -21,15 +21,42 @@ type AutosaveSuccessListener = (
   bufferId: string,
   diskHash: string | null,
   viaWriteBack: boolean,
+  write: LandedWrite,
 ) => void;
 type AutosaveStartListener = (bufferId: string) => void;
 
-// Content may be a string or a lazy getter. A getter is materialized only when
-// the save actually runs (timer fire or flush), so a large-buffer edit burst
-// never forces a full `doc.toString()` on every keystroke just to feed the
-// debounce, and flush stays correct because the getter reads the live document
-// at flush time rather than a value captured keystrokes earlier (ADR-020).
-export type ContentSource = string | (() => string);
+/**
+ * A document as it stood when it was handed over. Immutable, so holding one
+ * costs nothing and reading it later reads what it held then, whatever has
+ * happened to the editor since.
+ */
+export interface DocumentSnapshot {
+  readonly length: number;
+  // A function has a length and a toString too; this keeps a getter from
+  // passing for a snapshot where only a snapshot may go ([`HeldContent`]).
+  readonly lines: number;
+  toString(): string;
+}
+
+// The text of a write: a string, a reader of the live document, or a snapshot.
+// A reader or a snapshot is materialized only when the write runs, so typing
+// never turns the document into one string just to feed the debounce.
+export type ContentSource = string | (() => string) | DocumentSnapshot;
+
+/** The text a content source stands for, read now. */
+export function materializeContent(source: ContentSource): string {
+  if (typeof source === "string") return source;
+  if (typeof source === "function") return source();
+  return source.toString();
+}
+
+/** What a write that landed carried. */
+export interface LandedWrite {
+  /** The text as it was handed over: the snapshot itself when it came as one. */
+  source: string | DocumentSnapshot;
+  /** The note's save generation the text was queued at ([`currentSaveGeneration`]). */
+  generation: number;
+}
 
 export interface SaveFailure {
   bufferId: string;
@@ -101,7 +128,7 @@ const startListeners = new Set<AutosaveStartListener>();
 // a guard-stopped write deliberately leaves the queue empty (writing the same
 // text again is stopped the same way), and that text still has to reach the
 // unsaved-text journal.
-const lastFailedContent = new Map<string, string>();
+const lastFailedContent = new Map<string, UnsavedText>();
 
 export function onAutosaveError(listener: AutosaveErrorListener): () => void {
   errorListeners.add(listener);
@@ -126,6 +153,12 @@ export function onAutosaveStart(listener: AutosaveStartListener): () => void {
 }
 
 /**
+ * What a hold keeps: a string, or a snapshot of the document. Never a getter
+ * ([`heldContent`]).
+ */
+export type HeldContent = string | DocumentSnapshot;
+
+/**
  * Text a note is keeping that no write may take.
  *
  * A note whose file is asking a question, or whose file is gone, writes
@@ -135,13 +168,16 @@ export function onAutosaveStart(listener: AutosaveStartListener): () => void {
  * the queue is written by the next flush, which is the write the hold exists
  * to stop.
  *
- * Strings, never getters. A getter is bound to the editor's single view, and
- * a tab switch destroys that view and builds the next note's in its place, so
- * a getter left here would read the incoming note's document under the held
- * note's name. The queue can hold a getter because every load flushes it while
- * the view it was made against is still alive; a hold outlives exactly that.
+ * Strings or snapshots, never getters. A getter is bound to the editor's
+ * single view, and a tab switch destroys that view and builds the next note's
+ * in its place, so a getter left here would read the incoming note's document
+ * under the held note's name. The queue can hold a getter because every load
+ * flushes it while the view it was made against is still alive; a hold
+ * outlives exactly that. A snapshot is immutable and outlives the view, so
+ * typing under a bar is held as the document stands and made a string only
+ * when something reads it.
  */
-const heldContent = new Map<string, string>();
+const heldContent = new Map<string, HeldContent>();
 
 /**
  * How long a hold waits after its newest text before handing it to the
@@ -166,11 +202,11 @@ const keptHolds = new Set<string>();
  * [`collectUnsavedContent`]) and by nothing that writes. Released when the
  * hold ends, because every way it can end has already dealt with the text.
  *
- * `content` is a string on purpose; see [`heldContent`].
+ * `content` is never a getter; see [`heldContent`].
  */
 export function holdUnsavedContent(
   bufferId: string,
-  content: string,
+  content: HeldContent,
   keepAfterMs: number = DEFAULT_KEEP_DELAY_MS,
 ) {
   heldContent.set(bufferId, content);
@@ -190,11 +226,11 @@ export function holdUnsavedContent(
  * for the entry it is about to write.
  */
 async function keepHeldContent(bufferId: string) {
-  const content = heldContent.get(bufferId);
-  if (content === undefined) return;
+  const held = heldContent.get(bufferId);
+  if (held === undefined) return;
   keptHolds.add(bufferId);
   try {
-    await recordUnsavedNotes([{ id: bufferId, content }]);
+    await recordUnsavedNotes([{ id: bufferId, content: materializeContent(held) }]);
   } catch {
     logFailure("the text of a note whose saves are held could not be kept");
   }
@@ -243,7 +279,19 @@ async function dropKeptContent(bufferId: string) {
  * asking what was typed during the answer wants the hold alone.
  */
 export function peekHeldContent(bufferId: string): string | undefined {
-  return heldContent.get(bufferId);
+  const held = heldContent.get(bufferId);
+  return held === undefined ? undefined : materializeContent(held);
+}
+
+/** Text not known to be on disk, with the write it belongs to. */
+export interface UnsavedText {
+  readonly content: string;
+  /**
+   * The save generation of the queued or failed write that carries the text
+   * ([`currentSaveGeneration`]), or null for text a hold keeps. A failed
+   * write's text stays here while newer writes go out.
+   */
+  readonly generation: number | null;
 }
 
 /**
@@ -253,17 +301,23 @@ export function peekHeldContent(bufferId: string): string | undefined {
  * `undefined` when the note has nothing outstanding. Materializes a queued
  * getter, so a caller reads the live document at the moment it asks.
  */
-export function peekUnsavedContent(bufferId: string): string | undefined {
-  const source = pendingContent.get(bufferId)?.source ?? heldContent.get(bufferId);
+export function peekUnsavedText(bufferId: string): UnsavedText | undefined {
+  const queued = pendingContent.get(bufferId);
+  const source = queued?.source ?? heldContent.get(bufferId);
   if (source !== undefined) {
     try {
-      return typeof source === "function" ? source() : source;
+      return { content: materializeContent(source), generation: queued?.generation ?? null };
     } catch {
       // The live document is gone. Fall through to the failed text, which is
       // a plain string and outlives the view.
     }
   }
   return lastFailedContent.get(bufferId);
+}
+
+/** [`peekUnsavedText`]'s text alone. */
+export function peekUnsavedContent(bufferId: string): string | undefined {
+  return peekUnsavedText(bufferId)?.content;
 }
 
 /**
@@ -510,7 +564,7 @@ async function startWrite(bufferId: string): Promise<SaveResult> {
 async function writeQueued(bufferId: string, queued: QueuedContent): Promise<SaveResult> {
   let content: string;
   try {
-    content = typeof queued.source === "function" ? queued.source() : queued.source;
+    content = materializeContent(queued.source);
   } catch (error) {
     // The live document is gone (e.g. the view was torn down between schedule
     // and fire). Nothing to save; surface it like any other autosave failure.
@@ -527,15 +581,19 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
   try {
     const diskHash = await (queued.writer ?? saveBufferContent)(bufferId, content);
     lastFailedContent.delete(bufferId);
+    const write: LandedWrite = {
+      source: typeof queued.source === "object" ? queued.source : content,
+      generation: queued.generation,
+    };
     for (const listener of successListeners) {
-      listener(bufferId, diskHash, queued.writer !== undefined);
+      listener(bufferId, diskHash, queued.writer !== undefined, write);
     }
     return SAVE_OK;
   } catch (error) {
     // A failed write must not consume the text. It goes back on the queue as a
-    // plain string (the getter's document may be gone by the next attempt) so
-    // the next scheduled save or flush writes it again, but only while it is
-    // still the newest text for this buffer.
+    // plain string, or as the snapshot it came as (a reader's document may be
+    // gone by the next attempt), so the next scheduled save or flush writes it
+    // again, but only while it is still the newest text for this buffer.
     //
     // A write the guard stopped is the exception. Identical text is stopped
     // the same way, and a stopped save lands another dated copy beside the
@@ -544,7 +602,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     const isNewest = generations.get(bufferId) === queued.generation;
     if (isNewest && isRetryableSaveError(error)) {
       pendingContent.set(bufferId, {
-        source: content,
+        source: typeof queued.source === "object" ? queued.source : content,
         generation: queued.generation,
         writer: queued.writer,
       });
@@ -556,7 +614,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // through [`peekUnsavedContent`] into the unsaved-text journal, and the
     // next launch would put the version they answered against back beside the
     // note.
-    if (isNewest) lastFailedContent.set(bufferId, content);
+    if (isNewest) lastFailedContent.set(bufferId, { content, generation: queued.generation });
     for (const listener of errorListeners) {
       listener(bufferId, error, queued.generation);
     }

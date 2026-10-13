@@ -1123,7 +1123,7 @@ pub fn note_disk_state_inner(state: &AppState, id: &str) -> Result<NoteDiskAnswe
 /// `conflict_copy_path` names the file the losing text was written to. It is
 /// `None` only when the two texts turned out to be the same text, which the
 /// dirty predicate allows: it fails closed, so a note whose document has not
-/// been hashed yet asks the question anyway (ADR-033 §6).
+/// been compared yet asks the question anyway (ADR-033 §6).
 ///
 /// `content` is what the tab must show afterwards, and is `None` when the tab
 /// keeps what it is already holding. `disk_hash` is the comparison digest of
@@ -1742,10 +1742,11 @@ mod tests {
     }
 
     #[test]
-    fn a_crlf_file_reports_the_digest_the_editor_will_compute() {
-        // CodeMirror converts the line endings on load, so the document the
-        // editor hashes is the LF form. Reporting the raw digest here would
-        // make every CRLF file read as changed on disk for ever.
+    fn a_crlf_file_reports_the_digest_its_writes_report() {
+        // CodeMirror converts the line endings on load, so every write of the
+        // document is the LF form and reports the LF digest. Reporting the raw
+        // digest here would make every CRLF file read as changed on disk for
+        // ever.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("windows.md");
         std::fs::write(&path, b"one\r\ntwo\r\n").unwrap();

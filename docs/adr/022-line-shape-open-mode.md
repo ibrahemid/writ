@@ -1,6 +1,6 @@
 # ADR-022: Line-shape editor open mode for responsive large-file opens
 
-**Status:** Accepted
+**Status:** Accepted. Amended 2026-10-13: the editor publishes a version, not its text, and every reader takes the document in its own idle work ("Amended: no text is published per keystroke").
 **Date:** 2026-06-25
 
 ## Context
@@ -26,7 +26,21 @@ So the freeze is a line-shape problem, not a byte-count one. Document constructi
 
 ### Restrict the feature set, not the open-time publish
 
-All buffers publish `currentText` once on open so the published text always matches the buffer id set immediately after it (the `#97` ordering invariant). The per-keystroke materialization — the actual jank for restricted buffers — stays deferred on the update path (`scheduleRestrictedContentPublish`, ADR-020); the bounded one-time publish on open does not. The responsiveness win comes entirely from the restricted feature set, not from deferring the open publish.
+All buffers publish `currentText` once on open so the published text always matches the buffer id set immediately after it (the `#97` ordering invariant). The per-keystroke materialization — the actual jank for restricted buffers — stays deferred on the update path (`scheduleRestrictedContentPublish`, added in #152 without a record of its own; ADR-020 covers that change's FTS reindex deferral, not this publish); the bounded one-time publish on open does not. The responsiveness win comes entirely from the restricted feature set, not from deferring the open publish.
+
+### Amended: no text is published per keystroke
+
+Before this amendment every tier still paid for the whole text as it was edited (the editor-perf audit, 2026-10-03). `Normal` published `doc.toString()` per keystroke; the restricted tiers (`LongLines`, `LargeFile`, `LargeFileConfirm`) published it 400 ms after the last edit. Each publish fed, while they were on screen, a word count and a character spread of the whole text and a token-estimate IPC carrying it, and, while the preview was open, a debounced render whose size gate encoded it as UTF-8. Beside the publish, each `Normal` edit queued a spelling check of the whole text, and 150 ms after the last edit the dirty check hashed the whole text with SHA-256. `currentText` and the restricted publish timer are gone.
+
+- **A version, not the text.** The editor store holds `docVersion`, which the view's update listener moves on every document change. Readers take the document itself (`liveDoc()`, the view's `Text`) when their own idle work runs, so no tier turns the document into one string inside a keystroke. The `#97` ordering invariant is unchanged: the view is registered before `currentBufferId` names its buffer, so `liveDoc()` is that buffer's document whenever the id says so.
+- **Counts.** `src/editor/document-counts.ts` counts words and characters from the document's own line strings (whitespace as `\s` matches it, characters as code points), in slices of at most 6 ms that resume inside a line and across versions of the document. Finished subtrees are cached by identity, so a recount after an edit reads the changed path and its sibling leaves, not the document. Counting runs only while the word count or token estimate is on screen. A change starts a recount 120 ms later, and the changes that arrive before it runs or while it runs are counted with it, so continuous typing is recounted at most once per 120 ms. In `LargeFile` and `LargeFileConfirm` an unfinished count shows a projection from the part counted, prefixed `≈` and rounded to two significant figures. A Worker was weighed and not used: the document reaches a Worker only as a copy of its text, an allocation the size of the document, which is the cost this removes.
+- **Token estimate.** Computed from the counts with the blend `writ_core::prompt::estimate_tokens` uses; `crates/writ-core/tests/fixtures/token-estimates.json` holds the two to the same answers. No IPC carries the text for it. The two whitespace sets differ on U+0085 and U+FEFF, which the fixture leaves out.
+- **Dirty.** The document is compared with the text the note's file is known to hold after a 150 ms pause, and a write's digest from Rust is the acknowledgement that the file holds what that write carried (ADR-033 §6). The comparison (`src/editor/same-document.ts`) gives `Text.eq`'s answer, but where the two trees line up child by child it compares each pair of children on its own and skips the children both hold, so an edit near the top and one near the bottom, both undone, read the two edited stretches rather than the document between them. The frontend computes no digest; `src/lib/doc-hash.ts` is gone.
+- **Held typing.** Typing into a note whose saves a bar is holding keeps the document as it stands. It becomes a string when the unsaved-text journal takes it after a pause, when the tab is switched away from, or when something reads it.
+- **Spelling** sends the paragraphs edited since the last check, each widened to its paragraph (at most 32 lines each way) and to any code block it touches, and replaces the marks inside them only. Edits that leave more than 16 stretches unchecked (a Replace All, typing with many cursors) are held as one stretch from the first to the last, so the bookkeeping, the requests and the landing of the results stay bounded by that number rather than by the number of changes. A change to the dialect or the ignore list sends the whole note again: the marks outside an edit would keep the old verdict otherwise.
+- **Preview** measures the document's UTF-8 length from its strings, stopping past the refusal limit, skips a render of a document equal to the last one rendered, and reads the text only when it renders. A tab with no document in the editor (its open has not answered) renders as empty, as it did when the editor published an empty text for it.
+- **Frontmatter.** The end of the frontmatter block is a state field mapped through changes; an unclosed block checks only the changed lines for a closing fence.
+- **Right-click** looks for `{{placeholders}}` line by line, and not at all in the large tiers.
 
 ## Consequences
 

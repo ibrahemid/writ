@@ -1,21 +1,23 @@
-import { Show, createEffect } from "solid-js";
-import { windowRegistry } from "../../stores/global/window-registry";
-import { tokenEstimateStore, formatTokenCount } from "../../stores/global/token-estimate";
+import { Show, createMemo, onCleanup, onMount } from "solid-js";
+import { useWindow } from "../WindowProvider/WindowProvider";
+import { estimateTokens, formatTokenCount } from "../../lib/token-estimate";
 
 export default function TokenEstimate() {
-  createEffect(() => {
-    const text = windowRegistry.getActive()?.editor.currentText() ?? "";
-    tokenEstimateStore.request(text);
+  const win = useWindow();
+  onMount(() => onCleanup(win.counts.watch()));
+  const tokens = createMemo(() => {
+    const counts = win.counts.counts();
+    return counts === null ? 0 : estimateTokens(counts);
   });
 
   return (
-    <Show when={tokenEstimateStore.count() !== null}>
+    <Show when={tokens() > 0}>
       <span
         class="statusbar-tokens"
         title="Estimated token count"
-        aria-label={`Estimated ${formatTokenCount(tokenEstimateStore.count()!)} tokens`}
+        aria-label={`Estimated ${formatTokenCount(tokens())} tokens`}
       >
-        ≈ {formatTokenCount(tokenEstimateStore.count()!)} tokens
+        ≈ {formatTokenCount(tokens())} tokens
       </span>
     </Show>
   );

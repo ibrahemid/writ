@@ -27,7 +27,7 @@ vi.mock("../../services/events", () => ({
 import { createEditorStore } from "../../stores/window/editor-store";
 import { createDownloadStore } from "../../stores/window/download-store";
 import { createTabStore } from "../../stores/window/tab-store";
-import { hashDocument } from "../../lib/doc-hash";
+import { Text } from "@codemirror/state";
 import { resetAutosave } from "../../services/autosave";
 
 const PATH = "/notes/away.md";
@@ -103,13 +103,14 @@ describe("a note whose download landed behind another one", () => {
     downloads.select(null);
     await downloads.handle({ path: PATH, state: "done" });
 
-    const written = await hashDocument(TEXT);
-    editor.noteOpened(doc.id, TEXT);
+    const written = "written".padEnd(64, "0");
+    const opened = Text.of(TEXT.split("\n"));
+    editor.noteOpened(doc.id, opened, true);
     await turns();
 
     expect(editor.isTracked(doc.id)).toBe(false);
 
-    editor.noteSaved(doc.id, written, false);
+    editor.noteSaved(doc.id, written, false, { source: opened });
     await turns();
 
     backend.pending[0]?.(described("read before the write landed"));

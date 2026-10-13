@@ -2,17 +2,21 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, waitFor } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { undo } from "@codemirror/commands";
-import { hashDocument } from "../../../lib/doc-hash";
 import { handleExternalEdit, type ExternalEditDeps } from "../../../services/external-edit";
 import type { BufferDocument } from "../../../types/buffer";
 import WindowProvider, { useWindow } from "../../WindowProvider/WindowProvider";
 import type { WindowState } from "../../../stores/window/createWindowState";
+import { DIRTY_COMPARE_IDLE_MS } from "../../../stores/window/editor-store";
 
 // The file, as the operating system holds it. `readBufferContent` is the Rust
 // command that reads it, so this map is what "on disk" means here.
 const fileOnDisk = new Map<string, string>();
 
 const readBufferContent = vi.fn(async (id: string) => fileOnDisk.get(id) ?? "");
+
+function digestOf(text: string): string {
+  return `digest of ${text}`;
+}
 
 vi.mock("../../../services/tauri", () => ({
   readBufferContent: (id: string) => readBufferContent(id),
@@ -22,10 +26,9 @@ vi.mock("../../../services/tauri", () => ({
   noteDiskState: vi.fn(async (id: string) => {
     const text = fileOnDisk.get(id);
     if (text === undefined) return { state: "no_file" };
-    const { hashDocument } = await import("../../../lib/doc-hash");
     return {
       state: "described",
-      disk: { hash: await hashDocument(text), size: text.length, mtime_ms: null },
+      disk: { hash: digestOf(text), size: text.length, mtime_ms: null },
     };
   }),
 }));
@@ -210,13 +213,13 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
     fileOnDisk.set("front", "the tab in front\n");
     fileOnDisk.set("behind", "as Writ opened it\n");
     const { win, switchTo } = await mountSwitchable(mockBuffer("front"));
-    win.editor.noteOpened("behind", "as Writ opened it\n");
+    win.editor.noteOpened("behind", null, true);
     await waitFor(() => expect(win.editor.isDirty("behind")).toBe(false));
 
     fileOnDisk.set("behind", "rewritten while it was behind\n");
     win.editor.requestExternalReload("behind");
 
-    const digest = await hashDocument("rewritten while it was behind\n");
+    const digest = digestOf("rewritten while it was behind\n");
     await waitFor(() => expect(win.editor.lastKnownDiskHash("behind")).toBe(digest));
     expect(win.editor.isDirty("behind")).toBe(false);
     expect(win.editor.isUpdatedFromDisk("behind")).toBe(true);
@@ -231,10 +234,10 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
     );
   });
 
-  it("replaces nothing under unsaved text, whatever the hashing is doing", async () => {
+  it("replaces nothing under unsaved text, whatever the comparison is doing", async () => {
     // The dirty predicate is asynchronous and the watcher is not. The race
     // this closes is a change arriving in the window between a keystroke and
-    // its digest, which is exactly when a person is typing.
+    // the comparison after it, which is exactly when a person is typing.
     fileOnDisk.set("note", "as Writ opened it\n");
     const { win } = await mount(mockBuffer("note"));
     const view = win.editor.getView()!;
@@ -257,15 +260,15 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
       refreshScripts: () => {},
     };
 
-    // Before the digest of the keystroke has landed.
+    // Before the comparison after the keystroke has run.
     fileOnDisk.set("note", "rewritten by another program\n");
     await handleExternalEdit({ bufferId: "note", change: "modified" }, deps);
     expect(view.state.doc.toString()).toBe(typed);
     expect(asked).toEqual(["note"]);
 
     // And after it has.
-    const digest = await hashDocument(typed);
-    await waitFor(() => expect(win.editor.docHash("note")).toBe(digest));
+    await new Promise((resolve) => setTimeout(resolve, DIRTY_COMPARE_IDLE_MS + 30));
+    expect(win.editor.isDirty("note")).toBe(true);
     await handleExternalEdit({ bufferId: "note", change: "modified" }, deps);
     expect(view.state.doc.toString()).toBe(typed);
     expect(asked).toEqual(["note", "note"]);

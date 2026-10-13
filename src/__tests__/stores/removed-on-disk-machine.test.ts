@@ -6,6 +6,7 @@ vi.mock("../../services/tauri", () => ({
   restoreNoteFile: vi.fn().mockResolvedValue(null),
 }));
 
+import { Text } from "@codemirror/state";
 import { createEditorStore } from "../../stores/window/editor-store";
 import {
   cancelAutosave,
@@ -178,7 +179,7 @@ describe("a note whose file is gone: the store's machine", () => {
     const store = showing("one", "what the view holds");
     // The tab reads clean once the load lands, and not before: a note whose
     // open is still out knows nothing about either side and says so.
-    store.noteOpened("one", "what the view holds");
+    store.noteOpened("one", Text.of(["what the view holds"]), true);
     await vi.waitFor(() => expect(store.isDirty("one")).toBe(false));
     const deps = depsFor(store);
     await handleExternalEdit(removed("one"), deps);
@@ -222,7 +223,7 @@ describe("a note whose file is gone: the store's machine", () => {
     const store = showing("one", "text the journal kept");
     store.markRemovedOnDisk("one", "text the journal kept");
     vi.mocked(noteDiskState).mockResolvedValueOnce({ state: "undescribed" });
-    store.noteOpened("one", "text the journal kept");
+    store.noteOpened("one", Text.of(["text the journal kept"]), false);
     await vi.waitFor(() => expect(vi.mocked(noteDiskState)).toHaveBeenCalledWith("one"));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(store.isDirty("one")).toBe(true);

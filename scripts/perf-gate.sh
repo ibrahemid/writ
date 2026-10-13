@@ -45,6 +45,11 @@ WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
     src/__tests__/editor/find-perf.test.ts \
     --disable-console-intercept
 
+step "perf gate: word and character counts on large documents (frontend)"
+WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
+    src/__tests__/lib/document-counts-perf.test.ts \
+    --disable-console-intercept
+
 step "perf gate: editor in headless Chromium (frontend)"
 WRIT_PERF_GATE=1 node scripts/perf-editor.mjs
 

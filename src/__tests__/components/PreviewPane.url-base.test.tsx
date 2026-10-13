@@ -31,6 +31,7 @@ vi.mock("../../services/tauri", () => ({
 
 import PreviewPane from "../../components/Preview/PreviewPane";
 import { configStore } from "../../stores/global/config";
+import { showInEditor } from "../fixtures/editor-view";
 
 const DEBOUNCE_MS = configStore.config().preview.debounce_ms;
 
@@ -76,8 +77,7 @@ describe("PreviewPane and the host's preview base", () => {
       </WindowProvider>
     ));
     const win = windowRegistry.getActive()!;
-    win.editor.setCurrentText("<body>A</body>");
-    win.editor.setCurrentBufferId("A");
+    showInEditor(win, "A", "<body>A</body>");
     // Past the live-render debounce, so no pending edit render is left to
     // pick the base up by chance.
     await new Promise((resolve) => setTimeout(resolve, 3 * DEBOUNCE_MS));
@@ -101,8 +101,7 @@ describe("PreviewPane and the host's preview base", () => {
       </WindowProvider>
     ));
     const win = windowRegistry.getActive()!;
-    win.editor.setCurrentText("<body>B</body>");
-    win.editor.setCurrentBufferId("B");
+    showInEditor(win, "B", "<body>B</body>");
 
     await waitFor(() => {
       expect(iframeSrc(container)).toMatch(/^http:\/\/writ-preview\.document\/B\?v=1$/);

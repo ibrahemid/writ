@@ -1,9 +1,15 @@
-import { createMemo } from "solid-js";
+import { createMemo, onCleanup, onMount } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { countWords, formatWordCount } from "../../lib/word-count";
+import { formatWordCount } from "../../lib/word-count";
 
 function formatCharacterCount(count: number): string {
   return `${count.toLocaleString()} ${count === 1 ? "character" : "characters"}`;
+}
+
+function roughly(count: number): number {
+  if (count < 100) return count;
+  const step = 10 ** (Math.floor(Math.log10(count)) - 1);
+  return Math.round(count / step) * step;
 }
 
 /**
@@ -13,11 +19,17 @@ function formatCharacterCount(count: number): string {
  */
 export default function WordCount(props: { class: string; characters?: boolean }) {
   const win = useWindow();
+  onMount(() => onCleanup(win.counts.watch()));
   const label = createMemo(() => {
-    const text = win.editor.currentText();
-    const words = formatWordCount(countWords(text));
+    const counts = win.counts.counts();
+    if (counts === null) return "";
+    const exact = counts.exact;
+    const words = exact ? formatWordCount(counts.words) : `≈ ${formatWordCount(roughly(counts.words))}`;
     if (!props.characters) return words;
-    return `${words}, ${formatCharacterCount([...text].length)}`;
+    const characters = exact
+      ? formatCharacterCount(counts.characters)
+      : `≈ ${formatCharacterCount(roughly(counts.characters))}`;
+    return `${words}, ${characters}`;
   });
   return (
     <span class={props.class} role="status" aria-live="off">

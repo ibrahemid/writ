@@ -86,9 +86,9 @@ fn nibble(character: u8) -> Option<u8> {
 
 /// `bytes` with every line break as a single `\n`.
 ///
-/// The one normalisation rule, mirrored by `normaliseLineEndings` in
-/// `src/lib/doc-hash.ts`; the fixture in `tests/fixtures/line-ending-digests.json`
-/// is what keeps the two honest. Borrowed unchanged when there is no `\r` in
+/// The one normalisation rule, mirrored by `digestText` in the site demo's
+/// host (`demo/backend/state.ts`); the fixture in
+/// `tests/fixtures/line-ending-digests.json` is what keeps the two honest. Borrowed unchanged when there is no `\r` in
 /// the input, which is every file Writ has written.
 pub fn normalise_line_endings(bytes: &[u8]) -> Cow<'_, [u8]> {
     if !bytes.contains(&b'\r') {

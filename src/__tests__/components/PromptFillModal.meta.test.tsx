@@ -11,7 +11,7 @@ const { setCount, requestMock, resetMock } = h;
 vi.mock("../../stores/global/prompt-estimate", () => ({
   promptEstimateStore: { count: h.count, request: h.requestMock, reset: h.resetMock },
 }));
-vi.mock("../../stores/global/token-estimate", () => ({
+vi.mock("../../lib/token-estimate", () => ({
   formatTokenCount: (n: number) => String(n),
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({

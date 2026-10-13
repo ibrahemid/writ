@@ -10,9 +10,9 @@ import type { BufferDocument } from "../../types/buffer";
 // a loaded writ-preview:// iframe freezes the macOS webview, #124), so on a
 // switch props.buffer.id flips reactively while the editor is still mid-load
 // on the OUTGOING buffer. Two defects produced the flash:
-//   1. doRender read the shared currentText signal and could render the
-//      incoming id with the outgoing buffer's text, caching the wrong HTML
-//      under the incoming id (cross-buffer cache pollution).
+//   1. doRender read the shared editor text and could render the incoming id
+//      with the outgoing buffer's text, caching the wrong HTML under the
+//      incoming id (cross-buffer cache pollution).
 //   2. the iframe src retargeted to the incoming id with a stale version
 //      before any fresh render landed, painting that id's (polluted/empty)
 //      cache slot for a frame.
@@ -44,6 +44,7 @@ vi.mock("../../services/tauri", () => ({
 }));
 
 import PreviewPane from "../../components/Preview/PreviewPane";
+import { retypeInEditor, showInEditor } from "../fixtures/editor-view";
 
 function buffer(id: string, overrides: Partial<BufferDocument> = {}): BufferDocument {
   return {
@@ -104,8 +105,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     expect(win).not.toBeNull();
 
     // Editor loads buffer A.
-    win!.editor.setCurrentText("<body>A</body>");
-    win!.editor.setCurrentBufferId("A");
+    showInEditor(win!, "A", "<body>A</body>");
 
     await waitFor(() => {
       expect(iframeSrc(container)).toMatch(/writ-preview:\/\/document\/A\?v=[1-9]\d*$/);
@@ -128,8 +128,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     expect(iframeSrc(container)).toBe(srcShowingA);
 
     // Editor finishes loading B.
-    win!.editor.setCurrentText("<body>B</body>");
-    win!.editor.setCurrentBufferId("B");
+    showInEditor(win!, "B", "<body>B</body>");
 
     await waitFor(() => {
       expect(iframeSrc(container)).toMatch(/writ-preview:\/\/document\/B\?v=[1-9]\d*$/);
@@ -149,19 +148,18 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     ));
 
     const win = windowRegistry.getActive();
-    win!.editor.setCurrentText("<body>same</body>");
-    win!.editor.setCurrentBufferId("A");
+    showInEditor(win!, "A", "<body>same</body>");
 
     await waitFor(() =>
       expect(iframeSrc(container)).toMatch(/document\/A\?v=[1-9]\d*$/),
     );
     mocks.forceRender.mockClear();
 
-    // Switch to B with byte-identical content: the shared currentText signal
-    // does not change, so a text-driven trigger would never fire. The buffer-id
-    // trigger must still force a render for B.
+    // Switch to B with byte-identical content: a text-driven trigger alone
+    // would see no change. The buffer-id trigger must still force a render
+    // for B.
     setBuf(buffer("B"));
-    win!.editor.setCurrentBufferId("B");
+    showInEditor(win!, "B", "<body>same</body>");
 
     await waitFor(() =>
       expect(iframeSrc(container)).toMatch(/document\/B\?v=[1-9]\d*$/),
@@ -190,16 +188,14 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     ));
 
     const win = windowRegistry.getActive();
-    win!.editor.setCurrentText("<body>A</body>");
-    win!.editor.setCurrentBufferId("A");
+    showInEditor(win!, "A", "<body>A</body>");
     await Promise.resolve();
     await Promise.resolve();
     expect(mocks.forceRender).toHaveBeenCalledWith(9303, "A", "html", "<body>A</body>", "light", 1);
 
     // Switch to B while A's render is still pending; B renders to completion.
     setBuf(buffer("B"));
-    win!.editor.setCurrentText("<body>B</body>");
-    win!.editor.setCurrentBufferId("B");
+    const viewB = showInEditor(win!, "B", "<body>B</body>");
     await waitFor(() =>
       expect(iframeSrc(container)).toMatch(/document\/B\?v=[1-9]\d*$/),
     );
@@ -214,7 +210,7 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     // The dedup baseline must hold B's text, not A's: editing B's live text to
     // A's old content still triggers a render (wrongly skipped if poisoned).
     mocks.forceRender.mockClear();
-    win!.editor.setCurrentText("<body>A</body>");
+    retypeInEditor(win!, viewB, "<body>A</body>");
     await waitFor(() =>
       expect(mocks.forceRender).toHaveBeenCalledWith(9303, "B", "html", "<body>A</body>", "light", 1),
     );

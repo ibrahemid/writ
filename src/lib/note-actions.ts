@@ -188,9 +188,10 @@ export async function resolveNoteChange(
 ): Promise<void> {
   const win = windowRegistry.getActive();
   if (!win) return;
-  const live =
-    win.editor.currentBufferId() === id ? win.editor.getActiveText(false) : null;
-  if (!live) {
+  const inView = win.editor.currentBufferId() === id;
+  const live = inView ? win.editor.getActiveText(false) : null;
+  const read = inView ? win.editor.liveDoc() : null;
+  if (!live || !read) {
     logFailure("a change outside Writ was answered for a note the editor was not holding");
     return;
   }
@@ -212,6 +213,11 @@ export async function resolveNoteChange(
   // note is not always the one on screen by the time the answer lands, and a
   // guard on that would drop the typing of every tab switched away from
   // mid-answer.
+  //
+  // The write carried the note's document only when the store can say what
+  // the note holds now and it is that text. With nothing to say it, typing
+  // during the answer may already have left the hold in a write of its own (a
+  // file found at another path ends the hold), so the note reads dirty.
   const typedSince = win.editor.liveTextOf(id);
 
   // A save that failed against this same change left a bar of its own, about a
@@ -225,7 +231,10 @@ export async function resolveNoteChange(
   if (outcome.content !== null) {
     win.editor.applyExternalContent(id, outcome.content);
   } else {
-    win.editor.noteSaved(id, outcome.disk_hash, false);
+    win.editor.noteSaved(id, outcome.disk_hash, false, {
+      source: read,
+      current: typedSince?.current === true && typedSince.content === content,
+    });
     // The write that has landed carried the text as it was read, so the typing
     // above is in the document and nowhere else. It goes on the queue the way
     // a keystroke would put it there, and reaches the file under the same rate
@@ -237,8 +246,8 @@ export async function resolveNoteChange(
     // Only this branch has a delta to keep. `Use the file on disk` replaces
     // the document with what the file holds, on purpose, and there is nothing
     // to merge the typing onto.
-    if (typedSince !== undefined && typedSince !== content) {
-      win.editor.scheduleAutosave(id, typedSince, 0);
+    if (typedSince !== undefined && typedSince.content !== content) {
+      win.editor.scheduleAutosave(id, typedSince.content, 0, typedSince.current);
     }
   }
   if (choice === "keep_both" && outcome.conflict_copy_path !== null) {

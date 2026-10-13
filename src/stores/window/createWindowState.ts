@@ -3,6 +3,7 @@ import { createSidebarStore, type SidebarStore } from "./sidebar-store";
 import { createRightPanelStore, type RightPanelStore } from "./right-panel-store";
 import { createChatPanelStore, type ChatPanelStore } from "./chat-panel-store";
 import { createEditorStore, type EditorStore } from "./editor-store";
+import { createCountsStore, type CountsStore } from "./counts-store";
 import { createTabStore, type TabStore } from "./tab-store";
 import { createLayoutStore, type LayoutStore } from "./layout-store";
 import { createPreviewStore, type PreviewStore } from "./preview-store";
@@ -17,6 +18,7 @@ export interface WindowState {
   rightPanel: RightPanelStore;
   chatPanel: ChatPanelStore;
   editor: EditorStore;
+  counts: CountsStore;
   tabs: TabStore;
   layout: LayoutStore;
   preview: PreviewStore;
@@ -49,6 +51,7 @@ export function createWindowState(opts: CreateWindowStateOptions): WindowState {
     rightPanel: createRightPanelStore(),
     chatPanel: createChatPanelStore(),
     editor,
+    counts: createCountsStore(editor),
     tabs,
     layout: createLayoutStore({ windowId: opts.windowId }),
     preview: createPreviewStore({ windowId: opts.windowId }),

@@ -4,20 +4,25 @@ import { checkSpelling, spellingAddIgnoredWord } from "../../services/tauri";
 import { configStore } from "./config";
 import type { SpellingLint } from "../../types/spelling";
 import {
-  setSpellingLints,
+  setSpellingLintsIn,
   clearSpellingLints,
   removeSpellingWord,
   spellingEntries,
+  checkRanges,
   computeFixChanges,
   computeChosenFix,
   applySpellingFixes,
+  type CheckedRange,
   type SpellingEntry,
 } from "../../editor/spelling";
 
 // Singleton state — Writ is single-window: one active editor view checks at a
 // time. The store owns the debounced re-lint (with a generation counter that
 // drops stale results) and exposes the live decoration set to the chip, the
-// anchored menu, and the preview overlay.
+// anchored menu, and the preview overlay. A re-lint sends what was edited
+// since the last one, each stretch widened to its paragraph; edits that leave
+// more stretches than one check sends (a Replace All) go as one stretch from
+// the first to the last.
 
 const DEBOUNCE_MS = 400;
 
@@ -59,29 +64,47 @@ function createSpellingStore() {
     setCount(next);
   }
 
-  /** Schedules a re-lint, dropping any result an intervening edit supersedes. */
-  function requestCheck(text: string) {
+  /**
+   * Schedules a re-lint of what changed since the last one, dropping any
+   * result an intervening edit supersedes. The stretches are read from the
+   * view when the debounce fires.
+   */
+  function requestCheck() {
     cancelTimer();
     const requested = ++generation;
-    if (text.length === 0) {
-      applyResults(requested, []);
-      return;
-    }
     timer = setTimeout(() => {
       timer = null;
-      void checkSpelling(text)
-        .then((lints) => applyResults(requested, lints))
-        .catch(() => {
-          // Leave the prior decorations in place on failure.
-        });
+      void checkPending(requested);
     }, DEBOUNCE_MS);
   }
 
-  function applyResults(requested: number, lints: SpellingLint[]) {
-    if (requested !== generation) return;
+  async function checkPending(requested: number) {
     const active = view;
     if (!active) return;
-    active.dispatch({ effects: setSpellingLints.of(lints) });
+    const state = active.state;
+    const ranges = checkRanges(state);
+    if (ranges.length === 0) return;
+    let checked: CheckedRange[];
+    try {
+      checked = await Promise.all(
+        ranges.map(async (range): Promise<CheckedRange> => {
+          const text = state.doc.sliceString(range.from, range.to);
+          const lints = text.length === 0 ? [] : await checkSpelling(text);
+          return { ...range, lints: lints.map((lint) => offsetLint(lint, range.from)) };
+        }),
+      );
+    } catch {
+      // Leave the prior decorations in place on failure.
+      return;
+    }
+    // A later edit has its own request coming, and the stretches this one
+    // sent stay pending for it.
+    if (requested !== generation || view !== active || active.state.doc !== state.doc) return;
+    active.dispatch({ effects: setSpellingLintsIn.of(checked) });
+  }
+
+  function offsetLint(lint: SpellingLint, by: number): SpellingLint {
+    return { ...lint, fromUtf16: lint.fromUtf16 + by, toUtf16: lint.toUtf16 + by };
   }
 
   /** Drops all decorations without a re-lint (used when turning the feature off). */

@@ -248,6 +248,7 @@ jobs:
         env:
           WRIT_PERF_GATE: "1"
         run: |
+          pnpm exec vitest run src/__tests__/lib/document-counts-perf.test.ts -t "counting a 50 MiB document" --disable-console-intercept
           pnpm exec playwright-core install --with-deps --no-shell chromium
           node scripts/perf-editor.mjs
 

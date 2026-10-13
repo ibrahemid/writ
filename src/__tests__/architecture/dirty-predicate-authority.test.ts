@@ -5,8 +5,8 @@ import { join, relative, resolve } from "node:path";
 const SRC = resolve(process.cwd(), "src");
 
 // Whether a note has work the file does not hold is one question with one
-// answer: `editorStore.isDirty`, the digest of the live document against the
-// digest of its file.
+// answer: `editorStore.isDirty`, the live document against the text its file
+// was last known to hold.
 //
 // The autosave queue answers a different question — is a write scheduled — and
 // the two disagree in both directions. A note whose autosave landed a moment

@@ -10,6 +10,11 @@ somebody is typing into, are added to it as those land.
 keeps reaches the unsaved-text journal on the autosave's debounce, and the
 handover on the way out leaves out text a dated copy beside the note holds.
 
+Amended 2026-10-13 ([ADR-022](./022-line-shape-open-mode.md)): decision 6
+compares documents rather than digests; the frontend computes no digest. The
+hold in decision 15 keeps a snapshot of the document rather than a string made
+of it on each keystroke.
+
 ## Context
 
 Notes live on disk and the file is the only copy (ADR-028 §1). That makes every
@@ -163,9 +168,11 @@ FSEvents itself degrades into a move-out plus a move-in under rapid renames.
 
 ### 6. Dirty means the document differs from its file
 
-`editorStore.isDirty(id)`: the digest of the live editor document against the
-digest its file was last known to hold, on a 150 ms idle debounce. Not whether
-an autosave is queued.
+`editorStore.isDirty(id)`: the live editor document against the text its file
+was last known to hold, compared (`Text.eq`) after a 150 ms pause in typing. A
+write's digest from Rust is the acknowledgement that the file holds the text
+that write carried, and the digest Rust read the file with is the record of the
+file between writes. Not whether an autosave is queued.
 
 The two disagree in both directions, and both directions lose text. A note whose
 autosave landed a moment ago has an empty queue and is dirty again on the next
@@ -728,16 +735,21 @@ tab is the only copy there is. A move that changes nothing returns at once, so
 a second announcement cannot cancel a queue whose text the first has since put
 back into it.
 
-**One hold, and it holds a string.** The text of a note that may not write goes
-beside the queue, in a slot the recovery handover reads and no write path does,
+**One hold, and it holds the text, never a reader of the view.** The text of a
+note that may not write goes beside the queue, in a slot the recovery handover
+reads and no write path does,
 so closing the tab or quitting without answering does not lose it. The slot hands
 its text to the unsaved-text journal on the autosave's debounce too, from the
 moment the hold starts, so a crash under the bar loses no more than a debounce of
 typing; when the hold ends with nothing left to write, what it handed over is
-dropped (ADR-044 §2). It is
-materialized as it goes in: the editor has one view for every tab, destroyed
+dropped (ADR-044 §2). It goes in as a string or as a snapshot of the document,
+never as a getter: the editor has one view for every tab, destroyed
 and rebuilt on a switch, so a getter kept past a switch reads the incoming
-note's document under the outgoing note's name. A copy is kept in the store as
+note's document under the outgoing note's name. A snapshot is the document as
+it stood and depends on no view, so typing under the bar is held without
+turning the document into a string on each keystroke; the text becomes a string
+when the tab is switched away from, or when the journal, the next load or the
+handover reads it. A copy is kept in the store as
 well, because the next load of that tab cannot read the text back off the file:
 a `removed` note has no file, and a `changed` note has one holding the version
 the question exists to keep out of the tab until it is answered. Reading that
@@ -856,7 +868,7 @@ window is refused, and both texts are still on disk when it is — the copy hold
 what the file held, and the guard's own copy holds what was being written.
 
 Two texts that are the same text write no copy and no note. The dirty predicate
-fails closed, so the question is asked over documents that have not been hashed
+fails closed, so the question is asked over documents that have not been compared
 yet, and answering one of those must not put a duplicate in the notes folder or
 rewrite a file's line endings for a difference nobody can see.
 
