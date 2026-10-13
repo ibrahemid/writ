@@ -8,7 +8,7 @@ import { createLayoutStore, type LayoutStore } from "./layout-store";
 import { createPreviewStore, type PreviewStore } from "./preview-store";
 import { createFolderGraphStore, type FolderGraphStore } from "./folder-graph-store";
 import { createDownloadStore, type DownloadStore } from "./download-store";
-import { bufferRegistry } from "../global/buffer-registry";
+import { bufferRegistry, OpenRefusedError } from "../global/buffer-registry";
 
 export interface WindowState {
   windowId: number;
@@ -33,8 +33,14 @@ export function createWindowState(opts: CreateWindowStateOptions): WindowState {
   const downloads = createDownloadStore();
   const tabs = createTabStore({ registry: bufferRegistry, editor, downloads });
   // Each store needs the other: the tab store routes a note that is not here
-  // yet to the downloads, and the downloads open it once its bytes arrive.
-  downloads.attachOpener((path, options) => tabs.openFile(path, options));
+  // yet to the downloads, and the downloads open it once its bytes arrive. A
+  // refusal is the download pane's to show, so it reaches the store as a
+  // failure rather than as a toast; Cancel on the size question is an answer.
+  downloads.attachOpener(async (path, options) => {
+    const outcome = await tabs.openPath(path, options);
+    if (outcome.kind === "refused") throw new OpenRefusedError(outcome.path, outcome.reason);
+    return outcome;
+  });
 
   return {
     windowId: opts.windowId,

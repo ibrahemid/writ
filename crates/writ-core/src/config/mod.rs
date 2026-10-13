@@ -78,10 +78,6 @@ fn default_hint_dismissed() -> bool {
     false
 }
 
-fn default_font_family() -> String {
-    "monospace".to_string()
-}
-
 fn default_font_size() -> u32 {
     16
 }
@@ -96,10 +92,6 @@ fn default_tab_size() -> u32 {
 
 fn default_autosave_debounce_ms() -> u32 {
     1000
-}
-
-fn default_markdown_typography() -> bool {
-    true
 }
 
 fn default_markdown_editing() -> bool {
@@ -433,11 +425,13 @@ impl Default for FirstRunConfig {
 }
 
 /// Editor surface configuration.
+///
+/// A config file written before `font_family` and `markdown_typography` were
+/// retired still carries them; serde skips unknown keys, so the file loads and
+/// the next save leaves them out. The editor's faces are the type pairing's
+/// (ADR-030), and Inline|Source decides how Markdown is drawn.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EditorConfig {
-    /// CSS font stack used by the editor.
-    #[serde(default = "default_font_family")]
-    pub font_family: String,
     /// Editor font size in pixels.
     #[serde(default = "default_font_size")]
     pub font_size: u32,
@@ -451,10 +445,6 @@ pub struct EditorConfig {
     /// last edit.
     #[serde(default = "default_autosave_debounce_ms")]
     pub autosave_debounce_ms: u32,
-    /// When true, markdown buffers render scaled headings, styled inline
-    /// elements, and dim/hidden syntax markers in the editor itself.
-    #[serde(default = "default_markdown_typography")]
-    pub markdown_typography: bool,
     /// When true, markdown buffers get formatting shortcuts (bold, italic,
     /// strikethrough, inline code, link) and marker wrap-on-type over a
     /// selection.
@@ -472,12 +462,10 @@ pub struct EditorConfig {
 impl Default for EditorConfig {
     fn default() -> Self {
         Self {
-            font_family: default_font_family(),
             font_size: default_font_size(),
             word_wrap: default_word_wrap(),
             tab_size: default_tab_size(),
             autosave_debounce_ms: default_autosave_debounce_ms(),
-            markdown_typography: default_markdown_typography(),
             markdown_editing: default_markdown_editing(),
             status_bar: default_status_bar(),
             status_bar_counts: default_status_bar_counts(),

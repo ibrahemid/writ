@@ -22,7 +22,11 @@ vi.mock("../../services/tauri", () => ({
   listHistory: vi.fn().mockResolvedValue([]),
   closeBuffer: vi.fn().mockResolvedValue(undefined),
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
-  restoreBuffer: vi.fn().mockResolvedValue(undefined),
+  restoreBuffer: vi.fn().mockResolvedValue({
+    doc: null,
+    mode: { kind: "Refused", reason: "ERR_OPEN_TOO_LARGE" },
+    size_bytes: 0,
+  }),
   clearHistory: vi.fn().mockResolvedValue(undefined),
   renameBuffer: vi.fn().mockResolvedValue(undefined),
   openFile: vi.fn().mockImplementation((path: string) => {
@@ -102,11 +106,13 @@ describe("openFile error handling", () => {
     await bufferRegistry.load();
   });
 
-  it("propagates backend errors to caller", async () => {
+  // A failed open is an answer, reported once by the store (open-report.ts),
+  // so a caller is handed no tab rather than an error to word itself.
+  it("answers a backend error with no tab instead of throwing", async () => {
     const tabs = createTabStore({ downloads: createDownloadStore(), registry: bufferRegistry });
     mockedApi.openFile.mockRejectedValueOnce(new Error("file not found"));
 
-    await expect(tabs.openFile("/nonexistent/file.txt")).rejects.toThrow("file not found");
+    await expect(tabs.openFile("/nonexistent/file.txt")).resolves.toBeNull();
   });
 
   it("does not add tab when backend fails", async () => {

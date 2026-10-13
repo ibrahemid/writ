@@ -39,10 +39,6 @@ fn read_partial_config_fills_defaults() {
     let config = store.read().expect("read failed");
     assert_eq!(config.editor.font_size, 20);
     assert_eq!(
-        config.editor.font_family,
-        WritConfig::default().editor.font_family
-    );
-    assert_eq!(
         config.editor.word_wrap,
         WritConfig::default().editor.word_wrap
     );

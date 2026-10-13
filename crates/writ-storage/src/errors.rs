@@ -130,6 +130,18 @@ pub enum StorageError {
         path: String,
     },
 
+    /// The file is over the size Writ opens
+    /// (`writ_core::file_ops::THRESHOLD_MAX_BYTES`), so none of it was read
+    /// (ADR-019).
+    ///
+    /// The wording here is for logs; the editor reads `ERR_OPEN_TOO_LARGE`,
+    /// the code an open past that size answers with.
+    #[error("the file is {size_bytes} bytes, over the size Writ opens")]
+    FileTooLarge {
+        /// The file's size, from a stat.
+        size_bytes: u64,
+    },
+
     /// A version was asked for that the store does not hold.
     ///
     /// The entry was pruned between the panel listing it and the person
