@@ -4,6 +4,66 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-10-14
+
+Text a save could not write now survives a crash, and the preview shows a document in a sandbox with its scripts off until they are allowed for that file. Typing and Find keep up in large files because a keystroke no longer copies the whole document, editor settings apply, and the sidebar shows the notes folder. Requests to AI providers carry only what each accepts, a program asking for files is announced where it can be answered, and releases are signed in their own jobs on current dependencies.
+
+### Added
+
+- When a save cannot reach the file (read-only, locked, unmounted, not downloaded, or timed out), the text is kept until a later save lands, and the next launch after a crash or quit writes it beside the note as a `(recovered …)` copy.
+- A new note the notes folder will not take keeps its text in the tab under a message naming the file and the folder, with Save As….
+- A previewed file's scripts stay off until they are allowed for that file, with the `Scripts off` field in the status bar or Preview: Toggle scripts for this file, and a file another program replaces has them turned off again.
+- Change language… in the palette sets a file's syntax language and keeps it through closing and relaunching; Detect automatically goes back to the file name.
+- A file over 50 MB shows a progress bar while it reads, after the question that names its size.
+- Find says "Invalid pattern" for a regular expression that does not compile and "Pattern too complex" for one it gives up on.
+- A program that asks Writ for files is announced in the window, as in "Claude Code wants to read your folder.", with Approve reading, Approve reading and writing and Don't allow.
+- Settings, Apps, Connected programs lists programs waiting for an answer under Waiting for you, and the toolbar's programs mark shows a dot while one waits.
+- View, Program Activity opens the activity panel while Connected programs is on.
+
+### Changed
+
+- Settings no longer has Allow HTML files to run their scripts, which was on by default; scripts are allowed per file.
+- The restore toast at launch counts only the files whose text it wrote back.
+- Find counts matches in large files without holding up typing, showing a running count with `+` until it settles, and searches again only the part that changed.
+- A keystroke no longer copies, sends or hashes the whole document, so typing keeps up in large files with word, character and token counts on, and a file in large-file mode shows `≈` counts until the exact ones land.
+- Spell check re-checks only the paragraph being edited.
+- A file over 500 MiB is refused with a message naming its size and the limit, and a tab whose file grew past it shows that message with Try again.
+- Tags, links, headings and properties come from `.md` and `.markdown` files only; the first launch after the update reads the notes folder once to drop the entries `.txt` files had added.
+- The sidebar's Files section shows the notes folder whenever no other folder is open, with New file and Show folder in Finder while the folder is empty.
+- Selecting a tag filters the notes folder's tree, with a `#tag` chip in the Files heading that clears it, and with Files folded or another folder open the tag lists its files under its own row.
+- A provider with no model chosen starts on its default model when its list has it, then on a suggested model the list has, then on "No model" with the list open; Ollama or LM Studio with one model installed starts on that one.
+- Default and suggested models are current for each provider, such as `gpt-6-luna` on OpenAI and `claude-sonnet-5-5` on Anthropic, and the OpenAI list shows chat models only.
+- An error from a provider that rejects a parameter names it, as in "the model does not accept the max_tokens parameter".
+- OpenRouter Connect answers stray requests to its local listener with a 404 and keeps waiting, and the browser page appears once the key is exchanged.
+- Program activity describes each call in words, as in "Claude Code asked to open plan.md · Allowed", folds repeated reads into one row with a count, and shows known programs by their names.
+- A program refused because Connected programs is off, or because it is waiting for approval, is told which and where in Settings to change it.
+- tauri 2.12.3, tao 0.37, wry 0.57.0, harper 2.11 and rmcp 3.5, built with Rust 1.99.0.
+- Release builds run without access to signing keys, signing happens in its own jobs, and every asset carries a build-provenance attestation that `gh attestation verify <asset> --repo ibrahemid/writ` checks.
+- Each release attaches CycloneDX SBOMs for the app, the `writ` command and the frontend, and `SHA256SUMS.txt.minisig`, a minisign signature over the checksums made with the updater key.
+- The Windows MSI is still unsigned.
+
+### Fixed
+
+- A network share that stopped answering held up saves in every other tab; other tabs keep saving now.
+- A document in the preview could reach the network through a script, a resource hint, a meta refresh or a frame, and take a note's text with it; the preview now shows it in a sandboxed frame, and a file whose scripts are off sends nothing out.
+- The preview was blank on Windows; HTML, Markdown, Mermaid diagrams and math draw there now.
+- Find kept counting the previous tab after a tab switch; the count and highlights follow the tab in front now.
+- Word wrap and Tab size in Settings, Editor had no effect; they apply to open files at once now.
+- A `.txt` file holding a code fence was coloured as that language; `.txt` and `.text` files open as plain text now.
+- Opening a file over 50 MB on Windows, or one with a colon in its name, asked about the wrong size and opened the wrong path; both open as asked now.
+- A tab restored at launch, or a file reopened from History, read a file over 50 MB without asking; it asks first now.
+- Cancel on the large-file question was reported as a failed open; it leaves no message now.
+- A link to a missing file in the notes folder was answered as a file Writ may not open; it reads "Couldn't open spec.md: it does not exist." now.
+- While a large notes folder was being read, as on the first launch after an update, quick open, `[[` completion, backlinks and Cmd+N waited behind the read; they answer during it now.
+- Notes in a folder a `.gitignore` lists, or in `vendor`, `build` or `coverage`, were missing from search, links and backlinks; the notes folder now skips only `.git`, `.obsidian`, `.trash`, `.stfolder`, `.stversions` and temporary files.
+- A download still arriving in the watched folder opened as a `.crdownload` tab; the finished file opens once instead.
+- The outline, links, backlinks, graph and tags missed Writ's own saves, renames, new notes and deletes; they follow them now.
+- Recent's times stopped advancing while the sidebar stayed open; they advance now.
+- Chat and Rewrite on current OpenAI and Anthropic models failed with a 400 because Writ sent `max_tokens` or a temperature those models reject; each host now gets the parameters it accepts.
+- Together's model list did not load; Together now runs at api.together.ai, and the first send after the update asks to allow that host.
+- Stop before the first word of a reply did not end the request, and the next message was refused with "A reply is still arriving."; Stop ends it at once now.
+- Applying a chat edit to a note with CRLF line endings wrote LF lines; the note keeps its line endings and final newline now.
+
 ## [0.5.1] - 2026-10-12
 
 Two crashes and four ways typed text could miss its file, all found in 0.5.0. Connected programs now see every text file in the folder, and a write from one keeps the replaced text as a version.
