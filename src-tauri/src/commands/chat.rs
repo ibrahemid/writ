@@ -26,24 +26,26 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
+use tokio_util::sync::CancellationToken;
 use writ_core::activity::{ActivityRecord, Actor, Decision};
 use writ_core::ai::models::{CatalogSource, ModelCatalog};
+use writ_core::ai::providers;
 use writ_core::chat::{
     self, AssistantReply, AttachedNote, AttachmentRef, ChatError, ChatErrorFrame, ChatTurn,
     Conversation, Delta, ParsedProposals, ProposalFilter, ProposalStatus, Provider, RejectCode,
     RequestIdentity, Role, StoredProposal, MAX_CONVERSATION_BYTES,
 };
 use writ_core::config::{AiConfig, FileExtension};
-use writ_core::diff::{line_diff, Hunk};
+use writ_core::diff::{line_diff_exact, Hunk};
 use writ_core::hash::digest_from_hex;
 use writ_core::notes::host::{Capability, HostError, LastKnown, NoteHost, PermissionSet};
+use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::WriteOrigin;
 use writ_core::polish;
 use writ_storage::chat_store::{ChatStore, ChatStoreError, ConversationSummary};
@@ -74,14 +76,14 @@ const CONVERSATION_FULL: &str = "This chat is full. Start a new chat to continue
 pub const REPLY_IN_FLIGHT: &str = "A reply is still arriving.";
 
 /// The request a conversation is running: the id the pane minted for it and
-/// the flag that stops it.
+/// the token that stops it.
 ///
 /// The id is what makes a stop and a finish nameable. Without it a stop sent
 /// while one reply was ending and the next beginning reaches whichever request
 /// happened to be in the map.
 struct LiveRequest {
     request_id: String,
-    cancel: Arc<AtomicBool>,
+    cancel: CancellationToken,
 }
 
 /// Session-scoped state for the pane: the live request of each conversation,
@@ -95,18 +97,18 @@ pub struct ChatState {
 }
 
 impl ChatState {
-    /// Claims a conversation for one request and hands back its cancel flag,
-    /// or `None` when a reply is already arriving for it.
+    /// Claims a conversation for one request and hands back the token that
+    /// stops it, or `None` when a reply is already arriving for it.
     ///
     /// The check and the claim are one lock. Two sends racing on one
     /// conversation are two tasks appending to one file, and the loser must
     /// learn it lost before it reads a note or a key, not after.
-    pub fn try_begin(&self, conversation_id: &str, request_id: &str) -> Option<Arc<AtomicBool>> {
+    pub fn try_begin(&self, conversation_id: &str, request_id: &str) -> Option<CancellationToken> {
         let mut tasks = recover_poison(self.tasks.lock(), "commands::chat::try_begin");
         match tasks.entry(conversation_id.to_string()) {
             std::collections::hash_map::Entry::Occupied(_) => None,
             std::collections::hash_map::Entry::Vacant(slot) => {
-                let cancel = Arc::new(AtomicBool::new(false));
+                let cancel = CancellationToken::new();
                 slot.insert(LiveRequest {
                     request_id: request_id.to_string(),
                     cancel: cancel.clone(),
@@ -116,8 +118,9 @@ impl ChatState {
         }
     }
 
-    /// Raises the cancel flag of the named request, or of whatever is live
-    /// when no request is named.
+    /// Cancels the named request, or whatever is live when no request is
+    /// named. A request still waiting for its first byte stops as surely as
+    /// one that is streaming.
     ///
     /// `false` when nothing matches: a stop that arrives after its reply
     /// finished, or one naming a request the conversation has already moved
@@ -127,7 +130,7 @@ impl ChatState {
         let tasks = recover_poison(self.tasks.lock(), "commands::chat::cancel");
         match tasks.get(conversation_id) {
             Some(live) if request_id.is_none_or(|named| named == live.request_id) => {
-                live.cancel.store(true, Ordering::Relaxed);
+                live.cancel.cancel();
                 true
             }
             _ => false,
@@ -170,7 +173,7 @@ impl ChatState {
     pub fn cancel_all(&self) -> usize {
         let tasks = recover_poison(self.tasks.lock(), "commands::chat::cancel_all");
         for live in tasks.values() {
-            live.cancel.store(true, Ordering::Relaxed);
+            live.cancel.cancel();
         }
         tasks.len()
     }
@@ -254,7 +257,7 @@ pub fn begin_request(
     chat: &ChatState,
     conversation_id: &str,
     request_id: &str,
-) -> Result<(Arc<AtomicBool>, LiveGuard), String> {
+) -> Result<(CancellationToken, LiveGuard), String> {
     match chat.try_begin(conversation_id, request_id) {
         Some(cancel) => Ok((
             cancel,
@@ -587,6 +590,13 @@ fn conversation_dto(
 }
 
 /// One stored proposal, with the diff it would make computed now.
+///
+/// The diff counts a line whose ending is all that changes, as the card the
+/// reply ended on did, because Apply writes it. A pending proposal is offered
+/// in the line ending the note has now. One stored before replies were read in
+/// the note's shape holds `\n` lines and would rewrite every line of a CRLF
+/// note; one read in that shape from the bytes still on disk already holds the
+/// ending and comes through unchanged.
 fn proposal_dto(
     notes_root: &Path,
     open_notes: &dyn OpenNotes,
@@ -620,13 +630,16 @@ fn proposal_dto(
         };
     };
 
-    let hunks = line_diff(&current.text, &proposal.new_content).unwrap_or_default();
+    let new_content = LineEnding::detect(&current.text)
+        .apply(&proposal.new_content)
+        .into_owned();
+    let hunks = line_diff_exact(&current.text, &new_content).unwrap_or_default();
     ProposalDto {
         stale: current.hash != proposal.before_hash,
         path: proposal.path,
         summary: proposal.summary,
         before_hash: proposal.before_hash,
-        new_content: proposal.new_content,
+        new_content,
         status: proposal.status,
         hunks,
     }
@@ -726,6 +739,7 @@ pub fn prepare_chat(
 
     let body = chat::build_request_body(
         provider,
+        providers::body_rules(&target.host),
         cfg.chat_model(),
         &chat::system_prompt(&context),
         turns,
@@ -1590,7 +1604,7 @@ fn log_request(prepared: &PreparedChat, note_bytes: usize, turns: usize) {
 
 /// The one line a refused request writes.
 ///
-/// The status and, when the envelope named one of the six reasons Writ knows,
+/// The status and, when the envelope named one of the eight reasons Writ knows,
 /// that reason's own token. Neither is the server's text: `code` can only be a
 /// [`RejectCode`], and no other part of the body is read (ADR-031 rule 5.2 as
 /// narrowed by the ADR-040 amendment of 2026-09-17).
@@ -1600,29 +1614,6 @@ fn log_rejected(status: u16, code: Option<RejectCode>) {
         code = code.map(RejectCode::as_str).unwrap_or("none"),
         "chat request rejected"
     );
-}
-
-/// How much of a refusal body is read before the rest is dropped.
-///
-/// An envelope is a few hundred bytes; this is the ceiling on what a host can
-/// make Writ hold while looking for one of six words.
-const MAX_REJECT_BODY_BYTES: usize = 8 * 1024;
-
-/// The reason a refusal names, when it names one on the allowlist.
-///
-/// The body is read here and nowhere else, is bounded, and leaves this
-/// function only as a [`RejectCode`].
-async fn reject_code_of(response: reqwest::Response) -> Option<RejectCode> {
-    let mut stream = response.bytes_stream();
-    let mut body: Vec<u8> = Vec::new();
-    while let Some(Ok(bytes)) = stream.next().await {
-        body.extend_from_slice(&bytes);
-        if body.len() >= MAX_REJECT_BODY_BYTES {
-            body.truncate(MAX_REJECT_BODY_BYTES);
-            break;
-        }
-    }
-    chat::parse_reject_code(&String::from_utf8_lossy(&body))
 }
 
 /// What a request that never reached the host reads as.
@@ -1659,12 +1650,15 @@ enum ChatEvent {
 }
 
 /// Sends the request and streams the reply, invoking `on_event` for each
-/// delta, the terminal `Done`, or an `Error`. Stops early when `cancel` is
-/// set, emitting nothing further.
+/// delta, the terminal `Done`, or an `Error`.
+///
+/// `cancel` is raced against the send, the refusal body and every chunk, so a
+/// stop ends the request wherever it is waiting, a host that has not answered
+/// yet included, and nothing further is emitted.
 async fn run_chat_stream(
     client: &reqwest::Client,
     prepared: &PreparedChat,
-    cancel: &AtomicBool,
+    cancel: &CancellationToken,
     mut on_event: impl FnMut(ChatEvent),
 ) {
     let mut builder = client.post(&prepared.endpoint).json(&prepared.body);
@@ -1679,7 +1673,12 @@ async fn run_chat_stream(
         (None, Provider::OpenAiCompatible) => builder,
     };
 
-    let response = match builder.send().await {
+    let sent = tokio::select! {
+        biased;
+        () = cancel.cancelled() => return,
+        sent = builder.send() => sent,
+    };
+    let response = match sent {
         Ok(response) => response,
         Err(error) => {
             on_event(ChatEvent::Error(transport_frame(prepared, &error)));
@@ -1689,7 +1688,11 @@ async fn run_chat_stream(
 
     let status = response.status();
     if !status.is_success() {
-        let code = reject_code_of(response).await;
+        let code = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return,
+            code = super::ai::reject_code_of(response) => code,
+        };
         log_rejected(status.as_u16(), code);
         on_event(ChatEvent::Error(ChatErrorFrame::from_error(
             &ChatError::ProviderRejected {
@@ -1703,11 +1706,14 @@ async fn run_chat_stream(
     }
 
     let mut stream = response.bytes_stream();
-    let mut buf: Vec<u8> = Vec::new();
-    while let Some(item) = stream.next().await {
-        if cancel.load(Ordering::Relaxed) {
-            return;
-        }
+    let mut lines = super::ai::SseLines::default();
+    loop {
+        let item = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return,
+            item = stream.next() => item,
+        };
+        let Some(item) = item else { break };
         let bytes = match item {
             Ok(bytes) => bytes,
             Err(error) => {
@@ -1719,8 +1725,20 @@ async fn run_chat_stream(
                 return;
             }
         };
-        buf.extend_from_slice(&bytes);
-        for line in super::ai::drain_complete_lines(&mut buf) {
+        let Ok(complete) = lines.push(&bytes) else {
+            tracing::warn!(
+                host = %prepared.host,
+                cap = super::ai::MAX_SSE_LINE_BYTES,
+                "the model server sent a line past the cap"
+            );
+            on_event(ChatEvent::Error(ChatErrorFrame::untyped(
+                "stream_failed",
+                super::ai::LINE_TOO_LONG.to_string(),
+                &prepared.identity,
+            )));
+            return;
+        };
+        for line in complete {
             match chat::parse_delta(prepared.provider, &line) {
                 Delta::Text(text) => on_event(ChatEvent::Chunk(text)),
                 Delta::Done => {
@@ -1756,7 +1774,7 @@ async fn run_chat_stream(
         }
     }
 
-    if cancel.load(Ordering::Relaxed) {
+    if cancel.is_cancelled() {
         return;
     }
     on_event(ChatEvent::Done { truncated: false });
@@ -1827,7 +1845,7 @@ fn emit_tail<F: FnMut(WritFrontendEvent)>(
 pub async fn run_reply(
     client: &reqwest::Client,
     prepared: &PreparedChat,
-    cancel: &AtomicBool,
+    cancel: &CancellationToken,
     store: &ChatStore,
     conversation_id: &str,
     request_id: &str,
@@ -1860,7 +1878,7 @@ pub async fn run_reply(
 async fn stream_reply(
     client: &reqwest::Client,
     prepared: &PreparedChat,
-    cancel: &AtomicBool,
+    cancel: &CancellationToken,
     ids: FrameIds<'_>,
     mut record: impl FnMut(&str, &ParsedProposals, bool),
     mut emit: impl FnMut(WritFrontendEvent),
@@ -2253,7 +2271,7 @@ mod tests {
         // A stop asks the task to end; the reply is still arriving until it
         // has, so the conversation stays live until the task says so.
         assert!(state.cancel(id, Some("r-1")));
-        assert!(cancel.load(Ordering::Relaxed));
+        assert!(cancel.is_cancelled());
         assert!(state.is_live(id));
 
         drop(guard);
@@ -2772,6 +2790,101 @@ mod tests {
     }
 
     #[test]
+    fn openai_s_host_is_sent_the_ceiling_under_its_own_name() {
+        // OpenAI refuses `max_tokens` on its reasoning models; every other host
+        // the table names reads `max_tokens`.
+        let mut openai = config(true, "", "gpt-5-mini");
+        openai.provider = "openai".to_string();
+        openai.consented_hosts = vec!["api.openai.com".to_string()];
+        let prepared = prepare_chat(&openai, &turns(), Vec::new(), None, |_| {
+            Some("k".to_string())
+        })
+        .expect("prepared");
+        assert_eq!(
+            prepared.body["max_completion_tokens"],
+            writ_core::chat::MAX_REPLY_TOKENS
+        );
+        assert!(
+            prepared.body.get("max_tokens").is_none(),
+            "{}",
+            prepared.body
+        );
+        assert!(
+            prepared.body.get("temperature").is_none(),
+            "{}",
+            prepared.body
+        );
+
+        // A hand-typed endpoint on OpenAI's host is OpenAI's host.
+        let mut typed = config(true, "https://api.openai.com/v1", "gpt-5");
+        typed.consented_hosts = vec!["api.openai.com".to_string()];
+        let prepared = prepare_chat(&typed, &turns(), Vec::new(), None, |_| {
+            Some("k".to_string())
+        })
+        .expect("prepared");
+        assert!(prepared.body.get("max_completion_tokens").is_some());
+        assert!(prepared.body.get("max_tokens").is_none());
+
+        for (provider, host) in [
+            ("anthropic", "api.anthropic.com"),
+            ("groq", "api.groq.com"),
+            ("openrouter", "openrouter.ai"),
+        ] {
+            let mut cfg = config(true, "", "a-model");
+            cfg.provider = provider.to_string();
+            cfg.consented_hosts = vec![host.to_string()];
+            let prepared =
+                prepare_chat(&cfg, &turns(), Vec::new(), None, |_| Some("k".to_string()))
+                    .expect("prepared");
+            assert_eq!(
+                prepared.body["max_tokens"],
+                writ_core::chat::MAX_REPLY_TOKENS,
+                "{provider}"
+            );
+            assert!(
+                prepared.body.get("max_completion_tokens").is_none(),
+                "{provider}"
+            );
+        }
+        let local = prepare_chat(
+            &config(true, "http://localhost:11434/v1", "llama3"),
+            &turns(),
+            Vec::new(),
+            None,
+            no_key,
+        )
+        .expect("prepared");
+        assert_eq!(local.body["max_tokens"], writ_core::chat::MAX_REPLY_TOKENS);
+    }
+
+    #[test]
+    fn openai_s_host_typed_with_the_root_s_dot_is_still_openai_s_host() {
+        // The URL parser keeps the dot, so the consent is recorded under it.
+        let mut typed = config(true, "https://api.openai.com./v1", "gpt-5-mini");
+        typed.consented_hosts = vec!["api.openai.com.".to_string()];
+        let prepared = prepare_chat(&typed, &turns(), Vec::new(), None, |_| {
+            Some("k".to_string())
+        })
+        .expect("prepared");
+        assert_eq!(
+            prepared.body["max_completion_tokens"],
+            writ_core::chat::MAX_REPLY_TOKENS,
+            "{}",
+            prepared.body
+        );
+        assert!(
+            prepared.body.get("max_tokens").is_none(),
+            "{}",
+            prepared.body
+        );
+        assert!(
+            prepared.body.get("temperature").is_none(),
+            "{}",
+            prepared.body
+        );
+    }
+
+    #[test]
     fn the_pane_sends_its_own_model_only_when_it_names_one() {
         let mut cfg = config(true, "http://localhost:11434/v1", "llama3");
         let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, no_key).expect("prepared");
@@ -3258,15 +3371,201 @@ Tell me if that reads better.\n";
             Some(0)
         );
     }
+
+    /// The lines of a card a write would change, as `-text` and `+text`, in
+    /// reading order.
+    fn changed_lines(hunks: &[Hunk]) -> Vec<String> {
+        hunks
+            .iter()
+            .flat_map(|hunk| hunk.lines.iter())
+            .filter_map(|line| match line.kind {
+                writ_core::diff::LineKind::Removed => Some(format!("-{}", line.text)),
+                writ_core::diff::LineKind::Added => Some(format!("+{}", line.text)),
+                writ_core::diff::LineKind::Context => None,
+            })
+            .collect()
+    }
+
+    /// A settled reply is read back through `chat_open`, which loads the
+    /// conversation and diffs each pending proposal against the note on disk.
+    /// The card that read gives the pane must count the lines the card the
+    /// reply ended on counted, endings and final newline included, because
+    /// Apply writes them.
+    #[test]
+    fn a_reopened_card_counts_every_line_the_settled_reply_counted() {
+        let cases: [(&str, &str, &[&str]); 3] = [
+            // Mostly CRLF, the last line LF, written back word for word: the
+            // write gives the last line CRLF.
+            (
+                "one intro\r\nand another intro\r\nthe end\n",
+                "one intro\nand another intro\nthe end\n",
+                &["-the end", "+the end"],
+            ),
+            // The same note with its first line changed.
+            (
+                "one intro\r\nand another intro\r\nthe end\n",
+                "one intro, folded\nand another intro\nthe end\n",
+                &["-one intro", "+one intro, folded", "-the end", "+the end"],
+            ),
+            // No final newline, written back ending on a blank line: the last
+            // line gains its newline.
+            (
+                "one intro\nthe end",
+                "one intro\nthe end\n\n",
+                &["-the end", "+the end"],
+            ),
+        ];
+        for (note, body, changed) in cases {
+            let data = tempfile::TempDir::new().expect("temp dir");
+            let store = store_in(data.path());
+            let (notes, attached) = notes_with(note);
+            let mut buffer = ReplyBuffer::new();
+            stream_through(
+                &mut buffer,
+                &format!("Here it is.\n\n```writ-proposal path=\"Launch.md\"\n{body}```\n"),
+            );
+            let parsed = chat::parse_proposals(&buffer.raw, &attached, false);
+            assert_eq!(parsed.proposals.len(), 1, "{note:?}: {:?}", parsed.dropped);
+            let settled = &parsed.proposals[0];
+            assert_eq!(changed_lines(&settled.hunks), changed, "{note:?}");
+
+            record_reply(
+                &store,
+                ID,
+                &buffer.shown,
+                &parsed,
+                false,
+                &tests_support::test_identity(),
+            );
+            let reopened =
+                conversation_dto(notes.path(), &NoOpenNotes, store.load(ID).expect("load"));
+            let card = &reopened.turns[1].proposals[0];
+            assert!(!card.stale, "{note:?}");
+            assert_eq!(card.new_content, settled.new_content, "{note:?}");
+            assert_eq!(card.hunks, settled.hunks, "{note:?}");
+        }
+    }
+
+    /// A proposal stored before replies were read in the note's shape holds
+    /// `\n` lines. Applied as stored, it rewrote every line of a CRLF note
+    /// while one word had changed.
+    #[test]
+    fn a_proposal_stored_with_lf_lines_is_offered_and_written_in_the_notes_crlf() {
+        let (notes, attached) = notes_with("one intro\r\nand another intro\r\nthe end\r\n");
+        let mut conversation = Conversation::new(
+            ID.to_string(),
+            ChatStore::now(),
+            "custom".to_string(),
+            "a-model".to_string(),
+        );
+        conversation.push_assistant(
+            "Here is a shorter opening.".to_string(),
+            AssistantReply {
+                proposals: vec![StoredProposal {
+                    path: "Launch.md".to_string(),
+                    summary: String::new(),
+                    before_hash: attached[0].before_hash.clone(),
+                    new_content: "one intro\nand a second intro\nthe end\n".to_string(),
+                    status: ProposalStatus::Pending,
+                }],
+                ..AssistantReply::default()
+            },
+            None,
+            ChatStore::now(),
+        );
+
+        let card = conversation_dto(notes.path(), &NoOpenNotes, conversation).turns[0].proposals[0]
+            .clone();
+        assert_eq!(
+            card.new_content,
+            "one intro\r\nand a second intro\r\nthe end\r\n"
+        );
+        assert_eq!(
+            changed_lines(&card.hunks),
+            ["-and another intro", "+and a second intro"]
+        );
+
+        let root = std::fs::canonicalize(notes.path()).expect("canonical root");
+        let writ = root.join(".writ");
+        std::fs::create_dir_all(&writ).expect("writ folder");
+        apply_proposal_inner(
+            &root,
+            &NoOpenNotes,
+            &writ,
+            "test-host",
+            "Launch.md",
+            &card.new_content,
+            &card.before_hash,
+            None,
+            |_, _, _| unreachable!("a note in the folder is written through the host"),
+        )
+        .expect("the proposal applies");
+        assert_eq!(
+            std::fs::read(root.join("Launch.md")).expect("read back"),
+            card.new_content.as_bytes()
+        );
+    }
+
+    /// A note saved in the other ending after the reply leaves the proposal
+    /// stale, and its card is read in the ending the note has now, so it shows
+    /// the words that differ rather than every line. Apply is refused either
+    /// way.
+    #[test]
+    fn a_stale_proposal_is_offered_in_the_ending_the_note_has_now() {
+        let (notes, attached) = notes_with("one intro\r\nthe end\r\n");
+        let parsed = chat::parse_proposals(
+            "```writ-proposal path=\"Launch.md\"\none intro, folded\nthe end\n```\n",
+            &attached,
+            false,
+        );
+        assert_eq!(
+            parsed.proposals[0].new_content,
+            "one intro, folded\r\nthe end\r\n"
+        );
+        let mut conversation = Conversation::new(
+            ID.to_string(),
+            ChatStore::now(),
+            "custom".to_string(),
+            "a-model".to_string(),
+        );
+        conversation.push_assistant(
+            "Here is a shorter opening.".to_string(),
+            AssistantReply {
+                proposals: vec![StoredProposal::from(&parsed.proposals[0])],
+                ..AssistantReply::default()
+            },
+            None,
+            ChatStore::now(),
+        );
+        std::fs::write(notes.path().join("Launch.md"), "one intro\nthe end\n")
+            .expect("save the note as LF");
+
+        let card = conversation_dto(notes.path(), &NoOpenNotes, conversation).turns[0].proposals[0]
+            .clone();
+        assert!(card.stale);
+        assert_eq!(card.new_content, "one intro, folded\nthe end\n");
+        assert_eq!(
+            changed_lines(&card.hunks),
+            ["-one intro", "+one intro, folded"]
+        );
+    }
 }
 
 #[cfg(test)]
 mod stream_tests {
     use super::tests_support::*;
     use super::*;
-    use std::sync::atomic::AtomicBool;
 
-    fn run_against(prepared: &PreparedChat, cancel: Arc<AtomicBool>) -> Vec<String> {
+    /// A token, already cancelled when `cancelled` is set.
+    fn token(cancelled: bool) -> CancellationToken {
+        let token = CancellationToken::new();
+        if cancelled {
+            token.cancel();
+        }
+        token
+    }
+
+    fn run_against(prepared: &PreparedChat, cancel: CancellationToken) -> Vec<String> {
         let events = Arc::new(Mutex::new(Vec::new()));
         let sink = events.clone();
         tauri::async_runtime::block_on(async move {
@@ -3287,6 +3586,69 @@ mod stream_tests {
             .expect("events")
     }
 
+    /// A host that takes the request and says nothing, the way a local runtime
+    /// loading a model says nothing before its first byte.
+    fn spawn_silent() -> String {
+        use std::io::Read;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 8192];
+                let _ = stream.read(&mut buf);
+                std::thread::sleep(std::time::Duration::from_secs(30));
+            }
+        });
+        format!("http://127.0.0.1:{port}")
+    }
+
+    #[test]
+    fn stop_before_the_first_byte_ends_the_reply_at_once() {
+        let base = spawn_silent();
+        let prepared = prepared_for(&base, Provider::OpenAiCompatible, None);
+        let cancel = CancellationToken::new();
+        let (finished, ended) = std::sync::mpsc::channel();
+        let task_cancel = cancel.clone();
+        std::thread::spawn(move || {
+            let kinds = Arc::new(Mutex::new(Vec::new()));
+            let sink = kinds.clone();
+            tauri::async_runtime::block_on(async {
+                let client = super::super::ai::build_client().expect("client");
+                stream_reply(
+                    &client,
+                    &prepared,
+                    &task_cancel,
+                    FrameIds {
+                        conversation_id: "0b7d6b7a-1111-4b6a-9d5e-000000000001",
+                        request_id: "r-1",
+                    },
+                    |_, _, _| {},
+                    |event| {
+                        if let WritFrontendEvent::AiChat { kind, .. } = event {
+                            sink.lock().expect("kinds").push(kind);
+                        }
+                    },
+                )
+                .await;
+            });
+            let seen = kinds.lock().expect("kinds").clone();
+            let _ = finished.send(seen);
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let stopped_at = std::time::Instant::now();
+        cancel.cancel();
+        let kinds = ended
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the stop ended a reply that had not started arriving");
+        assert!(
+            stopped_at.elapsed() < std::time::Duration::from_secs(2),
+            "the stop took {:?}",
+            stopped_at.elapsed()
+        );
+        assert_eq!(kinds, vec!["stopped".to_string()]);
+    }
+
     #[test]
     fn a_recorded_reply_arrives_as_chunks_and_one_done() {
         let (base, _seen) = spawn_mock(
@@ -3295,7 +3657,7 @@ mod stream_tests {
             ANTHROPIC_STREAM,
         );
         let prepared = prepared_for(&base, Provider::Anthropic, Some("secret-key"));
-        let events = run_against(&prepared, Arc::new(AtomicBool::new(false)));
+        let events = run_against(&prepared, token(false));
         let text: String = events
             .iter()
             .filter_map(|event| event.strip_prefix("chunk:"))
@@ -3313,7 +3675,7 @@ mod stream_tests {
              data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\n",
         );
         let prepared = prepared_for(&base, Provider::OpenAiCompatible, None);
-        let events = run_against(&prepared, Arc::new(AtomicBool::new(false)));
+        let events = run_against(&prepared, token(false));
 
         assert_eq!(
             events.first().map(String::as_str),
@@ -3334,7 +3696,7 @@ mod stream_tests {
             ANTHROPIC_STREAM,
         );
         let prepared = prepared_for(&base, Provider::Anthropic, Some("secret-key"));
-        run_against(&prepared, Arc::new(AtomicBool::new(false)));
+        run_against(&prepared, token(false));
         let request = seen.lock().expect("request").clone();
         assert!(request.contains("x-api-key: secret-key"), "got: {request}");
         assert!(
@@ -3361,7 +3723,7 @@ mod stream_tests {
                 stream_reply(
                     &client,
                     prepared,
-                    &AtomicBool::new(cancel),
+                    &token(cancel),
                     FrameIds {
                         conversation_id: CONVERSATION,
                         request_id: REQUEST,
@@ -3440,7 +3802,7 @@ mod stream_tests {
             ANTHROPIC_STREAM,
         );
         let prepared = prepared_for(&base, Provider::Anthropic, None);
-        let events = run_against(&prepared, Arc::new(AtomicBool::new(true)));
+        let events = run_against(&prepared, token(true));
         assert!(events.is_empty(), "got: {events:?}");
     }
 
@@ -3452,7 +3814,7 @@ mod stream_tests {
             "{\"error\":\"slow down\"}",
         );
         let prepared = prepared_for(&base, Provider::Anthropic, None);
-        let events = run_against(&prepared, Arc::new(AtomicBool::new(false)));
+        let events = run_against(&prepared, token(false));
         assert_eq!(events.len(), 1);
         assert!(events[0].contains("429"), "got: {events:?}");
         assert!(!events[0].contains("slow down"), "got: {events:?}");
@@ -3575,7 +3937,7 @@ mod stream_tests {
         let seen = Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = seen.clone();
         let streaming = captured_logs(|| {
-            let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let cancel = CancellationToken::new();
             tauri::async_runtime::block_on(async {
                 let client = super::super::ai::build_client().expect("client");
                 run_chat_stream(&client, &streamed, &cancel, |event| {
@@ -3632,7 +3994,7 @@ mod reject_stream_tests {
         let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
         let sink = seen.clone();
         let logs = captured_logs(|| {
-            let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let cancel = CancellationToken::new();
             tauri::async_runtime::block_on(async {
                 let client = super::super::ai::build_client().expect("client");
                 run_chat_stream(&client, &prepared, &cancel, |event| {
@@ -3695,7 +4057,7 @@ mod reject_stream_tests {
 
         let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
         let sink = seen.clone();
-        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel = CancellationToken::new();
         tauri::async_runtime::block_on(async {
             let client = super::super::ai::build_client().expect("client");
             run_chat_stream(&client, &prepared, &cancel, |event| {
@@ -3729,7 +4091,7 @@ mod reject_stream_tests {
 
         let seen = Arc::new(Mutex::new(Vec::<ChatErrorFrame>::new()));
         let sink = seen.clone();
-        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel = CancellationToken::new();
         tauri::async_runtime::block_on(async {
             let client = super::super::ai::build_client().expect("client");
             run_chat_stream(&client, &prepared, &cancel, |event| {
@@ -3766,7 +4128,7 @@ mod stream_budget_tests {
         let prepared = prepared_for(base, Provider::OpenAiCompatible, None);
         let seen = Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = seen.clone();
-        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel = CancellationToken::new();
         tauri::async_runtime::block_on(async {
             let client = super::super::ai::build_client_with(CONNECT, read).expect("client");
             run_chat_stream(&client, &prepared, &cancel, |event| {
@@ -3938,6 +4300,7 @@ mod tests_support {
             provider,
             body: chat::build_request_body(
                 provider,
+                writ_core::ai::providers::BodyRules::default(),
                 "a-model",
                 &chat::system_prompt(&context),
                 &turns,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 
 // One control names the connection a reply will come from, and changing it
 // here changes it everywhere: the pane and the settings panel read the same
@@ -181,6 +182,111 @@ describe("the connection control", () => {
     fireEvent.click(row);
     await waitFor(() => expect(mocks.selectProvider).toHaveBeenCalledWith("deepseek"));
     expect(mocks.selectChatModel).not.toHaveBeenCalled();
+  });
+
+  // A provider whose own list holds none of its row's ids seeds no model, so
+  // the list opens again on the choice a send still needs.
+  it("opens again when the chosen provider's list seeds no model", async () => {
+    mocks.selectProvider.mockImplementation(async () => {
+      mocks.config.mockReturnValue(config("deepseek", ""));
+      mocks.catalog.mockReturnValue({
+        provider: "deepseek",
+        models: ["deepseek-x2", "deepseek-x3"],
+        source: "live",
+        error: null,
+      });
+    });
+    const { container } = await openMenu();
+    const row = Array.from(container.querySelectorAll(".chat-menu-row")).find((item) =>
+      item.textContent?.includes("DeepSeek"),
+    ) as HTMLElement;
+    fireEvent.click(row);
+    expect(container.querySelector(".chat-connection-menu")).toBeNull();
+
+    await waitFor(() => expect(mocks.selectProvider).toHaveBeenCalledWith("deepseek"));
+    await waitFor(() => expect(container.querySelector(".chat-connection-menu")).toBeTruthy());
+  });
+
+  it("puts focus on the first model when it opens again for one", async () => {
+    // Read through signals, so the rows rendered on reopening are the new
+    // provider's, as the stores make them in the app.
+    const [held, setHeld] = createSignal({
+      config: config("ollama", "qwen3:8b"),
+      catalog: { provider: "ollama", models: ["qwen3:8b", "phi4"], source: "live", error: null },
+    });
+    mocks.config.mockImplementation(() => held().config);
+    mocks.catalog.mockImplementation(() => held().catalog);
+    mocks.selectProvider.mockImplementation(async () => {
+      setHeld({
+        config: config("deepseek", ""),
+        catalog: {
+          provider: "deepseek",
+          models: ["deepseek-x2", "deepseek-x3"],
+          source: "live",
+          error: null,
+        },
+      });
+    });
+    const { container } = await openMenu();
+    const row = Array.from(container.querySelectorAll(".chat-menu-row")).find((item) =>
+      item.textContent?.includes("DeepSeek"),
+    ) as HTMLElement;
+    fireEvent.click(row);
+
+    await waitFor(() => expect(container.querySelector(".chat-connection-menu")).toBeTruthy());
+    await waitFor(() => expect(document.activeElement?.textContent).toContain("deepseek-x2"));
+  });
+
+  // The list can land after the person has gone on to the composer; the keys
+  // they type there must not reach a menu that opened under them.
+  it("stays closed when focus has left the control before the list lands", async () => {
+    const composer = document.createElement("textarea");
+    document.body.appendChild(composer);
+    try {
+      mocks.selectProvider.mockImplementation(async () => {
+        composer.focus();
+        mocks.config.mockReturnValue(config("deepseek", ""));
+        mocks.catalog.mockReturnValue({
+          provider: "deepseek",
+          models: ["deepseek-x2", "deepseek-x3"],
+          source: "live",
+          error: null,
+        });
+      });
+      const { container } = await openMenu();
+      const row = Array.from(container.querySelectorAll(".chat-menu-row")).find((item) =>
+        item.textContent?.includes("DeepSeek"),
+      ) as HTMLElement;
+      fireEvent.click(row);
+
+      await waitFor(() => expect(mocks.selectProvider).toHaveBeenCalledWith("deepseek"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(container.querySelector(".chat-connection-menu")).toBeNull();
+      expect(document.activeElement).toBe(composer);
+    } finally {
+      composer.remove();
+    }
+  });
+
+  it("stays closed when the chosen provider's list seeds a model", async () => {
+    mocks.selectProvider.mockImplementation(async () => {
+      mocks.config.mockReturnValue(config("deepseek", ""));
+      mocks.catalog.mockReturnValue({
+        provider: "deepseek",
+        models: ["deepseek-x2", "deepseek-chat"],
+        source: "live",
+        error: null,
+      });
+    });
+    const { container } = await openMenu();
+    const row = Array.from(container.querySelectorAll(".chat-menu-row")).find((item) =>
+      item.textContent?.includes("DeepSeek"),
+    ) as HTMLElement;
+    fireEvent.click(row);
+
+    await waitFor(() => expect(mocks.selectProvider).toHaveBeenCalledWith("deepseek"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(container.querySelector(".chat-connection-menu")).toBeNull();
   });
 
   it("clears the override when the connection's own model is picked", async () => {

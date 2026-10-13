@@ -96,6 +96,35 @@ pub fn line_diff(before: &str, after: &str) -> Result<Vec<Hunk>, DiffError> {
     Ok(hunks(&edit_script(&before, &after)))
 }
 
+/// Compares two texts line by line, where a line's ending is part of the line.
+///
+/// What a write would change, rather than what reads differently: a line that
+/// keeps its words and changes `\r\n` for `\n` is a removed line and an added
+/// one, and so is a last line that gains or loses its newline. [`line_diff`]
+/// shows neither, which is right for a reader and wrong for a card that says
+/// what applying will do to the file. The lines a hunk carries are shown
+/// without their endings.
+pub fn line_diff_exact(before: &str, after: &str) -> Result<Vec<Hunk>, DiffError> {
+    let bytes = before.len().max(after.len());
+    if bytes > MAX_DIFF_BYTES {
+        return Err(DiffError::TooLarge {
+            bytes,
+            limit: MAX_DIFF_BYTES,
+        });
+    }
+    let before: Vec<&str> = before.split_inclusive('\n').collect();
+    let after: Vec<&str> = after.split_inclusive('\n').collect();
+    Ok(hunks(&edit_script(&before, &after)))
+}
+
+/// A line without the `\n` or `\r\n` that ends it.
+fn without_ending(line: &str) -> &str {
+    match line.strip_suffix('\n') {
+        Some(rest) => rest.strip_suffix('\r').unwrap_or(rest),
+        None => line,
+    }
+}
+
 /// One entry of the script, before it is cut into hunks.
 struct Entry<'a> {
     kind: LineKind,
@@ -283,7 +312,7 @@ fn hunks(script: &[Entry<'_>]) -> Vec<Hunk> {
                 .iter()
                 .map(|entry| DiffLine {
                     kind: entry.kind,
-                    text: entry.text.to_string(),
+                    text: without_ending(entry.text).to_string(),
                 })
                 .collect(),
         })
