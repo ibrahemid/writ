@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
+import { loadGrammar } from "../../editor/languages";
 import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
 import { configStore } from "../../stores/global/config";
 import type { LayoutMode } from "../../lib/preview-layout";
@@ -82,6 +83,13 @@ async function mount(buffer: BufferDocument, layout: LayoutMode | null = { kind:
 }
 
 describe("EditorInstance: the markdown extensions load for a markdown file", () => {
+  // The app has the Markdown grammar loaded before a .md file opens
+  // (warmGrammar); these cases start from there. Its arrival after a cold
+  // open is covered in editor-instance-grammar-arrival.test.tsx.
+  beforeAll(async () => {
+    await loadGrammar("markdown");
+  });
+
   beforeEach(() => {
     bufferContent.clear();
     vi.clearAllMocks();

@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { EditorView } from "@codemirror/view";
 import type { Transaction } from "@codemirror/state";
 import type { BufferDocument } from "../../types/buffer";
+import { loadGrammar } from "../../editor/languages";
 import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
 import type { LayoutMode } from "../../lib/preview-layout";
 
@@ -100,6 +101,13 @@ function caretAtEnd(view: EditorView): number {
 }
 
 describe("EditorInstance: switching a Markdown file's layout keeps the caret line in view", () => {
+  // The app has the Markdown grammar loaded before a .md file opens
+  // (warmGrammar); these cases start from there. Its arrival after a cold
+  // open is covered in editor-instance-grammar-arrival.test.tsx.
+  beforeAll(async () => {
+    await loadGrammar("markdown");
+  });
+
   beforeEach(() => {
     bufferContent.clear();
     vi.clearAllMocks();

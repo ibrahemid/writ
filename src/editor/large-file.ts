@@ -5,6 +5,10 @@ import type { BufferDocument, FileOpenMode } from "../types/buffer";
 // frontend additionally inspects line shape (below) before mounting CodeMirror.
 export const THRESHOLD_NORMAL_BYTES = 5 * 1024 * 1024;
 
+// Files over this size are asked about before anything reads them. Mirrors
+// writ-core's THRESHOLD_LARGE_BYTES.
+export const THRESHOLD_LARGE_BYTES = 50 * 1024 * 1024;
+
 // CodeMirror's per-line layout and measurement cost is superlinear in line
 // length: a single multi-hundred-kilobyte line (minified JS/JSON/CSS) freezes
 // the view thread for seconds even when the file is small in bytes. Past this
