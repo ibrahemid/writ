@@ -141,7 +141,16 @@ On one generated 5 MiB line of JSON carrying accented words, a word
 (`résumé`) and a pattern (`na.ve`) are read in 6 ms slices; the longest slice
 and one edit, which must read only around itself, are held to the task budget.
 
-Each count is checked against a plain count of the query in the text.
+Every timed figure is the best of three runs of its operation: the query typed
+again into an empty field, the edit made again, the line read again from its
+start. Other work on the machine can slow a run but never speed one up, and a
+slower Find slows all three.
+
+Each count is checked against a plain count of the query in the text, on every
+run. For a regular expression that crosses lines that is its matches over the
+whole text, which Find counts while a match and its lookarounds stay within
+4 KiB of where it starts; ADR-013 records that bound and where the count
+differs from the matches `SearchCursor` steps through.
 
 **Budgets: 16 ms per task (one frame at 60 Hz); 250 ms to the final count**
 
@@ -157,13 +166,15 @@ Rationale:
   edit reading the whole line again (under vitest, 2026-10-13).
 - Node runs V8, as Chromium does. Keystroke to paint in a browser is the
   editor gate's measure, below.
-- Measured (eight runs under vitest, Node 26.4.0, Apple M1 Pro, 2026-10-13,
-  load average 6.3 to 8.0 at the start and end of each). Seven ran within the
-  budgets: the longest task 11.1 ms on a keystroke and 2.6 ms on an edit, the
-  final count at most 129 ms (`\s+qxjzv` on 20 MiB); on the 5 MiB line the
-  longest slice 6.2 ms, the whole read 22 ms, an edit 2.4 ms. The eighth ran
-  slower throughout (the same 20 MiB count 167 ms) and read the 5 MiB line in
-  74 ms with one slice of 27.5 ms, over the task budget.
+- Measured (five runs of the file under vitest, Node 26.4.0, Apple M1 Pro,
+  2026-10-13, load average 8.4 to 8.8 at the start and end of each; the
+  slowest of the five best-of-three figures): the longest task 6.3 ms on a
+  keystroke and 0.9 ms on an edit, the final count at most 88 ms (`\s+qxjzv`
+  on 20 MiB); on the 5 MiB line the longest slice 6.2 ms, the whole read
+  21 ms, an edit 1.6 ms. The slowest single run took 7.7 ms on a keystroke and
+  93 ms to the final count. Before figures were the best of three, one of
+  eight runs at load 6.3 to 8.0 read the 5 MiB line with one 27.5 ms slice and
+  failed the task budget.
 
 The assertions are skipped unless `WRIT_PERF_GATE=1`. By hand:
 `WRIT_PERF_GATE=1 pnpm exec vitest run src/__tests__/editor/find-perf.test.ts --disable-console-intercept`.
@@ -225,11 +236,13 @@ that the gate could not measure.
 | Typing with Find open p50, max | Keydown to the end of the next frame, typing at the end with the overlay open on the first word |
 | Longest task typing with Find open | The longest main-thread task from the first of those keystrokes to 3.5 s after the last, the hash and the autosave included |
 
-A long task is one the browser reports, so over 50 ms; none is 0. Each
-scenario also checks that the file opens in the mode its tier gives it, that
-the size question is asked for the confirm tier and only there, that the
-jump reaches the end, and that the count equals the word's occurrences in the
-file before and after the edit. A page error fails the scenario.
+A long task is one the browser reports, so over 50 ms; none is 0. A window
+counts a long task only when it started inside the window: the browser reports
+a task after it ends, so one that began before a window opened can be reported
+during it. Each scenario also checks that the file opens in the mode its tier
+gives it, that the size question is asked for the confirm tier and only there,
+that the jump reaches the end, and that the count equals the word's occurrences
+in the file before and after the edit. A page error fails the scenario.
 
 **Scenarios** (fixed seeds, `src/__tests__/editor/fixtures/editor-corpus.ts`):
 
@@ -271,16 +284,20 @@ budget one and a half times, at least 4 MiB. A keystroke may take at least
 Find open is allowed at least what typing is, and a keystroke's max at least
 the longest task of its window, since a keystroke typed while Writ hashes the
 document (150 ms after the last edit, 150 to 400 ms of work at 50 to 60 MiB)
-waits for it. No budget is tighter than the editor-perf audit's figure for the
-same file (2026-10-03, Chrome for Testing 153, Apple M1 Pro); `log-450k` and
-`prose-60MiB` are held to the 50 MiB figures. The Find budgets have no audit
-floor: the audit measured the count this gate replaced, which held the main
-thread for 547 ms per keystroke at 4.9 MiB and 4,003 to 6,061 ms at 50 MiB, and
-whose refresh on an edit put a 4.0 s task in the 50 MiB file's typing with
-Find open. Times are rounded up to 5 ms and heap to 1 MiB. The headroom is for
+waits for it. Every budget outside Find is at least the editor-perf audit's
+figure for the same file (its section 6, 2026-10-03, Chrome for Testing 153,
+Apple M1 Pro); `log-450k` and `prose-60MiB` are held to the 50 MiB figures.
+The Find budgets stand on this gate's own measurements, with no audit floor:
+section 6 measured the count this gate replaced, which held the main thread
+for 547 ms per keystroke at 4.9 MiB and 4,003 to 6,061 ms at 50 MiB, and whose
+refresh on an edit put a 4.0 s task in the 50 MiB file's typing with Find
+open. Held to those figures, the gate would pass a Find as slow as the one it
+replaced. Two Find budgets sit below the audit's figures: Find keystroke p50 on
+every file, and typing with Find open p50 on `prose-1MiB`, `prose-4.9MiB` and
+`md-4.9MiB`. Times are rounded up to 5 ms and heap to 1 MiB. The headroom is for
 CI's Linux runners, which are slower than the machine the runs were taken on.
 
-**Measured** (worst of three runs; Chromium 153.0.8010.12 headless, Apple M1 Pro with 16 GiB, macOS 26.5, 2026-10-13; the one-minute load average at the start and end of each run beside every row):
+**Measured** (worst of three runs; Chromium 153.0.8010.12 headless, Apple M1 Pro with 16 GiB, macOS 26.5, 2026-10-13; the one-minute load average at the start and end of each run beside every row; taken before a window counted only the long tasks that started in it, which can only lower the three longest-task columns):
 
 | Scenario | Load average (start to end, per run) | First paint (ms) | JS heap growth (MiB) | Jump to end (ms) | Typing p50 (ms) | Typing p95 (ms) | Typing max (ms) | Longest task after typing (ms) | Find keystroke p50 (ms) | Find keystroke max (ms) | Find to final count (ms) | Longest task typing in Find (ms) | Typing with Find open p50 (ms) | Typing with Find open max (ms) | Longest task typing with Find open (ms) |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|

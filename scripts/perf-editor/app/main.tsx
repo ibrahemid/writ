@@ -12,6 +12,7 @@ import { findStore } from "../../../src/stores/global/find-store";
 import { largeFileOpen } from "../../../src/stores/global/large-file-open";
 import type { BufferDocument, FileOpenMode, FileOpenResult } from "../../../src/types/buffer";
 import { generateCorpus, RARE_WORD, type CorpusSpec } from "../../../src/__tests__/editor/fixtures/editor-corpus";
+import { filterTasksStartedIn, type LongTask } from "../budgets.mjs";
 
 const HARNESS_ROOT = "/Users/you/Perf";
 
@@ -171,11 +172,8 @@ HTMLIFrameElement.prototype.setAttribute = function (name: string, value: string
   setAttribute.call(this, name, name === "src" ? hostOnly(value) : value);
 };
 
-interface Span {
-  start: number;
-  duration: number;
-}
-const longTasks: Span[] = [];
+const longTasks: LongTask[] = [];
+let windowStart = 0;
 
 new PerformanceObserver((list) => {
   for (const entry of list.getEntries()) longTasks.push({ start: entry.startTime, duration: entry.duration });
@@ -241,12 +239,13 @@ function dropBytes(): void {
 
 function resetObservations(): void {
   longTasks.length = 0;
+  windowStart = performance.now();
   for (const key of Object.keys(sendCosts)) delete sendCosts[key];
 }
 
 function observations() {
   return {
-    longTasks: longTasks.slice(),
+    longTasks: filterTasksStartedIn(longTasks, windowStart, performance.now()),
     sendCosts: JSON.parse(JSON.stringify(sendCosts)) as Record<string, SendCost>,
   };
 }

@@ -37,6 +37,12 @@ export interface Scenario {
 
 export type Measurements = Partial<Record<MetricKey, number | null>>;
 
+export interface LongTask {
+  /** `PerformanceEntry.startTime`, on the page's clock. */
+  start: number;
+  duration: number;
+}
+
 export const MiB: number;
 export const METRICS: readonly Metric[];
 export const SCENARIOS: readonly Scenario[];
@@ -47,6 +53,8 @@ export const TOGGLE_BUDGETS: Readonly<{ coldP95Ms: number; warmP95Ms: number }>;
 export function median(values: readonly number[]): number | null;
 export function percentile(values: readonly number[], p: number): number | null;
 export function maximum(values: readonly number[]): number | null;
+/** The tasks that started at or after `from` and before `to`, in their order. */
+export function filterTasksStartedIn(tasks: readonly LongTask[], from: number, to: number): LongTask[];
 export function overBudget(
   scenarioId: string,
   measured: Measurements,

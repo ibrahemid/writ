@@ -128,6 +128,13 @@ export function maximum(values) {
   return values.length === 0 ? null : Math.max(...values);
 }
 
+// The browser reports a long task after it ends, so one that began before a
+// window was reset can arrive inside it; a window counts only the tasks that
+// started in it.
+export function filterTasksStartedIn(tasks, from, to) {
+  return tasks.filter((task) => task.start >= from && task.start < to);
+}
+
 export function overBudget(scenarioId, measured, budgets = BUDGETS) {
   const budget = budgets[scenarioId];
   if (!budget) return [`${scenarioId} has no budget`];

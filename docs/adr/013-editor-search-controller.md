@@ -73,7 +73,11 @@ Counting by walking `getCursor` held the main thread for every match in the
 document, on every query change and on every edit while the overlay was open:
 547 ms per keystroke in the find field on a 4.9 MiB file, 4 s on 50 MiB (the
 editor-perf audit, 2026-10-03). The count and the match map now come from one
-pass, kept by a view plugin (`src/editor/search/find-matches.ts`):
+pass, kept by a view plugin (`src/editor/search/find-matches.ts`). A regular
+expression that can cross lines is counted by its own matches over the whole
+text, while a match and its lookarounds stay within 4 KiB of where it starts
+(the windows below), and that count can differ from the matches
+`SearchCursor` steps through:
 
 - The matcher (`src/editor/search/scanner.ts`) finds what
   `SearchQuery.getCursor` finds, except as the next two points say. A literal
@@ -106,8 +110,12 @@ pass, kept by a view plugin (`src/editor/search/find-matches.ts`):
   break and `b a b z` is one match for Find and two for the cursor when its
   chunk ends at that line break. On the 8,000-line generated log of the tests,
   `e[^z]*t` counts 8,009 matches against the cursor's 8,017
-  (`@codemirror/search` 6.7.2). Where Enter selects a match the count does not
-  hold, the badge shows the count without the match's place.
+  (`@codemirror/search` 6.7.2). The cursor's matches depend on where it
+  starts, and the count reads from the top, Enter from the selection and the
+  highlighter from the visible ranges, so no single cursor answer exists for
+  the count to copy, and the count keeps the expression's matches over the
+  whole text. Where Enter selects a match the count does not hold, the badge
+  shows the count without the match's place.
   `src/__tests__/editor/find-matches-parity.test.ts` holds the matcher to the
   library's cursor over fixtures, random documents and random edits, and to
   the expression over the whole text for such greedy patterns on generated
@@ -181,7 +189,11 @@ document between them in one task.
 
 The budgets for one find keystroke and one edit with the overlay open (a word
 and patterns that cross lines, on 4.9 MiB to 20 MiB, and a 5 MiB line), and
-the browser-measured ones per file tier, are in `docs/perf-budgets.md`.
+the browser-measured ones per file tier, are in `docs/perf-budgets.md`. The
+Find budgets there stand on measurements of this scan, without the editor-perf
+audit's figures as a floor, since the audit measured the count this scan
+replaced; every other budget there is at least the audit's figure for its
+file.
 
 ## Consequences
 

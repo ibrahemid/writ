@@ -7,6 +7,7 @@ import {
   METRICS,
   SCENARIOS,
   TOGGLE_BUDGETS,
+  filterTasksStartedIn,
   maximum,
   median,
   overBudget,
@@ -52,6 +53,29 @@ describe("editor perf gate statistics", () => {
     expect(median([])).toBeNull();
     expect(percentile([], 95)).toBeNull();
     expect(maximum([])).toBeNull();
+  });
+});
+
+describe("editor perf gate long tasks", () => {
+  const from = 1_000;
+  const to = 4_500;
+
+  it("counts only the long tasks that started inside the window", () => {
+    const tasks = [
+      { start: 880, duration: 190 },
+      { start: 1_000, duration: 60 },
+      { start: 2_300, duration: 75 },
+      { start: 4_500, duration: 120 },
+    ];
+    expect(filterTasksStartedIn(tasks, from, to)).toEqual([
+      { start: 1_000, duration: 60 },
+      { start: 2_300, duration: 75 },
+    ]);
+  });
+
+  it("leaves out a task that started before the window and was reported inside it", () => {
+    expect(filterTasksStartedIn([{ start: 900, duration: 400 }], from, to)).toEqual([]);
+    expect(filterTasksStartedIn([], from, to)).toEqual([]);
   });
 });
 
