@@ -11,7 +11,9 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 use writ_core::notes::links::{self, Resolution};
 use writ_core::notes::{self, snippet};
-use writ_core::search::{build_hit, MarkedFragment, SearchHit};
+use writ_core::search::{
+    MarkedFragment, SearchHit, FRAGMENT_CUT, FRAGMENT_MATCH_CLOSE, FRAGMENT_MATCH_OPEN,
+};
 use writ_core::workspace::file_search::{rank_keyed_file_hits, FileHit};
 
 use super::resolve::NameIndex;
@@ -35,46 +37,50 @@ const SNIPPET_TOKENS: i64 = 32;
 /// worked out inside the index as well, from where the fragment sits in the
 /// note ([`match_line`]).
 ///
-/// The marks are control characters, and a note can hold them too. Its own
-/// cannot be told apart from the index's, so a fragment holding one is not a
-/// run of the note's text and is found nowhere in it. That note's hit is read
-/// from its text instead ([`build_hit`]), the way every hit was read before
-/// the index cut fragments.
+/// The marks are bytes UTF-8 never uses ([`writ_core::search::FRAGMENT_CUT`]
+/// and the two beside it), so no note's text can be mistaken for one, and the
+/// fragment is read as bytes rather than as text.
 pub(crate) fn search_hits(
     conn: &Connection,
     query: &str,
     terms: &[String],
     limit: usize,
 ) -> StorageResult<Vec<SearchHit>> {
-    let rows: Vec<(i64, String, String, String)> = {
+    let rows: Vec<(i64, String, String, Vec<u8>)> = {
         let mut stmt = conn.prepare_cached(
             "SELECT x.rowid, f.path, x.name,
-                    snippet(files_fts, 1, char(2), char(3), char(4), ?3)
+                    CAST(snippet(files_fts, 1, ?4, ?5, ?6, ?3) AS BLOB)
                FROM files_fts x
                JOIN files f ON f.rowid = x.rowid
               WHERE files_fts MATCH ?1
               ORDER BY rank
               LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![query, limit as i64, SNIPPET_TOKENS], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })?;
+        let rows = stmt.query_map(
+            params![
+                query,
+                limit as i64,
+                SNIPPET_TOKENS,
+                [FRAGMENT_MATCH_OPEN].as_slice(),
+                [FRAGMENT_MATCH_CLOSE].as_slice(),
+                [FRAGMENT_CUT].as_slice(),
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
         rows.collect::<Result<Vec<_>, _>>()?
     };
 
     let mut hits = Vec::with_capacity(rows.len());
     for (rowid, path, name, marked) in rows {
         let fragment = MarkedFragment::read(&marked);
+        let line = match fragment.first_match() {
+            Some(offset) => match_line(conn, rowid, &fragment.text, offset)?,
+            None => None,
+        };
         // A note has no buffer id until something opens it. The adapter
         // fills one in for a note that is already a tab; the path is what
         // opens the rest.
-        let mut hit = match fragment.first_match() {
-            Some(offset) => match match_line(conn, rowid, &fragment.text, offset)? {
-                Some(line) => fragment.into_hit(&name, Some(line), terms),
-                None => build_hit("", &name, &note_text(conn, &path)?, terms),
-            },
-            None => fragment.into_hit(&name, None, terms),
-        };
+        let mut hit = fragment.into_hit(&name, line, terms);
         hit.path = Some(path);
         hits.push(hit);
     }
@@ -236,7 +242,7 @@ pub(crate) fn backlinks(
 
 /// The links that resolved to `path`, through the index on `links(to_path)`,
 /// and the links that name it and reached no one note, through the index on
-/// `links(name_key)` (migration 044). Neither read scans the folder's links
+/// `links(name_key)` (migration 045). Neither read scans the folder's links
 /// (RC-34).
 pub(crate) fn backlink_rows(
     conn: &Connection,

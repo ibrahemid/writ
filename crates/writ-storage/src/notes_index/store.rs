@@ -569,6 +569,73 @@ mod tests {
         assert_eq!(recorded, 1, "the walk wrote again before Cmd+N's write");
     }
 
+    /// With the writer held part way through a write that has not committed,
+    /// the way a walk holds it for one file, quick open, search, backlinks, a
+    /// link's resolution and the graph all answer from the last commit without
+    /// waiting for the write to end (ADR-036 section 7).
+    #[test]
+    fn reads_answer_from_the_last_commit_while_the_writer_is_held() {
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let db_path = dir.path().join("writ.db");
+        run_migrations(&open_database(&db_path).expect("open_database")).expect("migrations");
+        let notes = dir.path().join("notes");
+        std::fs::create_dir_all(&notes).expect("notes dir");
+        for idx in 0..3 {
+            std::fs::write(
+                notes.join(format!("note-{idx}.md")),
+                format!("# Note {idx}\n\nkestrel and [[note-{}]]\n", (idx + 1) % 3),
+            )
+            .expect("write note");
+        }
+        let index = Arc::new(NotesIndexStore::open(&db_path).expect("index"));
+        index
+            .reconcile(&notes, &|| false, &|_| false)
+            .expect("reconcile");
+        let linked = index_key(&notes.join("note-1.md"));
+        let linking = index_key(&notes.join("note-0.md"));
+        assert_eq!(
+            index.resolve_link(&linking, "note-1").expect("resolve"),
+            Resolution::Resolved(linked.clone())
+        );
+
+        let writer = index.writer.lock_for_walk();
+        writer
+            .execute_batch("BEGIN IMMEDIATE; DELETE FROM links; DELETE FROM files;")
+            .expect("a write under way");
+        let (tx, rx) = std::sync::mpsc::channel();
+        {
+            let index = Arc::clone(&index);
+            let notes = notes.clone();
+            let (linked, linking) = (linked.clone(), linking.clone());
+            std::thread::spawn(move || {
+                let answer = (|| -> crate::errors::StorageResult<_> {
+                    let query = writ_core::search::to_prefix_match("kestrel").expect("query");
+                    let terms = writ_core::search::search_terms("kestrel");
+                    Ok((
+                        index.search_names("note", &notes, 10)?.len(),
+                        index.search_hits(&query, &terms, 10)?.len(),
+                        index.backlinks(&linked)?.len(),
+                        index.resolve_link(&linking, "note-1")?,
+                        index.graph(&notes)?,
+                    ))
+                })();
+                let _ = tx.send(answer);
+            });
+        }
+        let answer = rx.recv_timeout(std::time::Duration::from_secs(10));
+        writer.execute_batch("ROLLBACK").expect("rollback");
+        drop(writer);
+
+        let (names, hits, backlinks, resolved, graph) = answer
+            .expect("a read waited for the writer")
+            .expect("the reads");
+        assert_eq!(names, 3);
+        assert_eq!(hits, 3);
+        assert_eq!(backlinks, 1);
+        assert_eq!(resolved, Resolution::Resolved(linked));
+        assert_eq!((graph.nodes.len(), graph.edges.len()), (3, 3));
+    }
+
     /// The app's save: the buffer store writes the file and stamps its row
     /// through a connection of its own, then the deferred reindex writes the
     /// note through the index, and quick open and the preview's link

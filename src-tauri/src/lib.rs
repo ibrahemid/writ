@@ -867,7 +867,12 @@ pub fn run() {
                 if let Some(root) = restored_root {
                     // Build the file-name index for the restored root (ADR-026).
                     workspace_index::spawn_rebuild(state.workspace_index.clone());
-                    match watcher::handler::start_workspace_watcher(state.event_bus.clone(), root) {
+                    let kind = commands::workspace::workspace_kind(&state, &root);
+                    match watcher::handler::start_workspace_watcher(
+                        state.event_bus.clone(),
+                        root,
+                        kind,
+                    ) {
                         Ok(handle) => {
                             let mut slot = recover_poison(
                                 state.workspace_watcher.lock(),

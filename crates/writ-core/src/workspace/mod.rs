@@ -189,6 +189,30 @@ pub fn path_has_notes_ignored_name(root: &Path, path: &Path) -> bool {
         .any(|c| is_notes_ignored_name(&c.as_os_str().to_string_lossy()))
 }
 
+/// What the folder opened as the workspace is, which decides what its tree and
+/// its watcher leave out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceKind {
+    /// Any folder but the notes folder: what a code checkout keeps out of
+    /// sight is left out ([`is_ignored_name`], [`path_has_ignored_component`]).
+    Code,
+    /// The notes folder itself: only what the notes walk skips is left out
+    /// ([`is_notes_ignored_name`], [`path_has_notes_ignored_name`]), so the
+    /// tree shows every note search and backlinks reach (ADR-028 section 7).
+    Notes,
+}
+
+impl WorkspaceKind {
+    /// Returns `true` when a change to `path`, below the workspace `root`, is
+    /// one the tree of this kind of folder does not show.
+    pub fn hides_change(self, root: &Path, path: &Path) -> bool {
+        match self {
+            Self::Code => path_has_ignored_component(root, path),
+            Self::Notes => path_has_notes_ignored_name(root, path),
+        }
+    }
+}
+
 /// Matches `name` against a `*`/`?` pattern, folding ASCII case.
 ///
 /// `*` matches any run of characters including none, `?` exactly one. The walk
@@ -486,6 +510,22 @@ mod tests {
             root,
             Path::new("/elsewhere/.git/COMMIT_EDITMSG")
         ));
+    }
+
+    #[test]
+    fn the_notes_folder_as_the_workspace_shows_a_change_a_code_workspace_hides() {
+        let root = Path::new("/notes");
+        let vendor = Path::new("/notes/vendor/Acme.md");
+        assert!(WorkspaceKind::Code.hides_change(root, vendor));
+        assert!(!WorkspaceKind::Notes.hides_change(root, vendor));
+        for hidden in ["/notes/.obsidian/app.json", "/notes/.git/HEAD"] {
+            assert!(WorkspaceKind::Code.hides_change(root, Path::new(hidden)));
+            assert!(WorkspaceKind::Notes.hides_change(root, Path::new(hidden)));
+        }
+        assert!(WorkspaceKind::Notes.hides_change(root, Path::new("/notes/.writ-tmp-a1b2")));
+        let note = Path::new("/notes/Plan.md");
+        assert!(!WorkspaceKind::Code.hides_change(root, note));
+        assert!(!WorkspaceKind::Notes.hides_change(root, note));
     }
 
     #[test]

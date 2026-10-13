@@ -1296,6 +1296,17 @@ mod tests {
         assert_eq!(candidate_name_keys("/n/list.txt"), vec!["list.txt"]);
     }
 
+    #[test]
+    fn a_candidate_keeps_its_path_and_the_keys_a_link_names_it_by() {
+        let candidate = NameCandidate::new("/n/Projects/Cafe\u{301} Plan.md");
+        assert_eq!(candidate.path(), "/n/Projects/Cafe\u{301} Plan.md");
+        assert_eq!(
+            candidate.keys(),
+            candidate_name_keys("/n/Projects/Cafe\u{301} Plan.md").as_slice()
+        );
+        assert_eq!(candidate.keys(), ["café plan", "café plan.md"]);
+    }
+
     /// One set of candidates serves every link of a pass, and the folders
     /// folded for one tie-break are reused by the next: each answer is the one
     /// the rules give, on the first pass over the candidates and on the second.

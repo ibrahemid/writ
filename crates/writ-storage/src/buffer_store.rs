@@ -437,14 +437,14 @@ impl BufferStore {
     /// Records a note's new file and the name that matches it, in one write.
     ///
     /// A rename moves the file and the name the tab shows together, so the two
-    /// are written in one transaction alongside the index refresh: two writes
-    /// leave a window where the row names one file and points at another, and
-    /// a crash inside that window is a note nobody can find.
+    /// are written in one transaction: two writes leave a window where the row
+    /// names one file and points at another, and a crash inside that window is
+    /// a note nobody can find.
     ///
-    /// `source_path` is where the file is now, so the index is re-keyed to it:
-    /// the row under the old path goes, and the file is indexed under the new
-    /// one. Writ's own rename is stamped into the watcher's ignore set, so the
-    /// notes watcher will not do this for it.
+    /// `source_path` is where the file is now, so once that transaction commits
+    /// the index is re-keyed to it: the row under the old path goes, and the
+    /// file is indexed under the new one. Writ's own rename is stamped into the
+    /// watcher's ignore set, so the notes watcher will not do this for it.
     pub fn rename_to_file(&self, id: &str, source_path: &str, title: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let old_path = doc.source_path.clone();

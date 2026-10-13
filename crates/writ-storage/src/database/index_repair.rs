@@ -31,10 +31,10 @@ use rusqlite::Connection;
 use tracing::{info, warn};
 
 /// The four derived tables and their indexes: the DDL migration 40 applies,
-/// then the column and index migration 44 adds to `links`.
+/// then the column and index migration 45 adds to `links`.
 const DERIVED_DDL: &str = concat!(
     include_str!("notes_index_derived.sql"),
-    include_str!("../../migrations/044_links_name_key.sql"),
+    include_str!("../../migrations/045_links_name_key.sql"),
 );
 
 /// The key/value table the census is written to, the DDL migration 40 applies.

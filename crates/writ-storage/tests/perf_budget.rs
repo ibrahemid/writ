@@ -58,7 +58,7 @@ const VAULT_RECONCILE_BUDGET_MS: u128 = 120_000;
 /// 200,000 links (EP-16).
 const VAULT_WRITE_BUDGET_MS: u128 = 50;
 const VAULT_READ_BUDGET_MS: u128 = 50;
-/// Migration 044 over 200,000 stored links: the column, its index and every
+/// Migration 045 over 200,000 stored links: the column, its index and every
 /// row's key, once, at the first launch after the upgrade.
 const NAME_KEY_MIGRATION_BUDGET_MS: u128 = 10_000;
 /// Notes the renamed note's links are rewritten in, besides its two
@@ -1012,16 +1012,16 @@ fn vault_of_10000_notes_and_200000_links_stays_under_budget() {
         "the vault walk took {walk_ms}ms, over the {VAULT_RECONCILE_BUDGET_MS}ms budget"
     );
 
-    // Migration 044 over the same rows: the shape a database written before it
+    // Migration 045 over the same rows: the shape a database written before it
     // has, migrated forward.
     conn.execute_batch(
         "DROP INDEX idx_links_name_key;
          ALTER TABLE links DROP COLUMN name_key;
-         DELETE FROM schema_version WHERE version = 44;",
+         DELETE FROM schema_version WHERE version = 45;",
     )
-    .expect("roll back to 043");
+    .expect("roll back to before 045");
     let start = Instant::now();
-    run_migrations(&conn).expect("migrate to 044");
+    run_migrations(&conn).expect("migrate to 045");
     let migration_ms = start.elapsed().as_millis();
     let keyed: i64 = conn
         .query_row(
@@ -1034,7 +1034,7 @@ fn vault_of_10000_notes_and_200000_links_stays_under_budget() {
     println!("name-key migration over {links} links: {migration_ms}ms");
     assert!(
         migration_ms < NAME_KEY_MIGRATION_BUDGET_MS,
-        "migration 044 took {migration_ms}ms, over the {NAME_KEY_MIGRATION_BUDGET_MS}ms budget"
+        "migration 045 took {migration_ms}ms, over the {NAME_KEY_MIGRATION_BUDGET_MS}ms budget"
     );
     drop(conn);
 

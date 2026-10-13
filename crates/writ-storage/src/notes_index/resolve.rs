@@ -168,7 +168,7 @@ pub(crate) fn stored_path(resolution: Resolution) -> Option<String> {
 ///
 /// A note arriving or leaving can only change the links that name it, so this
 /// is the whole of what an added or removed path costs: one indexed lookup on
-/// `links.name_key` per key (migration 044), rather than a read of every link
+/// `links.name_key` per key (migration 045), rather than a read of every link
 /// in the folder (RC-14).
 ///
 /// Every visited row is resolved from scratch and written back, including

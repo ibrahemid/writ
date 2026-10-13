@@ -242,9 +242,10 @@ indexed). The rewrites run but are not timed: each is a guarded save, held to
 the save round trip budget above. The command's own work around these calls is
 not timed either.
 
-**Budget: 300 ms** (RC-47). Measured 2026-10-13, release, at a load average
-near 40: 102 to 150 ms over three runs, most of it the walk for same-named
-files; the 22 rewrites took 321 to 429 ms besides.
+**Budget: 300 ms** (RC-47): twice the slowest of three release runs on
+2026-10-13 at a one-minute load average of 21 to 27, rounded up to the next
+50 ms. Those runs took 91, 123 and 133 ms, most of it the walk for same-named
+files; the 22 rewrites took 288 to 751 ms besides.
 
 Rationale: this is the part of a rename that grows with the folder. The walk
 reads every entry of it, and the index writes re-resolve only the links that
@@ -350,7 +351,7 @@ writing twenty links, five of them to one of the hundred notes most linked to
 | Measure | Budget | Measured 2026-10-13, release |
 |---|---|---|
 | The walk from an empty index | 120 s | 28.7 s |
-| Migration 044 over the 200,000 stored links | 10 s | 726 ms |
+| Migration 045 over the 200,000 stored links | 10 s | 726 ms |
 | A save of a linked note (slowest of 21) | 50 ms | 5 ms |
 | Cmd+N, a new note (slowest of 21) | 50 ms | 4 ms |
 | A note arriving and leaving under a name 500 links use (slowest of 21) | 50 ms | 13 ms |
@@ -363,11 +364,11 @@ Rationale:
 
 - Every save, every new note and every keystroke is held to the 50 ms
   keystroke budget whatever the folder holds: the names are in memory, a link
-  row carries the name it names (`links.name_key`, migration 044), and the
+  row carries the name it names (`links.name_key`, migration 045), and the
   backlink list and search read through indexes rather than the whole table
   (EP-16, RC-34).
 - The names are read again only after another connection adds, removes or
-  re-keys a note. The test rolls migration 044 back and runs it again through
+  re-keys a note. The test rolls migration 045 back and runs it again through
   another connection before it times the first save, which reads no names.
 - The migration runs once, at the first launch after the upgrade, inside the
   migration transaction. It reads no note.

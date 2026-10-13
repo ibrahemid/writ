@@ -12,11 +12,9 @@
 //! highlighted snippet built from [`SnippetSegment`]s. The notes index hands
 //! over the fragment its own `snippet()` chose, with the matches marked by the
 //! index's tokenizer ([`MarkedFragment`]), so a diacritic-only difference
-//! (e.g. `cafe` matching `café`) is highlighted as well as found.
-//! [`build_hit`], for a caller holding a note's whole text, highlights
-//! literally and ASCII-case-insensitively. Snippets are returned as pre-split
-//! segments rather than embedded markup so the renderer never has to parse
-//! HTML.
+//! (e.g. `cafe` matching `café`) is highlighted as well as found. Snippets are
+//! returned as pre-split segments rather than embedded markup so the renderer
+//! never has to parse HTML.
 
 use serde::{Deserialize, Serialize};
 
@@ -61,42 +59,6 @@ const SNIPPET_LEAD_CHARS: usize = 24;
 /// terms are exactly the terms the FTS `MATCH` expression searched for.
 pub fn search_terms(raw: &str) -> Vec<String> {
     tokenize(raw)
-}
-
-/// Builds a display [`SearchHit`] for a matched buffer from its full content
-/// and the search terms.
-///
-/// Prefers the first content line that contains a term (with its 1-based line
-/// number); falls back to the first non-empty content line, then to the title,
-/// each with `line` `None`. The snippet is always derived from whichever text
-/// is chosen, windowed to [`SNIPPET_MAX_CHARS`].
-pub fn build_hit(buffer_id: &str, title: &str, content: &str, terms: &[String]) -> SearchHit {
-    for (idx, line) in content.lines().enumerate() {
-        if line_contains_term(line, terms) {
-            return SearchHit {
-                buffer_id: buffer_id.to_string(),
-                title: title.to_string(),
-                line: Some((idx as u32) + 1),
-                snippet: highlight_window(line, terms),
-                path: None,
-            };
-        }
-    }
-
-    let fallback = content.lines().find(|l| !l.trim().is_empty());
-    let snippet_source = fallback.unwrap_or(title);
-    SearchHit {
-        buffer_id: buffer_id.to_string(),
-        title: title.to_string(),
-        line: None,
-        snippet: highlight_window(snippet_source, terms),
-        path: None,
-    }
-}
-
-fn line_contains_term(line: &str, terms: &[String]) -> bool {
-    let lower = line.to_lowercase();
-    terms.iter().any(|t| lower.contains(t.as_str()))
 }
 
 /// Returns merged, ascending match spans (char indices) of any term in `chars`,
@@ -199,13 +161,14 @@ fn window_segments(
 }
 
 /// The mark the notes index asks the full-text `snippet()` function to put
-/// before each match. A control character, which note text seldom holds; a
-/// note that does cannot have its own told apart from the marks.
-pub const FRAGMENT_MATCH_OPEN: char = '\u{2}';
-/// The mark after each match.
-pub const FRAGMENT_MATCH_CLOSE: char = '\u{3}';
-/// The mark `snippet()` puts at an end where it cut the note's text short.
-pub const FRAGMENT_CUT: char = '\u{4}';
+/// before each match: a byte UTF-8 never uses, so no note's text can hold it
+/// and every one in a fragment is a mark.
+pub const FRAGMENT_MATCH_OPEN: u8 = 0xFE;
+/// The mark after each match, chosen as [`FRAGMENT_MATCH_OPEN`] is.
+pub const FRAGMENT_MATCH_CLOSE: u8 = 0xFF;
+/// The mark `snippet()` puts at an end where it cut the note's text short,
+/// chosen as [`FRAGMENT_MATCH_OPEN`] is.
+pub const FRAGMENT_CUT: u8 = 0xFD;
 
 /// The stretch of a note the full-text index chose to show for a match, with
 /// its marks read out ([`FRAGMENT_MATCH_OPEN`], [`FRAGMENT_MATCH_CLOSE`],
@@ -217,9 +180,8 @@ pub const FRAGMENT_CUT: char = '\u{4}';
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkedFragment {
     /// The fragment with every mark removed: a run of the note's text exactly
-    /// as it stands, which is what lets the index find where it sits. A mark
-    /// character the note itself holds inside the fragment is removed with
-    /// the rest, and such a fragment is found nowhere in the note.
+    /// as it stands, control characters included, which is what lets the
+    /// index find where it sits.
     pub text: String,
     /// Matched ranges, as character offsets into [`MarkedFragment::text`], in
     /// order.
@@ -231,17 +193,31 @@ pub struct MarkedFragment {
 }
 
 impl MarkedFragment {
-    /// Reads the marks out of what `snippet()` returned.
-    pub fn read(marked: &str) -> Self {
-        let cut_before = marked.starts_with(FRAGMENT_CUT);
-        let cut_after = marked.len() > FRAGMENT_CUT.len_utf8() && marked.ends_with(FRAGMENT_CUT);
+    /// Reads the marks out of the bytes `snippet()` returned.
+    ///
+    /// The marks are not UTF-8, so `marked` is bytes rather than text. The
+    /// index puts them only between two characters of the note, so every run
+    /// between two marks is UTF-8; a run that is not is read with the
+    /// replacement character, and that fragment is then found nowhere in the
+    /// note.
+    pub fn read(marked: &[u8]) -> Self {
+        let cut_before = marked.first() == Some(&FRAGMENT_CUT);
+        let cut_after = marked.len() > 1 && marked.last() == Some(&FRAGMENT_CUT);
         let mut text = String::with_capacity(marked.len());
         let mut spans = Vec::new();
         let mut open: Option<usize> = None;
         let mut count = 0usize;
-        for ch in marked.chars() {
-            match ch {
-                FRAGMENT_CUT => {}
+        let mut run_start = 0usize;
+        for (at, &byte) in marked.iter().enumerate() {
+            if !matches!(
+                byte,
+                FRAGMENT_MATCH_OPEN | FRAGMENT_MATCH_CLOSE | FRAGMENT_CUT
+            ) {
+                continue;
+            }
+            count += push_run(&mut text, &marked[run_start..at]);
+            run_start = at + 1;
+            match byte {
                 FRAGMENT_MATCH_OPEN => open = Some(count),
                 FRAGMENT_MATCH_CLOSE => {
                     if let Some(start) = open.take() {
@@ -250,12 +226,10 @@ impl MarkedFragment {
                         }
                     }
                 }
-                other => {
-                    text.push(other);
-                    count += 1;
-                }
+                _ => {}
             }
         }
+        push_run(&mut text, &marked[run_start..]);
         Self {
             text,
             spans,
@@ -277,9 +251,8 @@ impl MarkedFragment {
     /// `line` is the 1-based line of the first match, which the index works
     /// out from the note's text. The snippet is the part of the fragment on
     /// that line, windowed to [`SNIPPET_MAX_CHARS`], with an ellipsis wherever
-    /// the line goes on. A fragment with no match falls back as
-    /// [`build_hit`] does: its first non-empty line, then the title, with
-    /// `terms` highlighted and no line number.
+    /// the line goes on. A fragment with no match shows its first non-empty
+    /// line, then the title, with `terms` highlighted and no line number.
     pub fn into_hit(self, title: &str, line: Option<u32>, terms: &[String]) -> SearchHit {
         let chars: Vec<char> = self.text.chars().collect();
         let Some(first) = self.first_match() else {
@@ -324,6 +297,14 @@ impl MarkedFragment {
             path: None,
         }
     }
+}
+
+/// Appends a run of a note's text to `text`, returning how many characters it
+/// added.
+fn push_run(text: &mut String, run: &[u8]) -> usize {
+    let run = String::from_utf8_lossy(run);
+    text.push_str(&run);
+    run.chars().count()
 }
 
 fn segment(chars: &[char], matched: bool) -> SnippetSegment {
@@ -485,82 +466,19 @@ mod tests {
         assert!(search_terms("  ").is_empty());
     }
 
-    #[test]
-    fn build_hit_reports_first_matching_line_and_highlights_term() {
-        let content = "intro line\nthe token lives here\ntrailing";
-        let hit = build_hit("b1", "notes.md", content, &terms("token"));
-        assert_eq!(hit.buffer_id, "b1");
-        assert_eq!(hit.title, "notes.md");
-        assert_eq!(hit.line, Some(2));
-        assert_eq!(snippet_text(&hit), "the token lives here");
-        assert_eq!(matched_text(&hit), vec!["token"]);
-    }
-
-    #[test]
-    fn build_hit_matches_case_insensitively() {
-        let hit = build_hit("b", "t", "A TOKEN here", &terms("token"));
-        assert_eq!(hit.line, Some(1));
-        assert_eq!(matched_text(&hit), vec!["TOKEN"]);
-    }
-
-    #[test]
-    fn build_hit_highlights_each_of_multiple_terms() {
-        let hit = build_hit("b", "t", "rerank the ceiling", &terms("rerank ceiling"));
-        assert_eq!(matched_text(&hit), vec!["rerank", "ceiling"]);
-    }
-
-    #[test]
-    fn build_hit_trims_leading_whitespace_of_the_line() {
-        let hit = build_hit("b", "t", "\t   indented token", &terms("token"));
-        assert_eq!(snippet_text(&hit), "indented token");
-    }
-
-    #[test]
-    fn build_hit_falls_back_to_first_nonempty_line_without_a_match() {
-        // Title matched in FTS but no content line contains the term.
-        let hit = build_hit("b", "report", "\n\nfirst real line\nmore", &terms("report"));
-        assert_eq!(hit.line, None);
-        assert_eq!(snippet_text(&hit), "first real line");
-        assert!(matched_text(&hit).is_empty());
-    }
-
-    #[test]
-    fn build_hit_falls_back_to_title_when_content_is_empty() {
-        let hit = build_hit("b", "the report title", "", &terms("report"));
-        assert_eq!(hit.line, None);
-        assert_eq!(snippet_text(&hit), "the report title");
-        assert_eq!(matched_text(&hit), vec!["report"]);
-    }
-
-    #[test]
-    fn build_hit_windows_a_long_line_around_the_match() {
-        let prefix = "x".repeat(200);
-        let content = format!("{prefix} token tail");
-        let hit = build_hit("b", "t", &content, &terms("token"));
-        let text = snippet_text(&hit);
-        assert!(
-            text.starts_with('…'),
-            "windowed snippet should lead with an ellipsis"
-        );
-        assert!(text.contains("token"));
-        assert!(text.chars().count() <= SNIPPET_MAX_CHARS + 2);
-        assert_eq!(matched_text(&hit), vec!["token"]);
-    }
-
-    #[test]
-    fn build_hit_overlapping_terms_do_not_double_count() {
-        // "tok" and "token" overlap; the merged span highlights "token" once.
-        let hit = build_hit("b", "t", "a token here", &terms("tok token"));
-        assert_eq!(matched_text(&hit), vec!["token"]);
-    }
-
+    /// `marked` with `[`, `]` and `~` standing for the open, close and cut
+    /// marks.
     fn fragment(marked: &str) -> MarkedFragment {
-        MarkedFragment::read(
-            &marked
-                .replace('[', "\u{2}")
-                .replace(']', "\u{3}")
-                .replace('~', "\u{4}"),
-        )
+        let bytes: Vec<u8> = marked
+            .bytes()
+            .map(|byte| match byte {
+                b'[' => FRAGMENT_MATCH_OPEN,
+                b']' => FRAGMENT_MATCH_CLOSE,
+                b'~' => FRAGMENT_CUT,
+                other => other,
+            })
+            .collect();
+        MarkedFragment::read(&bytes)
     }
 
     #[test]
@@ -570,6 +488,30 @@ mod tests {
         assert_eq!(read.spans, vec![(2, 6), (11, 16)]);
         assert_eq!(read.first_match(), Some(2));
         assert!(!read.cut_before && !read.cut_after);
+    }
+
+    #[test]
+    fn a_fragment_keeps_the_control_characters_a_note_holds() {
+        let read = fragment("a \u{2}b\u{3} [c]\u{4} d\u{4}");
+        assert_eq!(read.text, "a \u{2}b\u{3} c\u{4} d\u{4}");
+        assert_eq!(read.spans, vec![(6, 7)]);
+        assert!(!read.cut_before && !read.cut_after);
+    }
+
+    #[test]
+    fn a_fragment_counts_its_offsets_in_characters() {
+        let read = fragment("~é [café] ü~");
+        assert_eq!(read.text, "é café ü");
+        assert_eq!(read.spans, vec![(2, 6)]);
+        assert!(read.cut_before && read.cut_after);
+    }
+
+    #[test]
+    fn a_run_that_is_not_utf8_is_read_with_the_replacement_character() {
+        let read =
+            MarkedFragment::read(&[b'a', 0xC3, FRAGMENT_MATCH_OPEN, b'b', FRAGMENT_MATCH_CLOSE]);
+        assert_eq!(read.text, "a\u{FFFD}b");
+        assert_eq!(read.spans, vec![(2, 3)]);
     }
 
     #[test]
@@ -632,14 +574,39 @@ mod tests {
     }
 
     #[test]
-    fn a_fragment_with_no_match_falls_back_like_build_hit() {
+    fn a_fragment_with_no_match_shows_its_first_line_then_the_title() {
         let hit = fragment("\n\nfirst words\nmore").into_hit("rust.md", None, &terms("rust"));
         assert_eq!(hit.line, None);
         assert_eq!(snippet_text(&hit), "first words");
+        assert!(matched_text(&hit).is_empty());
 
         let hit = fragment("").into_hit("rust notes.md", None, &terms("rust"));
         assert_eq!(snippet_text(&hit), "rust notes.md");
         assert_eq!(matched_text(&hit), vec!["rust"]);
+    }
+
+    #[test]
+    fn a_fragment_with_no_match_highlights_every_term_in_any_case() {
+        let hit = fragment("A TOKEN here").into_hit("t.md", None, &terms("token"));
+        assert_eq!(matched_text(&hit), vec!["TOKEN"]);
+        let hit = fragment("rerank the ceiling").into_hit("t.md", None, &terms("rerank ceiling"));
+        assert_eq!(matched_text(&hit), vec!["rerank", "ceiling"]);
+        // "tok" and "token" overlap; the merged span highlights "token" once.
+        let hit = fragment("a token here").into_hit("t.md", None, &terms("tok token"));
+        assert_eq!(matched_text(&hit), vec!["token"]);
+        let hit = fragment("\t   indented token").into_hit("t.md", None, &terms("token"));
+        assert_eq!(snippet_text(&hit), "indented token");
+    }
+
+    #[test]
+    fn a_fragment_with_no_match_windows_a_long_line_around_a_term() {
+        let content = format!("{} token tail", "x".repeat(200));
+        let hit = fragment(&content).into_hit("t.md", None, &terms("token"));
+        let text = snippet_text(&hit);
+        assert!(text.starts_with('…'), "{text}");
+        assert!(text.contains("token"));
+        assert!(text.chars().count() <= SNIPPET_MAX_CHARS + 2);
+        assert_eq!(matched_text(&hit), vec!["token"]);
     }
 
     #[test]

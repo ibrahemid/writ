@@ -202,7 +202,7 @@ store the MCP server and the `writ` command open keeps up with the app; it still
 writes nothing (ADR-031 rule 1.3).
 
 Every link row carries the folded name it names, `links.name_key` (migration
-044). A note that arrives or leaves can change only the links that name it,
+045). A note that arrives or leaves can change only the links that name it,
 and it finds them through the index on that column; a save of a note the index
 already holds changes no other link. The backlink list reads the links that
 resolved to a note through the index on `links(to_path)` and the ones that name
@@ -210,8 +210,8 @@ it ambiguously through `name_key`. A search result's snippet is the fragment
 the full-text index's own `snippet()` chose, with the matches its tokenizer
 found marked, so a note's text does not leave the index to be shown and a
 match that differs only by an accent is highlighted as well as found. The
-marks are control characters; a note that holds one of them itself has its
-result read from its text, as every result was before.
+marks are bytes UTF-8 never uses, so no character a note holds, a control
+character included, is taken for one.
 
 A complete walk ends by checking every stored link against the names, a batch
 of rows at a time, with the writer taken only for a batch that has something

@@ -1,5 +1,5 @@
 //! What the index records beside its rows: the folded name every link row
-//! carries (migration 044), the version of the set of paths it holds, and the
+//! carries (migration 045), the version of the set of paths it holds, and the
 //! census a complete walk leaves for the next one.
 
 use std::collections::{HashMap, HashSet};
@@ -23,7 +23,7 @@ pub(crate) fn link_name_key(to_target: &str) -> String {
 }
 
 /// Fills `links.name_key` for every row that has none, which is every row a
-/// database held when migration 044 added the column. Returns the rows filled.
+/// database held when migration 045 added the column. Returns the rows filled.
 ///
 /// Runs inside the migration's own transaction, so the column and its values
 /// arrive together: a launch that stops halfway leaves the migration

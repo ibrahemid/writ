@@ -10,9 +10,9 @@ fn setup_temp_db() -> (TempDir, rusqlite::Connection) {
     (dir, conn)
 }
 
-/// Takes back what migration 044 added, leaving `links` in the shape a release
+/// Takes back what migration 045 added, leaving `links` in the shape a release
 /// before it wrote. The stamp is the caller's to remove.
-fn roll_back_044(conn: &rusqlite::Connection) {
+fn roll_back_045(conn: &rusqlite::Connection) {
     conn.execute_batch(
         "DROP INDEX idx_links_name_key;
          ALTER TABLE links DROP COLUMN name_key;",
@@ -220,7 +220,7 @@ fn the_schema_migrations_are_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 44);
+    assert_eq!(max_version, 45);
 }
 
 #[test]
@@ -267,7 +267,7 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
     // recorded, which the column's default has to answer for.
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
-    roll_back_044(&conn);
+    roll_back_045(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 43", [])
         .expect("failed to roll the stamp back");
     conn.execute(
@@ -303,7 +303,7 @@ fn a_database_at_041_gains_the_column_with_its_rows_intact() {
         .expect("failed to drop the column");
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
-    roll_back_044(&conn);
+    roll_back_045(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 42", [])
         .expect("failed to roll the stamp back");
     conn.execute(
@@ -434,7 +434,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 44);
+    assert_eq!(max_version, 45);
 }
 
 /// Column names of the `buffers` table.
@@ -503,8 +503,8 @@ fn a_database_at_043_gains_the_name_key_of_every_stored_link() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
-    roll_back_044(&conn);
-    conn.execute("DELETE FROM schema_version WHERE version = 44", [])
+    roll_back_045(&conn);
+    conn.execute("DELETE FROM schema_version WHERE version >= 44", [])
         .expect("failed to roll the stamp back");
     conn.execute(
         "INSERT INTO files (path, size, mtime, hash, indexed_at)
@@ -523,7 +523,7 @@ fn a_database_at_043_gains_the_name_key_of_every_stored_link() {
         .expect("failed to insert link row");
     }
 
-    run_migrations(&conn).expect("migration to 044 failed");
+    run_migrations(&conn).expect("migration to 045 failed");
 
     let keys: Vec<(String, Option<String>)> = {
         let mut stmt = conn
@@ -563,7 +563,7 @@ fn a_database_at_043_that_lost_its_links_table_still_migrates() {
 
     conn.execute("DROP TABLE links", [])
         .expect("failed to drop the table");
-    conn.execute("DELETE FROM schema_version WHERE version = 44", [])
+    conn.execute("DELETE FROM schema_version WHERE version >= 44", [])
         .expect("failed to roll the stamp back");
 
     run_migrations(&conn).expect("a lost derived table must not stop the launch");
@@ -581,4 +581,85 @@ fn a_database_at_043_that_lost_its_links_table_still_migrates() {
         columns.contains(&"name_key".to_string()),
         "the repair puts links back with the name key: {columns:?}"
     );
+}
+
+/// A database a build stamped at 044 still gains the name key: 045 is applied
+/// after whatever 044 did, and does not depend on 044 being absent.
+#[test]
+fn a_database_at_044_gains_the_name_key_of_every_stored_link() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    roll_back_045(&conn);
+    conn.execute("DELETE FROM schema_version WHERE version >= 45", [])
+        .expect("failed to roll the stamp back");
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_version (version, applied_at)
+         VALUES (44, datetime('now'))",
+        [],
+    )
+    .expect("failed to stamp 044");
+    conn.execute(
+        "INSERT INTO files (path, size, mtime, hash, indexed_at)
+         VALUES ('/notes/From.md', 1, 1, NULL, '2026-10-13T00:00:00Z')",
+        [],
+    )
+    .expect("failed to insert file row");
+    conn.execute(
+        "INSERT INTO links (from_path, to_target, to_path, kind, line, col)
+         VALUES ('/notes/From.md', 'Weekly Review', NULL, 'wikilink', 1, 0)",
+        [],
+    )
+    .expect("failed to insert link row");
+
+    run_migrations(&conn).expect("migration to 045 failed");
+
+    let key: Option<String> = conn
+        .query_row("SELECT name_key FROM links", [], |row| row.get(0))
+        .expect("failed to read the key");
+    assert_eq!(key.as_deref(), Some("weekly review"));
+    let max_version: i32 = conn
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get(0)
+        })
+        .expect("failed to read max version");
+    assert_eq!(max_version, 45);
+}
+
+/// A database stamped below 045 whose `links` already carries the name key,
+/// such as one a build that numbered the column differently wrote, or one
+/// whose stamp alone was rolled back, still migrates: 045 fills the keys
+/// rather than adding the column a second time.
+#[test]
+fn a_database_whose_links_already_carry_the_name_key_still_migrates() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    conn.execute("DELETE FROM schema_version WHERE version >= 44", [])
+        .expect("failed to roll the stamp back");
+    conn.execute(
+        "INSERT INTO files (path, size, mtime, hash, indexed_at)
+         VALUES ('/notes/From.md', 1, 1, NULL, '2026-10-13T00:00:00Z')",
+        [],
+    )
+    .expect("failed to insert file row");
+    conn.execute(
+        "INSERT INTO links (from_path, to_target, to_path, kind, line, col, name_key)
+         VALUES ('/notes/From.md', 'Weekly Review', NULL, 'wikilink', 1, 0, NULL)",
+        [],
+    )
+    .expect("failed to insert link row");
+
+    run_migrations(&conn).expect("migration to 045 failed");
+
+    let key: Option<String> = conn
+        .query_row("SELECT name_key FROM links", [], |row| row.get(0))
+        .expect("failed to read the key");
+    assert_eq!(key.as_deref(), Some("weekly review"));
+    let max_version: i32 = conn
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get(0)
+        })
+        .expect("failed to read max version");
+    assert_eq!(max_version, 45);
 }

@@ -13,7 +13,7 @@
 //!
 //! The parts:
 //!
-//! - `schema`: the folded name every link row carries (migration 044), and the
+//! - `schema`: the folded name every link row carries (migration 045), and the
 //!   census a complete walk records.
 //! - `upsert`: the writes, one file per transaction.
 //! - `reconcile`: the walk.

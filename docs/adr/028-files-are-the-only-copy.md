@@ -8,7 +8,7 @@ Accepted, 2026-08-28. Supersedes [ADR-004](./004-sqlite-over-flat-files.md). Shi
 
 [ADR-020](./020-deferred-fts-reindex.md) and [ADR-024](./024-inbox-arrival-snapshot.md) stay in force. Section 12 records what each means after this change.
 
-Amended 2026-10-13: section 7 names the files the walk reads, measures the indexing budget as the slowest command issued during a walk rather than a percentile, and holds the folder graph to its own budget.
+Amended 2026-10-13: section 7 names the files the walk reads, lists the notes folder opened as the workspace by the same rule, measures the indexing budget as the slowest command issued during a walk rather than a percentile, and holds the folder graph to its own budget.
 
 ## Context
 
@@ -241,7 +241,9 @@ notes, and no `.gitignore`, the person's global one included, hides a note. Befo
 shared the code-workspace walk's ignores, so `Writ/vendor/Acme.md` was missing from search,
 backlinks and the graph, and `[[Acme]]` offered to create a duplicate. The notes watcher and the
 listing a connected program reads ask the same question the walk does. A folder opened as a
-workspace keeps the code-workspace list in its tree and its file search.
+workspace keeps the code-workspace list in its file search, and in its tree unless it is the notes
+folder itself: the notes folder's tree lists, and its watcher reports changes to, what the walk
+reads.
 
 Indexing does not block the UI. With a full reindex of 5,000 notes running, quick open, `[[`
 completion, search, backlinks, a link's resolution and Cmd+N's writes (the file, its row and the

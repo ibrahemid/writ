@@ -1200,7 +1200,7 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Brings the notes index and the notes watcher to the folder Writ now uses.
+/// Brings the notes index and the watchers to the folder Writ now uses.
 ///
 /// Nothing here can fail the move: the files are already in their new home, so
 /// a failure is logged and left to the walk this spawns. The order matters.
@@ -1235,6 +1235,7 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
         }
         Err(e) => warn!(error = %e, "notes watcher could not follow the folder"),
     }
+    crate::commands::workspace::rewatch_workspace(state);
 
     let index = state.notes_index.clone();
     let cancel = state.notes_index_cancel.clone();

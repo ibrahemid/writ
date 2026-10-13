@@ -14,6 +14,7 @@ use writ_core::watcher::budget::{Emission, EmissionBudget};
 use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_TTL};
 use writ_core::watcher::pending::{hold_window, PendingRemovals};
 use writ_core::watcher::sighting::{FileSighting, LastSeen, DEFAULT_SIGHTING_TTL};
+use writ_core::workspace::WorkspaceKind;
 
 /// The window the notes watcher coalesces a burst of changes into, and what a
 /// removal's wait is measured in
@@ -176,7 +177,8 @@ fn parent_of(path: &Path) -> Result<PathBuf, std::io::Error> {
 }
 
 /// Starts a recursive watcher on the workspace `root`, emitting
-/// [`WritEvent::WorkspaceChanged`] for surfaced paths.
+/// [`WritEvent::WorkspaceChanged`] for the paths the tree of a `kind` folder
+/// shows ([`classify_workspace_event`]).
 ///
 /// Saving a buffer writes the file it was opened from, so Writ's own writes
 /// do land inside a watched workspace. They are not suppressed: the only
@@ -186,6 +188,7 @@ fn parent_of(path: &Path) -> Result<PathBuf, std::io::Error> {
 pub fn start_workspace_watcher(
     bus: Arc<EventBus>,
     root: PathBuf,
+    kind: WorkspaceKind,
 ) -> Result<WatcherHandle, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
@@ -199,7 +202,9 @@ pub fn start_workspace_watcher(
             match result {
                 Ok(events) => {
                     for event in events {
-                        if let Some(domain_event) = classify_workspace_event(&event.path, &root) {
+                        if let Some(domain_event) =
+                            classify_workspace_event(&event.path, &root, kind)
+                        {
                             bus.emit(domain_event);
                         }
                     }
@@ -726,13 +731,17 @@ pub fn classify_notes_event(
 }
 
 /// Classifies a workspace file-system event into a domain event, or
-/// suppresses it when the path is outside `root` or sits under an
-/// ignored directory.
-pub fn classify_workspace_event(path: &Path, root: &Path) -> Option<WritEvent> {
+/// suppresses it when the path is outside `root` or is one the tree of a
+/// `kind` folder does not show ([`WorkspaceKind::hides_change`]).
+pub fn classify_workspace_event(
+    path: &Path,
+    root: &Path,
+    kind: WorkspaceKind,
+) -> Option<WritEvent> {
     if !path.starts_with(root) {
         return None;
     }
-    if writ_core::workspace::path_has_ignored_component(root, path) {
+    if kind.hides_change(root, path) {
         return None;
     }
     Some(WritEvent::WorkspaceChanged {
@@ -1937,7 +1946,7 @@ mod tests {
         let file = dir.path().join("notes.md");
         fs::write(&file, b"x").unwrap();
 
-        match classify_workspace_event(&file, dir.path()) {
+        match classify_workspace_event(&file, dir.path(), WorkspaceKind::Code) {
             Some(WritEvent::WorkspaceChanged { path, removed }) => {
                 assert_eq!(path, file.to_string_lossy());
                 assert!(!removed);
@@ -1946,7 +1955,7 @@ mod tests {
         }
 
         fs::remove_file(&file).unwrap();
-        match classify_workspace_event(&file, dir.path()) {
+        match classify_workspace_event(&file, dir.path(), WorkspaceKind::Code) {
             Some(WritEvent::WorkspaceChanged { removed, .. }) => assert!(removed),
             other => panic!("expected WorkspaceChanged removed, got {:?}", other),
         }
@@ -1957,7 +1966,21 @@ mod tests {
         let dir = tempdir().unwrap();
         let inside = dir.path().join("node_modules").join("pkg").join("a.js");
 
-        assert!(classify_workspace_event(&inside, dir.path()).is_none());
+        assert!(classify_workspace_event(&inside, dir.path(), WorkspaceKind::Code).is_none());
+    }
+
+    #[test]
+    fn the_notes_folder_as_the_workspace_surfaces_a_note_under_vendor() {
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("vendor").join("Acme.md");
+        let kept = dir.path().join(".obsidian").join("app.json");
+
+        assert!(matches!(
+            classify_workspace_event(&note, dir.path(), WorkspaceKind::Notes),
+            Some(WritEvent::WorkspaceChanged { .. })
+        ));
+        assert!(classify_workspace_event(&note, dir.path(), WorkspaceKind::Code).is_none());
+        assert!(classify_workspace_event(&kept, dir.path(), WorkspaceKind::Notes).is_none());
     }
 
     #[test]
@@ -1966,7 +1989,7 @@ mod tests {
         let other = tempdir().unwrap();
         let outside = other.path().join("a.txt");
 
-        assert!(classify_workspace_event(&outside, dir.path()).is_none());
+        assert!(classify_workspace_event(&outside, dir.path(), WorkspaceKind::Code).is_none());
     }
 
     #[test]
