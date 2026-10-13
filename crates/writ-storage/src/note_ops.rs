@@ -24,8 +24,7 @@ use crate::guarded::{
     create_note_guarded, guard_rename, write_note_guarded, ConflictPolicy, CreateNote, DiskRead,
     GuardedWrite, TakenName,
 };
-use crate::notes_index::{indexes_as_note, names_a_note};
-use crate::workspace_search::build_walk;
+use crate::notes_index::{build_notes_walk, indexes_as_note, names_a_note};
 
 /// Creates an empty note file in `notes_root`, named from `stem` and
 /// `extension`.
@@ -196,13 +195,13 @@ pub enum LinkRewrite {
 /// Every note under `root` a link naming one of `keys` could reach that the
 /// index may not hold.
 ///
-/// The walk is the index's own ([`build_walk`]) under the index's own file
-/// test ([`indexes_as_note`]), so the two agree about what a note is and where
-/// notes are looked for: a folder the index prunes, and anything a
-/// `.gitignore` excludes, is scope somebody chose, and a link into it reaches
-/// a note no other surface in the app resolves either. A file that is not note
-/// text cannot make a name ambiguous — `.git/index` is not a second
-/// `index.md`.
+/// The walk is the index's own ([`build_notes_walk`]) under the index's own
+/// file test ([`indexes_as_note`]), so the two agree about what a note is and
+/// where notes are looked for: a folder the index skips (`.git`, `.obsidian`,
+/// `.trash`, `.stfolder`, `.stversions`) holds nothing a link reaches, and a
+/// note under `vendor/` or one a `.gitignore` names is as much a note here as
+/// it is to the index. A file that is not note text cannot make a name
+/// ambiguous — `.git/index` is not a second `index.md`.
 ///
 /// Two gates the index applies are left out, both because they hide a note
 /// that is plainly in the folder under the name a link writes. Size: a note
@@ -219,7 +218,7 @@ pub enum LinkRewrite {
 /// `keys` are folded name keys ([`links::candidate_name_keys`]).
 pub fn files_named(root: &Path, keys: &[String]) -> Vec<PathBuf> {
     let mut found = Vec::new();
-    for entry in build_walk(root).build().flatten() {
+    for entry in build_notes_walk(root).build().flatten() {
         let path = entry.path();
         let Some(kind) = entry.file_type() else {
             continue;

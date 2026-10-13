@@ -1,12 +1,11 @@
-//! Pure file helpers: classification, language detection, filename extraction,
-//! and hex-dump generation.
+//! Pure file helpers: the open tiers and their classification, launch
+//! argument paths, filename extraction, and hex-dump generation.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use crate::errors::{WritError, WritResult};
-use crate::notes::extensions::{is_markdown_extension, is_text_extension};
 
 /// Files up to this size get the full feature set.
 pub const THRESHOLD_NORMAL_BYTES: u64 = 5 * 1024 * 1024;
@@ -29,11 +28,19 @@ pub const HEX_DUMP_MAX_BYTES: usize = 10 * 1024 * 1024;
 /// The autosave debounce in milliseconds for large-file buffers.
 pub const LARGE_FILE_AUTOSAVE_DEBOUNCE_MS: u64 = 2000;
 
+/// The code a [`FileOpenMode::Refused`] reason leads with when the file is
+/// over [`THRESHOLD_MAX_BYTES`].
+///
+/// The code is the contract, as with the read and save codes: the frontend
+/// words the refusal from it and the open answer's `size_bytes`, and the text
+/// after the code is for logs.
+pub const ERR_OPEN_TOO_LARGE: &str = "ERR_OPEN_TOO_LARGE";
+
 /// How the file should be opened, determined by size and binary content.
 ///
 /// Returned by [`classify_file`] and [`classify_path`]. The frontend uses
 /// this to configure the editor mode and, for [`FileOpenMode::LargeFileConfirm`],
-/// to gate opening behind a user confirmation dialog.
+/// to ask before anything reads the file.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind")]
 pub enum FileOpenMode {
@@ -42,15 +49,22 @@ pub enum FileOpenMode {
     /// Syntax, typography, and line-wrap disabled. Not FTS-indexed.
     /// `(THRESHOLD_NORMAL_BYTES, THRESHOLD_LARGE_BYTES]`.
     LargeFile,
-    /// Same restrictions as [`FileOpenMode::LargeFile`] but the frontend
-    /// must confirm before loading. `(THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES]`.
+    /// Same restrictions as [`FileOpenMode::LargeFile`], asked about before
+    /// anything reads the file. `(THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES]`.
+    ///
+    /// An open answers with this mode, the size and no row; the frontend
+    /// states the size, and the read happens only through the confirmed open.
+    /// A file of this size that is open is [`FileOpenMode::LargeFile`]
+    /// ([`FileOpenMode::once_open`]).
     LargeFileConfirm,
     /// NUL byte found in first [`BINARY_CHECK_BYTES`]. Opens as read-only
     /// hex dump. Never FTS-indexed, never journaled, never saved back.
     Binary,
-    /// File exceeds [`THRESHOLD_MAX_BYTES`]. Refused with a message.
+    /// File exceeds [`THRESHOLD_MAX_BYTES`]. Nothing is read and no row is
+    /// made.
     Refused {
-        /// Human-readable reason for the refusal.
+        /// Why, as a code followed by text for logs
+        /// ([`ERR_OPEN_TOO_LARGE`]).
         reason: String,
     },
     /// The file is a sync placeholder: its bytes are not on this machine.
@@ -66,6 +80,20 @@ pub enum FileOpenMode {
         /// The sync provider's name as the user knows it, when it is known.
         provider: Option<String>,
     },
+}
+
+impl FileOpenMode {
+    /// The mode a file is shown in once it is open.
+    ///
+    /// The confirm tier is a question asked before the read, so a file of that
+    /// size that has been opened is a large file. Every other mode is already
+    /// what an open file is shown as.
+    pub fn once_open(self) -> FileOpenMode {
+        match self {
+            FileOpenMode::LargeFileConfirm => FileOpenMode::LargeFile,
+            other => other,
+        }
+    }
 }
 
 /// The result of classifying a path without reading its full content.
@@ -103,13 +131,7 @@ pub fn classify_path(path: &Path) -> WritResult<FileClassification> {
 
     if size_bytes > THRESHOLD_MAX_BYTES {
         return Ok(FileClassification {
-            mode: FileOpenMode::Refused {
-                reason: format!(
-                    "file is {} — files larger than {} cannot be opened safely",
-                    format_bytes(size_bytes),
-                    format_bytes(THRESHOLD_MAX_BYTES),
-                ),
-            },
+            mode: classify_size(size_bytes, false),
             size_bytes,
         });
     }
@@ -136,6 +158,22 @@ pub fn classify_file(size_bytes: u64, is_binary: bool) -> FileOpenMode {
     } else {
         FileOpenMode::LargeFileConfirm
     }
+}
+
+/// [`classify_file`] with the refusal [`classify_path`] gives a file over
+/// [`THRESHOLD_MAX_BYTES`], for a size known without reading the file: a stat,
+/// or the size a row recorded.
+pub fn classify_size(size_bytes: u64, is_binary: bool) -> FileOpenMode {
+    if size_bytes > THRESHOLD_MAX_BYTES {
+        return FileOpenMode::Refused {
+            reason: format!(
+                "{ERR_OPEN_TOO_LARGE}: {} is over the {} limit",
+                format_bytes(size_bytes),
+                format_bytes(THRESHOLD_MAX_BYTES),
+            ),
+        };
+    }
+    classify_file(size_bytes, is_binary)
 }
 
 /// Returns `true` when the first [`BINARY_CHECK_BYTES`] of `path` contain a
@@ -231,69 +269,6 @@ pub fn generate_hex_dump(data: &[u8], total_bytes: usize) -> String {
     }
 
     out
-}
-
-/// Infers a language identifier from a file path's extension.
-///
-/// Returns a lowercase language tag (for example `"rust"`) suitable for
-/// passing to CodeMirror, or `None` if the extension is unknown.
-pub fn detect_language_from_path(path: &Path) -> Option<String> {
-    let ext = path.extension()?.to_str()?.to_lowercase();
-    match ext.as_str() {
-        "rs" => Some("rust"),
-        "js" => Some("javascript"),
-        "jsx" => Some("javascript"),
-        "ts" => Some("typescript"),
-        "tsx" => Some("typescript"),
-        "py" => Some("python"),
-        "rb" => Some("ruby"),
-        "go" => Some("go"),
-        "java" => Some("java"),
-        "kt" => Some("kotlin"),
-        "kts" => Some("kotlin"),
-        "swift" => Some("swift"),
-        "c" => Some("c"),
-        "h" => Some("c"),
-        "cpp" | "cc" | "cxx" => Some("cpp"),
-        "hpp" | "hxx" => Some("cpp"),
-        "cs" => Some("csharp"),
-        "php" => Some("php"),
-        "html" | "htm" => Some("html"),
-        "css" => Some("css"),
-        "scss" => Some("scss"),
-        "less" => Some("less"),
-        "json" => Some("json"),
-        "xml" => Some("xml"),
-        "yaml" | "yml" => Some("yaml"),
-        "toml" => Some("toml"),
-        ext if is_markdown_extension(ext) => Some("markdown"),
-        "sql" => Some("sql"),
-        "sh" | "bash" | "zsh" => Some("shell"),
-        "ps1" => Some("powershell"),
-        "r" => Some("r"),
-        "lua" => Some("lua"),
-        "zig" => Some("zig"),
-        "dart" => Some("dart"),
-        "ex" | "exs" => Some("elixir"),
-        "erl" => Some("erlang"),
-        "hs" => Some("haskell"),
-        "ml" | "mli" => Some("ocaml"),
-        "clj" | "cljs" => Some("clojure"),
-        "scala" => Some("scala"),
-        "vue" => Some("vue"),
-        "svelte" => Some("svelte"),
-        "tf" => Some("hcl"),
-        "dockerfile" => Some("dockerfile"),
-        "graphql" | "gql" => Some("graphql"),
-        "proto" => Some("protobuf"),
-        ext if is_text_extension(ext) => Some("plaintext"),
-        "csv" => Some("csv"),
-        "log" => Some("plaintext"),
-        "ini" | "cfg" => Some("ini"),
-        "env" => Some("properties"),
-        _ => None,
-    }
-    .map(String::from)
 }
 
 /// Filters a sequence of process arguments down to the set of file paths

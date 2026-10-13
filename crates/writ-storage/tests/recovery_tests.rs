@@ -667,11 +667,26 @@ fn a_journal_write_puts_its_connection_back_at_the_level_it_had() {
         "the database refused the write"
     );
     assert_eq!(synchronous(&conn), 0, "after a write that failed");
+}
+
+#[test]
+fn an_entry_starts_from_a_note() {
+    let (dir, _store) = setup_store();
+    let conn = second_connection(&dir);
+    let journal = UnsavedJournal::new(&conn);
+
+    let refused = journal.record("no-such-note", None, "typed", Utc::now());
+
     assert!(
-        journal
-            .record("no-such-note", None, "typed", Utc::now())
-            .is_err(),
-        "an entry starts from a note"
+        matches!(
+            refused,
+            Err(StorageError::Database(rusqlite::Error::QueryReturnedNoRows))
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        !journal.holds("no-such-note").expect("asked"),
+        "nothing was written for a note with no row"
     );
 }
 

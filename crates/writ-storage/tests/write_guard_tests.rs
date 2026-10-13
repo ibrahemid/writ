@@ -5,6 +5,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::file_ops::THRESHOLD_LARGE_BYTES;
 use writ_core::hash::{sha256_bytes, sha256_hex};
 use writ_core::notes::guard::{DiskState, SF_DATALESS};
 use writ_storage::buffer_store::{BufferStore, RecoveredText};
@@ -464,6 +465,41 @@ fn an_evicted_file_is_never_read_and_the_snapshot_lands_beside_it() {
             .starts_with("notes (recovered "),
         "{copy:?}"
     );
+}
+
+#[test]
+fn a_file_over_the_size_writ_opens_without_asking_is_not_read_and_the_text_lands_beside_it() {
+    let (_db, store) = setup();
+    let notes = TempDir::new().unwrap();
+    let path = open_recovered_note(&store, &notes, "# A log that kept growing");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(THRESHOLD_LARGE_BYTES + 1)
+        .unwrap();
+
+    let outcome = store
+        .restore_recovered_content("guard-1", "# What the crash was holding", None, None)
+        .expect("a large file is not a failure");
+
+    let RecoveredText::SetAside { on_disk, copy } = outcome else {
+        panic!("expected the text to be set aside, got {outcome:?}");
+    };
+    assert!(
+        on_disk.is_none(),
+        "nothing was read, so nothing can be claimed about the file"
+    );
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().len(),
+        THRESHOLD_LARGE_BYTES + 1,
+        "the file is left as it was"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&copy).unwrap(),
+        "# What the crash was holding"
+    );
+    assert_eq!(recovered_copies(notes.path()).len(), 1);
 }
 
 #[test]

@@ -40,6 +40,15 @@ pub enum WritError {
         reason: String,
     },
 
+    /// A language chosen for a buffer is not one a buffer can record.
+    ///
+    /// Raised by [`crate::buffer::language::validate_language_choice`].
+    #[error("invalid language: {reason}")]
+    InvalidLanguage {
+        /// Human-readable description of why the choice was rejected.
+        reason: String,
+    },
+
     /// An underlying I/O error propagated from `std::io`.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),

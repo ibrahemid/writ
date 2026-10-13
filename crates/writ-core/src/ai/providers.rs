@@ -52,11 +52,11 @@ pub struct ProviderInfo {
     pub models_url: &'static str,
     /// Where a person obtains a key, for the "Get a key" link.
     pub key_page_url: Option<&'static str>,
-    /// The model id shown first among the suggestions, when the provider's
-    /// own list cannot be read. Empty for the local rows, which answer with
-    /// what is installed. Never written to `config.toml`: the model saved for a
-    /// row is the first id of that provider's own list
-    /// (`crate::ai::models::seed_model`).
+    /// The model a row starts from, and the id shown first among the
+    /// suggestions when the provider's own list cannot be read. Written to
+    /// `config.toml` only once the provider's own list holds it
+    /// (`crate::ai::models::seed_model`). Empty for the local rows, whose
+    /// lists are whatever is installed.
     pub default_model: &'static str,
     /// Whether a request needs a key. False for local and for custom.
     pub needs_key: bool,
@@ -64,16 +64,17 @@ pub struct ProviderInfo {
     pub supports_connect: bool,
     /// The loopback port the probe knocks on, for local rows.
     pub probe_port: Option<u16>,
-    /// Model ids offered when the provider's own list cannot be read.
-    /// Suggestions, not an inventory: the account may not carry them, and a
-    /// suggestion is never seeded into the file for that reason. First entry is
-    /// the one shown first. Empty for the rows whose list is whatever the
-    /// runtime or the typed endpoint holds.
+    /// Model ids offered when the provider's own list cannot be read, and the
+    /// ids a row falls back to, in order, when its list lacks
+    /// `default_model`. Suggestions, not an inventory: one is written to the
+    /// file only once the provider's own list holds it. First entry is the one
+    /// shown first. Empty for the rows whose list is whatever the runtime or
+    /// the typed endpoint holds.
     ///
-    /// These are read by hand from each provider's list and go stale when a
-    /// provider retires an id. Refreshed rows carry the date they were read;
-    /// the rest were written for 0.6 and have not been checked against a live
-    /// list since.
+    /// These are read by hand from each provider's documentation or list and
+    /// go stale when a provider retires an id; a stale one costs a row its
+    /// seed, never a failed send, and is corrected here in a release. Each
+    /// hosted row carries the date it was read.
     pub curated_models: &'static [&'static str],
 }
 
@@ -115,11 +116,14 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.anthropic.com",
         models_url: "https://api.anthropic.com/v1/models",
         key_page_url: Some("https://console.anthropic.com/settings/keys"),
-        default_model: "claude-sonnet-5",
+        // Read from the models overview on 2026-10-13. Sonnet first, Haiku
+        // before Opus, so a list that lacks the default falls to the cheaper
+        // model rather than the dearest.
+        default_model: "claude-sonnet-5-5",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"],
+        curated_models: &["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
     },
     ProviderInfo {
         id: "openai",
@@ -129,11 +133,14 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.openai.com/v1",
         models_url: "https://api.openai.com/v1/models",
         key_page_url: Some("https://platform.openai.com/api-keys"),
-        default_model: "gpt-5-mini",
+        // Read from the model catalogue on 2026-10-13: the three featured
+        // models, cheapest first. `gpt-5-mini` is deprecated and leaves the
+        // API on 2026-12-11.
+        default_model: "gpt-6-luna",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["gpt-5-mini", "gpt-5", "gpt-4.1-mini"],
+        curated_models: &["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"],
     },
     ProviderInfo {
         id: "gemini",
@@ -143,11 +150,13 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
         models_url: "https://generativelanguage.googleapis.com/v1beta/models",
         key_page_url: Some("https://aistudio.google.com/apikey"),
-        default_model: "gemini-2.5-flash",
+        // Read from the models page on 2026-10-13, which serves the 2.5 models
+        // only to accounts that already used them.
+        default_model: "gemini-3.8-flash",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["gemini-2.5-flash", "gemini-2.5-flash-lite"],
+        curated_models: &["gemini-3.8-flash", "gemini-3.5-flash-lite"],
     },
     ProviderInfo {
         id: "openrouter",
@@ -157,13 +166,14 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://openrouter.ai/api/v1",
         models_url: "https://openrouter.ai/api/v1/models",
         key_page_url: Some("https://openrouter.ai/settings/keys"),
+        // Each id was in the public list on 2026-10-13.
         default_model: "meta-llama/llama-3.3-70b-instruct",
         needs_key: true,
         supports_connect: true,
         probe_port: None,
         curated_models: &[
             "meta-llama/llama-3.3-70b-instruct",
-            "openai/gpt-5-mini",
+            "openai/gpt-6-luna",
             "google/gemma-4-26b-a4b-it:free",
         ],
     },
@@ -175,11 +185,14 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.groq.com/openai/v1",
         models_url: "https://api.groq.com/openai/v1/models",
         key_page_url: Some("https://console.groq.com/keys"),
-        default_model: "llama-3.3-70b-versatile",
+        // Read from the models and deprecations pages on 2026-10-13. Llama
+        // 3.3 70B and 3.1 8B left the free and developer tiers on 2026-08-16;
+        // these are the replacements the deprecation page names for them.
+        default_model: "openai/gpt-oss-120b",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+        curated_models: &["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
     },
     ProviderInfo {
         id: "deepseek",
@@ -189,10 +202,11 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.deepseek.com",
         models_url: "https://api.deepseek.com/models",
         key_page_url: Some("https://platform.deepseek.com/api_keys"),
-        // Read from the live list on 2026-09-18. `deepseek-chat` and
-        // `deepseek-reasoner` are gone from it; the endpoint still answers a
-        // request for `deepseek-reasoner` as an alias, which is why a stale
-        // suggestion is not a safe thing to write into the file.
+        // Read from the live list on 2026-09-18 and the models page on
+        // 2026-10-13. `deepseek-chat` and `deepseek-reasoner` are gone from
+        // it; the endpoint still answers a request for `deepseek-reasoner` as
+        // an alias, which is why a stale suggestion is not a safe thing to
+        // write into the file.
         default_model: "deepseek-flash",
         needs_key: true,
         supports_connect: false,
@@ -207,6 +221,8 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.mistral.ai/v1",
         models_url: "https://api.mistral.ai/v1/models",
         key_page_url: Some("https://console.mistral.ai/api-keys"),
+        // Read from the model pages on 2026-10-13: the aliases name Mistral
+        // Small 4 and Mistral Large 3.
         default_model: "mistral-small-latest",
         needs_key: true,
         supports_connect: false,
@@ -220,26 +236,37 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         wire: Wire::OpenAi,
         base_url: "https://api.x.ai/v1",
         models_url: "https://api.x.ai/v1/models",
-        key_page_url: Some("https://console.x.ai"),
-        default_model: "grok-4",
+        key_page_url: Some("https://console.x.ai/team/default/api-keys"),
+        // Read from the models page and the retirement guide on 2026-10-13.
+        // `grok-4` was retired on 2026-05-15 and is answered by `grok-4.3`,
+        // the model the guide names in its place; `grok-4.7` is the one the
+        // models page recommends for chat.
+        default_model: "grok-4.3",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["grok-4", "grok-3-mini"],
+        curated_models: &["grok-4.3", "grok-4.7"],
     },
     ProviderInfo {
         id: "together",
         label: "Together",
         group: ProviderGroup::Hosted,
         wire: Wire::OpenAi,
-        base_url: "https://api.together.xyz/v1",
-        models_url: "https://api.together.xyz/v1/models",
-        key_page_url: Some("https://api.together.ai/settings/api-keys"),
-        default_model: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        // The host the API reference and quickstart name on 2026-10-13.
+        base_url: "https://api.together.ai/v1",
+        models_url: "https://api.together.ai/v1/models",
+        key_page_url: Some("https://api.together.ai/settings/projects/~current/api-keys"),
+        // Read from the serverless catalogue on 2026-10-13, which no longer
+        // serves the Llama 3.3 Turbo model this row named.
+        default_model: "openai/gpt-oss-120b",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+        curated_models: &[
+            "openai/gpt-oss-120b",
+            "Qwen/Qwen3.8-Flash",
+            "deepseek-ai/DeepSeek-V4.1-Flash",
+        ],
     },
     ProviderInfo {
         id: "fireworks",
@@ -249,11 +276,17 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         base_url: "https://api.fireworks.ai/inference/v1",
         models_url: "https://api.fireworks.ai/inference/v1/models",
         key_page_url: Some("https://app.fireworks.ai/settings/users/api-keys"),
-        default_model: "accounts/fireworks/models/llama-v3p3-70b-instruct",
+        // Read from the serverless pricing page and the quickstart on
+        // 2026-10-13. Llama 3.3 70B is no longer served serverless; GLM 5.3
+        // Flash is the quickstart's model and the cheaper of these two.
+        default_model: "accounts/fireworks/models/glm-5p3-flash",
         needs_key: true,
         supports_connect: false,
         probe_port: None,
-        curated_models: &["accounts/fireworks/models/llama-v3p3-70b-instruct"],
+        curated_models: &[
+            "accounts/fireworks/models/glm-5p3-flash",
+            "accounts/fireworks/models/gpt-oss-120b",
+        ],
     },
     ProviderInfo {
         id: "custom",
@@ -274,6 +307,102 @@ pub const PROVIDERS: &[ProviderInfo] = &[
 /// The row for an id, or `None` when the id is not one of ours.
 pub fn provider(id: &str) -> Option<&'static ProviderInfo> {
     PROVIDERS.iter().find(|p| p.id == id)
+}
+
+/// The field a request's output ceiling is sent under.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CeilingField {
+    /// `max_tokens`: the Messages API, and every OpenAI-compatible server
+    /// other than OpenAI's own.
+    MaxTokens,
+    /// `max_completion_tokens`: OpenAI, whose reasoning models refuse
+    /// `max_tokens`.
+    MaxCompletionTokens,
+}
+
+impl CeilingField {
+    /// The field name as the body carries it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MaxTokens => "max_tokens",
+            Self::MaxCompletionTokens => "max_completion_tokens",
+        }
+    }
+}
+
+/// How one host wants a request body written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BodyRules {
+    /// The field the output ceiling goes under.
+    pub ceiling: CeilingField,
+    /// Whether a sampling temperature other than the model's own default is
+    /// accepted.
+    pub takes_temperature: bool,
+}
+
+impl Default for BodyRules {
+    fn default() -> Self {
+        Self {
+            ceiling: CeilingField::MaxTokens,
+            takes_temperature: true,
+        }
+    }
+}
+
+/// The hosts that refuse what the others accept, read from their
+/// documentation on 2026-10-13. OpenAI deprecates `max_tokens` and its
+/// reasoning models refuse it, and they refuse any temperature unless their
+/// reasoning is off. Claude 4.7 and later refuse any temperature but their own
+/// on every request. Both answer the refusal with a 400.
+///
+/// Keyed by host rather than by provider row, because a hand-typed endpoint
+/// on one of these hosts reaches the same models.
+const HOST_BODY_RULES: &[(&str, BodyRules)] = &[
+    (
+        OPENAI_API_HOST,
+        BodyRules {
+            ceiling: CeilingField::MaxCompletionTokens,
+            takes_temperature: false,
+        },
+    ),
+    (
+        "api.anthropic.com",
+        BodyRules {
+            ceiling: CeilingField::MaxTokens,
+            takes_temperature: false,
+        },
+    ),
+];
+
+/// OpenAI's API host. Its regional hosts, `eu.api.openai.com` and the others
+/// OpenAI's data residency guide lists (read on 2026-10-13), each put a prefix
+/// on this one and serve the same API, so they take its rules.
+const OPENAI_API_HOST: &str = "api.openai.com";
+
+/// How a request to `host` is written. A host the table does not name takes
+/// the defaults every OpenAI-compatible server reads. A host written with the
+/// root's trailing dot (`api.openai.com.`) is the same host.
+pub fn body_rules(host: &str) -> BodyRules {
+    let host = host.strip_suffix('.').unwrap_or(host);
+    let host = if is_subdomain_of(host, OPENAI_API_HOST) {
+        OPENAI_API_HOST
+    } else {
+        host
+    };
+    HOST_BODY_RULES
+        .iter()
+        .find(|(named, _)| named.eq_ignore_ascii_case(host))
+        .map(|(_, rules)| *rules)
+        .unwrap_or_default()
+}
+
+/// Whether `host` is a subdomain of `parent`, ignoring ASCII case.
+fn is_subdomain_of(host: &str, parent: &str) -> bool {
+    let (host, parent) = (host.as_bytes(), parent.as_bytes());
+    let Some(label_end) = host.len().checked_sub(parent.len() + 1) else {
+        return false;
+    };
+    label_end > 0 && host[label_end] == b'.' && host[label_end + 1..].eq_ignore_ascii_case(parent)
 }
 
 /// Where the model list for a configured provider is fetched from.
@@ -406,7 +535,7 @@ mod tests {
         assert_eq!(provider("ollama").unwrap().curated_models[0], "qwen3:4b");
         assert_eq!(
             provider("groq").unwrap().curated_models,
-            ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+            ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]
         );
         assert_eq!(
             provider("deepseek").unwrap().curated_models,
@@ -429,6 +558,75 @@ mod tests {
                 row.id
             );
         }
+    }
+
+    #[test]
+    fn openai_takes_its_ceiling_under_its_own_name_and_no_temperature() {
+        let openai = body_rules("api.openai.com");
+        assert_eq!(openai.ceiling, CeilingField::MaxCompletionTokens);
+        assert_eq!(openai.ceiling.as_str(), "max_completion_tokens");
+        assert!(!openai.takes_temperature);
+        assert_eq!(body_rules("API.OpenAI.com"), openai);
+    }
+
+    #[test]
+    fn openai_s_regional_hosts_take_its_rules() {
+        // The data residency guide's hosts, read on 2026-10-13: each is a
+        // prefix on api.openai.com and serves the same API.
+        let openai = body_rules("api.openai.com");
+        for region in ["us", "eu", "au", "ca", "jp", "in", "sg", "kr", "gb", "ae"] {
+            let host = format!("{region}.api.openai.com");
+            assert_eq!(body_rules(&host), openai, "{host}");
+        }
+        assert_eq!(body_rules("EU.API.OpenAI.com"), openai);
+        for lookalike in [
+            "api.openai.com.example",
+            "xapi.openai.com",
+            ".api.openai.com",
+            "eu-api.openai.com",
+            "openai.com",
+            "eu.api.anthropic.com",
+        ] {
+            assert_eq!(body_rules(lookalike), BodyRules::default(), "{lookalike}");
+        }
+    }
+
+    #[test]
+    fn a_host_written_with_the_root_s_dot_takes_the_same_rules() {
+        for host in [
+            "api.openai.com",
+            "API.OpenAI.com",
+            "eu.api.openai.com",
+            "api.anthropic.com",
+            "openrouter.ai",
+        ] {
+            assert_eq!(body_rules(&format!("{host}.")), body_rules(host), "{host}.");
+        }
+        for not_a_host in ["api.openai.com..", "."] {
+            assert_eq!(body_rules(not_a_host), BodyRules::default(), "{not_a_host}");
+        }
+    }
+
+    #[test]
+    fn anthropic_takes_max_tokens_and_no_temperature() {
+        let anthropic = body_rules("api.anthropic.com");
+        assert_eq!(anthropic.ceiling.as_str(), "max_tokens");
+        assert!(!anthropic.takes_temperature);
+    }
+
+    #[test]
+    fn every_other_host_takes_the_defaults() {
+        for host in [
+            "localhost",
+            "openrouter.ai",
+            "api.groq.com",
+            "generativelanguage.googleapis.com",
+            "openai.com.example",
+        ] {
+            assert_eq!(body_rules(host), BodyRules::default(), "{host}");
+        }
+        assert_eq!(BodyRules::default().ceiling, CeilingField::MaxTokens);
+        assert!(BodyRules::default().takes_temperature);
     }
 
     #[test]

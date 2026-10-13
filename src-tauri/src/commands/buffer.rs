@@ -193,17 +193,29 @@ pub fn read_failure_message(error: &StorageError) -> String {
 /// The stable code for a failed read.
 ///
 /// `InvalidData` is what `read_to_string` reports for bytes that are not
-/// UTF-8, and nothing else on the read path raises it.
+/// UTF-8, and nothing else on the read path raises it. A file past the size
+/// Writ opens carries the code an open of it answers with
+/// ([`writ_core::file_ops::ERR_OPEN_TOO_LARGE`]); the size the editor states
+/// is on the row, which [`read_buffer_content_inner`] records.
 pub fn read_failure_code(error: &StorageError) -> &'static str {
     match error {
-        StorageError::Io(io) => match io.kind() {
-            std::io::ErrorKind::InvalidData => ERR_READ_NOT_UTF8,
-            std::io::ErrorKind::PermissionDenied => ERR_READ_PERMISSION_DENIED,
-            std::io::ErrorKind::ResourceBusy => ERR_READ_FILE_IN_USE,
-            std::io::ErrorKind::NotFound => ERR_READ_FILE_MISSING,
-            std::io::ErrorKind::TimedOut => ERR_READ_TIMED_OUT,
-            _ => ERR_READ_FAILED,
-        },
+        StorageError::Io(io) => io_read_failure_code(io.kind()),
+        StorageError::FileTooLarge { .. } => writ_core::file_ops::ERR_OPEN_TOO_LARGE,
+        _ => ERR_READ_FAILED,
+    }
+}
+
+/// The stable code for a read the filesystem failed, by the kind of failure.
+///
+/// Shared by the editor's read and the open's: both read the same file, so a
+/// person is told the same thing about it from either.
+pub fn io_read_failure_code(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::InvalidData => ERR_READ_NOT_UTF8,
+        std::io::ErrorKind::PermissionDenied => ERR_READ_PERMISSION_DENIED,
+        std::io::ErrorKind::ResourceBusy => ERR_READ_FILE_IN_USE,
+        std::io::ErrorKind::NotFound => ERR_READ_FILE_MISSING,
+        std::io::ErrorKind::TimedOut => ERR_READ_TIMED_OUT,
         _ => ERR_READ_FAILED,
     }
 }
@@ -304,7 +316,7 @@ pub fn save_buffer_content_inner(
     id: &str,
     content: &str,
 ) -> Result<Option<String>, String> {
-    write_note_source(state, id, content, RemovedFile::Refuse)
+    write_note_source(state, id, content, RemovedFile::Refuse).map_err(|refused| refused.message)
 }
 
 /// What a write does about a note whose file was deleted outside Writ.
@@ -369,19 +381,23 @@ impl SaveRefused {
 /// Every way out of it reaches the journal, which is why the write itself is
 /// one function and this wrapper the only caller: a refusal that returned
 /// early and skipped the journal would be text a crash could lose.
+///
+/// A refusal comes back saying what became of the text, so a caller that
+/// journals its own outcome as well (`Keep mine`, [`answer_external_change`])
+/// records what this write did with it.
 fn write_note_source(
     state: &AppState,
     id: &str,
     content: &str,
     removed: RemovedFile,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, SaveRefused> {
     let written = land_note_source(state, id, content, removed);
     let (landing, minted) = match &written {
         Ok(_) => (SaveLanding::Landed, None),
         Err(refused) => (refused.landing, refused.minted.as_deref()),
     };
     keep_unsaved_text(state, id, content, landing, minted);
-    written.map_err(|refused| refused.message)
+    written
 }
 
 /// Records or clears the unsaved-text journal entry of note `id`'s tab, as the
@@ -668,7 +684,8 @@ pub fn restore_note_file_inner(
     id: &str,
     content: &str,
 ) -> Result<Option<String>, String> {
-    let disk_hash = write_note_source(state, id, content, RemovedFile::WriteBack)?;
+    let disk_hash = write_note_source(state, id, content, RemovedFile::WriteBack)
+        .map_err(|refused| refused.message)?;
     let source_path = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         store.get(id).map_err(|e| e.to_string())?.source_path
@@ -705,11 +722,11 @@ pub fn restore_note_file(
 /// file is one open note, and two tabs on it would each save over the other.
 ///
 /// A file already at `path` was there when the person chose it, and the save
-/// panel asked before replacing it, so it is read first: the guard then
-/// weighs the write against what is there rather than refusing a file Writ
-/// never read, and the text it held is kept as a version like any other a
-/// write replaces. A file whose bytes are not on this machine is not read,
-/// and the guard refuses the write.
+/// panel asked before replacing it. Writ holds no record of that file, so the
+/// guard lets the write through and keeps the text it replaces as a version,
+/// as for any write it lets through against no record
+/// ([`writ_core::notes::guard::decide_save`]). A file whose bytes are not on
+/// this machine is refused by the guard without being read.
 ///
 /// The write is the one every save lands through ([`restore_note_file_inner`]),
 /// so the tab's journal entry clears when it lands and keeps the text when it
@@ -736,11 +753,6 @@ pub fn save_note_to_inner(
             .map_err(|e| format!("{ERR_WRITE_FAILED}: {e}"))?;
     }
     let target = Path::new(path);
-    if !is_not_downloaded(dataless_flags(target)) {
-        if let Ok(bytes) = std::fs::read(target) {
-            state.record_disk_state_bytes(id, target, &bytes);
-        }
-    }
     state.follow_note_path(id, target);
     restore_note_file_inner(state, id, content).inspect_err(|_| {
         let store = recover_poison(state.store.lock(), "commands::buffer::save_note_to_inner");
@@ -748,7 +760,6 @@ pub fn save_note_to_inner(
             Ok(true) => {
                 state.stop_following_note(id);
                 state.forget_source_record(id);
-                state.forget_disk_state(id);
             }
             Ok(false) => {}
             Err(e) => {
@@ -843,15 +854,29 @@ fn spawn_deferred_reindex(app: AppHandle, id: String, first_generation: u64) {
 /// recorded.
 ///
 /// A note with no file yet has nothing on disk to record.
+///
+/// A file past the size Writ opens is measured and not read
+/// ([`BufferStore::read_content`]). The size found goes on the row: the
+/// editor states it from there, and the index, which picks files by the row's
+/// size, leaves the file alone. The record of what the file held does not
+/// move, since nothing was read.
 pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
     let store = state
         .store
         .lock()
         .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?;
     let doc = store.get(id).map_err(|e| read_failure_message(&e))?;
-    let content = store
-        .read_content(id)
-        .map_err(|e| read_failure_message(&e))?;
+    let content = match store.read_content(id) {
+        Ok(content) => content,
+        Err(error) => {
+            if let StorageError::FileTooLarge { size_bytes } = error {
+                if let Err(e) = store.record_size(id, size_bytes) {
+                    tracing::debug!(buffer_id = %id, error = %e, "the measured size was not recorded");
+                }
+            }
+            return Err(read_failure_message(&error));
+        }
+    };
     if let Some(source_path) = doc.source_path.as_deref() {
         let path = Path::new(source_path);
         if doc.read_only {
@@ -1055,7 +1080,8 @@ pub struct ResolveOutcome {
 /// An answer is a write of the tab's text, so it reaches the unsaved-text
 /// journal like a save does ([`keep_unsaved_text`]). Every answer that returns
 /// leaves that text in a file, the note's own or the copy beside it, and
-/// clears the tab's entry; one that fails keeps the text.
+/// clears the tab's entry. One that fails keeps the text, unless its write was
+/// stopped by the guard, which left the text in a copy beside the note.
 pub fn resolve_external_change_inner(
     state: &AppState,
     id: &str,
@@ -1107,7 +1133,7 @@ fn answer_external_change(
         (path, ending)
     };
     let path = Path::new(&source_path);
-    resolve_external_change_at(
+    answer_external_change_at(
         state,
         id,
         path,
@@ -1116,7 +1142,6 @@ fn answer_external_change(
         choice,
         content,
     )
-    .map_err(SaveRefused::not_landed)
 }
 
 /// [`resolve_external_change_inner`] once the file's path and flags are known.
@@ -1134,26 +1159,51 @@ pub fn resolve_external_change_at(
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, String> {
+    answer_external_change_at(state, id, path, st_flags, line_ending, choice, content)
+        .map_err(|refused| refused.message)
+}
+
+/// [`resolve_external_change_at`]'s answer, saying what became of the tab's
+/// text when there was none.
+///
+/// `Keep mine` writes through [`write_note_source`], and that write's refusal
+/// comes back as it is: a write the guard stopped left the text in a copy
+/// beside the note, and journaling it again would put a second copy there at
+/// the next launch.
+fn answer_external_change_at(
+    state: &AppState,
+    id: &str,
+    path: &Path,
+    st_flags: Option<u32>,
+    line_ending: LineEnding,
+    choice: ChangeChoice,
+    content: &str,
+) -> Result<ResolveOutcome, SaveRefused> {
     if is_not_downloaded(st_flags) {
-        return Err(format!(
+        return Err(SaveRefused::not_landed(format!(
             "{ERR_FILE_NOT_DOWNLOADED}: {} has not been downloaded",
             path.display()
-        ));
+        )));
     }
-    crate::commands::file::authorize_source_write(state, &path.to_string_lossy())?;
+    crate::commands::file::authorize_source_write(state, &path.to_string_lossy())
+        .map_err(SaveRefused::not_landed)?;
 
     // One read. Two would let the copy and the text handed to the tab come
     // from different versions of the file, which is the failure this whole
     // unit is about.
     let disk_bytes = std::fs::read(path).map_err(|e| {
-        format!(
+        SaveRefused::not_landed(format!(
             "{}: {} could not be read ({e})",
             io_failure_code(e.kind()),
             path.display()
-        )
+        ))
     })?;
-    let disk_text = String::from_utf8(disk_bytes.clone())
-        .map_err(|_| format!("{ERR_WRITE_FAILED}: {} is not text", path.display()))?;
+    let disk_text = String::from_utf8(disk_bytes.clone()).map_err(|_| {
+        SaveRefused::not_landed(format!(
+            "{ERR_WRITE_FAILED}: {} is not text",
+            path.display()
+        ))
+    })?;
 
     let disk_hash = writ_core::hash::comparison_digest_hex(&disk_bytes);
     let mine_hash = writ_core::hash::comparison_digest_hex(content.as_bytes());
@@ -1190,7 +1240,7 @@ pub fn resolve_external_change_at(
     };
     let stamp = ignore_stamper(state);
     let copy = write_conflict_copy(path, &losing, chrono::Utc::now(), Some(&stamp))
-        .map_err(|e| save_failure_message(&e))?;
+        .map_err(|e| SaveRefused::not_landed(save_failure_message(&e)))?;
     let conflict_copy_path = Some(copy.to_string_lossy().into_owned());
     if outcome.write_conflict_copy_of == Side::Mine {
         recover_poison(
@@ -1206,7 +1256,7 @@ pub fn resolve_external_change_at(
             // has nothing left to protect and the save may land. Recording it
             // is also what makes the record true: Writ has read this file.
             state.record_disk_state_bytes(id, path, &disk_bytes);
-            let written = save_buffer_content_inner(state, id, content)?;
+            let written = write_note_source(state, id, content, RemovedFile::Refuse)?;
             Ok(ResolveOutcome {
                 conflict_copy_path,
                 content: None,
@@ -1315,24 +1365,65 @@ pub fn discard_unsaved_text_inner(state: &AppState, ids: &[String]) -> Result<()
     Ok(())
 }
 
-/// IPC: the tabs the last session left open.
+/// IPC: [`list_active_buffers_inner`].
+#[tauri::command]
+pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
+    list_active_buffers_inner(&state)
+}
+
+/// The tabs the last session left open, each file measured before anything
+/// reads it.
+///
+/// A file can change size while Writ is closed, and the row is where the
+/// editor and the index read its tier from. Each file is measured with a
+/// stat, outside the store's lock and never with a read, and a size that
+/// moved is recorded on the row without the stamp a read leaves.
+/// A path with no file behind it is listed at no size, so nothing waits on the
+/// size it had and its read says at once what became of it. Its row keeps the
+/// size on record: a file that comes back large is still one the reads that
+/// pick files by the row's size leave alone.
 ///
 /// This is also where a restored tab starts being followed. A tab nobody has
 /// brought to the front is the one most likely to be sitting on a file that
 /// moved on, so waiting for the user to click it would leave the whole
 /// restored session unwatched.
-#[tauri::command]
-pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
-    let docs = {
+pub fn list_active_buffers_inner(state: &AppState) -> Result<Vec<BufferDocument>, String> {
+    let mut docs = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         store
             .list_by_status(BufferStatus::Active)
             .map_err(|e| e.to_string())?
     };
+    let mut moved: Vec<(String, u64)> = Vec::new();
+    for doc in docs.iter_mut().filter(|doc| doc.source_path.is_some()) {
+        match measured_size(doc) {
+            Some(size) if size != doc.size_bytes => {
+                doc.size_bytes = size;
+                moved.push((doc.id.clone(), size));
+            }
+            Some(_) => {}
+            None => doc.size_bytes = 0,
+        }
+    }
+    if !moved.is_empty() {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        for (id, size) in moved {
+            if let Err(e) = store.record_size(&id, size) {
+                tracing::debug!(buffer_id = %id, error = %e, "the measured size was not recorded");
+            }
+        }
+    }
     for doc in &docs {
         state.follow_note_file(doc);
     }
     Ok(docs)
+}
+
+/// The size of the file behind `doc`, from a stat: `None` for a note with no
+/// file, and for a path that holds no file.
+pub(crate) fn measured_size(doc: &BufferDocument) -> Option<u64> {
+    let meta = std::fs::metadata(doc.source_path.as_deref()?).ok()?;
+    meta.is_file().then_some(meta.len())
 }
 
 /// Drops the stamp the note's last save left, so a stamp cannot outlive the
@@ -1438,6 +1529,30 @@ pub fn rename_buffer(state: State<'_, AppState>, id: String, title: String) -> R
     store.rename(&id, &title).map_err(|e| e.to_string())
 }
 
+/// Records the language chosen for a buffer with Change Language, or clears
+/// the choice with `None`, and answers the buffer as it now stands.
+pub fn set_buffer_language_inner(
+    state: &AppState,
+    id: &str,
+    language: Option<&str>,
+) -> Result<BufferDocument, String> {
+    writ_core::buffer::language::validate_language_choice(language).map_err(|e| e.to_string())?;
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store
+        .update_language(id, language)
+        .map_err(|e| e.to_string())?;
+    store.get(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_buffer_language(
+    state: State<'_, AppState>,
+    id: String,
+    language: Option<String>,
+) -> Result<BufferDocument, String> {
+    set_buffer_language_inner(&state, &id, language.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1458,6 +1573,12 @@ mod tests {
             (io(ErrorKind::NotFound), ERR_READ_FILE_MISSING),
             (io(ErrorKind::TimedOut), ERR_READ_TIMED_OUT),
             (io(ErrorKind::Interrupted), ERR_READ_FAILED),
+            (
+                StorageError::FileTooLarge {
+                    size_bytes: 600_000_000,
+                },
+                writ_core::file_ops::ERR_OPEN_TOO_LARGE,
+            ),
             (
                 StorageError::Consistency {
                     message: "row and disk disagree".to_string(),

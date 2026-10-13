@@ -74,6 +74,22 @@ pub fn plan_recovery(had_file: bool, file_is_there: bool) -> RecoveryPlan {
     }
 }
 
+/// Whether a relaunch reads a note's file of `size_bytes` to compare it with
+/// the text the journal kept for the note.
+///
+/// A file over the size Writ opens without asking is read only once the person
+/// says Open, and its tab comes up unread until then
+/// ([`crate::file_ops::FileOpenMode::LargeFileConfirm`]). A relaunch that read
+/// it to compare would be that read with nobody asked, so the text goes beside
+/// the file and the file is left unread, as one whose bytes are not on this
+/// machine is.
+pub fn reads_file_to_restore(size_bytes: u64) -> bool {
+    matches!(
+        crate::file_ops::classify_size(size_bytes, false),
+        crate::file_ops::FileOpenMode::Normal | crate::file_ops::FileOpenMode::LargeFile
+    )
+}
+
 /// Where a launch writes journaled text whose note's row has been deleted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OrphanPlan {
@@ -214,6 +230,24 @@ mod tests {
     #[test]
     fn a_note_whose_file_is_still_there_goes_through_the_ordinary_guard() {
         assert_eq!(plan_recovery(true, true), RecoveryPlan::Write);
+    }
+
+    #[test]
+    fn a_file_writ_opens_without_asking_is_read_to_restore() {
+        assert!(reads_file_to_restore(0));
+        assert!(reads_file_to_restore(
+            crate::file_ops::THRESHOLD_LARGE_BYTES
+        ));
+    }
+
+    #[test]
+    fn a_file_over_the_size_writ_opens_without_asking_is_left_unread() {
+        assert!(!reads_file_to_restore(
+            crate::file_ops::THRESHOLD_LARGE_BYTES + 1
+        ));
+        assert!(!reads_file_to_restore(
+            crate::file_ops::THRESHOLD_MAX_BYTES + 1
+        ));
     }
 
     #[test]

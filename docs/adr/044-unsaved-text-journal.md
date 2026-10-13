@@ -155,7 +155,9 @@ beside it. Each entry takes the path a snapshot entry took:
   the file in the notes folder again.
 - `restore_recovered_content` writes the text only into a path with no file, or into a file that
   already holds it. Any other file is left as it is and the text is written beside it as
-  `<stem> (recovered YYYY-MM-DD HH.MM.SS)`.
+  `<stem> (recovered YYYY-MM-DD HH.MM.SS)`. A file whose bytes are not on this machine, or one
+  over the size Writ opens without asking, is not read: the text goes beside it, and nothing reads
+  the file before the person opens it (`writ_core::recovery::reads_file_to_restore`, ADR-019).
 
 The destination is the file the note's row names at the launch, not the journal's `path`, so a
 note moved since its save failed keeps its new name. The text goes back with the note's own line
@@ -232,8 +234,9 @@ Once no row holds text, the pass does nothing.
   window after a save of one of its files holds the store until the read returns.
 - `writ.db` holds note text only in the journal, for text no file holds (§1), and in any 0.5
   snapshot row that could not be decoded, which §7 keeps exactly as it is.
-- The launch reads the file of each note the journal holds text for. If that file is on a share
-  that has stopped answering, the launch waits for it. It already waits there for every note's
+- The launch reads the file of each note the journal holds text for, unless the file is over the
+  size Writ opens without asking (§4). If that file is on a share that has stopped answering, the
+  launch waits for it. It already waits there for every note's
   file, journaled or not: the consistency check asks whether each row's file exists, and each
   row's path is resolved again for the write authority (`src-tauri/src/state.rs`). This record
   leaves that wait as it is. Ending it takes a deadline on the launch's file probes, or the
@@ -249,6 +252,9 @@ Once no row holds text, the pass does nothing.
   large, is written in full at FULL, because a cap would be text the journal loses.
 - Removing a note from history keeps the text it handed over: the next launch writes it to a dated
   copy of its own.
+- A file over the size Writ opens without asking is not read at the launch, so journaled text it
+  already holds is not recognised and is written beside it again as a `(recovered …)` copy. The
+  cost is a duplicate file, in place of a read of a large file nobody chose to open.
 - A row that names a path with nothing at it reads as a note whose file was deleted, so its text
   goes to its tab as removed on disk rather than to a new file. A new note whose first save failed
   under 0.5 is left that way, as is one whose process was killed between minting its path and

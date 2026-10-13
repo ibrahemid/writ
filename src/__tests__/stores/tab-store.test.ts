@@ -46,7 +46,11 @@ vi.mock("../../services/tauri", () => ({
   }),
   discardUnsavedText: vi.fn().mockResolvedValue(undefined),
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
-  restoreBuffer: vi.fn().mockResolvedValue(undefined),
+  restoreBuffer: vi.fn().mockResolvedValue({
+    doc: null,
+    mode: { kind: "Refused", reason: "ERR_OPEN_TOO_LARGE" },
+    size_bytes: 0,
+  }),
   clearHistory: vi.fn().mockResolvedValue(undefined),
   renameBuffer: vi.fn().mockResolvedValue(undefined),
   openFile: vi.fn().mockImplementation((path: string) => {
@@ -393,13 +397,42 @@ describe("tabStore (per-window factory)", () => {
       const doc = await tabs.createTab();
       await tabs.closeTab(doc.id);
 
-      mockedApi.listActiveBuffers.mockResolvedValueOnce([{ ...doc, status: "active" as const }]);
+      const reopened = { ...doc, status: "active" as const };
+      mockedApi.restoreBuffer.mockResolvedValueOnce({
+        doc: reopened,
+        mode: { kind: "Normal" },
+        size_bytes: 0,
+      });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([reopened]);
       mockedApi.listHistory.mockResolvedValueOnce([]);
 
       await tabs.restoreFromHistory(doc.id);
 
       expect(mockedApi.restoreBuffer).toHaveBeenCalledWith(doc.id);
       expect(tabs.activeTabId()).toBe(doc!.id);
+    });
+
+    it("brings forward the tab that has the closed file open", async () => {
+      const tabs = freshTabStore();
+      const closed = await tabs.createTab();
+      await tabs.closeTab(closed.id);
+      const holder = await tabs.createTab();
+      const other = await tabs.createTab();
+      expect(tabs.activeTabId()).toBe(other.id);
+
+      mockedApi.restoreBuffer.mockResolvedValueOnce({
+        doc: holder,
+        mode: { kind: "Normal" },
+        size_bytes: 0,
+      });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([holder, other]);
+      mockedApi.listHistory.mockResolvedValueOnce([{ ...closed, status: "history" }]);
+
+      const shown = await tabs.restoreFromHistory(closed.id);
+
+      expect(shown?.id).toBe(holder.id);
+      expect(tabs.activeTabId()).toBe(holder.id);
+      expect(bufferRegistry.historyList().map((b) => b.id)).toEqual([closed.id]);
     });
   });
 

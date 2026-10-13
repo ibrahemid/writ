@@ -167,6 +167,27 @@ describe("two conversations, one pane", () => {
     expect(mocks.chatStop).toHaveBeenCalledTimes(1);
   });
 
+  // Rust races the request against the stop, so a reply still waiting for its
+  // first byte answers `stopped` at once; the pane settles on that frame and
+  // the next send is not held back.
+  it("a stop while thinking settles the pane and lets the next send go", async () => {
+    await sendInto("c1", "what does it argue");
+    expect(chatStore.status()).toBe("thinking");
+    mocks.chatStop.mockImplementation(async (id: string, request: string) => {
+      chatStore.handleStreamEvent({ conversation_id: id, request_id: request, kind: "stopped" });
+    });
+
+    chatStore.stop();
+    await flush();
+
+    expect(mocks.chatStop).toHaveBeenCalledWith("c1", expect.any(String));
+    expect(chatStore.status()).toBe("stopped");
+
+    await sendInto("c1", "a second question");
+    expect(mocks.chatSend).toHaveBeenCalledTimes(2);
+    expect(chatStore.status()).toBe("thinking");
+  });
+
   it("a frame with a stale request id is dropped", async () => {
     await sendInto("c1", "what does it argue");
 

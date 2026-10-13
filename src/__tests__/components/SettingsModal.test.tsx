@@ -294,7 +294,7 @@ function baseConfig(): WritConfig {
     panel: { open: false, width: 240 },
     chat_panel: { open: false, width: 380 },
     first_run: { hint_dismissed: false },
-    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false, status_bar_counts: false },
+    editor: { font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_editing: true, status_bar: false, status_bar_counts: false },
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
@@ -1366,6 +1366,21 @@ describe("AI section", () => {
     expect(
       (container.querySelector('[data-setting="ai_model_custom"]') as HTMLInputElement).value,
     ).toBe("deepseek-chat-v9");
+  });
+
+  // A list holding none of the row's ids seeds nothing, and the empty model is
+  // named in the list rather than offered as a blank custom id.
+  it("names the empty model in the list when the provider's list seeds none", async () => {
+    mocks.aiListModels.mockResolvedValue(listed("deepseek", ["deepseek-x2", "deepseek-x3"]));
+    const { container } = await openAiSection({ model: "" });
+    const select = container.querySelector('[data-setting="ai_model"]') as HTMLSelectElement;
+    await waitFor(() =>
+      expect([...select.querySelectorAll("option")].map((o) => o.value)).toContain("deepseek-x2"),
+    );
+    expect(select.value).toBe("");
+    expect(select.querySelector("option")!.textContent).toBe("No model");
+    expect(container.querySelector('[data-setting="ai_model_custom"]')).toBeNull();
+    expect(mocks.save).not.toHaveBeenCalled();
   });
 
   it("shows the base URL row only for a custom server", async () => {

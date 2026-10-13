@@ -38,7 +38,11 @@ vi.mock("../../services/tauri", () => ({
   closeBuffer: vi.fn().mockResolvedValue(undefined),
   closeBuffers: vi.fn().mockResolvedValue(undefined),
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
-  restoreBuffer: vi.fn().mockResolvedValue(undefined),
+  restoreBuffer: vi.fn().mockResolvedValue({
+    doc: null,
+    mode: { kind: "Refused", reason: "ERR_OPEN_TOO_LARGE" },
+    size_bytes: 0,
+  }),
   clearHistory: vi.fn().mockResolvedValue(undefined),
   renameBuffer: vi.fn().mockResolvedValue(undefined),
   openFile: vi.fn(),

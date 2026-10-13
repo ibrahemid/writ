@@ -1,17 +1,19 @@
-//! The OpenRouter connect flow: a one-shot loopback receiver and a key
-//! exchange (ADR-040 section 6).
+//! The OpenRouter connect flow: a loopback receiver and a key exchange
+//! (ADR-040 section 6).
 //!
 //! The pure half lives in [`writ_core::ai::pkce`]. This module is the
 //! mechanism: it reads 48 bytes of entropy, binds a listener on `127.0.0.1`
 //! with an ephemeral port, sends the user's browser to the authorization page
-//! through the opener, accepts exactly one request, and exchanges the code for
-//! a key that is stored the way a typed key is stored.
+//! through the opener, waits for the request that carries this flow's state,
+//! exchanges the code for a key that is stored the way a typed key is stored,
+//! and only then answers the browser with how it went.
 //!
 //! Privacy and lifetime invariants enforced here:
 //! - Writ listens on no port at rest. The listener exists for the duration of
-//!   one flow the user started, accepts one request, and is dropped before that
-//!   request is even read, so nothing can arrive behind it (ADR-031 rule 2.4 as
-//!   amended by ADR-040 section 10).
+//!   one flow the user started, answers every request that is not this flow's
+//!   callback with a 404, and is dropped the moment the callback is read, so
+//!   nothing can arrive behind it (ADR-031 rule 2.4 as amended by ADR-040
+//!   sections 6 and 10).
 //! - The exchange is a request to the configured host, so it waits for Allow
 //!   like every other one. The host is resolved through the same path
 //!   `ai_consent_host` records under, never spelled out here, so the string
@@ -54,8 +56,16 @@ const FLOW_BUDGET: Duration = Duration::from_secs(300);
 /// two non-blocking `accept` attempts.
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-/// How long the accepted socket may take to deliver its request line.
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long one accepted connection may take, in all, to deliver its request
+/// line.
+///
+/// Short, because the next connection waits behind it: a preconnect that sends
+/// nothing, or a client that sends a byte at a time, holds the receiver this
+/// long and no longer.
+const READ_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long an answer to the browser may take to write.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The most of one request that is read. A callback is a few hundred bytes;
 /// anything larger is not one, and reading it would be reading whatever a
@@ -65,12 +75,16 @@ const MAX_REQUEST: usize = 8 * 1024;
 /// The exchange's own budget, shorter than the rewrite client's.
 const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// What the browser is left showing after a callback that checked out.
+/// What the browser is left showing once the key is stored.
 const DONE_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Writ</title></head><body><p>You can close this window and go back to Writ.</p></body></html>";
 
-/// What it is left showing after one that did not. Says nothing about which
-/// rule rejected it.
-const REJECTED_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Writ</title></head><body><p>This link is not valid.</p></body></html>";
+/// What it is left showing when the flow it came back to ended without a key.
+/// Says nothing about which step failed.
+const FAILED_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Writ</title></head><body><p>Connect failed. You can close this window and go back to Writ.</p></body></html>";
+
+/// What any other request to the port is answered, with a 404. Says nothing
+/// about why.
+const NOT_FOUND_PAGE: &str = "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Writ</title></head><body><p>This link is not valid.</p></body></html>";
 
 // --- Flow registration -----------------------------------------------------
 
@@ -144,8 +158,9 @@ fn clear_flow(connect: &ConnectState, cancel: &Arc<AtomicBool>) {
     }
 }
 
-/// Opens and closes one connection to `addr`, so a receiver sitting between two
-/// looks at its cancel flag has something to return from.
+/// Opens and closes one connection to `addr`. The receiver finds the cancel
+/// flag at its next poll, or once the connection it is reading runs out of
+/// time; this one is empty, and is dropped with the listener.
 fn knock(addr: SocketAddr) {
     if let Ok(stream) = TcpStream::connect_timeout(&addr, POLL_INTERVAL * 4) {
         let _ = stream.shutdown(Shutdown::Both);
@@ -164,7 +179,8 @@ enum ConnectError {
     Cancelled,
     /// The browser never came back.
     TimedOut,
-    /// The callback was not this flow's, or the socket could not be worked.
+    /// The browser came back to this flow without a code, or the socket could
+    /// not be worked.
     ///
     /// The contract's sentence for this one used a word ADR-028 §10 retires
     /// from user-visible messages, which `user_facing_strings_tests` fails on.
@@ -211,88 +227,141 @@ enum ExchangeError {
 
 // --- The receiver ----------------------------------------------------------
 
-/// Waits for the one callback this flow is expecting and answers it.
+/// The browser's callback, read and not yet answered.
+struct Callback {
+    /// The authorization code it carried.
+    code: String,
+    /// The browser's socket, left open so the page it is shown can say how the
+    /// exchange went.
+    browser: TcpStream,
+}
+
+/// Waits for the request that carries this flow's state.
 ///
 /// Blocking, so it runs on a blocking thread. The listener is polled rather
 /// than blocked on, so the cancel flag and the deadline are looked at between
-/// attempts; it is dropped the moment a connection is accepted, which is what
-/// makes the receiver one-shot and leaves no port behind.
+/// attempts. Connections are served one at a time, each within
+/// [`READ_TIMEOUT`] in all and never past the deadline: however slowly a
+/// client sends, a cancel is acted on within that time and the deadline when
+/// it passes. One that is not this flow's callback is answered 404 while the
+/// wait goes on, so a preconnect, a knock on the port or a stale link cannot
+/// end the flow. The listener is dropped as soon as the callback is read or
+/// the wait ends, which leaves no port behind.
 fn await_callback(
     listener: TcpListener,
     expected_state: &str,
     cancel: Arc<AtomicBool>,
     deadline: Instant,
-) -> Result<String, ConnectError> {
+) -> Result<Callback, ConnectError> {
     // A socket that cannot be polled is a flow that cannot be stopped, so it
     // is not started.
     listener
         .set_nonblocking(true)
         .map_err(|_| ConnectError::Refused)?;
 
-    let mut stream = loop {
+    loop {
         if cancel.load(Ordering::SeqCst) {
             return Err(ConnectError::Cancelled);
         }
         if Instant::now() >= deadline {
             return Err(ConnectError::TimedOut);
         }
-        match listener.accept() {
-            Ok((stream, _)) => break stream,
+        let mut stream = match listener.accept() {
+            Ok((stream, _)) => stream,
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
                 std::thread::sleep(POLL_INTERVAL);
+                continue;
+            }
+            // A client that went away between its connect and the accept
+            // takes nothing from the flow.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::ConnectionAborted
+                        | ErrorKind::ConnectionReset
+                        | ErrorKind::Interrupted
+                ) =>
+            {
+                continue
             }
             Err(_) => return Err(ConnectError::Refused),
+        };
+        // The accepted socket inherits the listener's non-blocking flag on the
+        // BSD sockets macOS uses, and a read on it would answer at once with
+        // nothing.
+        if stream.set_nonblocking(false).is_err() {
+            continue;
         }
-    };
-    // One request and no port. Everything still in the backlog is reset here,
-    // and a second browser window reaches nothing.
-    drop(listener);
+        let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
 
-    // The accepted socket inherits the listener's non-blocking flag on the BSD
-    // sockets macOS uses, and a read on it would answer at once with nothing.
-    stream
-        .set_nonblocking(false)
-        .map_err(|_| ConnectError::Refused)?;
-    // A cancel that raced the knock in is a cancel, not a bad callback.
-    if cancel.load(Ordering::SeqCst) {
-        return Err(ConnectError::Cancelled);
-    }
-    let _ = stream.set_read_timeout(Some(READ_TIMEOUT));
-
-    let line = read_request_line(&mut stream);
-    match pkce::parse_callback(&line) {
-        Ok(callback) if pkce::check_state(expected_state, &callback.state) => {
-            respond(&mut stream, "200 OK", DONE_PAGE);
-            Ok(callback.code)
-        }
-        _ => {
-            respond(&mut stream, "400 Bad Request", REJECTED_PAGE);
-            Err(ConnectError::Refused)
+        let until = deadline.min(Instant::now() + READ_TIMEOUT);
+        let line = match read_request_line(&mut stream, until) {
+            Some(line) if !line.is_empty() => line,
+            // A preconnect that never spoke, a knock, or a client too slow to
+            // finish its line, dropped unanswered.
+            _ => continue,
+        };
+        match pkce::parse_callback(&line) {
+            Ok(callback) if pkce::check_state(expected_state, &callback.state) => {
+                return Ok(Callback {
+                    code: callback.code,
+                    browser: stream,
+                });
+            }
+            // This flow's browser came back without a code, which is what a
+            // denial looks like. The flow is over; waiting out the deadline
+            // would only leave the app waiting with it.
+            Err(pkce::CallbackError::MissingCode)
+                if pkce::callback_state(&line)
+                    .is_some_and(|state| pkce::check_state(expected_state, state)) =>
+            {
+                respond(&mut stream, "200 OK", FAILED_PAGE);
+                return Err(ConnectError::Refused);
+            }
+            _ => respond(&mut stream, "404 Not Found", NOT_FOUND_PAGE),
         }
     }
 }
 
-/// Reads up to [`MAX_REQUEST`] bytes and hands back the first line.
+/// Shows the browser how the flow ended and closes its socket.
+fn answer_browser(mut browser: TcpStream, connected: bool) {
+    let page = if connected { DONE_PAGE } else { FAILED_PAGE };
+    respond(&mut browser, "200 OK", page);
+}
+
+/// Reads up to [`MAX_REQUEST`] bytes and hands back the first line, or `None`
+/// when `until` passes or the socket fails first.
 ///
 /// Stops at the first newline: the request line is the whole message as far as
 /// this receiver is concerned, and the headers behind it are never looked at.
-fn read_request_line(stream: &mut TcpStream) -> String {
+/// The time left is set again before every read, so `until` bounds the
+/// connection as a whole rather than each read: a client that sends a byte at
+/// a time is cut off there like one that sends nothing, and what it sent is
+/// never read as a request.
+fn read_request_line(stream: &mut TcpStream, until: Instant) -> Option<String> {
     let mut buffer = vec![0u8; MAX_REQUEST];
     let mut filled = 0usize;
     while filled < buffer.len() {
+        let left = until.saturating_duration_since(Instant::now());
+        // `set_read_timeout` refuses a zero, and a socket whose bound could not
+        // be set would be read without one.
+        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
+            return None;
+        }
         match stream.read(&mut buffer[filled..]) {
             Ok(0) => break,
             Ok(read) => {
                 filled += read;
-                if buffer[..filled].contains(&b'\n') {
+                if buffer[filled - read..filled].contains(&b'\n') {
                     break;
                 }
             }
-            Err(_) => break,
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(_) => return None,
         }
     }
     let text = String::from_utf8_lossy(&buffer[..filled]);
-    text.lines().next().unwrap_or_default().to_string()
+    Some(text.lines().next().unwrap_or_default().to_string())
 }
 
 /// Writes one static page and closes the socket. A write that fails changes
@@ -423,9 +492,8 @@ pub async fn ai_openrouter_connect(app: AppHandle) -> Result<AiKeyState, String>
     register_flow(&app.state::<ConnectState>(), &cancel, addr);
 
     let url = pkce::auth_url(
-        &format!("http://{addr}/callback"),
+        &pkce::callback_url(addr.port(), &expected_state),
         &pkce::challenge_s256(verifier.as_str()),
-        &expected_state,
     );
     if app.opener().open_url(url, None::<&str>).is_err() {
         // The opener's own error can echo the URL it was handed, and that URL
@@ -446,8 +514,8 @@ pub async fn ai_openrouter_connect(app: AppHandle) -> Result<AiKeyState, String>
     })
     .await;
 
-    let code = match received.unwrap_or(Err(ConnectError::Refused)) {
-        Ok(code) => code,
+    let Callback { code, browser } = match received.unwrap_or(Err(ConnectError::Refused)) {
+        Ok(callback) => callback,
         Err(failure) => {
             clear_flow(&app.state::<ConnectState>(), &cancel);
             tracing::info!(outcome = failure.outcome(), "the connect flow ended");
@@ -456,24 +524,28 @@ pub async fn ai_openrouter_connect(app: AppHandle) -> Result<AiKeyState, String>
     };
 
     let fetched = post_keys(&client, &code, verifier.as_str()).await;
-    let key = match exchange_key(&code, verifier.as_str(), move |_, _| fetched) {
-        Ok(key) => key,
+    let stored = match exchange_key(&code, verifier.as_str(), move |_, _| fetched) {
+        // The same path a typed key takes: the store, the cache invalidation
+        // and the memory fallback are not written twice.
+        Ok(key) => ai::ai_set_api_key(app.state::<AiState>(), PROVIDER.to_string(), key),
         Err(_) => {
-            clear_flow(&app.state::<ConnectState>(), &cancel);
             tracing::info!(
                 outcome = ConnectError::Exchange.outcome(),
                 "the connect flow ended"
             );
-            return Err(ConnectError::Exchange.message());
+            Err(ConnectError::Exchange.message())
         }
     };
-
     clear_flow(&app.state::<ConnectState>(), &cancel);
-    // The same path a typed key takes: the store, the cache invalidation and
-    // the memory fallback are not written twice.
-    let stored = ai::ai_set_api_key(app.state::<AiState>(), PROVIDER.to_string(), key)?;
-    tracing::info!(outcome = "connected", "the connect flow ended");
-    Ok(stored)
+
+    // Every way out from here answers the browser, and only once the outcome
+    // is known, so the page it is left on says what the app says.
+    let connected = stored.is_ok();
+    let _ = tauri::async_runtime::spawn_blocking(move || answer_browser(browser, connected)).await;
+    if connected {
+        tracing::info!(outcome = "connected", "the connect flow ended");
+    }
+    stored
 }
 
 /// IPC: stop the running connect flow. Does nothing when none is running.
@@ -507,13 +579,22 @@ mod tests {
         expected_state: &str,
         cancel: Arc<AtomicBool>,
         deadline: Instant,
-    ) -> std::thread::JoinHandle<Result<String, ConnectError>> {
+    ) -> std::thread::JoinHandle<Result<Callback, ConnectError>> {
         let expected_state = expected_state.to_string();
         std::thread::spawn(move || await_callback(listener, &expected_state, cancel, deadline))
     }
 
-    fn request(code: &str, state: &str) -> String {
-        format!("GET /callback?code={code}&state={state} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+    /// The code the receiver handed back, with the browser answered the way a
+    /// stored key answers it.
+    fn code_of(received: Result<Callback, ConnectError>) -> Result<String, ConnectError> {
+        received.map(|callback| {
+            answer_browser(callback.browser, true);
+            callback.code
+        })
+    }
+
+    fn callback(state: &str, code: &str) -> String {
+        format!("GET /callback/{state}?code={code} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
     }
 
     fn read_answer(stream: &mut TcpStream) -> String {
@@ -527,22 +608,57 @@ mod tests {
         Instant::now() + Duration::from_secs(10)
     }
 
+    /// A client that sends a request a byte at a time, each byte well inside
+    /// [`READ_TIMEOUT`] of the last, and never ends the line. It stops after
+    /// `bytes`, when a write fails, or once `stop` is set, and hands its socket
+    /// back so what it was told can be read.
+    fn trickle(
+        addr: SocketAddr,
+        every: Duration,
+        bytes: usize,
+        stop: Arc<AtomicBool>,
+    ) -> std::thread::JoinHandle<TcpStream> {
+        let mut stream = TcpStream::connect(addr).expect("the slow client connects");
+        std::thread::spawn(move || {
+            let request = b"GET /".iter().chain(std::iter::repeat(&b'a'));
+            for byte in request.take(bytes) {
+                if stop.load(Ordering::SeqCst) || stream.write_all(&[*byte]).is_err() {
+                    break;
+                }
+                std::thread::sleep(every);
+            }
+            stream
+        })
+    }
+
     #[test]
-    fn a_good_callback_answers_the_browser_and_leaves_no_port() {
+    fn a_good_callback_is_answered_after_the_exchange_and_leaves_no_port() {
         let (listener, addr) = bound();
         let cancel = Arc::new(AtomicBool::new(false));
         let waiting = receive(listener, "st4te", Arc::clone(&cancel), soon());
 
         let mut browser = TcpStream::connect(addr).expect("the callback connects");
         browser
-            .write_all(request("c0de", "st4te").as_bytes())
+            .write_all(callback("st4te", "c0de").as_bytes())
             .expect("the callback is sent");
-        let answer = read_answer(&mut browser);
+        let received = waiting
+            .join()
+            .expect("the receiver finishes")
+            .expect("the callback is this flow's");
+        assert_eq!(received.code, "c0de");
 
-        assert_eq!(
-            waiting.join().expect("the receiver finishes"),
-            Ok("c0de".to_string())
+        // Nothing is said to the browser while the exchange runs.
+        browser
+            .set_read_timeout(Some(Duration::from_millis(300)))
+            .expect("a read timeout");
+        let mut early = [0u8; 64];
+        assert!(
+            !matches!(browser.read(&mut early), Ok(read) if read > 0),
+            "the browser was answered before the exchange"
         );
+
+        answer_browser(received.browser, true);
+        let answer = read_answer(&mut browser);
         assert!(answer.starts_with("HTTP/1.1 200 OK"), "answer: {answer}");
         assert!(answer.contains("You can close this window and go back to Writ."));
         assert!(
@@ -552,24 +668,142 @@ mod tests {
     }
 
     #[test]
-    fn a_mismatched_state_is_refused_and_the_browser_is_told() {
+    fn a_failed_exchange_leaves_the_browser_on_the_failure_page() {
+        let (listener, addr) = bound();
+        let waiting = receive(listener, "st4te", Arc::new(AtomicBool::new(false)), soon());
+
+        let mut browser = TcpStream::connect(addr).expect("the callback connects");
+        browser
+            .write_all(callback("st4te", "c0de").as_bytes())
+            .expect("the callback is sent");
+        let received = waiting
+            .join()
+            .expect("the receiver finishes")
+            .expect("the callback is this flow's");
+        answer_browser(received.browser, false);
+
+        let answer = read_answer(&mut browser);
+        assert!(answer.starts_with("HTTP/1.1 200 OK"), "answer: {answer}");
+        assert!(answer.contains("Connect failed."), "answer: {answer}");
+        assert!(!answer.contains("c0de"), "the answer echoed the code");
+    }
+
+    #[test]
+    fn an_empty_first_connection_then_a_valid_callback_succeeds() {
+        let (listener, addr) = bound();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let waiting = receive(listener, "st4te", Arc::clone(&cancel), soon());
+
+        // A browser's preconnect, or a program knocking on the port: it opens
+        // a socket and sends nothing.
+        let knocker = TcpStream::connect(addr).expect("the knock connects");
+        drop(knocker);
+
+        let mut browser = TcpStream::connect(addr).expect("the callback connects");
+        browser
+            .write_all(callback("st4te", "c0de").as_bytes())
+            .expect("the callback is sent");
+
+        assert_eq!(
+            code_of(waiting.join().expect("the receiver finishes")),
+            Ok("c0de".to_string())
+        );
+        let answer = read_answer(&mut browser);
+        assert!(answer.starts_with("HTTP/1.1 200 OK"), "answer: {answer}");
+    }
+
+    #[test]
+    fn a_preconnect_that_stays_silent_holds_the_callback_back_only_briefly() {
+        let (listener, addr) = bound();
+        let waiting = receive(listener, "st4te", Arc::new(AtomicBool::new(false)), soon());
+
+        // Opened first and kept open, so the receiver reads it until its read
+        // timeout while the callback waits behind it.
+        let silent = TcpStream::connect(addr).expect("the preconnect connects");
+        let started = Instant::now();
+        let mut browser = TcpStream::connect(addr).expect("the callback connects");
+        browser
+            .write_all(callback("st4te", "c0de").as_bytes())
+            .expect("the callback is sent");
+
+        assert_eq!(
+            code_of(waiting.join().expect("the receiver finishes")),
+            Ok("c0de".to_string())
+        );
+        assert!(
+            started.elapsed() < READ_TIMEOUT + Duration::from_secs(1),
+            "the callback waited {:?}",
+            started.elapsed()
+        );
+        drop(silent);
+    }
+
+    #[test]
+    fn a_callback_with_the_state_in_its_path_succeeds() {
         let (listener, addr) = bound();
         let cancel = Arc::new(AtomicBool::new(false));
         let waiting = receive(listener, "st4te", Arc::clone(&cancel), soon());
 
         let mut browser = TcpStream::connect(addr).expect("the callback connects");
         browser
-            .write_all(request("c0de", "another").as_bytes())
+            .write_all(b"GET /callback/st4te?code=c0de HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
             .expect("the callback is sent");
-        let answer = read_answer(&mut browser);
 
         assert_eq!(
-            waiting.join().expect("the receiver finishes"),
+            code_of(waiting.join().expect("the receiver finishes")),
+            Ok("c0de".to_string())
+        );
+        let _ = read_answer(&mut browser);
+    }
+
+    #[test]
+    fn a_request_that_is_not_this_flows_is_answered_404_and_the_wait_goes_on() {
+        let (listener, addr) = bound();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let waiting = receive(listener, "st4te", Arc::clone(&cancel), soon());
+
+        for stray in [
+            callback("another", "c0de"),
+            "GET /callback?code=c0de&state=st4te HTTP/1.1\r\n\r\n".to_string(),
+            "GET /favicon.ico HTTP/1.1\r\n\r\n".to_string(),
+        ] {
+            let mut other = TcpStream::connect(addr).expect("the stray connects");
+            other
+                .write_all(stray.as_bytes())
+                .expect("the stray is sent");
+            let answer = read_answer(&mut other);
+            assert!(answer.starts_with("HTTP/1.1 404"), "answer: {answer}");
+            assert!(answer.contains("This link is not valid."));
+            assert!(!answer.contains("c0de"), "the answer echoed the code");
+        }
+        assert!(!waiting.is_finished(), "a stray request ended the flow");
+
+        let mut browser = TcpStream::connect(addr).expect("the callback connects");
+        browser
+            .write_all(callback("st4te", "g00d").as_bytes())
+            .expect("the callback is sent");
+        assert_eq!(
+            code_of(waiting.join().expect("the receiver finishes")),
+            Ok("g00d".to_string())
+        );
+    }
+
+    #[test]
+    fn a_return_to_this_flow_without_a_code_ends_it() {
+        let (listener, addr) = bound();
+        let waiting = receive(listener, "st4te", Arc::new(AtomicBool::new(false)), soon());
+
+        let mut browser = TcpStream::connect(addr).expect("the return connects");
+        browser
+            .write_all(b"GET /callback/st4te?error=access_denied HTTP/1.1\r\n\r\n")
+            .expect("the return is sent");
+
+        assert_eq!(
+            code_of(waiting.join().expect("the receiver finishes")),
             Err(ConnectError::Refused)
         );
-        assert!(answer.starts_with("HTTP/1.1 400"), "answer: {answer}");
-        assert!(answer.contains("This link is not valid."));
-        assert!(!answer.contains("c0de"), "the answer echoed the code");
+        let answer = read_answer(&mut browser);
+        assert!(answer.contains("Connect failed."), "answer: {answer}");
     }
 
     #[test]
@@ -583,7 +817,7 @@ mod tests {
         knock(addr);
 
         assert_eq!(
-            waiting.join().expect("the receiver finishes"),
+            code_of(waiting.join().expect("the receiver finishes")),
             Err(ConnectError::Cancelled)
         );
         assert!(
@@ -600,22 +834,108 @@ mod tests {
             .checked_sub(Duration::from_secs(1))
             .unwrap_or_else(Instant::now);
         let result = await_callback(listener, "st4te", Arc::new(AtomicBool::new(false)), past);
-        assert_eq!(result, Err(ConnectError::TimedOut));
+        assert_eq!(code_of(result), Err(ConnectError::TimedOut));
     }
 
     #[test]
-    fn only_the_first_request_is_accepted() {
+    fn a_client_that_trickles_its_request_is_dropped_within_the_read_budget() {
+        let (listener, addr) = bound();
+        let waiting = receive(listener, "st4te", Arc::new(AtomicBool::new(false)), soon());
+
+        // A byte every 400 ms leaves no single read waiting long, and 25 of
+        // them take ten seconds: a bound on each read would hold the callback
+        // behind it that long.
+        let started = Instant::now();
+        let stop = Arc::new(AtomicBool::new(false));
+        let slow = trickle(addr, Duration::from_millis(400), 25, Arc::clone(&stop));
+        let mut browser = TcpStream::connect(addr).expect("the callback connects");
+        browser
+            .write_all(callback("st4te", "c0de").as_bytes())
+            .expect("the callback is sent");
+
+        let received = code_of(waiting.join().expect("the receiver finishes"));
+        let waited = started.elapsed();
+        stop.store(true, Ordering::SeqCst);
+        let mut slow = slow.join().expect("the slow client finishes");
+        assert_eq!(received, Ok("c0de".to_string()));
+        assert!(
+            waited < READ_TIMEOUT + Duration::from_secs(2),
+            "the callback waited {waited:?} behind a slow client"
+        );
+        let told = read_answer(&mut slow);
+        assert!(told.is_empty(), "the slow client was answered: {told}");
+        let _ = read_answer(&mut browser);
+    }
+
+    #[test]
+    fn a_cancel_while_a_client_trickles_ends_the_flow_and_leaves_no_port() {
+        let (listener, addr) = bound();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let waiting = receive(listener, "st4te", Arc::clone(&cancel), soon());
+        let stop = Arc::new(AtomicBool::new(false));
+        let slow = trickle(addr, Duration::from_millis(400), 25, Arc::clone(&stop));
+
+        // The receiver is reading the slow client when the cancel lands.
+        std::thread::sleep(Duration::from_millis(300));
+        let cancelled = Instant::now();
+        cancel.store(true, Ordering::SeqCst);
+        knock(addr);
+
+        let received = code_of(waiting.join().expect("the receiver finishes"));
+        let took = cancelled.elapsed();
+        stop.store(true, Ordering::SeqCst);
+        let _ = slow.join();
+        assert_eq!(received, Err(ConnectError::Cancelled));
+        assert!(
+            took < READ_TIMEOUT + Duration::from_secs(2),
+            "the cancel took {took:?} behind a slow client"
+        );
+        assert!(
+            TcpStream::connect_timeout(&addr, Duration::from_millis(500)).is_err(),
+            "the port was still open after the cancel"
+        );
+    }
+
+    #[test]
+    fn a_deadline_that_passes_while_a_client_trickles_ends_the_flow_on_time() {
+        let (listener, addr) = bound();
+        let started = Instant::now();
+        let deadline = started + Duration::from_millis(500);
+        let waiting = receive(
+            listener,
+            "st4te",
+            Arc::new(AtomicBool::new(false)),
+            deadline,
+        );
+        let stop = Arc::new(AtomicBool::new(false));
+        let slow = trickle(addr, Duration::from_millis(100), 100, Arc::clone(&stop));
+
+        let received = code_of(waiting.join().expect("the receiver finishes"));
+        let took = started.elapsed();
+        stop.store(true, Ordering::SeqCst);
+        let _ = slow.join();
+        assert_eq!(received, Err(ConnectError::TimedOut));
+        // Short of the two seconds a connection gets: the deadline cut the
+        // slow client off.
+        assert!(
+            took < READ_TIMEOUT,
+            "the flow ended {took:?} after it began"
+        );
+    }
+
+    #[test]
+    fn nothing_is_answered_once_the_callback_is_read() {
         let (listener, addr) = bound();
         let mut first = TcpStream::connect(addr).expect("the first connects");
         let mut second = TcpStream::connect(addr).expect("the second joins the backlog");
         first
-            .write_all(request("one", "st4te").as_bytes())
+            .write_all(callback("st4te", "one").as_bytes())
             .expect("the first callback is sent");
 
         let received = await_callback(listener, "st4te", Arc::new(AtomicBool::new(false)), soon());
-        assert_eq!(received, Ok("one".to_string()));
+        assert_eq!(code_of(received), Ok("one".to_string()));
 
-        let _ = second.write_all(request("two", "st4te").as_bytes());
+        let _ = second.write_all(callback("st4te", "two").as_bytes());
         let answer = read_answer(&mut second);
         assert!(
             answer.is_empty(),

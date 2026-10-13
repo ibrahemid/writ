@@ -496,6 +496,7 @@ pub fn run() {
             commands::buffer::delete_buffer,
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
+            commands::buffer::set_buffer_language,
             commands::notes::new_note,
             commands::notes::todays_note,
             commands::notes::new_note_from_link,
@@ -540,6 +541,7 @@ pub fn run() {
             commands::materialise::cancel_materialise_note,
             commands::history::list_history,
             commands::history::restore_buffer,
+            commands::history::restore_buffer_confirmed,
             commands::history::clear_history,
             commands::history::search_buffers,
             commands::history::search_notes_by_name,
@@ -863,7 +865,12 @@ pub fn run() {
                 if let Some(root) = restored_root {
                     // Build the file-name index for the restored root (ADR-026).
                     workspace_index::spawn_rebuild(state.workspace_index.clone());
-                    match watcher::handler::start_workspace_watcher(state.event_bus.clone(), root) {
+                    let kind = commands::workspace::workspace_kind(&state, &root);
+                    match watcher::handler::start_workspace_watcher(
+                        state.event_bus.clone(),
+                        root,
+                        kind,
+                    ) {
                         Ok(handle) => {
                             let mut slot = recover_poison(
                                 state.workspace_watcher.lock(),

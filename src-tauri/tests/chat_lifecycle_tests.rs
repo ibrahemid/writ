@@ -8,7 +8,7 @@
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier};
+use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
@@ -19,6 +19,7 @@ use writ_tauri_lib::commands::chat::{
     begin_request, chat_delete_inner, prepare_chat, run_reply, stop_live_chats, ChatState,
     LiveGuard, CHAT_SHUTDOWN_BUDGET, REPLY_IN_FLIGHT,
 };
+use writ_tauri_lib::events::WritFrontendEvent;
 
 const C1: &str = "0b7d6b7a-1111-4b6a-9d5e-000000000001";
 const C2: &str = "0b7d6b7a-2222-4b6a-9d5e-000000000002";
@@ -69,10 +70,10 @@ fn stop_with_a_stale_request_id_does_not_cancel_the_newer_request() {
         !state.cancel(C1, Some("r-1")),
         "a stop naming a request that had already ended cancelled the live one"
     );
-    assert!(!cancel.load(Ordering::Relaxed));
+    assert!(!cancel.is_cancelled());
 
     assert!(state.cancel(C1, Some("r-2")));
-    assert!(cancel.load(Ordering::Relaxed));
+    assert!(cancel.is_cancelled());
 }
 
 #[test]
@@ -84,9 +85,9 @@ fn stop_without_an_id_cancels_whatever_is_live() {
     let (second, _second_guard) = begin_request(&state, C2, "r-9").expect("accepted");
 
     assert!(state.cancel(C1, None));
-    assert!(first.load(Ordering::Relaxed));
+    assert!(first.is_cancelled());
     assert!(
-        !second.load(Ordering::Relaxed),
+        !second.is_cancelled(),
         "a stop reached a conversation nobody named"
     );
     assert!(
@@ -129,7 +130,7 @@ fn finish_of_an_older_request_leaves_the_newer_entry() {
 
     assert!(state.is_live(C1), "a finished request removed a newer one");
     assert!(state.cancel(C1, Some("r-2")));
-    assert!(cancel.load(Ordering::Relaxed));
+    assert!(cancel.is_cancelled());
 }
 
 #[test]
@@ -148,7 +149,7 @@ fn delete_cancels_the_live_request() {
     chat_delete_inner(&store, &state, &conversation.id).expect("deleted");
 
     assert!(
-        cancel.load(Ordering::Relaxed),
+        cancel.is_cancelled(),
         "the reply kept streaming into a conversation that no longer exists"
     );
     assert!(store.load(&conversation.id).is_err());
@@ -295,4 +296,89 @@ fn a_live_reply_is_recorded_as_stopped_on_shutdown() {
     assert!(last.proposals.is_empty(), "half a reply proposed something");
     assert!(!last.truncated);
     assert!(!state.is_live(&conversation.id));
+}
+
+/// A host that takes the request and sends nothing back, the way a local
+/// runtime loading a model sends nothing before its first byte.
+fn silent_host() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut request = [0u8; 8192];
+            let _ = stream.read(&mut request);
+            std::thread::sleep(Duration::from_secs(30));
+        }
+    });
+    format!("http://127.0.0.1:{port}/v1")
+}
+
+#[test]
+fn a_stop_before_the_first_byte_frees_the_conversation_at_once() {
+    // The stop used to be read only when a chunk arrived, so a host that had
+    // not answered kept the conversation live, and every send refused, until
+    // its first byte or the two-minute read timeout.
+    let dir = TempDir::new().expect("temp writ dir");
+    let store = ChatStore::new(dir.path());
+    let conversation = store.create("custom", "a-model").expect("a conversation");
+    let prepared = prepare_chat(
+        &config(&silent_host()),
+        &[ChatTurn {
+            role: Role::User,
+            content: "what does it argue".to_string(),
+        }],
+        Vec::new(),
+        None,
+        |_| None,
+    )
+    .expect("a prepared request");
+
+    let state = ChatState::default();
+    let (cancel, guard) = begin_request(&state, &conversation.id, "r-1").expect("accepted");
+
+    let kinds = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = kinds.clone();
+    let writ_dir = dir.path().to_path_buf();
+    let id = conversation.id.clone();
+    let task = std::thread::spawn(move || {
+        let _live = guard;
+        let store = ChatStore::new(&writ_dir);
+        let client = writ_tauri_lib::commands::ai::build_client().expect("the shared client");
+        tauri::async_runtime::block_on(run_reply(
+            &client,
+            &prepared,
+            &cancel,
+            &store,
+            &id,
+            "r-1",
+            |event| {
+                if let WritFrontendEvent::AiChat { kind, .. } = event {
+                    sink.lock().expect("kinds").push(kind);
+                }
+            },
+        ));
+    });
+
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        state.is_live(&conversation.id),
+        "the request ended on its own"
+    );
+    let stopped_at = Instant::now();
+    assert!(state.cancel(&conversation.id, Some("r-1")));
+    while state.is_live(&conversation.id) && stopped_at.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        stopped_at.elapsed() < Duration::from_secs(2),
+        "the conversation was freed {:?} after the stop",
+        stopped_at.elapsed()
+    );
+    task.join().expect("the request task ended");
+
+    assert_eq!(*kinds.lock().expect("kinds"), vec!["stopped".to_string()]);
+    assert!(
+        begin_request(&state, &conversation.id, "r-2").is_ok(),
+        "the next send was refused after the stop"
+    );
 }

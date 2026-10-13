@@ -6,6 +6,8 @@
 
 /// Document-level buffer model.
 pub mod document;
+/// The language chosen for a buffer.
+pub mod language;
 /// In-memory buffer manager and lifecycle operations.
 pub mod manager;
 

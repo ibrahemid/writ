@@ -3,6 +3,10 @@
 ## Status
 
 Accepted. Amended 2026-09-12: `pathsForTag` names the tag and the tags under it (section 2).
+Amended 2026-10-13: commands read beside a running walk through read connections, one writer
+is held for one file at a time and goes to a waiting write before the walk's next file, and the
+walk leaves alone a path written beside it (section 7); facts and graph nodes come from Markdown
+files only (section 3).
 
 ## Context
 
@@ -82,10 +86,11 @@ What it leaves out is as much of the answer as what it puts in:
 - Links written more than once between one pair collapse into a `count`. A note
   referenced twelve times is one edge with a weight, not twelve lines drawn
   over each other.
-- Only notes are nodes. The index also holds `.txt` and `.text`, which are
-  findable and openable and are not notes a link can name, so an edge with
-  either end outside the node set is dropped rather than drawn to a node that
-  is not there.
+- Only Markdown files are nodes. The index also holds `.txt` and `.text`,
+  which are findable and openable and are plain text: nothing in them is read
+  as a link, a tag, a heading or a property (ADR-041 §2), so they draw no
+  edge of their own, and an edge from a note to one is dropped rather than
+  drawn to a node that is not there.
 
 `folder` is the first path segment under the notes root, so a folder graph can
 colour by it without a second read. A note in the root itself has no folder,
@@ -129,6 +134,89 @@ model picks a best candidate, and none of them is given one to pick from.
 An edge drawn to a guess is the failure that has no symptom. The line looks
 like every other line, and the folder shape it implies is one nobody wrote.
 
+### 7. Commands read beside the walk
+
+The index is written through one connection and read through others.
+`NotesIndexStore` owns the writer. The walk, the deferred reindex behind a
+save and the notes watcher all write through it, and each holds it for one
+file: the walk reads a note with nothing held, takes the writer to record that
+note's rows in one transaction, and lets it go before it reads the next. Every
+command reads through a read connection of its own. The database runs in WAL
+mode, where a reader sees the last committed state without waiting for the
+writer, so quick open, `[[` completion, search, the backlink list, a link's
+resolution and the graph answer while a walk of thousands of notes runs.
+
+A walk lets go of the writer after each file and asks for it again at once,
+and a lock gives no turn to the thread that has waited longest, so a write
+beside a walk could lose the writer to it file after file: one Cmd+N write
+waited while the walk began 65 other files. Every other write counts itself in
+before it waits, and a walk takes the writer only while no write is counted
+in. Cmd+N's write to the index waits for at most the one write the walk is
+making when it asks, besides any other write already waiting: one note's rows,
+which now and then include the full-text index merging its segments, or, at
+the end of a complete walk, one batch of the closing link check that has
+something to change. The longest gap between two files of a walk of 5,000
+notes was 17 ms. Over three walks of 3,000 notes, the longest such wait was 12
+ms, against 72 ms and 65 files before.
+
+The app's own connection writes the same database: Cmd+N's row, and the stamp
+every save leaves. It meets the walk at SQLite's write lock rather than at the
+writer. SQLite's own handler waits longer after each refusal, up to 100 ms
+between tries, so such a write kept waking up in the middle of a later file of
+the walk: Cmd+N's row waited 295 ms while the walk went on through 293 more
+entries. The app's connections to `writ.db` (its own, the layout store's and
+the index writer's) try a refused write again every millisecond instead, for
+the same five seconds. This bound is a likelihood, where the one above is a
+guarantee: a try lands only when it falls between two of the walk's files, and
+with one every millisecond a long run of misses is rare. Over three walks of
+5,000 notes at a load average near 30 the row took at most 19 ms, and all of
+Cmd+N at most 36 ms; with other builds saturating the machine the row reached
+105 ms (ADR-028 section 7).
+
+Because the writer is taken per file, a save, the watcher and a rename write
+between two files of a walk, and what they write is newer than what the walk
+saw. The store records every write it makes while a walk is under way, and the
+walk leaves such a path alone: it writes no rows from a read older than the
+write, and at its end it does not remove a file it did not find if the store
+wrote that path after the walk started. A note that was away when the walk
+reached it and came back before the walk ended keeps the row the write that
+brought it back left. A folder move re-keys every row, so it counts as a write
+of every path, and a walk that started before it writes nothing more. A rename
+leaves the walk under way running.
+
+Before this, one connection served both, and the walk held it from its first
+file to its last. Every one of those commands waited for the walk to end: the
+first command issued during a walk of 5,000 notes took 6,976 ms on a release
+build, while the p99 the budget then measured read 2 ms.
+
+The folder's names are kept in memory. A link resolves against the notes that
+share its name, and reading every path from `files` to find them made one save
+cost what the folder costs. The store reads the names once and changes them in
+the transaction that adds or removes a path. That transaction also moves a
+names version kept in `schema_meta`, and every write starts by comparing it with
+the version the names were read at, holding the write lock so nothing can
+commit in between. The names are read again only when another connection
+added, removed or re-keyed a path; a commit that leaves the set alone, such as
+the buffer store stamping a save, costs nothing. That is also how the read-only
+store the MCP server and the `writ` command open keeps up with the app; it still
+writes nothing (ADR-031 rule 1.3).
+
+Every link row carries the folded name it names, `links.name_key` (migration
+045). A note that arrives or leaves can change only the links that name it,
+and it finds them through the index on that column; a save of a note the index
+already holds changes no other link. The backlink list reads the links that
+resolved to a note through the index on `links(to_path)` and the ones that name
+it ambiguously through `name_key`. A search result's snippet is the fragment
+the full-text index's own `snippet()` chose, with the matches its tokenizer
+found marked, so a note's text does not leave the index to be shown and a
+match that differs only by an accent is highlighted as well as found. The
+marks are bytes UTF-8 never uses, so no character a note holds, a control
+character included, is taken for one.
+
+A complete walk ends by checking every stored link against the names, a batch
+of rows at a time, with the writer taken only for a batch that has something
+to change. It finds nothing unless a row was written some other way.
+
 ## Consequences
 
 - One place to change what a surface reads. A fifth surface reads the same
@@ -140,5 +228,12 @@ like every other line, and the folder shape it implies is one nobody wrote.
   and it cannot go stale.
 - A folder with an ambiguous name in it draws fewer edges than its links
   suggest. That is the honest count, and the panel says which links they are.
-- Nothing new is stored. Deleting `writ.db` still costs a walk and nothing
-  else.
+- Nothing is stored that a walk cannot rebuild. Deleting `writ.db` still costs
+  a walk and nothing else: `links.name_key` is derived from `to_target` like
+  the rest of the row, and the names version is a counter that starts again
+  with the database.
+- The names in memory cost the folder's paths once, folded once each. After
+  another connection adds, removes or re-keys a note they are read again
+  whole, the first time they are used. The app writes through its own store
+  and does not pay this; the read-only store a connected program opens pays it
+  once for the notes the app added or removed since that program's last call.

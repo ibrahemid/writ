@@ -26,10 +26,7 @@ import {
 import { applyExternalDocument } from "../../editor/external-reload";
 import { hashDocument } from "../../lib/doc-hash";
 import { readFailureOf, type ReadFailure } from "../../lib/read-failure";
-import {
-  detectLanguage as detectLanguageService,
-  detectFromContent as detectFromContentService,
-} from "../../services/language-detect";
+import { detectFromContent as detectFromContentService } from "../../services/language-detect";
 
 export type TransformFn = (input: string) => Promise<string>;
 
@@ -1105,10 +1102,6 @@ export function createEditorStore() {
     return noteDiskState(id);
   }
 
-  function detectLanguage(content: string, filename?: string): string | null {
-    return detectLanguageService(content, filename);
-  }
-
   function detectFromContent(content: string): string | null {
     return detectFromContentService(content);
   }
@@ -1141,7 +1134,6 @@ export function createEditorStore() {
     savesAreHeld,
     retrySave,
     readDiskState,
-    detectLanguage,
     detectFromContent,
     noteOpened,
     noteEdited,

@@ -71,7 +71,8 @@ Domain model and policy. Zero Tauri, no framework imports, no async runtime. Con
 - Recovery policy: what a save's outcome does to the unsaved-text journal, and which notes a
   relaunch may write back (ADR-044)
 - File classification: the open-mode ladder in `file_ops`, which decides whether a path opens
-  normally, as a large file, or is refused
+  normally, as a large file, after asking (over 50 MiB), or is refused (over 500 MiB); the
+  last two are answers carried as data, never errors (ADR-019)
 - Notes-folder policy: the default folder `~/Writ`, the containment rule for paths inside it,
   the title sanitiser shared by the migration, rename and auto-title, and the write guard
   (`notes::guard::decide_save` over a recorded `DiskState`) that decides whether a save may land

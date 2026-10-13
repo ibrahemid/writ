@@ -8,6 +8,8 @@ Accepted, 2026-08-28. Supersedes [ADR-004](./004-sqlite-over-flat-files.md). Shi
 
 [ADR-020](./020-deferred-fts-reindex.md) and [ADR-024](./024-inbox-arrival-snapshot.md) stay in force. Section 12 records what each means after this change.
 
+Amended 2026-10-13: section 7 names the files the walk reads, lists the notes folder opened as the workspace by the same rule, measures the indexing budget as the slowest command issued during a walk rather than a percentile, and holds the folder graph to its own budget.
+
 [ADR-044](./044-unsaved-text-journal.md) replaces the recovery snapshot §1 allows with the
 unsaved-text journal, and the heartbeat §8 slows no longer reads files.
 
@@ -235,8 +237,27 @@ deleting `writ.db` safe. It never reads the content of a file the filesystem rep
 downloaded, because reading an iCloud dataless file triggers materialisation by the provider
 daemon.
 
-Indexing does not block the UI. With a full reindex of 5,000 notes running, the first keystroke
-is served within 50 ms at p95 and 150 ms at p99.
+The walk visits every file in the notes folder except three kinds: git's own `.git`, what another
+note app, sync client or Finder keeps for itself (`.obsidian`, `.trash`, `.stfolder`,
+`.stversions`, `.DS_Store`), and temp files nobody wrote on purpose (a download still arriving, a
+sync client's in-flight copy, an editor swap file, the file a save renames into place). A notes
+folder holds writing, not a build: a folder named `vendor`, `build` or `coverage` in it holds
+notes, and no `.gitignore`, the person's global one included, hides a note. Before this the walk
+shared the code-workspace walk's ignores, so `Writ/vendor/Acme.md` was missing from search,
+backlinks and the graph, and `[[Acme]]` offered to create a duplicate. The notes watcher and the
+listing a connected program reads ask the same question the walk does. A folder opened as a
+workspace keeps the code-workspace list in its file search, and in its tree unless it is the notes
+folder itself: the notes folder's tree lists, and its watcher reports changes to, what the walk
+reads.
+
+Indexing does not block the UI. With a full reindex of 5,000 notes running, quick open, `[[`
+completion, search, backlinks, a link's resolution and Cmd+N's writes (the file, its row and the
+note in the index) answer within 150 ms on a machine otherwise at rest, measured as the slowest of
+every command issued while the walk runs, and within 50 ms at p95. A percentile is the wrong
+measure: the one command that waits for the whole walk is the freeze, and a p99 over 200 samples
+discards it. The graph reads every note, so its time is the folder's rather than the walk's: it is
+held to the graph budget (ADR-036 section 3) at the median of the graphs drawn during the walk.
+ADR-036 section 7 records how the index meets both.
 
 Quick open by note name is Cmd+Shift+O. Cmd+O keeps its Mac meaning of the Open dialog. The
 retraining cost for switchers whose Cmd+O is a quick switcher is accepted deliberately.

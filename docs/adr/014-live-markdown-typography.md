@@ -1,6 +1,6 @@
 # ADR-014: Live Markdown Typography in the Editor
 
-**Status:** Accepted; amended in part by [ADR-030](./030-design-system-tokens.md) on 2026-08-28 (structural markers stay visible and hang in the margin instead of being replaced)
+**Status:** Accepted; amended in part by [ADR-030](./030-design-system-tokens.md) on 2026-08-28 (structural markers stay visible and hang in the margin instead of being replaced); the `editor.markdown_typography` flag was removed on 2026-10-13 ([ADR-019](./019-open-anything-ladder.md)), and Inline | Source decides how Markdown is drawn
 **Date:** 2026-06-12
 
 ## Context

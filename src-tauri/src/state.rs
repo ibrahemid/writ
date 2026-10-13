@@ -330,6 +330,7 @@ impl AppState {
         // them itself, and needs to know which folder is the notes folder to
         // tell a note from an external file someone opened.
         store.set_notes_root(notes_root.clone());
+        store.set_notes_index(Arc::clone(&notes_index));
 
         // Normalize legacy mirror filenames to `{id}.txt` and install the
         // UNIQUE(filename) index before any other store operation reads or
@@ -1151,7 +1152,8 @@ fn restore_orphaned_text(
 /// a note moved since its save failed keeps its new name.
 ///
 /// A note whose file was never opened, because its bytes are not on this
-/// machine, comes back with nothing: the first save reads it instead.
+/// machine or it is over the size Writ opens without asking, comes back with
+/// nothing: the first save reads it instead.
 ///
 /// No stamp is passed: this runs while the app state is still being built, so
 /// no watcher exists yet to mistake the write for somebody else's. The flags

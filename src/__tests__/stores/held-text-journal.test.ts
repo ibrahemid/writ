@@ -10,7 +10,11 @@ vi.mock("../../services/tauri", () => ({
 }));
 
 import { createEditorStore } from "../../stores/window/editor-store";
-import { resetAutosave } from "../../services/autosave";
+import {
+  collectUnsavedContent,
+  keepUnsavedForRecovery,
+  resetAutosave,
+} from "../../services/autosave";
 import {
   discardUnsavedText,
   recordUnsavedNotes,
@@ -163,5 +167,46 @@ describe("a note whose first file could not be made", () => {
     expect(result.ok).toBe(false);
     expect(store.isRemovedOnDisk("one")).toBe(true);
     expect(store.unmadeFileOf("one")).toEqual(unmade);
+  });
+});
+
+// A tab restored at launch that Writ has not read has no text of its own, and
+// one whose read was refused for its size keeps what its refused save left in
+// the journal (ADR-044 §2, ADR-019).
+describe("a tab whose file Writ has not read", () => {
+  it("hands nothing over, whatever happens to its file", async () => {
+    const store = showing("two", "the note in front");
+
+    store.recordFileEvent("one", "modified");
+    await vi.advanceTimersByTimeAsync(1000);
+    store.recordFileEvent("one", "removed");
+    await vi.advanceTimersByTimeAsync(1000);
+    store.recordFileEvent("one", "settled");
+    await keepUnsavedForRecovery("one");
+
+    expect(collectUnsavedContent()).toEqual([]);
+    expect(mockedRecord).not.toHaveBeenCalled();
+    expect(mockedDiscard).not.toHaveBeenCalled();
+  });
+
+  it("keeps what its refused save left once its read is refused for size", async () => {
+    mockedSave.mockRejectedValueOnce(new Error("ERR_READ_ONLY_DESTINATION: read-only"));
+    const store = showing("one", "typed");
+    store.scheduleAutosave("one", "typed", 0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockedSave).toHaveBeenCalledWith("one", "typed");
+
+    // The editor drops the view of a tab whose read was refused for size.
+    store.registerView(null);
+    store.setCurrentBufferId(null);
+    store.recordFileEvent("one", "modified");
+    await vi.advanceTimersByTimeAsync(1000);
+    await keepUnsavedForRecovery("one");
+
+    expect(mockedRecord).toHaveBeenCalled();
+    for (const [notes] of mockedRecord.mock.calls) {
+      expect(notes).toEqual([{ id: "one", content: "typed" }]);
+    }
+    expect(mockedDiscard).not.toHaveBeenCalled();
   });
 });
