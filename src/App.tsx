@@ -265,16 +265,20 @@ function AppShell() {
     void activityStore.watchWaiting();
 
     // Only notes whose text never reached their file are restored, so the
-    // count is how many of those there were, not how many tabs were open.
+    // count is how many of those there were, not how many tabs were open. The
+    // launch lists each note once, however many of its texts it wrote.
     //
     // A note whose file was deleted is not among them: the launch wrote
     // nothing for it (ADR-033 decision 15), so its text is seeded into the
     // store instead, before any tab loads, and its tab comes up carrying the
-    // bar and the three ways out. Counting it as restored would say a file is
-    // back that is not.
+    // bar and the three ways out. So is a note whose first file the launch
+    // could not make, under a bar that names that file. Counting either as
+    // restored would say a file is back that is not.
     const recovered = await getRecoveredBuffers().catch(() => []);
     for (const note of recovered) {
-      if (note.removed_on_disk) win.editor.markRemovedOnDisk(note.id, note.content);
+      if (note.removed_on_disk) {
+        win.editor.markRemovedOnDisk(note.id, note.content, note.unmade_file ?? undefined);
+      }
     }
     const restored = recovered.filter((note) => !note.removed_on_disk);
     if (restored.length > 0) {

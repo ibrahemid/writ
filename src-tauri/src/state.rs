@@ -963,8 +963,9 @@ impl AppState {
 /// What the launch did with the unsaved-text journal.
 #[derive(Default)]
 pub struct RestoredText {
-    /// Every note whose text was written to disk, or handed to its tab because
-    /// its file is gone. The frontend's restore toast counts the first kind.
+    /// Every note whose text was written to disk, once however many of its
+    /// texts were, or handed to its tab because its file is gone or could not
+    /// be made. The frontend's restore toast counts the first kind.
     pub recovered: Vec<RecoveredBuffer>,
     /// What each restored note's file holds afterwards, when that was
     /// established, keyed by buffer id. It seeds the write guard.
@@ -986,11 +987,17 @@ pub struct RestoredText {
 /// An entry stays in the journal when its text reached no file. A note whose
 /// file was deleted outside Writ, or whose first file the launch could not
 /// make, has its newest text handed to its tab instead, and that entry becomes
-/// the tab's again, which putting the file back settles. Older text of that
-/// note stays released for a later launch. Any other write that failed is left
-/// out of what the toast counts, because nothing was restored, and the next
-/// launch tries again. A row that does not decode is logged and stays too
-/// ([`BufferStore::unsaved_text`]).
+/// the tab's again, which putting the file back or saving it elsewhere
+/// settles. Older text of that note stays released for a later launch. Any
+/// other write that failed is left out of what the toast counts, because
+/// nothing was restored, and the next launch tries again. A row that does not
+/// decode is logged and stays too ([`BufferStore::unsaved_text`]).
+///
+/// An entry whose note's row was deleted has no tab to go back to, and its
+/// text is written to a dated copy of its own ([`restore_orphaned_text`]).
+///
+/// The toast counts notes: a note restored from two texts is one note, so it
+/// is listed once.
 ///
 /// Nothing here fails the launch. Every failure is a line in the log, and the
 /// text it concerns is still in the journal for the next one.
@@ -1029,14 +1036,28 @@ pub fn restore_unsaved_text(
 
     let mut restored = RestoredText::default();
     let mut handed_to_tabs = HashSet::new();
+    let mut written = HashSet::new();
     for entry in journal.entries.into_iter().rev() {
         let entry_id = entry.entry_id;
         let mut recovered = RecoveredBuffer {
             id: entry.buffer_id,
             content: entry.text,
             removed_on_disk: false,
+            unmade_file: None,
         };
-        match restore_recovered_buffer(store, notes_root, &recovered, default_extension) {
+        let landing = match store.find(&recovered.id) {
+            Ok(Some(_)) => {
+                restore_recovered_buffer(store, notes_root, &recovered, default_extension)
+            }
+            Ok(None) => restore_orphaned_text(
+                notes_root,
+                entry.path.as_deref(),
+                &recovered.content,
+                default_extension,
+            ),
+            Err(e) => Err(e.to_string()),
+        };
+        match landing {
             // Nothing is recorded for a note whose file was never read, so its
             // first save reads it rather than trusting a record nobody took.
             Ok(RecoveryLanding::Written(state)) => {
@@ -1046,17 +1067,20 @@ pub fn restore_unsaved_text(
                 if let Err(e) = store.remove_unsaved_text_entry(entry_id) {
                     warn!(buffer_id = %recovered.id, error = %e, "a restored journal entry could not be cleared");
                 }
-                restored.recovered.push(recovered);
+                if written.insert(recovered.id.clone()) {
+                    restored.recovered.push(recovered);
+                }
             }
             // The frontend seeds the tab from this rather than reading a file
             // that is not there, and the entry stays until the person puts
             // the file back. A tab shows one text, so only the newest goes.
-            Ok(RecoveryLanding::Withheld) => {
+            Ok(RecoveryLanding::Withheld(unmade_file)) => {
                 if handed_to_tabs.insert(recovered.id.clone()) {
                     if let Err(e) = store.give_unsaved_text_to_tab(entry_id) {
                         warn!(buffer_id = %recovered.id, error = %e, "a journal entry handed to its tab could not be marked as the tab's");
                     }
                     recovered.removed_on_disk = true;
+                    recovered.unmade_file = unmade_file;
                     restored.recovered.push(recovered);
                 }
             }
@@ -1068,6 +1092,40 @@ pub fn restore_unsaved_text(
         }
     }
     restored
+}
+
+/// Writes journaled text whose note's row was deleted ("Remove from history",
+/// "Clear history") to a dated copy of its own, and answers that it was
+/// written (ADR-044 §3).
+///
+/// There is no row left, so no tab to hand the text to and no line ending on
+/// record: the copy holds the editor's text as it was kept. It goes beside the
+/// file the entry names while that file is there, and to the notes folder
+/// otherwise, named for that file, or for the day when the note never had one
+/// ([`writ_core::recovery::plan_orphan_recovery`]). A dated copy never
+/// replaces a file, so nothing on disk is read or overwritten.
+fn restore_orphaned_text(
+    notes_root: &Path,
+    path: Option<&str>,
+    text: &str,
+    default_extension: writ_core::config::FileExtension,
+) -> Result<RecoveryLanding, String> {
+    let now = chrono::Utc::now();
+    let file_is_there = path.is_some_and(|path| std::fs::symlink_metadata(path).is_ok());
+    let file_name = path.and_then(|path| Path::new(path).file_name());
+    let beside = match (
+        writ_core::recovery::plan_orphan_recovery(file_is_there),
+        path,
+        file_name,
+    ) {
+        (writ_core::recovery::OrphanPlan::BesideItsFile, Some(path), _) => PathBuf::from(path),
+        (_, _, Some(name)) => notes_root.join(name),
+        (_, _, None) => crate::notes::mint_note_path(notes_root, "", now, default_extension),
+    };
+    let copy = writ_storage::guarded::write_recovered_copy(&beside, text, now, None)
+        .map_err(|e| e.to_string())?;
+    info!(recovered = %copy.display(), "text of a note removed from history was written to a file of its own");
+    Ok(RecoveryLanding::Written(None))
 }
 
 /// Writes a note's journaled text back into its file, minting one first when
@@ -1123,23 +1181,25 @@ fn restore_recovered_buffer(
         == writ_core::recovery::RecoveryPlan::Withhold
     {
         info!(buffer_id = %recovered.id, "the note's file is gone; its text goes to the tab");
-        return Ok(RecoveryLanding::Withheld);
+        return Ok(RecoveryLanding::Withheld(None));
     }
     let minted = if had_file {
         None
     } else {
+        let now = chrono::Utc::now();
+        let unmade = unmade_file(notes_root, &doc.title, now, default_extension);
         match crate::notes::attach_note_file(
             store,
             notes_root,
             &recovered.id,
             &doc.title,
-            chrono::Utc::now(),
+            now,
             default_extension,
         ) {
-            Ok(path) => Some(path),
+            Ok(path) => Some((path, unmade)),
             Err(e) => {
                 warn!(buffer_id = %recovered.id, error = %e, "the first file could not be named; its text goes to the tab");
-                return Ok(RecoveryLanding::Withheld);
+                return Ok(RecoveryLanding::Withheld(Some(unmade)));
             }
         }
     };
@@ -1148,26 +1208,47 @@ fn restore_recovered_buffer(
         minted,
     ) {
         (Ok(outcome), _) => Ok(RecoveryLanding::Written(outcome.disk_state())),
-        (Err(e), Some(path)) => {
+        (Err(e), Some((path, unmade))) => {
             warn!(buffer_id = %recovered.id, error = %e, "the first file could not be made; its text goes to the tab");
             if let Err(e) = store.detach_source_path_with_no_file(&recovered.id, &path) {
                 warn!(buffer_id = %recovered.id, error = %e, "a minted path could not be taken back");
             }
-            Ok(RecoveryLanding::Withheld)
+            Ok(RecoveryLanding::Withheld(Some(unmade)))
         }
         (Err(e), None) => Err(e.to_string()),
     }
 }
 
+/// The file a note's first save would make in `notes_root`, as the tab names
+/// it when the launch could not make it.
+fn unmade_file(
+    notes_root: &Path,
+    title: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    extension: writ_core::config::FileExtension,
+) -> writ_core::recovery::UnmadeFile {
+    let path = crate::notes::mint_note_path(notes_root, title, now, extension);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let folder = notes_root
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| notes_root.display().to_string());
+    writ_core::recovery::UnmadeFile { name, folder }
+}
+
 /// Where a note's recovered text ended up at the relaunch.
 enum RecoveryLanding {
-    /// It was written into the note's file, which then held what the
-    /// [`DiskState`] describes when the file could be described at all.
+    /// It was written into the note's file, or a dated copy of its own, which
+    /// then held what the [`DiskState`] describes when the file could be
+    /// described at all.
     Written(Option<DiskState>),
     /// Nothing was written: the note's file is gone, or the launch could not
-    /// give a note with no file its first one. The text goes to the tab, which
-    /// comes up removed on disk.
-    Withheld,
+    /// give a note with no file its first one, which is the file named here.
+    /// The text goes to the tab, which comes up held with its saves.
+    Withheld(Option<writ_core::recovery::UnmadeFile>),
 }
 
 /// The open tab a path is loaded in, read off the buffer rows.

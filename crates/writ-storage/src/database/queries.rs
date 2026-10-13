@@ -98,21 +98,20 @@ pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<(
 /// Fetches a buffer row by id, mapping a missing row to
 /// [`StorageError::Consistency`].
 pub fn get_buffer(conn: &Connection, id: &str) -> StorageResult<BufferDocument> {
+    find_buffer(conn, id)?.ok_or_else(|| StorageError::Consistency {
+        message: format!("buffer not found: {}", id),
+    })
+}
+
+/// [`get_buffer`], answering `None` when no row has that id.
+pub fn find_buffer(conn: &Connection, id: &str) -> StorageResult<Option<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
                 read_only, size_bytes, line_ending
          FROM buffers WHERE id = ?1",
     )?;
-    let result = stmt
-        .query_row(params![id], row_to_document)
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => StorageError::Consistency {
-                message: format!("buffer not found: {}", id),
-            },
-            other => StorageError::Database(other),
-        })?;
-    Ok(result)
+    Ok(stmt.query_row(params![id], row_to_document).optional()?)
 }
 
 /// Lists buffers filtered by status literal (`"active"` or `"history"`).
@@ -225,8 +224,10 @@ pub fn find_history_by_source_path(
 /// `NULL` `source_path` until the user moves them into the notes folder, and
 /// they do have a file. A row with an entry in the unsaved-text journal is
 /// excluded too: its first file could not be made, and the journal holds what
-/// was typed into it until the next launch makes one (ADR-044). Deleting the
-/// row would take the entry with it.
+/// was typed into it until the next launch makes one (ADR-044). Reusing the
+/// row would give a new tab a note whose text is somewhere else, and
+/// reclaiming it would take the note's tab away from text the launch hands
+/// back to it.
 pub fn list_unsaved_notes(conn: &Connection) -> StorageResult<Vec<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,

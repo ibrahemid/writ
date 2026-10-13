@@ -244,6 +244,54 @@ fn a_path_with_no_file_at_it_is_taken_back_and_one_with_a_file_is_kept() {
 }
 
 #[test]
+fn a_chosen_path_is_taken_back_whether_or_not_a_file_is_at_it() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("detach-2", "Never written"))
+        .unwrap();
+    let file = note_path("detach-2");
+    let path = file.to_str().unwrap();
+    store.attach_source_path("detach-2", path).unwrap();
+    std::fs::write(&file, "a file the person meant to replace").unwrap();
+
+    assert!(
+        !store
+            .detach_source_path("detach-2", "/elsewhere.md")
+            .unwrap(),
+        "a path the row does not name is not the row's to give back"
+    );
+    assert_eq!(
+        store.get("detach-2").unwrap().source_path.as_deref(),
+        Some(path)
+    );
+    assert!(store.detach_source_path("detach-2", path).unwrap());
+    assert_eq!(store.get("detach-2").unwrap().source_path, None);
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "a file the person meant to replace",
+        "taking the path back leaves the file alone"
+    );
+}
+
+#[test]
+fn find_answers_none_for_a_row_that_is_gone() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("found-1", "Here for now"))
+        .unwrap();
+    assert_eq!(
+        store.find("found-1").unwrap().map(|doc| doc.title),
+        Some("Here for now".to_string())
+    );
+    store.delete("found-1").unwrap();
+    assert!(store.find("found-1").unwrap().is_none());
+    assert!(
+        store.get("found-1").is_err(),
+        "get still fails for a missing row"
+    );
+}
+
+#[test]
 fn a_binary_note_regenerates_its_hex_view_from_the_file() {
     let (_dir, store) = setup();
     let mut doc = make_doc("binary-1", "dump.bin");

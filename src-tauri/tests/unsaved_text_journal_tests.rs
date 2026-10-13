@@ -16,6 +16,7 @@ use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
 use writ_core::notes::reload::ChangeChoice;
 use writ_core::preview::ContentRendererRegistry;
+use writ_core::recovery::UnmadeFile;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
@@ -26,15 +27,17 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
-    close_buffer_inner, discard_unsaved_text_inner, record_unsaved_notes_inner,
-    resolve_external_change_inner, restore_note_file_inner, save_buffer_content_inner, UnsavedNote,
-    ERR_FILE_CHANGED_ON_DISK, ERR_FILE_REMOVED_ON_DISK, ERR_NOTE_READ_ONLY,
-    ERR_READ_ONLY_DESTINATION, ERR_WRITE_FAILED,
+    close_buffer_inner, delete_buffer_inner, discard_unsaved_text_inner,
+    record_unsaved_notes_inner, resolve_external_change_inner, restore_note_file_inner,
+    save_buffer_content_inner, save_note_to_inner, UnsavedNote, ERR_FILE_CHANGED_ON_DISK,
+    ERR_FILE_REMOVED_ON_DISK, ERR_NOTE_READ_ONLY, ERR_READ_ONLY_DESTINATION, ERR_WRITE_FAILED,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
+use writ_tauri_lib::security::{
+    canonicalize_for_authorization, resolve_for_containment, AuthorizedPaths,
+};
 use writ_tauri_lib::state::{restore_unsaved_text, AppState};
 use writ_tauri_lib::watcher::handler::create_ignore_set;
 
@@ -383,6 +386,8 @@ fn the_journal_commands_are_in_the_invoke_handler() {
     for command in [
         "commands::buffer::record_unsaved_notes,",
         "commands::buffer::discard_unsaved_text,",
+        "commands::buffer::save_note_to,",
+        "commands::file::pick_note_save_path,",
     ] {
         assert!(
             LIB_RS.contains(command),
@@ -422,6 +427,20 @@ fn set_folder_mode(folder: &Path, mode: u32) {
 
     std::fs::set_permissions(folder, std::fs::Permissions::from_mode(mode))
         .expect("set the folder's mode");
+}
+
+/// The file a note titled `title` gets first in this state's notes folder,
+/// as the bar names it when the launch could not make it.
+fn unmade(state: &AppState, title: &str) -> UnmadeFile {
+    UnmadeFile {
+        name: format!("{title}.{}", state.default_extension().as_str()),
+        folder: state
+            .notes_root()
+            .file_name()
+            .expect("the notes folder has a name")
+            .to_string_lossy()
+            .into_owned(),
+    }
 }
 
 /// The file note `id`'s row names, if it names one.
@@ -558,6 +577,11 @@ fn a_launch_that_cannot_make_a_new_notes_first_file_hands_the_text_to_its_tab() 
     );
     assert_eq!(handed.content, "the first words");
     assert_eq!(
+        handed.unmade_file,
+        Some(unmade(&state, "Fresh")),
+        "the tab names the file that could not be made, not a deleted one"
+    );
+    assert_eq!(
         journaled(&state, "fresh").as_deref(),
         Some("the first words")
     );
@@ -655,6 +679,7 @@ fn a_launch_that_cannot_name_a_new_notes_first_file_hands_the_text_to_its_tab() 
         "the tab came up without the bar that holds its saves"
     );
     assert_eq!(handed.content, "the first words");
+    assert_eq!(handed.unmade_file, Some(unmade(&state, "Fresh")));
     assert_eq!(
         journaled(&state, "fresh").as_deref(),
         Some("the first words")
@@ -707,8 +732,8 @@ fn the_restore_logs_and_keeps_an_entry_it_cannot_decode() {
         .expect("journal");
     let conn = open_database(&dir.path().join("writ.db")).expect("open db");
     conn.execute(
-        "INSERT INTO unsaved_text (buffer_id, path, text, recorded_at)
-         VALUES (?1, NULL, CAST(X'FFFE' AS TEXT), '2026-10-13T00:00:00+00:00')",
+        "INSERT INTO unsaved_text (buffer_id, path, text, text_hash, recorded_at)
+         VALUES (?1, NULL, CAST(X'FFFE' AS TEXT), 'hash', '2026-10-13T00:00:00+00:00')",
         [&bad],
     )
     .expect("insert text that is not UTF-8");
@@ -1079,6 +1104,10 @@ fn a_note_whose_file_is_gone_gets_its_newest_text_and_keeps_the_older() {
     let offered: Vec<_> = first.recovered.iter().filter(|buf| buf.id == id).collect();
     assert_eq!(offered.len(), 1, "the tab is handed one text");
     assert!(offered[0].removed_on_disk);
+    assert_eq!(
+        offered[0].unmade_file, None,
+        "a deleted file is named as deleted"
+    );
     assert_eq!(offered[0].content, "typed after the reopen\n");
     assert_eq!(
         journal_texts(&state, &id),
@@ -1144,4 +1173,309 @@ fn a_handover_that_cannot_keep_one_notes_text_keeps_the_rest_and_fails() {
         "the note after the one that failed is still tried"
     );
     assert!(journal_texts(&state, &refused).is_empty());
+}
+
+/// "Remove from history" deletes the note's row and leaves the text its tab
+/// handed over: an entry keeps its own lifetime, and the next launch writes
+/// it beside the file it was typed for (ADR-044 §3).
+#[test]
+fn text_whose_history_row_was_removed_comes_back_at_the_next_launch() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    let (id, path) = open_note_at(&state, &notes.join("Removed.md"), "on disk\n");
+
+    set_read_only(&path, true);
+    save_buffer_content_inner(&state, &id, "typed before the close\n").expect_err("read-only");
+    close_tab_handing_over(&state, &id, "typed before the close\n");
+    set_read_only(&path, false);
+    delete_buffer_inner(&state, &id).expect("remove the note from history");
+    assert_eq!(
+        journal_texts(&state, &id),
+        vec!["typed before the close\n"],
+        "deleting the row leaves the text"
+    );
+
+    let restored = relaunch(&state);
+    assert_eq!(
+        copy_texts(&notes, "recovered"),
+        vec!["typed before the close\n"],
+        "the text is on disk beside the file after the launch"
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "on disk\n");
+    assert_eq!(restored.recovered.len(), 1, "the toast counts it");
+    assert!(!restored.recovered[0].removed_on_disk);
+    assert_eq!(journal_count(&state), 0);
+}
+
+/// The same for a note that never had a file: there is no file to write
+/// beside, so the launch gives the text a file of its own in the notes
+/// folder.
+#[test]
+fn text_of_a_note_with_no_file_whose_row_was_removed_gets_a_file_of_its_own() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    insert_new_note(&state, "fresh", "writ-1760000000000");
+    state
+        .store
+        .lock()
+        .unwrap()
+        .record_unsaved_text("fresh", "the only copy\n", chrono::Utc::now())
+        .expect("journal");
+    close_buffer_inner(&state, "fresh").expect("close the tab");
+    delete_buffer_inner(&state, "fresh").expect("remove the note from history");
+
+    let restored = relaunch(&state);
+    let written: Vec<String> = std::fs::read_dir(&notes)
+        .expect("read_dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .map(|path| std::fs::read_to_string(path).expect("read the file"))
+        .collect();
+    assert_eq!(written, vec!["the only copy\n"]);
+    assert_eq!(restored.recovered.len(), 1);
+    assert_eq!(journal_count(&state), 0);
+}
+
+/// A save the guard stopped wrote its text beside the note, and the tab still
+/// holds that text when it closes or Writ quits. The dated copy already holds
+/// it, so the handover keeps nothing and the next launch writes no second
+/// copy. Text the copy does not hold is kept as before (ADR-033 §15).
+#[test]
+fn text_a_dated_copy_already_holds_is_not_handed_over_again() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    let (id, path) = open_note_at(&state, &notes.join("Shared.md"), "on disk\n");
+    std::fs::write(&path, "what a sync client delivered\n").expect("external write");
+    let refused = save_buffer_content_inner(&state, &id, "typed\n")
+        .expect_err("the guard stops a write over a change Writ never read");
+    assert!(refused.starts_with(ERR_FILE_CHANGED_ON_DISK), "{refused}");
+    assert_eq!(copy_texts(&notes, "conflict"), vec!["typed\n"]);
+    let (other, _) = open_note_at(&state, &notes.join("Other.md"), "other\n");
+
+    record_unsaved_notes_inner(
+        &state,
+        vec![
+            UnsavedNote {
+                id: id.clone(),
+                content: "typed\n".to_string(),
+            },
+            UnsavedNote {
+                id: other.clone(),
+                content: "held for the other\n".to_string(),
+            },
+        ],
+    )
+    .expect("hand the text over");
+    assert_eq!(
+        journaled(&state, &id),
+        None,
+        "the dated copy holds this text"
+    );
+    assert_eq!(
+        journaled(&state, &other).as_deref(),
+        Some("held for the other\n")
+    );
+
+    relaunch(&state);
+    assert_eq!(
+        copy_texts(&notes, "recovered"),
+        vec!["held for the other\n"],
+        "no second copy of the text the guard set aside"
+    );
+    assert_eq!(copy_texts(&notes, "conflict"), vec!["typed\n"]);
+
+    record_unsaved_notes_inner(
+        &state,
+        vec![UnsavedNote {
+            id: id.clone(),
+            content: "typed\nand more\n".to_string(),
+        }],
+    )
+    .expect("hand the text over");
+    assert_eq!(
+        journaled(&state, &id).as_deref(),
+        Some("typed\nand more\n"),
+        "text typed after the copy is kept"
+    );
+}
+
+/// Two texts of one note come back as two copies, and the launch counts the
+/// note once: the toast counts notes, not texts (ADR-044 §4).
+#[test]
+fn a_note_restored_from_two_texts_counts_once() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    let (id, path) = open_note_at(&state, &notes.join("Twice.md"), "on disk\n");
+
+    set_read_only(&path, true);
+    save_buffer_content_inner(&state, &id, "typed before the close\n").expect_err("read-only");
+    close_tab_handing_over(&state, &id, "typed before the close\n");
+    assert_eq!(reopen_at(&state, &path), id);
+    save_buffer_content_inner(&state, &id, "on disk\ntyped after the reopen\n")
+        .expect_err("still read-only");
+    set_read_only(&path, false);
+
+    let restored = relaunch(&state);
+    assert_eq!(copy_texts(&notes, "recovered").len(), 2);
+    let counted: Vec<&str> = restored
+        .recovered
+        .iter()
+        .filter(|note| !note.removed_on_disk)
+        .map(|note| note.id.as_str())
+        .collect();
+    assert_eq!(counted, vec![id.as_str()]);
+    assert_eq!(journal_count(&state), 0);
+}
+
+/// A path outside the notes folder, resolved the way the save panel's answer
+/// is ([`writ_tauri_lib::commands::file::pick_note_save_path`]).
+fn chosen_path(dir: &Path) -> String {
+    resolve_for_containment(dir).expect("the chosen path resolves")
+}
+
+/// "Save As…" on the bar of a note whose first file could not be made: the
+/// place the person picked takes the text, the row names it, and the journal
+/// entry clears. A place nobody picked is refused and changes nothing.
+#[test]
+fn save_as_gives_a_note_with_no_file_its_first_file_where_the_person_chose() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    insert_new_note(&state, "fresh", "Fresh");
+    state
+        .store
+        .lock()
+        .unwrap()
+        .record_unsaved_text("fresh", "the first words", chrono::Utc::now())
+        .expect("journal");
+    let elsewhere = dir.path().join("Elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("folder");
+    let chosen = chosen_path(&elsewhere.join("Chosen.txt"));
+
+    save_note_to_inner(&state, "fresh", "the first words", &chosen)
+        .expect_err("a place outside the notes folder nobody picked");
+    assert_eq!(row_path(&state, "fresh"), None);
+    assert!(!Path::new(&chosen).exists());
+    assert_eq!(
+        journaled(&state, "fresh").as_deref(),
+        Some("the first words")
+    );
+
+    state.authorized_paths.record_blessed_source(chosen.clone());
+    let disk_hash = save_note_to_inner(&state, "fresh", "the first words", &chosen)
+        .expect("the place the person picked takes the text");
+    assert!(disk_hash.is_some());
+    assert_eq!(std::fs::read_to_string(&chosen).unwrap(), "the first words");
+    assert_eq!(row_path(&state, "fresh").as_deref(), Some(chosen.as_str()));
+    assert_eq!(journaled(&state, "fresh"), None);
+
+    let second = chosen_path(&elsewhere.join("Second.txt"));
+    state.authorized_paths.record_blessed_source(second.clone());
+    save_note_to_inner(&state, "fresh", "more words", &second)
+        .expect_err("a note that has a file is not given a second one");
+    assert_eq!(row_path(&state, "fresh").as_deref(), Some(chosen.as_str()));
+    assert!(!Path::new(&second).exists());
+}
+
+/// The save panel asks before a file is replaced, so a file at the chosen
+/// place is one the person chose to replace.
+#[test]
+fn save_as_over_a_file_the_person_chose_to_replace_lands() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    insert_new_note(&state, "fresh", "Fresh");
+    let elsewhere = dir.path().join("Elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("folder");
+    std::fs::write(elsewhere.join("Old.txt"), "what the file held\n").expect("write");
+    let chosen = chosen_path(&elsewhere.join("Old.txt"));
+    state.authorized_paths.record_blessed_source(chosen.clone());
+
+    save_note_to_inner(&state, "fresh", "the first words", &chosen).expect("replaced");
+    assert_eq!(std::fs::read_to_string(&chosen).unwrap(), "the first words");
+    assert_eq!(row_path(&state, "fresh").as_deref(), Some(chosen.as_str()));
+    assert!(
+        dated_copies(&elsewhere, "conflict").is_empty(),
+        "the file was read first, so the guard let the write land"
+    );
+}
+
+/// A file another tab has open stays that tab's: Save As does not give a
+/// second note the same file.
+#[test]
+fn save_as_does_not_take_a_file_another_tab_has_open() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+    let (_, open_path) = open_note_at(&state, &notes.join("Open.md"), "the open tab's text\n");
+    insert_new_note(&state, "fresh", "Fresh");
+    state
+        .store
+        .lock()
+        .unwrap()
+        .record_unsaved_text("fresh", "the first words", chrono::Utc::now())
+        .expect("journal");
+
+    let refused = save_note_to_inner(
+        &state,
+        "fresh",
+        "the first words",
+        &open_path.to_string_lossy(),
+    )
+    .expect_err("a file another tab has open is not replaced");
+    assert!(refused.starts_with(ERR_WRITE_FAILED), "{refused}");
+    assert_eq!(row_path(&state, "fresh"), None);
+    assert_eq!(
+        std::fs::read_to_string(&open_path).unwrap(),
+        "the open tab's text\n"
+    );
+    assert_eq!(
+        journaled(&state, "fresh").as_deref(),
+        Some("the first words")
+    );
+}
+
+/// A write to the chosen place that does not land leaves the note as it was:
+/// no file on its row, its text in the journal, and a file the person meant
+/// to replace untouched.
+#[test]
+fn save_as_that_does_not_land_takes_the_chosen_path_back() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    insert_new_note(&state, "fresh", "Fresh");
+    state
+        .store
+        .lock()
+        .unwrap()
+        .record_unsaved_text("fresh", "the first words", chrono::Utc::now())
+        .expect("journal");
+
+    let gone = chosen_path(&dir.path().join("Gone").join("Chosen.txt"));
+    state.authorized_paths.record_blessed_source(gone.clone());
+    save_note_to_inner(&state, "fresh", "the first words", &gone)
+        .expect_err("a folder that is not there takes no file");
+    assert_eq!(row_path(&state, "fresh"), None);
+
+    let elsewhere = dir.path().join("Elsewhere");
+    std::fs::create_dir_all(&elsewhere).expect("folder");
+    std::fs::write(elsewhere.join("Locked.txt"), "what the file held\n").expect("write");
+    let locked = chosen_path(&elsewhere.join("Locked.txt"));
+    set_read_only(Path::new(&locked), true);
+    state.authorized_paths.record_blessed_source(locked.clone());
+    let refused = save_note_to_inner(&state, "fresh", "the first words", &locked)
+        .expect_err("a read-only file is not replaced");
+    assert!(refused.starts_with(ERR_READ_ONLY_DESTINATION), "{refused}");
+    set_read_only(Path::new(&locked), false);
+    assert_eq!(row_path(&state, "fresh"), None);
+    assert_eq!(
+        std::fs::read_to_string(&locked).unwrap(),
+        "what the file held\n"
+    );
+    assert_eq!(
+        journaled(&state, "fresh").as_deref(),
+        Some("the first words")
+    );
 }

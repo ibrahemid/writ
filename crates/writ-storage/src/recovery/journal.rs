@@ -30,8 +30,9 @@ pub struct JournalRead {
 /// tab's next save replaces or clears. When the note's tab stops being that
 /// tab, because the note came back from history or the app launched again, the
 /// entry is released: no save touches it, and a launch puts its text on disk.
-/// A note can hold any number of released entries. Entries go with their
-/// note's row (`ON DELETE CASCADE`).
+/// A note can hold any number of released entries. An entry keeps its own
+/// lifetime: deleting the note's row leaves it, until a launch puts its text
+/// on disk or the person discards it.
 pub struct UnsavedJournal<'a> {
     conn: &'a Connection,
 }
@@ -48,13 +49,15 @@ impl<'a> UnsavedJournal<'a> {
     ///
     /// The write is made durable when it commits, rather than at the next
     /// checkpoint ([`with_full_sync`]): this is the record a power cut is
-    /// for. The same text and path as the entry already holds rewrite
-    /// nothing, so a save retried with unchanged text costs a read.
+    /// for. Text is compared by its hash: when the tab's entry already holds
+    /// text with the same hash, under the same path, nothing is written and
+    /// the stored text is not read back, so a save retried with unchanged
+    /// text costs one hash and one small read however long the text is.
     ///
     /// # Errors
     ///
     /// [`crate::errors::StorageError::Database`] when the note has no row
-    /// (an entry belongs to one) or the write fails.
+    /// (an entry starts from one) or the write fails.
     pub fn record(
         &self,
         buffer_id: &str,
@@ -62,9 +65,39 @@ impl<'a> UnsavedJournal<'a> {
         text: &str,
         recorded_at: DateTime<Utc>,
     ) -> StorageResult<()> {
+        self.conn.query_row(
+            "SELECT 1 FROM buffers WHERE id = ?1",
+            params![buffer_id],
+            |_| Ok(()),
+        )?;
+        let hash = text_hash(text);
+        if self.tab_entry_holds(buffer_id, path, &hash)? {
+            return Ok(());
+        }
         with_full_sync(self.conn, || {
-            upsert(self.conn, buffer_id, path, text, recorded_at)
+            upsert(self.conn, buffer_id, path, text, &hash, recorded_at)
         })
+    }
+
+    /// Whether note `buffer_id`'s tab entry holds text whose hash is `hash`,
+    /// under `path`.
+    fn tab_entry_holds(
+        &self,
+        buffer_id: &str,
+        path: Option<&str>,
+        hash: &str,
+    ) -> StorageResult<bool> {
+        let held: Option<(String, Option<String>)> = self
+            .conn
+            .query_row(
+                "SELECT text_hash, path FROM unsaved_text WHERE buffer_id = ?1 AND in_tab = 1",
+                params![buffer_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        Ok(held.is_some_and(|(held_hash, held_path)| {
+            held_hash == hash && held_path.as_deref() == path
+        }))
     }
 
     /// Drops the entry of note `buffer_id`'s tab, returning whether there was
@@ -173,27 +206,36 @@ impl<'a> UnsavedJournal<'a> {
     }
 }
 
-/// Writes the note's tab entry, or replaces it when its text or path changed.
-/// No durability setting of its own: [`UnsavedJournal::record`] sets one, and
-/// a caller inside a transaction has its commit to answer for it.
+/// Writes the note's tab entry, or replaces it when its text or path changed,
+/// telling the texts apart by `hash` ([`text_hash`]). No durability setting
+/// of its own: [`UnsavedJournal::record`] sets one, and a caller inside a
+/// transaction has its commit to answer for it.
 pub(crate) fn upsert(
     conn: &Connection,
     buffer_id: &str,
     path: Option<&str>,
     text: &str,
+    hash: &str,
     recorded_at: DateTime<Utc>,
 ) -> rusqlite::Result<usize> {
     conn.execute(
-        "INSERT INTO unsaved_text (buffer_id, path, text, recorded_at, in_tab)
-         VALUES (?1, ?2, ?3, ?4, 1)
+        "INSERT INTO unsaved_text (buffer_id, path, text, text_hash, recorded_at, in_tab)
+         VALUES (?1, ?2, ?3, ?4, ?5, 1)
          ON CONFLICT (buffer_id) WHERE in_tab = 1 DO UPDATE SET
              path = excluded.path,
              text = excluded.text,
+             text_hash = excluded.text_hash,
              recorded_at = excluded.recorded_at
-         WHERE unsaved_text.text IS NOT excluded.text
+         WHERE unsaved_text.text_hash IS NOT excluded.text_hash
             OR unsaved_text.path IS NOT excluded.path",
-        params![buffer_id, path, text, recorded_at.to_rfc3339()],
+        params![buffer_id, path, text, hash, recorded_at.to_rfc3339()],
     )
+}
+
+/// The hash an entry's text is compared by: the SHA-256 of its UTF-8 bytes,
+/// in hex.
+pub(crate) fn text_hash(text: &str) -> String {
+    writ_core::hash::sha256_hex(text.as_bytes())
 }
 
 fn decode(row: &rusqlite::Row<'_>) -> Result<UnsavedText, String> {

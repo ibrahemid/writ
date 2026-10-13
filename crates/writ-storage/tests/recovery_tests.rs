@@ -241,6 +241,67 @@ fn a_later_save_that_fails_replaces_the_text() {
 }
 
 #[test]
+fn a_record_tells_texts_apart_by_their_hash_and_never_reads_the_text_back() {
+    let (dir, store) = setup_store();
+    note(&store, &dir, "note-1", Some("on disk"));
+    let first = Utc::now() - Duration::seconds(60);
+    store
+        .record_unsaved_text("note-1", "typed", first)
+        .expect("first");
+    let conn = second_connection(&dir);
+    let row = |conn: &rusqlite::Connection| -> (String, String, String) {
+        conn.query_row(
+            "SELECT text, text_hash, recorded_at FROM unsaved_text WHERE buffer_id = 'note-1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("the entry")
+    };
+    assert_eq!(row(&conn).1, writ_core::hash::sha256_hex(b"typed"));
+
+    // The stored text no longer matches its hash. A record that compared the
+    // texts would see a difference and write the entry again; one that
+    // compares hashes sees the text it already holds and writes nothing.
+    conn.execute(
+        "UPDATE unsaved_text SET text = 'not what was typed' WHERE buffer_id = 'note-1'",
+        [],
+    )
+    .expect("change the stored text");
+    store
+        .record_unsaved_text("note-1", "typed", Utc::now())
+        .expect("again");
+    let (text, _, recorded_at) = row(&conn);
+    assert_eq!(text, "not what was typed", "the same hash wrote nothing");
+    assert_eq!(recorded_at, first.to_rfc3339());
+
+    store
+        .record_unsaved_text("note-1", "typed more", Utc::now())
+        .expect("changed");
+    let (text, hash, recorded_at) = row(&conn);
+    assert_eq!(text, "typed more");
+    assert_eq!(hash, writ_core::hash::sha256_hex(b"typed more"));
+    assert_ne!(recorded_at, first.to_rfc3339());
+
+    // A move is written even when the text is the same.
+    UnsavedJournal::new(&conn)
+        .record(
+            "note-1",
+            Some("/elsewhere/note-1.md"),
+            "typed more",
+            Utc::now(),
+        )
+        .expect("moved");
+    let path: Option<String> = conn
+        .query_row(
+            "SELECT path FROM unsaved_text WHERE buffer_id = 'note-1'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("path");
+    assert_eq!(path.as_deref(), Some("/elsewhere/note-1.md"));
+}
+
+#[test]
 fn recording_the_same_text_again_rewrites_nothing() {
     let (dir, store) = setup_store();
     note(&store, &dir, "note-1", Some("on disk"));
@@ -258,6 +319,28 @@ fn recording_the_same_text_again_rewrites_nothing() {
         entries[0].recorded_at.timestamp(),
         first.timestamp(),
         "a retry of the same text must not rewrite the entry"
+    );
+}
+
+#[test]
+fn the_store_remembers_which_text_a_copy_beside_a_note_holds() {
+    let (dir, mut store) = setup_store();
+    note(&store, &dir, "note-1", Some("on disk"));
+    assert!(!store.copy_beside_holds("note-1", "typed"));
+
+    store.remember_text_written_beside("note-1", "typed");
+    assert!(store.copy_beside_holds("note-1", "typed"));
+    assert!(!store.copy_beside_holds("note-1", "typed more"));
+    assert!(
+        !store.copy_beside_holds("note-2", "typed"),
+        "a copy belongs to the note it was written beside"
+    );
+
+    store.remember_text_written_beside("note-1", "typed more");
+    assert!(store.copy_beside_holds("note-1", "typed more"));
+    assert!(
+        store.copy_beside_holds("note-1", "typed"),
+        "the earlier copy still holds its text"
     );
 }
 
@@ -477,20 +560,53 @@ fn the_journal_releases_entries_gives_one_back_and_removes_one() {
 }
 
 #[test]
-fn every_entry_goes_with_its_note() {
+fn every_entry_outlives_its_notes_row() {
     let (dir, store) = setup_store();
-    note(&store, &dir, "note-1", Some("one"));
+    note(&store, &dir, "removed", Some("one"));
+    note(&store, &dir, "cleared", Some("two"));
+    let earlier = Utc::now() - Duration::seconds(60);
     store
-        .record_unsaved_text("note-1", "typed", Utc::now())
+        .record_unsaved_text("removed", "typed", earlier)
         .expect("journal");
-    store.close("note-1").expect("close");
-    store.restore("note-1").expect("reopen");
+    store.close("removed").expect("close");
+    store.restore("removed").expect("reopen");
     store
-        .record_unsaved_text("note-1", "typed after the reopen", Utc::now())
+        .record_unsaved_text("removed", "typed after the reopen", Utc::now())
         .expect("journal");
-    assert_eq!(store.unsaved_text_count().expect("count"), 2);
-    store.delete("note-1").expect("delete the note");
-    assert_eq!(store.unsaved_text_count().expect("count"), 0);
+    store.close("removed").expect("close again");
+    store
+        .record_unsaved_text("cleared", "typed into the other", Utc::now())
+        .expect("journal");
+    store.close("cleared").expect("close");
+
+    // "Remove from history", then "Clear history".
+    store.delete("removed").expect("delete the row");
+    store
+        .delete_many(&["cleared".to_string()])
+        .expect("delete the rows");
+    assert!(store.get("removed").is_err() && store.get("cleared").is_err());
+
+    assert_eq!(
+        entries_of(&store, "removed"),
+        vec![
+            ("typed".to_string(), false),
+            ("typed after the reopen".to_string(), true),
+        ],
+        "deleting a note's row leaves its text"
+    );
+    assert_eq!(
+        entries_of(&store, "cleared"),
+        vec![("typed into the other".to_string(), true)]
+    );
+    let read = store.unsaved_text().expect("read the journal");
+    assert!(
+        read.entries.iter().all(|entry| entry
+            .path
+            .as_deref()
+            .is_some_and(|path| path.ends_with(".md"))),
+        "each entry still names the file its text belongs to: {:?}",
+        read.entries
+    );
 }
 
 #[test]
@@ -540,13 +656,23 @@ fn a_journal_write_puts_its_connection_back_at_the_level_it_had() {
         .expect("journal");
     assert_eq!(synchronous(&conn), 0, "after a write that landed");
 
+    conn.execute_batch(
+        "CREATE TRIGGER refuse_entries BEFORE INSERT ON unsaved_text
+         BEGIN SELECT RAISE(ABORT, 'refused'); END;",
+    )
+    .expect("refuse the next write");
+    note(&store, &dir, "note-2", Some("two"));
+    assert!(
+        journal.record("note-2", None, "typed", Utc::now()).is_err(),
+        "the database refused the write"
+    );
+    assert_eq!(synchronous(&conn), 0, "after a write that failed");
     assert!(
         journal
             .record("no-such-note", None, "typed", Utc::now())
             .is_err(),
-        "an entry needs a note"
+        "an entry starts from a note"
     );
-    assert_eq!(synchronous(&conn), 0, "after a write that failed");
 }
 
 #[test]
@@ -563,8 +689,8 @@ fn holds_answers_for_an_entry_whether_or_not_it_decodes() {
         .record_unsaved_text("typed-into", "typed", Utc::now())
         .expect("journal");
     conn.execute(
-        "INSERT INTO unsaved_text (buffer_id, path, text, recorded_at)
-         VALUES ('unreadable', NULL, CAST(X'FFFE' AS TEXT), '2026-10-13T00:00:00+00:00')",
+        "INSERT INTO unsaved_text (buffer_id, path, text, text_hash, recorded_at)
+         VALUES ('unreadable', NULL, CAST(X'FFFE' AS TEXT), 'hash', '2026-10-13T00:00:00+00:00')",
         [],
     )
     .expect("insert text that is not UTF-8");
@@ -591,14 +717,14 @@ fn an_undecodable_row_is_reported_and_kept() {
         .expect("journal");
     let conn = second_connection(&dir);
     conn.execute(
-        "INSERT INTO unsaved_text (buffer_id, path, text, recorded_at)
-         VALUES ('bad-text', NULL, CAST(X'FFFE' AS TEXT), '2026-10-13T00:00:00+00:00')",
+        "INSERT INTO unsaved_text (buffer_id, path, text, text_hash, recorded_at)
+         VALUES ('bad-text', NULL, CAST(X'FFFE' AS TEXT), 'hash', '2026-10-13T00:00:00+00:00')",
         [],
     )
     .expect("insert text that is not UTF-8");
     conn.execute(
-        "INSERT INTO unsaved_text (buffer_id, path, text, recorded_at)
-         VALUES ('bad-time', NULL, 'typed', 'not a time')",
+        "INSERT INTO unsaved_text (buffer_id, path, text, text_hash, recorded_at)
+         VALUES ('bad-time', NULL, 'typed', 'hash', 'not a time')",
         [],
     )
     .expect("insert a time that does not parse");

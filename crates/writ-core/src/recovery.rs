@@ -30,6 +30,21 @@ pub struct RecoveredBuffer {
     /// first one. Set by the launch, not by the journal.
     #[serde(default)]
     pub removed_on_disk: bool,
+    /// The first file the launch could not make for a note that never had
+    /// one, which the tab names in place of a deleted file. Set with
+    /// `removed_on_disk`, and `None` for a note whose file was deleted.
+    #[serde(default)]
+    pub unmade_file: Option<UnmadeFile>,
+}
+
+/// The first file a launch could not make for a note: its name, and the
+/// folder it was to be made in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnmadeFile {
+    /// The file's name, as the note's first save would have given it.
+    pub name: String,
+    /// The name of the folder it was to be made in.
+    pub folder: String,
 }
 
 /// What a relaunch does with the text the journal kept for a note.
@@ -56,6 +71,33 @@ pub fn plan_recovery(had_file: bool, file_is_there: bool) -> RecoveryPlan {
         RecoveryPlan::Withhold
     } else {
         RecoveryPlan::Write
+    }
+}
+
+/// Where a launch writes journaled text whose note's row has been deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrphanPlan {
+    /// Beside the file the entry names, as a dated copy.
+    BesideItsFile,
+    /// In the notes folder, as a dated copy named for the file the entry
+    /// names, or for the day when it names none.
+    InNotesFolder,
+}
+
+/// Decides where a launch writes text whose note's row was deleted
+/// ("Remove from history", "Clear history").
+///
+/// The entry keeps its own lifetime, so the text still reaches a file: there
+/// is no row left to hand it to a tab. A dated copy goes beside the file the
+/// entry names while that file is there, which is where the person will look.
+/// A file that is gone was deleted, and a copy in the folder somebody cleared
+/// is a file they did not ask for (ADR-033 decision 15), so the text goes to
+/// the notes folder instead, as it does for a note that never had a file.
+pub fn plan_orphan_recovery(file_is_there: bool) -> OrphanPlan {
+    if file_is_there {
+        OrphanPlan::BesideItsFile
+    } else {
+        OrphanPlan::InNotesFolder
     }
 }
 
@@ -172,6 +214,34 @@ mod tests {
     #[test]
     fn a_note_whose_file_is_still_there_goes_through_the_ordinary_guard() {
         assert_eq!(plan_recovery(true, true), RecoveryPlan::Write);
+    }
+
+    #[test]
+    fn text_whose_row_is_gone_goes_beside_its_file_while_the_file_is_there() {
+        assert_eq!(plan_orphan_recovery(true), OrphanPlan::BesideItsFile);
+    }
+
+    #[test]
+    fn text_whose_row_and_file_are_gone_goes_to_the_notes_folder() {
+        assert_eq!(plan_orphan_recovery(false), OrphanPlan::InNotesFolder);
+    }
+
+    #[test]
+    fn a_launch_record_without_an_unmade_file_still_reads() {
+        let read: RecoveredBuffer =
+            serde_json::from_str(r#"{"id":"n","content":"t","removed_on_disk":true}"#)
+                .expect("decode");
+        assert_eq!(read.unmade_file, None);
+        let unmade = RecoveredBuffer {
+            unmade_file: Some(UnmadeFile {
+                name: "2026-10-13.txt".to_string(),
+                folder: "Writ".to_string(),
+            }),
+            ..read
+        };
+        let json = serde_json::to_value(&unmade).expect("encode");
+        assert_eq!(json["unmade_file"]["name"], "2026-10-13.txt");
+        assert_eq!(json["unmade_file"]["folder"], "Writ");
     }
 
     #[test]

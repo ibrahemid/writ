@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("../../services/tauri", () => ({
   saveBufferContent: vi.fn().mockResolvedValue(undefined),
   recordUnsavedNotes: vi.fn().mockResolvedValue(undefined),
+  discardUnsavedText: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {
@@ -19,11 +20,14 @@ import {
   materializePendingSave,
   peekUnsavedContent,
   currentSaveGeneration,
+  holdUnsavedContent,
+  releaseUnsavedContent,
 } from "../../services/autosave";
-import { recordUnsavedNotes, saveBufferContent } from "../../services/tauri";
+import { discardUnsavedText, recordUnsavedNotes, saveBufferContent } from "../../services/tauri";
 
 const mockedSave = vi.mocked(saveBufferContent);
 const mockedRecord = vi.mocked(recordUnsavedNotes);
+const mockedDiscard = vi.mocked(discardUnsavedText);
 
 describe("autosave", () => {
   beforeEach(() => {
@@ -266,6 +270,96 @@ describe("autosave", () => {
       expect(collectUnsavedContent()).toEqual([]);
       await keepUnsavedForRecovery("buf-lost");
       expect(mockedRecord).not.toHaveBeenCalled();
+    });
+  });
+
+  // Text a bar holds back from every write reaches the unsaved-text journal on
+  // the same debounce a save waits (ADR-044 §2), not only at a close or a quit.
+  describe("holdUnsavedContent", () => {
+    it("hands the newest held text to the journal once the debounce passes", async () => {
+      holdUnsavedContent("held", "typed", 300);
+      await vi.advanceTimersByTimeAsync(200);
+      holdUnsavedContent("held", "typed under the bar", 300);
+      await vi.advanceTimersByTimeAsync(299);
+      expect(mockedRecord).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+
+      expect(mockedRecord).toHaveBeenCalledOnce();
+      expect(mockedRecord).toHaveBeenCalledWith([
+        { id: "held", content: "typed under the bar" },
+      ]);
+      expect(mockedSave).not.toHaveBeenCalled();
+    });
+
+    it("waits the save's own default when the hold names no wait", async () => {
+      holdUnsavedContent("held", "typed");
+      await vi.advanceTimersByTimeAsync(999);
+      expect(mockedRecord).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mockedRecord).toHaveBeenCalledWith([{ id: "held", content: "typed" }]);
+    });
+
+    it("journals nothing for a hold that ends before the debounce", async () => {
+      holdUnsavedContent("held", "typed", 300);
+      releaseUnsavedContent("held");
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(mockedRecord).not.toHaveBeenCalled();
+      expect(mockedDiscard).not.toHaveBeenCalled();
+    });
+
+    it("drops what it journaled when the hold ends with nothing to write", async () => {
+      holdUnsavedContent("held", "typed", 300);
+      await vi.advanceTimersByTimeAsync(300);
+
+      releaseUnsavedContent("held");
+
+      expect(mockedDiscard).toHaveBeenCalledOnce();
+      expect(mockedDiscard).toHaveBeenCalledWith(["held"]);
+      expect(mockedRecord.mock.invocationCallOrder[0]).toBeLessThan(
+        mockedDiscard.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("leaves the entry to the write that follows the end of the hold", async () => {
+      holdUnsavedContent("held", "typed", 300);
+      await vi.advanceTimersByTimeAsync(300);
+
+      releaseUnsavedContent("held", true);
+
+      expect(mockedDiscard).not.toHaveBeenCalled();
+    });
+
+    it("gives way to a write of the note", async () => {
+      holdUnsavedContent("held", "typed", 300);
+      debouncedSave("held", "typed and written", 100);
+      await vi.advanceTimersByTimeAsync(300);
+
+      expect(mockedSave).toHaveBeenCalledWith("held", "typed and written");
+      expect(mockedRecord).not.toHaveBeenCalled();
+    });
+
+    it("keeps the record of a kept hold through a move into another hold", async () => {
+      holdUnsavedContent("held", "typed", 300);
+      await vi.advanceTimersByTimeAsync(300);
+      cancelAutosave("held");
+      holdUnsavedContent("held", "typed", 300);
+
+      releaseUnsavedContent("held");
+
+      expect(mockedDiscard).toHaveBeenCalledWith(["held"]);
+    });
+
+    it("hands the closing tab's held text over and leaves it in the journal", async () => {
+      holdUnsavedContent("held", "typed", 300);
+      await vi.advanceTimersByTimeAsync(300);
+      await keepUnsavedForRecovery("held");
+
+      releaseUnsavedContent("held");
+
+      expect(mockedRecord).toHaveBeenLastCalledWith([{ id: "held", content: "typed" }]);
+      expect(mockedDiscard).not.toHaveBeenCalled();
     });
   });
 

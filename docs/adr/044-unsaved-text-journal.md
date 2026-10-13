@@ -6,7 +6,9 @@ Accepted, 2026-10-13. Ships in release 0.6.
 
 Amends [ADR-028](./028-files-are-the-only-copy.md): the one copy of text outside a file that §1
 allows is this journal rather than the recovery snapshot, and the heartbeat §8 slowed no longer
-reads files.
+reads files. Amends [ADR-033](./033-external-change-handling.md) decision 15: the text a bar holds
+reaches this journal on the autosave's debounce, and the handover on the way out leaves out text a
+dated copy beside the note already holds.
 
 ## Context
 
@@ -36,20 +38,23 @@ That design had three faults.
 
 ### 1. The journal
 
-Migration 044 adds `unsaved_text`, with these columns:
+Migration 046 adds `unsaved_text`, with these columns:
 
 - `id`: the entry's own id
-- `buffer_id`: the note's row (`buffers.id`, `ON DELETE CASCADE`)
-- `path`: the note's file when the row was written, for the log
+- `buffer_id`: the note's row (`buffers.id`), with no foreign key: an entry outlives its row (§3)
+- `path`: the note's file when the row was written, for the log and for text whose note's row is
+  gone (§4)
 - `text`: what the editor held
+- `text_hash`: the SHA-256 of `text`, which a record compares instead of reading the text back
 - `recorded_at`: RFC 3339
 - `in_tab`: 1 while the entry is the text of the tab that typed it
 
-An entry holds text a note's save could not write. Nothing else goes in it. While the tab that
-typed the text is still the note's tab, the entry is that tab's: one per note at most (a unique
-index on `buffer_id` where `in_tab = 1`), which the tab's saves replace or clear. Once the note's
-tab stops being that tab, the entry is released (§3) and no save touches it. A note can hold any
-number of released entries.
+An entry holds text no file holds: what a save could not write, what the editor held back while a
+bar held the note's saves, and what a 0.5 snapshot held (§7). While the tab that typed the text is
+still the note's tab, the entry is that tab's: one per note at most (a unique index on `buffer_id`
+where `in_tab = 1`), which the tab's saves replace or clear. Once the note's tab stops being that
+tab, the entry is released (§3) and no save touches it. A note can hold any number of released
+entries.
 
 ### 2. Who writes it
 
@@ -80,9 +85,25 @@ records the text.
 and when Writ quits, with whatever it holds that is not known to be on disk. That includes text it
 held back while a bar asked about the note's file, which no save carried.
 
-A record replaces the tab's earlier text and leaves released entries alone. The same text and path
-rewrite nothing, so a save retried with unchanged text costs a read. The record is written with
-`synchronous = FULL` on that statement and the connection's own level is put back afterwards.
+It calls it while such a bar is up as well. A note whose file changed or was deleted outside Writ,
+or whose first file the launch could not make, writes nothing until the bar is answered, so its
+typing reaches no save. The frontend hands the held text over on the autosave's own debounce
+instead, from the moment the hold starts, so a crash under the bar loses no more than one debounce
+of typing, as a crash during a refused save does. When the hold ends and no write of that text
+follows, the entry the hold wrote is dropped (`discard_unsaved_text`): whatever ended the hold
+wrote the text, or the person chose the file's text over it. When a write follows, as it does for
+a file found at another path, the write settles the entry.
+
+A handover leaves out text a dated copy beside the note already holds, compared by hash. A save
+the guard stopped wrote its text there, and so did an answer that set the tab's text aside, and
+the tab can still hold that text when it closes. Journaling it again would put a second copy of
+the same text beside the note at the next launch.
+
+A record replaces the tab's earlier text and leaves released entries alone. Texts are compared by
+hash: when the tab's entry already holds text with the same hash under the same path, nothing is
+written and the stored text is not read back, so a save retried with unchanged text costs a hash
+and one small read however long the text is. Text that differs is written in full, with
+`synchronous = FULL` on that statement, and the connection's own level is put back afterwards.
 Under WAL at NORMAL, a commit survives the process being killed, but a power cut or an OS crash
 can roll back the commits since the last checkpoint. A clear runs at NORMAL. If a power cut rolls a
 clear back, the next launch writes a superseded text as a dated copy beside the note.
@@ -95,7 +116,7 @@ A tab's entry clears when:
 - the person closes the tab with "Close and lose changes" (`discard_unsaved_text`), so text they
   chose to lose does not come back at the next launch. The note's released entries stay: the
   closing tab never held their text.
-- the note's row is deleted (the cascade)
+- a hold whose text it holds ends with nothing left to write (§2)
 
 Closing a tab leaves its entry as it is, and the handover at the close (§2) replaces its text with
 the editor's newest. The entry is released when the note's tab stops being the tab that typed it:
@@ -105,8 +126,12 @@ the editor's newest. The entry is released when the note's tab stops being the t
   text, and none may clear it or replace it with the new tab's own.
 - the app launches (§4): every tab comes up showing its file.
 
-A released entry clears when a launch has written its text into the note's file or beside it, or
-with the note's row. No save touches it.
+A released entry clears when a launch has written its text into the note's file or beside it. No
+save touches it.
+
+An entry keeps its own lifetime. Deleting the note's row ("Remove from history", "Clear history")
+leaves it, until a launch writes its text to a file (§4) or the person discards it. Up to 0.5 the
+deletion took that text with the row.
 
 A fileless note whose text is in the journal is not empty, so it is never reused for a new tab and
 never reclaimed at startup (`list_unsaved_notes`). The notes migration's empty-row delete skips it
@@ -124,7 +149,10 @@ beside it. Each entry takes the path a snapshot entry took:
   (§2). If the launch cannot make that file, because the path cannot be recorded or the write
   fails, a recorded path comes back off the row, the entry stays, and the text goes to the tab as
   a withheld note's does. A tab that came up empty would let its next save replace the text
-  unseen. "Put the file back" mints the file, and so does the next launch.
+  unseen. Its bar names the file and the folder that would not take it ("Couldn't create
+  `<name>` in `<folder>`.") and offers Save As, which writes the text to a place the person picks
+  and makes that the note's file (`pick_note_save_path`, `save_note_to`). The next launch mints
+  the file in the notes folder again.
 - `restore_recovered_content` writes the text only into a path with no file, or into a file that
   already holds it. Any other file is left as it is and the text is written beside it as
   `<stem> (recovered YYYY-MM-DD HH.MM.SS)`.
@@ -134,18 +162,24 @@ note moved since its save failed keeps its new name. The text goes back with the
 ending, as a save writes it. The journal holds the editor's text, whose breaks are LF whatever the
 file uses.
 
+An entry whose note's row was deleted has no row and no tab to go back to, and its text goes to a
+dated copy of its own, with the editor's line breaks: beside the file the entry's `path` names
+while that file is there, and in the notes folder otherwise, named for that file, or for the day
+when the note never had one (`writ_core::recovery::plan_orphan_recovery`). A file that is gone was
+deleted, and a copy in the folder somebody cleared is a file they did not ask for.
+
 What happens to each entry:
 
 - written: removed from the journal
 - withheld, because its file was deleted outside Writ (ADR-033 decision 15) or because the launch
   could not give a note with no file its first one: stays. The note's newest withheld text goes to
-  its tab and becomes the tab's entry again, which putting the file back settles. Older text of
-  that note stays released for a later launch.
+  its tab and becomes the tab's entry again, which putting the file back or saving it elsewhere
+  settles. Older text of that note stays released for a later launch.
 - any other write that failed: stays released for the next launch, and is left out of the list
   the frontend counts for its toast, because nothing was restored
 
-The toast itself is unchanged. It counts each text written, so a note restored from two entries
-counts as two files.
+The toast counts notes. The launch lists a note once however many of its texts it wrote, so a
+note restored from two entries is one file in the toast and two dated copies on disk.
 
 ### 5. Rows that do not decode
 
@@ -196,22 +230,30 @@ Once no row holds text, the pass does nothing.
 - The index update a save defers (ADR-020) still reads the saved file while it holds the store, on
   its worker 2 s after the last save and at the quit. A share that stops answering inside that
   window after a save of one of its files holds the store until the read returns.
-- `writ.db` holds note text only in the journal, for text a save could not write, and in any 0.5
+- `writ.db` holds note text only in the journal, for text no file holds (§1), and in any 0.5
   snapshot row that could not be decoded, which §7 keeps exactly as it is.
 - The launch reads the file of each note the journal holds text for. If that file is on a share
   that has stopped answering, the launch waits for it. It already waits there for every note's
   file, journaled or not: the consistency check asks whether each row's file exists, and each
-  row's path is resolved again for the write authority (`src-tauri/src/state.rs`).
+  row's path is resolved again for the write authority (`src-tauri/src/state.rs`). This record
+  leaves that wait as it is. Ending it takes a deadline on the launch's file probes, or the
+  launch's file IO off the main thread, which belongs with the data-folder lock (TS-14) and the
+  asynchronous IO commands (TS-D7) rather than with the journal.
 - A save to the stalled share itself still holds the store and the main thread for as long as its
   write blocks. That is the save path's own I/O, which this record does not change. A tab open on
   the share stalls the window only if it saves.
 - Text typed while a bar holds a note's saves (its file changed or was deleted outside Writ)
-  reaches the journal when its tab closes or Writ quits, not as it is typed.
+  reaches the journal on the autosave's debounce, as the text of a refused save does.
+- A save that keeps failing writes its text to `writ.db` only when its hash differs from the
+  tab's entry. A retry of unchanged text costs a hash and a small read; changed text, however
+  large, is written in full at FULL, because a cap would be text the journal loses.
+- Removing a note from history keeps the text it handed over: the next launch writes it to a dated
+  copy of its own.
 - A row that names a path with nothing at it reads as a note whose file was deleted, so its text
   goes to its tab as removed on disk rather than to a new file. A new note whose first save failed
   under 0.5 is left that way, as is one whose process was killed between minting its path and
-  finishing the write. A new note whose first file the launch cannot make either comes up the same
-  way: the bar says the file was deleted, which it never was, and putting the file back makes it.
+  finishing the write. A new note whose first file the launch cannot make comes up held as well,
+  under a bar that names the file and the folder and offers Save As.
 - An entry whose restore failed for a note that has a file is not handed to its tab, which shows
   the file. The launch released it, so none of the tab's saves replaces or clears it, and the next
   launch tries again. 0.5 counted such text as restored and lost it at its next heartbeat.

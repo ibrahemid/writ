@@ -102,7 +102,7 @@ Deleting `writ.db` costs a reindex and the session layout, and loses no note. Th
 under `~/.writ/buffers/` are retired by the same migration, which verifies every mirror against the
 file that now holds its text before unlinking it and keeps a rollback copy at
 `writ.db.pre-notes-migration`. One copy of text outside a file stays legitimate: the unsaved-text
-journal, holding text a save could not write (ADR-044).
+journal, holding text no file holds (ADR-044).
 
 Contains:
 - SQLite layer via `rusqlite` with WAL mode enabled
@@ -113,10 +113,13 @@ Contains:
   `StorageError::SourceChangedOnDisk` when the hash of the bytes on disk differs both from the
   last known hash and from the content being written
 - TOML parsing for config files using `toml` crate
-- Crash recovery (wired, ADR-044): `recovery::journal` is the `unsaved_text` table of text a save
-  could not write. A tab owns at most one entry per note: the save command writes it as it
-  returns, with a synchronous commit, and the next save of that tab that lands clears it, as does
-  closing the tab with "Close and lose changes" (`discard_unsaved_text`). Reopening a closed note
+- Crash recovery (wired, ADR-044): `recovery::journal` is the `unsaved_text` table of text no file
+  holds: what a save could not write, and what a bar held back, which the frontend hands over on
+  the autosave's debounce. A tab owns at most one entry per note: the save command writes it as it
+  returns, with a synchronous commit when its hash differs from the entry's, and the next save of
+  that tab that lands clears it, as does closing the tab with "Close and lose changes"
+  (`discard_unsaved_text`). An entry outlives its note's row, and a launch writes such text to a
+  dated copy of its own. Reopening a closed note
   (`BufferStore::restore`) and every launch release the entries from their tabs, so no save of a
   tab that shows the file clears them. `AppState` reads the journal on every launch (before the
   watcher starts and before empty-scratch reclaim) and writes each entry into the note's file or

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -20,7 +21,7 @@ use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::note_history::NoteHistoryStore;
 use crate::notes_index;
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
-use crate::recovery::journal::{JournalRead, UnsavedJournal};
+use crate::recovery::journal::{text_hash, JournalRead, UnsavedJournal};
 use crate::recovery::legacy::{carry_over_legacy_snapshots, LegacyCarryOver};
 use crate::recovery::snapshot::SnapshotManager;
 
@@ -105,6 +106,9 @@ pub struct BufferStore {
     /// Whether this store has recorded its session as running
     /// ([`Self::mark_session_running`]).
     session_marked_running: bool,
+    /// Each note's text this session wrote beside the note as a dated copy,
+    /// as `(note id, text hash)` ([`Self::remember_text_written_beside`]).
+    texts_written_beside: HashSet<(String, String)>,
 }
 
 impl BufferStore {
@@ -116,6 +120,7 @@ impl BufferStore {
             notes_root: None,
             history: None,
             session_marked_running: false,
+            texts_written_beside: HashSet::new(),
         }
     }
 
@@ -169,6 +174,13 @@ impl BufferStore {
     /// Reads a buffer row by id.
     pub fn get(&self, id: &str) -> StorageResult<BufferDocument> {
         queries::get_buffer(&self.conn, id)
+    }
+
+    /// Reads a buffer row by id, answering `None` when there is no row: a
+    /// note removed from history, whose unsaved text the journal can still
+    /// hold (ADR-044 §3).
+    pub fn find(&self, id: &str) -> StorageResult<Option<BufferDocument>> {
+        queries::find_buffer(&self.conn, id)
     }
 
     /// Marks the buffer as history and stamps its `closed_at`.
@@ -556,6 +568,17 @@ impl BufferStore {
         if std::fs::symlink_metadata(source_path).is_ok() {
             return Ok(false);
         }
+        queries::clear_source_path(&self.conn, id, source_path)
+    }
+
+    /// Takes back a file [`Self::attach_source_path`] gave a note, whether or
+    /// not something is at it, and answers whether it did.
+    ///
+    /// For a write to a place the person chose for a note with no file: the
+    /// note had none before, so a write that did not land leaves it with none,
+    /// even when a file the person meant to replace is still at the path.
+    /// Nothing changes when the row names another path.
+    pub fn detach_source_path(&self, id: &str, source_path: &str) -> StorageResult<bool> {
         queries::clear_source_path(&self.conn, id, source_path)
     }
 
@@ -959,6 +982,25 @@ impl BufferStore {
             recorded_at,
         )?;
         Ok(true)
+    }
+
+    /// Remembers that a dated copy beside note `id` holds `text`, the text its
+    /// tab held: a save the guard stopped wrote it there, or an answer to a
+    /// changed file set it aside. Kept for this session only, by hash.
+    pub fn remember_text_written_beside(&mut self, id: &str, text: &str) {
+        self.texts_written_beside
+            .insert((id.to_string(), text_hash(text)));
+    }
+
+    /// Whether a dated copy this session wrote beside note `id` holds `text`
+    /// ([`Self::remember_text_written_beside`]), compared by hash.
+    ///
+    /// What the close and the quit hand to the journal is checked against
+    /// this: text already in a file needs no second copy at the next launch
+    /// (ADR-033 decision 15).
+    pub fn copy_beside_holds(&self, id: &str, text: &str) -> bool {
+        self.texts_written_beside
+            .contains(&(id.to_string(), text_hash(text)))
     }
 
     /// Drops the journal entry of note `id`'s tab, returning whether there was

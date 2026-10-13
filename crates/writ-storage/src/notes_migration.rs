@@ -291,7 +291,7 @@ pub fn run_notes_migration(
         // A note with no file whose text is in the unsaved-text journal is the
         // launch's recovery to place, and that ran before this pass. A row it
         // could not give a file to waits for the next launch rather than read
-        // as empty here and be deleted with its entry (ADR-044).
+        // as empty here and be deleted from under its tab (ADR-044).
         if doc.source_path.is_none() && journal.holds(&doc.id)? {
             continue;
         }

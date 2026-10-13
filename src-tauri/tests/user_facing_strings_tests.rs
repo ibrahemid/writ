@@ -110,7 +110,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-storage/src/database/queries.rs",
-        line: 111,
+        line: 102,
         word: "buffer",
         note: "row lookup error, release 0.6",
     },

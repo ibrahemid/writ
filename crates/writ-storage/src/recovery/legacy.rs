@@ -177,6 +177,14 @@ fn journal_entry(conn: &Connection, row: &Row, buffer_id: &str, text: &str) -> S
     let recorded_at = NaiveDateTime::parse_from_str(&row.created_at, "%Y-%m-%d %H:%M:%S")
         .map(|at| at.and_utc())
         .unwrap_or_else(|_| Utc::now());
-    journal::upsert(conn, buffer_id, source_path.as_deref(), text, recorded_at)?;
+    let hash = journal::text_hash(text);
+    journal::upsert(
+        conn,
+        buffer_id,
+        source_path.as_deref(),
+        text,
+        &hash,
+        recorded_at,
+    )?;
     Ok(true)
 }

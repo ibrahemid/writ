@@ -210,7 +210,7 @@ fn the_schema_migrations_are_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 44);
+    assert_eq!(max_version, 46);
 }
 
 #[test]
@@ -256,7 +256,7 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
     // The shape a release before 043 leaves behind: rows with no ending
     // recorded, which the column's default has to answer for.
     conn.execute("DROP TABLE unsaved_text", [])
-        .expect("failed to drop the table 044 added");
+        .expect("failed to drop the table 046 added");
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
     conn.execute("DELETE FROM schema_version WHERE version >= 43", [])
@@ -283,6 +283,96 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
     assert_eq!(line_ending, "lf");
 }
 
+/// Column names of the unsaved-text journal, in table order.
+fn journal_columns(conn: &rusqlite::Connection) -> Vec<String> {
+    let mut stmt = conn
+        .prepare("SELECT name FROM pragma_table_info('unsaved_text')")
+        .expect("failed to prepare statement");
+    let columns = stmt
+        .query_map([], |row| row.get(0))
+        .expect("query failed")
+        .map(|r| r.expect("row error"))
+        .collect();
+    columns
+}
+
+const JOURNAL_COLUMNS: [&str; 7] = [
+    "id",
+    "buffer_id",
+    "path",
+    "text",
+    "text_hash",
+    "recorded_at",
+    "in_tab",
+];
+
+#[test]
+fn a_fresh_database_gets_the_journal_at_046() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    assert_eq!(journal_columns(&conn), JOURNAL_COLUMNS);
+    let stamped: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM schema_version WHERE version = 46",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed to read the stamp");
+    assert_eq!(stamped, 1);
+}
+
+#[test]
+fn a_database_at_043_gains_the_journal_at_046() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    // The shape 0.5 leaves behind: 043 is the last migration it ran. The
+    // numbers between 043 and the journal's belong to other changes, so this
+    // is also a database that reaches 046 without them.
+    conn.execute("DROP TABLE unsaved_text", [])
+        .expect("failed to drop the table 046 added");
+    conn.execute("DELETE FROM schema_version WHERE version > 43", [])
+        .expect("failed to roll the stamp back");
+    conn.execute(
+        "INSERT INTO buffers
+            (id, title, filename, status, cursor_pos, scroll_pos, tab_order,
+             created_at, updated_at, read_only, size_bytes)
+         VALUES ('buf-old', 'Old', 'buf-old.txt', 'history', 0, 0, 0,
+                 '2026-08-28T00:00:00Z', '2026-08-28T00:00:00Z', 0, 0)",
+        [],
+    )
+    .expect("failed to insert buffer row");
+
+    run_migrations(&conn).expect("migration to 046 failed");
+
+    let applied: Vec<i32> = {
+        let mut stmt = conn
+            .prepare("SELECT version FROM schema_version WHERE version > 43 ORDER BY version")
+            .expect("failed to prepare statement");
+        stmt.query_map([], |row| row.get(0))
+            .expect("query failed")
+            .map(|r| r.expect("row error"))
+            .collect()
+    };
+    assert_eq!(applied, vec![46]);
+    assert_eq!(journal_columns(&conn), JOURNAL_COLUMNS);
+    conn.execute(
+        "INSERT INTO unsaved_text (buffer_id, path, text, text_hash, recorded_at)
+         VALUES ('buf-old', NULL, 'kept', 'hash', '2026-10-13T00:00:00Z')",
+        [],
+    )
+    .expect("the journal takes an entry for a row the database already held");
+    let title: String = conn
+        .query_row(
+            "SELECT title FROM buffers WHERE id = 'buf-old'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed to read the row back");
+    assert_eq!(title, "Old");
+}
+
 #[test]
 fn a_database_at_041_gains_the_column_with_its_rows_intact() {
     let (_dir, conn) = setup_temp_db();
@@ -291,7 +381,7 @@ fn a_database_at_041_gains_the_column_with_its_rows_intact() {
     // Roll the database back to the shape the release that ships 040 and 041
     // leaves behind, then migrate it forward again.
     conn.execute("DROP TABLE unsaved_text", [])
-        .expect("failed to drop the table 044 added");
+        .expect("failed to drop the table 046 added");
     conn.execute("ALTER TABLE files DROP COLUMN indexed_by", [])
         .expect("failed to drop the column");
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
@@ -426,7 +516,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 44);
+    assert_eq!(max_version, 46);
 }
 
 /// Column names of the `buffers` table.

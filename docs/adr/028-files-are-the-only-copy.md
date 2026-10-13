@@ -56,8 +56,9 @@ carries it and deleting the notes folder does not delete its own history.
 
 One copy of text outside a file is legitimate: the unsaved-text journal
 ([ADR-044](./044-unsaved-text-journal.md), `crates/writ-storage/src/recovery/journal.rs`), which
-holds text a save could not write: a tab's text until the next save of that tab that lands, and
-text no open tab holds until a launch writes it to disk.
+holds text no file holds, what a save could not write and what a bar held back: a tab's text
+until the next save of that tab that lands, and text no open tab holds until a launch writes it to
+disk, even after the note's row is deleted.
 It is a record of text that has not reached a file, not a second source of truth.
 
 Mirror files under `~/.writ/buffers/` are retired. `buffers_dir` (`src-tauri/src/state.rs:76`)

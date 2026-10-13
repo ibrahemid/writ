@@ -452,6 +452,58 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
     Ok(out)
 }
 
+/// IPC: asks the person where a note with no file goes ("Save As…" on the
+/// bar of a note whose first file could not be made), and answers the path
+/// they chose, or `None` when they cancelled.
+///
+/// The panel opens in the notes folder with the name the note's first save
+/// gives it. The chosen path is resolved the way the write gate resolves a
+/// path, and recorded as one the person picked, so the write that follows
+/// ([`crate::commands::buffer::save_note_to`]) may land outside the notes
+/// folder.
+#[tauri::command]
+pub async fn pick_note_save_path(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<Option<String>, String> {
+    let (folder, name) = {
+        let state = app.state::<AppState>();
+        let notes_root = state.notes_root();
+        // Read before the store lock: the config lock is never taken under it.
+        let extension = state.default_extension();
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let doc = store.get(&id).map_err(|e| e.to_string())?;
+        let suggested =
+            crate::notes::mint_note_path(&notes_root, &doc.title, chrono::Utc::now(), extension);
+        let name = suggested
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        (notes_root, name)
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
+    app.dialog()
+        .file()
+        .set_title("Save As")
+        .set_directory(&folder)
+        .set_file_name(name)
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+
+    let Some(picked) = rx.recv().map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let picked = picked.into_path().map_err(|e| e.to_string())?;
+    let resolved = crate::security::resolve_for_containment(&picked)
+        .ok_or_else(|| format!("{} cannot be written to", picked.display()))?;
+    app.state::<AppState>()
+        .authorized_paths
+        .record_blessed_source(resolved.clone());
+    Ok(Some(resolved))
+}
+
 /// Brings an already-open buffer back in line with its file on disk.
 ///
 /// Reopening is how the user says "show me this file" — the CLI reopening a

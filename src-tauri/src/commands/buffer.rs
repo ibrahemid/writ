@@ -403,6 +403,10 @@ fn write_note_source(
 /// Within the tab, the frontend writes one note at a time and hands text over
 /// only after its flush, so no write of this note is still running when a
 /// later one lands or a handover arrives.
+///
+/// Text written beside the note is remembered, so a handover of the same text
+/// later in the session does not journal a second copy of it
+/// ([`record_unsaved_notes_inner`]).
 pub(crate) fn keep_unsaved_text(
     state: &AppState,
     id: &str,
@@ -414,7 +418,10 @@ pub(crate) fn keep_unsaved_text(
     if step == JournalStep::Leave {
         return;
     }
-    let store = recover_poison(state.store.lock(), "commands::buffer::keep_unsaved_text");
+    let mut store = recover_poison(state.store.lock(), "commands::buffer::keep_unsaved_text");
+    if landing == SaveLanding::WrittenBeside {
+        store.remember_text_written_beside(id, content);
+    }
     let held = match step {
         JournalStep::Record => store.record_unsaved_text(id, content, chrono::Utc::now()),
         JournalStep::Clear => store.clear_unsaved_text(id).map(|_| false),
@@ -681,6 +688,86 @@ pub fn restore_note_file(
     content: String,
 ) -> Result<Option<String>, String> {
     let disk_hash = restore_note_file_inner(&state, &id, &content)?;
+    if let Some(generation) = state.fts_scheduler.on_edit(&id) {
+        spawn_deferred_reindex(app, id, generation);
+    }
+    Ok(disk_hash)
+}
+
+/// Gives a note with no file its first one at `path`, a place the person
+/// chose, and writes the tab's text there: "Save As…" on the bar of a note
+/// whose first file could not be made in the notes folder (ADR-044 §4).
+///
+/// `path` has to be one the write gate allows: inside the notes folder, or
+/// one the person picked in the save panel
+/// ([`crate::commands::file::pick_note_save_path`]). A note that has a file
+/// is refused rather than moved, and so is a file another tab has open: a
+/// file is one open note, and two tabs on it would each save over the other.
+///
+/// A file already at `path` was there when the person chose it, and the save
+/// panel asked before replacing it, so it is read first: the guard then
+/// weighs the write against what is there rather than refusing a file Writ
+/// never read, and the text it held is kept as a version like any other a
+/// write replaces. A file whose bytes are not on this machine is not read,
+/// and the guard refuses the write.
+///
+/// The write is the one every save lands through ([`restore_note_file_inner`]),
+/// so the tab's journal entry clears when it lands and keeps the text when it
+/// does not. A write that does not land takes the path back off the row: the
+/// note had no file before, and has none after.
+pub fn save_note_to_inner(
+    state: &AppState,
+    id: &str,
+    content: &str,
+    path: &str,
+) -> Result<Option<String>, String> {
+    crate::commands::file::authorize_source_write(state, path)?;
+    {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let open_elsewhere = store
+            .find_active_by_source_path(path)
+            .map_err(|e| format!("{ERR_WRITE_FAILED}: {e}"))?
+            .is_some_and(|doc| doc.id != id);
+        if open_elsewhere {
+            return Err(format!("{ERR_WRITE_FAILED}: {path} is open in another tab"));
+        }
+        store
+            .attach_source_path(id, path)
+            .map_err(|e| format!("{ERR_WRITE_FAILED}: {e}"))?;
+    }
+    let target = Path::new(path);
+    if !is_not_downloaded(dataless_flags(target)) {
+        if let Ok(bytes) = std::fs::read(target) {
+            state.record_disk_state_bytes(id, target, &bytes);
+        }
+    }
+    state.follow_note_path(id, target);
+    restore_note_file_inner(state, id, content).inspect_err(|_| {
+        let store = recover_poison(state.store.lock(), "commands::buffer::save_note_to_inner");
+        match store.detach_source_path(id, path) {
+            Ok(true) => {
+                state.stop_following_note(id);
+                state.forget_source_record(id);
+                state.forget_disk_state(id);
+            }
+            Ok(false) => {}
+            Err(e) => {
+                tracing::warn!(buffer_id = %id, error = %e, "a chosen path could not be taken back");
+            }
+        }
+    })
+}
+
+/// IPC: [`save_note_to_inner`].
+#[tauri::command]
+pub fn save_note_to(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+    path: String,
+) -> Result<Option<String>, String> {
+    let disk_hash = save_note_to_inner(&state, &id, &content, &path)?;
     if let Some(generation) = state.fts_scheduler.on_edit(&id) {
         spawn_deferred_reindex(app, id, generation);
     }
@@ -1105,6 +1192,13 @@ pub fn resolve_external_change_at(
     let copy = write_conflict_copy(path, &losing, chrono::Utc::now(), Some(&stamp))
         .map_err(|e| save_failure_message(&e))?;
     let conflict_copy_path = Some(copy.to_string_lossy().into_owned());
+    if outcome.write_conflict_copy_of == Side::Mine {
+        recover_poison(
+            state.store.lock(),
+            "commands::buffer::resolve_external_change_at",
+        )
+        .remember_text_written_beside(id, content);
+    }
 
     match outcome.then {
         Action::WriteMine => {
@@ -1155,10 +1249,15 @@ pub struct UnsavedNote {
 ///
 /// Called on the way out: when a tab closes, when the window closes and when
 /// Writ quits, with whatever the editor holds that is not known to be on disk.
-/// A save that failed has journaled its text already. What this adds is text
-/// the editor held back while a bar was asking about the note's file, which no
-/// save ever carried. The next launch restores all of it
-/// ([`crate::state::restore_unsaved_text`]).
+/// Called too while a bar holds a note's saves, on the autosave's debounce,
+/// with the text the editor is holding back. A save that failed has journaled
+/// its text already. What this adds is text the editor held back while a bar
+/// was asking about the note's file, which no save ever carried. The next
+/// launch restores all of it ([`crate::state::restore_unsaved_text`]).
+///
+/// Text a dated copy beside the note already holds is left out, compared by
+/// hash: a save the guard stopped wrote it there, and journaling it would put
+/// a second copy beside the note at the next launch (ADR-033 decision 15).
 #[tauri::command]
 pub fn record_unsaved_notes(
     state: State<'_, AppState>,
@@ -1178,6 +1277,9 @@ pub fn record_unsaved_notes_inner(state: &AppState, notes: Vec<UnsavedNote>) -> 
     let total = notes.len();
     let mut unkept = 0usize;
     for note in notes {
+        if store.copy_beside_holds(&note.id, &note.content) {
+            continue;
+        }
         if let Err(e) = store.record_unsaved_text(&note.id, &note.content, now) {
             tracing::warn!(buffer_id = %note.id, error = %e, "unsaved text could not be journaled");
             unkept += 1;
