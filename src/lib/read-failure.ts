@@ -67,9 +67,14 @@ export function readFailureReason(code: string): string {
   return REASONS[code] ?? REASONS[ERR_READ_FAILED];
 }
 
+/** What the editor says in place of a file it did not open, from the reason. */
+export function describeUnopenedFile(reason: string): string {
+  return `Could not open this file: ${reason}`;
+}
+
 /** What the editor says in place of the file it could not open. */
 export function describeReadFailure(failure: ReadFailure): string {
-  return `Could not open this file: ${readFailureReason(failure.code)}`;
+  return describeUnopenedFile(readFailureReason(failure.code));
 }
 
 /** Whether the file manager has a file to show: a file that is gone does not. */

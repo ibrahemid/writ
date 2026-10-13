@@ -190,6 +190,34 @@ describe("a refused open says why", () => {
     });
   });
 
+  // A link written before its note is an everyday thing. The answer states
+  // the fact: File > Open File cannot open a file that is not there.
+  it("says a missing file in a folder Writ opens from does not exist", async () => {
+    const path = "/Users/me/Writ/spec.md";
+    answers.set(path, async () => {
+      throw "ERR_OPEN_FILE_MISSING: the file does not exist";
+    });
+
+    const outcome = await bufferRegistry.openFile(path);
+
+    expect(outcome).toEqual({ kind: "refused", path, reason: "it does not exist." });
+  });
+
+  it("keeps the way to open a path outside the folders Writ opens from", async () => {
+    const path = "/private/elsewhere/spec.md";
+    answers.set(path, async () => {
+      throw "ERR_OPEN_NOT_AUTHORIZED: Writ cannot open that file from here. Use File > Open File, or drop it onto the window.";
+    });
+
+    const outcome = await bufferRegistry.openFile(path);
+
+    expect(outcome).toEqual({
+      kind: "refused",
+      path,
+      reason: "open it with File > Open File, or drop it onto the window.",
+    });
+  });
+
   it("never shows a person the operating system's own sentence", async () => {
     const path = "/Users/me/odd.txt";
     answers.set(path, async () => {

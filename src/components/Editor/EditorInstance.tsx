@@ -55,6 +55,9 @@ import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { unreadTabs } from "../../stores/global/unread-tabs";
+import { describeUnreadTab } from "../../lib/unread-tab";
+import { canShowInFileManager, describeReadFailure } from "../../lib/read-failure";
 import { findStore } from "../../stores/global/find-store";
 import { aiRewriteStore } from "../../stores/global/ai-rewrite";
 import { useWindow } from "../WindowProvider/WindowProvider";
@@ -595,10 +598,8 @@ export default function EditorInstance(props: Props) {
     }
   }
 
-  // A file that could not be read gets no document: opening it already
-  // recorded what it holds, so a save from an empty document would be let
-  // through and replace it. The reason takes the view's place.
-  function showReadFailure(id: string, error: unknown) {
+  // No view and no text: a pane saying why takes the view's place.
+  function dropView() {
     view?.destroy();
     view = undefined;
     viewBufferId = undefined;
@@ -608,7 +609,24 @@ export default function EditorInstance(props: Props) {
     win.editor.setLineCount(0);
     win.editor.setCurrentText("");
     win.editor.setCurrentBufferId(null);
+  }
+
+  // A file that could not be read gets no document: opening it already
+  // recorded what it holds, so a save from an empty document would be let
+  // through and replace it. The reason takes the view's place.
+  function showReadFailure(id: string, error: unknown) {
+    dropView();
     win.editor.failRead(id, error);
+  }
+
+  // The unread tab whose pane the editor shows. Its open answering is what
+  // reads it: the tab's id does not change, so the switch effect stays quiet.
+  let unreadPaneFor: string | null = null;
+
+  function openUnreadTab(id: string) {
+    void win.tabs.openUnreadTab(id).catch(() => {
+      logFailure("a tab restored at launch could not be opened");
+    });
   }
 
   // The language this file is shown in: the one chosen for it, else what its
@@ -663,6 +681,19 @@ export default function EditorInstance(props: Props) {
     currentBufferId = buffer.id;
     appliedLanguageKey = "";
     lastDetectLen = 0;
+    unreadPaneFor = null;
+
+    // A tab the last session left open whose file is over the size Writ opens
+    // without asking is read only once its open answers, and one past the
+    // size Writ opens is not read at all.
+    const unread = unreadTabs.stateOf(buffer.id);
+    if (unread) {
+      dropView();
+      win.editor.clearReadFailure();
+      unreadPaneFor = buffer.id;
+      if (unread.kind === "waiting") openUnreadTab(buffer.id);
+      return;
+    }
 
     // The grammar the name or the choice asks for starts loading alongside
     // the read, so it is usually there by the time the view is built. Nothing
@@ -822,6 +853,15 @@ export default function EditorInstance(props: Props) {
       }
     }
   ));
+
+  // The unread tab in front is read once its open answers.
+  createEffect(() => {
+    const id = props.buffer.id;
+    if (unreadTabs.stateOf(id) === null && unreadPaneFor === id) {
+      unreadPaneFor = null;
+      void loadBuffer(props.buffer);
+    }
+  });
 
   createEffect(on(
     () => win.editor.externalReload(),
@@ -1043,20 +1083,41 @@ export default function EditorInstance(props: Props) {
     const failure = win.editor.readFailure();
     return failure !== null && failure.bufferId === props.buffer.id ? failure : null;
   };
+  const shownUnread = () => unreadTabs.stateOf(props.buffer.id);
 
   return (
     <>
       <Show when={shownFailure()}>
         {(failure) => (
           <NoteReadFailure
-            failure={failure()}
-            onRetry={() => void loadBuffer(props.buffer)}
+            line={describeReadFailure(failure())}
+            actionLabel="Try again"
+            onAction={() => void loadBuffer(props.buffer)}
+            alert
+            canShowInFileManager={canShowInFileManager(failure())}
             onShowInFileManager={() => void showNoteInFileManager(failure().bufferId)}
             onClose={() => void win.tabs.closeTab(failure().bufferId)}
           />
         )}
       </Show>
-      <div ref={containerRef!} class="editor-instance" hidden={shownFailure() !== null} />
+      <Show when={shownUnread()}>
+        {(unread) => (
+          <NoteReadFailure
+            line={describeUnreadTab(unread())}
+            actionLabel={unread().kind === "waiting" ? "Open…" : "Try again"}
+            onAction={() => openUnreadTab(props.buffer.id)}
+            alert={unread().kind === "refused"}
+            canShowInFileManager
+            onShowInFileManager={() => void showNoteInFileManager(props.buffer.id)}
+            onClose={() => void win.tabs.closeTab(props.buffer.id)}
+          />
+        )}
+      </Show>
+      <div
+        ref={containerRef!}
+        class="editor-instance"
+        hidden={shownFailure() !== null || shownUnread() !== null}
+      />
     </>
   );
 }

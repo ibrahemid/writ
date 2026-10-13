@@ -56,6 +56,10 @@ pub fn restore_buffer_confirmed(
 /// whose bytes are with a sync provider fetches them. A file that is not there
 /// reopens as it always did, and its tab says what became of it.
 ///
+/// A tab restored at launch whose file was over the size Writ opens without
+/// asking answers the same way when it is shown. It was never closed, so it
+/// stays where it is and nothing is restored.
+///
 /// The tab starts being followed again here. Its watch went when it closed,
 /// and the file has had every moment since then to change.
 pub fn restore_buffer_inner(state: &AppState, id: &str) -> Result<FileOpenResult, String> {
@@ -95,7 +99,16 @@ fn reopen_closed(state: &AppState, id: &str, confirmed: bool) -> Result<FileOpen
                 doc: None,
             });
         }
-        store.restore(id).map_err(|e| e.to_string())?;
+        if closed.status == BufferStatus::History {
+            store.restore(id).map_err(|e| e.to_string())?;
+        }
+        // The editor reads the tier off the row, so the row carries the size
+        // the file has now rather than the size it had when it was closed.
+        if size_bytes != closed.size_bytes {
+            store
+                .record_size(id, size_bytes)
+                .map_err(|e| e.to_string())?;
+        }
         let doc = store.get(id).map_err(|e| e.to_string())?;
         (doc, mode.once_open(), size_bytes)
     };

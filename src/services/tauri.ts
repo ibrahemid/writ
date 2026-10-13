@@ -657,7 +657,8 @@ export async function listHistory(): Promise<BufferDocument[]> {
 /**
  * Reopens a closed file, answering as an open does: a file that grew past the
  * size Writ opens without asking is a question, and nothing reopens until
- * `restoreBufferConfirmed`.
+ * `restoreBufferConfirmed`. A tab restored unread at launch answers the same
+ * way and stays where it is.
  */
 export async function restoreBuffer(id: string): Promise<FileOpenResult> {
   return invoke("restore_buffer", { id });

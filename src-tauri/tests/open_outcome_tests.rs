@@ -28,7 +28,7 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::close_buffer_inner;
+use writ_tauri_lib::commands::buffer::{close_buffer_inner, list_active_buffers_inner};
 use writ_tauri_lib::commands::file::{
     open_file_confirmed_from_path, open_file_from_path, ERR_OPEN_NOT_AUTHORIZED,
 };
@@ -438,7 +438,12 @@ fn a_closed_file_that_grew_past_fifty_mib_is_asked_about_before_it_reopens() {
 
     assert_eq!(reopened.mode, FileOpenMode::LargeFile);
     assert_eq!(reopened.size_bytes, SIXTY_MB);
-    assert_eq!(reopened.doc.expect("the row").id, id);
+    let doc = reopened.doc.expect("the row");
+    assert_eq!(doc.id, id);
+    // The editor reads its tier off the row, so the row carries the size the
+    // file has now rather than the size it had when it was closed.
+    assert_eq!(doc.size_bytes, SIXTY_MB);
+    assert_eq!(size_of(&state, &id), SIXTY_MB);
     assert_eq!(status_of(&state, &id), BufferStatus::Active);
 }
 
@@ -492,4 +497,188 @@ fn a_closed_file_that_is_gone_reopens_without_a_question() {
 
     assert_eq!(reopened.doc.expect("the row").id, id);
     assert_eq!(status_of(&state, &id), BufferStatus::Active);
+}
+
+fn size_of(state: &AppState, id: &str) -> u64 {
+    state.store.lock().unwrap().get(id).unwrap().size_bytes
+}
+
+fn updated_at_of(state: &AppState, id: &str) -> chrono::DateTime<chrono::Utc> {
+    state.store.lock().unwrap().get(id).unwrap().updated_at
+}
+
+/// A short text file in the notes folder, opened and left open, as the last
+/// session left it.
+fn open_tab(state: &AppState, name: &str) -> (std::path::PathBuf, String) {
+    let file = state.notes_root().join(name);
+    std::fs::write(&file, "a line of a log\n").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    let id = open_file_from_path(state, &canonical)
+        .expect("open")
+        .doc
+        .expect("row")
+        .id;
+    (file, id)
+}
+
+// A file can change size while Writ is closed. The launch measures each tab it
+// restores before anything reads it, and the row it hands the editor carries
+// the size the file has now: the editor's tier, the crash snapshot and the
+// index all read it off the row. A stat is not a read, so the stamp a read
+// leaves is not moved.
+#[test]
+fn a_tab_restored_at_launch_carries_the_size_its_file_has_now() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (file, id) = open_tab(&state, "grew.log");
+    let stamped = updated_at_of(&state, &id);
+    grow(&file, SIXTY_MB);
+
+    let restored = list_active_buffers_inner(&state).expect("the tabs");
+
+    let row = restored.iter().find(|doc| doc.id == id).expect("the tab");
+    assert_eq!(row.size_bytes, SIXTY_MB);
+    assert_eq!(size_of(&state, &id), SIXTY_MB);
+    assert_eq!(updated_at_of(&state, &id), stamped);
+}
+
+// A tab whose file is gone keeps the size on record: nothing is there to
+// measure, and its read says what became of it.
+#[test]
+fn a_restored_tab_whose_file_is_gone_keeps_its_recorded_size() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (file, id) = open_tab(&state, "gone.log");
+    let recorded = size_of(&state, &id);
+    std::fs::remove_file(&file).unwrap();
+
+    let restored = list_active_buffers_inner(&state).expect("the tabs");
+
+    let row = restored.iter().find(|doc| doc.id == id).expect("the tab");
+    assert_eq!(row.size_bytes, recorded);
+    assert_eq!(size_of(&state, &id), recorded);
+}
+
+// A tab restored over 50 MiB opens the way a closed file does from History:
+// the question first, then the confirmed reopen, which measures again. The tab
+// was never closed, so it stays where it is and its stamp is not moved.
+#[test]
+fn a_restored_tab_over_fifty_mib_is_asked_about_and_opens_in_place() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (file, id) = open_tab(&state, "restored.log");
+    grow(&file, SIXTY_MB);
+    list_active_buffers_inner(&state).expect("the launch");
+    let stamped = updated_at_of(&state, &id);
+
+    let asked = restore_buffer_inner(&state, &id).expect("an answer");
+
+    assert_eq!(asked.mode, FileOpenMode::LargeFileConfirm);
+    assert_eq!(asked.size_bytes, SIXTY_MB);
+    assert!(asked.doc.is_none());
+    assert_eq!(status_of(&state, &id), BufferStatus::Active);
+
+    let opened = restore_buffer_confirmed_inner(&state, &id).expect("open after Open");
+
+    assert_eq!(opened.mode, FileOpenMode::LargeFile);
+    let doc = opened.doc.expect("the row");
+    assert_eq!(doc.id, id);
+    assert_eq!(doc.size_bytes, SIXTY_MB);
+    assert_eq!(status_of(&state, &id), BufferStatus::Active);
+    assert_eq!(updated_at_of(&state, &id), stamped);
+}
+
+// Past the size Writ opens, the tab stays, refused: it is a tab the last
+// session left, and closing it is the person's call.
+#[test]
+fn a_restored_tab_past_the_limit_is_refused_and_keeps_its_tab() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (file, id) = open_tab(&state, "huge.log");
+    grow(&file, THRESHOLD_MAX_BYTES + 1);
+    list_active_buffers_inner(&state).expect("the launch");
+
+    for answer in [
+        restore_buffer_inner(&state, &id).expect("an answer"),
+        restore_buffer_confirmed_inner(&state, &id).expect("an answer after Open"),
+    ] {
+        let FileOpenMode::Refused { reason } = &answer.mode else {
+            panic!("expected a refusal, got {:?}", answer.mode);
+        };
+        assert!(
+            reason.starts_with(&format!("{ERR_OPEN_TOO_LARGE}: ")),
+            "{reason}"
+        );
+        assert!(answer.doc.is_none());
+    }
+    assert_eq!(status_of(&state, &id), BufferStatus::Active);
+}
+
+// A path in a folder Writ opens from on its own, with nothing at it, says so:
+// a link written before its note is an everyday thing, and telling the person
+// to use File > Open File for a file that is not there cannot work. Both entry
+// points answer the same.
+#[test]
+fn a_missing_file_inside_the_notes_folder_answers_that_it_is_missing() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let notes = state.notes_root();
+
+    for path in [
+        notes.join("spec.md"),
+        notes.join("new").join("dir").join("x.md"),
+    ] {
+        let raw = path.to_string_lossy();
+        let error = open_file_from_path(&state, &raw).expect_err("nothing is there");
+        assert!(
+            error.starts_with("ERR_OPEN_FILE_MISSING: "),
+            "the failure leads with its code: {error}"
+        );
+        let confirmed =
+            open_file_confirmed_from_path(&state, &raw).expect_err("nor for the confirmed open");
+        assert_eq!(confirmed, error);
+    }
+}
+
+// Containment is decided on the resolved path, so a `..` out of the notes
+// folder answers as any path outside it does, and says nothing about whether
+// the file is there.
+#[test]
+fn a_missing_file_reached_through_dot_dot_answers_not_authorized() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    std::fs::create_dir_all(dir.path().join("elsewhere")).unwrap();
+    let escape = state
+        .notes_root()
+        .join("..")
+        .join("elsewhere")
+        .join("missing.txt");
+
+    let error = open_file_from_path(&state, &escape.to_string_lossy()).expect_err("outside");
+
+    assert!(
+        error.starts_with(&format!("{ERR_OPEN_NOT_AUTHORIZED}: ")),
+        "{error}"
+    );
+}
+
+// A link inside the notes folder to a folder outside it is resolved before the
+// check, so a missing file under it is outside too.
+#[cfg(unix)]
+#[test]
+fn a_missing_file_under_a_link_out_of_the_notes_folder_answers_not_authorized() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let outside = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&outside).unwrap();
+    let link = state.notes_root().join("linked");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+    let error = open_file_from_path(&state, &link.join("missing.txt").to_string_lossy())
+        .expect_err("outside");
+
+    assert!(
+        error.starts_with(&format!("{ERR_OPEN_NOT_AUTHORIZED}: ")),
+        "{error}"
+    );
 }

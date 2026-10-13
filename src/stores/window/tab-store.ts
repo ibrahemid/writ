@@ -212,6 +212,16 @@ export function createTabStore(deps: {
     return outcome.kind === "opened" ? outcome.doc : null;
   }
 
+  // A tab the last session left open, shown before its file was read. Its
+  // open asks or refuses as reopening a closed file does and reports nothing:
+  // a refusal stays in the tab, which says why. An open the person answered
+  // brings the tab in front.
+  async function openUnreadTab(id: string): Promise<OpenOutcome> {
+    const outcome = await registry.openUnreadTab(id);
+    if (outcome.kind === "opened") return showOpened(outcome, true);
+    return outcome;
+  }
+
   // Opens a path and answers what the open came to, reporting nothing. A file
   // whose bytes are not on this machine goes to the download store, which
   // opens it again once they arrive. `activate` is false for a note that
@@ -283,6 +293,7 @@ export function createTabStore(deps: {
     closeOtherTabs,
     closeAllTabs,
     restoreFromHistory,
+    openUnreadTab,
     openPath,
     openFile,
     openFileDialog,

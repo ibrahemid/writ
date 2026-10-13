@@ -15,7 +15,7 @@ What Writ does, at the level of detail that answers "does it do X".
 - Writ keeps a version of a file in its folder each time it is saved, for up to 30 days or 200 versions, outside that folder. A file over 2 MB is not versioned. File > Revert To puts one back.
 - Open tabs and unsaved text come back after a restart or a crash.
 - Binary files open as hex. Large files open with syntax colouring off.
-- A file over 50 MiB asks before it opens and says how large it is. A file over 500 MiB (524 MB) doesn't open, and Writ says why. Tabs restored at launch skip both checks.
+- A file over 50 MiB asks before it opens and says how large it is. A file over 500 MiB (524 MB) doesn't open, and Writ says why. Writ measures the tabs it restores at launch as it starts: one over 50 MiB asks when it is shown, and one over 500 MiB says why.
 - On macOS, Writ can register as the app that opens text, config, data and source files (Settings, Files).
 
 ## Markdown

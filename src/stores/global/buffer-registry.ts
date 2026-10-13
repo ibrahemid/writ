@@ -6,6 +6,7 @@ import { basename } from "../../lib/path";
 import { openFailureReason, refusalReason } from "../../lib/open-failure";
 import { THRESHOLD_NORMAL_BYTES } from "../../editor/large-file";
 import { largeFileOpen } from "./large-file-open";
+import { unreadTabs } from "./unread-tabs";
 
 /**
  * What an open of a path came to. Every open has one of these answers and
@@ -33,6 +34,18 @@ export class OpenRefusedError extends Error {
   ) {
     super(`the file was not opened: ${reason}`);
     this.name = "OpenRefusedError";
+  }
+}
+
+/**
+ * A tab restored unread at launch was asked for its text before its open
+ * answered. Its file is read once the person says Open, and never past the
+ * size Writ opens.
+ */
+export class UnreadTabReadError extends Error {
+  constructor(readonly bufferId: string) {
+    super("a tab restored at launch is read only once its open answers");
+    this.name = "UnreadTabReadError";
   }
 }
 
@@ -87,6 +100,14 @@ function createBufferRegistry() {
       api.listHistory(),
     ]);
     setBuffers([...active, ...history]);
+  }
+
+  // The tabs the last session left open. Rust measures each tab's file while
+  // listing it, so a file that grew past the size Writ opens without asking
+  // while Writ was closed stays unread here, before any tab is shown.
+  async function loadSession(): Promise<void> {
+    await load();
+    unreadTabs.takeRestored(activeTabs());
   }
 
   async function createBuffer(title?: string): Promise<BufferDocument> {
@@ -144,6 +165,7 @@ function createBufferRegistry() {
     cancelAutosave(id);
     await api.deleteNote(id);
     void api.previewClose(id).catch(() => {});
+    unreadTabs.clear(id);
     setBuffers((prev) => prev.filter((b) => b.id !== id));
   }
 
@@ -164,6 +186,7 @@ function createBufferRegistry() {
       if (!flushed.ok) return { closed: false, failures: flushed.failures };
     }
     await api.closeBuffer(id);
+    unreadTabs.clear(id);
     // The preview pane is a window-lifetime singleton (never unmounted, to
     // avoid the writ-preview:// iframe teardown freeze), so it no longer evicts
     // the host render cache per buffer. Evict here, at the close that ends the
@@ -196,7 +219,10 @@ function createBufferRegistry() {
     }
     if (saved.length === 0) return { closedIds: [], failedIds, failures };
     await api.closeBuffers(saved);
-    for (const id of saved) void api.previewClose(id).catch(() => {});
+    for (const id of saved) {
+      unreadTabs.clear(id);
+      void api.previewClose(id).catch(() => {});
+    }
     const closedAt = new Date().toISOString();
     const closedIds = new Set(saved);
     setBuffers((prev) =>
@@ -226,6 +252,47 @@ function createBufferRegistry() {
         ? await openAfterAsking(path, result.size_bytes, () => api.restoreBufferConfirmed(id))
         : registerOpenResult(result, path);
     if (outcome.kind === "opened") await load();
+    return outcome;
+  }
+
+  // One answer per unread tab at a time: a tab shown again while its question
+  // is up waits for that answer rather than asking twice.
+  const unreadOpens = new Map<string, Promise<OpenOutcome>>();
+
+  // A tab restored unread at launch answers as reopening a closed file does:
+  // its file is measured again, one over the size Writ opens without asking is
+  // asked about, and the read waits for Open. Cancel leaves the tab unread,
+  // and a refusal stays in the tab, which says why.
+  function openUnreadTab(id: string): Promise<OpenOutcome> {
+    const pending = unreadOpens.get(id);
+    if (pending) return pending;
+    const answer = answerUnreadTab(id).finally(() => unreadOpens.delete(id));
+    unreadOpens.set(id, answer);
+    return answer;
+  }
+
+  async function answerUnreadTab(id: string): Promise<OpenOutcome> {
+    const row = buffers().find((b) => b.id === id);
+    const path = row?.source_path ?? row?.title ?? id;
+    let result: FileOpenResult;
+    try {
+      result = await api.restoreBuffer(id);
+    } catch (error) {
+      const reason = openFailureReason(error);
+      unreadTabs.refuse(id, reason);
+      return { kind: "refused", path, reason };
+    }
+    let outcome: OpenOutcome;
+    if (result.mode.kind === "LargeFileConfirm") {
+      unreadTabs.wait(id, result.size_bytes);
+      outcome = await openAfterAsking(path, result.size_bytes, () =>
+        api.restoreBufferConfirmed(id),
+      );
+    } else {
+      outcome = registerOpenResult(result, path);
+    }
+    if (outcome.kind === "opened") unreadTabs.clear(id);
+    else if (outcome.kind === "refused") unreadTabs.refuse(id, outcome.reason);
     return outcome;
   }
 
@@ -313,6 +380,9 @@ function createBufferRegistry() {
   async function openFile(path: string): Promise<OpenOutcome> {
     const existing = activeTabs().find((b) => b.source_path === path);
     if (existing) {
+      // A tab restored unread at launch has not been opened yet, so an open
+      // of its path is its open, with the question or refusal that goes with it.
+      if (unreadTabs.stateOf(existing.id)) return openUnreadTab(existing.id);
       const mode = openModes.get(existing.id) ?? modeOfRow(existing);
       return { kind: "opened", doc: existing, existed: true, mode };
     }
@@ -333,7 +403,11 @@ function createBufferRegistry() {
     return api.showOpenFileDialog();
   }
 
+  // A tab restored unread at launch is read only once its open answers: a
+  // read before that loads a file nobody said Open to, or one past the size
+  // Writ opens.
   async function readContent(id: string): Promise<string> {
+    if (unreadTabs.stateOf(id)) throw new UnreadTabReadError(id);
     return api.readBufferContent(id);
   }
 
@@ -355,6 +429,7 @@ function createBufferRegistry() {
     activeTabs,
     historyList,
     load,
+    loadSession,
     createBuffer,
     newNote,
     adoptDocument,
@@ -364,6 +439,7 @@ function createBufferRegistry() {
     closeBuffer,
     closeBuffers,
     restoreBuffer,
+    openUnreadTab,
     deleteFromHistory,
     clearAllHistory,
     renameBuffer,

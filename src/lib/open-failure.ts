@@ -11,11 +11,18 @@ export const MAX_OPEN_BYTES = 500 * 1024 * 1024;
 
 // The code an open leads with when the path is in no folder Writ opens from on
 // its own and the person did not pick the file, minted in
-// src-tauri/src/commands/file.rs. A path that does not resolve answers the
-// same, so the reason has to hold whether the file is there or not.
+// src-tauri/src/commands/file.rs. A path outside those folders answers this
+// whether or not a file is there, so the reason has to hold either way.
 export const ERR_OPEN_NOT_AUTHORIZED = "ERR_OPEN_NOT_AUTHORIZED";
 
 const NOT_AUTHORIZED_REASON = "open it with File > Open File, or drop it onto the window.";
+
+// The code an open leads with when nothing is at a path inside a folder Writ
+// opens from on its own, such as a link to a note not written yet. Minted in
+// src-tauri/src/commands/file.rs.
+export const ERR_OPEN_FILE_MISSING = "ERR_OPEN_FILE_MISSING";
+
+const MISSING_REASON = "it does not exist.";
 
 // An open that failed for a reason with no code of its own. The message
 // underneath is the operating system's or the database's, and neither belongs
@@ -47,6 +54,7 @@ export function refusalReason(reason: string, sizeBytes: number): string {
 /** The reason an open that was rejected names. */
 export function openFailureReason(error: unknown): string {
   if (leadingCodeOf(error, [ERR_OPEN_NOT_AUTHORIZED]) !== null) return NOT_AUTHORIZED_REASON;
+  if (leadingCodeOf(error, [ERR_OPEN_FILE_MISSING]) !== null) return MISSING_REASON;
   const code = readFailureCodeOf(error);
   return code === null ? UNREAD_REASON : readFailureReason(code);
 }

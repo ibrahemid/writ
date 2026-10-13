@@ -1,5 +1,5 @@
-//! Pure file helpers: classification, language detection, filename extraction,
-//! and hex-dump generation.
+//! Pure file helpers: the open tiers and their classification, launch
+//! argument paths, filename extraction, and hex-dump generation.
 
 use std::collections::HashSet;
 use std::ffi::OsString;

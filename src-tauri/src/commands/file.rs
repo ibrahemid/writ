@@ -2,7 +2,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::poison::recover_poison;
-use crate::security::{canonicalize_for_authorization, paths_equal_for_authorization};
+use crate::security::{
+    canonicalize_for_authorization, paths_equal_for_authorization, resolve_for_containment,
+};
 use crate::state::AppState;
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -20,11 +22,17 @@ const ERR_UNAUTHORIZED_PATH: &str =
     "Writ cannot open that file from here. Use File > Open File, or drop it onto the window.";
 
 /// Code an open carries when its path is in no folder Writ opens from on its
-/// own and no gesture of the person's granted it. A path that does not
-/// resolve answers the same, so the answer never says whether a file is
-/// there. The frontend words it (`src/lib/open-failure.ts`); the text after
-/// the code is for logs.
+/// own and no gesture of the person's granted it. A path outside those
+/// folders answers this whether or not a file is there, so the answer never
+/// says what is on disk outside them. The frontend words it
+/// (`src/lib/open-failure.ts`); the text after the code is for logs.
 pub const ERR_OPEN_NOT_AUTHORIZED: &str = "ERR_OPEN_NOT_AUTHORIZED";
+
+/// Code an open carries when nothing is at a path inside a folder Writ opens
+/// from on its own, such as a link to a note not written yet. Saying so there
+/// hides nothing, and it is the answer that holds: the way to open a file from
+/// elsewhere cannot open one that is not there.
+pub const ERR_OPEN_FILE_MISSING: &str = "ERR_OPEN_FILE_MISSING";
 
 /// Returned to the frontend for every `open_file` call.
 ///
@@ -91,9 +99,16 @@ fn path_is_dataless(path: &Path) -> bool {
 /// A path inside the workspace, the inbox or the notes folder authorizes
 /// itself and can be opened again tomorrow. A path outside all three is opened
 /// on a token the person's own gesture recorded, and that token is spent here.
+/// A path with nothing at it answers [`ERR_OPEN_FILE_MISSING`] inside the
+/// three folders and [`ERR_OPEN_NOT_AUTHORIZED`] outside them.
 fn authorize_open(state: &AppState, raw_path: &str) -> Result<(String, bool), String> {
-    let canonical =
-        canonicalize_for_authorization(Path::new(raw_path)).map_err(|_| open_not_authorized())?;
+    let canonical = match canonicalize_for_authorization(Path::new(raw_path)) {
+        Ok(canonical) => canonical,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(missing_file_answer(state, raw_path));
+        }
+        Err(_) => return Err(open_not_authorized()),
+    };
     if state.authorized_paths.consume_for_open(&canonical) {
         return Ok((canonical, true));
     }
@@ -111,6 +126,22 @@ fn authorize_open(state: &AppState, raw_path: &str) -> Result<(String, bool), St
 
 fn open_not_authorized() -> String {
     format!("{ERR_OPEN_NOT_AUTHORIZED}: {ERR_UNAUTHORIZED_PATH}")
+}
+
+/// The answer for a path with nothing at it. Containment is decided on the
+/// path resolved as far as it exists, so a `..` or a link out of a folder
+/// answers as a path outside it does.
+fn missing_file_answer(state: &AppState, raw_path: &str) -> String {
+    let inside = resolve_for_containment(Path::new(raw_path)).is_some_and(|resolved| {
+        state.is_within_workspace(&resolved)
+            || state.is_within_inbox(&resolved)
+            || state.is_within_notes(&resolved)
+    });
+    if inside {
+        format!("{ERR_OPEN_FILE_MISSING}: nothing is at that path")
+    } else {
+        open_not_authorized()
+    }
 }
 
 /// Gate on asking a sync provider for a file's bytes.

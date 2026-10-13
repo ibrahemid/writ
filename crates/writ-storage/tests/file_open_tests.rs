@@ -307,6 +307,23 @@ fn choosing_a_language_leaves_updated_at_alone() {
     assert_eq!(after.updated_at, before);
 }
 
+// A size taken from a stat is not a read, so it leaves the stamp a read
+// leaves: a relaunch compares a crash snapshot against `updated_at`.
+#[test]
+fn recording_a_measured_size_leaves_updated_at_alone() {
+    let (_dir, store) = setup();
+    let doc = make_source_doc("size-1", "big.log", "/home/user/big.log");
+    store.open_from_path(&doc, "a line of a log\n").unwrap();
+    let before = store.get("size-1").unwrap();
+
+    store.record_size("size-1", 60_000_000).unwrap();
+
+    let after = store.get("size-1").unwrap();
+    assert_eq!(after.size_bytes, 60_000_000);
+    assert_eq!(after.updated_at, before.updated_at);
+    assert_eq!(after.status, before.status);
+}
+
 #[test]
 fn close_and_restore_source_backed_buffer() {
     let (_dir, store) = setup();

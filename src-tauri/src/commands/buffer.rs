@@ -982,24 +982,62 @@ pub fn record_unsaved_notes(
     Ok(())
 }
 
-/// IPC: the tabs the last session left open.
+/// IPC: [`list_active_buffers_inner`].
+#[tauri::command]
+pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
+    list_active_buffers_inner(&state)
+}
+
+/// The tabs the last session left open, each file measured before anything
+/// reads it.
+///
+/// A file can change size while Writ is closed, and the row is where the
+/// editor, the crash snapshot and the index read its tier from. Each file is
+/// measured with a stat, outside the store's lock and never with a read, and
+/// a size that moved is recorded on the row without the stamp a read leaves.
+/// A path with no file behind it keeps the size on record; its read says what
+/// became of it.
 ///
 /// This is also where a restored tab starts being followed. A tab nobody has
 /// brought to the front is the one most likely to be sitting on a file that
 /// moved on, so waiting for the user to click it would leave the whole
 /// restored session unwatched.
-#[tauri::command]
-pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
-    let docs = {
+pub fn list_active_buffers_inner(state: &AppState) -> Result<Vec<BufferDocument>, String> {
+    let mut docs = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         store
             .list_by_status(BufferStatus::Active)
             .map_err(|e| e.to_string())?
     };
+    let moved: Vec<(usize, u64)> = docs
+        .iter()
+        .enumerate()
+        .filter_map(|(index, doc)| {
+            let size = measured_size(doc)?;
+            (size != doc.size_bytes).then_some((index, size))
+        })
+        .collect();
+    if !moved.is_empty() {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        for (index, size) in moved {
+            let doc = &mut docs[index];
+            doc.size_bytes = size;
+            if let Err(e) = store.record_size(&doc.id, size) {
+                tracing::debug!(buffer_id = %doc.id, error = %e, "the measured size was not recorded");
+            }
+        }
+    }
     for doc in &docs {
         state.follow_note_file(doc);
     }
     Ok(docs)
+}
+
+/// The size of the file behind `doc`, from a stat: `None` for a note with no
+/// file, and for a path that holds no file.
+fn measured_size(doc: &BufferDocument) -> Option<u64> {
+    let meta = std::fs::metadata(doc.source_path.as_deref()?).ok()?;
+    meta.is_file().then_some(meta.len())
 }
 
 /// Drops the stamp the note's last save left, so a stamp cannot outlive the

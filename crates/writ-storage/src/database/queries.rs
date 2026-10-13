@@ -358,6 +358,17 @@ pub fn update_filename(conn: &Connection, id: &str, filename: &str) -> StorageRe
     Ok(())
 }
 
+/// Records a buffer's file size as a stat measured it, leaving `updated_at`
+/// alone: a stat is not a read, and the stamp is what a relaunch compares a
+/// crash snapshot against.
+pub fn update_size(conn: &Connection, id: &str, size_bytes: u64) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET size_bytes = ?1 WHERE id = ?2",
+        params![size_bytes as i64, id],
+    )?;
+    Ok(())
+}
+
 /// Records the length a buffer's file was last read at, and stamps
 /// `updated_at` to now.
 ///

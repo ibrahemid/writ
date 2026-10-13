@@ -798,6 +798,13 @@ impl BufferStore {
         queries::update_line_ending(&self.conn, id, ending)
     }
 
+    /// Records the size a stat measured for a buffer's file, so everything
+    /// that reads its tier off the row (the editor, the crash snapshot, the
+    /// index) sees the file as it is now. Leaves `updated_at` alone.
+    pub fn record_size(&self, id: &str, size_bytes: u64) -> StorageResult<()> {
+        queries::update_size(&self.conn, id, size_bytes)
+    }
+
     /// Records the language chosen for a buffer, or clears the choice with
     /// `None`. Leaves `updated_at` alone.
     pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {

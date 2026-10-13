@@ -39,6 +39,13 @@ describe("openFailureReason", () => {
     );
   });
 
+  it("says a file that is not there does not exist, with no instruction", () => {
+    expect(openFailureReason("ERR_OPEN_FILE_MISSING: the file does not exist")).toBe(
+      "it does not exist.",
+    );
+    expect(openFailureReason(new Error("ERR_OPEN_FILE_MISSING"))).toBe("it does not exist.");
+  });
+
   it("words a read code, and anything without a code as a read that failed", () => {
     expect(openFailureReason("ERR_READ_FILE_MISSING: gone")).toBe("it is no longer there.");
     expect(openFailureReason("database is locked")).toBe("Writ could not read it.");

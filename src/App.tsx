@@ -253,7 +253,7 @@ function AppShell() {
     win.sidebar.hydrateFromConfig();
     win.rightPanel.hydrateFromConfig();
     win.chatPanel.hydrateFromConfig();
-    await bufferRegistry.load();
+    await bufferRegistry.loadSession();
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
     await notesStore.load();
