@@ -1,6 +1,6 @@
 use tempfile::TempDir;
 use writ_storage::database::connection::open_database;
-use writ_storage::database::migrations::run_migrations;
+use writ_storage::database::migrations::{binary_schema_version, run_migrations};
 use writ_storage::errors::StorageError;
 
 fn setup_temp_db() -> (TempDir, rusqlite::Connection) {
@@ -210,7 +210,7 @@ fn the_schema_migrations_are_idempotent_on_a_second_run() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 43);
+    assert_eq!(max_version, binary_schema_version());
 }
 
 #[test]
@@ -254,10 +254,13 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
     run_migrations(&conn).expect("migrations failed");
 
     // The shape a release before 043 leaves behind: rows with no ending
-    // recorded, which the column's default has to answer for.
+    // recorded, which the column's default has to answer for. Roll past every
+    // later stamp (047 added preview_scripts) so the runner re-applies 043.
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
         .expect("failed to drop the column");
-    conn.execute("DELETE FROM schema_version WHERE version = 43", [])
+    conn.execute("ALTER TABLE buffers DROP COLUMN preview_scripts", [])
+        .expect("failed to drop the column");
+    conn.execute("DELETE FROM schema_version WHERE version >= 43", [])
         .expect("failed to roll the stamp back");
     conn.execute(
         "INSERT INTO buffers
@@ -282,6 +285,39 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
 }
 
 #[test]
+fn migration_047_defaults_an_existing_row_to_scripts_off() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    // The shape a release before 047 leaves behind: a buffer row with no
+    // preview-scripts choice. The column's default has to answer for it.
+    conn.execute("ALTER TABLE buffers DROP COLUMN preview_scripts", [])
+        .expect("failed to drop the column");
+    conn.execute("DELETE FROM schema_version WHERE version >= 47", [])
+        .expect("failed to roll the stamp back");
+    conn.execute(
+        "INSERT INTO buffers
+            (id, title, filename, status, cursor_pos, scroll_pos, tab_order,
+             created_at, updated_at, read_only, size_bytes, line_ending)
+         VALUES ('buf-old', 'Old', 'buf-old.txt', 'active', 0, 0, 0,
+                 '2026-09-28T00:00:00Z', '2026-09-28T00:00:00Z', 0, 0, 'lf')",
+        [],
+    )
+    .expect("failed to insert buffer row");
+
+    run_migrations(&conn).expect("migration to 047 failed");
+
+    let scripts: i64 = conn
+        .query_row(
+            "SELECT preview_scripts FROM buffers WHERE id = 'buf-old'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("failed to read the row back");
+    assert_eq!(scripts, 0, "a document is off until it is opted in");
+}
+
+#[test]
 fn a_database_at_041_gains_the_column_with_its_rows_intact() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
@@ -291,6 +327,10 @@ fn a_database_at_041_gains_the_column_with_its_rows_intact() {
     conn.execute("ALTER TABLE files DROP COLUMN indexed_by", [])
         .expect("failed to drop the column");
     conn.execute("ALTER TABLE buffers DROP COLUMN line_ending", [])
+        .expect("failed to drop the column");
+    // 047 (preview_scripts) re-applies with the rest; drop its column too so
+    // the re-add is not a duplicate.
+    conn.execute("ALTER TABLE buffers DROP COLUMN preview_scripts", [])
         .expect("failed to drop the column");
     conn.execute("DELETE FROM schema_version WHERE version >= 42", [])
         .expect("failed to roll the stamp back");
@@ -422,7 +462,7 @@ fn a_0_3_5_database_migrates_to_040_with_its_rows_intact() {
             row.get(0)
         })
         .expect("failed to read max version");
-    assert_eq!(max_version, 43);
+    assert_eq!(max_version, binary_schema_version());
 }
 
 /// Column names of the `buffers` table.

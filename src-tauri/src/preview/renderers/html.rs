@@ -1,8 +1,12 @@
 //! HTML renderer — the first `ContentRenderer` (ADR-009 renderer roster).
 //!
-//! HTML is served **as-is**: author CSS is honored, the security boundary
-//! is the per-webview CSP (Phase 3), not HTML rewriting. The renderer's
-//! jobs are narrow:
+//! HTML is served as written, author CSS included. The boundary is the
+//! document CSP and the iframe sandbox, plus two rewrites the handler applies
+//! to every document on the way out: resource hints are disabled, because no
+//! CSP directive governs them, and the attributes that start a frame
+//! navigation without a script are disarmed, because Chromium connects to the
+//! target before the policy refuses it and a `srcdoc` frame loads markup no
+//! rewrite saw (ADR-043). The renderer's jobs are narrow:
 //!
 //! 1. Refuse documents over the renderer's hard ceiling.
 //! 2. Decide whether the host fallback stylesheet applies — present only

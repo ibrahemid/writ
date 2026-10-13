@@ -13,19 +13,22 @@
 //! Phase 2b adds `preview_set_layout`, `preview_detach`, `preview_print`,
 //! `preview_export` alongside the layout surface.
 
+use std::sync::{Mutex, RwLock};
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use writ_core::preview::{
     inline_image_data_url, resolve_inline_image, size_within_inline_limit, AssetScope,
-    ContentTypeId, InlineImageRefusal, RenderError, RenderRequest, RendererCapabilities,
-    ThemePolarity,
+    ContentRendererRegistry, ContentTypeId, InlineImageRefusal, RenderError, RenderRequest,
+    RendererCapabilities, ThemePolarity,
 };
 
+use writ_storage::buffer_store::BufferStore;
 use writ_storage::layout_state::LayoutStateRecord;
 
 use crate::events::{emit_event, WritFrontendEvent};
-use crate::preview::handler::RenderedDoc;
+use crate::preview::handler::{RenderCache, RenderedDoc};
 use crate::state::AppState;
 
 /// Serialized renderer descriptor surfaced to the frontend.
@@ -61,6 +64,65 @@ pub fn preview_list_renderers(state: State<'_, AppState>) -> Vec<RendererInfo> {
 #[tauri::command]
 pub fn preview_close(state: State<'_, AppState>, buffer_id: String) {
     state.preview_render_cache.evict(&buffer_id);
+}
+
+/// The base a preview URL is built from, decided by the host, not guessed by
+/// the frontend. On Windows WebView2 serves a custom scheme as
+/// `http://<scheme>.<host>`, so the preview iframe, its runtimes and its
+/// images must request `http://writ-preview.…`; everywhere else the native
+/// `writ-preview://` form works (TS-03/DS-03).
+#[tauri::command]
+pub fn preview_url_prefix() -> &'static str {
+    preview_url_prefix_for(cfg!(target_os = "windows"))
+}
+
+/// The prefix for a given platform, split out so both forms are unit-tested
+/// without a Windows host.
+fn preview_url_prefix_for(is_windows: bool) -> &'static str {
+    if is_windows {
+        "http://writ-preview."
+    } else {
+        "writ-preview://"
+    }
+}
+
+/// Whether this file's own scripts may run in its preview. Off for every
+/// document until the user opts the file in (decision RC-D1/TS-D1).
+#[tauri::command]
+pub fn preview_get_scripts(state: State<'_, AppState>, buffer_id: String) -> Result<bool, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    preview_get_scripts_inner(&store, &buffer_id)
+}
+
+/// [`preview_get_scripts`] without Tauri: an id the store does not hold
+/// answers off.
+pub fn preview_get_scripts_inner(store: &BufferStore, buffer_id: &str) -> Result<bool, String> {
+    store.preview_scripts(buffer_id).map_err(|e| e.to_string())
+}
+
+/// Record whether this file's own scripts may run, remembered on its buffer
+/// row. The frontend force-refreshes after this so the iframe reloads under
+/// the new document CSP.
+#[tauri::command]
+pub fn preview_set_scripts(
+    state: State<'_, AppState>,
+    buffer_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    preview_set_scripts_inner(&store, &buffer_id, enabled)
+}
+
+/// [`preview_set_scripts`] without Tauri: an id the store does not hold is
+/// refused, so the caller never reports a choice that was not recorded.
+pub fn preview_set_scripts_inner(
+    store: &BufferStore,
+    buffer_id: &str,
+    enabled: bool,
+) -> Result<(), String> {
+    store
+        .set_preview_scripts(buffer_id, enabled)
+        .map_err(|e| e.to_string())
 }
 
 /// A buffer's persisted layout, returned to the frontend on open.
@@ -177,6 +239,67 @@ fn asset_scope(state: &AppState, buffer_id: &str) -> Option<AssetScope> {
     ))
 }
 
+/// What [`render_into_cache`] did with a render request.
+#[derive(Debug)]
+pub enum CachedRender {
+    /// The document is in the render cache.
+    Rendered {
+        /// Whether the host fallback stylesheet was injected.
+        used_fallback_stylesheet: bool,
+        /// Cheap parser warnings surfaced in the status chip.
+        parser_warnings: Vec<String>,
+    },
+    /// No renderer is registered for the request's content type.
+    NoRenderer,
+    /// The renderer refused or failed.
+    Failed(RenderError),
+}
+
+/// [`preview_render`] without Tauri: render the request with the renderer
+/// registered for its content type and cache the document for the protocol
+/// handler, with the request's asset scope and the file's scripts opt-in, read
+/// from the store now. The handler serves the cached document under the CSP
+/// that opt-in calls for. An id the store does not hold, or a store that
+/// cannot be read, renders with scripts off.
+pub fn render_into_cache(
+    store: &Mutex<BufferStore>,
+    registry: &RwLock<ContentRendererRegistry>,
+    cache: &RenderCache,
+    buffer_id: &str,
+    request: RenderRequest,
+) -> CachedRender {
+    let registry = registry.read().expect("preview registry rwlock poisoned");
+    let Some(renderer) = registry.get(&request.content_type) else {
+        return CachedRender::NoRenderer;
+    };
+    let scripts_enabled = store
+        .lock()
+        .ok()
+        .and_then(|store| store.preview_scripts(buffer_id).ok())
+        .unwrap_or(false);
+    let assets = request.assets.clone();
+    let result = renderer.render(request);
+    drop(registry);
+
+    match result {
+        Ok(output) => {
+            cache.put(
+                buffer_id,
+                RenderedDoc {
+                    html: output.document_html,
+                    assets,
+                    scripts_enabled,
+                },
+            );
+            CachedRender::Rendered {
+                used_fallback_stylesheet: output.used_fallback_stylesheet,
+                parser_warnings: output.parser_warnings,
+            }
+        }
+        Err(err) => CachedRender::Failed(err),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_render(
     app: &AppHandle,
@@ -188,52 +311,40 @@ fn run_render(
     theme: ThemePolarity,
     zoom: f64,
 ) -> PreviewRenderResult {
-    let ctype = ContentTypeId::new(content_type.clone());
-
-    let registry = state
-        .preview_registry
-        .read()
-        .expect("preview registry rwlock poisoned");
-    let Some(renderer) = registry.get(&ctype) else {
-        return PreviewRenderResult::NoRenderer { content_type };
-    };
-
-    // Lean scope: one fixed CSP, no per-document policy. The scripts kill
-    // switch is applied at serve time, not here.
-    let assets = asset_scope(state, &buffer_id);
-    let result = renderer.render(RenderRequest {
-        content_type: ctype,
+    let request = RenderRequest {
+        content_type: ContentTypeId::new(content_type.clone()),
         buffer_text: text,
         theme,
         zoom,
-        assets: assets.clone(),
-    });
-    drop(registry);
-
-    match result {
-        Ok(output) => {
-            state.preview_render_cache.put(
-                buffer_id.clone(),
-                RenderedDoc {
-                    html: output.document_html,
-                    assets,
-                },
-            );
+        assets: asset_scope(state, &buffer_id),
+    };
+    match render_into_cache(
+        &state.store,
+        &state.preview_registry,
+        &state.preview_render_cache,
+        &buffer_id,
+        request,
+    ) {
+        CachedRender::NoRenderer => PreviewRenderResult::NoRenderer { content_type },
+        CachedRender::Rendered {
+            used_fallback_stylesheet,
+            parser_warnings,
+        } => {
             let _ = emit_event(
                 app,
                 WritFrontendEvent::PreviewRendered {
                     buffer_id,
                     window_id,
-                    used_fallback_stylesheet: output.used_fallback_stylesheet,
-                    parser_warnings: output.parser_warnings.clone(),
+                    used_fallback_stylesheet,
+                    parser_warnings: parser_warnings.clone(),
                 },
             );
             PreviewRenderResult::Rendered {
-                used_fallback_stylesheet: output.used_fallback_stylesheet,
-                parser_warnings: output.parser_warnings,
+                used_fallback_stylesheet,
+                parser_warnings,
             }
         }
-        Err(err) => {
+        CachedRender::Failed(err) => {
             let message = render_error_message(&err);
             let _ = emit_event(
                 app,
@@ -382,5 +493,28 @@ pub fn preview_inline_image(
             byte_len: image.byte_len,
         }),
         Err(refusal) => Ok(InlineImageResult::refused(refusal)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{preview_url_prefix, preview_url_prefix_for};
+
+    #[test]
+    fn windows_preview_urls_use_the_http_workaround_form() {
+        assert_eq!(preview_url_prefix_for(true), "http://writ-preview.");
+    }
+
+    #[test]
+    fn other_platforms_use_the_native_scheme() {
+        assert_eq!(preview_url_prefix_for(false), "writ-preview://");
+    }
+
+    #[test]
+    fn this_build_hands_out_its_own_platforms_prefix() {
+        assert_eq!(
+            preview_url_prefix(),
+            preview_url_prefix_for(cfg!(target_os = "windows"))
+        );
     }
 }

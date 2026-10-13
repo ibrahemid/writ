@@ -1,6 +1,8 @@
 # ADR-009: Preview Surface — Content-Type Renderer Registry
 
 **Status:** Accepted, lean re-scope 2026-05-26
+**Amended by:** [ADR-043](./043-untrusted-documents-in-the-preview.md) (2026-10-13):
+the trust model for untrusted documents and the preview origin on Windows.
 **Date:** 2026-05-22
 
 > **Lean re-scope (2026-05-26).** The preview exists to render Writ's own

@@ -65,7 +65,8 @@ import PromptFillModal from "./components/PromptFill/PromptFillModal";
 import { registerPreviewKeymap } from "./keymap/preview";
 import { rendererRegistry } from "./stores/global/renderer-registry";
 import { probeDefaultAppSupport } from "./stores/global/default-app-support";
-import { previewListRenderers, getRecoveredBuffers } from "./services/tauri";
+import { previewListRenderers, getRecoveredBuffers, previewUrlPrefix } from "./services/tauri";
+import { loadPreviewUrlPrefix } from "./stores/global/preview-url";
 import { editorZoom } from "./stores/global/editor-zoom";
 import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
 import {
@@ -231,6 +232,9 @@ function AppShell() {
     // single-window, so it is written once and never recomputed (ADR-030).
     document.documentElement.setAttribute("data-platform", resolvePlatform());
     themeStore.applyToRoot();
+    // The preview URL base is host-decided; load it before any preview renders
+    // so the iframe never requests a scheme the engine treats as external.
+    await loadPreviewUrlPrefix(previewUrlPrefix);
     await configStore.load();
     // A config written before ADR-030 carries overrides in the old vocabulary.
     // They are translated on load; writing the result back means the next

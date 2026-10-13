@@ -15,8 +15,9 @@
 //! HTML (reload is the push mechanism that works with or without scripts).
 //!
 //! The CSP header is computed at serve time, not render time: the document
-//! CSP depends only on the app-level `preview.run_scripts` kill switch
-//! (lean scope — one fixed policy, no per-document trust state).
+//! CSP's `script-src` follows the rendered document's per-file scripts opt-in
+//! (off for every document until the user opts the file in), read from the
+//! cached render; everything else in the policy is fixed.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -25,6 +26,8 @@ use std::sync::Mutex;
 
 use tauri::{Manager, Runtime, UriSchemeContext};
 use tracing::warn;
+use writ_core::preview::frames::disarm_frame_navigations;
+use writ_core::preview::hints::neutralize_resource_hints;
 use writ_core::preview::protocol::{
     resolve_asset, sniff_image_mime, split_asset_request, AssetRequest,
 };
@@ -59,6 +62,11 @@ pub struct RenderedDoc {
     /// folders rather than trusted. `None` for a buffer with no file on
     /// disk, which serves no assets at all.
     pub assets: Option<AssetScope>,
+    /// Whether this document's own scripts may run — the per-file opt-in
+    /// read at render time (decision RC-D1/TS-D1). Off for every document
+    /// until the user opts the file in; `serve` reads it to pick the document
+    /// CSP's `script-src`.
+    pub scripts_enabled: bool,
 }
 
 /// Per-buffer cache of the most recently rendered document.
@@ -308,10 +316,13 @@ fn escape_xml(text: &str) -> String {
 
 /// Resolve a request URL into a response.
 ///
-/// `scripts_enabled` is the app-level kill switch, applied to the document
-/// CSP at serve time. `document_lookup` returns the rendered document for a
-/// buffer id; `chrome_asset` returns `(bytes, mime)` for a bundled chrome
-/// asset path. The closures keep this function free of Tauri and `AppState`.
+/// `scripts_enabled` is the document's per-file scripts opt-in, applied to the
+/// document CSP. `document_lookup` returns the rendered document for a buffer
+/// id; `chrome_asset` returns `(bytes, mime)` for a bundled chrome asset path.
+/// The closures keep this function free of Tauri and `AppState`. On the way
+/// out a document has its resource hints disabled
+/// ([`neutralize_resource_hints`]) and its frame navigations disarmed
+/// ([`disarm_frame_navigations`]).
 ///
 /// The note-asset route is handled ahead of this, in [`resolve_with_assets`];
 /// this function stays free of I/O.
@@ -334,6 +345,7 @@ pub fn resolve(
                 headers: vec![
                     ("Content-Type", mime.to_string()),
                     ("X-Content-Type-Options", "nosniff".to_string()),
+                    ("X-DNS-Prefetch-Control", "off".to_string()),
                     ("Content-Security-Policy", build_chrome_csp()),
                     ("Cross-Origin-Resource-Policy", "same-origin".to_string()),
                 ],
@@ -372,10 +384,14 @@ pub fn resolve(
             match document_lookup(buffer_id) {
                 Some(doc) => ResolvedResponse {
                     status: 200,
-                    body: Cow::Owned(doc.html.into_bytes()),
+                    body: Cow::Owned(served_document(doc.html)),
                     headers: vec![
                         ("Content-Type", "text/html; charset=utf-8".to_string()),
                         ("X-Content-Type-Options", "nosniff".to_string()),
+                        // No DNS prefetch: a `<link rel=dns-prefetch>` in the
+                        // document would otherwise leak the target host to a
+                        // resolver even though connect-src blocks the fetch.
+                        ("X-DNS-Prefetch-Control", "off".to_string()),
                         (
                             "Content-Security-Policy",
                             build_document_csp(scripts_enabled),
@@ -386,6 +402,21 @@ pub fn resolve(
                 None => ResolvedResponse::not_found(),
             }
         }
+    }
+}
+
+/// A rendered document as it is served: its resource hints disabled
+/// ([`neutralize_resource_hints`]) and the frame navigations it would start
+/// without a script disarmed ([`disarm_frame_navigations`]), whether or not the
+/// file is opted in to its scripts.
+fn served_document(html: String) -> Vec<u8> {
+    let html = match neutralize_resource_hints(&html) {
+        Cow::Borrowed(_) => html,
+        Cow::Owned(rewritten) => rewritten,
+    };
+    match disarm_frame_navigations(&html) {
+        Cow::Borrowed(_) => html.into_bytes(),
+        Cow::Owned(rewritten) => rewritten.into_bytes(),
     }
 }
 
@@ -433,6 +464,12 @@ pub fn chrome_asset(path: &str) -> Option<(&'static [u8], &'static str)> {
             include_bytes!("../../assets/mermaid/mermaid.min.js"),
             chrome_mime("mermaid.min.js"),
         )),
+        // First-party Mermaid init, served same-origin so it runs under
+        // script-src 'self' when the document is not opted in to run scripts.
+        "mermaid/init.js" => Some((
+            include_bytes!("../../assets/mermaid/init.js"),
+            chrome_mime("init.js"),
+        )),
         // L6 — bundled offline KaTeX runtime (js, css, woff2 fonts). The whole
         // `katex/` subtree is owned by the renderer module's asset table.
         p if p.starts_with("katex/") => super::renderers::katex::asset(&p["katex/".len()..])
@@ -462,23 +499,56 @@ pub fn serve<R: Runtime>(
     let url = request.uri().to_string();
     let state = ctx.app_handle().state::<AppState>();
 
-    let scripts_enabled = state
-        .config
-        .lock()
-        .map(|c| c.preview.run_scripts)
-        .unwrap_or(true);
-
-    let resolved = resolve_with_assets(
+    let resolved = resolve_cached(
         &url,
-        scripts_enabled,
-        |id| state.preview_render_cache.get(id),
-        chrome_asset,
+        &state.preview_render_cache,
         &writ_storage::notes_index::is_dataless,
     );
 
     record(record_for(&url, &resolved));
 
     build_http_response(resolved)
+}
+
+/// Resolve a request against the render cache, the way [`serve`] does: the
+/// document's scripts opt-in is the one its render carried, read from the
+/// buffer row when it rendered. Free of Tauri, so the engine probe serves
+/// documents through exactly this path.
+pub fn resolve_cached(
+    url: &str,
+    cache: &RenderCache,
+    is_dataless: &dyn Fn(&Path) -> bool,
+) -> ResolvedResponse {
+    let scripts_enabled = document_scripts_enabled(url, cache);
+    resolve_with_assets(
+        url,
+        scripts_enabled,
+        |id| cache.get(id),
+        chrome_asset,
+        is_dataless,
+    )
+}
+
+/// The per-document scripts opt-in for the document a URL names, read from the
+/// cached render. `false` for anything that is not a top-level document request
+/// — the chrome scope, the `_assets` runtime route and the `_note-asset` image
+/// route carry their own fixed policies and never serve the document CSP, and a
+/// document with no cached render is treated as off.
+fn document_scripts_enabled(url: &str, cache: &RenderCache) -> bool {
+    let Ok(parsed) = parse(url) else {
+        return false;
+    };
+    if parsed.scope != PreviewScope::Document {
+        return false;
+    }
+    if parsed.path.starts_with("_assets/") || split_asset_request(&parsed.path).is_some() {
+        return false;
+    }
+    let buffer_id = parsed.path.split('/').next().unwrap_or("");
+    cache
+        .get(buffer_id)
+        .map(|doc| doc.scripts_enabled)
+        .unwrap_or(false)
 }
 
 /// Serialize a [`ResolvedResponse`] into the Tauri HTTP response the webview
@@ -501,13 +571,15 @@ pub fn build_http_response(
 mod tests {
     use super::*;
 
-    // Scripts default on in the lean scope; tests pass the flag explicitly.
+    // Scripts are a per-document opt-in (off by default); these resolve() tests
+    // pass the document CSP's script flag explicitly to exercise both forms.
     const SCRIPTS_ON: bool = true;
 
     fn doc(html: &str) -> RenderedDoc {
         RenderedDoc {
             html: html.to_string(),
             assets: None,
+            scripts_enabled: false,
         }
     }
 
@@ -540,6 +612,7 @@ mod tests {
             RenderedDoc {
                 html: "<p>hi</p>".to_string(),
                 assets: Some(scope.clone()),
+                scripts_enabled: false,
             },
         );
         assert_eq!(cache.scope("b1"), Some(scope));
@@ -696,6 +769,26 @@ mod tests {
     }
 
     #[test]
+    fn assets_route_serves_the_first_party_init_scripts() {
+        // The externalised Mermaid / KaTeX init scripts are served same-origin
+        // under _assets so they run under script-src 'self' when scripts are off.
+        for path in [
+            "writ-preview://document/_assets/mermaid/init.js",
+            "writ-preview://document/_assets/katex/init.js",
+        ] {
+            let r = resolve(path, SCRIPTS_ON, no_doc, chrome_asset);
+            assert_eq!(r.status, 200, "{path}");
+            assert!(!r.body.is_empty(), "{path}");
+            let ct = r
+                .headers
+                .iter()
+                .find(|(k, _)| *k == "Content-Type")
+                .unwrap();
+            assert!(ct.1.starts_with("application/javascript"), "{path}");
+        }
+    }
+
+    #[test]
     fn assets_route_serves_katex_css_and_fonts_with_correct_mime() {
         // The KaTeX stylesheet and its woff2 fonts are reachable same-origin so
         // the relative `url(fonts/…)` in the CSS resolves under `_assets/katex/`.
@@ -809,6 +902,11 @@ mod tests {
             .headers
             .iter()
             .any(|(k, v)| *k == "X-Content-Type-Options" && v == "nosniff"));
+        // DNS prefetch is turned off so a <link rel=dns-prefetch> leaks no host.
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| *k == "X-DNS-Prefetch-Control" && v == "off"));
         let csp = r
             .headers
             .iter()
@@ -821,7 +919,7 @@ mod tests {
     }
 
     #[test]
-    fn document_csp_blocks_scripts_when_kill_switch_off() {
+    fn document_csp_blocks_author_scripts_when_not_opted_in() {
         let cache = RenderCache::new();
         cache.put("buf-1", doc("<h1>x</h1>"));
         let r = resolve(
@@ -835,7 +933,154 @@ mod tests {
             .iter()
             .find(|(k, _)| *k == "Content-Security-Policy")
             .unwrap();
-        assert!(csp.1.contains("script-src 'none'"));
+        assert_eq!(csp.1, build_document_csp(false));
+        let script_src = csp
+            .1
+            .split("; ")
+            .find(|clause| clause.starts_with("script-src"))
+            .expect("script-src");
+        // Off: an author inline <script> cannot run (no 'unsafe-inline'), but
+        // the first-party runtimes served under _assets still load via 'self',
+        // so Mermaid and KaTeX draw whether or not the file is opted in.
+        assert!(!script_src.contains("'unsafe-inline'"), "{script_src}");
+        assert!(script_src.contains("'self'"), "{script_src}");
+    }
+
+    #[test]
+    fn serve_reads_the_per_document_scripts_flag_from_the_cache() {
+        let cache = RenderCache::new();
+        cache.put(
+            "on",
+            RenderedDoc {
+                html: "<p>on</p>".to_string(),
+                assets: None,
+                scripts_enabled: true,
+            },
+        );
+        // doc() leaves scripts off (the default for every document).
+        cache.put("off", doc("<p>off</p>"));
+
+        assert!(document_scripts_enabled(
+            "writ-preview://document/on",
+            &cache
+        ));
+        assert!(!document_scripts_enabled(
+            "writ-preview://document/off",
+            &cache
+        ));
+        // The runtime and image routes are not the document, so they never
+        // carry the document CSP and report off.
+        assert!(!document_scripts_enabled(
+            "writ-preview://document/_assets/preview/bridge.js",
+            &cache
+        ));
+        assert!(!document_scripts_enabled(
+            "writ-preview://document/_note-asset/on/tok-1/n/a.png",
+            &cache
+        ));
+        assert!(!document_scripts_enabled(
+            "writ-preview://chrome/preview-base.css",
+            &cache
+        ));
+        // An uncached document is off until it renders.
+        assert!(!document_scripts_enabled(
+            "writ-preview://document/missing",
+            &cache
+        ));
+    }
+
+    fn csp_of(resolved: &ResolvedResponse) -> &str {
+        resolved
+            .headers
+            .iter()
+            .find(|(k, _)| *k == "Content-Security-Policy")
+            .map(|(_, v)| v.as_str())
+            .expect("a CSP header")
+    }
+
+    #[test]
+    fn resolve_cached_serves_each_document_under_its_own_scripts_flag() {
+        let cache = RenderCache::new();
+        cache.put(
+            "on",
+            RenderedDoc {
+                html: "<p>on</p>".to_string(),
+                assets: None,
+                scripts_enabled: true,
+            },
+        );
+        cache.put("off", doc("<p>off</p>"));
+        let never_dataless = |_: &Path| false;
+
+        let on = resolve_cached("writ-preview://document/on?v=1", &cache, &never_dataless);
+        let off = resolve_cached("writ-preview://document/off?v=1", &cache, &never_dataless);
+        assert_eq!(csp_of(&on), build_document_csp(true));
+        assert_eq!(csp_of(&off), build_document_csp(false));
+    }
+
+    #[test]
+    fn a_served_document_has_its_resource_hints_disabled() {
+        let cache = RenderCache::new();
+        cache.put(
+            "buf-1",
+            doc("<head><link rel=preconnect href=https://leak.example></head><p>x</p>"),
+        );
+        let resolved = resolve_cached("writ-preview://document/buf-1", &cache, &|_: &Path| false);
+        let body = String::from_utf8(resolved.body.into_owned()).expect("utf-8");
+        assert_eq!(
+            body,
+            "<head><basefont rel=preconnect href=https://leak.example></head><p>x</p>"
+        );
+    }
+
+    #[test]
+    fn a_served_document_has_its_frame_navigations_disarmed() {
+        let cache = RenderCache::new();
+        cache.put(
+            "buf-1",
+            doc(
+                "<head><meta http-equiv=refresh content=\"0;url=https://leak.example\">\
+                 </head><iframe srcdoc=\"&lt;link rel=preconnect href=https://leak.example&gt;\">\
+                 </iframe><iframe src=https://leak.example></iframe>",
+            ),
+        );
+        let resolved = resolve_cached("writ-preview://document/buf-1", &cache, &|_: &Path| false);
+        let body = String::from_utf8(resolved.body.into_owned()).expect("utf-8");
+        assert_eq!(
+            body,
+            "<head><meta data-writ-blocked-http-equiv=refresh content=\"0;url=https://leak.example\">\
+             </head><iframe data-writ-blocked-srcdoc=\"&lt;link rel=preconnect href=https://leak.example&gt;\">\
+             </iframe><iframe data-writ-blocked-src=https://leak.example></iframe>"
+        );
+    }
+
+    #[test]
+    fn a_served_document_has_its_hints_and_frames_both_disarmed() {
+        let cache = RenderCache::new();
+        cache.put(
+            "buf-1",
+            doc("<link rel=preconnect href=https://leak.example><iframe src=https://leak.example></iframe>"),
+        );
+        let resolved = resolve_cached("writ-preview://document/buf-1", &cache, &|_: &Path| false);
+        let body = String::from_utf8(resolved.body.into_owned()).expect("utf-8");
+        assert_eq!(
+            body,
+            "<basefont rel=preconnect href=https://leak.example>\
+             <iframe data-writ-blocked-src=https://leak.example></iframe>"
+        );
+    }
+
+    #[test]
+    fn a_served_document_without_hints_is_served_as_rendered() {
+        let html =
+            "<head><link rel=\"stylesheet\" href=\"/_assets/katex/katex.min.css\"></head><p>x</p>";
+        let r = resolve(
+            "writ-preview://document/buf-1",
+            false,
+            |_| Some(doc(html)),
+            chrome_asset,
+        );
+        assert_eq!(&*r.body, html.as_bytes());
     }
 
     #[test]
@@ -982,6 +1227,7 @@ mod asset_tests {
                         buffer_id: "buf-1".to_string(),
                         token: TOKEN.to_string(),
                     }),
+                    scripts_enabled: false,
                 },
             );
             Self {
@@ -1190,6 +1436,7 @@ mod asset_tests {
                     buffer_id: "other".to_string(),
                     token: token.clone(),
                 }),
+                scripts_enabled: false,
             },
         );
         (guard, token)
@@ -1310,6 +1557,7 @@ mod asset_tests {
             RenderedDoc {
                 html: "<p>note</p>".to_string(),
                 assets: Some(moved),
+                scripts_enabled: false,
             },
         );
         moved_note_serves(
@@ -1338,6 +1586,7 @@ mod asset_tests {
             RenderedDoc {
                 html: "<p>outside</p>".to_string(),
                 assets: Some(moved_out),
+                scripts_enabled: false,
             },
         );
         moved_note_serves(
@@ -1358,6 +1607,7 @@ mod asset_tests {
             RenderedDoc {
                 html: "<p>x</p>".to_string(),
                 assets: None,
+                scripts_enabled: false,
             },
         );
         let r = resolve_with_assets(

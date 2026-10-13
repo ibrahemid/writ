@@ -4,6 +4,7 @@ import type { Answer, CommandTable, DemoState } from "../state";
 import { HOME, NOTES_ROOT } from "../vfs";
 
 export function createConfigCommands(state: DemoState): CommandTable {
+  const previewScriptsOn = new Set<string>();
   return {
     // Config and first run
     get_config: () => structuredClone(state.config),
@@ -75,6 +76,14 @@ export function createConfigCommands(state: DemoState): CommandTable {
     preview_get_layout: () => null,
     preview_set_layout: () => null,
     preview_close: () => null,
+    // The macOS and Linux base; the page serves nothing under it.
+    preview_url_prefix: (): Answer<"previewUrlPrefix"> => "writ-preview://",
+    preview_get_scripts: (args): Answer<"previewGetScripts"> => previewScriptsOn.has(String(args.bufferId)),
+    preview_set_scripts: (args) => {
+      if (args.enabled === true) previewScriptsOn.add(String(args.bufferId));
+      else previewScriptsOn.delete(String(args.bufferId));
+      return null;
+    },
     // Markdown renders in the editor. The HTML renderer needs the host's
     // writ-preview:// scheme, which a browser does not have.
     preview_list_renderers: (): Answer<"previewListRenderers"> => [

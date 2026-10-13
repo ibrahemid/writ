@@ -21,7 +21,6 @@ export interface PreviewConfig {
   render_confirm_threshold_mb: number;
   render_refuse_threshold_mb: number;
   debounce_ms: number;
-  run_scripts: boolean;
 }
 
 /** The extension a new file gets when nothing else names one. */

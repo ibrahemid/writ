@@ -1083,6 +1083,26 @@ export async function previewClose(bufferId: string): Promise<void> {
   return invoke("preview_close", { bufferId });
 }
 
+/**
+ * The host-decided base a preview URL is built from: `writ-preview://` on
+ * macOS and Linux, `http://writ-preview.` on Windows (WebView2 serves a custom
+ * scheme as `http://<scheme>.<host>`). Loaded once at startup into the
+ * preview-url store.
+ */
+export async function previewUrlPrefix(): Promise<string> {
+  return invoke("preview_url_prefix");
+}
+
+/** Whether this file's own scripts may run in its preview (off until opted in). */
+export async function previewGetScripts(bufferId: string): Promise<boolean> {
+  return invoke("preview_get_scripts", { bufferId });
+}
+
+/** Record whether this file's own scripts may run, remembered per file. */
+export async function previewSetScripts(bufferId: string, enabled: boolean): Promise<void> {
+  return invoke("preview_set_scripts", { bufferId, enabled });
+}
+
 export async function previewSetLayout(
   windowId: number,
   bufferId: string,

@@ -132,10 +132,9 @@ pub struct RendererCapabilities {
 
 /// Inputs to a single render invocation.
 ///
-/// Lean scope: no per-document trust policy and no workspace root. The
-/// preview renders the user's own offline agent output under one fixed
-/// CSP (the only variable is the app-level scripts kill switch, applied
-/// at serve time, not per render). See the ADR-011/010 supersede notes.
+/// Lean scope: no trust matrix and no workspace root. Every document renders
+/// under one fixed CSP; the only variable is the per-file scripts opt-in,
+/// applied at serve time, not per render (ADR-043).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderRequest {
     /// Content type the renderer was selected for.

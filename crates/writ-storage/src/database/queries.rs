@@ -335,6 +335,37 @@ pub fn update_line_ending(conn: &Connection, id: &str, ending: LineEnding) -> St
     Ok(())
 }
 
+/// Reads the per-document preview-scripts opt-in for a buffer.
+///
+/// A row that names no buffer answers `false`: an unknown id is treated as
+/// not opted in, the same posture a fresh document takes.
+pub fn get_preview_scripts(conn: &Connection, id: &str) -> StorageResult<bool> {
+    let enabled: Option<i64> = conn
+        .query_row(
+            "SELECT preview_scripts FROM buffers WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(enabled.unwrap_or(0) != 0)
+}
+
+/// Records whether this document's own scripts may run in the preview.
+///
+/// `updated_at` is left alone: opting a file's preview in or out is a view
+/// preference, not an edit to its text, so it must not reorder History. An id
+/// with no row is refused rather than reported as recorded.
+pub fn set_preview_scripts(conn: &Connection, id: &str, enabled: bool) -> StorageResult<()> {
+    let changed = conn.execute(
+        "UPDATE buffers SET preview_scripts = ?1 WHERE id = ?2",
+        params![enabled as i64, id],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::BufferMissing { id: id.to_string() });
+    }
+    Ok(())
+}
+
 /// Updates the detected or user-assigned language for a buffer.
 pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> StorageResult<()> {
     conn.execute(

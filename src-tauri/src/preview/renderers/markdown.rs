@@ -89,8 +89,12 @@ pub(crate) fn asset_url(scope: &AssetScope, reference: &str) -> Option<String> {
         return None;
     }
     match resolve_asset_reference(&scope.notes_root, &scope.note_dir, reference) {
+        // Root-relative, not absolute `writ-preview://…`, so it resolves against
+        // the document's own origin — `writ-preview://document` on macOS/Linux,
+        // `http://writ-preview.document` on Windows (TS-03/DS-03). The handler
+        // still receives the absolute form the engine resolves it to.
         Ok(found) => Some(format!(
-            "writ-preview://document/{ASSET_PREFIX}/{}/{}/{}/{}",
+            "/{ASSET_PREFIX}/{}/{}/{}/{}",
             scope.buffer_id,
             scope.token,
             found.root.as_str(),
@@ -335,11 +339,17 @@ mod tests {
         assert!(!out.document_html.contains("language-mermaid"));
         // Diagram source is HTML-escaped so it survives as text content.
         assert!(out.document_html.contains("graph TD; A--&gt;B"));
-        // The bundled runtime is injected exactly once, same-origin.
+        // The bundled runtime and its first-party init are injected once each,
+        // same-origin with root-relative URLs (so they resolve on Windows too).
         assert!(out
             .document_html
-            .contains("writ-preview://document/_assets/mermaid/mermaid.min.js"));
-        assert!(out.document_html.contains("mermaid.run("));
+            .contains("src=\"/_assets/mermaid/mermaid.min.js\""));
+        assert!(out
+            .document_html
+            .contains("src=\"/_assets/mermaid/init.js\""));
+        assert!(!out
+            .document_html
+            .contains("writ-preview://document/_assets"));
     }
 
     #[test]
@@ -392,14 +402,18 @@ mod tests {
         // Math is tokenized into a display-math span carrying the raw content.
         assert!(out.document_html.contains("math math-display"));
         assert!(out.document_html.contains("E = mc^2"));
-        // KaTeX CSS + runtime are injected.
+        // KaTeX CSS, runtime and first-party init are injected, same-origin
+        // with root-relative URLs.
         assert!(out
             .document_html
-            .contains("writ-preview://document/_assets/katex/katex.min.css"));
+            .contains("href=\"/_assets/katex/katex.min.css\""));
         assert!(out
             .document_html
-            .contains("writ-preview://document/_assets/katex/katex.min.js"));
-        assert!(out.document_html.contains("katex.render("));
+            .contains("src=\"/_assets/katex/katex.min.js\""));
+        assert!(out.document_html.contains("src=\"/_assets/katex/init.js\""));
+        assert!(!out
+            .document_html
+            .contains("writ-preview://document/_assets"));
     }
 
     #[test]

@@ -2,7 +2,8 @@ import { registerCommand } from "../commands/registry";
 import { bufferRegistry } from "../stores/global/buffer-registry";
 import { windowRegistry } from "../stores/global/window-registry";
 import { contentTypeForBuffer } from "../lib/content-type";
-import { toggleRunScripts } from "../lib/preview-actions";
+import { togglePreviewScripts } from "../lib/preview-actions";
+import { showToast } from "../components/Notifications/Toast";
 import {
   DEFAULT_RATIO,
   defaultSplit,
@@ -40,7 +41,7 @@ function hasSplitLayouts(bufferId: string): boolean {
   return contentTypeOf(bufferId) !== "markdown";
 }
 
-/** Register the preview keymap + the run-scripts kill switch palette entry. */
+/** Register the preview keymap and the per-file scripts toggle. */
 export function registerPreviewKeymap(): void {
   registerCommand({
     id: "preview.cycleLayout",
@@ -155,12 +156,25 @@ export function registerPreviewKeymap(): void {
 
   registerCommand({
     id: "preview.toggleRunScripts",
-    label: "Preview: Toggle run scripts",
+    label: "Preview: Toggle scripts for this file",
     description:
-      "Kill switch: when off, the document CSP becomes script-src 'none'. Network stays off regardless.",
+      "Run or stop this file's own scripts in the preview, remembered for the file. Turn on only for a file you trust.",
     scope: "app",
     global: true,
-    execute: () =>
-      void toggleRunScripts(() => activeWindow()?.preview.requestForceRefresh()),
+    execute: () => {
+      const w = activeWindow();
+      const id = activeBufferId();
+      if (!w || !id) return;
+      void togglePreviewScripts(id).then(
+        (enabled) => {
+          w.preview.requestForceRefresh();
+          showToast(
+            enabled ? "Scripts on for this file" : "Scripts off for this file",
+            "info",
+          );
+        },
+        () => showToast("Could not change scripts for this file", "error"),
+      );
+    },
   });
 }

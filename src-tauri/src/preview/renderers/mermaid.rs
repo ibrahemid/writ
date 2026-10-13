@@ -2,21 +2,23 @@
 //!
 //! Mermaid diagrams render client-side from a bundled, offline runtime
 //! (`mermaid.min.js`, the v11.15.0 single-file IIFE) served **same-origin**
-//! under the `writ-preview://document/_assets/` route. The runtime is loaded
-//! from the document origin, not the chrome origin, because a cross-origin
-//! custom-scheme subresource is refused by the chrome response's
-//! `Cross-Origin-Resource-Policy: same-origin`; serving it under the document
-//! origin keeps the load same-origin and needs no change to the locked
-//! document CSP (covered by its existing `'self'` / `writ-preview:` sources).
+//! under the `_assets/` route, as is the first-party init script that
+//! configures and runs it. Both are loaded from the document origin (a
+//! cross-origin `writ-preview://chrome` subresource is refused by that scope's
+//! `Cross-Origin-Resource-Policy: same-origin`), with root-relative URLs so
+//! they resolve on Windows too, and both are covered by the document CSP's
+//! `'self'`.
 //!
 //! The Markdown renderer rewrites ```mermaid fences into `<pre class="mermaid">`
 //! blocks and injects the runtime when at least one is present; this module
 //! owns both the standalone `.mmd` renderer and the injection snippet they
 //! share.
 //!
-//! Degradation needs no code path: when the scripts kill switch is off the
-//! document CSP becomes `script-src 'none'`, the runtime never executes, and
-//! each `<pre class="mermaid">` shows its raw diagram source as a code block.
+//! The runtime and its init are first-party, not the document's own scripts,
+//! so they run under `script-src 'self'` whether or not the file is opted in
+//! to run its scripts (decision RC-D1/TS-D1): a diagram in the user's own note
+//! draws either way. The init being an external same-origin file, not inline,
+//! is what lets it run when author inline scripts are blocked.
 
 use writ_core::preview::{
     ContentRenderer, ContentTypeId, RenderError, RenderOutput, RenderRequest, RendererCapabilities,
@@ -27,26 +29,29 @@ use super::theme;
 /// Hard ceiling, mirroring the other renderers and ADR-009's refusal size.
 const MAX_SAFE_BYTES: u64 = 50 * 1024 * 1024;
 
-/// Same-origin URL of the bundled Mermaid runtime, served by the `_assets`
-/// document route (see `handler::chrome_asset`).
-pub const RUNTIME_URL: &str = "writ-preview://document/_assets/mermaid/mermaid.min.js";
+/// Root-relative URL of the bundled Mermaid runtime, served by the `_assets`
+/// document route (see `handler::chrome_asset`). Relative, not absolute
+/// `writ-preview://…`, so it resolves against the document's own origin on
+/// Windows as well (TS-03/DS-03).
+pub const RUNTIME_URL: &str = "/_assets/mermaid/mermaid.min.js";
 
-/// The `<script>` block that loads the runtime and renders every
-/// `<pre class="mermaid">` in the document.
+/// Root-relative URL of the first-party init script that configures and runs
+/// Mermaid. It is an external same-origin script, not inline, so it executes
+/// under `script-src 'self'` when the document is not opted in to run its own
+/// scripts — diagrams draw whether or not author scripts are allowed.
+pub const INIT_URL: &str = "/_assets/mermaid/init.js";
+
+/// The `<script>` tags that load the runtime and the first-party init.
 ///
-/// `securityLevel: 'strict'` is deliberate: it sanitizes diagram-authored
-/// HTML and, unlike `'sandbox'`, does not wrap each diagram in an iframe —
-/// iframes are forbidden by the document CSP's `frame-src 'none'`.
-///
-/// The diagram theme follows the document's polarity: `theme::wrap_document_with`
-/// marks a dark document with `data-writ-theme="dark"` on `<html>`, and
-/// everything else is light. Mermaid's `default` theme paints white nodes and a
-/// light edge-label background, which on a dark page leaves edge labels
-/// unreadable; `dark` is its own palette for that case.
+/// `src-tauri/assets/mermaid/init.js` configures Mermaid with
+/// `securityLevel: 'strict'` (sanitises diagram-authored HTML, and unlike
+/// `'sandbox'` does not wrap each diagram in an iframe — forbidden by the
+/// document CSP's `frame-src 'none'`) and a theme that follows the document's
+/// polarity, then runs every `<pre class="mermaid">`.
 pub fn runtime_tags() -> String {
     format!(
         "<script src=\"{RUNTIME_URL}\"></script>\n\
-         <script>window.mermaid.initialize({{startOnLoad:false,securityLevel:'strict',theme:document.documentElement.getAttribute('data-writ-theme')==='dark'?'dark':'default'}});window.mermaid.run({{querySelector:'pre.mermaid'}});</script>"
+         <script src=\"{INIT_URL}\"></script>"
     )
 }
 
@@ -148,19 +153,31 @@ mod tests {
             .document_html
             .contains("<pre class=\"mermaid\">graph TD; A--&gt;B</pre>"));
         assert!(out.document_html.contains(RUNTIME_URL));
-        assert!(out.document_html.contains("mermaid.run("));
+        assert!(out.document_html.contains(INIT_URL));
         assert!(out.used_fallback_stylesheet);
     }
 
+    /// The init script the runtime tags load, as the asset table serves it.
+    const INIT_JS: &str = include_str!("../../../assets/mermaid/init.js");
+
     #[test]
-    fn runtime_picks_the_diagram_theme_from_the_document_polarity() {
+    fn runtime_tags_load_the_runtime_then_the_external_init() {
         let tags = runtime_tags();
-        assert!(tags.contains("getAttribute('data-writ-theme')==='dark'?'dark':'default'"));
+        // Both are external same-origin scripts (so they run under
+        // script-src 'self' when the file is not opted in), the runtime first.
+        assert!(tags.contains(&format!("<script src=\"{RUNTIME_URL}\">")));
+        assert!(tags.contains(&format!("<script src=\"{INIT_URL}\">")));
+        assert!(tags.find(RUNTIME_URL).unwrap() < tags.find(INIT_URL).unwrap());
+        // No inline init, so nothing here needs 'unsafe-inline'.
+        assert!(!tags.contains("mermaid.initialize"));
     }
 
     #[test]
-    fn runtime_uses_strict_security_level() {
-        assert!(runtime_tags().contains("securityLevel:'strict'"));
+    fn the_init_asset_picks_the_theme_and_runs_strict() {
+        assert!(INIT_JS.contains("data-writ-theme"));
+        assert!(INIT_JS.contains("\"dark\""));
+        assert!(INIT_JS.contains("securityLevel: \"strict\""));
+        assert!(INIT_JS.contains("mermaid.run("));
     }
 
     #[test]

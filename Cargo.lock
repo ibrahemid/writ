@@ -9718,6 +9718,8 @@ name = "writ-core"
 version = "0.5.1"
 dependencies = [
  "chrono",
+ "dom_query",
+ "html5ever 0.40.1",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -9822,6 +9824,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "tao",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",
@@ -9844,6 +9847,7 @@ dependencies = [
  "writ-plugin",
  "writ-render",
  "writ-storage",
+ "wry",
 ]
 
 [[package]]

@@ -14,12 +14,16 @@
 //!
 //! # Lean scope
 //!
-//! There is no per-document trust policy. The preview renders the user's
-//! own offline agent output under one fixed CSP; network is categorically
-//! off, and the only variable is an app-level scripts kill switch applied
-//! at serve time (see the ADR-010/011 supersede notes). [`ContentRenderer`]
+//! There is no trust matrix. Every document is served under one fixed CSP
+//! with the network off; the one variable is a per-file opt-in that lets a
+//! document's own scripts run (ADR-043). Before a document is served,
+//! [`hints`] disables the resource hints it carries and [`frames`] disarms the
+//! frame navigations it would start without a script. [`ContentRenderer`]
 //! mirrors ADR-006's loader-agnostic registry precedent.
 
+mod attributes;
+pub mod frames;
+pub mod hints;
 pub mod inline_image;
 pub mod protocol;
 pub mod registry;

@@ -120,6 +120,60 @@ fn insert_and_get_buffer() {
 }
 
 #[test]
+fn preview_scripts_defaults_off_and_remembers_the_opt_in() {
+    let (_dir, store) = setup();
+    let doc = make_doc("buf-scripts", "Scripts");
+    store.insert(&doc).expect("insert failed");
+
+    // Every document is off until the file is opted in.
+    assert!(!store.preview_scripts("buf-scripts").unwrap());
+
+    store
+        .set_preview_scripts("buf-scripts", true)
+        .expect("opt in failed");
+    assert!(store.preview_scripts("buf-scripts").unwrap());
+
+    store
+        .set_preview_scripts("buf-scripts", false)
+        .expect("opt out failed");
+    assert!(!store.preview_scripts("buf-scripts").unwrap());
+
+    // An unknown id reads as off rather than erroring.
+    assert!(!store.preview_scripts("no-such-buffer").unwrap());
+}
+
+#[test]
+fn opting_in_a_buffer_the_store_does_not_hold_is_an_error() {
+    let (_dir, store) = setup();
+
+    let refused = store.set_preview_scripts("no-such-buffer", true);
+    assert!(
+        matches!(
+            refused,
+            Err(writ_storage::errors::StorageError::BufferMissing { ref id }) if id == "no-such-buffer"
+        ),
+        "{refused:?}"
+    );
+    assert!(!store.preview_scripts("no-such-buffer").unwrap());
+}
+
+#[test]
+fn preview_scripts_survives_closing_and_reopening_a_file() {
+    let (_dir, store) = setup();
+    let doc = make_doc("buf-remember", "Remember");
+    store.insert(&doc).expect("insert failed");
+    store
+        .set_preview_scripts("buf-remember", true)
+        .expect("opt in failed");
+
+    // Closing a tab moves the row to history; the flag rides along, which is
+    // what "remembered per file" means for a saved file.
+    store.close("buf-remember").expect("close failed");
+    store.restore("buf-remember").expect("restore failed");
+    assert!(store.preview_scripts("buf-remember").unwrap());
+}
+
+#[test]
 fn save_content_writes_the_file_and_no_copy() {
     let (dir, store) = setup();
     let doc = make_doc("buf-2", "Content Test");

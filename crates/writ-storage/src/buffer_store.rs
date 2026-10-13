@@ -798,6 +798,18 @@ impl BufferStore {
         queries::update_line_ending(&self.conn, id, ending)
     }
 
+    /// Whether this document's own scripts may run in its preview. Off for
+    /// every document until the user opts the file in (decision RC-D1/TS-D1).
+    pub fn preview_scripts(&self, id: &str) -> StorageResult<bool> {
+        queries::get_preview_scripts(&self.conn, id)
+    }
+
+    /// Records the per-document preview-scripts opt-in, remembered on the
+    /// buffer row so it survives a relaunch.
+    pub fn set_preview_scripts(&self, id: &str, enabled: bool) -> StorageResult<()> {
+        queries::set_preview_scripts(&self.conn, id, enabled)
+    }
+
     /// Updates the detected or user-assigned language for a buffer.
     pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {
         queries::update_language(&self.conn, id, language)

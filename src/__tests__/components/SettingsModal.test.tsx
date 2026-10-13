@@ -310,7 +310,6 @@ function baseConfig(): WritConfig {
       render_confirm_threshold_mb: 5,
       render_refuse_threshold_mb: 50,
       debounce_ms: 200,
-      run_scripts: true,
     },
   };
 }
@@ -727,22 +726,6 @@ describe("SettingsModal", () => {
     expect(saved.editor.status_bar).toBe(true);
   });
 
-  it("saves preview run_scripts toggle from Advanced section", async () => {
-    const { container } = render(() => <SettingsModal />);
-    openSettings();
-    await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
-    const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
-    const advancedNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("advanced"));
-    fireEvent.click(advancedNav!);
-    await waitFor(() => expect(container.querySelector("[data-section='advanced']")).not.toBeNull());
-    const scriptsToggle = container.querySelector<HTMLButtonElement>("[data-setting='run_scripts']");
-    expect(scriptsToggle).not.toBeNull();
-    fireEvent.click(scriptsToggle!);
-    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
-    expect(saved.preview.run_scripts).toBe(false);
-  });
-
   describe("Files section — the file-types row", () => {
     async function openFilesNav(container: Element) {
       // Another section first: Files is the panel's default, and mounting it
@@ -1118,9 +1101,9 @@ describe("SettingsModal", () => {
   describe("deep link", () => {
     it("opens the target section and highlights the row", async () => {
       const { container } = render(() => <SettingsModal />);
-      openSettings("advanced", "preview.run_scripts");
+      openSettings("advanced", "preview.layout_html");
       await waitFor(() => {
-        const row = container.querySelector("[data-setting-id='preview.run_scripts']");
+        const row = container.querySelector("[data-setting-id='preview.layout_html']");
         expect(row).not.toBeNull();
         expect(row!.classList.contains("settings-row-highlight")).toBe(true);
       });

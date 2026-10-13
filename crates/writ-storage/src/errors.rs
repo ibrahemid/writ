@@ -130,6 +130,14 @@ pub enum StorageError {
         path: String,
     },
 
+    /// A buffer was named that the store does not hold, so nothing was
+    /// recorded for it.
+    #[error("no file in the store has the id {id}")]
+    BufferMissing {
+        /// The id that was named.
+        id: String,
+    },
+
     /// A version was asked for that the store does not hold.
     ///
     /// The entry was pruned between the panel listing it and the person

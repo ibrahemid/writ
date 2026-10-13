@@ -7,6 +7,7 @@ pub mod generated;
 pub mod hotkey;
 pub mod logging;
 pub mod menu;
+pub mod navigation;
 pub mod notes;
 pub mod poison;
 pub mod preview;
@@ -470,6 +471,19 @@ pub fn run() {
     let builder = tauri::Builder::default();
 
     let app = builder
+        // Refuse any navigation that is not the app origin, the preview scheme,
+        // or an inert about: page, so a script cannot set top.location to an
+        // external URL and carry note text out in the query string (TS-02).
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("writ-navguard")
+                .on_navigation(|webview, url| {
+                    navigation::is_allowed_navigation(
+                        url.as_str(),
+                        navigation::dev_server(webview.config()),
+                    )
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         // Registered for the Rust-side `OpenerExt` only. `opener:allow-open-url`
@@ -572,6 +586,9 @@ pub fn run() {
             commands::preview::preview_set_layout,
             commands::preview::preview_get_layout,
             commands::preview::preview_inline_image,
+            commands::preview::preview_url_prefix,
+            commands::preview::preview_get_scripts,
+            commands::preview::preview_set_scripts,
             commands::recovery::get_recovered_buffers,
             commands::workspace::pick_workspace_folder,
             commands::workspace::clear_workspace_root,
