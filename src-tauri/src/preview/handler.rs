@@ -112,6 +112,18 @@ impl RenderCache {
     pub fn evict(&self, buffer_id: &str) {
         recover_poison(self.docs.lock(), "preview::render_cache::evict").remove(buffer_id);
     }
+
+    /// Serve the cached document for `buffer_id`, if there is one, with its
+    /// scripts off from now on. Its file lost the opt-in, and a reload of the
+    /// frame before the next render must not run them.
+    pub fn turn_scripts_off(&self, buffer_id: &str) {
+        if let Some(doc) =
+            recover_poison(self.docs.lock(), "preview::render_cache::turn_scripts_off")
+                .get_mut(buffer_id)
+        {
+            doc.scripts_enabled = false;
+        }
+    }
 }
 
 /// One header on an outgoing response.

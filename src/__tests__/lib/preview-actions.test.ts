@@ -33,6 +33,14 @@ describe("togglePreviewScripts", () => {
     expect(mocks.set).toHaveBeenCalledWith("buf-2", false);
   });
 
+  it("flips the opt-in the user is shown without reading the stored one", async () => {
+    mocks.get.mockResolvedValue(false);
+    const result = await togglePreviewScripts("buf-4", true);
+    expect(result).toBe(false);
+    expect(mocks.get).not.toHaveBeenCalled();
+    expect(mocks.set).toHaveBeenCalledWith("buf-4", false);
+  });
+
   it("propagates a write failure without swallowing it", async () => {
     mocks.get.mockResolvedValue(false);
     mocks.set.mockRejectedValue(new Error("disk full"));

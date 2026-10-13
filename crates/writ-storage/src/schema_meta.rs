@@ -28,6 +28,12 @@ pub const KEY_NOTES_FACTS_CENSUS: &str = "notes_facts_census";
 /// filled under, so a change in what is read out of a note reads every file
 /// again once. See [`crate::notes_index::reconcile`].
 pub const KEY_NOTES_FACTS_READING: &str = "notes_facts_reading";
+/// How many times the set of paths the notes index holds has changed: a note
+/// added, a note removed, the folder re-keyed. The write that changes the set
+/// moves it in the same transaction, so a process keeping the names in memory
+/// reads them again only when another connection changed them, and never for
+/// a commit that left them alone. See [`crate::notes_index::NotesIndexStore`].
+pub const KEY_NOTES_NAMES_VERSION: &str = "notes_names_version";
 /// Absolute path of the pre-migration copy of the database.
 pub const KEY_ROLLBACK_COPY_PATH: &str = "notes_migration_rollback_path";
 /// How many launches the pre-migration copy has survived.

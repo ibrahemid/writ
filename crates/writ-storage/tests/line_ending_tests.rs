@@ -196,10 +196,10 @@ fn a_mixed_file_the_crash_did_not_change_is_left_alone() {
     let (path, _state) = open_note(&store, &dir, mixed);
     let before = inode(&path);
 
-    // The crash snapshot is the file read byte for byte, so it comes back
-    // holding the same mixed text. Encoding it to the note's ending here
-    // would settle the stray line, and the file would then read as having
-    // moved on while Writ was down.
+    // Text carried over from a 0.5 snapshot is the file read byte for byte,
+    // so it comes back holding the same mixed text. Encoding it to the
+    // note's ending here would settle the stray line, and the file would then
+    // read as having moved on while Writ was down.
     let outcome = store
         .restore_recovered_content("ending-1", mixed, None, None)
         .expect("restore");

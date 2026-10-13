@@ -8,7 +8,7 @@ import { basename } from "../../lib/path";
 import { logFailure } from "../../lib/log";
 
 // Burst cap (ADR-018): at most BURST_CAP auto-opens per BURST_WINDOW_MS;
-// further arrivals collapse into a single "N new files in inbox" toast.
+// further arrivals collapse into a single "N new files in the watched folder" toast.
 const BURST_CAP = 3;
 const BURST_WINDOW_MS = 2000;
 const OVERFLOW_TOAST_DEBOUNCE_MS = 600;
@@ -65,14 +65,14 @@ async function handleFileArrived(filePath: string, nowMs: number = Date.now()): 
   const win = windowRegistry.getActive();
   if (!win) {
     logFailure("an inbox file arrived with no window to open into");
-    showToast(`Couldn't open ${basename(filePath)} from the inbox`, "error");
+    showToast(`Couldn't open ${basename(filePath)} from the watched folder`, "error");
     return;
   }
   try {
     await win.tabs.openFile(filePath);
   } catch {
     logFailure("an inbox file could not be opened");
-    showToast(`Couldn't open ${basename(filePath)} from the inbox`, "error");
+    showToast(`Couldn't open ${basename(filePath)} from the watched folder`, "error");
     return;
   }
   if (configStore.config().inbox.focus) {
@@ -88,7 +88,7 @@ function scheduleOverflowToast(): void {
     const count = overflowCount;
     overflowCount = 0;
     if (count > 0) {
-      showToast(`${count} new file${count === 1 ? "" : "s"} in inbox`, "info");
+      showToast(`${count} new file${count === 1 ? "" : "s"} in the watched folder`, "info");
     }
   }, OVERFLOW_TOAST_DEBOUNCE_MS);
 }

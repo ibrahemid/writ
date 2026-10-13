@@ -11,7 +11,8 @@
 //!   follows the per-file scripts opt-in, and the chrome-scope CSP.
 //! - [`handler`] — request resolution, the render cache, and the Tauri
 //!   protocol glue that attaches the CSP header to every response and
-//!   disables a document's resource hints (ADR-043).
+//!   disables a served document's resource hints and frame navigations
+//!   (ADR-043).
 //! - [`renderers`] — registration entry point for first-party content
 //!   renderers (HTML now; markdown / Mermaid / KaTeX next).
 

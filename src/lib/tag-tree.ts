@@ -1,4 +1,4 @@
-import type { TagCount } from "../stores/global/note-facts";
+import type { TagCount } from "../stores/global/index-cache";
 
 /** One tag in the sidebar's tree, with the tags under it. */
 export interface TagNode {

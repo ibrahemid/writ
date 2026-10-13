@@ -1,4 +1,5 @@
 use thiserror::Error;
+use writ_core::recovery::SaveLanding;
 
 /// Crate-wide error type for `writ-storage` operations.
 ///
@@ -138,6 +139,18 @@ pub enum StorageError {
         id: String,
     },
 
+    /// The file is over the size Writ opens
+    /// (`writ_core::file_ops::THRESHOLD_MAX_BYTES`), so none of it was read
+    /// (ADR-019).
+    ///
+    /// The wording here is for logs; the editor reads `ERR_OPEN_TOO_LARGE`,
+    /// the code an open past that size answers with.
+    #[error("the file is {size_bytes} bytes, over the size Writ opens")]
+    FileTooLarge {
+        /// The file's size, from a stat.
+        size_bytes: u64,
+    },
+
     /// A version was asked for that the store does not hold.
     ///
     /// The entry was pruned between the panel listing it and the person
@@ -253,6 +266,26 @@ pub enum StorageError {
         /// Highest migration version embedded in this binary.
         binary_version: i32,
     },
+}
+
+impl StorageError {
+    /// What became of the text a save carried, when the save failed with this
+    /// error (ADR-044).
+    ///
+    /// A refusal over a file that changed under Writ writes the text beside
+    /// the note when it can, and that copy is a file holding it. Every other
+    /// failure here left the text with the editor alone: a file that is not
+    /// downloaded, read-only, hard-linked or missing, a folder that would not
+    /// take the write, a volume that stopped answering, any other I/O error.
+    pub fn save_landing(&self) -> SaveLanding {
+        match self {
+            StorageError::SourceChangedOnDisk {
+                conflict_copy: Some(_),
+                ..
+            } => SaveLanding::WrittenBeside,
+            _ => SaveLanding::NotLanded,
+        }
+    }
 }
 
 /// Shorthand for a result whose error arm is [`StorageError`].

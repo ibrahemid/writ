@@ -1,5 +1,5 @@
 import { Show } from "solid-js";
-import { noteName, saveCopyOfNote } from "../../lib/note-actions";
+import { noteName, saveCopyOfNote, saveNoteAs } from "../../lib/note-actions";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import Button from "../Button/Button";
 import "./EditorBar.css";
@@ -12,6 +12,10 @@ import "./EditorBar.css";
  * happens to the text is the person's call, and the three ways out are the
  * three the bar offers: put the file back where it was, write the text to a
  * new file, or let the tab go.
+ *
+ * A note the launch could not give its first file is held the same way, but
+ * it was never deleted: the bar names the file it was to be and the folder
+ * that would not take it, and offers a place the person picks instead.
  */
 export default function RemovedOnDiskBar(props: { noteId: string | null }) {
   const win = useWindow();
@@ -26,20 +30,41 @@ export default function RemovedOnDiskBar(props: { noteId: string | null }) {
     const id = removed();
     return id === null ? "" : noteName(id);
   };
+  const unmade = () => {
+    const id = removed();
+    return id === null ? null : win.editor.unmadeFileOf(id);
+  };
 
   return (
     <Show when={removed()}>
       {(id) => (
-        <div class="editor-bar removed-on-disk-bar" role="alert">
-          <p class="editor-bar-text">{name()} was deleted. Your text is still here.</p>
-          <div class="editor-bar-actions">
-            <Button onClick={() => void win.editor.restoreRemovedFile(id())}>
-              Put the file back
-            </Button>
-            <Button onClick={() => void saveCopyOfNote(id())}>Save a copy…</Button>
-            <Button onClick={() => void win.tabs.closeTab(id())}>Close</Button>
-          </div>
-        </div>
+        <Show
+          when={unmade()}
+          fallback={
+            <div class="editor-bar removed-on-disk-bar" role="alert">
+              <p class="editor-bar-text">{name()} was deleted. Your text is still here.</p>
+              <div class="editor-bar-actions">
+                <Button onClick={() => void win.editor.restoreRemovedFile(id())}>
+                  Put the file back
+                </Button>
+                <Button onClick={() => void saveCopyOfNote(id())}>Save a copy…</Button>
+                <Button onClick={() => void win.tabs.closeTab(id())}>Close</Button>
+              </div>
+            </div>
+          }
+        >
+          {(file) => (
+            <div class="editor-bar removed-on-disk-bar" role="alert">
+              <p class="editor-bar-text">
+                Couldn't create {file().name} in {file().folder}.
+              </p>
+              <div class="editor-bar-actions">
+                <Button onClick={() => void saveNoteAs(id())}>Save As…</Button>
+                <Button onClick={() => void win.tabs.closeTab(id())}>Close</Button>
+              </div>
+            </div>
+          )}
+        </Show>
       )}
     </Show>
   );

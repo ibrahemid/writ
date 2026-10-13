@@ -22,6 +22,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 }));
 
 import FileTree from "../../components/Sidebar/FileTree";
+import { workspaceStore } from "../../stores/global/workspace";
 
 function entry(name: string, isDir: boolean): WorkspaceEntry {
   return { name, path: `/notes/${name}`, is_dir: isDir, conflict_copy: null };
@@ -39,7 +40,7 @@ describe("FileTree indent", () => {
     h.entries.set("/notes/Drafts", [
       { name: "launch.md", path: "/notes/Drafts/launch.md", is_dir: false, conflict_copy: null },
     ]);
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={workspaceStore} />);
     const folder = container.querySelector<HTMLElement>('[aria-level="1"]')!;
     expect(folder.style.paddingLeft).toBe("10px");
 
@@ -50,7 +51,7 @@ describe("FileTree indent", () => {
 
   it("shows a folder open once expanded, and a note for a file", () => {
     h.entries.set("/notes", [entry("Drafts", true), entry("launch.md", false)]);
-    const { container } = render(() => <FileTree />);
+    const { container } = render(() => <FileTree folder={workspaceStore} />);
     const icons = () =>
       Array.from(container.querySelectorAll("use")).map((u) => u.getAttribute("href"));
     expect(icons()).toContain("#ph-folder");

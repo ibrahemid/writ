@@ -16,7 +16,8 @@
 //!
 //! There is no trust matrix. Every document is served under one fixed CSP
 //! with the network off; the one variable is a per-file opt-in that lets a
-//! document's own scripts run (ADR-043). Before a document is served,
+//! document's own scripts run (ADR-043), which [`scripts`] says when to take
+//! back. Before a document is served,
 //! [`hints`] disables the resource hints it carries and [`frames`] disarms the
 //! frame navigations it would start without a script. [`ContentRenderer`]
 //! mirrors ADR-006's loader-agnostic registry precedent.
@@ -27,6 +28,7 @@ pub mod hints;
 pub mod inline_image;
 pub mod protocol;
 pub mod registry;
+pub mod scripts;
 pub mod types;
 
 pub use inline_image::{

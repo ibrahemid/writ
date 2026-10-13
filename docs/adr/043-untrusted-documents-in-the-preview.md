@@ -61,15 +61,45 @@ blank. wry applies its rewrite to a window's first URL only, never to an iframe
 
 `preview.run_scripts` is retired. A document's own scripts run only if the user
 opts the file in; the choice is kept on the buffer row (`preview_scripts`,
-migration 047) so it survives closing the tab and relaunching. Off is the
+migration 047) with the digest of the bytes it covers (`preview_scripts_hash`,
+migration 048), so it survives closing the tab and relaunching. Off is the
 default for every document, new and existing. A config written by an older
 build carries `run_scripts = true`, which is ignored rather than honoured, so
 no install keeps scripts on for every document. The opt-in is the command
 "Preview: Toggle scripts for this file", not a global switch, because a global
 "allow all" contradicts "off for every document". Recording a choice for a
-buffer the store does not hold is refused.
+buffer the store does not hold is refused. While the preview shows an HTML or
+Markdown document, the status bar reads the choice, checked as below,
+`Scripts off` or `Scripts on`, and a click on it runs the same command.
 
-The document CSP's `script-src` follows the opt-in, read at render time and
+The opt-in is given to the document the user had in front of them. It covers
+the bytes the file held then, whose digest is recorded with it, and the bytes
+each save from Writ writes, whose digest replaces the recorded one
+(`BufferStore::write_source_guarded`, and the relaunch's restore of journaled
+text). Every read of the opt-in, by a render and by the status bar, compares
+the file's digest with the recorded one (`BufferStore::check_preview_scripts`,
+`writ_core::preview::scripts::opt_in_standing`). A file that holds other bytes
+was changed by another program, with its tab open or closed or while Writ was
+not running, and the opt-in lapses. A save checks first, so it cannot carry the
+opt-in over a change it did not make. A file that cannot be read, or whose
+bytes are not on this machine and would be fetched by a read, runs nothing
+until a check can read it. A write that does not come from the editor counts
+as another program's: a connected program's or the chat pane's write, and a
+version restored from history, either record no digest or reach the tab as a
+change, and the opt-in lapses. A move keeps the opt-in, since the bytes did not
+change.
+
+For an open tab the watcher acts first. When it reports that another program
+changed the file, a bus subscriber ahead of the frontend bridge turns the row's
+scripts off and serves the cached render with them off
+(`writ_core::preview::scripts::opt_in_lost_by`,
+`commands::preview::forget_scripts_opt_in`), so they are off before the
+frontend hears of the change. The frontend turns them off too whenever it acts
+on a modified file, which covers a change it finds itself after a sweep of the
+notes folder, and reloads the preview showing the file. Writ's own writes never
+reach either path: the ignore set and the disk state Writ recorded drop them.
+
+The document CSP's `script-src` follows the opt-in, checked at render time and
 carried on the cached render. The first-party runtimes are not the document's
 own scripts: the bridge, Mermaid and KaTeX are served same-origin under
 `_assets/` as external scripts (their init moved out of inline `<script>`
@@ -153,15 +183,21 @@ pragmas that set no navigation and open no connection: `content-type`,
 only known-inert pragmas, as the hint rewrite keeps only stylesheet links,
 also covers any other an engine acts on, such as a `Link` pragma naming a
 preconnect, which neither engine acts on today. A value with padding or a
-character reference, an empty or missing value, and one too far ahead to
-read are renamed. `data-writ-blocked-` goes in front of the name. Letters and hyphens
-keep every tokenizer state the name passes through, so the tree is the same
-apart from the attribute's name, and every copy of a repeated attribute is
-renamed, so no reader finds one whichever copy it takes. The element keeps its
-name: an `iframe`'s content is raw text, and another name would parse its
-fallback markup. The document's `frame-src 'none'` already refuses every frame
-it could show, so nothing a document displays depends on these attributes, and
-the rewrite applies whether or not the file is opted in.
+character reference, an empty or missing value, and one too far ahead to read
+are renamed. `data-writ-blocked-` goes in front of the name. Letters and
+hyphens keep every tokenizer state the name passes through, so the tree is the
+same apart from the attribute's name, and every copy of a repeated attribute
+is renamed, so no reader finds one whichever copy it takes. A name right after
+`</` is also an end tag's name wherever the parser reads the bytes as markup.
+It keeps its bytes when, read as an attribute, it has no value, since an empty
+`src` loads `about:blank`, an empty `srcdoc` an empty document and an empty
+`http-equiv` names no pragma; one that an `=` follows has a value and is
+renamed. The tree therefore changes only at an end tag with an `=` after its
+name, which is malformed markup. The element keeps its name: an `iframe`'s
+content is raw text, and another name would parse its fallback markup. The
+document's `frame-src 'none'` already refuses every frame it could show, so
+nothing a document displays depends on these attributes, and the rewrite
+applies whether or not the file is opted in.
 
 The frame rewrite reads the text without parser context, as the hint rewrite
 does: every `<iframe`, `<frame` or `<meta` followed by a tag-name terminator is
@@ -174,7 +210,8 @@ html5ever's tokenizer started at every `<`, which counts a frame live while an
 `iframe` or `frame` keeps a `src` or `srcdoc` and a refresh live while a
 `meta` keeps an `http-equiv` that is not one of the five, across the same
 parser contexts and a generated set of attribute spellings; a tree-builder
-comparison checks that the rest of the tree is unchanged.
+comparison checks that the rest of the tree is unchanged, and an end-tag test
+that an end tag after a tag left open in text keeps its name.
 
 ### 4. One preview URL base, decided by the host
 
@@ -254,7 +291,9 @@ and the app `frame-src` by `tests/app_csp_tests.rs`.
 - The preview draws on Windows.
 - Mermaid and KaTeX draw in every note regardless of the opt-in, because their
   runtimes are first-party.
-- A file replaced at the same path keeps the opt-in its buffer row carries.
+- A file another program changes loses its opt-in, whether its tab was open
+  or closed or Writ was not running, and a preview showing it reloads with
+  scripts off.
 
 ## Residual risks
 
@@ -267,6 +306,8 @@ and the app `frame-src` by `tests/app_csp_tests.rs`.
   before `frame-src` refuses it; that reaches no host an inserted hint cannot.
   Opting a file in is a decision to run its code; the command says to turn
   scripts on only for a file the user trusts.
+- **The opt-in follows the file through Writ's own saves.** A file edited and
+  saved in Writ keeps its opt-in, whatever the edit put in it.
 - **First-party runtimes as gadgets.** With scripts off any document can still
   load the bridge, Mermaid and KaTeX through `script-src 'self'`. Mermaid runs
   in strict mode and KaTeX with `trust` off, and neither opens a channel the

@@ -98,21 +98,20 @@ pub fn insert_buffer(conn: &Connection, doc: &BufferDocument) -> StorageResult<(
 /// Fetches a buffer row by id, mapping a missing row to
 /// [`StorageError::Consistency`].
 pub fn get_buffer(conn: &Connection, id: &str) -> StorageResult<BufferDocument> {
+    find_buffer(conn, id)?.ok_or_else(|| StorageError::Consistency {
+        message: format!("buffer not found: {}", id),
+    })
+}
+
+/// [`get_buffer`], answering `None` when no row has that id.
+pub fn find_buffer(conn: &Connection, id: &str) -> StorageResult<Option<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
                 cursor_pos, scroll_pos, tab_order, created_at, updated_at, closed_at,
                 read_only, size_bytes, line_ending
          FROM buffers WHERE id = ?1",
     )?;
-    let result = stmt
-        .query_row(params![id], row_to_document)
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => StorageError::Consistency {
-                message: format!("buffer not found: {}", id),
-            },
-            other => StorageError::Database(other),
-        })?;
-    Ok(result)
+    Ok(stmt.query_row(params![id], row_to_document).optional()?)
 }
 
 /// Lists buffers filtered by status literal (`"active"` or `"history"`).
@@ -223,7 +222,12 @@ pub fn find_history_by_source_path(
 /// new-tab request reuses and startup reclaims. `migrated_path IS NULL`
 /// excludes the rows the notes migration wrote into the archive: those keep a
 /// `NULL` `source_path` until the user moves them into the notes folder, and
-/// they do have a file.
+/// they do have a file. A row with an entry in the unsaved-text journal is
+/// excluded too: its first file could not be made, and the journal holds what
+/// was typed into it until the next launch makes one (ADR-044). Reusing the
+/// row would give a new tab a note whose text is somewhere else, and
+/// reclaiming it would take the note's tab away from text the launch hands
+/// back to it.
 pub fn list_unsaved_notes(conn: &Connection) -> StorageResult<Vec<BufferDocument>> {
     let mut stmt = conn.prepare(
         "SELECT id, title, filename, status, language, source_path,
@@ -231,6 +235,7 @@ pub fn list_unsaved_notes(conn: &Connection) -> StorageResult<Vec<BufferDocument
                 read_only, size_bytes, line_ending
          FROM buffers
          WHERE source_path IS NULL AND migrated_path IS NULL
+           AND id NOT IN (SELECT buffer_id FROM unsaved_text)
          ORDER BY tab_order ASC",
     )?;
     let rows = stmt.query_map([], row_to_document)?;
@@ -251,6 +256,19 @@ pub fn update_source_path(conn: &Connection, id: &str, source_path: &str) -> Sto
         params![source_path, id],
     )?;
     Ok(())
+}
+
+/// Takes the file path off note `id`'s row while the row still names
+/// `source_path`, and answers whether it did.
+///
+/// The condition is what lets a caller take back the path it gave without
+/// taking one another write has put there since.
+pub fn clear_source_path(conn: &Connection, id: &str, source_path: &str) -> StorageResult<bool> {
+    let changed = conn.execute(
+        "UPDATE buffers SET source_path = NULL WHERE id = ?1 AND source_path = ?2",
+        params![id, source_path],
+    )?;
+    Ok(changed > 0)
 }
 
 /// Records that the notes migration wrote this row's text to `migrated_path`.
@@ -335,7 +353,8 @@ pub fn update_line_ending(conn: &Connection, id: &str, ending: LineEnding) -> St
     Ok(())
 }
 
-/// Reads the per-document preview-scripts opt-in for a buffer.
+/// Reads the per-document preview-scripts opt-in for a buffer as recorded,
+/// before it is checked against the file.
 ///
 /// A row that names no buffer answers `false`: an unknown id is treated as
 /// not opted in, the same posture a fresh document takes.
@@ -350,15 +369,52 @@ pub fn get_preview_scripts(conn: &Connection, id: &str) -> StorageResult<bool> {
     Ok(enabled.unwrap_or(0) != 0)
 }
 
-/// Records whether this document's own scripts may run in the preview.
+/// A buffer's preview-scripts opt-in with what it is checked against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewScriptsOptIn {
+    /// Whether the user opted the file in.
+    pub enabled: bool,
+    /// The digest of the bytes the opt-in covers, as 64 hex characters.
+    pub recorded_hash: Option<String>,
+    /// The file the opt-in is checked against.
+    pub source_path: Option<String>,
+}
+
+/// Reads a buffer's preview-scripts opt-in with the digest recorded for it and
+/// the file it covers. `None` for an id with no row.
+pub fn get_preview_scripts_opt_in(
+    conn: &Connection,
+    id: &str,
+) -> StorageResult<Option<PreviewScriptsOptIn>> {
+    Ok(conn
+        .query_row(
+            "SELECT preview_scripts, preview_scripts_hash, source_path FROM buffers WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(PreviewScriptsOptIn {
+                    enabled: row.get::<_, i64>(0)? != 0,
+                    recorded_hash: row.get(1)?,
+                    source_path: row.get(2)?,
+                })
+            },
+        )
+        .optional()?)
+}
+
+/// Opts a buffer's file in to running its own scripts in the preview, for the
+/// bytes `hash` names: `None` when the file has none yet.
 ///
 /// `updated_at` is left alone: opting a file's preview in or out is a view
 /// preference, not an edit to its text, so it must not reorder History. An id
 /// with no row is refused rather than reported as recorded.
-pub fn set_preview_scripts(conn: &Connection, id: &str, enabled: bool) -> StorageResult<()> {
+pub fn enable_preview_scripts(
+    conn: &Connection,
+    id: &str,
+    hash: Option<&str>,
+) -> StorageResult<()> {
     let changed = conn.execute(
-        "UPDATE buffers SET preview_scripts = ?1 WHERE id = ?2",
-        params![enabled as i64, id],
+        "UPDATE buffers SET preview_scripts = 1, preview_scripts_hash = ?1 WHERE id = ?2",
+        params![hash, id],
     )?;
     if changed == 0 {
         return Err(StorageError::BufferMissing { id: id.to_string() });
@@ -366,11 +422,38 @@ pub fn set_preview_scripts(conn: &Connection, id: &str, enabled: bool) -> Storag
     Ok(())
 }
 
-/// Updates the detected or user-assigned language for a buffer.
+/// Takes a buffer's preview-scripts opt-in away, with the digest recorded for
+/// it. As with [`enable_preview_scripts`], `updated_at` is left alone and an
+/// id with no row is refused.
+pub fn disable_preview_scripts(conn: &Connection, id: &str) -> StorageResult<()> {
+    let changed = conn.execute(
+        "UPDATE buffers SET preview_scripts = 0, preview_scripts_hash = NULL WHERE id = ?1",
+        params![id],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::BufferMissing { id: id.to_string() });
+    }
+    Ok(())
+}
+
+/// Records `hash` as the bytes an opted-in buffer's opt-in covers, once Writ
+/// has written them to its file. A buffer that is not opted in is left alone.
+pub fn record_preview_scripts_hash(conn: &Connection, id: &str, hash: &str) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET preview_scripts_hash = ?1 WHERE id = ?2 AND preview_scripts = 1",
+        params![hash, id],
+    )?;
+    Ok(())
+}
+
+/// Records the language chosen for a buffer, or clears the choice with `None`.
+///
+/// `updated_at` is left alone: the choice changes how the file is shown, not
+/// what it holds.
 pub fn update_language(conn: &Connection, id: &str, language: Option<&str>) -> StorageResult<()> {
     conn.execute(
-        "UPDATE buffers SET language = ?1, updated_at = ?2 WHERE id = ?3",
-        params![language, Utc::now().to_rfc3339(), id],
+        "UPDATE buffers SET language = ?1 WHERE id = ?2",
+        params![language, id],
     )?;
     Ok(())
 }
@@ -386,12 +469,24 @@ pub fn update_filename(conn: &Connection, id: &str, filename: &str) -> StorageRe
     Ok(())
 }
 
+/// Records a buffer's file size as a stat measured it, leaving `updated_at`
+/// alone: a stat is not a read, and the stamp records when Writ last learned
+/// what the file holds.
+pub fn update_size(conn: &Connection, id: &str, size_bytes: u64) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET size_bytes = ?1 WHERE id = ?2",
+        params![size_bytes as i64, id],
+    )?;
+    Ok(())
+}
+
 /// Records the length a buffer's file was last read at, and stamps
 /// `updated_at` to now.
 ///
-/// The stamp is the point: it is what a relaunch compares the last crash
-/// snapshot against, so a note Writ re-read has to look newer than a snapshot
-/// taken before it.
+/// The stamp is the point: it records when Writ last learned what the file
+/// holds. The one comparison that reads it is the carry-over of a 0.5
+/// snapshot (`crate::recovery::legacy`), which leaves alone a note read after
+/// that snapshot was taken.
 pub fn update_size_and_timestamp(
     conn: &Connection,
     id: &str,

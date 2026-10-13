@@ -1,9 +1,11 @@
 use chrono::Utc;
 use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::file_ops::{THRESHOLD_LARGE_BYTES, THRESHOLD_MAX_BYTES};
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
+use writ_storage::errors::StorageError;
 use writ_storage::notes_index::NotesIndexStore;
 
 fn is_empty_dir(dir: &std::path::Path) -> bool {
@@ -294,6 +296,37 @@ fn update_language_clears_language_field() {
 }
 
 #[test]
+fn choosing_a_language_leaves_updated_at_alone() {
+    let (_dir, store) = setup();
+    let doc = make_scratch_doc("lang-3", "test");
+    store.insert(&doc).unwrap();
+    let before = store.get("lang-3").unwrap().updated_at;
+
+    store.update_language("lang-3", Some("python")).unwrap();
+
+    let after = store.get("lang-3").unwrap();
+    assert_eq!(after.language.as_deref(), Some("python"));
+    assert_eq!(after.updated_at, before);
+}
+
+// A size taken from a stat is not a read, so it leaves the stamp a read
+// leaves: `updated_at` records when Writ last learned what the file holds.
+#[test]
+fn recording_a_measured_size_leaves_updated_at_alone() {
+    let (_dir, store) = setup();
+    let doc = make_source_doc("size-1", "big.log", "/home/user/big.log");
+    store.open_from_path(&doc, "a line of a log\n").unwrap();
+    let before = store.get("size-1").unwrap();
+
+    store.record_size("size-1", 60_000_000).unwrap();
+
+    let after = store.get("size-1").unwrap();
+    assert_eq!(after.size_bytes, 60_000_000);
+    assert_eq!(after.updated_at, before.updated_at);
+    assert_eq!(after.status, before.status);
+}
+
+#[test]
 fn close_and_restore_source_backed_buffer() {
     let (_dir, store) = setup();
     let doc = make_source_doc("lifecycle-1", "app.ts", "/home/user/app.ts");
@@ -492,4 +525,85 @@ fn read_source_refuses_a_note_with_no_file() {
     store.insert(&doc).unwrap();
 
     assert!(store.read_source("unwritten-1").is_err());
+}
+
+/// A text file of `size` bytes whose first 8 KiB are text and whose tail is a
+/// hole, so nothing near `size` bytes is written to the test machine's disk.
+fn sparse_text_file(path: &std::path::Path, size: u64) {
+    use std::io::Write;
+    let mut file = std::fs::File::create(path).expect("create");
+    let line = b"2026-10-13 10:30:00 INFO a line of a log\n";
+    let mut written = 0usize;
+    while written < 8192 {
+        file.write_all(line).expect("write head");
+        written += line.len();
+    }
+    file.set_len(size).expect("extend");
+}
+
+/// A row for `name`, a file in the notes folder holding a line of text.
+fn open_small_file(dir: &TempDir, store: &BufferStore, id: &str, name: &str) -> std::path::PathBuf {
+    let path = dir.path().join(name);
+    std::fs::write(&path, "a line of a log\n").unwrap();
+    let doc = make_source_doc(id, name, &path.to_string_lossy());
+    store.open_from_path(&doc, "a line of a log\n").unwrap();
+    path
+}
+
+// A file can grow past the size Writ opens after the launch measured it, or
+// while its tab is open. The read measures it first and reads none of it: the
+// size it found is the answer, for the row to record and the editor to state.
+#[test]
+fn a_file_past_the_size_writ_opens_is_measured_and_not_read() {
+    let (dir, store) = setup();
+    let path = open_small_file(&dir, &store, "past-1", "grown.log");
+    sparse_text_file(&path, THRESHOLD_MAX_BYTES + 1);
+
+    let result = store.read_content("past-1");
+
+    let read = result.as_ref().map(String::len).ok();
+    assert!(read.is_none(), "the file was read: {read:?} bytes");
+    assert!(
+        matches!(result, Err(StorageError::FileTooLarge { size_bytes }) if size_bytes == THRESHOLD_MAX_BYTES + 1),
+        "{result:?}"
+    );
+}
+
+// A hex view reads the whole file to sniff and dump it, so it is measured
+// first too.
+#[test]
+fn a_read_only_file_past_the_size_writ_opens_is_not_read_either() {
+    let (dir, store) = setup();
+    let path = dir.path().join("image.bin");
+    std::fs::write(&path, b"\x00\x01\x02 binary").unwrap();
+    let doc = BufferDocument {
+        read_only: true,
+        ..make_source_doc("past-2", "image.bin", &path.to_string_lossy())
+    };
+    store.open_from_path(&doc, "").unwrap();
+    sparse_text_file(&path, THRESHOLD_MAX_BYTES + 1);
+
+    let result = store.read_content("past-2");
+
+    let read = result.as_ref().map(String::len).ok();
+    assert!(read.is_none(), "the file was read: {read:?} bytes");
+    assert!(
+        matches!(result, Err(StorageError::FileTooLarge { size_bytes }) if size_bytes == THRESHOLD_MAX_BYTES + 1),
+        "{result:?}"
+    );
+}
+
+// The question over 50 MiB is asked before the open; a file of that size that
+// is open is read as it always was.
+#[test]
+fn a_file_under_the_size_writ_opens_is_read() {
+    let (dir, store) = setup();
+    let path = open_small_file(&dir, &store, "under-1", "large.log");
+    sparse_text_file(&path, THRESHOLD_LARGE_BYTES + 1);
+
+    let text = store
+        .read_content("under-1")
+        .expect("a file Writ opens is read");
+
+    assert_eq!(text.len() as u64, THRESHOLD_LARGE_BYTES + 1);
 }

@@ -23,8 +23,8 @@ use crate::state::AppState;
 ///
 /// That quit waits for the window up to
 /// [`writ_core::recovery::QUIT_FLUSH_TIMEOUT`], then stops chat replies,
-/// drains deferred reindexes and writes the snapshot; one still running after
-/// this is stuck.
+/// drains deferred reindexes and writes the clean marker; one still running
+/// after this is stuck.
 const QUIT_IN_FLIGHT_LIMIT: Duration = Duration::from_secs(8);
 
 /// What a relaunch may do once [`shut_down_for_relaunch`] returns.

@@ -80,6 +80,18 @@ fn is_inert_pragma(value: &str) -> bool {
 
 /// Every frame navigation a tokenizer could read anywhere in `html`.
 fn live_navigations(html: &str) -> Vec<String> {
+    navigations(html, true)
+}
+
+/// [`live_navigations`] without the attributes that hold nothing, which start
+/// no navigation: an empty `src` loads `about:blank`, an empty `srcdoc` an
+/// empty document, and an empty `http-equiv` names no pragma. An end tag the
+/// rewrite leaves alone reads as one of these from inside a tag.
+fn loading_navigations(html: &str) -> Vec<String> {
+    navigations(html, false)
+}
+
+fn navigations(html: &str, count_empty: bool) -> Vec<String> {
     html.match_indices('<')
         .filter_map(|(at, _)| tag_at(html, at))
         .filter(|tag| tag.kind == TagKind::StartTag)
@@ -89,6 +101,7 @@ fn live_navigations(html: &str) -> Vec<String> {
                     .iter()
                     .find(|attr| &*attr.name.local == name)
                     .map(|attr| attr.value.to_string())
+                    .filter(|value| count_empty || !value.is_empty())
             };
             match &*tag.name {
                 "iframe" | "frame" => attribute("src")
@@ -460,6 +473,8 @@ fn overlapping_candidates_are_read_in_linear_time() {
         "<meta http-equiv=".repeat(200_000) + "refresh>",
         "<frame/src=".repeat(200_000) + ">",
         "<iframe src=a ".repeat(200_000) + ">",
+        "<iframe </src \n".repeat(200_000),
+        format!("<iframe </src{}=x>", " ".repeat(1_000_000)),
     ];
     for html in &documents {
         let started = std::time::Instant::now();
@@ -546,4 +561,130 @@ fn every_generated_tag_is_either_inert_or_disarmed() {
         }
     }
     assert!(cases > 100_000, "{cases} cases");
+}
+
+/// Markup that leaves an `iframe`, `frame` or `meta` open where the parser
+/// reads text, so the walk from that tag reads what follows as attributes.
+const STALE_WALKS: &[&str] = &[
+    "<textarea><iframe x=\"</textarea>\" ",
+    "<textarea><frame x=\"</textarea>\" ",
+    "<textarea><meta x=\"</textarea>\" ",
+    "<title><iframe x='</title>' ",
+    "<!-- <iframe x=\"-->\" ",
+    "<style><iframe x='</style>' ",
+];
+
+/// The tree `html` builds, serialized, with every inserted prefix taken out.
+fn tree_without_prefix(html: &str) -> String {
+    Document::from(html)
+        .html()
+        .to_string()
+        .replace(DISARMED_PREFIX, "")
+}
+
+#[test]
+fn an_end_tag_keeps_its_name() {
+    // Read from the stale tag, `</src>` is an attribute `src` with no value,
+    // which loads nothing. Read by the parser it closes `<src>`, and renaming
+    // it would move everything after it inside that element.
+    let repro = "<src><textarea><iframe x=\"</textarea>\" </src>after";
+    assert_eq!(disarm_frame_navigations(repro), repro);
+    let rewritten_elsewhere = format!("{repro}<iframe src=http://leak.example/></iframe>");
+    let out = disarm_frame_navigations(&rewritten_elsewhere);
+    assert!(matches!(out, Cow::Owned(_)), "{out:?}");
+    assert_eq!(
+        tree_without_prefix(&out),
+        tree_without_prefix(&rewritten_elsewhere)
+    );
+
+    let end_tags = [
+        ("src", "</src>"),
+        ("src", "</SRC>"),
+        ("src", "</src >"),
+        ("src", "</src/>"),
+        ("src", "</src\n>"),
+        ("src", "</src x=y>"),
+        ("srcdoc", "</srcdoc>"),
+        ("http-equiv", "</http-equiv>"),
+        ("http-equiv", "</HTTP-EQUIV >"),
+    ];
+    for stale in STALE_WALKS {
+        for (element, end_tag) in end_tags {
+            let html = format!("<{element}>{stale}{end_tag}after<p>end</p>");
+            let out = disarm_frame_navigations(&html);
+            assert!(
+                matches!(out, Cow::Borrowed(_)),
+                "{html:?} was rewritten to {out:?}"
+            );
+            assert!(loading_navigations(&out).is_empty(), "{html:?}");
+        }
+    }
+}
+
+#[test]
+fn an_end_tag_name_an_equals_sign_follows_is_renamed() {
+    // Read from the stale tag, the `=` gives the attribute a value, so the
+    // name is renamed even though it also closes `<src>`. No end tag a document
+    // writes carries an `=`.
+    for (html, expected) in [
+        (
+            "<src><textarea><iframe x=\"</textarea>\" </src =x>after",
+            "<src><textarea><iframe x=\"</textarea>\" </data-writ-blocked-src =x>after",
+        ),
+        (
+            "<srcdoc><textarea><iframe x=\"</textarea>\" </srcdoc\n= \"&lt;b&gt;\">after",
+            "<srcdoc><textarea><iframe x=\"</textarea>\" </data-writ-blocked-srcdoc\n= \"&lt;b&gt;\">after",
+        ),
+        (
+            "<http-equiv><textarea><meta x=\"</textarea>\" </http-equiv=refresh>after",
+            "<http-equiv><textarea><meta x=\"</textarea>\" </data-writ-blocked-http-equiv=refresh>after",
+        ),
+    ] {
+        let out = disarm_frame_navigations(html);
+        assert_eq!(out, expected, "{html:?}");
+        assert!(live_navigations(&out).is_empty(), "{html:?} -> {out:?}");
+    }
+}
+
+#[test]
+fn a_name_after_an_end_tag_opener_that_carries_a_value_is_disarmed() {
+    let navigations = [
+        "<iframe </src=http://leak.example/></iframe>",
+        "<iframe </src =http://leak.example/></iframe>",
+        "<iframe </SRC\n= \"http://leak.example/\"></iframe>",
+        "<frame </src = 'http://leak.example/'>",
+        "<iframe </srcdoc =\"&lt;link rel=preconnect href=http://leak.example/&gt;\"></iframe>",
+        "<meta </http-equiv =refresh content=\"0;url=http://leak.example/\">",
+        "<meta </http-equiv=refresh content=\"0;url=http://leak.example/\">",
+    ];
+    for navigation in navigations {
+        assert!(
+            !loading_navigations(navigation).is_empty(),
+            "the oracle sees no navigation in {navigation:?}, so the case proves nothing"
+        );
+    }
+    for (before, after) in CONTEXTS {
+        for navigation in navigations {
+            let html = format!("{before}{navigation}{after}");
+            let out = disarm_frame_navigations(&html);
+            let live = loading_navigations(&out);
+            assert!(
+                live.is_empty(),
+                "{live:?} survive in {html:?}\n  disarmed: {out:?}"
+            );
+        }
+    }
+    for (html, expected) in [
+        (
+            "<iframe </src =http://leak.example/>",
+            "<iframe </data-writ-blocked-src =http://leak.example/>",
+        ),
+        (
+            "<iframe </src=http://leak.example/>",
+            "<iframe </data-writ-blocked-src=http://leak.example/>",
+        ),
+        ("<iframe </src></iframe>", "<iframe </src></iframe>"),
+    ] {
+        assert_eq!(disarm_frame_navigations(html), expected, "{html:?}");
+    }
 }

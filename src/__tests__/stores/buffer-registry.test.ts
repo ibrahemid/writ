@@ -41,8 +41,13 @@ vi.mock("../../services/tauri", () => ({
   listHistory: vi.fn().mockResolvedValue([]),
   closeBuffer: vi.fn().mockResolvedValue(undefined),
   closeBuffers: vi.fn().mockResolvedValue(undefined),
+  discardUnsavedText: vi.fn().mockResolvedValue(undefined),
   deleteBuffer: vi.fn().mockResolvedValue(undefined),
-  restoreBuffer: vi.fn().mockResolvedValue(undefined),
+  restoreBuffer: vi.fn().mockResolvedValue({
+    doc: null,
+    mode: { kind: "Refused", reason: "ERR_OPEN_TOO_LARGE" },
+    size_bytes: 0,
+  }),
   clearHistory: vi.fn().mockResolvedValue(undefined),
   renameNote: vi.fn(),
   openFile: vi.fn().mockImplementation((path: string) => {
@@ -52,6 +57,7 @@ vi.mock("../../services/tauri", () => ({
   showOpenFileDialog: vi.fn().mockResolvedValue(null),
   readBufferContent: vi.fn().mockResolvedValue(""),
   previewClose: vi.fn().mockResolvedValue(undefined),
+  setBufferLanguage: vi.fn(),
 }));
 
 vi.mock("../../services/autosave", () => ({
@@ -198,8 +204,27 @@ describe("bufferRegistry (app-global)", () => {
       expect(outcome.closed).toBe(true);
       expect(mockedFlush).not.toHaveBeenCalled();
       expect(mockedCancel).toHaveBeenCalledWith(doc.id);
+      // The text the failed save left in the journal goes with it, before
+      // the close, or the next launch brings it back.
+      expect(mockedApi.discardUnsavedText).toHaveBeenCalledWith([doc.id]);
+      expect(mockedApi.discardUnsavedText.mock.invocationCallOrder[0]).toBeLessThan(
+        mockedApi.closeBuffer.mock.invocationCallOrder[0],
+      );
       expect(mockedApi.closeBuffer).toHaveBeenCalledWith(doc.id);
       expect(bufferRegistry.historyList().find((h) => h.id === doc.id)).toBeDefined();
+    });
+
+    it("still closes when the journal cannot drop the discarded text", async () => {
+      const doc = await bufferRegistry.createBuffer();
+      mockedApi.discardUnsavedText.mockRejectedValueOnce(new Error("database is locked"));
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const outcome = await bufferRegistry.closeBuffer(doc.id, { discard: true });
+
+      expect(outcome.closed).toBe(true);
+      expect(mockedApi.closeBuffer).toHaveBeenCalledWith(doc.id);
+      expect(consoleSpy).toHaveBeenCalledOnce();
+      consoleSpy.mockRestore();
     });
   });
 
@@ -213,6 +238,7 @@ describe("bufferRegistry (app-global)", () => {
       expect(mockedApi.closeBuffers).toHaveBeenCalledOnce();
       expect(mockedApi.closeBuffers).toHaveBeenCalledWith([a.id, b.id]);
       expect(mockedApi.closeBuffer).not.toHaveBeenCalled();
+      expect(mockedApi.discardUnsavedText).not.toHaveBeenCalled();
       expect(mockedApi.previewClose).toHaveBeenCalledWith(a.id);
       expect(mockedApi.previewClose).toHaveBeenCalledWith(b.id);
     });
@@ -269,9 +295,27 @@ describe("bufferRegistry (app-global)", () => {
       expect(mockedFlush).not.toHaveBeenCalled();
       expect(mockedCancel).toHaveBeenCalledWith(a.id);
       expect(mockedCancel).toHaveBeenCalledWith(b.id);
+      expect(mockedApi.discardUnsavedText).toHaveBeenCalledWith([a.id, b.id]);
+      expect(mockedApi.discardUnsavedText.mock.invocationCallOrder[0]).toBeLessThan(
+        mockedApi.closeBuffers.mock.invocationCallOrder[0],
+      );
       expect(outcome.closedIds).toEqual([a.id, b.id]);
       expect(bufferRegistry.activeTabs().find((t) => t.id === a.id)).toBeUndefined();
       expect(bufferRegistry.activeTabs().find((t) => t.id === b.id)).toBeUndefined();
+    });
+
+    it("still closes discarded buffers when the journal cannot drop their text", async () => {
+      const a = await bufferRegistry.createBuffer();
+      const b = await bufferRegistry.createBuffer();
+      mockedApi.discardUnsavedText.mockRejectedValueOnce(new Error("database is locked"));
+      const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const outcome = await bufferRegistry.closeBuffers([a.id, b.id], { discard: true });
+
+      expect(outcome.closedIds).toEqual([a.id, b.id]);
+      expect(mockedApi.closeBuffers).toHaveBeenCalledWith([a.id, b.id]);
+      expect(consoleSpy).toHaveBeenCalledOnce();
+      consoleSpy.mockRestore();
     });
   });
 
@@ -280,7 +324,13 @@ describe("bufferRegistry (app-global)", () => {
       const doc = await bufferRegistry.createBuffer();
       await bufferRegistry.closeBuffer(doc.id);
 
-      mockedApi.listActiveBuffers.mockResolvedValueOnce([{ ...doc, status: "active" as const }]);
+      const reopened = { ...doc, status: "active" as const };
+      mockedApi.restoreBuffer.mockResolvedValueOnce({
+        doc: reopened,
+        mode: { kind: "Normal" },
+        size_bytes: 0,
+      });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([reopened]);
       mockedApi.listHistory.mockResolvedValueOnce([]);
 
       await bufferRegistry.restoreBuffer(doc.id);
@@ -346,6 +396,31 @@ describe("bufferRegistry (app-global)", () => {
       expect(again.existed).toBe(true);
       expect(again.doc.id).toBe(first.doc.id);
       expect(mockedApi.openFile).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("setLanguage", () => {
+    it("records the choice and patches the row the backend answers with", async () => {
+      const open = mockBuffer({ id: "lang-1", source_path: "/home/user/snippet.txt" });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([open]);
+      await bufferRegistry.load();
+      mockedApi.setBufferLanguage.mockResolvedValueOnce({ ...open, language: "python" });
+
+      await bufferRegistry.setLanguage("lang-1", "python");
+
+      expect(mockedApi.setBufferLanguage).toHaveBeenCalledWith("lang-1", "python");
+      expect(bufferRegistry.activeTabs().find((b) => b.id === "lang-1")?.language).toBe("python");
+    });
+
+    it("leaves the row as it was when the backend refuses", async () => {
+      const open = mockBuffer({ id: "lang-2", language: "toml" });
+      mockedApi.listActiveBuffers.mockResolvedValueOnce([open]);
+      await bufferRegistry.load();
+      mockedApi.setBufferLanguage.mockRejectedValueOnce(new Error("invalid language: the language id is empty"));
+
+      await expect(bufferRegistry.setLanguage("lang-2", "")).rejects.toThrow("invalid language");
+
+      expect(bufferRegistry.activeTabs().find((b) => b.id === "lang-2")?.language).toBe("toml");
     });
   });
 

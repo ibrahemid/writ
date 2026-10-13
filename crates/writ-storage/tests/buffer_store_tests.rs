@@ -173,6 +173,163 @@ fn preview_scripts_survives_closing_and_reopening_a_file() {
     assert!(store.preview_scripts("buf-remember").unwrap());
 }
 
+/// A file in the test's own folder holding `bytes`, and its row.
+fn insert_file_doc(store: &BufferStore, dir: &TempDir, id: &str, bytes: &[u8]) -> PathBuf {
+    let path = dir.path().join(format!("{id}.html"));
+    std::fs::write(&path, bytes).expect("write the file");
+    let mut doc = make_unwritten(id, id);
+    doc.source_path = Some(path.to_string_lossy().into_owned());
+    store.insert(&doc).expect("insert failed");
+    path
+}
+
+/// Another program's rewrite, done the way downloads and editors do it: a new
+/// file renamed over the old one.
+fn rewrite_from_outside(path: &Path, bytes: &[u8]) {
+    let staged = path.with_extension("part");
+    std::fs::write(&staged, bytes).expect("stage the new version");
+    std::fs::rename(&staged, path).expect("move it over the file");
+}
+
+#[test]
+fn an_opt_in_lapses_when_another_program_rewrites_the_file_while_its_tab_is_closed() {
+    let (dir, store) = setup();
+    let path = insert_file_doc(&store, &dir, "buf-closed", b"<p>approved</p>");
+    store
+        .set_preview_scripts("buf-closed", true)
+        .expect("opt in failed");
+    store.close("buf-closed").expect("close failed");
+
+    rewrite_from_outside(&path, b"<script>fetch('/leak')</script>");
+
+    store.restore("buf-closed").expect("restore failed");
+    assert!(!store.check_preview_scripts("buf-closed").unwrap());
+    assert!(
+        !store.preview_scripts("buf-closed").unwrap(),
+        "the lapse is recorded"
+    );
+}
+
+#[test]
+fn an_opt_in_lapses_when_the_file_changed_while_writ_was_not_running() {
+    let dir = TempDir::new().expect("temp dir");
+    let db_path = dir.path().join("test.db");
+    let open = || {
+        let conn = open_database(&db_path).expect("open database");
+        run_migrations(&conn).expect("migrations failed");
+        let buffers = dir.path().join("buffers");
+        std::fs::create_dir_all(&buffers).expect("buffers dir");
+        BufferStore::new(conn, buffers)
+    };
+    let path = {
+        let store = open();
+        let path = insert_file_doc(&store, &dir, "buf-relaunch", b"<p>approved</p>");
+        store
+            .set_preview_scripts("buf-relaunch", true)
+            .expect("opt in failed");
+        path
+    };
+    assert!(
+        open().check_preview_scripts("buf-relaunch").unwrap(),
+        "a file nothing changed keeps it"
+    );
+
+    rewrite_from_outside(&path, b"<script>fetch('/leak')</script>");
+
+    assert!(!open().check_preview_scripts("buf-relaunch").unwrap());
+}
+
+#[test]
+fn a_save_from_writ_keeps_the_opt_in_across_closing_and_reopening() {
+    let (dir, store) = setup();
+    insert_file_doc(&store, &dir, "buf-saved", b"<p>approved</p>");
+    store
+        .set_preview_scripts("buf-saved", true)
+        .expect("opt in failed");
+
+    store
+        .save_content(
+            "buf-saved",
+            "<p id=a></p><script>a.textContent='ran'</script>",
+        )
+        .expect("save failed");
+    assert!(store.check_preview_scripts("buf-saved").unwrap());
+
+    store.close("buf-saved").expect("close failed");
+    store.restore("buf-saved").expect("restore failed");
+    assert!(store.check_preview_scripts("buf-saved").unwrap());
+}
+
+#[test]
+fn a_save_does_not_carry_an_opt_in_over_a_change_another_program_made() {
+    let (dir, store) = setup();
+    let path = insert_file_doc(&store, &dir, "buf-carried", b"<p>approved</p>");
+    store
+        .set_preview_scripts("buf-carried", true)
+        .expect("opt in failed");
+
+    rewrite_from_outside(&path, b"<script>fetch('/leak')</script>");
+    store
+        .save_content(
+            "buf-carried",
+            "<script>fetch('/leak')</script><p>edited</p>",
+        )
+        .expect("save failed");
+
+    assert!(!store.check_preview_scripts("buf-carried").unwrap());
+}
+
+#[test]
+fn an_opt_in_given_before_the_file_exists_follows_the_first_save() {
+    let (dir, store) = setup();
+    let path = dir.path().join("buf-first.html");
+    let mut doc = make_unwritten("buf-first", "First");
+    doc.source_path = Some(path.to_string_lossy().into_owned());
+    store.insert(&doc).expect("insert failed");
+
+    store
+        .set_preview_scripts("buf-first", true)
+        .expect("opt in failed");
+    assert!(store.check_preview_scripts("buf-first").unwrap());
+
+    store
+        .save_content("buf-first", "<script>1</script>")
+        .expect("first save failed");
+    assert!(store.check_preview_scripts("buf-first").unwrap());
+
+    rewrite_from_outside(&path, b"<script>2</script>");
+    assert!(!store.check_preview_scripts("buf-first").unwrap());
+}
+
+#[test]
+fn an_opt_in_whose_file_cannot_be_read_runs_nothing_and_is_kept() {
+    let (dir, store) = setup();
+    let path = insert_file_doc(&store, &dir, "buf-unread", b"<p>approved</p>");
+    store
+        .set_preview_scripts("buf-unread", true)
+        .expect("opt in failed");
+
+    std::fs::remove_file(&path).expect("remove the file");
+    std::fs::create_dir(&path).expect("put a folder at its path");
+    assert!(!store.check_preview_scripts("buf-unread").unwrap());
+    assert!(store.preview_scripts("buf-unread").unwrap());
+
+    std::fs::remove_dir(&path).expect("take the folder away");
+    std::fs::write(&path, b"<p>approved</p>").expect("put the bytes back");
+    assert!(store.check_preview_scripts("buf-unread").unwrap());
+}
+
+#[test]
+fn opting_in_a_file_that_cannot_be_read_is_an_error() {
+    let (dir, store) = setup();
+    let path = insert_file_doc(&store, &dir, "buf-unreadable", b"");
+    std::fs::remove_file(&path).expect("remove the file");
+    std::fs::create_dir(&path).expect("put a folder at its path");
+
+    assert!(store.set_preview_scripts("buf-unreadable", true).is_err());
+    assert!(!store.preview_scripts("buf-unreadable").unwrap());
+}
+
 #[test]
 fn save_content_writes_the_file_and_no_copy() {
     let (dir, store) = setup();
@@ -260,6 +417,92 @@ fn attach_source_path_makes_the_next_read_return_the_file() {
 }
 
 #[test]
+fn a_path_with_no_file_at_it_is_taken_back_and_one_with_a_file_is_kept() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("detach-1", "Never written"))
+        .unwrap();
+    let file = note_path("detach-1");
+    let path = file.to_str().unwrap();
+    store.attach_source_path("detach-1", path).unwrap();
+    let named = || store.get("detach-1").unwrap().source_path;
+
+    assert!(
+        !store
+            .detach_source_path_with_no_file("detach-1", "/elsewhere.md")
+            .unwrap(),
+        "a path the row does not name is not the row's to give back"
+    );
+    assert_eq!(named().as_deref(), Some(path));
+
+    std::fs::write(&file, "made").unwrap();
+    assert!(
+        !store
+            .detach_source_path_with_no_file("detach-1", path)
+            .unwrap(),
+        "a file at the path is the note's file"
+    );
+    assert_eq!(named().as_deref(), Some(path));
+
+    std::fs::remove_file(&file).unwrap();
+    assert!(store
+        .detach_source_path_with_no_file("detach-1", path)
+        .unwrap());
+    assert_eq!(named(), None);
+    store
+        .attach_source_path("detach-1", path)
+        .expect("a note with no file can be given one again");
+}
+
+#[test]
+fn a_chosen_path_is_taken_back_whether_or_not_a_file_is_at_it() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("detach-2", "Never written"))
+        .unwrap();
+    let file = note_path("detach-2");
+    let path = file.to_str().unwrap();
+    store.attach_source_path("detach-2", path).unwrap();
+    std::fs::write(&file, "a file the person meant to replace").unwrap();
+
+    assert!(
+        !store
+            .detach_source_path("detach-2", "/elsewhere.md")
+            .unwrap(),
+        "a path the row does not name is not the row's to give back"
+    );
+    assert_eq!(
+        store.get("detach-2").unwrap().source_path.as_deref(),
+        Some(path)
+    );
+    assert!(store.detach_source_path("detach-2", path).unwrap());
+    assert_eq!(store.get("detach-2").unwrap().source_path, None);
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "a file the person meant to replace",
+        "taking the path back leaves the file alone"
+    );
+}
+
+#[test]
+fn find_answers_none_for_a_row_that_is_gone() {
+    let (_dir, store) = setup();
+    store
+        .insert(&make_unwritten("found-1", "Here for now"))
+        .unwrap();
+    assert_eq!(
+        store.find("found-1").unwrap().map(|doc| doc.title),
+        Some("Here for now".to_string())
+    );
+    store.delete("found-1").unwrap();
+    assert!(store.find("found-1").unwrap().is_none());
+    assert!(
+        store.get("found-1").is_err(),
+        "get still fails for a missing row"
+    );
+}
+
+#[test]
 fn a_binary_note_regenerates_its_hex_view_from_the_file() {
     let (_dir, store) = setup();
     let mut doc = make_doc("binary-1", "dump.bin");
@@ -293,22 +536,34 @@ fn a_read_only_text_note_reads_back_as_text_not_a_hex_view() {
 }
 
 #[test]
-fn collect_buffer_contents_reads_the_files() {
+fn the_unsaved_text_journal_names_the_file_a_note_lives_in() {
     let (_dir, store) = setup();
     store.insert(&make_doc("collect-1", "One")).unwrap();
     store.insert(&make_unwritten("collect-2", "Two")).unwrap();
-    std::fs::write(note_path("collect-1"), "on disk").unwrap();
 
-    let collected = store.collect_buffer_contents().unwrap();
+    let at = Utc::now();
+    assert!(store
+        .record_unsaved_text("collect-1", "typed into one", at)
+        .unwrap());
+    assert!(store
+        .record_unsaved_text("collect-2", "typed into two", at)
+        .unwrap());
 
+    let entries = store.unsaved_text().unwrap().entries;
+    let one = entries
+        .iter()
+        .find(|entry| entry.buffer_id == "collect-1")
+        .expect("the note with a file");
     assert_eq!(
-        collected.get("collect-1").map(String::as_str),
-        Some("on disk")
+        one.path.as_deref(),
+        Some(note_path("collect-1").to_string_lossy().as_ref())
     );
-    assert!(
-        !collected.contains_key("collect-2"),
-        "a note with no file has nothing to snapshot"
-    );
+    assert_eq!(one.text, "typed into one");
+    let two = entries
+        .iter()
+        .find(|entry| entry.buffer_id == "collect-2")
+        .expect("the note with no file");
+    assert_eq!(two.path, None, "a note with no file has none to name");
 }
 
 #[test]

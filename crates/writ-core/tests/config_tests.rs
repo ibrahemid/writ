@@ -20,7 +20,6 @@ fn default_config_has_expected_values() {
     assert_eq!(config.sidebar.hidden, vec![SidebarSection::Recent]);
     assert!(config.apps_on().is_empty());
 
-    assert_eq!(config.editor.font_family, "monospace");
     assert_eq!(config.editor.font_size, 16);
     assert!(config.editor.word_wrap);
     assert_eq!(config.editor.tab_size, 2);
@@ -249,26 +248,15 @@ fn window_maximized_round_trips_through_toml() {
 }
 
 #[test]
-fn markdown_typography_defaults_to_true() {
-    let config = WritConfig::default();
-    assert!(config.editor.markdown_typography);
-}
-
-#[test]
-fn markdown_typography_false_roundtrips_through_toml() {
-    let toml_str = "[editor]\nmarkdown_typography = false\n";
+fn a_config_with_the_retired_editor_keys_still_loads() {
+    let toml_str = "[editor]\nfont_family = \"Menlo\"\nmarkdown_typography = false\nword_wrap = false\ntab_size = 8\n";
     let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
-    assert!(!config.editor.markdown_typography);
+    assert!(!config.editor.word_wrap);
+    assert_eq!(config.editor.tab_size, 8);
+
     let serialized = toml::to_string(&config).expect("serialization failed");
-    let restored: WritConfig = toml::from_str(&serialized).expect("deserialization failed");
-    assert!(!restored.editor.markdown_typography);
-}
-
-#[test]
-fn markdown_typography_missing_from_toml_uses_default() {
-    let toml_str = "[editor]\nfont_size = 16\n";
-    let config: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
-    assert!(config.editor.markdown_typography);
+    assert!(!serialized.contains("font_family"));
+    assert!(!serialized.contains("markdown_typography"));
 }
 
 #[test]

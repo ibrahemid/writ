@@ -3,11 +3,28 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const facts = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [tags, setTags] = createSignal<{ tag: string; count: number }[]>([]);
-  return { tags, setTags };
+  const [settled, setSettled] = createSignal(true);
+  const release = vi.fn();
+  const holdTags = vi.fn(() => release);
+  return { tags, setTags, settled, setSettled, release, holdTags };
 });
 
-vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: { allTags: () => facts.tags },
+vi.mock("../../stores/global/index-cache", () => ({
+  indexCacheStore: {
+    allTags: () => facts.tags,
+    tagsSettled: () => facts.settled,
+    holdTags: facts.holdTags,
+  },
+}));
+
+const closed = await vi.hoisted(async () => {
+  const { createSignal } = await import("solid-js");
+  const [rows, setRows] = createSignal<unknown[]>([{ id: "h1" }]);
+  return { rows, setRows };
+});
+
+vi.mock("../../stores/global/buffer-registry", () => ({
+  bufferRegistry: { historyList: () => closed.rows() },
 }));
 
 vi.mock("../../services/tauri", () => ({
@@ -54,7 +71,7 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
     panel: { open: false, width: 240 },
     chat_panel: { open: false, width: 380 },
     first_run: { hint_dismissed: false },
-    editor: { font_family: "monospace", font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_typography: true, markdown_editing: true, status_bar: false, status_bar_counts: false },
+    editor: { font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_editing: true, status_bar: false, status_bar_counts: false },
     window: { width: 800, height: 600, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
@@ -256,6 +273,19 @@ describe("sidebar-store (per-window factory)", () => {
       expect(sidebarStore.recentRequest()).toBe(once + 1);
     });
 
+    it("with nothing closed, leaves the sidebar and the section as they were and says so", () => {
+      closed.setRows([]);
+      configStore.setSidebarSectionHidden("recent", true);
+      const before = sidebarStore.recentRequest();
+
+      expect(sidebarStore.showRecent()).toBe(false);
+
+      expect(sidebarStore.isOpen()).toBe(false);
+      expect(configStore.isSidebarSectionHidden("recent")).toBe(true);
+      expect(sidebarStore.recentRequest()).toBe(before);
+      closed.setRows([{ id: "h1" }]);
+    });
+
     it("switches the section back on and unfolds it, so the ask has somewhere to land", () => {
       configStore.setSidebarSectionHidden("recent", true);
       configStore.setSidebarSectionCollapsed("recent", true);
@@ -271,6 +301,7 @@ describe("sidebar-store (per-window factory)", () => {
   describe("selected tag", () => {
     afterEach(() => {
       facts.setTags([]);
+      facts.setSettled(true);
     });
 
     it("stays selected while only a child of it is held in the folder", () => {
@@ -291,6 +322,31 @@ describe("sidebar-store (per-window factory)", () => {
     it("keeps a selection the folder has not answered for yet", () => {
       sidebarStore.selectTag("project");
 
+      expect(sidebarStore.selectedTag()).toBe("project");
+    });
+
+    // A search takes the Tags section off screen, and a list nothing holds is
+    // dropped: the selection holds the list itself so the filter survives.
+    it("holds the folder's tags while a tag is selected and hands them back once cleared", () => {
+      sidebarStore.selectTag("project");
+      sidebarStore.selectTag("plan");
+      expect(facts.holdTags).toHaveBeenCalledTimes(1);
+      expect(facts.release).not.toHaveBeenCalled();
+
+      sidebarStore.selectTag(null);
+      expect(facts.release).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the selection while the folder's tags are being read from scratch", () => {
+      facts.setTags([{ tag: "project", count: 1 }]);
+      sidebarStore.selectTag("project");
+
+      facts.setSettled(false);
+      facts.setTags([]);
+      expect(sidebarStore.selectedTag()).toBe("project");
+
+      facts.setTags([{ tag: "project", count: 2 }]);
+      facts.setSettled(true);
       expect(sidebarStore.selectedTag()).toBe("project");
     });
   });

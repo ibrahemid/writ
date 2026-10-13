@@ -58,15 +58,14 @@ vi.mock("../../stores/global/buffer-registry", () => ({
 const NOTE = "/notes/Open.md";
 
 import RightPanel from "../../components/RightPanel/RightPanel";
-import { noteFactsStore } from "../../stores/global/note-facts";
-import { backlinksStore } from "../../stores/global/backlinks";
+import { indexCacheStore } from "../../stores/global/index-cache";
 import * as api from "../../services/tauri";
 import * as events from "../../services/events";
 
 const mockedApi = vi.mocked(api);
 const mockedEvents = vi.mocked(events);
 
-/** Every handler the two stores gave `onEvent`, so the test can deliver one. */
+/** Every handler the store gave `onEvent` for `notes:changed`, so the test can deliver one. */
 function notesChangedHandlers(): ((payload: { path: string; removed: boolean }) => void)[] {
   return mockedEvents.onEvent.mock.calls
     .filter(([kind]) => kind === "notes:changed")
@@ -80,8 +79,7 @@ async function settle(): Promise<void> {
 }
 
 beforeEach(async () => {
-  await noteFactsStore.reset();
-  await backlinksStore.reset();
+  await indexCacheStore.reset();
   vi.clearAllMocks();
   mockedEvents.onEvent.mockResolvedValue(() => {});
   mockedApi.noteFacts.mockResolvedValue({

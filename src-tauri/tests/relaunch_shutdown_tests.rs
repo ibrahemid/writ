@@ -100,7 +100,6 @@ fn make_state(dir: &TempDir) -> AppState {
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
         source_records: Mutex::new(std::collections::HashMap::new()),
-        unsaved_on_exit: Mutex::new(std::collections::HashMap::new()),
     }
 }
 
@@ -139,7 +138,7 @@ fn a_relaunch_flushes_the_editors_before_the_shutdown_work() {
     assert_eq!(
         log.lock().unwrap().as_slice(),
         ["editors flushed", "finish_shutdown"],
-        "the shutdown snapshot was taken before the editors had written"
+        "the shutdown work ran before the editors had written"
     );
     assert!(
         started.elapsed() < QUIT_FLUSH_TIMEOUT,

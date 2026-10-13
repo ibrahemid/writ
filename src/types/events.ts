@@ -3,6 +3,7 @@ import type {
   ChatDroppedProposal,
   ChatErrorFrame,
   ChatProposal,
+  PendingClient,
   RequestIdentity,
 } from "../services/tauri";
 
@@ -27,6 +28,12 @@ export type WritEvent =
   | { kind: "workspace:changed"; payload: { path: string; removed: boolean } }
   | { kind: "notes:changed"; payload: { path: string; removed: boolean } }
   | { kind: "notes:swept"; payload: { root: string } }
+  | {
+      kind: "notes:indexed";
+      /** Writ wrote index rows itself: the files whose rows changed, each once,
+       * or the notes folder for a walk or a move (ADR-036 section 4). */
+      payload: { paths: string[] };
+    }
   | { kind: "inbox:file-arrived"; payload: { path: string } }
   | { kind: "update:status"; payload: UpdatePhase }
   | {
@@ -81,6 +88,7 @@ export type WritEvent =
     }
   | { kind: "quit:flush"; payload: Record<string, never> }
   | { kind: "activity:changed"; payload: Record<string, never> }
+  | { kind: "mcp:pending"; payload: { waiting: PendingClient[] } }
   | { kind: "titlebar:maximize-hit"; payload: { phase: CaptionHitPhase } };
 
 export type CaptionHitPhase = "enter" | "leave" | "press" | "click";

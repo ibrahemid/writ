@@ -46,9 +46,10 @@
 //! the client's child.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
-use writ_core::activity::{ActivityRecord, Actor};
+use writ_core::activity::{display_program_name, ActivityRecord, Actor, RepeatFold};
 use writ_core::config::{FileExtension, FilesConfig};
 use writ_core::hash::digest_from_hex;
 use writ_core::notes::containment::resolve_for_containment;
@@ -58,7 +59,7 @@ use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::note_host::NoteHostImpl;
 use writ_storage::paths::{file_name_only, relative_slug};
 
-use crate::consent::{ClientId, ConsentGate, Decision};
+use crate::consent::{ClientId, ConsentGate, Decision, Verdict};
 
 /// Largest note a tool reads, in bytes (ADR-031 rule 4.8): the note host's
 /// ceiling, which every surface reading a whole note is held to.
@@ -87,7 +88,7 @@ pub use writ_core::notes::host::{
 /// replace a note without comparing it with anything the client read.
 ///
 /// Its own name rather than `write_note`, so the line a person reads in
-/// Recent activity says the program overwrote the file.
+/// Program activity says the program overwrote the file.
 pub const OVERWRITE_ACTION: &str = "overwrite_note";
 
 /// The tools that answer from the index and cannot answer without it.
@@ -103,17 +104,30 @@ pub const INDEX_TOOLS: &[&str] = &[
 /// Why a tool call produced no answer.
 ///
 /// Every message names a path, a client or a tool and nothing else: no note
-/// text reaches a client's error rendering (ADR-031 rule 5.3).
+/// text reaches a client's error rendering (ADR-031 rule 5.3). The four
+/// refusals each name their own cause and the place in Writ that changes it,
+/// because a client relays the sentence to a person who has to act on it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ToolError {
-    /// The client has no approval for this direction.
-    #[error("{client} is not approved. Approve it in Writ's settings, under Connected programs.")]
+    #[error("Connected programs is off in Writ. Turn it on in Settings, Apps.")]
+    NotEnabled,
+    /// Nobody has decided on the client yet. It is on the waiting list the app
+    /// shows, which is where the approve control is.
+    #[error("{} is waiting for approval in Writ, under Settings, Apps, Connected programs, Waiting for you.", display_program_name(client))]
     NotApproved {
         /// The name the client sent.
         client: String,
         /// The tool it called.
         tool: String,
     },
+    #[error(
+        "{} is not allowed to {} files in Writ. Allow it in Settings, Apps, Connected programs.",
+        display_program_name(client),
+        direction_of(tool)
+    )]
+    NotAllowed { client: String, tool: String },
+    #[error("Writ approves programs by name, and this program sent none.")]
+    Unnamed,
     /// The path argument names something the notes folder does not hold.
     #[error("{path} is not in the notes folder.")]
     OutsideNotesFolder {
@@ -300,6 +314,7 @@ pub struct ToolHost {
     gate: Box<dyn ConsentGate>,
     default_extension: FileExtension,
     history: OnceLock<NoteHistoryStore>,
+    fold: Mutex<RepeatFold>,
 }
 
 impl std::fmt::Debug for ToolHost {
@@ -351,6 +366,7 @@ impl ToolHost {
             gate,
             default_extension,
             history: OnceLock::new(),
+            fold: Mutex::new(RepeatFold::default()),
         })
     }
 
@@ -376,7 +392,7 @@ impl ToolHost {
         prefix: Option<&str>,
         limit: usize,
     ) -> Result<Vec<NoteSummary>, ToolError> {
-        let host = self.permit(client, "list_notes")?;
+        let host = self.permit(client, "list_notes", None)?;
         host.list_notes(prefix, limit.min(MAX_RESULTS))
             .map_err(|error| tool_error(self.host.notes_root(), client, "list_notes", error))
     }
@@ -392,21 +408,21 @@ impl ToolHost {
         query: &str,
         limit: usize,
     ) -> Result<Vec<SearchResult>, ToolError> {
-        let host = self.permit(client, "search_notes")?;
+        let host = self.permit(client, "search_notes", None)?;
         host.search_notes(query, limit.min(MAX_RESULTS))
             .map_err(|error| tool_error(self.host.notes_root(), client, "search_notes", error))
     }
 
     /// The whole file at `path`, frontmatter included.
     pub fn read_note(&self, client: &ClientId, path: &str) -> Result<NoteContent, ToolError> {
-        let host = self.permit(client, "read_note")?;
+        let host = self.permit(client, "read_note", Some(path))?;
         host.read_note(path)
             .map_err(|error| tool_error(self.host.notes_root(), client, "read_note", error))
     }
 
     /// Every link written in the note at `path`.
     pub fn note_links(&self, client: &ClientId, path: &str) -> Result<Vec<NoteLink>, ToolError> {
-        let host = self.permit(client, "note_links")?;
+        let host = self.permit(client, "note_links", Some(path))?;
         host.note_links(path)
             .map_err(|error| tool_error(self.host.notes_root(), client, "note_links", error))
     }
@@ -417,7 +433,7 @@ impl ToolHost {
         client: &ClientId,
         path: &str,
     ) -> Result<Vec<NoteBacklink>, ToolError> {
-        let host = self.permit(client, "note_backlinks")?;
+        let host = self.permit(client, "note_backlinks", Some(path))?;
         host.note_backlinks(path)
             .map_err(|error| tool_error(self.host.notes_root(), client, "note_backlinks", error))
     }
@@ -428,7 +444,7 @@ impl ToolHost {
         client: &ClientId,
         path: &str,
     ) -> Result<Vec<NoteProperty>, ToolError> {
-        let host = self.permit(client, "note_properties")?;
+        let host = self.permit(client, "note_properties", Some(path))?;
         let facts = host.note_facts(path).map_err(|error| {
             tool_error(self.host.notes_root(), client, "note_properties", error)
         })?;
@@ -441,7 +457,7 @@ impl ToolHost {
 
     /// The tags written in the note at `path`.
     pub fn note_tags(&self, client: &ClientId, path: &str) -> Result<Vec<NoteTag>, ToolError> {
-        let host = self.permit(client, "note_tags")?;
+        let host = self.permit(client, "note_tags", Some(path))?;
         let facts = host
             .note_facts(path)
             .map_err(|error| tool_error(self.host.notes_root(), client, "note_tags", error))?;
@@ -454,7 +470,7 @@ impl ToolHost {
 
     /// Every tag in the folder, with the number of notes carrying each.
     pub fn folder_tags(&self, client: &ClientId) -> Result<Vec<FolderTag>, ToolError> {
-        let host = self.permit(client, "folder_tags")?;
+        let host = self.permit(client, "folder_tags", None)?;
         host.folder_tags()
             .map_err(|error| tool_error(self.host.notes_root(), client, "folder_tags", error))
     }
@@ -493,7 +509,7 @@ impl ToolHost {
         expected_hash: Option<&str>,
         overwrite: bool,
     ) -> Result<WriteReceipt, ToolError> {
-        let permitted = self.permit(client, "write_note");
+        let permitted = self.permit(client, "write_note", Some(path));
         let written = permitted.and_then(|host| {
             self.replace_text(host, client, path, content, expected_hash, overwrite)
         });
@@ -504,10 +520,12 @@ impl ToolHost {
             } else {
                 "write_note"
             },
-            &self.logged_path(
-                written
-                    .as_ref()
-                    .map_or(path, |receipt| receipt.path.as_str()),
+            Some(
+                self.logged_path(
+                    written
+                        .as_ref()
+                        .map_or(path, |receipt| receipt.path.as_str()),
+                ),
             ),
             Some(content.len() as u64),
             decision_of(&written),
@@ -535,15 +553,15 @@ impl ToolHost {
         name: &str,
         content: &str,
     ) -> Result<WriteReceipt, ToolError> {
-        let permitted = self.permit(client, "create_note");
+        let permitted = self.permit(client, "create_note", None);
         let created = permitted.and_then(|host| self.mint_note(&host, client, name, content));
         self.record(
             client,
             "create_note",
-            &created.as_ref().map_or_else(
+            Some(created.as_ref().map_or_else(
                 |_| minted_slug(name, self.default_extension),
                 |receipt| self.logged_path(&receipt.path),
-            ),
+            )),
             Some(content.len() as u64),
             decision_of(&created),
         );
@@ -568,15 +586,17 @@ impl ToolHost {
         path: &str,
         new_name: &str,
     ) -> Result<RenameReceipt, ToolError> {
-        let permitted = self.permit(client, "rename_note");
+        let permitted = self.permit(client, "rename_note", Some(path));
         let renamed = permitted.and_then(|host| self.move_name(&host, client, path, new_name));
         self.record(
             client,
             "rename_note",
-            &self.logged_path(
-                renamed
-                    .as_ref()
-                    .map_or(path, |(receipt, _)| receipt.path.as_str()),
+            Some(
+                self.logged_path(
+                    renamed
+                        .as_ref()
+                        .map_or(path, |(receipt, _)| receipt.path.as_str()),
+                ),
             ),
             renamed.as_ref().ok().map(|(_, bytes)| *bytes),
             decision_of(&renamed),
@@ -736,59 +756,118 @@ impl ToolHost {
         relative_slug(root, &candidate).unwrap_or_else(|| file_name_only(path))
     }
 
-    /// Appends what one write did to the activity log.
+    /// Appends one call to the activity log: the only place this server writes
+    /// a line (ADR-031 rule 5.5).
     ///
-    /// The gate has already recorded the call it decided on, naming the client
-    /// and the tool. This is the line that also names the note and the length,
-    /// which the gate never sees. A data folder that cannot be written to is
-    /// not a reason to answer differently: the write already happened or
+    /// One line per call. A read is recorded as the gate answered it, naming
+    /// the file when the call names one; a write once it has run, naming where
+    /// it landed and how long the text was. Repeated reads of one file share a
+    /// line with a count ([`RepeatFold`]), and the counts still held when the
+    /// host closes are written then. A data folder that cannot be written to
+    /// is not a reason to answer differently: the call already happened or
     /// already did not.
     fn record(
         &self,
         client: &ClientId,
         tool: &str,
-        path: &str,
+        path: Option<String>,
         bytes: Option<u64>,
         decision: Decision,
     ) {
-        let mut record = ActivityRecord::now(Actor::from(client), tool, decision).with_path(path);
+        let mut record = ActivityRecord::now(Actor::from(client), tool, decision);
+        if let Some(path) = path {
+            record = record.with_path(path);
+        }
         if let Some(bytes) = bytes {
             record = record.with_bytes(bytes);
         }
-        let _ = writ_storage::activity_log::append(&self.writ_dir, &record);
+        let due = self
+            .fold
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take(record, Instant::now());
+        for line in due {
+            let _ = writ_storage::activity_log::append(&self.writ_dir, &line);
+        }
     }
 
     /// Called first by every method: the gate decides once, and an allowed call
     /// gets a handle holding what its direction may ask for.
     ///
-    /// A refusal never reaches the host, so it opens no file and runs no query.
-    /// `Pending` refuses too: U5 is what turns it into a row the user can act
-    /// on.
-    fn permit(&self, client: &ClientId, tool: &str) -> Result<NoteHostImpl<'static>, ToolError> {
-        self.allow(client, tool)?;
-        let held = match writ_core::tools::is_write_tool(tool) {
+    /// A read's line is written here, with the file `path` names. A write's is
+    /// written by the method once the write has run, so its line can say where
+    /// it landed. A refusal never reaches the host, so it opens no file and
+    /// runs no query.
+    fn permit(
+        &self,
+        client: &ClientId,
+        tool: &str,
+        path: Option<&str>,
+    ) -> Result<NoteHostImpl<'static>, ToolError> {
+        let verdict = self.gate.decide(client, tool);
+        let writes = writ_core::tools::is_write_tool(tool);
+        if !writes {
+            self.record(
+                client,
+                tool,
+                path.map(|path| self.logged_path(path)),
+                None,
+                verdict.decision(),
+            );
+        }
+        refusal_for(verdict, client, tool).map_or(Ok(()), Err)?;
+        let held = match writes {
             true => write_permissions(),
             false => read_permissions(),
         };
         Ok(self.host.with_permissions(held))
     }
+}
 
-    /// The gate's verdict on this client calling this tool.
-    fn allow(&self, client: &ClientId, tool: &str) -> Result<(), ToolError> {
-        match self.gate.decide(client, tool) {
-            Decision::Allow => Ok(()),
-            Decision::Refuse | Decision::Pending => Err(ToolError::NotApproved {
-                client: client.name.clone(),
-                tool: tool.to_string(),
-            }),
+impl Drop for ToolHost {
+    fn drop(&mut self) {
+        let held = self
+            .fold
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .drain();
+        for line in held {
+            let _ = writ_storage::activity_log::append(&self.writ_dir, &line);
         }
     }
 }
 
-/// What the log says about a call that reached the operation.
+fn refusal_for(verdict: Verdict, client: &ClientId, tool: &str) -> Option<ToolError> {
+    match verdict {
+        Verdict::Allow => None,
+        Verdict::Off => Some(ToolError::NotEnabled),
+        Verdict::Unnamed => Some(ToolError::Unnamed),
+        Verdict::Waiting => Some(ToolError::NotApproved {
+            client: client.name.clone(),
+            tool: tool.to_string(),
+        }),
+        Verdict::NotGranted => Some(ToolError::NotAllowed {
+            client: client.name.clone(),
+            tool: tool.to_string(),
+        }),
+    }
+}
+
+fn direction_of(tool: &str) -> &'static str {
+    if writ_core::tools::is_write_tool(tool) {
+        "write"
+    } else {
+        "read"
+    }
+}
+
+/// What the log says about a write call once it has run: allowed when it
+/// landed, waiting when nobody has decided on the program yet, refused
+/// otherwise.
 fn decision_of<T>(result: &Result<T, ToolError>) -> Decision {
     match result {
         Ok(_) => Decision::Allow,
+        Err(ToolError::NotApproved { .. }) => Decision::Pending,
         Err(_) => Decision::Refuse,
     }
 }
@@ -831,7 +910,7 @@ fn read_default_extension(writ_dir: &Path) -> FileExtension {
 /// argument.
 fn tool_error(root: &Path, client: &ClientId, tool: &str, error: HostError) -> ToolError {
     match error {
-        HostError::NotPermitted { .. } => ToolError::NotApproved {
+        HostError::NotPermitted { .. } => ToolError::NotAllowed {
             client: client.name.clone(),
             tool: tool.to_string(),
         },
@@ -986,17 +1065,14 @@ mod tests {
         writ_storage::activity_log::read_recent(&fixture.writ, 100)
     }
 
-    /// The records a tool wrote, which are the ones naming a note.
-    ///
-    /// Two records land for one write call: the gate writes the client, the
-    /// tool and the decision for every call it decides on, and the tool then
-    /// writes the fuller line, naming the note and the length the gate never
-    /// sees. That is U5's shape, not this unit's; a test that wants both lines
-    /// reads [`records`]. This is the tool's own half.
+    /// The records the write tools left, newest first. A read names its file
+    /// too, so a test about writes reads only these.
     fn records_a_tool_wrote(fixture: &Fixture) -> Vec<writ_core::activity::ActivityRecord> {
         records(fixture)
             .into_iter()
-            .filter(|record| record.path.is_some())
+            .filter(|record| {
+                writ_core::tools::is_write_tool(&record.action) || record.action == OVERWRITE_ACTION
+            })
             .collect()
     }
 
@@ -1269,6 +1345,291 @@ mod tests {
         assert!(message.contains("Connected programs"));
         // Direction-neutral: the same refusal answers a write tool.
         assert!(!message.contains("read"));
+    }
+
+    #[test]
+    fn a_waiting_refusal_names_the_list_that_holds_the_approve_control() {
+        let message = ToolError::NotApproved {
+            client: "Claude Code".to_string(),
+            tool: "write_note".to_string(),
+        }
+        .to_string();
+
+        assert!(message.contains("Claude Code"), "{message}");
+        assert!(
+            message.contains("Settings, Apps, Connected programs"),
+            "{message}"
+        );
+        assert!(message.contains("Waiting for you"), "{message}");
+    }
+
+    #[test]
+    fn a_server_that_is_off_says_so_and_where_to_turn_it_on() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        std::fs::write(fixture.writ.join("config.toml"), "[mcp]\nenabled = false\n")
+            .expect("seed the settings file");
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host");
+
+        let refusals = [
+            host.list_notes(&client(), None, 10).map(|_| ()),
+            host.read_note(&client(), "Launch.md").map(|_| ()),
+            host.write_note(&client(), "Launch.md", "after\n", None, true)
+                .map(|_| ()),
+        ];
+        for refusal in refusals {
+            let refusal = refusal.expect_err("the server is off");
+            assert_eq!(refusal, ToolError::NotEnabled);
+            assert_eq!(
+                refusal.to_string(),
+                "Connected programs is off in Writ. Turn it on in Settings, Apps."
+            );
+        }
+
+        let all = records(&fixture);
+        assert_eq!(all.len(), 3, "{all:?}");
+        assert!(all.iter().all(|line| line.decision == Decision::Refuse));
+        assert!(
+            writ_storage::pending_clients::read(&fixture.writ).is_empty(),
+            "a server that is off puts nobody on the waiting list"
+        );
+    }
+
+    #[test]
+    fn a_program_the_person_did_not_allow_is_told_so_and_where_to_change_it() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, false, false);
+
+        let read = host
+            .read_note(&client(), "Launch.md")
+            .expect_err("not allowed to read");
+        assert_eq!(
+            read,
+            ToolError::NotAllowed {
+                client: "Test Client".to_string(),
+                tool: "read_note".to_string(),
+            }
+        );
+        assert_eq!(
+            read.to_string(),
+            "Test Client is not allowed to read files in Writ. Allow it in Settings, Apps, Connected programs."
+        );
+
+        let write = host
+            .write_note(&client(), "Launch.md", "after\n", None, true)
+            .expect_err("not allowed to write");
+        assert!(
+            write.to_string().contains("not allowed to write files"),
+            "{write}"
+        );
+        assert!(
+            writ_storage::pending_clients::read(&fixture.writ).is_empty(),
+            "a decision is not put back on the waiting list"
+        );
+    }
+
+    #[test]
+    fn a_program_that_sent_no_name_is_told_why_it_cannot_be_approved() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        let refusal = host
+            .read_note(&ClientId::named(""), "Launch.md")
+            .expect_err("no name");
+
+        assert_eq!(refusal, ToolError::Unnamed);
+        assert_eq!(
+            refusal.to_string(),
+            "Writ approves programs by name, and this program sent none."
+        );
+    }
+
+    #[test]
+    fn a_read_is_one_line_naming_the_file_it_read() {
+        let fixture = fixture();
+        write_note(&fixture, "Projects/Launch.md", "before\n");
+        let host = approved_host(&fixture, true, false);
+
+        host.read_note(&client(), "Projects/Launch.md")
+            .expect("read");
+
+        let all = records(&fixture);
+        assert_eq!(all.len(), 1, "{all:?}");
+        assert_eq!(all[0].action, "read_note");
+        assert_eq!(all[0].decision, Decision::Allow);
+        assert_eq!(
+            all[0].path.as_deref(),
+            Some(Path::new("Projects/Launch.md"))
+        );
+        assert_eq!(all[0].bytes, None);
+    }
+
+    #[test]
+    fn repeated_reads_of_one_file_share_a_line_with_a_count() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, false);
+
+        for _ in 0..5 {
+            host.read_note(&client(), "Launch.md").expect("read");
+        }
+        assert_eq!(records(&fixture).len(), 1, "the first read, as it happened");
+
+        drop(host);
+
+        let all = records(&fixture);
+        assert_eq!(all.len(), 2, "{all:?}");
+        assert_eq!(all[0].count, Some(4), "the four that followed, as one line");
+        assert_eq!(all[1].count, None);
+        let calls: u64 = all.iter().map(|line| line.calls()).sum();
+        assert_eq!(calls, 5, "every call is counted");
+    }
+
+    #[test]
+    fn every_call_reaches_the_log_whichever_way_it_went() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        let host = approved_host(&fixture, true, false);
+
+        host.read_note(&client(), "Launch.md").expect("read");
+        host.write_note(&client(), "Launch.md", "after\n", None, true)
+            .expect_err("not approved to write");
+        host.read_note(&ClientId::named("Another Client"), "Launch.md")
+            .expect_err("nobody has decided on it");
+
+        let decisions: Vec<Decision> = records(&fixture).iter().map(|r| r.decision).collect();
+        assert_eq!(
+            decisions,
+            [Decision::Pending, Decision::Refuse, Decision::Allow],
+            "newest first"
+        );
+    }
+
+    #[test]
+    fn a_line_the_host_writes_holds_no_file_text() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "the secret plan\n");
+        let host = approved_host(&fixture, true, true);
+        let read = host.read_note(&client(), "Launch.md").expect("read");
+        host.write_note(
+            &client(),
+            "Launch.md",
+            "another secret\n",
+            Some(&read.hash),
+            false,
+        )
+        .expect("write");
+
+        let text = std::fs::read_to_string(writ_storage::activity_log::current_path(&fixture.writ))
+            .expect("read log");
+        assert!(!text.contains("secret"), "{text}");
+        for line in text.lines() {
+            let value: serde_json::Value = serde_json::from_str(line).expect("parse");
+            let mut keys: Vec<&str> = value
+                .as_object()
+                .expect("object")
+                .keys()
+                .map(|k| k.as_str())
+                .collect();
+            keys.sort();
+            assert_eq!(keys, ["action", "actor", "at", "bytes", "decision", "path"]);
+        }
+    }
+
+    #[test]
+    fn a_waiting_clients_write_logs_one_row_that_says_it_is_waiting() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Launch.md", "before\n");
+        std::fs::write(fixture.writ.join("config.toml"), "[mcp]\nenabled = true\n")
+            .expect("seed the settings file");
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host");
+
+        host.write_note(&client(), "Launch.md", "after\n", None, true)
+            .expect_err("nobody has decided on the program yet");
+
+        let all = records(&fixture);
+        assert_eq!(all.len(), 1, "{all:?}");
+        assert_eq!(all[0].decision, Decision::Pending);
+        assert_eq!(all[0].action, OVERWRITE_ACTION);
+        assert_eq!(all[0].path.as_deref(), Some(Path::new("Launch.md")));
+        assert_eq!(std::fs::read(&note).expect("read back"), b"before\n");
+    }
+
+    #[test]
+    fn a_refusal_names_a_known_client_the_way_people_know_it() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        std::fs::write(
+            fixture.writ.join("config.toml"),
+            "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"cursor\"\nfirst_seen = \"2026-09-09T10:00:00Z\"\nread = true\nwrite = false\n",
+        )
+        .expect("seed the settings file");
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host");
+
+        let waiting = host
+            .read_note(&ClientId::named("claude-code"), "Launch.md")
+            .expect_err("nobody has decided on the program yet");
+        let not_allowed = host
+            .write_note(
+                &ClientId::named("cursor"),
+                "Launch.md",
+                "after\n",
+                None,
+                true,
+            )
+            .expect_err("approved to read only");
+        let unknown = host
+            .read_note(&ClientId::named("Zed"), "Launch.md")
+            .expect_err("nobody has decided on the program yet");
+
+        assert!(
+            waiting
+                .to_string()
+                .starts_with("Claude Code is waiting for approval in Writ,"),
+            "{waiting}"
+        );
+        assert!(
+            not_allowed
+                .to_string()
+                .starts_with("Cursor is not allowed to write files in Writ."),
+            "{not_allowed}"
+        );
+        assert!(
+            unknown.to_string().starts_with("Zed is waiting"),
+            "{unknown}"
+        );
+        let listed: Vec<String> = writ_storage::pending_clients::read(&fixture.writ)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(
+            listed,
+            ["claude-code", "Zed"],
+            "the list keeps the names as sent"
+        );
     }
 
     #[test]
@@ -1565,10 +1926,8 @@ mod tests {
         for (tool, refusal) in READ_TOOLS.iter().zip(refusals) {
             assert_eq!(
                 refusal.expect_err("refused"),
-                ToolError::NotApproved {
-                    client: "Test Client".to_string(),
-                    tool: tool.to_string(),
-                },
+                ToolError::NotEnabled,
+                "{tool}"
             );
         }
     }
@@ -1586,10 +1945,10 @@ mod tests {
         )
         .expect("host");
 
-        assert!(matches!(
+        assert_eq!(
             host.list_notes(&client(), None, 100).expect_err("refused"),
-            ToolError::NotApproved { .. }
-        ));
+            ToolError::NotEnabled
+        );
     }
 
     #[test]
@@ -2096,7 +2455,10 @@ mod tests {
             .write_note(&client(), "Launch.md", text, None, false)
             .expect_err("a client approved to read does not write");
 
-        assert!(matches!(refusal, ToolError::NotApproved { .. }));
+        assert!(
+            matches!(refusal, ToolError::NotAllowed { .. }),
+            "{refusal:?}"
+        );
         assert_eq!(std::fs::read(&note).expect("read back"), b"before\n");
         let named = records_a_tool_wrote(&fixture);
         assert_eq!(named.len(), 1, "one record names the note: {named:?}");
@@ -2634,11 +2996,7 @@ mod tests {
     }
 
     #[test]
-    fn one_write_call_leaves_the_gates_line_and_the_tools_line() {
-        // U5's shape, spelled out rather than filtered: the gate records every
-        // call it decides on, and the tool then records the note and the
-        // length the gate never sees. A test that reads only the tool's half
-        // reads `records_a_tool_wrote`.
+    fn one_write_call_leaves_one_line() {
         let fixture = fixture();
         let note = write_note(&fixture, "Launch.md", "before\n");
         let host = approved_host(&fixture, true, true);
@@ -2648,15 +3006,11 @@ mod tests {
             .expect("write");
 
         let all = records(&fixture);
-        assert_eq!(all.len(), 2, "{all:?}");
+        assert_eq!(all.len(), 1, "{all:?}");
         assert_eq!(all[0].action, "write_note");
         assert_eq!(all[0].decision, Decision::Allow);
         assert_eq!(all[0].path.as_deref(), Some(Path::new("Launch.md")));
         assert_eq!(all[0].bytes, Some("after\n".len() as u64));
-        assert_eq!(all[1].action, "write_note");
-        assert_eq!(all[1].decision, Decision::Allow);
-        assert_eq!(all[1].path, None, "the gate never sees the note");
-        assert_eq!(all[1].bytes, None);
         assert_eq!(std::fs::read_to_string(&note).expect("read"), "after\n");
     }
 
@@ -2690,12 +3044,12 @@ mod tests {
         assert!(matches!(
             host.create_note(&client(), "Ship it", "text\n")
                 .expect_err("not approved to write"),
-            ToolError::NotApproved { .. }
+            ToolError::NotAllowed { .. }
         ));
         assert!(matches!(
             host.rename_note(&client(), "Launch.md", "Landed")
                 .expect_err("not approved to write"),
-            ToolError::NotApproved { .. }
+            ToolError::NotAllowed { .. }
         ));
         assert!(note.is_file());
         assert!(!fixture.notes.join("Ship it.md").exists());
@@ -2751,11 +3105,11 @@ mod tests {
         )
         .expect("host");
 
-        assert!(matches!(
+        assert_eq!(
             host.write_note(&client(), "Launch.md", "after\n", None, false)
                 .expect_err("nobody is approved"),
-            ToolError::NotApproved { .. }
-        ));
+            ToolError::NotEnabled
+        );
         assert_eq!(
             std::fs::read_to_string(&note).expect("read back"),
             "before\n"

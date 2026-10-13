@@ -68,9 +68,11 @@ Domain model and policy. Zero Tauri, no framework imports, no async runtime. Con
 - Buffer model: open/close lifecycle, dirty state, cursor positions
 - Config schema: typed structs for user preferences, keybindings, theme tokens
 - Domain events: `BufferOpened`, `BufferSaved`, `ConfigChanged`, etc.
-- Recovery policy: snapshot retention and which buffers to restore after an unclean launch
+- Recovery policy: what a save's outcome does to the unsaved-text journal, and which notes a
+  relaunch may write back (ADR-044)
 - File classification: the open-mode ladder in `file_ops`, which decides whether a path opens
-  normally, as a large file, or is refused
+  normally, as a large file, after asking (over 50 MiB), or is refused (over 500 MiB); the
+  last two are answers carried as data, never errors (ADR-019)
 - Notes-folder policy: the default folder `~/Writ`, the containment rule for paths inside it,
   the title sanitiser shared by the migration, rename and auto-title, and the write guard
   (`notes::guard::decide_save` over a recorded `DiskState`) that decides whether a save may land
@@ -100,8 +102,8 @@ index keyed by canonical path under the notes folder, the index tables created b
 Deleting `writ.db` costs a reindex and the session layout, and loses no note. The mirror files
 under `~/.writ/buffers/` are retired by the same migration, which verifies every mirror against the
 file that now holds its text before unlinking it and keeps a rollback copy at
-`writ.db.pre-notes-migration`. One copy of text outside a file stays legitimate: the recovery
-snapshot, covering text that has not reached a file yet.
+`writ.db.pre-notes-migration`. One copy of text outside a file stays legitimate: the unsaved-text
+journal, holding text no file holds (ADR-044).
 
 Contains:
 - SQLite layer via `rusqlite` with WAL mode enabled
@@ -112,14 +114,23 @@ Contains:
   `StorageError::SourceChangedOnDisk` when the hash of the bytes on disk differs both from the
   last known hash and from the content being written
 - TOML parsing for config files using `toml` crate
-- Crash recovery (wired): `recovery::snapshot` writes periodic session snapshots embedding only
-  text that has not reached a file, prunes to a bounded count on every write, and resolves which
-  buffers to restore after an unclean launch; `recovery::dirty_shutdown` detects the unclean
-  launch via the `session_snapshots` table. `AppState` runs detection and restore on init
-  (before the watcher starts and before empty-scratch reclaim), a background thread writes
-  an unclean heartbeat snapshot on a timer that 0.4 slows from 30 s, and `ExitRequested` writes
-  a clean snapshot.
-  Retention and resolution policy live in `writ-core::recovery`; mechanism lives here.
+- Crash recovery (wired, ADR-044): `recovery::journal` is the `unsaved_text` table of text no file
+  holds: what a save could not write, and what a bar held back, which the frontend hands over on
+  the autosave's debounce. A tab owns at most one entry per note: the save command writes it as it
+  returns, with a synchronous commit when its hash differs from the entry's, and the next save of
+  that tab that lands clears it, as does closing the tab with "Close and lose changes"
+  (`discard_unsaved_text`). An entry outlives its note's row, and a launch writes such text to a
+  dated copy of its own. Reopening a closed note
+  (`BufferStore::restore`) and every launch release the entries from their tabs, so no save of a
+  tab that shows the file clears them. `AppState` reads the journal on every launch (before the
+  watcher starts and before empty-scratch reclaim) and writes each entry into the note's file or
+  beside it, removing what lands; a row that does not decode is logged and kept.
+  `recovery::legacy` moves the text of a 0.5 snapshot into the journal once.
+  `recovery::snapshot` keeps session markers with no text: the heartbeat records an unclean one
+  once per session from a thread that wakes every 120 s, `ExitRequested` records a clean one, and
+  `recovery::dirty_shutdown` reads the latest for the launch's log. The heartbeat reads no note's
+  file; the quit reads only the files whose index updates saves deferred (ADR-020).
+  The journal policy lives in `writ-core::recovery`; mechanism lives here.
   `AppState::initialize` also runs the read-only `ConsistencyChecker` on boot, logging
   orphaned backing files and rows whose content file is missing (repair policy is deferred).
 

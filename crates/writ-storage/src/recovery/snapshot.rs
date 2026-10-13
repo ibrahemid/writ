@@ -1,20 +1,24 @@
-use std::collections::HashMap;
-
 use rusqlite::{params, Connection};
 use uuid::Uuid;
-use writ_core::recovery::{resolve_recovery, RecoveredBuffer, RecoveryResolution, MAX_SNAPSHOTS};
+use writ_core::recovery::MAX_SNAPSHOTS;
 
 use crate::errors::StorageResult;
 use crate::maintenance::checkpoint_truncate;
 
-/// A point-in-time snapshot of Writ's session state.
+/// A row of `session_snapshots`: whether a session was running or ended
+/// cleanly.
+///
+/// The markers Writ writes now hold no text (ADR-044). A snapshot 0.5 wrote
+/// held note text under a `buffers` key, which the first launch after the
+/// upgrade moves into the unsaved-text journal and empties out of the row
+/// ([`super::legacy::carry_over_legacy_snapshots`]).
 pub struct SessionSnapshot {
     /// Snapshot UUID, assigned at creation.
     pub id: String,
     /// Snapshot format version. Bumped when the shape of
     /// `state_json` changes in a breaking way.
     pub format_version: i32,
-    /// Opaque session state encoded as JSON.
+    /// Encoded state: an empty object for a marker.
     pub state_json: serde_json::Value,
     /// Creation timestamp formatted as SQLite `datetime('now')`.
     pub created_at: String,
@@ -22,7 +26,7 @@ pub struct SessionSnapshot {
     pub is_clean: bool,
 }
 
-/// Persistence facade over session snapshots.
+/// Persistence facade over the session markers.
 pub struct SnapshotManager<'a> {
     conn: &'a Connection,
 }
@@ -33,8 +37,34 @@ impl<'a> SnapshotManager<'a> {
         Self { conn }
     }
 
-    /// Writes a new snapshot row with `state` as its encoded state.
+    /// Writes a new snapshot row with `state` as its encoded state, prunes,
+    /// and checkpoints the write-ahead log.
     pub fn write_snapshot(&self, state: &serde_json::Value, is_clean: bool) -> StorageResult<()> {
+        self.insert(state, is_clean)?;
+        // Pruning frees pages inside the write-ahead log, not the database
+        // file; without a checkpoint the log keeps every superseded row.
+        if let Err(e) = checkpoint_truncate(self.conn) {
+            tracing::warn!(error = %e, "wal checkpoint after snapshot prune failed");
+        }
+        Ok(())
+    }
+
+    /// Records that a session is running: an unclean marker with no text.
+    ///
+    /// No checkpoint follows, unlike [`Self::write_snapshot`]. The heartbeat
+    /// writes this while the app runs and holds the store for it, and a
+    /// checkpoint copies the whole log into the database file.
+    pub fn mark_running(&self) -> StorageResult<()> {
+        self.insert(&serde_json::Value::Object(serde_json::Map::new()), false)
+    }
+
+    /// Records that a session ended cleanly: a clean marker with no text,
+    /// written as the last thing a quit writes.
+    pub fn mark_clean(&self) -> StorageResult<()> {
+        self.write_snapshot(&serde_json::Value::Object(serde_json::Map::new()), true)
+    }
+
+    fn insert(&self, state: &serde_json::Value, is_clean: bool) -> StorageResult<()> {
         let id = Uuid::new_v4().to_string();
         let state_str = serde_json::to_string(state)?;
         let is_clean_int = if is_clean { 1i64 } else { 0i64 };
@@ -43,38 +73,15 @@ impl<'a> SnapshotManager<'a> {
              VALUES (?1, 1, ?2, datetime('now'), ?3)",
             params![id, state_str, is_clean_int],
         )?;
-        self.prune_old_snapshots()?;
-        // Pruning frees pages inside the write-ahead log, not the database
-        // file; without a checkpoint the log keeps every superseded snapshot.
-        if let Err(e) = checkpoint_truncate(self.conn) {
-            tracing::warn!(error = %e, "wal checkpoint after snapshot prune failed");
-        }
-        Ok(())
+        self.prune_old_snapshots()
     }
 
-    /// Writes a session snapshot that embeds buffer contents for crash recovery.
+    /// Removes all but the [`MAX_SNAPSHOTS`] most recent rows.
     ///
-    /// `buffer_contents` maps buffer id to current content. The snapshot
-    /// encodes them under a `buffers` key alongside the rest of `extra_state`.
-    /// After writing, old snapshots beyond [`MAX_SNAPSHOTS`] are pruned.
-    pub fn write_session_snapshot(
-        &self,
-        buffer_contents: &HashMap<String, String>,
-        extra_state: &serde_json::Value,
-        is_clean: bool,
-    ) -> StorageResult<()> {
-        let mut state = extra_state.clone();
-        let obj = state.as_object_mut().cloned().unwrap_or_default();
-        let mut merged = obj;
-        merged.insert(
-            "buffers".to_string(),
-            serde_json::to_value(buffer_contents)?,
-        );
-        let final_state = serde_json::Value::Object(merged);
-        self.write_snapshot(&final_state, is_clean)
-    }
-
-    /// Removes all but the [`MAX_SNAPSHOTS`] most recent snapshot rows.
+    /// A row that still holds text is not pruned: a 0.5 snapshot whose text
+    /// could not be decoded, which the upgrade logs and leaves where it is
+    /// rather than drop (ADR-044 §7), and a row whose state is not JSON at
+    /// all, which is the same thing seen from further away.
     pub fn prune_old_snapshots(&self) -> StorageResult<()> {
         self.conn.execute(
             "DELETE FROM session_snapshots
@@ -82,7 +89,9 @@ impl<'a> SnapshotManager<'a> {
                  SELECT id FROM session_snapshots
                  ORDER BY created_at DESC, rowid DESC
                  LIMIT ?1
-             )",
+             )
+             AND json_valid(state_json)
+             AND json_type(state_json, '$.buffers') IS NULL",
             params![MAX_SNAPSHOTS as i64],
         )?;
         Ok(())
@@ -124,46 +133,5 @@ impl<'a> SnapshotManager<'a> {
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(e.into()),
         }
-    }
-
-    /// Resolves which buffers from the latest dirty snapshot should be
-    /// restored, given a map of buffer id to the buffer's current
-    /// `updated_at` timestamp string.
-    ///
-    /// Returns an empty list when there is no dirty snapshot or when no
-    /// snapshot entry is newer than the stored buffer.
-    pub fn recover_buffers(
-        &self,
-        buffer_updated_at: &HashMap<String, String>,
-    ) -> StorageResult<Vec<RecoveredBuffer>> {
-        let snapshot = match self.latest_snapshot()? {
-            Some(s) if !s.is_clean => s,
-            _ => return Ok(Vec::new()),
-        };
-
-        let snap_buffers = match snapshot.state_json.get("buffers") {
-            Some(v) => {
-                let map: HashMap<String, String> =
-                    serde_json::from_value(v.clone()).unwrap_or_default();
-                map
-            }
-            None => return Ok(Vec::new()),
-        };
-
-        let mut recovered = Vec::new();
-        for (id, content) in snap_buffers {
-            let resolution = match buffer_updated_at.get(&id) {
-                Some(updated_at) => resolve_recovery(&snapshot.created_at, updated_at),
-                None => RecoveryResolution::NoSnapshot,
-            };
-            if resolution == RecoveryResolution::Restore {
-                recovered.push(RecoveredBuffer {
-                    id,
-                    content,
-                    removed_on_disk: false,
-                });
-            }
-        }
-        Ok(recovered)
     }
 }

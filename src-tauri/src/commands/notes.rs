@@ -24,8 +24,10 @@ use writ_storage::note_ops::{self, LinkRewrite};
 use writ_storage::notes_index;
 use writ_storage::notes_migration::{self, MigrationReport};
 use writ_storage::notes_move;
+use writ_storage::workspace_store;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
+use crate::commands::note_index::{announce_indexed, announce_walk, holds_own_write, index_copy};
 use crate::security::{canonicalize_for_authorization, resolve_for_containment};
 use crate::state::{AppState, NotesRootFallback};
 
@@ -148,12 +150,19 @@ fn dated_name_candidates(now: DateTime<Utc>, configured: FileExtension) -> [Stri
     ]
 }
 
-/// The note today's date names, and whether this call is what made it.
-pub struct DatedNote {
-    /// The note, or `None` when the file is there and its bytes are not.
-    pub doc: Option<BufferDocument>,
-    /// Whether the file was created here rather than found.
-    pub minted: bool,
+/// What Today's File answers: the dated file's path, and what opening it came
+/// to, as any open answers.
+///
+/// A file over the size Writ opens without asking is a question the frontend
+/// asks before the confirmed open reads it, one over the size Writ opens is a
+/// refusal, and one whose bytes are elsewhere is downloaded first. A file a
+/// tab already shows answers that tab.
+#[derive(Debug, Clone, Serialize)]
+pub struct TodaysFile {
+    /// The dated file, found or made.
+    pub path: String,
+    /// The open's answer.
+    pub opened: crate::commands::file::FileOpenResult,
 }
 
 /// Opens `<notes>/<YYYY-MM-DD>.<ext>`, creating it only when it is not there
@@ -167,18 +176,15 @@ pub struct DatedNote {
 /// rewritten and a note already in a tab keeps that tab; the mint goes through
 /// [`create_note_at`], so the guard and the index see the file the same way
 /// they see every other new note.
-pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<DatedNote, String> {
+pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFile, String> {
     let root = state.notes_root();
     let names = dated_name_candidates(now, state.default_extension());
     for name in &names {
         let path = root.join(name);
         if path.is_file() {
-            let opened =
-                crate::commands::file::open_file_from_path(state, &path.to_string_lossy())?;
-            return Ok(DatedNote {
-                doc: opened.doc,
-                minted: false,
-            });
+            let path = path.to_string_lossy().into_owned();
+            let opened = crate::commands::file::open_file_from_path(state, &path)?;
+            return Ok(TodaysFile { path, opened });
         }
     }
     // The name about to be minted is already on something that is not a note
@@ -192,21 +198,21 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<D
         return Err(name_is_taken(&names[0]));
     }
     let doc = new_dated_note_inner(state, now)?;
-    Ok(DatedNote {
+    let path = doc
+        .source_path
+        .clone()
+        .unwrap_or_else(|| minting.to_string_lossy().into_owned());
+    let opened = crate::commands::file::FileOpenResult {
+        mode: writ_core::file_ops::classify_file(doc.size_bytes, doc.read_only),
+        size_bytes: doc.size_bytes,
         doc: Some(doc),
-        minted: true,
-    })
+    };
+    Ok(TodaysFile { path, opened })
 }
 
-/// What today's note is answered with when its file is here and its text is
-/// still with the sync provider.
-const NOTE_IS_NOT_HERE_YET: &str = "That file is still being downloaded.";
-
 /// [`open_or_mint_dated_note`] for the menu item and the command that share it.
-pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<BufferDocument, String> {
-    open_or_mint_dated_note(state, now)?
-        .doc
-        .ok_or_else(|| NOTE_IS_NOT_HERE_YET.to_string())
+pub fn todays_note_inner(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFile, String> {
+    open_or_mint_dated_note(state, now)
 }
 
 /// Starts watching a freshly minted note, so its first line can be answered
@@ -319,10 +325,14 @@ fn create_note_at_in(
     // The write is stamped into the watcher's ignore set, so the watcher never
     // reports the file Writ itself just made and the index would not hear of
     // the note until the next walk of the folder. It is indexed here instead,
-    // after the lock on the note rows has gone.
+    // after the lock on the note rows has gone, and announced for the same
+    // reason: nothing else tells the sidebar the file exists.
     drop(store);
-    if let Err(error) = state.notes_index.index_path(&path) {
-        warn!(path = %path.display(), %error, "a new note could not be indexed");
+    if holds_own_write(state, &path) {
+        if let Err(error) = state.notes_index.index_path(&path) {
+            warn!(path = %path.display(), %error, "a new note could not be indexed");
+        }
+        announce_indexed(&state.event_bus, [notes_index::index_key(&path)]);
     }
     Ok(doc)
 }
@@ -335,7 +345,7 @@ pub fn new_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
 
 /// IPC: [`todays_note_inner`].
 #[tauri::command]
-pub fn todays_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
+pub fn todays_note(state: State<'_, AppState>) -> Result<TodaysFile, String> {
     todays_note_inner(&state, Utc::now())
 }
 
@@ -355,12 +365,28 @@ pub fn new_note_from_link(
 /// ([`note_ops::rename_note`]). The row's file and title are then written
 /// together, and the tab keeps its content, cursor and undo history because
 /// the note's id never changes and the editor is never reloaded.
+///
+/// The row write moves the note's index row with it, and a file in the notes
+/// folder is announced under both names once it has: the watcher drops the
+/// rename, so this is how the graph and the backlinks hear of it.
 pub fn rename_note_inner(
     state: &AppState,
     id: &str,
     title: &str,
 ) -> Result<BufferDocument, String> {
-    rename_note_recording(state, id, title, &record_rename)
+    let from = note_path_for_id(state, id)
+        .ok()
+        .map(|path| notes_index::index_key(Path::new(&path)));
+    let renamed = rename_note_recording(state, id, title, &record_rename)?;
+    if let (Some(from), Some(to)) = (from, renamed.source_path.as_deref()) {
+        if path_is_inside_notes(state, to) {
+            announce_indexed(
+                &state.event_bus,
+                [from, notes_index::index_key(Path::new(to))],
+            );
+        }
+    }
+    Ok(renamed)
 }
 
 /// How a rename records itself on the row.
@@ -778,8 +804,9 @@ fn rename_and_propagate(
 ///
 /// A note the sidebar names but nothing has opened has no row to move, and a
 /// rename of it is the file alone. Everything else goes through
-/// [`rename_note_inner`], so one rename is one code path however it was asked
-/// for.
+/// [`rename_note_recording`], so one rename is one code path however it was
+/// asked for. Nothing is announced here: the caller announces the rename with
+/// the notes it rewrote, as one event.
 fn rename_note_at(state: &AppState, from: &Path, new_name: &str) -> Result<PathBuf, String> {
     let existing = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
@@ -788,7 +815,7 @@ fn rename_note_at(state: &AppState, from: &Path, new_name: &str) -> Result<PathB
             .map_err(|e| e.to_string())?
     };
     if let Some(doc) = existing {
-        let renamed = rename_note_inner(state, &doc.id, new_name)?;
+        let renamed = rename_note_recording(state, &doc.id, new_name, &record_rename)?;
         return Ok(PathBuf::from(note_path(&renamed)?));
     }
     let stem =
@@ -817,19 +844,40 @@ fn recorded_disk_state(state: &AppState, path: &Path) -> Option<DiskState> {
 /// note would be empty and an undo would find nothing to put back. A row that
 /// cannot be written is logged and not fatal — a rename that landed on disk is
 /// not undone because an index lagged.
+///
+/// A walk under way keeps running. The index records these writes, and the
+/// walk leaves alone every path written after it looked (ADR-036 section 7),
+/// so retiring it would only leave the rest of the folder unread.
+///
+/// The rename and every note it rewrote are then announced as one event, the
+/// old name first: however many links it carried, a rename is one change to
+/// what the graph, the backlinks and the tags show.
 fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[String]) {
     let index = &state.notes_index;
+    let from_key = notes_index::index_key(from);
     if from != to {
         if let Err(error) = index.forget_path(from) {
             warn!(path = %from.display(), error = %error, "the notes index kept a renamed note's old path");
         }
     }
     for path in std::iter::once(path_text(to)).chain(updated.iter().cloned()) {
+        if !holds_own_write(state, Path::new(&path)) {
+            continue;
+        }
         if let Err(error) = index.index_path(Path::new(&path)) {
             warn!(path = %path, error = %error, "the notes index was not updated after a rename");
         }
     }
-    index.bump_generation();
+    announce_indexed(
+        &state.event_bus,
+        std::iter::once(from_key)
+            .chain(std::iter::once(notes_index::index_key(to)))
+            .chain(
+                updated
+                    .iter()
+                    .map(|path| notes_index::index_key(Path::new(path))),
+            ),
+    );
 }
 
 /// What the editor says when a delete names a file the notes folder does not
@@ -856,16 +904,29 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
         doc.source_path
     };
 
+    let mut trashed = None;
     if let Some(path) = source_path.as_deref() {
         if !path_is_inside_notes(state, path) {
             return Err(NOT_YOURS_TO_DELETE.to_string());
         }
         let path = Path::new(path);
+        let key = notes_index::index_key(path);
         note_ops::trash_note(path)
             .map_err(|_| format!("Couldn't move \"{}\" to the Trash.", note_name(path)))?;
+        // The index forgets the file here rather than when the watcher reports
+        // it, so the announcement below is never read against a row for a file
+        // that is already in the Trash.
+        if let Err(error) = state.notes_index.forget_path(path) {
+            warn!(path = %path.display(), %error, "the notes index kept a deleted note");
+        }
+        trashed = Some(key);
     }
 
-    crate::commands::buffer::delete_buffer_inner(state, id)
+    let deleted = crate::commands::buffer::delete_buffer_inner(state, id);
+    if let Some(key) = trashed {
+        announce_indexed(&state.event_bus, [key]);
+    }
+    deleted
 }
 
 /// IPC: [`delete_note_inner`].
@@ -900,6 +961,8 @@ pub fn save_note_copy_inner(state: &AppState, id: &str, content: &str) -> Result
         Some(&stamp),
     )
     .map_err(|e| note_failure_message(&e))?;
+    drop(store);
+    announce_indexed(&state.event_bus, index_copy(state, &path));
     path.to_str()
         .map(str::to_string)
         .ok_or_else(|| format!("the file name {} cannot be recorded", path.display()))
@@ -951,6 +1014,32 @@ pub fn notes_root_text(state: &AppState) -> String {
 #[tauri::command]
 pub fn get_notes_root(state: State<'_, AppState>) -> String {
     notes_root_text(&state)
+}
+
+/// The entries of `dir_path`, a folder inside the notes folder, for the tree
+/// the sidebar shows when no other folder is open: folders first, then files,
+/// each group by name.
+///
+/// The notes folder is the boundary, the way the folder opened by hand is the
+/// boundary of [`workspace_store::list_dir`]: a folder outside it, or a
+/// symlink leading out of it, is refused. What is hidden is what the notes
+/// index skips ([`workspace_store::list_notes_dir`]), so the tree shows every
+/// file a tag or a link can name, and a conflict copy is listed and marked.
+pub fn list_notes_dir_inner(
+    state: &AppState,
+    dir_path: &str,
+) -> Result<Vec<writ_core::workspace::WorkspaceEntry>, String> {
+    workspace_store::list_notes_dir(&state.notes_root(), Path::new(dir_path))
+        .map_err(|e| e.to_string())
+}
+
+/// IPC: [`list_notes_dir_inner`].
+#[tauri::command]
+pub fn list_notes_dir(
+    state: State<'_, AppState>,
+    dir_path: String,
+) -> Result<Vec<writ_core::workspace::WorkspaceEntry>, String> {
+    list_notes_dir_inner(&state, &dir_path)
 }
 
 /// The file note `id` lives in, as its row records it.
@@ -1197,7 +1286,7 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
     Ok(())
 }
 
-/// Brings the notes index and the notes watcher to the folder Writ now uses.
+/// Brings the notes index and the watchers to the folder Writ now uses.
 ///
 /// Nothing here can fail the move: the files are already in their new home, so
 /// a failure is logged and left to the walk this spawns. The order matters.
@@ -1213,6 +1302,9 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
     }
 
     refollow_open_tabs(state);
+    // Every row changed its key at once, so the folder is named rather than
+    // each file in it.
+    announce_indexed(&state.event_bus, [notes_index::index_key(to)]);
 
     match crate::watcher::handler::start_notes_watcher(
         state.event_bus.clone(),
@@ -1232,9 +1324,11 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
         }
         Err(e) => warn!(error = %e, "notes watcher could not follow the folder"),
     }
+    crate::commands::workspace::rewatch_workspace(state);
 
     let index = state.notes_index.clone();
     let cancel = state.notes_index_cancel.clone();
+    let bus = state.event_bus.clone();
     let generation = index.generation();
     let root = to.to_path_buf();
     std::thread::spawn(move || {
@@ -1242,13 +1336,16 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
             cancel.load(std::sync::atomic::Ordering::Relaxed) || index.generation() != generation
         };
         match index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless) {
-            Ok(outcome) => info!(
-                added = outcome.added,
-                updated = outcome.updated,
-                removed = outcome.removed,
-                cancelled = outcome.cancelled,
-                "notes index reconciled after the move"
-            ),
+            Ok(outcome) => {
+                info!(
+                    added = outcome.added,
+                    updated = outcome.updated,
+                    removed = outcome.removed,
+                    cancelled = outcome.cancelled,
+                    "notes index reconciled after the move"
+                );
+                announce_walk(&bus, &root, &outcome);
+            }
             Err(e) => warn!(error = %e, "notes index reconcile after the move failed"),
         }
     });

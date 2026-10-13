@@ -16,14 +16,17 @@ import {
   type ContentSource,
   type SaveResult,
 } from "../../services/autosave";
-import { noteDiskState, restoreNoteFile, type NoteDiskAnswer } from "../../services/tauri";
+import {
+  noteDiskState,
+  restoreNoteFile,
+  saveNoteTo,
+  type NoteDiskAnswer,
+  type UnmadeFile,
+} from "../../services/tauri";
 import { applyExternalDocument } from "../../editor/external-reload";
 import { hashDocument } from "../../lib/doc-hash";
 import { readFailureOf, type ReadFailure } from "../../lib/read-failure";
-import {
-  detectLanguage as detectLanguageService,
-  detectFromContent as detectFromContentService,
-} from "../../services/language-detect";
+import { detectFromContent as detectFromContentService } from "../../services/language-detect";
 
 export type TransformFn = (input: string) => Promise<string>;
 
@@ -276,6 +279,13 @@ export function createEditorStore() {
     new Map(),
   );
 
+  // A note the launch handed back because its first file could not be made,
+  // with the file it was to be. It has no file and never had one, so its bar
+  // names that file rather than one that was deleted.
+  const [unmadeFiles, setUnmadeFiles] = createSignal<ReadonlyMap<string, UnmadeFile>>(
+    new Map(),
+  );
+
   function noteFileState(id: string): NoteFileState {
     return noteFileStates().get(id) ?? "present";
   }
@@ -303,14 +313,17 @@ export function createEditorStore() {
     // the keystroke back onto the save.
     const wantsText = after !== "present" || event === "moved";
     const kept = wantsText ? (liveTextOfNote(id) ?? peekUnsavedContent(id)) : undefined;
+    const writesKeptText = event === "moved" && kept !== undefined && isDirty(id);
 
     // The note may write again, and every way a hold ends has already dealt
     // with the text: two answers write it, the third replaces it on purpose, a
     // quiet reload only happens to a note with nothing of its own, and a file
     // found at another path is handled below. Held any longer it would come
-    // back as a recovered note holding the version the person chose against.
+    // back as a recovered note holding the version the person chose against,
+    // so what the hold handed to the journal goes too, unless the write below
+    // carries it.
     if (after === "present") {
-      releaseUnsavedContent(id);
+      releaseUnsavedContent(id, writesKeptText);
       // And the copy the next load of the tab would read in place of the file.
       // There is a file again, and it is the one the tab is about to hold.
       setRemovedText((current) => {
@@ -319,6 +332,7 @@ export function createEditorStore() {
         next.delete(id);
         return next;
       });
+      forgetUnmadeFile(id);
     }
 
     setNoteFileStates((current) => {
@@ -341,9 +355,18 @@ export function createEditorStore() {
     // tab's text nor replaces it. The note is writable again at its new path,
     // and what it has been holding since the deletion is the only copy of it:
     // the queue went when the hold went on, so nothing else would write it.
-    if (event === "moved" && kept !== undefined && isDirty(id)) {
+    if (writesKeptText) {
       debouncedSave(id, kept, 0);
     }
+  }
+
+  function forgetUnmadeFile(id: string) {
+    setUnmadeFiles((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
   }
 
   /** The live document of `id`, when it is the note the editor is showing. */
@@ -367,8 +390,8 @@ export function createEditorStore() {
    * `removed -> changed` the entry is whatever the note holds now, and it is
    * dropped only when the note reaches `present` ([`recordFileEvent`]).
    */
-  function holdText(id: string, text: string) {
-    holdUnsavedContent(id, text);
+  function holdText(id: string, text: string, keepAfterMs?: number) {
+    holdUnsavedContent(id, text, keepAfterMs);
     if (!savesAreHeld(id)) return;
     setRemovedText((current) => {
       if (current.get(id) === text) return current;
@@ -382,14 +405,27 @@ export function createEditorStore() {
    * Records that a note's file is gone, keeping whatever text only Writ holds.
    *
    * `text` is passed only by the launch, which seeds a note the last session
-   * left removed from the shutdown snapshot rather than from anything live.
-   * Everything else is [`recordFileEvent`]'s, including the read-then-cancel
-   * order and the early return for a note already marked.
+   * left removed from the unsaved-text journal rather than from anything live.
+   * So is `unmade`, for a note that never had a file and whose first one the
+   * launch could not make: it is held the same way, and named by the file it
+   * was to be. Everything else is [`recordFileEvent`]'s, including the
+   * read-then-cancel order and the early return for a note already marked.
    */
-  function markRemovedOnDisk(id: string, text?: string) {
+  function markRemovedOnDisk(id: string, text?: string, unmade?: UnmadeFile) {
     if (isRemovedOnDisk(id)) return;
     recordFileEvent(id, "removed");
+    if (unmade !== undefined) {
+      setUnmadeFiles((current) => new Map(current).set(id, unmade));
+    }
     if (text !== undefined) keepTextOfRemoved(id, text);
+  }
+
+  /**
+   * The first file the launch could not make for `id`, while the note is
+   * held without one; `null` for every other note.
+   */
+  function unmadeFileOf(id: string): UnmadeFile | null {
+    return unmadeFiles().get(id) ?? null;
   }
 
   /**
@@ -406,9 +442,10 @@ export function createEditorStore() {
 
   // The state and the text, dropped without saying anything about the file. A
   // closed tab has no file either way, and its text has not reached the
-  // snapshot yet: `keepUnsavedForRecovery` reads it after this and cancels the
+  // journal yet: `keepUnsavedForRecovery` reads it after this and cancels the
   // note, which is what takes it back out.
   function forgetFileState(id: string) {
+    forgetUnmadeFile(id);
     setNoteFileStates((current) => {
       if (!current.has(id)) return current;
       const next = new Map(current);
@@ -444,7 +481,8 @@ export function createEditorStore() {
    * tab's text reaches disk from here.
    *
    * Held, not dropped. The text stays in the document, it is kept for the
-   * recovery snapshot so closing the tab or quitting does not lose it
+   * unsaved-text journal so closing the tab or quitting does not lose it and
+   * handed to it on the autosave's debounce so a crash does not either
    * (`holdUnsavedContent`), and the note saves normally again the moment its
    * state is `present`.
    *
@@ -587,6 +625,24 @@ export function createEditorStore() {
     const text = liveTextOfRemoved(id);
     if (text === undefined) return NOTHING_TO_SAVE;
     const result = await saveNowService(id, text, restoreNoteFile);
+    if (result.ok) clearRemovedOnDisk(id);
+    return result;
+  }
+
+  /**
+   * Writes a held note with no file to `path`, a place the person picked,
+   * which becomes its file ("Save As…").
+   *
+   * The same terms as [`restoreRemovedFile`]: the write goes through the
+   * autosave service with a writer of its own, a failure reports to the same
+   * bar every other save does, and the hold ends only once the write lands.
+   */
+  async function saveRemovedNoteTo(id: string, path: string): Promise<SaveResult> {
+    const text = liveTextOfRemoved(id);
+    if (text === undefined) return NOTHING_TO_SAVE;
+    const result = await saveNowService(id, text, (bufferId, content) =>
+      saveNoteTo(bufferId, content, path),
+    );
     if (result.ok) clearRemovedOnDisk(id);
     return result;
   }
@@ -935,15 +991,16 @@ export function createEditorStore() {
     //
     // The keystroke is still the newest text there is of that note, so it is
     // kept rather than dropped: it goes to the slot the recovery handover
-    // reads and no write path does, and for a note whose file is gone to the
-    // copy the next load of its tab reads ([`holdText`]).
+    // reads and no write path does, which hands it to the unsaved-text journal
+    // on this same debounce, and for a note whose file is gone to the copy the
+    // next load of its tab reads ([`holdText`]).
     //
     // Materialized here rather than held as a getter. A getter reads the
     // editor's single view, and the next tab switch destroys that view and
     // builds another note's in its place, so a held getter would report the
     // incoming note's document under this one's name.
     if (savesAreHeld(bufferId)) {
-      holdText(bufferId, typeof content === "function" ? content() : content);
+      holdText(bufferId, typeof content === "function" ? content() : content, delayMs);
       return;
     }
     debouncedSave(bufferId, content, delayMs);
@@ -1045,10 +1102,6 @@ export function createEditorStore() {
     return noteDiskState(id);
   }
 
-  function detectLanguage(content: string, filename?: string): string | null {
-    return detectLanguageService(content, filename);
-  }
-
   function detectFromContent(content: string): string | null {
     return detectFromContentService(content);
   }
@@ -1081,7 +1134,6 @@ export function createEditorStore() {
     savesAreHeld,
     retrySave,
     readDiskState,
-    detectLanguage,
     detectFromContent,
     noteOpened,
     noteEdited,
@@ -1096,11 +1148,13 @@ export function createEditorStore() {
     isRemovedOnDisk,
     isFileChangedOnDisk,
     markRemovedOnDisk,
+    unmadeFileOf,
     clearRemovedOnDisk,
     keepTextOfRemoved,
     textOfRemoved,
     liveTextOf,
     restoreRemovedFile,
+    saveRemovedNoteTo,
     updatedFromDisk,
     isUpdatedFromDisk,
     clearUpdatedFromDisk,

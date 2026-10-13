@@ -21,6 +21,15 @@
 //! rest of the document parse as before, and no reader finds the attribute,
 //! whichever of two same-named ones it takes: every copy is renamed.
 //!
+//! A name right after `</` is also an end tag's name wherever the parser reads
+//! the bytes as markup, and renaming it there would close a different element.
+//! Such a name keeps its bytes when the attribute it would be carries no value,
+//! which starts nothing: an empty `src` loads `about:blank`, an empty `srcdoc`
+//! an empty document, and an empty `http-equiv` names no pragma. One followed
+//! by `=`, after whitespace or none, carries a value and is renamed, so an end
+//! tag with an `=` after its name, which is malformed markup, is the one place
+//! the rest of the document can parse differently.
+//!
 //! Like the hint rewrite it reads the text without tracking parser context:
 //! every `<iframe`, `<frame` or `<meta` followed by a tag-name terminator is
 //! read as a tag, inside a comment, raw text or an attribute value included.
@@ -177,7 +186,9 @@ pub fn disarm_frame_navigations(html: &str) -> Cow<'_, str> {
             let step = advance(state, byte);
             if step.name_ends {
                 if let Some(len) = renamed_name_len(matched, kinds, bytes, at) {
-                    renamed.push(at - len);
+                    if !is_valueless_end_tag_name(bytes, at - len, at) {
+                        renamed.push(at - len);
+                    }
                 }
             }
             if let Some(next_state) = step.next {
@@ -244,6 +255,24 @@ fn renamed_name_len(matched: Matched, kinds: u8, bytes: &[u8], at: usize) -> Opt
         }
         _ => None,
     }
+}
+
+/// Whether the name from `name_start` to `name_end` follows `</`, so that an
+/// end tag reads it as its own name, and carries no value read as an attribute:
+/// the name ends at `/` or `>`, or at whitespace that no `=` follows.
+///
+/// A name with a value is renamed in place, not left for a name inserted before
+/// its `=`: in a tag that reads that `=` as the start of a name, the inserted
+/// name would end at it and cut the value after it into attributes.
+fn is_valueless_end_tag_name(bytes: &[u8], name_start: usize, name_end: usize) -> bool {
+    if name_start < 2 || &bytes[name_start - 2..name_start] != b"</" {
+        return false;
+    }
+    let mut at = name_end;
+    while bytes.get(at).copied().is_some_and(is_html_space) {
+        at += 1;
+    }
+    bytes.get(at) != Some(&b'=')
 }
 
 /// Whether the attribute whose name ends at `name_end` has, as its whole value

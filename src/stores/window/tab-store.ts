@@ -1,6 +1,8 @@
 import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
-import type { BufferRegistry } from "../global/buffer-registry";
+import type { BufferRegistry, OpenOutcome } from "../global/buffer-registry";
+import { largeFileOpen } from "../global/large-file-open";
+import { reportOpenOutcome } from "../global/open-report";
 import { flushAutosave, keepUnsavedForRecovery, type SaveFailure } from "../../services/autosave";
 import { asSentence, formatSaveError } from "../../lib/save-error";
 import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
@@ -38,7 +40,7 @@ export function createTabStore(deps: {
   // registry refused to close is still open and keeps its record.
   //
   // Awaited rather than left running: text a save could not write is handed to
-  // the recovery snapshot here, and a close that races the quit is the case
+  // the unsaved-text journal here, and a close that races the quit is the case
   // that handover exists for.
   async function forgetClosed(ids: readonly string[]) {
     const open = new Set(registry.activeTabs().map((b) => b.id));
@@ -73,12 +75,13 @@ export function createTabStore(deps: {
     return doc;
   }
 
-  // Today's note may already be open, in which case the row that comes back
-  // is that tab's, and selecting it is the whole of the command.
-  async function todaysNote(): Promise<BufferDocument> {
-    const doc = await registry.todaysNote();
-    setActiveTabId(doc.id);
-    return doc;
+  // Today's file may already be open, in which case the row that comes back
+  // is that tab's, and selecting it is the whole of the command. Otherwise it
+  // answers as an open of its path does, and is reported the same way.
+  async function todaysNote(): Promise<BufferDocument | null> {
+    const outcome = await showOpened(await registry.todaysNote(), true);
+    reportOpenOutcome(outcome);
+    return outcome.kind === "opened" ? outcome.doc : null;
   }
 
   // The tab goes with the note. Selection moves to the survivor first, for the
@@ -202,21 +205,40 @@ export function createTabStore(deps: {
     setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
   }
 
-  async function restoreFromHistory(id: string): Promise<void> {
-    await registry.restoreBuffer(id);
-    setActiveTabId(id);
+  // A closed file reopens in front, or says why it did not.
+  async function restoreFromHistory(id: string): Promise<BufferDocument | null> {
+    const outcome = await showOpened(await registry.restoreBuffer(id), true);
+    reportOpenOutcome(outcome);
+    return outcome.kind === "opened" ? outcome.doc : null;
   }
 
-  // Null when the file's bytes are not on this machine: the note goes to the
-  // download store, which opens it again once they arrive. `activate` is false
-  // for a note that finished downloading while the person was reading another
-  // one: it gets its tab without taking the screen away from them.
-  async function openFile(
+  // A tab the last session left open, shown before its file was read. Its
+  // open asks or refuses as reopening a closed file does and reports nothing:
+  // a refusal stays in the tab, which says why. An open the person answered
+  // brings the tab in front.
+  async function openUnreadTab(id: string): Promise<OpenOutcome> {
+    const outcome = await registry.openUnreadTab(id);
+    if (outcome.kind === "opened") return showOpened(outcome, true);
+    return outcome;
+  }
+
+  // Opens a path and answers what the open came to, reporting nothing. A file
+  // whose bytes are not on this machine goes to the download store, which
+  // opens it again once they arrive. `activate` is false for a note that
+  // finished downloading while the person was reading another one: it gets
+  // its tab without taking the screen away from them.
+  async function openPath(
     path: string,
     options?: { activate?: boolean },
-  ): Promise<BufferDocument | null> {
-    const activate = options?.activate ?? true;
-    const outcome = await registry.openFile(path);
+  ): Promise<OpenOutcome> {
+    return showOpened(await registry.openFile(path), options?.activate ?? true);
+  }
+
+  // What an open's answer does to the window: a file that opened gets its tab,
+  // one still downloading gets the download's pane, and Cancel or a refusal
+  // change nothing.
+  async function showOpened(outcome: OpenOutcome, activate: boolean): Promise<OpenOutcome> {
+    if (outcome.kind === "declined" || outcome.kind === "refused") return outcome;
     // The note on screen is written before the selection leaves it: the
     // download's pane replaces the editor outright.
     const shown = activeTabId();
@@ -230,13 +252,27 @@ export function createTabStore(deps: {
         title: basename(outcome.path),
         provider: outcome.provider,
       });
-      return null;
+      return outcome;
     }
     if (activate) {
       downloads.select(null);
       setActiveTabId(outcome.doc.id);
+    } else {
+      // No editor is about to read it, so the progress ends with the open.
+      largeFileOpen.finishFor(outcome.doc.id);
     }
-    return outcome.doc;
+    return outcome;
+  }
+
+  // Opens a path and says what went wrong, if anything did. Null for every
+  // answer that opened no tab: Cancel, a refusal, a file still downloading.
+  async function openFile(
+    path: string,
+    options?: { activate?: boolean },
+  ): Promise<BufferDocument | null> {
+    const outcome = await openPath(path, options);
+    reportOpenOutcome(outcome);
+    return outcome.kind === "opened" ? outcome.doc : null;
   }
 
   async function openFileDialog(): Promise<BufferDocument | null> {
@@ -257,6 +293,8 @@ export function createTabStore(deps: {
     closeOtherTabs,
     closeAllTabs,
     restoreFromHistory,
+    openUnreadTab,
+    openPath,
     openFile,
     openFileDialog,
   };

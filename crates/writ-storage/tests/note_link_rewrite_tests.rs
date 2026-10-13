@@ -403,7 +403,7 @@ fn the_walk_finds_a_note_the_index_may_not_hold_yet() {
 #[test]
 fn the_walk_passes_over_what_the_index_would_never_hold() {
     let root = TempDir::new().expect("temp dir");
-    for folder in [".git", ".obsidian", "node_modules"] {
+    for folder in [".git", ".obsidian", ".trash"] {
         std::fs::create_dir(root.path().join(folder)).expect("folder");
     }
     std::fs::write(root.path().join(".git").join("index"), [0u8, 1, 2, 3, 4]).expect("write");
@@ -412,16 +412,34 @@ fn the_walk_passes_over_what_the_index_would_never_hold() {
         "a key map\n",
     )
     .expect("write");
-    std::fs::write(
-        root.path().join("node_modules").join("index.md"),
-        "a package\n",
-    )
-    .expect("write");
+    std::fs::write(root.path().join(".trash").join("index.md"), "thrown away\n").expect("write");
     std::fs::write(root.path().join("index.png"), [137u8, 80, 78, 71]).expect("write");
 
     let found = note_ops::files_named(root.path(), &["index".to_string()]);
 
     assert!(found.is_empty(), "{found:?}");
+}
+
+/// A notes folder is not a code checkout: a note under a folder a checkout
+/// would skip is a note a link can mean, so a rename sees it as the index
+/// does (ADR-028 section 7).
+#[test]
+fn the_walk_reads_folders_a_code_checkout_would_skip() {
+    let root = TempDir::new().expect("temp dir");
+    let mut expected = Vec::new();
+    for folder in ["vendor", "build", "node_modules"] {
+        std::fs::create_dir(root.path().join(folder)).expect("folder");
+        let note = root.path().join(folder).join("index.md");
+        std::fs::write(&note, "a note\n").expect("write");
+        expected.push(note);
+    }
+    std::fs::write(root.path().join(".gitignore"), "vendor/\nbuild/\n").expect("write");
+
+    let mut found = note_ops::files_named(root.path(), &["index".to_string()]);
+    found.sort();
+    expected.sort();
+
+    assert_eq!(found, expected);
 }
 
 /// A file that is not note text is not a note a link could mean, wherever it

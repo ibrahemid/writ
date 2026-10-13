@@ -1,10 +1,9 @@
-import type { BufferDocument } from "../../../src/types/buffer";
+import type { BufferDocument, FileOpenResult } from "../../../src/types/buffer";
 import type { RenamePropagation, SkippedFile } from "../../../src/services/tauri";
 import { countUtf8Bytes } from "../history";
 import { getNoteDisplayName, rewriteLinks, parseStoredTarget, stripNoteExtension } from "../links";
 import { formatDateStem, dedupeStem, deriveFirstLineTitle, formatMintedStem, deriveNoteFileStem, sanitizeTitle } from "../naming";
 import {
-  LANGUAGES,
   digestText,
   refuse,
   refuseOnThrow,
@@ -82,6 +81,15 @@ export function createBufferCommands(state: DemoState): CommandTable {
     return { ...state.createBufferFor(path, stem(path)) };
   };
 
+  /** history::restore_buffer: the demo's files are small, so a closed one reopens at once. */
+  const reopenClosed = (id: unknown): FileOpenResult => {
+    const doc = state.getBuffer(id);
+    doc.status = "active";
+    doc.closed_at = null;
+    doc.tab_order = buffers.size;
+    return { doc: { ...doc }, mode: { kind: "Normal" }, size_bytes: doc.size_bytes };
+  };
+
   /** note_ops::rename_note: the file moves inside its folder, or the refusal. */
   const renameFile = (from: string, newStem: string): string => {
     const typed = newStem.trim();
@@ -100,7 +108,6 @@ export function createBufferCommands(state: DemoState): CommandTable {
       if (doc.source_path === from) {
         doc.source_path = to;
         doc.filename = name;
-        doc.language = LANGUAGES[extension(to)] ?? null;
       }
     }
     state.emitNoteChanged(from, true);
@@ -172,7 +179,6 @@ export function createBufferCommands(state: DemoState): CommandTable {
       );
       const doc = state.createBufferFor(null, name);
       doc.filename = `${name}.${ext}`;
-      doc.language = LANGUAGES[ext] ?? null;
       if (!typed) renameable.add(doc.id);
       return { ...doc };
     },
@@ -236,13 +242,8 @@ export function createBufferCommands(state: DemoState): CommandTable {
         .filter((b) => b.status === "history")
         .sort((a, b) => (b.closed_at ?? "").localeCompare(a.closed_at ?? ""))
         .map((b) => ({ ...b })),
-    restore_buffer: (args) => {
-      const doc = state.getBuffer(args.id);
-      doc.status = "active";
-      doc.closed_at = null;
-      doc.tab_order = buffers.size;
-      return null;
-    },
+    restore_buffer: (args): Answer<"restoreBuffer"> => reopenClosed(args.id),
+    restore_buffer_confirmed: (args): Answer<"restoreBufferConfirmed"> => reopenClosed(args.id),
     delete_buffer: (args) => {
       buffers.delete(String(args.id));
       return null;
@@ -264,9 +265,13 @@ export function createBufferCommands(state: DemoState): CommandTable {
       const other = configured === "txt" ? "md" : "txt";
       for (const ext of [configured, other]) {
         const path = `${NOTES_ROOT}/${today}.${ext}`;
-        if (folder.has(path)) return state.openPath(path).doc;
+        if (folder.has(path)) return { path, opened: state.openPath(path) };
       }
-      return createNoteIn(NOTES_ROOT, today, configured);
+      const doc = createNoteIn(NOTES_ROOT, today, configured);
+      return {
+        path: doc.source_path ?? `${NOTES_ROOT}/${today}.${configured}`,
+        opened: { doc, mode: { kind: "Normal" }, size_bytes: doc.size_bytes },
+      };
     },
     new_note_from_link: (args): Answer<"newNoteFromLink"> => {
       const parsed = parseStoredTarget(String(args.target));
@@ -315,6 +320,11 @@ export function createBufferCommands(state: DemoState): CommandTable {
     show_notes_folder_in_finder: () => null,
     rename_buffer: (args): Answer<"renameBuffer"> => {
       state.getBuffer(args.id).title = String(args.title);
+    },
+    set_buffer_language: (args): Answer<"setBufferLanguage"> => {
+      const doc = state.getBuffer(args.id);
+      doc.language = typeof args.language === "string" ? args.language : null;
+      return { ...doc };
     },
     rename_note: (args) => {
       const doc = state.getBuffer(args.id);

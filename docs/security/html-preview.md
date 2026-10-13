@@ -110,15 +110,21 @@ recorded (see the scope boundary below).
 ### Scripts are off by default
 
 A document's own scripts are off until the user turns them on for that file
-("Preview: Toggle scripts for this file"), kept on the buffer row (ADR-043).
-When off, `script-src` admits only `'self'` and the preview scheme, so the
-document's own inline and authored scripts do not run; the first-party runtimes
-(the bridge, Mermaid, KaTeX, served same-origin under `_assets/`) still load, so
-diagrams and math draw in every note. When a file is opted in, `script-src`
-gains `'unsafe-inline'` and the document's scripts run. The CSP, the sandbox,
-`frame-src` and the guard still apply, but a script has channels none of them
-govern (see the residual risks): an opted-in file is one whose code the user
-trusts.
+("Preview: Toggle scripts for this file", or the `Scripts off` field the
+status bar shows while an HTML or Markdown document is in the preview), kept
+on the buffer row with the digest of the bytes the file held (ADR-043). A save
+from Writ records the digest of what it wrote. Every render and every read by
+the status bar compares the file with the recorded digest, so a change another
+program makes turns the scripts off again, whether the tab was open or closed
+or Writ was not running, and a preview showing the file reloads. When
+off, `script-src` admits only `'self'` and the preview scheme, so the
+document's own inline and authored scripts do not run; the first-party
+runtimes (the bridge, Mermaid, KaTeX, served same-origin under `_assets/`)
+still load, so diagrams and math draw in every note. When a file is opted in,
+`script-src` gains `'unsafe-inline'` and the document's scripts run. The CSP,
+the sandbox, `frame-src` and the guard still apply, but a script has channels
+none of them govern (see the residual risks): an opted-in file is one whose
+code the user trusts.
 
 ## The `writ-preview://` scope boundary
 
@@ -191,7 +197,9 @@ invariants as a merge gate.
   spellings; it checks that every copy of a repeated attribute is renamed,
   that the five inert pragmas are kept, that overlapping tags are read in
   linear time, and with a tree builder that only the renamed attribute names
-  change.
+  change. An end tag named `src`, `srcdoc` or `http-equiv` that a tag left open
+  in text reads as an attribute keeps its name, and that attribute has no value;
+  one with an `=` after its name is renamed.
   `preview_security.rs` checks that the renderers' documents pass through it
   unchanged.
 - **Scope/traversal: the disposition recorder.** The same suite drives URLs
@@ -205,6 +213,13 @@ invariants as a merge gate.
   only under `tauri dev`, and refuses every remote origin, `data:`,
   `javascript:` and lookalike host; `src-tauri/tests/preview_scripts_ipc_tests.rs`
   that it is installed on the app.
+- **The scripts opt-in.** `crates/writ-storage/tests/buffer_store_tests.rs`
+  checks that an opt-in lapses when another program rewrites the file while its
+  tab is closed or while Writ is not running, that a save from Writ keeps it
+  and cannot carry it over another program's change, and that a file that
+  cannot be read runs nothing; `src-tauri/tests/preview_scripts_external_change_tests.rs`
+  drives the same cases through the app's watcher, close, History reopen and
+  render.
 - **Parser fuzzing.** `fuzz/fuzz_targets/preview_url_parser.rs` fuzzes
   `parse` for "never panics" and "no traversal survives into an accepted
   request." A stable-toolchain property test
@@ -228,8 +243,8 @@ invariants as a merge gate.
   leaves shut.
 - **A person's own click.** The probe's clicks are scripted; a mouse run on
   each platform is a manual check.
-- **The opt-in follows the path.** A file replaced at the same path keeps the
-  opt-in its buffer row carries.
+- **The opt-in follows the file through Writ's own saves.** A file edited and
+  saved in Writ keeps its opt-in, whatever the edit put in it.
 - **We trust the webview engine to enforce the attached policy per spec.** A
   CSP- or sandbox-enforcement bypass, a 0-day in WebKit (macOS), WebKit2GTK
   (Linux) or WebView2 (Windows), would defeat the boundary. This is out of

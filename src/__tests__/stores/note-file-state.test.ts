@@ -52,6 +52,7 @@ function wiredStore() {
     forgetSaveStatus: (id) => {
       forgotten.push(id);
     },
+    turnScriptsOff: () => {},
   });
 
   // What the watcher reports, as the event carries it.

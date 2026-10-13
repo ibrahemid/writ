@@ -121,9 +121,10 @@ import Prose from '../layouts/Prose.astro';
   <p>
     Every call from a program, whether it was allowed, refused or left waiting, and every chat edit you applied or
     discarded, is appended to <code>activity.jsonl</code>. A record names the program or chat, the tool, the file,
-    the decision and, for a write, a byte count, never the text. The file stays on your disk and is capped at 5&nbsp;MB with one
+    the decision and, for a write, a byte count, never the text. Reads of one file that one program repeats within a minute
+    are counted on a single record. The file stays on your disk and is capped at 5&nbsp;MB with one
     older generation kept. While Connected programs is on, open it from
-    <code>Settings &rarr; Apps &rarr; Connected programs &rarr; Recent activity</code>.
+    <code>Settings &rarr; Apps &rarr; Connected programs &rarr; Program activity</code>.
   </p>
 
   <h2>Keys</h2>

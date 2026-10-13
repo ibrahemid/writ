@@ -1,7 +1,7 @@
 import { For, Show } from "solid-js";
 import PanelSection from "./PanelSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { backlinksStore, type Backlink } from "../../stores/global/backlinks";
+import { indexCacheStore, type Backlink } from "../../stores/global/index-cache";
 import { ambiguityMarker } from "../../lib/note-target";
 
 interface Props {
@@ -19,7 +19,7 @@ interface Props {
  */
 export default function BacklinksSection(props: Props) {
   const win = useWindow();
-  const rows = () => backlinksStore.backlinksFor(props.path)();
+  const rows = () => indexCacheStore.backlinksFor(props.path)();
 
   async function open(row: Backlink) {
     const doc = await win.tabs.openFile(row.from_path).catch(() => null);

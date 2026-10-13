@@ -4,6 +4,7 @@ pub mod events;
 pub mod first_run;
 pub mod fts_scheduler;
 pub mod generated;
+pub mod heartbeat;
 pub mod hotkey;
 pub mod logging;
 pub mod menu;
@@ -31,16 +32,6 @@ use tauri::{Listener, Manager};
 use tracing::info;
 use writ_core::startup::{StartupFailure, StartupStage};
 
-/// How often the running app records a crash-recovery snapshot of the open
-/// notes.
-///
-/// The snapshot is a safety net behind autosave, not a second save path, so
-/// the interval trades recovery granularity against the writes it costs. A
-/// pass that finds nothing changed writes nothing
-/// ([`writ_storage::buffer_store::BufferStore::write_session_snapshot_if_changed`]),
-/// which is what keeps an idle session from growing the database.
-pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(120);
-
 /// Writes everything the next launch needs before the process goes away.
 ///
 /// A live reply is stopped first: its partial text is the streaming task's
@@ -49,12 +40,13 @@ pub const SNAPSHOT_HEARTBEAT: std::time::Duration = std::time::Duration::from_se
 /// Deferred FTS reindexes go first: a reindex still inside its debounce window
 /// would otherwise be lost, leaving search stale, because the startup
 /// consistency check only removes orphan rows and never adds missing content
-/// (ADR-020). The shutdown snapshot follows, and it must be the last thing
-/// written, so it records the notes as the flush left them.
+/// (ADR-020). The clean marker follows, and it must be the last thing written,
+/// so a quit cut short reads as unclean.
 ///
-/// Text the flush could not write is folded in over the files
-/// ([`writ_core::recovery::shutdown_snapshot`]), which is what keeps a quit
-/// with a failed save from ending with that text nowhere.
+/// The marker reads no file. Text a save could not write is already in the
+/// unsaved-text journal, put there as each save returned or as the frontend
+/// handed it over on its way out (ADR-044), so the next launch restores it
+/// whatever this does.
 pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
 
@@ -78,20 +70,21 @@ pub(crate) fn finish_shutdown(app_handle: &tauri::AppHandle) {
         }
     }
 
-    let unsaved = state.take_unsaved_on_exit();
-    let unsaved_count = unsaved.len();
-    let snapshot_result = state.store.lock().ok().map(|store| {
-        store.collect_buffer_contents().and_then(|on_disk| {
-            let (contents, is_clean) = writ_core::recovery::shutdown_snapshot(on_disk, unsaved);
-            store.write_session_snapshot(&contents, is_clean)
-        })
+    let marked = state.store.lock().ok().map(|store| {
+        let kept = store.unsaved_text_count();
+        store.mark_session_clean().map(|()| kept)
     });
-    match snapshot_result {
-        Some(Ok(())) if unsaved_count > 0 => {
-            info!(notes = unsaved_count, "shutdown snapshot kept unsaved text")
+    match marked {
+        Some(Ok(Ok(kept))) if kept > 0 => {
+            info!(
+                notes = kept,
+                "clean-shutdown marker written; unsaved text stays in the journal"
+            )
         }
-        Some(Ok(())) => info!("clean-shutdown snapshot written"),
-        Some(Err(e)) => tracing::warn!(error = %e, "shutdown snapshot failed"),
+        Some(Ok(_)) => info!("clean-shutdown marker written"),
+        Some(Err(e)) => {
+            tracing::warn!(error = %e, "the clean-shutdown marker could not be written")
+        }
         None => {}
     }
 }
@@ -136,6 +129,7 @@ fn spawn_notes_reconcile(
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     gate: std::sync::Arc<writ_core::watcher::reconcile::ReconcileGate>,
     root: std::path::PathBuf,
+    bus: std::sync::Arc<writ_core::events::bus::EventBus>,
 ) {
     use std::sync::atomic::Ordering;
 
@@ -147,14 +141,17 @@ fn spawn_notes_reconcile(
         let cancelled = || cancel.load(Ordering::Relaxed) || index.generation() != generation;
         let outcome = index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless);
         match outcome {
-            Ok(outcome) => info!(
-                added = outcome.added,
-                updated = outcome.updated,
-                removed = outcome.removed,
-                name_only = outcome.skipped_dataless,
-                cancelled = outcome.cancelled,
-                "notes index reconciled"
-            ),
+            Ok(outcome) => {
+                info!(
+                    added = outcome.added,
+                    updated = outcome.updated,
+                    removed = outcome.removed,
+                    name_only = outcome.skipped_dataless,
+                    cancelled = outcome.cancelled,
+                    "notes index reconciled"
+                );
+                commands::note_index::announce_walk(&bus, &root, &outcome);
+            }
             Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
         }
         // Shutdown takes precedence over anything owed: a walk asked for
@@ -419,6 +416,7 @@ pub fn run() {
         }
     };
     let config_path = app_state.writ_dir.join("config.toml");
+    let pending_path = writ_storage::pending_clients::path(&app_state.writ_dir);
     let watcher_ignore = app_state.watcher_ignore.clone();
 
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
@@ -504,16 +502,19 @@ pub fn run() {
             commands::buffer::save_buffer_content,
             commands::buffer::save_buffer_content_unindexed,
             commands::buffer::restore_note_file,
+            commands::buffer::save_note_to,
             commands::buffer::read_buffer_content,
             commands::buffer::note_disk_state,
             commands::buffer::resolve_external_change,
             commands::buffer::record_unsaved_notes,
+            commands::buffer::discard_unsaved_text,
             commands::buffer::list_active_buffers,
             commands::buffer::close_buffer,
             commands::buffer::close_buffers,
             commands::buffer::delete_buffer,
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
+            commands::buffer::set_buffer_language,
             commands::notes::new_note,
             commands::notes::todays_note,
             commands::notes::new_note_from_link,
@@ -526,6 +527,7 @@ pub fn run() {
             commands::notes::show_note_in_file_manager,
             commands::notes::show_notes_file_in_file_manager,
             commands::notes::get_notes_root,
+            commands::notes::list_notes_dir,
             commands::first_run::first_run_state,
             commands::first_run::dismiss_first_run_hint,
             commands::first_run::finish_first_run,
@@ -553,10 +555,12 @@ pub fn run() {
             commands::file::open_file,
             commands::file::open_file_confirmed,
             commands::file::pick_files_to_open,
+            commands::file::pick_note_save_path,
             commands::materialise::materialise_note,
             commands::materialise::cancel_materialise_note,
             commands::history::list_history,
             commands::history::restore_buffer,
+            commands::history::restore_buffer_confirmed,
             commands::history::clear_history,
             commands::history::search_buffers,
             commands::history::search_notes_by_name,
@@ -644,7 +648,9 @@ pub fn run() {
             commands::activity::mcp_clients,
             commands::activity::mcp_set_client_permission,
             commands::activity::mcp_forget_client,
-            commands::activity::mcp_refuse_waiting_client,
+            commands::activity::mcp_deny_client,
+            commands::activity::mcp_return_to_waiting,
+            commands::activity::mcp_restore_client,
             commands::activity::mcp_server_command,
             commands::activity::mcp_tools,
         ])
@@ -668,13 +674,44 @@ pub fn run() {
                 });
             }
 
+            // A file another program changed loses its preview-scripts opt-in
+            // (ADR-043). Ahead of the bridge, so the opt-in is off before the
+            // frontend hears of the change and renders the file again.
+            {
+                let state = app.state::<AppState>();
+                let forget_handle = handle.clone();
+                commands::preview::subscribe_scripts_reset(&state.event_bus, move |buffer_id| {
+                    let state = forget_handle.state::<AppState>();
+                    commands::preview::forget_scripts_opt_in(
+                        &state.store,
+                        &state.preview_render_cache,
+                        buffer_id,
+                    );
+                });
+            }
+
             {
                 let state = app.state::<AppState>();
                 let bridge_handle = handle.clone();
-                bus_bridge::attach_bridge(&state.event_bus, move |frontend_event| {
-                    let _ = emit_event(&bridge_handle, frontend_event);
-                });
+                bus_bridge::attach_bridge_behind_notes_index(
+                    &state.event_bus,
+                    state.notes_index.clone(),
+                    move |frontend_event| {
+                        let _ = emit_event(&bridge_handle, frontend_event);
+                    },
+                );
                 info!("event bus bridge attached");
+            }
+
+            {
+                use writ_core::events::bus::WritEvent;
+                let state = app.state::<AppState>();
+                let pending_handle = handle.clone();
+                state.event_bus.subscribe(move |event| {
+                    if let WritEvent::McpPendingChanged = event {
+                        commands::activity::announce_waiting(&pending_handle);
+                    }
+                });
             }
 
             // Maintain the workspace file-name index from watcher events
@@ -691,14 +728,10 @@ pub fn run() {
                 });
             }
 
-            // Keep the notes index honest about a file another program wrote
-            // (ADR-028 section 7). A separate subscriber from the frontend
-            // bridge, so both observe every NotesChanged.
-            //
-            // It patches the one path and nothing else. It must never reload
-            // the document registry: that recreates a loaded
-            // `writ-preview://` iframe and hard-freezes the macOS webview
-            // (PR #127).
+            // Keep the notes index honest when the watcher saw more change than
+            // it listed (ADR-028 section 7). A file another program wrote is
+            // patched in ahead of the bridge instead
+            // (`bus_bridge::attach_bridge_behind_notes_index`).
             {
                 use writ_core::events::bus::WritEvent;
                 let state = app.state::<AppState>();
@@ -716,29 +749,14 @@ pub fn run() {
                     // notes folder restarts the watcher, and the walk has to
                     // follow.
                     if let WritEvent::NotesSwept { .. } = event {
+                        let state = handle.state::<AppState>();
                         spawn_notes_reconcile(
                             index.clone(),
                             cancel.clone(),
                             reconcile_gate.clone(),
-                            handle.state::<AppState>().notes_root(),
+                            state.notes_root(),
+                            state.event_bus.clone(),
                         );
-                        return;
-                    }
-                    let WritEvent::NotesChanged { path, removed } = event else {
-                        return;
-                    };
-                    let path = std::path::Path::new(path);
-                    // A rename arrives as one delete and one create, so both
-                    // arms have to be replayable: forgetting a path the index
-                    // does not hold, and indexing one it already has, are both
-                    // no-ops rather than errors.
-                    let result = if *removed {
-                        index.forget_path(path)
-                    } else {
-                        index.index_path(path).map(|_| ())
-                    };
-                    if let Err(e) = result {
-                        tracing::warn!(path = %path.display(), error = %e, "notes index update failed");
                     }
                 });
             }
@@ -843,7 +861,12 @@ pub fn run() {
             }
 
             let watcher_bus = app.state::<AppState>().event_bus.clone();
-            match watcher::handler::start_file_watcher(watcher_bus, config_path, watcher_ignore) {
+            match watcher::handler::start_file_watcher(
+                watcher_bus,
+                config_path,
+                pending_path,
+                watcher_ignore,
+            ) {
                 Ok(handle) => {
                     let state = app.state::<AppState>();
                     let mut slot =
@@ -865,7 +888,12 @@ pub fn run() {
                 if let Some(root) = restored_root {
                     // Build the file-name index for the restored root (ADR-026).
                     workspace_index::spawn_rebuild(state.workspace_index.clone());
-                    match watcher::handler::start_workspace_watcher(state.event_bus.clone(), root) {
+                    let kind = commands::workspace::workspace_kind(&state, &root);
+                    match watcher::handler::start_workspace_watcher(
+                        state.event_bus.clone(),
+                        root,
+                        kind,
+                    ) {
                         Ok(handle) => {
                             let mut slot = recover_poison(
                                 state.workspace_watcher.lock(),
@@ -891,6 +919,7 @@ pub fn run() {
                     state.notes_index_cancel.clone(),
                     state.notes_reconcile.clone(),
                     notes_root.clone(),
+                    state.event_bus.clone(),
                 );
 
                 // The registry of open files goes up first: it is how the
@@ -981,20 +1010,10 @@ pub fn run() {
                 }
             }
 
-            let snapshot_handle = handle.clone();
+            let heartbeat_handle = handle.clone();
             std::thread::spawn(move || loop {
-                std::thread::sleep(SNAPSHOT_HEARTBEAT);
-                let snapshot_error = {
-                    let state = snapshot_handle.state::<AppState>();
-                    state.store.lock().ok().map(|mut store| {
-                        store
-                            .collect_buffer_contents()
-                            .and_then(|contents| store.write_session_snapshot_if_changed(&contents))
-                    })
-                };
-                if let Some(Err(e)) = snapshot_error {
-                    tracing::warn!(error = %e, "periodic snapshot failed");
-                }
+                std::thread::sleep(heartbeat::SNAPSHOT_HEARTBEAT);
+                heartbeat::beat(&heartbeat_handle.state::<AppState>());
             });
 
             let updater_auto_check = {
@@ -1093,7 +1112,7 @@ pub fn run() {
                     }
                     finish_shutdown(&shutdown_handle);
                     // Only now may a repeat request exit: until the writes are
-                    // on disk, one would take the process down mid-snapshot.
+                    // on disk, one would take the process down mid-write.
                     quit_state.finish();
                     shutdown_handle.exit(quit_state.exit_code());
                 });

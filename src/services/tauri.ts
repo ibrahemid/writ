@@ -5,6 +5,7 @@ import type {
   ChangeChoice,
   FileOpenResult,
   ResolveOutcome,
+  TodaysFile,
 } from "../types/buffer";
 import type {
   AiConfig,
@@ -70,8 +71,11 @@ export async function newNote(): Promise<BufferDocument> {
   return invoke("new_note");
 }
 
-/** The note named for today, created if the notes folder has none yet. */
-export async function todaysNote(): Promise<BufferDocument> {
+/**
+ * The file named for today, created if the notes folder has none yet, with
+ * what opening it came to.
+ */
+export async function todaysNote(): Promise<TodaysFile> {
   return invoke("todays_note");
 }
 
@@ -599,14 +603,42 @@ export interface UnsavedNote {
 }
 
 /**
- * Hands text no save could write to the shutdown snapshot.
+ * Hands text no save could write to the unsaved-text journal.
  *
- * Called on the way out, once, after the last flush: the file has already
- * refused this text, so the snapshot is the only place left that the next
- * launch reads.
+ * Called on the way out, after the last flush: the file has already refused
+ * this text, so the journal is the only place left that the next launch reads.
+ * Called too while a bar holds a note's saves, on the autosave's debounce,
+ * with the text the hold keeps.
  */
 export async function recordUnsavedNotes(notes: readonly UnsavedNote[]): Promise<void> {
   return invoke("record_unsaved_notes", { notes });
+}
+
+/**
+ * Drops what the unsaved-text journal holds for the tabs whose unsaved text
+ * the person chose to lose, or whose hold ended with nothing left to write,
+ * so the next launch does not bring it back.
+ */
+export async function discardUnsavedText(ids: readonly string[]): Promise<void> {
+  return invoke("discard_unsaved_text", { ids });
+}
+
+/**
+ * Asks the person where a note with no file goes, in the save panel. The
+ * path they chose, which the write that follows may land at, or null when
+ * they cancelled.
+ */
+export async function pickNoteSavePath(id: string): Promise<string | null> {
+  return invoke("pick_note_save_path", { id });
+}
+
+/**
+ * Gives a note with no file its first file at `path`, a place the person
+ * picked ([`pickNoteSavePath`]), and writes `content` there. Answers with the
+ * digest of what the file holds, as a save does.
+ */
+export async function saveNoteTo(id: string, content: string, path: string): Promise<string | null> {
+  return invoke("save_note_to", { id, content, path });
 }
 
 export async function readBufferContent(id: string): Promise<string> {
@@ -650,8 +682,18 @@ export async function listHistory(): Promise<BufferDocument[]> {
   return invoke("list_history");
 }
 
-export async function restoreBuffer(id: string): Promise<void> {
+/**
+ * Reopens a closed file, answering as an open does: a file that grew past the
+ * size Writ opens without asking is a question, and nothing reopens until
+ * `restoreBufferConfirmed`. A tab restored unread at launch answers the same
+ * way and stays where it is.
+ */
+export async function restoreBuffer(id: string): Promise<FileOpenResult> {
   return invoke("restore_buffer", { id });
+}
+
+export async function restoreBufferConfirmed(id: string): Promise<FileOpenResult> {
+  return invoke("restore_buffer_confirmed", { id });
 }
 
 export async function clearHistory(): Promise<void> {
@@ -689,6 +731,15 @@ export async function openFileConfirmed(path: string): Promise<FileOpenResult> {
   return invoke("open_file_confirmed", { path });
 }
 
+// The language chosen for a file, or null to let its name decide. Answers the
+// row as it now stands.
+export async function setBufferLanguage(
+  id: string,
+  language: string | null,
+): Promise<BufferDocument> {
+  return invoke("set_buffer_language", { id, language });
+}
+
 // Asks the sync provider for a note's bytes. Returns as soon as the download
 // has started; the outcome arrives as a note:download event.
 export async function materialiseNote(path: string): Promise<void> {
@@ -713,6 +764,12 @@ export async function renameBuffer(id: string, title: string): Promise<void> {
   return invoke("rename_buffer", { id, title });
 }
 
+/** The first file the launch could not make for a note that never had one. */
+export interface UnmadeFile {
+  name: string;
+  folder: string;
+}
+
 export interface RecoveredBuffer {
   id: string;
   content: string;
@@ -721,6 +778,11 @@ export interface RecoveredBuffer {
    * the last copy of it (ADR-033 decision 15).
    */
   removed_on_disk: boolean;
+  /**
+   * Set with `removed_on_disk` for a note whose first file the launch could
+   * not make, which was never deleted (ADR-044 §4).
+   */
+  unmade_file?: UnmadeFile | null;
 }
 
 export async function getRecoveredBuffers(): Promise<RecoveredBuffer[]> {
@@ -1180,6 +1242,11 @@ export async function listWorkspaceDir(dirPath: string): Promise<WorkspaceEntry[
   return invoke("list_workspace_dir", { dirPath });
 }
 
+/** The entries of a folder inside the notes folder, folders first. */
+export async function listNotesDir(dirPath: string): Promise<WorkspaceEntry[]> {
+  return invoke("list_notes_dir", { dirPath });
+}
+
 export async function getWorkspaceRoot(): Promise<string | null> {
   return invoke("get_workspace_root");
 }
@@ -1533,15 +1600,18 @@ export interface RequestIdentity {
   host: string;
 }
 
-/** The reason a provider gave for a refusal, when it is one of the six Writ
- * has a sentence for. No other part of a response body ever reaches here. */
+/** The reason a provider gave for a refusal, when it is one of the eight Writ
+ * has a sentence for, as the word Rust serializes it to. No other part of a
+ * response body ever reaches here. */
 export type RejectCode =
   | "model_not_found"
   | "invalid_request"
   | "invalid_api_key"
   | "insufficient_quota"
   | "rate_limited"
-  | "context_length_exceeded";
+  | "context_length_exceeded"
+  | "unsupported_parameter"
+  | "unsupported_value";
 
 /** What the pane is told when a reply fails. `message` is Writ's own sentence;
  * `kind` is what a recovery action is chosen from. */
@@ -1816,6 +1886,7 @@ export interface ActivityRecord {
   path: string | null;
   decision: ActivityDecision;
   bytes: number | null;
+  count?: number | null;
 }
 
 export async function activityRecent(limit: number): Promise<ActivityRecord[]> {
@@ -1865,13 +1936,19 @@ export async function mcpForgetClient(name: string): Promise<McpClients> {
 }
 
 /**
- * Turns one waiting program down without deciding about it.
- *
- * Nothing is written to the approval list, so the program is neither allowed
- * nor blocked: its next call puts it back on the waiting list.
+ * "Don't allow": stores a decision granting neither direction, so the program
+ * is answered as not allowed and is not put back on the waiting list.
  */
-export async function mcpRefuseWaitingClient(name: string): Promise<McpClients> {
-  return invoke("mcp_refuse_waiting_client", { name });
+export async function mcpDenyClient(name: string): Promise<McpClients> {
+  return invoke("mcp_deny_client", { name });
+}
+
+export async function mcpReturnToWaiting(name: string): Promise<McpClients> {
+  return invoke("mcp_return_to_waiting", { name });
+}
+
+export async function mcpRestoreClient(approval: ClientApproval): Promise<McpClients> {
+  return invoke("mcp_restore_client", { approval });
 }
 
 export interface McpServerCommand {

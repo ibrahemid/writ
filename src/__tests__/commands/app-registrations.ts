@@ -72,6 +72,7 @@ export interface Registration {
   label: string;
   keybinding: string;
   aliases: string[];
+  keywords: string[];
 }
 
 function registrationOf(literal: string): Registration {
@@ -79,6 +80,7 @@ function registrationOf(literal: string): Registration {
     label: literalText(field(literal, "label")),
     keybinding: literalText(field(literal, "keybinding")),
     aliases: literalList(field(literal, "keybindingAliases")),
+    keywords: literalList(field(literal, "keywords")),
   };
 }
 

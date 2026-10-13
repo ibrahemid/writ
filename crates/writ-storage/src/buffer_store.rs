@@ -1,17 +1,19 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use writ_core::file_ops::THRESHOLD_NORMAL_BYTES;
+use writ_core::file_ops::{FileOpenMode, THRESHOLD_NORMAL_BYTES};
 
+use chrono::{DateTime, Utc};
 use rusqlite::Connection;
-use tracing::warn;
+use tracing::{info, warn};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
+use writ_core::hash::{digest_from_hex, digest_hex, sha256_bytes, Sha256Digest};
 use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::WriteOrigin;
-use writ_core::recovery::{
-    fingerprint_buffers, should_snapshot, RecoveredBuffer, SnapshotFingerprint,
+use writ_core::preview::scripts::{
+    opt_in_carries_over_write, opt_in_standing, FileLook, OptInStanding,
 };
 
 use crate::database::queries;
@@ -23,6 +25,8 @@ use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::note_history::NoteHistoryStore;
 use crate::notes_index;
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
+use crate::recovery::journal::{text_hash, JournalRead, UnsavedJournal};
+use crate::recovery::legacy::{carry_over_legacy_snapshots, LegacyCarryOver};
 use crate::recovery::snapshot::SnapshotManager;
 
 /// Called with a path and the bytes about to land on it, immediately before
@@ -41,7 +45,7 @@ pub type BeforeWrite<'a> = Option<&'a dyn Fn(&Path, &[u8])>;
 /// so it can exercise the flag on a machine where the flag cannot be set.
 pub type DatalessProbe<'a> = Option<&'a dyn Fn(&Path) -> Option<u32>>;
 
-/// What became of the text a relaunch recovered from the crash snapshot.
+/// What became of the text a relaunch took from the unsaved-text journal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecoveredText {
     /// The file already held this text, or had never been written at all, and
@@ -52,8 +56,8 @@ pub enum RecoveredText {
     /// written beside it.
     SetAside {
         /// What the note's file holds, which is not the recovered text.
-        /// `None` for a file that was never read, which is what an evicted
-        /// one is.
+        /// `None` for a file that was never read: an evicted one, or one over
+        /// the size Writ opens without asking.
         on_disk: Option<DiskState>,
         /// Where the recovered text went instead.
         copy: PathBuf,
@@ -103,7 +107,18 @@ pub struct BufferStore {
     /// line and the MCP server write notes without writing any database of
     /// the app's (ADR-031, and §4's one-writer rule for each SQLite file).
     history: Option<Arc<NoteHistoryStore>>,
-    last_snapshot_fingerprint: Option<SnapshotFingerprint>,
+    /// The notes index the app holds, which every write to the index goes
+    /// through (ADR-036 section 7).
+    ///
+    /// `None` in tests and tools that have no store: the index is then written
+    /// through this store's own connection.
+    notes_index: Option<Arc<notes_index::NotesIndexStore>>,
+    /// Whether this store has recorded its session as running
+    /// ([`Self::mark_session_running`]).
+    session_marked_running: bool,
+    /// Each note's text this session wrote beside the note as a dated copy,
+    /// as `(note id, text hash)` ([`Self::remember_text_written_beside`]).
+    texts_written_beside: HashSet<(String, String)>,
 }
 
 impl BufferStore {
@@ -114,7 +129,9 @@ impl BufferStore {
             buffers_dir,
             notes_root: None,
             history: None,
-            last_snapshot_fingerprint: None,
+            notes_index: None,
+            session_marked_running: false,
+            texts_written_beside: HashSet::new(),
         }
     }
 
@@ -134,6 +151,16 @@ impl BufferStore {
     /// it did before and keeps no versions.
     pub fn set_history(&mut self, history: Arc<NoteHistoryStore>) {
         self.history = Some(history);
+    }
+
+    /// Names the notes index the app holds, so a save's index write goes
+    /// through its one writer and keeps the names it holds in memory current.
+    ///
+    /// Set once, at startup, by the app. A save then holds the index's writer
+    /// for that one note, and a walk running at the time lets it in between
+    /// two files.
+    pub fn set_notes_index(&mut self, index: Arc<notes_index::NotesIndexStore>) {
+        self.notes_index = Some(index);
     }
 
     /// Returns the path to the retired mirror directory.
@@ -170,6 +197,13 @@ impl BufferStore {
         queries::get_buffer(&self.conn, id)
     }
 
+    /// Reads a buffer row by id, answering `None` when there is no row: a
+    /// note removed from history, whose unsaved text the journal can still
+    /// hold (ADR-044 §3).
+    pub fn find(&self, id: &str) -> StorageResult<Option<BufferDocument>> {
+        queries::find_buffer(&self.conn, id)
+    }
+
     /// Marks the buffer as history and stamps its `closed_at`.
     pub fn close(&self, id: &str) -> StorageResult<()> {
         queries::close_buffer(&self.conn, id)
@@ -194,7 +228,21 @@ impl BufferStore {
     }
 
     /// Restores a history buffer to active state.
+    ///
+    /// The note's new tab shows its file, so text the journal kept from the
+    /// tab it had before is released first ([`UnsavedJournal::release`]): no
+    /// save of the new tab carries that text, so none clears or replaces it,
+    /// and the next launch puts it on disk (ADR-044 §3). A note that is
+    /// already open keeps its tab's entry.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Consistency`] when the note has no row, and
+    /// [`StorageError::Database`] when a write fails.
     pub fn restore(&self, id: &str) -> StorageResult<()> {
+        if queries::get_buffer(&self.conn, id)?.status == BufferStatus::History {
+            UnsavedJournal::new(&self.conn).release(id)?;
+        }
         queries::restore_buffer(&self.conn, id)
     }
 
@@ -266,12 +314,12 @@ impl BufferStore {
     /// Passing no record is not a way around the guard: its question is
     /// whether the file changed since Writ last looked at it, and a caller
     /// with no record has not looked. The one caller in the app that is
-    /// genuinely in that position is the relaunch after an unclean shutdown,
-    /// which holds a snapshot of text and no record of the file it belongs to;
-    /// it does not come through here but through
+    /// genuinely in that position is the relaunch, which holds the text the
+    /// unsaved-text journal kept and no record of the file it belongs to; it
+    /// does not come through here but through
     /// [`Self::restore_recovered_content`], which compares against the file
-    /// itself and sets the snapshot aside rather than writing over a version
-    /// that arrived while Writ was down. What is left here is the plain write
+    /// itself and sets the text aside rather than writing over a version that
+    /// arrived while Writ was down. What is left here is the plain write
     /// for callers with no watcher and nothing to lose: tests, benches and
     /// one-shot tools.
     pub fn save_content(&self, id: &str, content: &str) -> StorageResult<()> {
@@ -310,11 +358,12 @@ impl BufferStore {
     /// holds.
     ///
     /// A row is indexed when it has a file, that file is inside the notes
-    /// folder, it is not read-only, and it opens with the full feature set. A
-    /// read-only row is a hex view or a document Writ generated; a large or
-    /// binary file is not text to search. Nothing here is fatal to a save: the
-    /// bytes are already durable, and a file whose metadata cannot be read is
-    /// picked up by the next reconcile.
+    /// folder under no name the walk of that folder skips
+    /// ([`notes_index::notes_walk_skips`]), it is not read-only, and it opens
+    /// with the full feature set. A read-only row is a hex view or a document
+    /// Writ generated; a large or binary file is not text to search. Nothing
+    /// here is fatal to a save: the bytes are already durable, and a file whose
+    /// metadata cannot be read is picked up by the next reconcile.
     fn index_note(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
         if doc.read_only || doc.size_bytes > THRESHOLD_NORMAL_BYTES {
             return Ok(());
@@ -323,13 +372,24 @@ impl BufferStore {
             return Ok(());
         };
         let path = Path::new(source_path);
-        if !self.is_within_notes(path) {
+        if !self.holds_as_note(path) {
             return Ok(());
         }
         let Some(note) = notes_index::IndexedNote::from_file(path) else {
             return Ok(());
         };
-        notes_index::NotesIndex::new(&self.conn).upsert(&note, content)
+        match &self.notes_index {
+            Some(index) => index.upsert(&note, content),
+            None => notes_index::NotesIndex::new(&self.conn).upsert(&note, content),
+        }
+    }
+
+    fn holds_as_note(&self, path: &Path) -> bool {
+        self.is_within_notes(path)
+            && self
+                .notes_root
+                .as_deref()
+                .is_some_and(|root| !notes_index::notes_walk_skips(root, path))
     }
 
     /// Whether `path` is inside the folder the notes index holds. Both sides
@@ -371,11 +431,23 @@ impl BufferStore {
     /// the file on every read rather than stored anywhere. Bytes that sniff
     /// as text but are not valid UTF-8 fall back to a lossy decode rather
     /// than failing the read.
+    ///
+    /// The file is measured before anything reads it. A file can grow past
+    /// the size Writ opens after its open measured it, while its tab waits to
+    /// be shown or while it is open, and such a file answers
+    /// [`StorageError::FileTooLarge`] with the size a stat found, none of it
+    /// read (ADR-019).
     pub fn read_content(&self, id: &str) -> StorageResult<String> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let Some(source_path) = doc.source_path.as_deref() else {
             return Ok(String::new());
         };
+        let size_bytes = std::fs::metadata(source_path)?.len();
+        if let FileOpenMode::Refused { .. } =
+            writ_core::file_ops::classify_size(size_bytes, doc.read_only)
+        {
+            return Err(StorageError::FileTooLarge { size_bytes });
+        }
         if doc.read_only {
             let bytes = std::fs::read(source_path)?;
             if writ_core::file_ops::is_binary_bytes(&bytes) {
@@ -417,14 +489,14 @@ impl BufferStore {
     /// Records a note's new file and the name that matches it, in one write.
     ///
     /// A rename moves the file and the name the tab shows together, so the two
-    /// are written in one transaction alongside the index refresh: two writes
-    /// leave a window where the row names one file and points at another, and
-    /// a crash inside that window is a note nobody can find.
+    /// are written in one transaction: two writes leave a window where the row
+    /// names one file and points at another, and a crash inside that window is
+    /// a note nobody can find.
     ///
-    /// `source_path` is where the file is now, so the index is re-keyed to it:
-    /// the row under the old path goes, and the file is indexed under the new
-    /// one. Writ's own rename is stamped into the watcher's ignore set, so the
-    /// notes watcher will not do this for it.
+    /// `source_path` is where the file is now, so once that transaction commits
+    /// the index is re-keyed to it: the row under the old path goes, and the
+    /// file is indexed under the new one. Writ's own rename is stamped into the
+    /// watcher's ignore set, so the notes watcher will not do this for it.
     pub fn rename_to_file(&self, id: &str, source_path: &str, title: &str) -> StorageResult<()> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let old_path = doc.source_path.clone();
@@ -442,7 +514,11 @@ impl BufferStore {
         if let Some(old_path) = old_path {
             let old = Path::new(&old_path);
             if self.is_within_notes(old) {
-                notes_index::NotesIndex::new(&self.conn).remove(&notes_index::index_key(old))?;
+                match &self.notes_index {
+                    Some(index) => index.forget_path(old)?,
+                    None => notes_index::NotesIndex::new(&self.conn)
+                        .remove(&notes_index::index_key(old))?,
+                }
             }
         }
         self.index_note(&renamed, &content)
@@ -490,7 +566,9 @@ impl BufferStore {
     /// Run once at startup to clear accumulated empty rows. Safe only when no
     /// note has unflushed content (true at launch), and only after the notes
     /// migration has run: a row it wrote into the archive keeps a `NULL`
-    /// `source_path` and is excluded by its `migrated_path`.
+    /// `source_path` and is excluded by its `migrated_path`. A note whose text
+    /// is in the unsaved-text journal is not empty and is kept
+    /// ([`queries::list_unsaved_notes`]).
     pub fn reclaim_empty_scratch(&self) -> StorageResult<usize> {
         let candidates = queries::list_unsaved_notes(&self.conn)?;
         let mut reclaimed = 0;
@@ -516,6 +594,41 @@ impl BufferStore {
         }
         queries::update_source_path(&self.conn, id, source_path)?;
         queries::update_timestamp(&self.conn, id)
+    }
+
+    /// Takes back a file [`Self::attach_source_path`] gave a note when there is
+    /// nothing at it, and answers whether it did.
+    ///
+    /// A path on a row says the note has a file. The first save of a new note
+    /// attaches the path it mints before it writes, so a write that makes
+    /// nothing there leaves the row naming a file that never existed, which a
+    /// relaunch cannot tell from one somebody deleted
+    /// ([`writ_core::recovery::plan_recovery`]). Without the path the note is
+    /// one that never had a file, and the next write mints one again.
+    ///
+    /// Nothing changes when something is at the path or the row names another
+    /// one. A path the filesystem will not describe counts as having nothing
+    /// at it, which is how the relaunch reads a row's path too.
+    pub fn detach_source_path_with_no_file(
+        &self,
+        id: &str,
+        source_path: &str,
+    ) -> StorageResult<bool> {
+        if std::fs::symlink_metadata(source_path).is_ok() {
+            return Ok(false);
+        }
+        queries::clear_source_path(&self.conn, id, source_path)
+    }
+
+    /// Takes back a file [`Self::attach_source_path`] gave a note, whether or
+    /// not something is at it, and answers whether it did.
+    ///
+    /// For a write to a place the person chose for a note with no file: the
+    /// note had none before, so a write that did not land leaves it with none,
+    /// even when a file the person meant to replace is still at the path.
+    /// Nothing changes when the row names another path.
+    pub fn detach_source_path(&self, id: &str, source_path: &str) -> StorageResult<bool> {
+        queries::clear_source_path(&self.conn, id, source_path)
     }
 
     /// Rewrites a note's file path after the file moved or was renamed.
@@ -646,6 +759,7 @@ impl BufferStore {
         // make every save of an untouched Windows note look like a change.
         let content = doc.line_ending.apply(content);
 
+        let carries_opt_in = self.settle_preview_scripts_before_write(id, path);
         let keep = self.history.as_deref().map(crate::guarded::keep_versions);
         let outcome = write_note_guarded(
             GuardedWrite {
@@ -660,17 +774,20 @@ impl BufferStore {
             },
             before_write,
         )?;
+        if carries_opt_in {
+            self.record_preview_scripts_bytes(id, &outcome.disk_state);
+        }
         Ok((doc, outcome.disk_state))
     }
 
-    /// Writes text recovered from the crash snapshot into the note's file,
-    /// unless the file moved on while Writ was down.
+    /// Writes text the unsaved-text journal kept into the note's file, unless
+    /// the file moved on while Writ was down (ADR-044).
     ///
     /// The relaunch is the one caller that holds text and no record of the
     /// file it belongs to, so the guard has nothing to compare and would let
     /// it through. It must not: a sync client can deliver a newer version of a
-    /// note between the crash and the relaunch, and writing a pre-crash
-    /// snapshot over it destroys work with nothing left to recover it from.
+    /// note between the crash and the relaunch, and writing the older text
+    /// over it destroys work with nothing left to recover it from.
     ///
     /// A file that already holds the recovered text is left alone and reported
     /// as restored, because it is: rewriting identical bytes only moves the
@@ -687,10 +804,17 @@ impl BufferStore {
     ///
     /// A file whose bytes are not on this machine is never opened. Reading one
     /// makes the provider daemon fetch it (ADR-028 §5), and a relaunch that
-    /// pulled down every evicted note to compare it against a snapshot would
+    /// pulled down every evicted note to compare it against the journal would
     /// be the worst moment to do that. It takes the same route as a file that
-    /// moved on: left alone, snapshot beside it, and nothing recorded about
-    /// what it holds, so the first save reads it then.
+    /// moved on: left alone, the text beside it, and nothing recorded about
+    /// what it holds, so the first save reads it then. So does a file over the
+    /// size Writ opens without asking, which is measured and not read
+    /// ([`writ_core::recovery::reads_file_to_restore`]): its tab comes up
+    /// unread, and nothing reads it before the person says Open.
+    ///
+    /// The text is written with the note's own line ending, as a save writes
+    /// it: the journal holds the editor's text, whose breaks are LF whatever
+    /// the file uses.
     ///
     /// The index and the `updated_at` stamp are left alone: the relaunch
     /// reindexes what it restored through the ordinary path, and a note whose
@@ -722,18 +846,20 @@ impl BufferStore {
             .clone();
         let path = Path::new(&source_path);
 
-        // No line-ending encode here. The snapshot holds what the file held,
-        // read byte for byte, so it already carries the file's own endings.
-        // Re-encoding would settle a file whose endings are mixed onto its
-        // majority, and the hash below would then read that as the file having
-        // moved on and set the text aside beside a note nobody changed.
+        // The journal holds the editor's text, so the note's own ending goes
+        // back on before it is compared or written. An entry carried over
+        // from a 0.5 snapshot can instead hold the file's bytes as they were
+        // read, mixed endings and all, which re-encoding would settle onto
+        // their majority; so the text as kept is compared too, and a file
+        // holding either is one nothing happened to.
+        let encoded = doc.line_ending.apply(content);
 
         let flags = match dataless {
             Some(probe) => probe(path),
             None => dataless_flags(path),
         };
         if is_not_downloaded(flags) {
-            let copy = write_recovered_copy(path, content, chrono::Utc::now(), before_write)?;
+            let copy = write_recovered_copy(path, &encoded, chrono::Utc::now(), before_write)?;
             warn!(
                 note = %path.display(),
                 recovered = %copy.display(),
@@ -745,12 +871,30 @@ impl BufferStore {
             });
         }
 
-        let incoming = writ_core::hash::sha256_bytes(content.as_bytes());
+        let measured = std::fs::metadata(path)
+            .ok()
+            .filter(|meta| meta.is_file())
+            .map(|meta| meta.len());
+        if measured.is_some_and(|size| !writ_core::recovery::reads_file_to_restore(size)) {
+            let copy = write_recovered_copy(path, &encoded, chrono::Utc::now(), before_write)?;
+            warn!(
+                note = %path.display(),
+                recovered = %copy.display(),
+                "the file is over the size Writ opens without asking; the recovered text was written beside it"
+            );
+            return Ok(RecoveredText::SetAside {
+                on_disk: None,
+                copy,
+            });
+        }
+
+        let incoming = writ_core::hash::sha256_bytes(encoded.as_bytes());
+        let as_kept = writ_core::hash::sha256_bytes(content.as_bytes());
         let on_disk = read_disk_state(path)?;
 
         if let Some(state) = on_disk {
-            if state.hash != incoming {
-                let copy = write_recovered_copy(path, content, chrono::Utc::now(), before_write)?;
+            if state.hash != incoming && state.hash != as_kept {
+                let copy = write_recovered_copy(path, &encoded, chrono::Utc::now(), before_write)?;
                 warn!(
                     note = %path.display(),
                     recovered = %copy.display(),
@@ -769,11 +913,12 @@ impl BufferStore {
             return Ok(RecoveredText::Restored(state));
         }
 
+        let carries_opt_in = self.settle_preview_scripts_before_write(id, path);
         let keep = self.history.as_deref().map(crate::guarded::keep_versions);
         let outcome = write_note_guarded(
             GuardedWrite {
                 target: path,
-                bytes: content.as_bytes(),
+                bytes: encoded.as_bytes(),
                 last_known: None,
                 // The read above found no file at the path, so there is
                 // nothing for the guard to weigh the write against.
@@ -785,6 +930,9 @@ impl BufferStore {
             },
             before_write,
         )?;
+        if carries_opt_in {
+            self.record_preview_scripts_bytes(id, &outcome.disk_state);
+        }
         Ok(RecoveredText::Restored(outcome.disk_state))
     }
 
@@ -798,19 +946,120 @@ impl BufferStore {
         queries::update_line_ending(&self.conn, id, ending)
     }
 
-    /// Whether this document's own scripts may run in its preview. Off for
-    /// every document until the user opts the file in (decision RC-D1/TS-D1).
+    /// The preview-scripts opt-in as recorded on the row, before it is checked
+    /// against the file. What a render obeys is [`Self::check_preview_scripts`].
     pub fn preview_scripts(&self, id: &str) -> StorageResult<bool> {
         queries::get_preview_scripts(&self.conn, id)
     }
 
-    /// Records the per-document preview-scripts opt-in, remembered on the
-    /// buffer row so it survives a relaunch.
-    pub fn set_preview_scripts(&self, id: &str, enabled: bool) -> StorageResult<()> {
-        queries::set_preview_scripts(&self.conn, id, enabled)
+    /// Whether this document's own scripts may run in its preview: the user
+    /// opted the file in, and the file still holds bytes the opt-in covers
+    /// (ADR-043). Off for every document until the user opts the file in
+    /// (decision RC-D1/TS-D1).
+    ///
+    /// The opt-in covers what the file held when it was given and what Writ
+    /// has written to it since. A file that holds anything else was changed by
+    /// another program, with its tab open or closed or while Writ was not
+    /// running, and the opt-in lapses here. A file that cannot be checked runs
+    /// nothing this time and keeps the opt-in; one whose bytes are not on this
+    /// machine is not read, since reading it would fetch it (ADR-028 §5).
+    pub fn check_preview_scripts(&self, id: &str) -> StorageResult<bool> {
+        let Some(opt_in) = queries::get_preview_scripts_opt_in(&self.conn, id)? else {
+            return Ok(false);
+        };
+        if !opt_in.enabled {
+            return Ok(false);
+        }
+        let read = read_opted_in_file(opt_in.source_path.as_deref().map(Path::new));
+        let recorded = opt_in.recorded_hash.as_deref().and_then(digest_from_hex);
+        match opt_in_standing(recorded, file_look(&read)) {
+            OptInStanding::Stands => Ok(true),
+            OptInStanding::Unchecked => {
+                if let Err(error) = &read {
+                    warn!(buffer = %id, %error, "the file behind a preview-scripts opt-in could not be checked; its scripts stay off");
+                }
+                Ok(false)
+            }
+            OptInStanding::Lapses => {
+                queries::disable_preview_scripts(&self.conn, id)?;
+                info!(buffer = %id, "the file changed outside Writ; its preview-scripts opt-in lapsed");
+                Ok(false)
+            }
+        }
     }
 
-    /// Updates the detected or user-assigned language for a buffer.
+    /// Records the per-document preview-scripts opt-in, remembered on the
+    /// buffer row so it survives a relaunch. Opting in records the digest of
+    /// what the file holds now, the bytes the opt-in covers; opting out
+    /// forgets it.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::BufferMissing`] for an id with no row;
+    /// [`StorageError::SourceNotDownloaded`] when opting in a file whose bytes
+    /// are not on this machine; [`StorageError::Io`] when the file cannot be
+    /// read.
+    pub fn set_preview_scripts(&self, id: &str, enabled: bool) -> StorageResult<()> {
+        if !enabled {
+            return queries::disable_preview_scripts(&self.conn, id);
+        }
+        let opt_in = queries::get_preview_scripts_opt_in(&self.conn, id)?
+            .ok_or_else(|| StorageError::BufferMissing { id: id.to_string() })?;
+        let hash =
+            read_opted_in_file(opt_in.source_path.as_deref().map(Path::new))?.map(digest_hex);
+        queries::enable_preview_scripts(&self.conn, id, hash.as_deref())
+    }
+
+    /// Whether `id`'s preview-scripts opt-in carries over the write Writ is
+    /// about to make to `path` (ADR-043). An opt-in whose file holds bytes it
+    /// does not cover, or cannot be checked, lapses here, so a save cannot
+    /// pass another program's change off as Writ's. A failure to read or
+    /// clear the opt-in is logged and the write goes ahead without it: a save
+    /// never fails over a preview setting.
+    fn settle_preview_scripts_before_write(&self, id: &str, path: &Path) -> bool {
+        let opt_in = match queries::get_preview_scripts_opt_in(&self.conn, id) {
+            Ok(Some(opt_in)) if opt_in.enabled => opt_in,
+            Ok(_) => return false,
+            Err(error) => {
+                warn!(buffer = %id, %error, "could not read the preview-scripts opt-in before a save");
+                return false;
+            }
+        };
+        let recorded = opt_in.recorded_hash.as_deref().and_then(digest_from_hex);
+        if opt_in_carries_over_write(recorded, file_look(&read_opted_in_file(Some(path)))) {
+            return true;
+        }
+        match queries::disable_preview_scripts(&self.conn, id) {
+            Ok(()) => {
+                info!(buffer = %id, "the file held bytes its preview-scripts opt-in does not cover, or could not be checked, before a save; the opt-in lapsed")
+            }
+            Err(error) => {
+                warn!(buffer = %id, %error, "could not clear a lapsed preview-scripts opt-in")
+            }
+        }
+        false
+    }
+
+    /// Records the bytes Writ just wrote to `id`'s file as the ones its
+    /// preview-scripts opt-in covers. A failure is logged; the opt-in then
+    /// lapses at its next check.
+    fn record_preview_scripts_bytes(&self, id: &str, written: &DiskState) {
+        if let Err(error) =
+            queries::record_preview_scripts_hash(&self.conn, id, &digest_hex(written.hash))
+        {
+            warn!(buffer = %id, %error, "could not record the bytes a preview-scripts opt-in covers");
+        }
+    }
+
+    /// Records the size a stat measured for a buffer's file, so everything
+    /// that reads its tier off the row (the editor, the index) sees the file
+    /// as it is now. Leaves `updated_at` alone.
+    pub fn record_size(&self, id: &str, size_bytes: u64) -> StorageResult<()> {
+        queries::update_size(&self.conn, id, size_bytes)
+    }
+
+    /// Records the language chosen for a buffer, or clears the choice with
+    /// `None`. Leaves `updated_at` alone.
     pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {
         queries::update_language(&self.conn, id, language)
     }
@@ -866,45 +1115,130 @@ impl BufferStore {
         Ok(reconciled)
     }
 
-    /// Returns `true` when the most recent session snapshot was not written
+    /// Returns `true` when the most recent session marker was not written
     /// with a clean flag, indicating the previous run crashed or was
-    /// force-quit.
+    /// force-quit. For the launch's log: nothing is restored on its account.
     pub fn is_dirty_shutdown(&self) -> StorageResult<bool> {
         check_dirty_shutdown(&self.conn)
     }
 
-    /// Writes a session snapshot containing the given buffer contents.
+    /// Records that this session is running, the first time it is asked.
     ///
-    /// Snapshots are pruned to the retention limit after each write. Pass
-    /// `is_clean = true` on a graceful shutdown; pass `false` for periodic
-    /// heartbeat snapshots written while the app is running.
-    pub fn write_session_snapshot(
-        &self,
-        buffer_contents: &HashMap<String, String>,
-        is_clean: bool,
-    ) -> StorageResult<()> {
-        let extra = serde_json::Value::Object(serde_json::Map::new());
-        let mgr = SnapshotManager::new(&self.conn);
-        mgr.write_session_snapshot(buffer_contents, &extra, is_clean)
-    }
-
-    /// Writes a heartbeat snapshot only when the buffer contents differ from
-    /// the last snapshot this store wrote.
-    ///
-    /// Returns `true` when a snapshot was written. The unconditional variant
-    /// stays available for shutdown, where the `is_clean` marker itself is the
-    /// payload and must be recorded whatever the content is.
-    pub fn write_session_snapshot_if_changed(
-        &mut self,
-        buffer_contents: &HashMap<String, String>,
-    ) -> StorageResult<bool> {
-        let fingerprint = fingerprint_buffers(buffer_contents);
-        if !should_snapshot(self.last_snapshot_fingerprint, fingerprint) {
+    /// An unclean marker with no text (ADR-044 §6): written once per store and
+    /// never again, so the heartbeat that asks every two minutes costs one
+    /// insert per session. Returns whether this call wrote it.
+    pub fn mark_session_running(&mut self) -> StorageResult<bool> {
+        if self.session_marked_running {
             return Ok(false);
         }
-        self.write_session_snapshot(buffer_contents, false)?;
-        self.last_snapshot_fingerprint = Some(fingerprint);
+        SnapshotManager::new(&self.conn).mark_running()?;
+        self.session_marked_running = true;
         Ok(true)
+    }
+
+    /// Records that this session ended cleanly, as the last thing a quit
+    /// writes.
+    pub fn mark_session_clean(&self) -> StorageResult<()> {
+        SnapshotManager::new(&self.conn).mark_clean()
+    }
+
+    /// Keeps `text` as what note `id`'s tab holds that its file does not,
+    /// until a save of that tab lands (ADR-044). It replaces the tab's earlier
+    /// text and leaves released entries alone ([`UnsavedJournal`]).
+    ///
+    /// The entry names the note's file as the row has it now. A read-only
+    /// note is skipped and `false` comes back: what its tab shows is not text
+    /// anybody typed, and the launch could not write it back anyway
+    /// ([`Self::restore_recovered_content`] refuses the row).
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Consistency`] when the note has no row, and
+    /// [`StorageError::Database`] when the entry cannot be written.
+    pub fn record_unsaved_text(
+        &self,
+        id: &str,
+        text: &str,
+        recorded_at: DateTime<Utc>,
+    ) -> StorageResult<bool> {
+        let doc = queries::get_buffer(&self.conn, id)?;
+        if doc.read_only {
+            return Ok(false);
+        }
+        UnsavedJournal::new(&self.conn).record(
+            id,
+            doc.source_path.as_deref(),
+            text,
+            recorded_at,
+        )?;
+        Ok(true)
+    }
+
+    /// Remembers that a dated copy beside note `id` holds `text`, the text its
+    /// tab held: a save the guard stopped wrote it there, or an answer to a
+    /// changed file set it aside. Kept for this session only, by hash.
+    pub fn remember_text_written_beside(&mut self, id: &str, text: &str) {
+        self.texts_written_beside
+            .insert((id.to_string(), text_hash(text)));
+    }
+
+    /// Whether a dated copy this session wrote beside note `id` holds `text`
+    /// ([`Self::remember_text_written_beside`]), compared by hash.
+    ///
+    /// What the close and the quit hand to the journal is checked against
+    /// this: text already in a file needs no second copy at the next launch
+    /// (ADR-033 decision 15).
+    pub fn copy_beside_holds(&self, id: &str, text: &str) -> bool {
+        self.texts_written_beside
+            .contains(&(id.to_string(), text_hash(text)))
+    }
+
+    /// Drops the journal entry of note `id`'s tab, returning whether there was
+    /// one. Released entries stay for the launch.
+    pub fn clear_unsaved_text(&self, id: &str) -> StorageResult<bool> {
+        UnsavedJournal::new(&self.conn).clear(id)
+    }
+
+    /// Releases every tab's journal entry, returning how many there were: a
+    /// launch's tabs come up showing their files, so no save of theirs
+    /// carries any journaled text.
+    pub fn release_unsaved_text(&self) -> StorageResult<usize> {
+        UnsavedJournal::new(&self.conn).release_all()
+    }
+
+    /// Makes journal entry `entry_id` its note's tab entry again, returning
+    /// whether it was there: the launch handed its text to the tab, so the
+    /// tab's next landed save settles it.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Database`] when the note's tab already has an entry or
+    /// the write fails.
+    pub fn give_unsaved_text_to_tab(&self, entry_id: i64) -> StorageResult<bool> {
+        UnsavedJournal::new(&self.conn).give_to_tab(entry_id)
+    }
+
+    /// Drops journal entry `entry_id`, whose text the launch has put on disk,
+    /// returning whether it was there.
+    pub fn remove_unsaved_text_entry(&self, entry_id: i64) -> StorageResult<bool> {
+        UnsavedJournal::new(&self.conn).remove(entry_id)
+    }
+
+    /// Everything the journal holds. A row that does not decode is logged,
+    /// left in the table and reported apart from the rest.
+    pub fn unsaved_text(&self) -> StorageResult<JournalRead> {
+        UnsavedJournal::new(&self.conn).read()
+    }
+
+    /// How many notes have an entry in the journal.
+    pub fn unsaved_text_count(&self) -> StorageResult<usize> {
+        UnsavedJournal::new(&self.conn).count()
+    }
+
+    /// Moves what a 0.5 snapshot was holding into the journal and empties the
+    /// snapshots of note text ([`carry_over_legacy_snapshots`]).
+    pub fn carry_over_legacy_snapshots(&self) -> StorageResult<LegacyCarryOver> {
+        carry_over_legacy_snapshots(&self.conn)
     }
 
     /// Returns page accounting for the underlying database file.
@@ -921,13 +1255,14 @@ impl BufferStore {
     /// Records that a note's file was read into its tab, with the bytes that
     /// were read.
     ///
-    /// The row's `updated_at` is what a relaunch compares the last crash
-    /// snapshot against ([`writ_core::recovery::resolve_recovery`]). A file
-    /// that changed under an open tab and was reloaded into it never moved
-    /// that stamp, so a snapshot taken before the change read as newer than
-    /// the row and was written back over the file: an applied edit reverted by
-    /// the next unclean launch. Reading a file into a tab is Writ learning
-    /// what it holds, so it moves the stamp.
+    /// The row's `updated_at` records when Writ last learned what the file
+    /// holds. A file that changed under an open tab and was reloaded into it
+    /// used to leave that stamp where it was, and 0.5's crash snapshot, taken
+    /// before the change, then read as newer than the row and was written back
+    /// over the file: an applied edit reverted by the next unclean launch.
+    /// Reading a file into a tab is Writ learning what it holds, so it moves
+    /// the stamp. The one comparison left that reads it is the carry-over of a
+    /// 0.5 snapshot ([`writ_core::recovery::resolve_recovery`]).
     ///
     /// Hands back the state the file is now known to be in, which the caller
     /// records for the write guard rather than hashing the same bytes twice.
@@ -954,59 +1289,6 @@ impl BufferStore {
                 .ok()
                 .and_then(|meta| meta.modified().ok()),
         }))
-    }
-
-    /// Resolves which buffers should be restored from the latest dirty
-    /// snapshot.
-    ///
-    /// Reads current `updated_at` timestamps from the database, then
-    /// delegates to [`SnapshotManager::recover_buffers`].
-    ///
-    /// Closed notes are considered as well as open ones. A note whose save was
-    /// refused and whose tab was then closed hands its text to the shutdown
-    /// snapshot on the way out; the row has moved to `history` by then, and
-    /// looking at open notes alone would drop the one entry the snapshot was
-    /// written for. A note whose row is gone entirely is still dropped: there
-    /// is no file left to write it to.
-    pub fn resolve_recovery(&self) -> StorageResult<Vec<RecoveredBuffer>> {
-        let mut updated_at_map: HashMap<String, String> = HashMap::new();
-        for status in [BufferStatus::Active, BufferStatus::History] {
-            for buf in self.list_by_status(status)? {
-                updated_at_map.insert(
-                    buf.id.clone(),
-                    buf.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
-                );
-            }
-        }
-        let mgr = SnapshotManager::new(&self.conn);
-        mgr.recover_buffers(&updated_at_map)
-    }
-
-    /// Collects the current on-disk content of every active note.
-    ///
-    /// Notes that have not reached a file, and notes whose file cannot be
-    /// read, are silently skipped; the snapshot simply contains fewer
-    /// entries.
-    ///
-    /// Buffers in the large-file or binary tiers (`size_bytes >
-    /// THRESHOLD_NORMAL_BYTES`) are excluded. Reading hundreds of megabytes in
-    /// the periodic heartbeat would spike RAM and provide little recovery
-    /// value (the file still exists on disk).
-    pub fn collect_buffer_contents(&self) -> StorageResult<HashMap<String, String>> {
-        let active = self.list_by_status(BufferStatus::Active)?;
-        let mut map = HashMap::new();
-        for buf in active {
-            if buf.size_bytes > THRESHOLD_NORMAL_BYTES {
-                continue;
-            }
-            let Some(source_path) = buf.source_path.as_deref() else {
-                continue;
-            };
-            if let Ok(content) = std::fs::read_to_string(source_path) {
-                map.insert(buf.id, content);
-            }
-        }
-        Ok(map)
     }
 }
 
@@ -1071,6 +1353,35 @@ pub fn read_note_file_state(path: &Path) -> StorageResult<Option<NoteFileState>>
 /// What `path` holds right now, for the write guard alone.
 pub fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
     Ok(read_note_file_state(path)?.map(|state| state.disk))
+}
+
+/// The digest of what an opted-in document's file holds, for the
+/// preview-scripts check: `None` when it has no file or nothing is at the
+/// path. A file whose bytes are not on this machine is refused unread, since
+/// reading it would fetch it (ADR-028 §5).
+fn read_opted_in_file(path: Option<&Path>) -> StorageResult<Option<Sha256Digest>> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    if is_not_downloaded(dataless_flags(path)) {
+        return Err(StorageError::SourceNotDownloaded {
+            path: path.display().to_string(),
+        });
+    }
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(sha256_bytes(&bytes))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// What a read of an opted-in document's file tells the preview-scripts check.
+fn file_look(read: &StorageResult<Option<Sha256Digest>>) -> FileLook {
+    match read {
+        Ok(None) => FileLook::Absent,
+        Ok(Some(digest)) => FileLook::Holds(*digest),
+        Err(_) => FileLook::Unread,
+    }
 }
 
 /// The names `dir` already holds, lowercased the way the dedupe compares them.

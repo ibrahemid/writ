@@ -30,19 +30,51 @@ fn default_first_seen() -> chrono::DateTime<chrono::Utc> {
 /// for itself and never an identity (ADR-031 rule 3.1). It is matched exactly:
 /// a name differing by case or by surrounding space is a different client and
 /// starts at pending.
+///
+/// Read through [`StoredApproval`], so an entry granting writing loads as
+/// granting reading too, in the app and in the server alike: both parse this
+/// type, whichever section they read it from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "StoredApproval")]
 pub struct ClientApproval {
     /// The name the client sent.
     pub name: String,
     /// When Writ first saw a call from this name.
-    #[serde(default = "default_first_seen")]
     pub first_seen: chrono::DateTime<chrono::Utc>,
     /// Whether it may run the read tools.
-    #[serde(default)]
     pub read: bool,
     /// Whether it may run the write tools.
-    #[serde(default)]
     pub write: bool,
+}
+
+impl ClientApproval {
+    /// Whether the entry grants nothing: the person decided the program may
+    /// neither read nor write.
+    pub fn grants_nothing(&self) -> bool {
+        !self.read && !self.write
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct StoredApproval {
+    name: String,
+    #[serde(default = "default_first_seen")]
+    first_seen: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    read: bool,
+    #[serde(default)]
+    write: bool,
+}
+
+impl From<StoredApproval> for ClientApproval {
+    fn from(stored: StoredApproval) -> Self {
+        Self {
+            name: stored.name,
+            first_seen: stored.first_seen,
+            read: stored.read || stored.write,
+            write: stored.write,
+        }
+    }
 }
 
 /// Configuration for the MCP server (`[mcp]`).
@@ -134,6 +166,56 @@ mod tests {
         assert!(!approval.read);
         assert!(!approval.write);
         assert_eq!(approval.first_seen, default_first_seen());
+    }
+
+    #[test]
+    fn an_entry_granting_neither_direction_loads_as_a_decision_that_grants_nothing() {
+        let config: WritConfig = toml::from_str(
+            "[mcp]\n[[mcp.approved_clients]]\nname = \"Zed\"\nread = false\nwrite = false\n",
+        )
+        .expect("parse");
+        let approval = config.mcp.approval_for("Zed").expect("the client");
+        assert!(approval.grants_nothing());
+
+        let reading = ClientApproval {
+            name: "Zed".to_string(),
+            first_seen: default_first_seen(),
+            read: true,
+            write: false,
+        };
+        assert!(!reading.grants_nothing());
+    }
+
+    #[test]
+    fn a_normalised_entry_round_trips_as_it_loaded() {
+        let config: WritConfig = toml::from_str(
+            "[mcp]\n[[mcp.approved_clients]]\nname = \"Claude Code\"\nwrite = true\n",
+        )
+        .expect("parse");
+        let text = toml::to_string(&config).expect("serialise");
+        let again: WritConfig = toml::from_str(&text).expect("parse again");
+        assert_eq!(again.mcp, config.mcp);
+        let approval = again.mcp.approval_for("Claude Code").expect("the client");
+        assert!(approval.read && approval.write);
+    }
+
+    #[test]
+    fn writing_implies_reading_once_the_settings_are_loaded() {
+        let text = "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Claude Code\"\nread = false\nwrite = true\n";
+
+        let config: WritConfig = toml::from_str(text).expect("parse");
+        let approval = config.mcp.approval_for("Claude Code").expect("the client");
+        assert!(approval.read, "the whole settings file");
+        assert!(approval.write);
+
+        #[derive(Deserialize)]
+        struct SectionOnly {
+            mcp: McpConfig,
+        }
+        let section: SectionOnly = toml::from_str(text).expect("parse");
+        let approval = section.mcp.approval_for("Claude Code").expect("the client");
+        assert!(approval.read, "the section on its own");
+        assert!(approval.write);
     }
 
     #[test]

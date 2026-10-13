@@ -8,13 +8,14 @@
 //! tab keys the same rows the walk wrote, and it hands the editor an
 //! `Ambiguous` result whole rather than picking one of the candidates.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use serde::Serialize;
 use tauri::State;
+use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::notes::links::{self, Resolution};
-use writ_storage::notes_index::{self, NotesIndexStore};
+use writ_storage::notes_index::{self, NotesIndexStore, ReconcileOutcome};
 
 use crate::state::AppState;
 
@@ -150,6 +151,74 @@ pub struct NoteFolderHit {
     /// The notes under it, the subfolders included, which is what picking it
     /// attaches.
     pub notes: u32,
+}
+
+/// Tells everything holding a read of the index that Writ wrote rows for
+/// `paths` itself (ADR-036 section 4).
+///
+/// The notes watcher drops every write Writ makes, so a save, a new file, a
+/// rename, a delete, a restore or a copy reaches a surface showing the index
+/// only through this. It is called after the index call returns, so a surface
+/// that reads again on the event reads the new rows.
+///
+/// One call is one event: a rename that rewrote forty notes names all of them
+/// in one message rather than raising forty. Each path is named once, in the
+/// order given, and a call naming nothing raises nothing.
+pub fn announce_indexed<I>(bus: &EventBus, paths: I)
+where
+    I: IntoIterator<Item = String>,
+{
+    let mut seen = HashSet::new();
+    let paths: Vec<String> = paths
+        .into_iter()
+        .filter(|path| !path.is_empty() && seen.insert(path.clone()))
+        .collect();
+    if paths.is_empty() {
+        return;
+    }
+    bus.emit(WritEvent::NotesIndexed { paths });
+}
+
+/// Whether a file Writ wrote at `path` has rows in the notes index: it is in
+/// the notes folder, under no name the walk of that folder skips
+/// ([`notes_index::notes_walk_skips`]).
+pub(crate) fn holds_own_write(state: &AppState, path: &Path) -> bool {
+    crate::commands::notes::path_is_inside_notes(state, &path.to_string_lossy())
+        && !notes_index::notes_walk_skips(&state.notes_root(), path)
+}
+
+/// Writes the rows of a copy Writ just wrote beside a file, and returns the
+/// path to announce it under ([`announce_indexed`]).
+///
+/// Every such copy is stamped for the watcher, which therefore never reports
+/// it: Save a copy, Copy this version, the text the change bar sets aside, and
+/// the text a stopped save sets aside. Without this the copy stays out of
+/// search, the tags and the graph until the next walk. A copy outside the
+/// notes folder, or under a name the walk of that folder skips, has no rows to
+/// write and returns `None`. A row that could not be written is logged and the
+/// copy still announced, so the tree lists what is on disk.
+pub fn index_copy(state: &AppState, path: &Path) -> Option<String> {
+    if !holds_own_write(state, path) {
+        return None;
+    }
+    if let Err(error) = state.notes_index.index_path(path) {
+        tracing::warn!(path = %path.display(), %error, "a copy could not be indexed");
+    }
+    Some(notes_index::index_key(path))
+}
+
+/// [`announce_indexed`] for a walk of the notes folder, which names the folder
+/// itself, and only when the walk changed a row.
+///
+/// A walk changes rows nobody named: a file added while Writ was closed, a
+/// database deleted and rebuilt, a sync client catching up past the watcher.
+/// A walk that found the index already right says nothing, so a launch over
+/// an unchanged folder costs no re-read.
+pub fn announce_walk(bus: &EventBus, root: &Path, outcome: &ReconcileOutcome) {
+    if outcome.added + outcome.updated + outcome.removed == 0 {
+        return;
+    }
+    announce_indexed(bus, [notes_index::index_key(root)]);
 }
 
 /// The folder part of `path` inside `notes_root`, as [`NoteNameHit::folder`]

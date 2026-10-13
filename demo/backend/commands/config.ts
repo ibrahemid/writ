@@ -30,6 +30,7 @@ export function createConfigCommands(state: DemoState): CommandTable {
     set_caption_button_metrics: () => null,
     confirm_quit_flush: () => null,
     record_unsaved_notes: () => null,
+    discard_unsaved_text: () => null,
     // The updater is the host's; from a page its request reaches nothing.
     check_for_update: () => {
       const emitPhase = (payload: unknown) => state.bridge.emit("writ://update-status", { kind: "update:status", payload });
@@ -58,6 +59,7 @@ export function createConfigCommands(state: DemoState): CommandTable {
       sync_provider: null,
     }),
     list_workspace_dir: (args) => state.folder.list(String(args.dirPath)),
+    list_notes_dir: (args) => state.folder.list(String(args.dirPath)),
     workspace_index_status: (): IndexStatus => ({
       file_count: state.listFolderNotes().length,
       truncated: false,

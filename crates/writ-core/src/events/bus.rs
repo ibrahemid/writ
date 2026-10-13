@@ -91,6 +91,24 @@ pub enum WritEvent {
         /// be listed.
         root: String,
     },
+    /// Writ wrote rows of the notes index itself, after a write of its own:
+    /// a save's deferred reindex, a file it created, renamed, deleted,
+    /// restored or copied, a walk of the folder, or the folder moving.
+    ///
+    /// The notes watcher drops Writ's own writes, so none of these ever
+    /// raises [`Self::NotesChanged`]; this is how everything holding a read
+    /// of the index hears that the rows moved. It is emitted after the index
+    /// call returns, so a reader asking again reads the new rows. One
+    /// operation is one event, however many files it touched.
+    ///
+    /// Like [`Self::NotesChanged`], it must never route into a reload of the
+    /// document registry (PR #127).
+    NotesIndexed {
+        /// The files whose rows changed, each once, spelled the way the index
+        /// keys them. A walk or a folder move names the notes folder itself,
+        /// standing for every file under it.
+        paths: Vec<String>,
+    },
     /// A qualifying new file appeared inside the watched inbox folder
     /// (ADR-018). The frontend opens it through the normal open path.
     InboxFileArrived {
@@ -107,6 +125,11 @@ pub enum WritEvent {
         /// `command.id` registered in the frontend command palette.
         action: String,
     },
+    /// The list of programs waiting to be approved, `mcp-pending.json` in
+    /// Writ's data folder, changed on disk. A `writ mcp` process writes it the
+    /// moment a program nobody has decided on first calls. Carries nothing:
+    /// the host reads the file whole when it answers.
+    McpPendingChanged,
     /// The application is shutting down and the frontend may still be holding
     /// text inside the autosave debounce window. Listeners write everything
     /// pending and confirm; the shutdown path waits for that confirmation, but

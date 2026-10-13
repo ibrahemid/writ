@@ -25,12 +25,35 @@ describe("the demo backend", () => {
     expect(tabs.map((t) => t.source_path)).toEqual([`${NOTES_ROOT}/Garden committee 10 Sep.md`]);
   });
 
+  it("reopens a closed tab with the answer an open gives, at once or after Open", async () => {
+    const { handle } = backend();
+    const [tab] = (await handle("list_active_buffers", {})) as { id: string }[];
+    for (const command of ["restore_buffer", "restore_buffer_confirmed"]) {
+      await handle("close_buffer", { id: tab.id });
+      const reopened = (await handle(command, { id: tab.id })) as {
+        doc: { id: string; status: string };
+        mode: { kind: string };
+      };
+      expect(reopened.doc).toMatchObject({ id: tab.id, status: "active" });
+      expect(reopened.mode).toEqual({ kind: "Normal" });
+    }
+  });
+
   it("lists folders before files, as the app's tree does", async () => {
     const { handle } = backend();
     const entries = (await handle("list_workspace_dir", { dirPath: NOTES_ROOT })) as { name: string; is_dir: boolean }[];
     const firstFile = entries.findIndex((e) => !e.is_dir);
     expect(entries.slice(firstFile).every((e) => !e.is_dir)).toBe(true);
     expect(entries.some((e) => e.name === "To do.txt")).toBe(true);
+  });
+
+  it("lists the notes folder the sidebar shows when no folder is open", async () => {
+    const { handle } = backend();
+    await handle("clear_workspace_root", {});
+    const names = (entries: unknown) => (entries as { name: string }[]).map((entry) => entry.name);
+    const notes = names(await handle("list_notes_dir", { dirPath: NOTES_ROOT }));
+    expect(notes).toContain("To do.txt");
+    expect(notes).toEqual(names(await handle("list_workspace_dir", { dirPath: NOTES_ROOT })));
   });
 
   it("reports the digest the app computes for the same text", async () => {
@@ -252,10 +275,12 @@ describe("the demo backend", () => {
     const { handle } = backend();
     const made = (await handle("new_note_from_link", { target: "Ideas/Seed swap.md" })) as { source_path: string };
     expect(made.source_path).toBe(`${NOTES_ROOT}/Ideas/Seed swap.md`);
-    const today = (await handle("todays_note", {})) as { id: string; source_path: string };
-    const again = (await handle("todays_note", {})) as { id: string };
-    expect(again.id).toBe(today.id);
-    expect(today.source_path).toMatch(/\/\d{4}-\d{2}-\d{2}\.txt$/);
+    type Today = { path: string; opened: { doc: { id: string; source_path: string } } };
+    const today = (await handle("todays_note", {})) as Today;
+    const again = (await handle("todays_note", {})) as Today;
+    expect(again.opened.doc.id).toBe(today.opened.doc.id);
+    expect(today.opened.doc.source_path).toMatch(/\/\d{4}-\d{2}-\d{2}\.txt$/);
+    expect(again.path).toBe(today.opened.doc.source_path);
   });
 });
 

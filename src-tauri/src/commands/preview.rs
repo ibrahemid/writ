@@ -18,6 +18,9 @@ use std::sync::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use tracing::{info, warn};
+use writ_core::events::bus::EventBus;
+use writ_core::preview::scripts::opt_in_lost_by;
 use writ_core::preview::{
     inline_image_data_url, resolve_inline_image, size_within_inline_limit, AssetScope,
     ContentRendererRegistry, ContentTypeId, InlineImageRefusal, RenderError, RenderRequest,
@@ -28,6 +31,7 @@ use writ_storage::buffer_store::BufferStore;
 use writ_storage::layout_state::LayoutStateRecord;
 
 use crate::events::{emit_event, WritFrontendEvent};
+use crate::poison::recover_poison;
 use crate::preview::handler::{RenderCache, RenderedDoc};
 use crate::state::AppState;
 
@@ -87,7 +91,8 @@ fn preview_url_prefix_for(is_windows: bool) -> &'static str {
 }
 
 /// Whether this file's own scripts may run in its preview. Off for every
-/// document until the user opts the file in (decision RC-D1/TS-D1).
+/// document until the user opts the file in (decision RC-D1/TS-D1), and off
+/// again once the file holds bytes the opt-in does not cover (ADR-043).
 #[tauri::command]
 pub fn preview_get_scripts(state: State<'_, AppState>, buffer_id: String) -> Result<bool, String> {
     let store = state.store.lock().map_err(|e| e.to_string())?;
@@ -95,14 +100,17 @@ pub fn preview_get_scripts(state: State<'_, AppState>, buffer_id: String) -> Res
 }
 
 /// [`preview_get_scripts`] without Tauri: an id the store does not hold
-/// answers off.
+/// answers off, and an opt-in its file no longer matches lapses.
 pub fn preview_get_scripts_inner(store: &BufferStore, buffer_id: &str) -> Result<bool, String> {
-    store.preview_scripts(buffer_id).map_err(|e| e.to_string())
+    store
+        .check_preview_scripts(buffer_id)
+        .map_err(|e| e.to_string())
 }
 
 /// Record whether this file's own scripts may run, remembered on its buffer
-/// row. The frontend force-refreshes after this so the iframe reloads under
-/// the new document CSP.
+/// row with the digest of the bytes the opt-in covers. The frontend
+/// force-refreshes after this so the iframe reloads under the new document
+/// CSP.
 #[tauri::command]
 pub fn preview_set_scripts(
     state: State<'_, AppState>,
@@ -123,6 +131,57 @@ pub fn preview_set_scripts_inner(
     store
         .set_preview_scripts(buffer_id, enabled)
         .map_err(|e| e.to_string())
+}
+
+/// Turn off the scripts of `buffer_id`'s file, in the store and in the document
+/// already rendered from it, because another program changed the file
+/// (ADR-043). Answers whether they were on.
+///
+/// A buffer the store does not hold has nothing to turn off. A store that
+/// cannot be read or written leaves the row as it was and is logged; the next
+/// render reads the row again and treats a failed read as off.
+pub fn forget_scripts_opt_in(
+    store: &Mutex<BufferStore>,
+    cache: &RenderCache,
+    buffer_id: &str,
+) -> bool {
+    cache.turn_scripts_off(buffer_id);
+    let store = recover_poison(store.lock(), "commands::preview::forget_scripts_opt_in");
+    match store.preview_scripts(buffer_id) {
+        Ok(true) => match store.set_preview_scripts(buffer_id, false) {
+            Ok(()) => {
+                info!(
+                    buffer_id,
+                    "scripts turned off: the file changed outside Writ"
+                );
+                true
+            }
+            Err(e) => {
+                warn!(buffer_id, error = %e, "could not turn off the scripts of a changed file");
+                false
+            }
+        },
+        Ok(false) => false,
+        Err(e) => {
+            warn!(buffer_id, error = %e, "could not read the scripts opt-in of a changed file");
+            false
+        }
+    }
+}
+
+/// Run `forget` for each file `bus` reports another program changed
+/// ([`opt_in_lost_by`]). The app subscribes it ahead of the frontend bridge, so
+/// the opt-in is off before the frontend hears of the change and renders the
+/// file again.
+pub fn subscribe_scripts_reset<F>(bus: &EventBus, forget: F)
+where
+    F: Fn(&str) + Send + Sync + 'static,
+{
+    bus.subscribe(move |event| {
+        if let Some(buffer_id) = opt_in_lost_by(event) {
+            forget(buffer_id);
+        }
+    });
 }
 
 /// A buffer's persisted layout, returned to the frontend on open.
@@ -257,10 +316,11 @@ pub enum CachedRender {
 
 /// [`preview_render`] without Tauri: render the request with the renderer
 /// registered for its content type and cache the document for the protocol
-/// handler, with the request's asset scope and the file's scripts opt-in, read
-/// from the store now. The handler serves the cached document under the CSP
-/// that opt-in calls for. An id the store does not hold, or a store that
-/// cannot be read, renders with scripts off.
+/// handler, with the request's asset scope and the file's scripts opt-in,
+/// checked against the file now. The handler serves the cached document under
+/// the CSP that opt-in calls for. An id the store does not hold, a store that
+/// cannot be read, or a file that no longer holds bytes the opt-in covers
+/// renders with scripts off.
 pub fn render_into_cache(
     store: &Mutex<BufferStore>,
     registry: &RwLock<ContentRendererRegistry>,
@@ -275,7 +335,7 @@ pub fn render_into_cache(
     let scripts_enabled = store
         .lock()
         .ok()
-        .and_then(|store| store.preview_scripts(buffer_id).ok())
+        .and_then(|store| store.check_preview_scripts(buffer_id).ok())
         .unwrap_or(false);
     let assets = request.assets.clone();
     let result = renderer.render(request);

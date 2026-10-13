@@ -132,11 +132,118 @@ impl LineEnding {
             Self::CrLf => Cow::Owned(Self::normalise(text).replace('\n', "\r\n")),
         }
     }
+
+    /// The break this ending writes.
+    #[must_use]
+    pub fn as_break(self) -> &'static str {
+        match self {
+            Self::Lf => "\n",
+            Self::CrLf => "\r\n",
+        }
+    }
+}
+
+/// `text` in the shape of `original`: the line ending most of `original`'s
+/// lines use, and whether `original` ends on a line break.
+///
+/// Text written back from somewhere that only speaks `\n` lines, such as a
+/// model proposing a whole note, would otherwise rewrite every line ending of
+/// a CRLF file and give a newline to a file that ended without one, so the
+/// write changes lines nobody changed. Only one trailing break is added or
+/// taken: a blank last line the text holds on purpose stays. An empty
+/// `original` carries no evidence of either, so `text` keeps its own final
+/// break and takes LF.
+#[must_use]
+pub fn in_shape_of(original: &str, text: &str) -> String {
+    let ending = LineEnding::detect(original);
+    let mut shaped = ending.apply(text).into_owned();
+    if original.is_empty() {
+        return shaped;
+    }
+    let ends_on_a_break = |text: &str| text.ends_with('\n');
+    match (ends_on_a_break(original), ends_on_a_break(&shaped)) {
+        (true, false) if !shaped.is_empty() => shaped.push_str(ending.as_break()),
+        (false, true) => {
+            let cut = if shaped.ends_with("\r\n") { 2 } else { 1 };
+            shaped.truncate(shaped.len() - cut);
+        }
+        _ => {}
+    }
+    shaped
 }
 
 #[cfg(test)]
 mod tests {
-    use super::LineEnding;
+    use super::{in_shape_of, LineEnding};
+
+    #[test]
+    fn text_takes_a_crlf_file_s_ending_and_final_break() {
+        assert_eq!(in_shape_of("a\r\nb\r\n", "a\nc\n"), "a\r\nc\r\n");
+        assert_eq!(in_shape_of("a\r\nb", "a\nc\n"), "a\r\nc");
+        assert_eq!(in_shape_of("a\r\nb\r\n", "a\nc"), "a\r\nc\r\n");
+    }
+
+    #[test]
+    fn text_takes_an_lf_file_s_final_break_or_its_absence() {
+        assert_eq!(in_shape_of("a\nb", "a\nc\n"), "a\nc");
+        assert_eq!(in_shape_of("a\nb\n", "a\nc"), "a\nc\n");
+        assert_eq!(in_shape_of("a\nb\n", "a\r\nc\r\n"), "a\nc\n");
+    }
+
+    #[test]
+    fn only_one_final_break_is_taken() {
+        assert_eq!(in_shape_of("a\nb", "a\nb\n\n"), "a\nb\n");
+    }
+
+    #[test]
+    fn an_empty_file_keeps_the_text_as_it_came() {
+        assert_eq!(in_shape_of("", "a\nb\n"), "a\nb\n");
+        assert_eq!(in_shape_of("", "a"), "a");
+    }
+
+    #[test]
+    fn empty_text_stays_empty() {
+        assert_eq!(in_shape_of("a\r\n", ""), "");
+    }
+
+    #[test]
+    fn shaping_twice_is_shaping_once() {
+        for (original, text) in [("a\r\nb", "x\ny\n"), ("a\nb\n", "x\ny"), ("a\r\n", "x")] {
+            let once = in_shape_of(original, text);
+            assert_eq!(in_shape_of(original, &once), once, "{original:?} {text:?}");
+        }
+    }
+
+    /// What lets a stored proposal be given its note's ending again when a
+    /// conversation is opened: a shaped text already holds that ending, even
+    /// where shaping it a second time would take another final break.
+    #[test]
+    fn a_shaped_text_already_holds_the_original_s_ending() {
+        for (original, text) in [
+            ("a\r\nb\r\n", "x\ny\n"),
+            ("a\r\nb", "x\ny\n"),
+            ("a\nb", "x\ny\n\n"),
+            ("a\nb\n", "x\r\ny"),
+            ("", "x\ny\n"),
+            ("a\r\nb\nc", "x\ny\n"),
+            ("a\r\nb\r\nc\n", "x\r\ny\nz\n"),
+            ("one line", "x\ny\n"),
+            ("a\rb\n", "x\ry\n"),
+        ] {
+            let shaped = in_shape_of(original, text);
+            assert_eq!(
+                LineEnding::detect(original).apply(&shaped),
+                shaped,
+                "{original:?} {text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_ending_writes_its_own_break() {
+        assert_eq!(LineEnding::Lf.as_break(), "\n");
+        assert_eq!(LineEnding::CrLf.as_break(), "\r\n");
+    }
 
     #[test]
     fn detects_lf_in_a_unix_file() {

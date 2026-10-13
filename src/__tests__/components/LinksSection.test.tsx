@@ -27,8 +27,8 @@ const h = vi.hoisted(() => ({
   collapsed: new Set<string>(),
 }));
 
-vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: {
+vi.mock("../../stores/global/index-cache", () => ({
+  indexCacheStore: {
     factsFor: () => () => {
       h.reread?.();
       return { links: h.links, properties: [], tags: [], headings: [] };

@@ -2,7 +2,7 @@ import { registerCommand } from "../commands/registry";
 import { bufferRegistry } from "../stores/global/buffer-registry";
 import { windowRegistry } from "../stores/global/window-registry";
 import { contentTypeForBuffer } from "../lib/content-type";
-import { togglePreviewScripts } from "../lib/preview-actions";
+import { previewScriptsStore } from "../stores/global/preview-scripts";
 import { showToast } from "../components/Notifications/Toast";
 import {
   DEFAULT_RATIO,
@@ -165,7 +165,7 @@ export function registerPreviewKeymap(): void {
       const w = activeWindow();
       const id = activeBufferId();
       if (!w || !id) return;
-      void togglePreviewScripts(id).then(
+      void previewScriptsStore.toggle(id).then(
         (enabled) => {
           w.preview.requestForceRefresh();
           showToast(

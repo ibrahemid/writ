@@ -73,6 +73,11 @@ pub enum WritFrontendEvent {
     #[serde(rename = "notes:swept")]
     NotesSwept { root: String },
 
+    /// Writ wrote rows of the notes index itself; `paths` names the files
+    /// whose rows changed, or the notes folder for a walk or a move.
+    #[serde(rename = "notes:indexed")]
+    NotesIndexed { paths: Vec<String> },
+
     #[serde(rename = "inbox:file-arrived")]
     InboxFileArrived { path: String },
 
@@ -167,6 +172,11 @@ pub enum WritFrontendEvent {
     #[serde(rename = "activity:changed")]
     ActivityChanged {},
 
+    #[serde(rename = "mcp:pending")]
+    McpPending {
+        waiting: Vec<writ_core::activity::PendingClient>,
+    },
+
     /// Whether the OS gave Writ the chord that shows and hides the window.
     /// Raised at startup and again on every rebind, so the shortcut editor can
     /// say a chord is taken rather than leaving a dead key.
@@ -187,6 +197,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",
         WritFrontendEvent::NotesChanged { .. } => "writ://notes-changed",
         WritFrontendEvent::NotesSwept { .. } => "writ://notes-swept",
+        WritFrontendEvent::NotesIndexed { .. } => "writ://notes-indexed",
         WritFrontendEvent::UpdateStatus(..) => "writ://update-status",
         WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
         WritFrontendEvent::AiChat { .. } => "writ://ai-chat",
@@ -197,6 +208,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::FlushBeforeQuit { .. } => "writ://flush-before-quit",
         WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
         WritFrontendEvent::ActivityChanged { .. } => "writ://activity",
+        WritFrontendEvent::McpPending { .. } => "writ://mcp-pending",
         WritFrontendEvent::HotkeyStatus(..) => "writ://hotkey-status",
     }
 }

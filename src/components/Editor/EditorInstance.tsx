@@ -37,7 +37,8 @@ import { spellingStore } from "../../stores/global/spelling";
 import { linkStore } from "../../stores/global/link";
 import { workspaceStore } from "../../stores/global/workspace";
 import { notesStore } from "../../stores/global/notes";
-import { dirname, resolveWithinRoot } from "../../lib/path";
+import { basename, dirname, resolveWithinRoot } from "../../lib/path";
+import { logFailure } from "../../lib/log";
 import { openSpellingPreview } from "./SpellingPreview";
 import NoteReadFailure from "./NoteReadFailure";
 import { showNoteInFileManager } from "../../lib/note-actions";
@@ -54,27 +55,40 @@ import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import { configStore } from "../../stores/global/config";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { unreadTabs } from "../../stores/global/unread-tabs";
+import { describeUnreadTab, type UnreadTab } from "../../lib/unread-tab";
+import { canShowInFileManager, describeReadFailure } from "../../lib/read-failure";
 import { findStore } from "../../stores/global/find-store";
 import { aiRewriteStore } from "../../stores/global/ai-rewrite";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { registerCommand, unregisterCommand, executeCommand } from "../../commands/registry";
 import { rebuildKeyMap } from "../../commands/keybindings";
-import { getExtension as languageExtension } from "../../editor/language-registry";
-import { registerBuiltinLanguages } from "../../editor/builtins";
-import { editorModeForContent } from "../../editor/large-file";
+import { loadGrammar, loadedGrammar, warmGrammar } from "../../editor/languages";
+import { contentMayNameLanguage, languageOfFile } from "../../editor/file-language";
+import { openLanguagePicker } from "./LanguagePicker";
+import { editorModeForContent, THRESHOLD_NORMAL_BYTES } from "../../editor/large-file";
 import { ExternalReloadTxn } from "../../editor/external-reload";
 import { autoTextDirection } from "../../editor/bidi";
 import { codeChrome, codeChromeFor, isCodeBuffer, surfaceFollowsLanguage } from "../../editor/code-chrome";
+import { indentationFor, lineWrappingFor } from "../../editor/editor-settings";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
 import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-commands";
 import "./EditorInstance.css";
 
-registerBuiltinLanguages();
-
 const LARGE_FILE_AUTOSAVE_DEBOUNCE_MS = 2000;
 
+// The name a file's language is read from: the last part of its path when it
+// has one, since the path is what the file is; otherwise a title typed with an
+// extension, then the name the row is filed under.
 function nameForDetection(buffer: BufferDocument): string {
+  if (buffer.source_path) return basename(buffer.source_path);
   return /\.\w+$/.test(buffer.title) ? buffer.title : buffer.filename;
+}
+
+// What the language was last decided from: the name and the choice. A change
+// to either decides it again.
+function languageKey(buffer: BufferDocument): string {
+  return `${nameForDetection(buffer)}\u0000${buffer.language ?? ""}`;
 }
 
 interface Props {
@@ -106,7 +120,7 @@ export default function EditorInstance(props: Props) {
   let currentBufferId: string | undefined;
   // The buffer the view holds; it trails currentBufferId during a switch.
   let viewBufferId: string | undefined;
-  let appliedNameForLang = "";
+  let appliedLanguageKey = "";
   let lastDetectLen = 0;
   let restrictedPublishTimer: ReturnType<typeof setTimeout> | null = null;
   const languageCompartment = new Compartment();
@@ -118,6 +132,10 @@ export default function EditorInstance(props: Props) {
   const readOnlyCompartment = new Compartment();
   const spellingCompartment = new Compartment();
   const linkCompartment = new Compartment();
+  // Settings, Editor, Word wrap and Tab size. Each has its own compartment so
+  // a change reaches the open file without rebuilding it.
+  const wrapCompartment = new Compartment();
+  const indentationCompartment = new Compartment();
 
   // A destination without a scheme is a file reference. It opens in Writ when
   // it resolves inside the open workspace or inside the notes folder; anything
@@ -313,13 +331,37 @@ export default function EditorInstance(props: Props) {
       : linkLayer(linkDeps);
   }
 
+  // The grammar for `lang`, once its chunk has loaded, into the view that asked
+  // for it. Dropped when the view has moved on to another file, or when the
+  // file's language changed while the chunk was on its way.
+  function requestGrammar(lang: string | null) {
+    if (!view || lang === null || loadedGrammar(lang)) return;
+    const target = view;
+    loadGrammar(lang).then(
+      (support) => {
+        if (!support || view !== target || win.editor.language() !== lang) return;
+        const mode = win.editor.largeFileMode();
+        if (mode && mode.kind !== "Normal") return;
+        target.dispatch({ effects: languageCompartment.reconfigure(support) });
+      },
+      () => logFailure("a language's highlighting could not be loaded"),
+    );
+  }
+
+  // The language compartment takes the grammar for `lang` now when it has
+  // loaded, and nothing until it has: the text never waits for a grammar.
+  function attachGrammar(lang: string | null) {
+    if (!view) return;
+    view.dispatch({ effects: languageCompartment.reconfigure(loadedGrammar(lang) ?? []) });
+    requestGrammar(lang);
+  }
+
   function applyDetectedLanguage(lang: string) {
     if (!view) return;
     win.editor.setLanguage(lang);
     const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
     view.dispatch({
       effects: [
-        languageCompartment.reconfigure(mode.kind === "Normal" ? languageExtension(lang) : []),
         typographyCompartment.reconfigure(typographyExtension(isMarkdown(), mode)),
         editingCompartment.reconfigure(editingExtension(isMarkdown(), mode)),
         // The face and the chrome follow the language only on a normal buffer.
@@ -332,12 +374,24 @@ export default function EditorInstance(props: Props) {
           : []),
       ],
     });
+    if (mode.kind === "Normal") attachGrammar(lang);
   }
 
+  // A file whose name says nothing gets its language from what it holds once
+  // there is enough of it. A name with an extension, or a language chosen for
+  // the file, settles it: a .txt stays plain text whatever is typed into it.
   function maybeDetectFromContent(content: string, force: boolean) {
     const mode = win.editor.largeFileMode();
     if (mode && mode.kind !== "Normal") return;
     if (win.editor.language() !== null) return;
+    if (
+      !contentMayNameLanguage({
+        chosen: props.buffer.language,
+        name: nameForDetection(props.buffer),
+      })
+    ) {
+      return;
+    }
     if (content.length < CONTENT_DETECT_MIN_LENGTH) return;
     if (content.length > CONTENT_DETECT_MAX_LENGTH) return;
     if (!force && content.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
@@ -367,7 +421,7 @@ export default function EditorInstance(props: Props) {
     }
   }
 
-  function createExtensions(bufferId: string, initialLang: Extension, langId: string | null, markdown: boolean, mode: FileOpenMode): Extension[] {
+  function createExtensions(bufferId: string, langId: string | null, markdown: boolean, mode: FileOpenMode): Extension[] {
     const isLarge =
       mode.kind === "LargeFile" || mode.kind === "LargeFileConfirm" || mode.kind === "LongLines";
     const isBinary = mode.kind === "Binary";
@@ -378,7 +432,9 @@ export default function EditorInstance(props: Props) {
       : configStore.config().editor.autosave_debounce_ms;
 
     return [
-      languageCompartment.of(isRestricted ? [] : initialLang),
+      // The grammar when it has already loaded; requestGrammar brings it in
+      // otherwise once the view is up.
+      languageCompartment.of(isRestricted ? [] : (loadedGrammar(langId) ?? [])),
       typographyCompartment.of(isRestricted ? [] : typographyExtension(markdown, mode)),
       codeFaceCompartment.of(isRestricted ? [] : codeFaceExtension(langId)),
       // A large or binary buffer is a file being inspected, not a note: it
@@ -417,7 +473,8 @@ export default function EditorInstance(props: Props) {
         indentWithTab,
       ]),
       themeCompartment.of(editorThemeFor(themeStore.polarity())),
-      ...(isRestricted ? [] : [EditorView.lineWrapping]),
+      wrapCompartment.of(lineWrappingFor(configStore.config().editor.word_wrap, mode)),
+      indentationCompartment.of(indentationFor(configStore.config().editor.tab_size)),
       ...(isRestricted ? [] : [autoTextDirection]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
@@ -541,10 +598,8 @@ export default function EditorInstance(props: Props) {
     }
   }
 
-  // A file that could not be read gets no document: opening it already
-  // recorded what it holds, so a save from an empty document would be let
-  // through and replace it. The reason takes the view's place.
-  function showReadFailure(id: string, error: unknown) {
+  // No view and no text: a pane saying why takes the view's place.
+  function dropView() {
     view?.destroy();
     view = undefined;
     viewBufferId = undefined;
@@ -554,44 +609,61 @@ export default function EditorInstance(props: Props) {
     win.editor.setLineCount(0);
     win.editor.setCurrentText("");
     win.editor.setCurrentBufferId(null);
+  }
+
+  // A file that could not be read gets no document: opening it already
+  // recorded what it holds, so a save from an empty document would be let
+  // through and replace it. The reason takes the view's place.
+  function showReadFailure(id: string, error: unknown) {
+    dropView();
     win.editor.failRead(id, error);
   }
 
-  // An untitled note (created by New Note; no on-disk path) keeps its surface
-  // as markdown no matter what its content looks like — a fenced ```sh block
-  // must not turn it into a shell code buffer (F05/F17). Two things still
-  // override that: an explicit extension the user typed into the title (a
-  // rename to "main.rs" is a deliberate signal, not content-sniffing — see
-  // editor-instance-chrome.test.tsx), checked here with empty content so it
-  // can only match the filename map, never a heuristic; and a note that opens
-  // with a shebang, where that shebang's own detection stands. A file opened
-  // from disk is untouched: it keeps today's filename+content detection.
-  function detectLanguageForBuffer(buffer: BufferDocument, content: string, name: string): string | null {
-    if (buffer.source_path !== null) {
-      return win.editor.detectLanguage(content, name);
-    }
-    const byExtension = win.editor.detectLanguage("", name);
-    if (byExtension !== null) return byExtension;
-    const firstLine = content.split("\n")[0] || "";
-    if (firstLine.startsWith("#!")) {
-      return win.editor.detectLanguage(content, name);
-    }
-    return "markdown";
+  // The unread tab whose pane the editor shows. Its open answering is what
+  // reads it: the tab's id does not change, so the switch effect stays quiet.
+  let unreadPaneFor: string | null = null;
+
+  function openUnreadTab(id: string) {
+    void win.tabs.openUnreadTab(id).catch(() => {
+      logFailure("a tab restored at launch could not be opened");
+    });
   }
 
+  // The pane takes the view's place until the tab's open answers. A tab
+  // waiting on the question asks it; a refused one says why and waits for
+  // Try again.
+  function showUnreadPane(id: string, unread: UnreadTab) {
+    dropView();
+    win.editor.clearReadFailure();
+    unreadPaneFor = id;
+    if (unread.kind === "waiting") openUnreadTab(id);
+  }
+
+  // The language this file is shown in: the one chosen for it, else what its
+  // name says (src/editor/file-language.ts holds the rule).
+  function languageOf(buffer: BufferDocument, content: string): string | null {
+    return languageOfFile({
+      chosen: buffer.language,
+      name: nameForDetection(buffer),
+      hasFile: buffer.source_path !== null,
+      content,
+    });
+  }
+
+  // Decides the language again after the name or the choice changed, and
+  // dresses the open view for it.
   function applyLanguageFromBuffer(buffer: BufferDocument, content: string) {
     const mode = editorModeForContent(buffer, content);
     if (mode.kind !== "Normal") return;
-    const name = nameForDetection(buffer);
-    if (name === appliedNameForLang && view) return;
-    appliedNameForLang = name;
-    const lang = detectLanguageForBuffer(buffer, content, name);
+    const key = languageKey(buffer);
+    if (key === appliedLanguageKey && view) return;
+    appliedLanguageKey = key;
+    const lang = languageOf(buffer, content);
     const markdown = isMarkdownBuffer(buffer);
     win.editor.setLanguage(lang);
     if (view) {
       view.dispatch({
         effects: [
-          languageCompartment.reconfigure(languageExtension(lang)),
           typographyCompartment.reconfigure(typographyExtension(markdown, mode)),
           editingCompartment.reconfigure(editingExtension(markdown, mode)),
           linkCompartment.reconfigure(linkExtensions(markdown)),
@@ -599,6 +671,7 @@ export default function EditorInstance(props: Props) {
           codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         ],
       });
+      attachGrammar(lang);
     }
   }
 
@@ -616,8 +689,25 @@ export default function EditorInstance(props: Props) {
     spellingStore.detach();
 
     currentBufferId = buffer.id;
-    appliedNameForLang = "";
+    appliedLanguageKey = "";
     lastDetectLen = 0;
+    unreadPaneFor = null;
+
+    // A tab the last session left open whose file is over the size Writ opens
+    // without asking is read only once its open answers, and one past the
+    // size Writ opens is not read at all.
+    const unread = unreadTabs.stateOf(buffer.id);
+    if (unread) {
+      showUnreadPane(buffer.id, unread);
+      return;
+    }
+
+    // The grammar the name or the choice asks for starts loading alongside
+    // the read, so it is usually there by the time the view is built. Nothing
+    // waits for it.
+    if (!buffer.read_only && buffer.size_bytes <= THRESHOLD_NORMAL_BYTES) {
+      loadGrammar(languageOf(buffer, "")).catch(() => null);
+    }
 
     // A note that may not write is read from what the store kept, never from
     // disk. For a deleted file the read would fail and the empty string it
@@ -633,7 +723,11 @@ export default function EditorInstance(props: Props) {
       const loaded = await loadText(buffer);
       if (ticket !== loadTicket) return;
       if (!loaded.ok) {
-        showReadFailure(buffer.id, loaded.error);
+        // A file that grew past the size Writ opens was measured and not
+        // read, and the tab is unread now.
+        const unreadNow = unreadTabs.stateOf(buffer.id);
+        if (unreadNow) showUnreadPane(buffer.id, unreadNow);
+        else showReadFailure(buffer.id, loaded.error);
         return;
       }
       content = loaded.text;
@@ -645,11 +739,10 @@ export default function EditorInstance(props: Props) {
     const mode = editorModeForContent(buffer, content);
     win.editor.setLargeFileMode(mode.kind === "Normal" ? null : mode);
 
-    const name = nameForDetection(buffer);
     let lang: string | null = null;
     if (mode.kind === "Normal") {
-      lang = detectLanguageForBuffer(buffer, content, name);
-      appliedNameForLang = name;
+      lang = languageOf(buffer, content);
+      appliedLanguageKey = languageKey(buffer);
     }
     win.editor.setLanguage(lang);
 
@@ -657,10 +750,9 @@ export default function EditorInstance(props: Props) {
       view.destroy();
     }
 
-    const initialLang = lang ? languageExtension(lang) : [];
     const state = EditorState.create({
       doc: content,
-      extensions: createExtensions(buffer.id, initialLang, lang, isMarkdownBuffer(buffer), mode),
+      extensions: createExtensions(buffer.id, lang, isMarkdownBuffer(buffer), mode),
     });
 
     view = new EditorView({
@@ -682,6 +774,7 @@ export default function EditorInstance(props: Props) {
     win.editor.setCurrentBufferId(buffer.id);
     win.editor.clearReadFailure();
     applySpelling();
+    if (mode.kind === "Normal") requestGrammar(lang);
     view.focus();
   }
 
@@ -695,10 +788,17 @@ export default function EditorInstance(props: Props) {
   // of a file that has changed reads dirty against a file it matches, and the
   // next change to it asks a question that has no reason to be asked.
   async function reloadFromDisk(id: string) {
+    const wasUnread = unreadTabs.stateOf(id) !== null;
     let content: string;
     try {
       content = await bufferRegistry.readContent(id);
     } catch {
+      // A file that grew past the size Writ opens was measured and not read:
+      // the view in front is dropped rather than left on text the file no
+      // longer holds. A tab that was unread already keeps its pane, and is
+      // not asked about again for every change to its file.
+      const unread = unreadTabs.stateOf(id);
+      if (!wasUnread && unread && id === currentBufferId) showUnreadPane(id, unread);
       return;
     }
     win.editor.applyExternalContent(id, content);
@@ -717,6 +817,19 @@ export default function EditorInstance(props: Props) {
     containerRef.addEventListener("wheel", onWheelZoom, { passive: false });
 
     disposeEditorCommands = registerEditorCommands(() => view ?? null);
+
+    // Inline mode draws nothing until the Markdown grammar is there, so it is
+    // loaded while the main thread is idle rather than on the first .md open.
+    warmGrammar("markdown");
+
+    registerCommand({
+      id: "editor.changeLanguage",
+      label: "Change language…",
+      description: "Choose the language this file is shown in",
+      keywords: ["syntax", "highlighting", "plain text", "mode"],
+      scope: "editor",
+      execute: () => openLanguagePicker(),
+    });
 
     registerCommand({
       id: "editor.addCursorUp",
@@ -759,6 +872,15 @@ export default function EditorInstance(props: Props) {
     }
   ));
 
+  // The unread tab in front is read once its open answers.
+  createEffect(() => {
+    const id = props.buffer.id;
+    if (unreadTabs.stateOf(id) === null && unreadPaneFor === id) {
+      unreadPaneFor = null;
+      void loadBuffer(props.buffer);
+    }
+  });
+
   createEffect(on(
     () => win.editor.externalReload(),
     (req) => {
@@ -785,13 +907,40 @@ export default function EditorInstance(props: Props) {
     { defer: true },
   ));
 
+  // A rename or a language chosen with Change Language decides the language
+  // again on the open view.
   createEffect(on(
-    () => [props.buffer.title, props.buffer.filename] as const,
+    () =>
+      [
+        props.buffer.title,
+        props.buffer.filename,
+        props.buffer.source_path,
+        props.buffer.language,
+      ] as const,
     () => {
       // A switch changes the name too; loadBuffer configures the incoming
       // view, and the outgoing one keeps its own file's type.
       if (!view || props.buffer.id !== viewBufferId) return;
       applyLanguageFromBuffer(props.buffer, view.state.doc.toString());
+    },
+    { defer: true },
+  ));
+
+  // Word wrap and Tab size reach the open file when they change. Memos, so a
+  // config change elsewhere (a command's use count) reconfigures nothing.
+  const wordWrap = createMemo(() => configStore.config().editor.word_wrap);
+  const tabSize = createMemo(() => configStore.config().editor.tab_size);
+  createEffect(on(
+    [wordWrap, tabSize],
+    ([wrap, size]) => {
+      if (!view) return;
+      const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
+      view.dispatch({
+        effects: [
+          wrapCompartment.reconfigure(lineWrappingFor(wrap, mode)),
+          indentationCompartment.reconfigure(indentationFor(size)),
+        ],
+      });
     },
     { defer: true },
   ));
@@ -921,6 +1070,7 @@ export default function EditorInstance(props: Props) {
     for (const cmd of formatCommands) unregisterCommand(cmd.id);
     unregisterCommand("editor.addCursorUp");
     unregisterCommand("editor.addCursorDown");
+    unregisterCommand("editor.changeLanguage");
     unregisterCommand("spelling.toggle");
     unregisterCommand("spelling.fixAll");
     unregisterCommand("spelling.preview");
@@ -930,7 +1080,7 @@ export default function EditorInstance(props: Props) {
     // file whose bytes are not here, a crash screen) has written the typing,
     // so the text stays where that path finds it; only an explicit discard
     // cancels. A held note's text goes back into the hold, which the close
-    // and the quit hand to the recovery snapshot (ADR-033 decision 15). Any
+    // and the quit hand to the unsaved-text journal (ADR-033 decision 15). Any
     // other note keeps its queued write, as text read from the view now.
     if (view && viewBufferId) {
       if (win.editor.savesAreHeld(viewBufferId)) {
@@ -951,20 +1101,41 @@ export default function EditorInstance(props: Props) {
     const failure = win.editor.readFailure();
     return failure !== null && failure.bufferId === props.buffer.id ? failure : null;
   };
+  const shownUnread = () => unreadTabs.stateOf(props.buffer.id);
 
   return (
     <>
       <Show when={shownFailure()}>
         {(failure) => (
           <NoteReadFailure
-            failure={failure()}
-            onRetry={() => void loadBuffer(props.buffer)}
+            line={describeReadFailure(failure())}
+            actionLabel="Try again"
+            onAction={() => void loadBuffer(props.buffer)}
+            alert
+            canShowInFileManager={canShowInFileManager(failure())}
             onShowInFileManager={() => void showNoteInFileManager(failure().bufferId)}
             onClose={() => void win.tabs.closeTab(failure().bufferId)}
           />
         )}
       </Show>
-      <div ref={containerRef!} class="editor-instance" hidden={shownFailure() !== null} />
+      <Show when={shownUnread()}>
+        {(unread) => (
+          <NoteReadFailure
+            line={describeUnreadTab(unread())}
+            actionLabel={unread().kind === "waiting" ? "Open…" : "Try again"}
+            onAction={() => openUnreadTab(props.buffer.id)}
+            alert={unread().kind === "refused"}
+            canShowInFileManager
+            onShowInFileManager={() => void showNoteInFileManager(props.buffer.id)}
+            onClose={() => void win.tabs.closeTab(props.buffer.id)}
+          />
+        )}
+      </Show>
+      <div
+        ref={containerRef!}
+        class="editor-instance"
+        hidden={shownFailure() !== null || shownUnread() !== null}
+      />
     </>
   );
 }

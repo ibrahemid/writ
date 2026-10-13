@@ -19,6 +19,7 @@ vi.mock("../../stores/global/config", async () => {
     configStore: {
       config: () => ({ sidebar: { width: h.width } }),
       setSidebarWidth: h.setSidebarWidth,
+      isAppOn: () => false,
     },
   };
 });
@@ -48,7 +49,6 @@ vi.mock("../../components/Sidebar/FilesSection", () => ({ default: () => null })
 vi.mock("../../components/Sidebar/InboxSection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/HistorySection", () => ({ default: () => null }));
 vi.mock("../../components/Sidebar/SearchResults", () => ({ default: () => null }));
-vi.mock("../../components/Sidebar/SidebarEmpty", () => ({ default: () => <div class="sidebar-empty" /> }));
 
 import Sidebar from "../../components/Sidebar/Sidebar";
 

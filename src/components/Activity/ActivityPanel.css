@@ -1,7 +1,7 @@
 /* A log, not a dashboard. Rows sit on the sidebar's pitch, carry no fill and
    no border of their own, and spend their one piece of colour on the verdict
    that is not the ordinary one. The shell is the settings modal's, narrower:
-   this is one list, not a panel of sections. */
+   this is one log, not a panel of sections. */
 
 @keyframes activity-in {
   from { opacity: 0; transform: translateY(6px); }
@@ -42,11 +42,24 @@
   flex-shrink: 0;
 }
 
+.activity-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-1);
+  min-width: 0;
+}
+
 .activity-title {
   font-size: var(--writ-ui-lg);
   line-height: var(--writ-ui-lg-lh);
   font-weight: 600;
   color: var(--writ-fg);
+}
+
+.activity-subtitle {
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-muted);
 }
 
 .activity-header-controls {
@@ -55,12 +68,25 @@
   gap: var(--writ-space-2);
 }
 
-.activity-list {
+.activity-log {
   flex: 1;
   overflow-y: auto;
+}
+
+.activity-list {
   margin: 0;
   padding: var(--writ-space-2) 0 var(--writ-space-4);
   list-style: none;
+}
+
+.activity-section-title {
+  margin: 0;
+  padding: var(--writ-space-3) var(--writ-space-5) 0;
+  border-top: 1px solid var(--writ-border-soft);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  font-weight: 600;
+  color: var(--writ-fg-muted);
 }
 
 .activity-row {
@@ -108,6 +134,12 @@
   white-space: nowrap;
 }
 
+.activity-count {
+  color: var(--writ-fg-faint);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Allowed is the ordinary case and stays quiet; the other two are the reason
    someone opened this list, so they are the only colour on the row. */
 .activity-verdict {
@@ -126,49 +158,27 @@
 /* Waiting programs sit above the log rather than in it. A decision is one per
    program however many calls it made, and the log is capped, so a row is the
    wrong place to keep one. */
-.activity-waiting-list {
-  margin: 0;
+.activity-modal .activity-waiting-list {
   padding: var(--writ-space-3) 0;
-  list-style: none;
   border-bottom: 1px solid var(--writ-border-soft);
   flex-shrink: 0;
 }
 
-.activity-waiting {
-  display: flex;
-  flex-direction: column;
-  gap: var(--writ-space-2);
+.activity-modal .activity-waiting,
+.activity-modal .activity-denied {
   padding: var(--writ-space-2) var(--writ-space-5);
 }
 
-.activity-waiting-what {
-  display: flex;
-  align-items: baseline;
-  gap: var(--writ-space-2);
-  min-width: 0;
-  font-size: var(--writ-ui-sm);
-  line-height: var(--writ-ui-sm-lh);
-}
-
-.activity-waiting-when {
-  color: var(--writ-fg-faint);
-  font-variant-numeric: tabular-nums;
-}
-
-.activity-decide-line {
-  color: var(--writ-fg-muted);
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-}
-
-.activity-decide-controls {
-  display: flex;
-  gap: var(--writ-space-2);
-}
-
 .activity-empty {
-  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--writ-space-3);
   padding: var(--writ-space-5);
+}
+
+.activity-empty-line {
+  margin: 0;
   color: var(--writ-fg-muted);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
