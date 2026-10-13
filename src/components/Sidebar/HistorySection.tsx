@@ -21,6 +21,8 @@ const HEADER_HEIGHT_ESTIMATE = 24;
 // Render a margin of rows above and below the viewport so a fast scroll never
 // flashes blank space before the next frame computes a new window.
 const OVERSCAN_PX = 240;
+// The finest step a relative time shows is a minute.
+const CLOCK_STEP_MS = 60_000;
 
 interface HistoryListProps {
   rows: () => HistoryRow[];
@@ -106,7 +108,7 @@ function HistoryList(props: HistoryListProps) {
         danger: true,
       },
       {
-        label: "Clear all history",
+        label: "Clear Recent",
         action: () => void bufferRegistry.clearAllHistory(),
         separator: true,
         danger: true,
@@ -152,18 +154,28 @@ export default function HistorySection() {
   const win = useWindow();
   let sectionRef: HTMLElement | undefined;
 
-  // One `now` snapshot per recompute, threaded into both the bucketing and
-  // each row's relative time — no per-row Date.now(), no per-render churn.
+  // One `now` for the whole list, threaded into both the bucketing and each
+  // row's relative time. The list is stamped again when it changes, each
+  // minute while the sidebar is open, and on opening it, so "now" does not
+  // still say so forty minutes later (NV-27); a closed sidebar runs no timer.
+  const [tick, setTick] = createSignal(Date.now());
+  createEffect(() => {
+    if (!win.sidebar.isOpen()) return;
+    setTick(Date.now());
+    const timer = setInterval(() => setTick(Date.now()), CLOCK_STEP_MS);
+    onCleanup(() => clearInterval(timer));
+  });
+
   const rows = createMemo<HistoryRow[]>(() => {
-    const now = Date.now();
+    const now = Math.max(tick(), Date.now());
     const buckets = bucketHistoryByTime(bufferRegistry.historyList(), now);
     return flattenBuckets(buckets, now);
   });
 
   const total = createMemo(() => rows().filter((row) => row.kind !== "header").length);
 
-  // Open Recent leads here. The section is only in the tree when it has rows,
-  // so an ask with nothing closed yet leaves the sidebar open and stops there.
+  // Open Recent leads here, and only with something closed: an ask with
+  // nothing closed is answered where it was asked (NV-36).
   createEffect(
     on(
       () => win.sidebar.recentRequest(),

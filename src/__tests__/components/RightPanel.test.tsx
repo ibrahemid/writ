@@ -81,14 +81,6 @@ vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: { activeTabs: () => h.tabs },
 }));
 
-vi.mock("../../stores/global/backlinks", () => ({
-  backlinksStore: {
-    backlinksFor: () => () => h.backlinks,
-    settledFor: () => () => h.backlinksSettled,
-    errorFor: () => () => h.backlinksError,
-    release: vi.fn(),
-  },
-}));
 
 vi.mock("../../stores/global/link", () => ({
   linkStore: {
@@ -105,19 +97,22 @@ vi.mock("../../components/Graph/GraphCanvas", () => ({
   ),
 }));
 
-vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: {
+vi.mock("../../stores/global/index-cache", () => ({
+  indexCacheStore: {
+    holdNote: () => () => {},
     factsFor: () => () => h.facts,
-    settledFor: () => () => h.factsSettled,
-    errorFor: () => () => h.factsError,
-    graph: () => {
+    factsSettledFor: () => () => h.factsSettled,
+    factsErrorFor: () => () => h.factsError,
+    backlinksFor: () => () => h.backlinks,
+    backlinksSettledFor: () => () => h.backlinksSettled,
+    backlinksErrorFor: () => () => h.backlinksError,
+    holdGraph: () => {
       h.graphHolds += 1;
-      return () => h.graph;
+      return () => {
+        h.graphReleases += 1;
+      };
     },
-    releaseGraph: () => {
-      h.graphReleases += 1;
-    },
-    release: vi.fn(),
+    graph: () => () => h.graph,
   },
 }));
 

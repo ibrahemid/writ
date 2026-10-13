@@ -7,8 +7,7 @@ import OutlineSection from "./OutlineSection";
 import PropertiesSection from "./PropertiesSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
-import { noteFactsStore } from "../../stores/global/note-facts";
-import { backlinksStore } from "../../stores/global/backlinks";
+import { indexCacheStore } from "../../stores/global/index-cache";
 import {
   configStore,
   PANEL_WIDTH_DEFAULT,
@@ -98,7 +97,7 @@ function ConnectionsPanel() {
   // views of one answer, not two calls (ADR-036).
   const facts = createMemo(() => {
     const path = openPath();
-    return path === null ? null : noteFactsStore.factsFor(path);
+    return path === null ? null : indexCacheStore.factsFor(path);
   });
 
   // Whether either read behind the sections failed. Both leave their lists
@@ -107,8 +106,8 @@ function ConnectionsPanel() {
     const note = openNote();
     if (note === null) return false;
     return (
-      noteFactsStore.errorFor(note.path)() !== null ||
-      backlinksStore.errorFor(note.path)() !== null
+      indexCacheStore.factsErrorFor(note.path)() !== null ||
+      indexCacheStore.backlinksErrorFor(note.path)() !== null
     );
   });
 
@@ -118,7 +117,10 @@ function ConnectionsPanel() {
   const isRead = createMemo(() => {
     const note = openNote();
     if (note === null) return false;
-    return noteFactsStore.settledFor(note.path)() && backlinksStore.settledFor(note.path)();
+    return (
+      indexCacheStore.factsSettledFor(note.path)() &&
+      indexCacheStore.backlinksSettledFor(note.path)()
+    );
   });
 
   // Whether any section has something to draw. The drawing is not asked about:
@@ -132,20 +134,19 @@ function ConnectionsPanel() {
       read.headings.length > 0 ||
       read.properties.length > 0 ||
       read.links.length > 0 ||
-      backlinksStore.backlinksFor(note.path)().length > 0
+      indexCacheStore.backlinksFor(note.path)().length > 0
     );
   });
 
-  // A note the panel has stopped showing stops being followed. Without this
-  // every note visited while the panel was open stays held, so one change on
-  // disk costs a read per note visited rather than a read for the note shown.
+  // The note on screen is held, its facts and the notes linking to it, and
+  // handed back the moment the panel stops showing it. Without this every
+  // note visited while the panel was open would stay in the store, and one
+  // change would cost a read per note visited rather than a read for the
+  // note shown.
   createEffect(() => {
     const path = openPath();
     if (path === null) return;
-    onCleanup(() => {
-      noteFactsStore.release(path);
-      backlinksStore.release(path);
-    });
+    onCleanup(indexCacheStore.holdNote(path));
   });
 
   // `inert` is presence-based, so it is set as an attribute rather than left

@@ -1,10 +1,7 @@
 import { Show, createMemo, createSignal } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { bufferRegistry } from "../../stores/global/buffer-registry";
-import { workspaceStore } from "../../stores/global/workspace";
 import { resolvePlatform } from "../../lib/platform";
 import { resolveLightsSlot } from "../../lib/window-chrome";
-import { inboxStore } from "../../stores/global/inbox";
 import {
   configStore,
   clampSidebarWidth,
@@ -19,7 +16,6 @@ import TagsSection from "./TagsSection";
 import InboxSection from "./InboxSection";
 import HistorySection from "./HistorySection";
 import SearchResults from "./SearchResults";
-import SidebarEmpty from "./SidebarEmpty";
 import "./Sidebar.css";
 
 export default function Sidebar() {
@@ -34,12 +30,6 @@ export default function Sidebar() {
   // while the sidebar is still visibly sliding out.
   const hasWindowHead = resolveLightsSlot(platform) === "window-lead";
   const searching = createMemo(() => win.sidebar.searchQuery().trim().length > 0);
-  const hasContent = createMemo(
-    () =>
-      bufferRegistry.historyList().length > 0 ||
-      workspaceStore.root() !== null ||
-      inboxStore.files().length > 0,
-  );
 
   // Non-null only while a drag is in flight: the edge follows the pointer
   // without a disk write per frame, and release commits the settled width.
@@ -69,14 +59,12 @@ export default function Sidebar() {
           when={searching()}
           fallback={
             <div class="sidebar-scroll">
-              <Show when={hasContent()} fallback={<SidebarEmpty />}>
-                <FilesSection />
-                <Show when={configStore.isAppOn("tags")}>
-                  <TagsSection />
-                </Show>
-                <InboxSection />
-                <HistorySection />
+              <FilesSection />
+              <Show when={configStore.isAppOn("tags")}>
+                <TagsSection />
               </Show>
+              <InboxSection />
+              <HistorySection />
             </div>
           }
         >

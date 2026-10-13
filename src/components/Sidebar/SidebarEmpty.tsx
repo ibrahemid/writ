@@ -1,14 +1,15 @@
 import Button from "../Button/Button";
 import Kbd from "../Kbd/Kbd";
 import { executeCommand } from "../../commands/registry";
+import { firstRunStore } from "../../stores/global/first-run";
 import "./SidebarEmpty.css";
 
-// Cold front door: with nothing open and no history, the sidebar would
-// otherwise be blank. Point a first-run reader at the two ways in.
+// Shown in place of the notes folder's tree when the folder holds nothing,
+// and only then: beside a folder of files it would be false (NV-01).
 export default function SidebarEmpty() {
   return (
     <div class="sidebar-empty">
-      <p class="sidebar-empty-title">No files yet.</p>
+      <p class="sidebar-empty-title">This folder is empty.</p>
       <div class="sidebar-empty-line">
         <Button
           variant="primary"
@@ -21,14 +22,13 @@ export default function SidebarEmpty() {
         <Kbd binding="CmdOrCtrl+N" />
       </div>
       <div class="sidebar-empty-line">
-        {/* No keycap: CmdOrCtrl+O opens a file, not a folder. */}
         <Button
           variant="secondary"
           icon="folder-open"
           iconSize={16}
-          onClick={() => executeCommand("workspace.openFolder")}
+          onClick={() => executeCommand("notes.showFolder")}
         >
-          Open a folder
+          {`Show folder in ${firstRunStore.fileManager()}`}
         </Button>
       </div>
     </div>

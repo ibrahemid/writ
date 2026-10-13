@@ -1,8 +1,9 @@
-import { createEffect, createSignal, on } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import { searchBuffers, type SearchHit } from "../../services/tauri";
 import { flushAutosave } from "../../services/autosave";
+import { bufferRegistry } from "../global/buffer-registry";
 import { configStore } from "../global/config";
-import { noteFactsStore } from "../global/note-facts";
+import { indexCacheStore } from "../global/index-cache";
 import { workspaceStore } from "../global/workspace";
 
 export type SidebarStore = ReturnType<typeof createSidebarStore>;
@@ -48,19 +49,25 @@ export function createSidebarStore() {
   }
 
   /**
-   * Opens the sidebar on the list of notes closed recently, which is where the
-   * File menu's Open Recent leads.
+   * Opens the sidebar on the list of files closed recently, which is where the
+   * File menu's Open Recent leads, and answers whether there was a list to
+   * open it on.
+   *
+   * With nothing closed yet there is nothing to show, so the sidebar and the
+   * section's setting are left as they were and the caller says so (NV-36).
    *
    * A counter rather than a flag: asking twice running has to reach the
    * section twice, and a flag that is already `true` reaches it once.
    */
-  function showRecent() {
+  function showRecent(): boolean {
+    if (bufferRegistry.historyList().length === 0) return false;
     // The ask has to land on the list, so a section switched off in Settings
     // or folded to its heading is opened first.
     configStore.setSidebarSectionHidden("recent", false);
     configStore.setSidebarSectionCollapsed("recent", false);
     show();
     setRecentRequest((count) => count + 1);
+    return true;
   }
 
   /**
@@ -72,9 +79,8 @@ export function createSidebarStore() {
     setSelectedTag((current) => (tag === null || current === tag ? null : tag));
   }
 
-  // A selected tag has one control, its row in the tags section, and the row
-  // belongs to the folder that grew it. Opening another folder would otherwise
-  // leave the note list filtered by a tag with no row to unselect.
+  // Opening or closing a folder changes the tree a tag filters, and whether a
+  // tag filters a tree at all, so the selection starts over with the tree.
   createEffect(on(workspaceStore.root, () => setSelectedTag(null), { defer: true }));
 
   // The same dead end from the other side: the tag's last use goes away, the
@@ -82,11 +88,19 @@ export function createSidebarStore() {
   // has been seen in the folder's tags, so a selection made before that list
   // has been read is not cleared by its empty starting value. A parent row is
   // held by any tag under it: `project` stays while `project/alpha` is used.
+  // The list is held while a tag is selected: a search takes the Tags section
+  // off screen, and a list nothing holds is dropped and reads as unread.
+  const hasSelection = createMemo(() => selectedTag() !== null);
+  createEffect(() => {
+    if (!hasSelection()) return;
+    onCleanup(indexCacheStore.holdTags());
+  });
+
   let seenInFolder: string | null = null;
   createEffect(() => {
     const tag = selectedTag();
-    if (tag === null) return;
-    const held = noteFactsStore.allTags()();
+    if (tag === null || !indexCacheStore.tagsSettled()()) return;
+    const held = indexCacheStore.allTags()();
     const family = `${tag}/`;
     if (held.some((row) => row.tag === tag || row.tag.startsWith(family))) seenInFolder = tag;
     else if (seenInFolder === tag) setSelectedTag(null);

@@ -327,11 +327,12 @@ impl BufferStore {
     /// holds.
     ///
     /// A row is indexed when it has a file, that file is inside the notes
-    /// folder, it is not read-only, and it opens with the full feature set. A
-    /// read-only row is a hex view or a document Writ generated; a large or
-    /// binary file is not text to search. Nothing here is fatal to a save: the
-    /// bytes are already durable, and a file whose metadata cannot be read is
-    /// picked up by the next reconcile.
+    /// folder under no name the walk of that folder skips
+    /// ([`notes_index::notes_walk_skips`]), it is not read-only, and it opens
+    /// with the full feature set. A read-only row is a hex view or a document
+    /// Writ generated; a large or binary file is not text to search. Nothing
+    /// here is fatal to a save: the bytes are already durable, and a file whose
+    /// metadata cannot be read is picked up by the next reconcile.
     fn index_note(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
         if doc.read_only || doc.size_bytes > THRESHOLD_NORMAL_BYTES {
             return Ok(());
@@ -340,7 +341,7 @@ impl BufferStore {
             return Ok(());
         };
         let path = Path::new(source_path);
-        if !self.is_within_notes(path) {
+        if !self.holds_as_note(path) {
             return Ok(());
         }
         let Some(note) = notes_index::IndexedNote::from_file(path) else {
@@ -350,6 +351,14 @@ impl BufferStore {
             Some(index) => index.upsert(&note, content),
             None => notes_index::NotesIndex::new(&self.conn).upsert(&note, content),
         }
+    }
+
+    fn holds_as_note(&self, path: &Path) -> bool {
+        self.is_within_notes(path)
+            && self
+                .notes_root
+                .as_deref()
+                .is_some_and(|root| !notes_index::notes_walk_skips(root, path))
     }
 
     /// Whether `path` is inside the folder the notes index holds. Both sides

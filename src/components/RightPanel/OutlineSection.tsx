@@ -1,7 +1,7 @@
 import { For, Show, type Accessor } from "solid-js";
 import PanelSection from "./PanelSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import type { NoteFacts, NoteHeading } from "../../stores/global/note-facts";
+import type { NoteFacts, NoteHeading } from "../../stores/global/index-cache";
 
 interface Props {
   facts: Accessor<NoteFacts>;

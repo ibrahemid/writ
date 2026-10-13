@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
 import PanelSection from "./PanelSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { noteFactsStore, type NoteLink } from "../../stores/global/note-facts";
+import { indexCacheStore, type NoteLink } from "../../stores/global/index-cache";
 import { linkStore, type LinkResolution } from "../../stores/global/link";
 import { ambiguityMarker, targetName } from "../../lib/note-target";
 
@@ -30,7 +30,7 @@ interface Row {
  */
 export default function LinksSection(props: Props) {
   const win = useWindow();
-  const read = () => noteFactsStore.factsFor(props.path)();
+  const read = () => indexCacheStore.factsFor(props.path)();
   const [resolutions, setResolutions] = createSignal<ReadonlyMap<string, LinkResolution>>(
     new Map(),
   );

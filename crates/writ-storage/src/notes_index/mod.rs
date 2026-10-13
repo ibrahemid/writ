@@ -56,7 +56,7 @@ mod writer;
 
 pub use reconcile::{reconcile, ReconcileOutcome};
 pub use store::NotesIndexStore;
-pub use walk::{has_text_extension, is_dataless};
+pub use walk::{has_text_extension, is_dataless, notes_walk_skips};
 
 pub(crate) use schema::backfill_link_name_keys;
 pub(crate) use walk::{build_notes_walk, indexes_as_note, names_a_note};

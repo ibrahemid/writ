@@ -16,6 +16,7 @@ vi.mock("../../components/Notifications/Toast", () => ({
 }));
 
 import { linkStore, type LinkResolution } from "../../stores/global/link";
+import { indexCacheStore } from "../../stores/global/index-cache";
 import * as api from "../../services/tauri";
 import * as events from "../../services/events";
 import { showToast } from "../../components/Notifications/Toast";
@@ -29,15 +30,19 @@ function resolved(path: string): LinkResolution {
   return { status: "resolved", path, candidates: [], heading_line: null };
 }
 
-/** The handler the store gave `onEvent`, so a test can deliver the event. */
-function notesChangedHandler(): () => void {
-  const call = mockedEvents.onEvent.mock.calls.find(([kind]) => kind === "notes:changed");
-  expect(call, "the store never subscribed to notes:changed").toBeDefined();
+/** The handler the store gave `onEvent` for `kind`, so a test can deliver the event. */
+function handlerFor(kind: "notes:changed" | "notes:indexed"): () => void {
+  const call = mockedEvents.onEvent.mock.calls.find(([subscribed]) => subscribed === kind);
+  expect(call, `the store never subscribed to ${kind}`).toBeDefined();
   return call![1] as () => void;
 }
 
+function notesChangedHandler(): () => void {
+  return handlerFor("notes:changed");
+}
+
 beforeEach(async () => {
-  await linkStore.reset();
+  await indexCacheStore.reset();
   vi.clearAllMocks();
   mockedEvents.onEvent.mockResolvedValue(() => {});
 });
@@ -90,6 +95,40 @@ describe("linkStore resolution cache", () => {
 
     await linkStore.resolveNoteLink(FROM, "Target");
     expect(mockedApi.resolveNoteLink).toHaveBeenCalledTimes(2);
+  });
+
+  // A file Writ created, renamed or deleted itself never reaches the watcher,
+  // so its index event is what makes a link to it resolve differently.
+  it("drops what it holds when Writ writes the index itself", async () => {
+    mockedApi.resolveNoteLink.mockResolvedValue({
+      status: "missing",
+      path: null,
+      candidates: [],
+      heading_line: null,
+    });
+    await linkStore.resolveNoteLink(FROM, "Plan");
+
+    handlerFor("notes:indexed")();
+    expect(linkStore.knownNoteLink(FROM, "Plan")).toBeNull();
+
+    mockedApi.resolveNoteLink.mockResolvedValue(resolved("/notes/Plan.md"));
+    expect((await linkStore.resolveNoteLink(FROM, "Plan")).status).toBe("resolved");
+  });
+
+  it("keeps no answer read before a change and landing after it", async () => {
+    let answer: (value: LinkResolution) => void = () => {};
+    mockedApi.resolveNoteLink.mockReturnValue(
+      new Promise<LinkResolution>((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const reading = linkStore.resolveNoteLink(FROM, "Plan");
+
+    handlerFor("notes:indexed")();
+    answer({ status: "missing", path: null, candidates: [], heading_line: null });
+
+    expect((await reading).status).toBe("missing");
+    expect(linkStore.knownNoteLink(FROM, "Plan")).toBeNull();
   });
 
   // What the editor reads to know its record of "already asked" is stale.

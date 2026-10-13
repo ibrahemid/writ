@@ -65,7 +65,7 @@ vi.mock("../../components/Editor/EditorInstance", async () => {
 });
 
 import PreviewLayout from "../../components/Preview/PreviewLayout";
-import { linkStore } from "../../stores/global/link";
+import { indexCacheStore } from "../../stores/global/index-cache";
 import { notesStore } from "../../stores/global/notes";
 
 function noteBuffer(): BufferDocument {
@@ -124,7 +124,7 @@ function sendLinkOpen(frame: HTMLIFrameElement, href: string) {
 describe("a preview link to a note", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    await linkStore.reset();
+    await indexCacheStore.reset();
     mocks.classify.mockImplementation(async (url: string) => ({
       allowed: true,
       url,
@@ -156,7 +156,7 @@ describe("a preview link to a note", () => {
   afterEach(async () => {
     cleanup();
     rendererRegistry.setFromIpc([]);
-    await linkStore.reset();
+    await indexCacheStore.reset();
   });
 
   it("opens the note the href names and raises no popover", async () => {

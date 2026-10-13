@@ -66,11 +66,11 @@ vi.mock("../../lib/graph/layout", async (importOriginal) => {
   };
 });
 
-vi.mock("../../stores/global/note-facts", () => ({
-  noteFactsStore: {
+vi.mock("../../stores/global/index-cache", () => ({
+  indexCacheStore: {
+    holdGraph: () => h.releaseGraph,
     graph: () => () => h.rows!(),
     graphError: () => () => h.error,
-    releaseGraph: h.releaseGraph,
   },
 }));
 

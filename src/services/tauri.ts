@@ -1183,6 +1183,11 @@ export async function listWorkspaceDir(dirPath: string): Promise<WorkspaceEntry[
   return invoke("list_workspace_dir", { dirPath });
 }
 
+/** The entries of a folder inside the notes folder, folders first. */
+export async function listNotesDir(dirPath: string): Promise<WorkspaceEntry[]> {
+  return invoke("list_notes_dir", { dirPath });
+}
+
 export async function getWorkspaceRoot(): Promise<string | null> {
   return invoke("get_workspace_root");
 }

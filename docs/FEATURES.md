@@ -71,7 +71,7 @@ Six features are apps, each switched on under Settings, Apps, and all off on a f
 - **Connected programs**: an MCP server, `writ mcp`, that another program starts over stdio. Eight read tools and three write tools (write, create, rename), with separate read and write switches per program and nothing that deletes. A program waits under Waiting for you, in Settings and in a notice, until you approve it or don't allow it, and Program activity lists every call.
 - **Connections**: a panel (`Cmd+Shift+\`) listing the files that link to the open one with the sentence each link sits in, its outline of headings, and its frontmatter properties.
 - **Graph**: the files around the open one, and a view of the whole folder with search and one colour per top-level folder.
-- **Tags**: `#tags` and frontmatter tags in the sidebar with counts. Nested tags group under their parent, and selecting one filters the file list.
+- **Tags**: `#tags` and frontmatter tags in the sidebar with counts. Nested tags group under their parent, and selecting one filters the tree of Writ's folder.
 
 Chat and Rewrite share one AI connection: Ollama or LM Studio on this machine, Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together or Fireworks with a key, or any OpenAI-compatible endpoint. The key goes in the system keychain on macOS and Windows, and in memory for the session elsewhere. Writ asks before the first send to a host off your machine.
 

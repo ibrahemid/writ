@@ -110,6 +110,20 @@ pub(crate) fn names_a_note(root: &Path, path: &Path) -> bool {
     !path_has_notes_ignored_name(root, path) && has_text_extension(path)
 }
 
+/// Whether the walk of the notes folder `notes_root` leaves `path` out: a
+/// folder on the way to it below `notes_root`, or the file itself, carries a
+/// name [`is_notes_ignored_name`] answers for.
+///
+/// Writ's own writes ask this before they record a file, so a save never gives
+/// the index a row the walk would not and the tree does not show. Both paths
+/// are compared as [`super::index_key`] spells them, so the names of the
+/// folders above `notes_root` are never judged.
+pub fn notes_walk_skips(notes_root: &Path, path: &Path) -> bool {
+    let root = super::index_key(notes_root);
+    let path = super::index_key(path);
+    path_has_notes_ignored_name(Path::new(&root), Path::new(&path))
+}
+
 /// Whether `path` holds note text worth indexing.
 ///
 /// A known text extension is taken at its word so the common case never opens
