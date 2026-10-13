@@ -102,6 +102,24 @@ fn a_file_nothing_touched_is_written_and_the_guard_proceeds() {
         "the second text\n"
     );
     assert_eq!(outcome.disk_state.hash, sha256_bytes(b"the second text\n"));
+    assert_eq!(
+        outcome.found.map(|state| state.hash),
+        Some(sha256_bytes(b"the first text\n")),
+        "the outcome names what the write replaced, from the read the guard decided on"
+    );
+}
+
+#[test]
+fn a_write_to_a_path_holding_no_file_found_nothing_there() {
+    let root = TempDir::new().expect("temp dir");
+    let path = root.path().join("New.md");
+
+    let outcome = write_note_guarded(saving(&path, b"the first text\n", None), None)
+        .expect("a missing file is written");
+
+    assert_eq!(outcome.decision, SaveDecision::Proceed);
+    assert_eq!(outcome.found, None);
+    assert_eq!(outcome.disk_state.hash, sha256_bytes(b"the first text\n"));
 }
 
 #[test]
@@ -124,6 +142,10 @@ fn a_file_that_already_holds_the_incoming_text_is_left_alone_without_a_word() {
 
     assert_eq!(outcome.decision, SaveDecision::AlreadyIdentical);
     assert_eq!(outcome.conflict_copy, None);
+    assert_eq!(
+        outcome.found.map(|state| state.hash),
+        Some(sha256_bytes(b"the same edit, from elsewhere\n"))
+    );
     assert_eq!(
         std::fs::metadata(&path).expect("metadata").modified().ok(),
         before.modified().ok(),

@@ -1,100 +1,49 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { WritConfig } from "../../types/config";
 
 const mocks = vi.hoisted(() => ({
-  save: vi.fn().mockResolvedValue(undefined),
-  config: vi.fn(),
+  get: vi.fn(),
+  set: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../../stores/global/config", () => ({
-  configStore: {
-    config: mocks.config,
-    save: mocks.save,
-  },
+vi.mock("../../services/tauri", () => ({
+  previewGetScripts: mocks.get,
+  previewSetScripts: mocks.set,
 }));
 
-import { toggleRunScripts } from "../../lib/preview-actions";
+import { togglePreviewScripts } from "../../lib/preview-actions";
 
-function configWith(runScripts: boolean): WritConfig {
-  return {
-    hotkey: { toggle: "" },
-    sidebar: { toggle: "", default_visible: false, position: "left", open: false, width: 240, collapsed: [], hidden: [] },
-    panel: { open: false, width: 240 },
-    chat_panel: { open: false, width: 380 },
-    first_run: { hint_dismissed: false },
-    editor: { font_size: 14, word_wrap: true, tab_size: 2, autosave_debounce_ms: 300, markdown_editing: true, status_bar: false, status_bar_counts: false },
-    window: { width: 800, height: 600, maximized: false },
-    keybindings: {},
-    history: { max_entries: 500 },
-    storage: { path: "~/.writ" },
-    theme: { preset: "warp-dark", overrides: {} },
-    appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
-    commands: { usage: {} },
-    files: { default_extension: "txt" },
-  workspace: { root: null },
-  inbox: { path: null, focus: true },
-  updater: { auto_check: true },
-  ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
-  mcp: { enabled: false, approved_clients: [] },
-  apps: { connections: false, graph: false, tags: false },
-  spelling: { enabled: false, dialect: "american", ignored_words: [] },
-    preview: {
-      default_layout_html: "split",
-      default_layout_markdown: "inline",
-      live_render_threshold_mb: 1,
-      render_confirm_threshold_mb: 5,
-      render_refuse_threshold_mb: 50,
-      debounce_ms: 200,
-      run_scripts: runScripts,
-    },
-  };
-}
-
-describe("toggleRunScripts", () => {
+describe("togglePreviewScripts", () => {
   beforeEach(() => {
-    mocks.save.mockReset().mockResolvedValue(undefined);
-    mocks.config.mockReset();
+    mocks.get.mockReset();
+    mocks.set.mockReset().mockResolvedValue(undefined);
   });
 
-  it("saves the config with run_scripts flipped on→off", async () => {
-    mocks.config.mockReturnValue(configWith(true));
-    await toggleRunScripts(() => {});
-    expect(mocks.save).toHaveBeenCalledTimes(1);
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
-    expect(saved.preview.run_scripts).toBe(false);
+  it("opts a file in when it was off, remembering it per buffer", async () => {
+    mocks.get.mockResolvedValue(false);
+    const result = await togglePreviewScripts("buf-1");
+    expect(result).toBe(true);
+    expect(mocks.get).toHaveBeenCalledWith("buf-1");
+    expect(mocks.set).toHaveBeenCalledWith("buf-1", true);
   });
 
-  it("flips off→on", async () => {
-    mocks.config.mockReturnValue(configWith(false));
-    await toggleRunScripts(() => {});
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
-    expect(saved.preview.run_scripts).toBe(true);
+  it("opts a file out when it was on", async () => {
+    mocks.get.mockResolvedValue(true);
+    const result = await togglePreviewScripts("buf-2");
+    expect(result).toBe(false);
+    expect(mocks.set).toHaveBeenCalledWith("buf-2", false);
   });
 
-  it("preserves the rest of the config (only run_scripts changes)", async () => {
-    mocks.config.mockReturnValue(configWith(true));
-    await toggleRunScripts(() => {});
-    const saved = mocks.save.mock.calls[0][0] as WritConfig;
-    expect(saved.preview.debounce_ms).toBe(200);
-    expect(saved.editor.font_size).toBe(14);
-    expect(saved.theme.preset).toBe("warp-dark");
+  it("flips the opt-in the user is shown without reading the stored one", async () => {
+    mocks.get.mockResolvedValue(false);
+    const result = await togglePreviewScripts("buf-4", true);
+    expect(result).toBe(false);
+    expect(mocks.get).not.toHaveBeenCalled();
+    expect(mocks.set).toHaveBeenCalledWith("buf-4", false);
   });
 
-  it("calls onApplied after the save resolves", async () => {
-    mocks.config.mockReturnValue(configWith(true));
-    const order: string[] = [];
-    mocks.save.mockImplementation(async () => {
-      order.push("save");
-    });
-    await toggleRunScripts(() => order.push("applied"));
-    expect(order).toEqual(["save", "applied"]);
-  });
-
-  it("does NOT call onApplied when the save rejects (and propagates)", async () => {
-    mocks.config.mockReturnValue(configWith(true));
-    mocks.save.mockRejectedValue(new Error("disk full"));
-    const onApplied = vi.fn();
-    await expect(toggleRunScripts(onApplied)).rejects.toThrow("disk full");
-    expect(onApplied).not.toHaveBeenCalled();
+  it("propagates a write failure without swallowing it", async () => {
+    mocks.get.mockResolvedValue(false);
+    mocks.set.mockRejectedValue(new Error("disk full"));
+    await expect(togglePreviewScripts("buf-3")).rejects.toThrow("disk full");
   });
 });

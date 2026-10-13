@@ -13,7 +13,7 @@
   },
   {
     "file": "src/components/Preview/PreviewPane.tsx",
-    "line": 387,
+    "line": 429,
     "word": "source",
     "note": "too-large overlay text, release 0.6"
   },

@@ -1,12 +1,11 @@
 //! `[preview]` configuration section.
 //!
-//! Lean scope (see ADR-010/011 supersede notes): the preview renders the
-//! user's own offline agent output. Per-content-type default layouts for
-//! HTML and Markdown, the size thresholds and debounce that govern live
-//! re-render, and the single app-level scripts kill switch. PDF / image /
-//! SVG-file renderers and the detached window are cut, so their config keys
-//! are gone. Every field has a serde default so existing configs upgrade
-//! cleanly.
+//! Per-content-type default layouts for HTML and Markdown, and the size
+//! thresholds and debounce that govern live re-render. Whether a document's
+//! own scripts run is not here: it is opted in per file and kept on the
+//! buffer row (ADR-043). PDF / image / SVG-file renderers and the detached
+//! window are cut, so their config keys are gone. Every field has a serde
+//! default so existing configs upgrade cleanly.
 
 use serde::{Deserialize, Serialize};
 
@@ -64,10 +63,6 @@ fn default_debounce_ms() -> u32 {
     200
 }
 
-fn default_run_scripts() -> bool {
-    true
-}
-
 /// Preview surface configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PreviewConfig {
@@ -92,14 +87,6 @@ pub struct PreviewConfig {
     /// re-render.
     #[serde(default = "default_debounce_ms")]
     pub debounce_ms: u32,
-    /// App-level scripts kill switch. When `true` (default) the document CSP
-    /// permits inline + same-origin + `writ-preview:` scripts so interactive
-    /// agent output (sliders, Mermaid, KaTeX) runs; network stays off
-    /// regardless. When `false`, `script-src` is `'none'`. This is the only
-    /// knob over the otherwise-fixed document policy — there is no per-buffer
-    /// trust state.
-    #[serde(default = "default_run_scripts")]
-    pub run_scripts: bool,
 }
 
 impl Default for PreviewConfig {
@@ -111,7 +98,6 @@ impl Default for PreviewConfig {
             render_confirm_threshold_mb: default_render_confirm_threshold_mb(),
             render_refuse_threshold_mb: default_render_refuse_threshold_mb(),
             debounce_ms: default_debounce_ms(),
-            run_scripts: default_run_scripts(),
         }
     }
 }
@@ -129,8 +115,6 @@ mod tests {
         assert_eq!(c.render_confirm_threshold_mb, 5);
         assert_eq!(c.render_refuse_threshold_mb, 50);
         assert_eq!(c.debounce_ms, 200);
-        // Scripts on by default — interactive agent output works out of the box.
-        assert!(c.run_scripts);
     }
 
     #[test]
@@ -146,7 +130,6 @@ mod tests {
         assert_eq!(c.default_layout_html, DefaultLayout::Source);
         assert_eq!(c.debounce_ms, 50);
         assert_eq!(c.default_layout_markdown, MarkdownLayout::Inline);
-        assert!(c.run_scripts);
     }
 
     #[test]
@@ -160,15 +143,19 @@ mod tests {
         assert_eq!(source.default_layout_markdown, MarkdownLayout::Source);
     }
 
+    // A config written by an older build carried `run_scripts` (now retired,
+    // scripts are off for every document with a per-file opt-in). The key is
+    // ignored rather than refused so those configs still load.
     #[test]
-    fn run_scripts_kill_switch_round_trips() {
-        let c = PreviewConfig {
-            run_scripts: false,
-            ..PreviewConfig::default()
-        };
-        let s = toml::to_string(&c).unwrap();
-        let back: PreviewConfig = toml::from_str(&s).unwrap();
-        assert_eq!(c, back);
-        assert!(!back.run_scripts);
+    fn a_retired_run_scripts_key_is_ignored() {
+        let c: PreviewConfig = toml::from_str("run_scripts = true\ndebounce_ms = 50").unwrap();
+        assert_eq!(c.debounce_ms, 50);
+        assert_eq!(
+            c,
+            PreviewConfig {
+                debounce_ms: 50,
+                ..PreviewConfig::default()
+            }
+        );
     }
 }

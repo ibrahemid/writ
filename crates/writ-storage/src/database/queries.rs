@@ -353,6 +353,96 @@ pub fn update_line_ending(conn: &Connection, id: &str, ending: LineEnding) -> St
     Ok(())
 }
 
+/// Reads the per-document preview-scripts opt-in for a buffer as recorded,
+/// before it is checked against the bytes Writ holds for the file.
+///
+/// A row that names no buffer answers `false`: an unknown id is treated as
+/// not opted in, the same posture a fresh document takes.
+pub fn get_preview_scripts(conn: &Connection, id: &str) -> StorageResult<bool> {
+    let enabled: Option<i64> = conn
+        .query_row(
+            "SELECT preview_scripts FROM buffers WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(enabled.unwrap_or(0) != 0)
+}
+
+/// A buffer's preview-scripts opt-in with the digest it is checked against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewScriptsOptIn {
+    /// Whether the user opted the file in.
+    pub enabled: bool,
+    /// The digest of the bytes the opt-in covers, as 64 hex characters.
+    pub recorded_hash: Option<String>,
+}
+
+/// Reads a buffer's preview-scripts opt-in with the digest recorded for it.
+/// `None` for an id with no row.
+pub fn get_preview_scripts_opt_in(
+    conn: &Connection,
+    id: &str,
+) -> StorageResult<Option<PreviewScriptsOptIn>> {
+    Ok(conn
+        .query_row(
+            "SELECT preview_scripts, preview_scripts_hash FROM buffers WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(PreviewScriptsOptIn {
+                    enabled: row.get::<_, i64>(0)? != 0,
+                    recorded_hash: row.get(1)?,
+                })
+            },
+        )
+        .optional()?)
+}
+
+/// Opts a buffer's file in to running its own scripts in the preview, for the
+/// bytes `hash` names: `None` when Writ holds none of the file's bytes yet.
+///
+/// `updated_at` is left alone: opting a file's preview in or out is a view
+/// preference, not an edit to its text, so it must not reorder History. An id
+/// with no row is refused rather than reported as recorded.
+pub fn enable_preview_scripts(
+    conn: &Connection,
+    id: &str,
+    hash: Option<&str>,
+) -> StorageResult<()> {
+    let changed = conn.execute(
+        "UPDATE buffers SET preview_scripts = 1, preview_scripts_hash = ?1 WHERE id = ?2",
+        params![hash, id],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::BufferMissing { id: id.to_string() });
+    }
+    Ok(())
+}
+
+/// Takes a buffer's preview-scripts opt-in away, with the digest recorded for
+/// it. As with [`enable_preview_scripts`], `updated_at` is left alone and an
+/// id with no row is refused.
+pub fn disable_preview_scripts(conn: &Connection, id: &str) -> StorageResult<()> {
+    let changed = conn.execute(
+        "UPDATE buffers SET preview_scripts = 0, preview_scripts_hash = NULL WHERE id = ?1",
+        params![id],
+    )?;
+    if changed == 0 {
+        return Err(StorageError::BufferMissing { id: id.to_string() });
+    }
+    Ok(())
+}
+
+/// Records `hash` as the bytes an opted-in buffer's opt-in covers, once Writ
+/// has written them to its file. A buffer that is not opted in is left alone.
+pub fn record_preview_scripts_hash(conn: &Connection, id: &str, hash: &str) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET preview_scripts_hash = ?1 WHERE id = ?2 AND preview_scripts = 1",
+        params![hash, id],
+    )?;
+    Ok(())
+}
+
 /// Records the language chosen for a buffer, or clears the choice with `None`.
 ///
 /// `updated_at` is left alone: the choice changes how the file is shown, not

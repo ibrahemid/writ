@@ -107,6 +107,8 @@ impl NoteFiles for TabsThatHaveRead {
         false
     }
 
+    fn note_file_changed(&self, _note_id: &str) {}
+
     fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
         self.read.get(note_id).copied()
     }

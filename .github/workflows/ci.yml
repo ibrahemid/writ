@@ -254,6 +254,113 @@ jobs:
       - name: Tauri build check
         run: cargo check --lib -p writ-tauri --locked
 
+  # The preview exfil probe (ADR-043): the preview as it ships, in a real
+  # webview, with every vector aimed at a local sink. Unlike the cross-OS unit
+  # tests, this runs on every PR on all three engines (Windows regressions must
+  # not wait for the push-to-main run), under WRIT_ENGINE_PROBE=1 and a display
+  # (xvfb on Linux). Each leg routes writ-probe.test to the probe's DNS sink at
+  # dns_addr; an empty dns_addr runs that leg without the DNS sink.
+  engine-probe:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux
+            dns_addr: "127.0.0.1:5533"
+          - os: macos-latest
+            label: macOS
+            dns_addr: "127.0.0.1:5533"
+          # NRPT names a server without a port, so the Windows sink takes 53.
+          - os: windows-latest
+            label: Windows
+            dns_addr: "127.0.0.1:53"
+
+    name: Preview exfil probe (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        shell: bash
+        env:
+          RUSTUP_PERMIT_COPY_RENAME: 1
+        run: rustup toolchain install --no-self-update
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            xvfb
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6  # v2.9.2
+        with:
+          workspaces: ". -> target"
+
+      # Compiling writ-tauri runs the Tauri build script, which needs the CLI
+      # sidecar for the host triple.
+      - name: Build CLI sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          HOST_TRIPLE="$(rustc -vV | sed -n 's/host: //p')"
+          cargo build -p writ-cli --locked
+          mkdir -p src-tauri/binaries
+          EXT=""
+          case "$HOST_TRIPLE" in *windows*) EXT=".exe";; esac
+          cp "target/debug/writ${EXT}" "src-tauri/binaries/writ-${HOST_TRIPLE}${EXT}"
+
+      # A global server, so resolved does not bind the query to a link.
+      - name: Route the probe domain to the DNS sink (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.dns_addr != ''
+        run: |
+          sudo mkdir -p /etc/systemd/resolved.conf.d
+          printf '[Resolve]\nDNS=127.0.0.1:5533\nDomains=~writ-probe.test\n' | sudo tee /etc/systemd/resolved.conf.d/writ-probe.conf
+          sudo systemctl restart systemd-resolved
+
+      - name: Route the probe domain to the DNS sink (macOS)
+        if: matrix.os == 'macos-latest' && matrix.dns_addr != ''
+        run: |
+          sudo mkdir -p /etc/resolver
+          printf 'nameserver 127.0.0.1\nport 5533\n' | sudo tee /etc/resolver/writ-probe.test
+          sudo dscacheutil -flushcache
+          sudo killall -HUP mDNSResponder
+
+      - name: Route the probe domain to the DNS sink (Windows)
+        if: matrix.os == 'windows-latest' && matrix.dns_addr != ''
+        shell: pwsh
+        run: Add-DnsClientNrptRule -Namespace ".writ-probe.test" -NameServers "127.0.0.1"
+
+      - name: Run the exfil probe (Linux, under xvfb)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          WRIT_ENGINE_PROBE: "1"
+          WRIT_ENGINE_PROBE_DNS_DOMAIN: writ-probe.test
+          WRIT_ENGINE_PROBE_DNS_ADDR: ${{ matrix.dns_addr }}
+        run: xvfb-run -a cargo test -p writ-tauri --test engine_probe --locked -- --nocapture
+
+      - name: Run the exfil probe (macOS / Windows)
+        if: matrix.os != 'ubuntu-latest'
+        env:
+          WRIT_ENGINE_PROBE: "1"
+          WRIT_ENGINE_PROBE_DNS_DOMAIN: writ-probe.test
+          WRIT_ENGINE_PROBE_DNS_ADDR: ${{ matrix.dns_addr }}
+        run: cargo test -p writ-tauri --test engine_probe --locked -- --nocapture
+
   site:
     name: Site
     needs: changes

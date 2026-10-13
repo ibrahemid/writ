@@ -112,3 +112,19 @@ toml = "1.1"
 # a tab in this one. Not a runtime dependency: nothing in `src/` names it, and
 # `writ-mcp` still links no tauri.
 writ-mcp = { path = "../crates/writ-mcp" }
+# Test-only, for the engine exfil probe (tests/engine_probe.rs): a real webview
+# loading the corpus behind a local sink. The same wry (the pinned nil-safe
+# fork, via the workspace patch) and tao the app already resolves, so no new
+# package enters the lock — only a dev-dep edge. The probe opens a window, so it
+# runs only under WRIT_ENGINE_PROBE=1 on a CI leg with a display, never in the
+# ordinary unit gate.
+wry = "0.57"
+tao = "0.37"
+
+# harness = false so the probe's own main() runs on the main thread (tao/wry
+# need it; libtest runs tests on worker threads). With no harness #[ignore] does
+# not apply, so the probe gates itself on WRIT_ENGINE_PROBE and exits 0 when
+# unset — `cargo test --workspace` compiles it and runs a no-op.
+[[test]]
+name = "engine_probe"
+harness = false

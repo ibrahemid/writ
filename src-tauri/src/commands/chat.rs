@@ -1403,6 +1403,10 @@ pub fn announce_applied_note(state: &AppState, file: &Path, bytes: &[u8]) -> Opt
 /// lets the tab be told either way.
 pub fn announce_note_change(state: &AppState, note_id: &str, file: &Path, bytes: &[u8]) {
     state.record_disk_state_bytes(note_id, file, bytes);
+    // The pane's write is not the editor's, so an opted-in file's scripts go
+    // with it (ADR-043). An open-tab apply saves through the editor's path,
+    // which carries the opt-in over its own write; this is what takes it back.
+    crate::commands::preview::lapse_scripts_opt_in_now(state, note_id);
     state
         .event_bus
         .emit(crate::watcher::open_files::open_note_modified(

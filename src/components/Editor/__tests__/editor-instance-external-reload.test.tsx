@@ -254,6 +254,7 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
       markChanged: (id) => asked.push(id),
       followMove: () => expect.unreachable("a modification is not a move"),
       markRemoved: () => expect.unreachable("a modification is not a removal"),
+      refreshScripts: () => {},
     };
 
     // Before the digest of the keystroke has landed.

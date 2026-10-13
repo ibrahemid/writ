@@ -25,6 +25,8 @@ export interface ExternalEditWiring {
   refreshBuffer: (id: string) => Promise<unknown>;
   /** Drops the bar a save that could not land left behind. */
   forgetSaveStatus: (id: string) => void;
+  /** Reads the file's preview-scripts opt-in again after another program changed it. */
+  refreshScripts: (id: string) => void;
 }
 
 /**
@@ -80,5 +82,6 @@ export function createExternalEditDeps(
       wiring.forgetSaveStatus(id);
       wiring.editor.recordFileEvent(id, "modified");
     },
+    refreshScripts: (id: string) => wiring.refreshScripts(id),
   };
 }

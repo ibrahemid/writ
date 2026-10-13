@@ -1,0 +1,25 @@
+/* The scripts field in the StatusBar: text in the bar's own size and colour,
+   a control on hover. A file whose scripts run reads in the warning colour. */
+
+.statusbar-scripts {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--writ-space-2);
+  border: none;
+  border-radius: var(--writ-r-action);
+  background: transparent;
+  color: var(--writ-fg-muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--writ-motion), background var(--writ-motion);
+}
+
+.statusbar-scripts:hover {
+  color: var(--writ-fg);
+  background: var(--writ-bg-hover);
+}
+
+.statusbar-scripts.is-on {
+  color: var(--writ-status-warning);
+}

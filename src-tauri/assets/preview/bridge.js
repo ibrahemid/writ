@@ -87,11 +87,27 @@
   //
   // A same-document fragment is left alone, so an in-page table of contents
   // still jumps natively.
+  //
+  // An image-map <area> and an SVG <a> navigate on click too. The SVG one
+  // keeps a lowercase tag name and may carry its destination in xlink:href.
+  var XLINK_NS = "http://www.w3.org/1999/xlink";
+
   function anchorFor(node) {
     for (var n = node; n; n = n.parentNode) {
-      if (n.nodeType === 1 && n.tagName === "A") return n;
+      if (n.nodeType !== 1) continue;
+      var name = n.localName || String(n.tagName || "").toLowerCase();
+      if (name === "a" || name === "area") return n;
     }
     return null;
+  }
+
+  function hrefOf(anchor) {
+    var href = anchor.getAttribute("href");
+    if ((href === null || href === "") && anchor.getAttributeNS) {
+      var legacy = anchor.getAttributeNS(XLINK_NS, "href");
+      if (typeof legacy === "string" && legacy !== "") return legacy;
+    }
+    return href;
   }
 
   function onLinkClick(ev) {
@@ -99,7 +115,7 @@
     if (ev.defaultPrevented) return;
     var anchor = anchorFor(ev.target);
     if (!anchor || !anchor.getAttribute) return;
-    var href = anchor.getAttribute("href");
+    var href = hrefOf(anchor);
     if (typeof href !== "string" || href === "" || href.charAt(0) === "#") return;
     ev.preventDefault();
     post({

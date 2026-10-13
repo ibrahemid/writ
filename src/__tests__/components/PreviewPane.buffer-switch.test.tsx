@@ -79,6 +79,18 @@ describe("PreviewPane — buffer switch (regression #97)", () => {
     cleanup();
   });
 
+  it("sandboxes the preview iframe", () => {
+    const { container } = render(() => (
+      <WindowProvider windowId={9300}>
+        <PreviewPane buffer={buffer("A")} contentType="html" isActive={true} />
+      </WindowProvider>
+    ));
+    const iframe = container.querySelector("iframe.preview-frame");
+    // allow-scripts + allow-same-origin only: no top navigation, popups or
+    // forms, so a document cannot navigate the window away (TS-02).
+    expect(iframe?.getAttribute("sandbox")).toBe("allow-scripts allow-same-origin");
+  });
+
   it("does not flash the outgoing buffer and never caches it under the incoming id", async () => {
     const [buf, setBuf] = createSignal(buffer("A"));
 

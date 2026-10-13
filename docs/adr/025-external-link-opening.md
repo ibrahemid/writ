@@ -1,6 +1,9 @@
 # ADR-025: External Link Opening
 
 **Status:** Accepted
+**Amended by:** [ADR-043](./043-untrusted-documents-in-the-preview.md) (2026-10-13):
+the preview scripts switch is gone, and the bridge, a first-party script, runs
+in every document, so a preview link asks first in every document.
 **Date:** 2026-07-25
 
 ## Context
@@ -137,8 +140,9 @@ platform-dependent behavior across WKWebView, WebView2, and WebKitGTK, and it is
 not worth the risk for one click. It stays on the table if preview links become
 a heavily used path.
 
-With the preview scripts switch off, `bridge.js` does not run, so preview links
-stay inert exactly as they are today. That is documented behavior, not a gap.
+The bridge is served from the document's own origin as a first-party script,
+so it runs in every document whatever the file's scripts opt-in (ADR-043): a
+preview link asks first in every document.
 
 ## Consequences
 

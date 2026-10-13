@@ -61,6 +61,7 @@ function depsFor(store: Store): ExternalEditDeps {
     markChanged: (id: string) => store.recordFileEvent(id, "modified"),
     followMove: (id: string) => store.recordFileEvent(id, "moved"),
     markRemoved: (id: string) => store.markRemovedOnDisk(id),
+    refreshScripts: () => {},
   };
 }
 

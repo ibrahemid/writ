@@ -7,15 +7,16 @@
 //!
 //! - [`protocol`] — `writ-preview://` URL parser, scope routing, refusal
 //!   logic, and the debug-only request recorder the exfil-denial suite reads.
-//! - [`csp`] — the fixed document CSP (+ scripts kill switch) and the
-//!   chrome-scope CSP.
+//! - [`csp`] — the document CSP for each platform, whose `script-src`
+//!   follows the per-file scripts opt-in, and the chrome-scope CSP.
 //! - [`handler`] — request resolution, the render cache, and the Tauri
-//!   protocol glue that attaches the CSP header to every response.
+//!   protocol glue that attaches the CSP header to every response and
+//!   disables a served document's resource hints and frame navigations
+//!   (ADR-043).
 //! - [`renderers`] — registration entry point for first-party content
 //!   renderers (HTML now; markdown / Mermaid / KaTeX next).
 
 pub mod csp;
-pub mod csp_eval;
 pub mod embeds;
 pub mod handler;
 #[cfg(test)]

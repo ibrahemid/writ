@@ -34,3 +34,11 @@ tempfile = "3"
 # writ-render depends on nothing in this crate, so this adds no cycle, and a
 # dev-dependency does not reach the wasm build the site compiles.
 writ-render = { path = "../writ-render" }
+# Test-only. The spec tokenizer the resource-hint tests use as their oracle;
+# the same version the spell checker already resolves, so no new package
+# enters the lock.
+html5ever = "0.40"
+# Test-only. A tree builder for the resource-hint tests to compare documents
+# with; wry and tauri-utils already resolve it, so no new package enters the
+# lock.
+dom_query = "0.28"

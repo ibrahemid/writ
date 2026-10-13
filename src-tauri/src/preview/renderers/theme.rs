@@ -80,16 +80,18 @@ fn block_body(start: usize) -> Option<&'static str> {
     Some(&rest[open..=close])
 }
 
-/// Same-origin URL of the bundled first-party preview bridge runtime.
-pub const BRIDGE_URL: &str = "writ-preview://document/_assets/preview/bridge.js";
+/// Root-relative URL of the bundled first-party preview bridge runtime. It is
+/// relative, not absolute `writ-preview://…`, so it resolves against whatever
+/// origin the document was served from — `writ-preview://document` on macOS and
+/// Linux, `http://writ-preview.document` on Windows (TS-03/DS-03).
+pub const BRIDGE_URL: &str = "/_assets/preview/bridge.js";
 
 /// The first-party bridge as a `<script>` element loaded same-origin.
 ///
 /// The bridge wires scroll-sync and in-preview find between the app shell and
 /// the cross-origin preview iframe over `postMessage`. It is injected into
-/// every rendered document (loaded under the document CSP's
-/// `script-src 'self' writ-preview:`); when the scripts kill switch is off it
-/// is blocked along with all other scripts and the features degrade silently.
+/// every rendered document and loads under the document CSP's `script-src
+/// 'self'`, whether or not the file's own scripts are opted in.
 pub fn bridge_script_tag() -> String {
     format!("<script src=\"{BRIDGE_URL}\"></script>")
 }
@@ -400,9 +402,11 @@ mod tests {
     fn wrap_document_injects_the_preview_bridge_script_before_body_close() {
         // Every wrapped document (Markdown, standalone Mermaid) carries the
         // first-party bridge so scroll-sync / in-preview find work. It is a
-        // same-origin _assets script, injected at the body tail.
+        // root-relative _assets script (so it resolves on Windows too),
+        // injected at the body tail.
         let doc = wrap_document("<p>x</p>");
-        assert!(doc.contains("writ-preview://document/_assets/preview/bridge.js"));
+        assert!(doc.contains("src=\"/_assets/preview/bridge.js\""));
+        assert!(!doc.contains("writ-preview://document/_assets"));
         let script_idx = doc.find("/preview/bridge.js").unwrap();
         let body_close = doc.find("</body>").unwrap();
         assert!(

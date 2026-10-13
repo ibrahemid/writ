@@ -22,8 +22,36 @@ interface Posted {
 interface FakeNode {
   nodeType: number;
   tagName?: string;
+  localName?: string;
   parentNode: FakeNode | null;
   getAttribute?: (name: string) => string | null;
+  getAttributeNS?: (ns: string, name: string) => string | null;
+}
+
+const XLINK_NS = "http://www.w3.org/1999/xlink";
+
+// An <a> inside inline SVG: lowercase tag name, destination in href or in the
+// legacy xlink:href.
+function svgAnchor(href: string | null, xlinkHref: string | null = null): FakeNode {
+  return {
+    nodeType: 1,
+    tagName: "a",
+    localName: "a",
+    parentNode: null,
+    getAttribute: (name: string) => (name === "href" ? href : null),
+    getAttributeNS: (ns: string, name: string) =>
+      ns === XLINK_NS && name === "href" ? xlinkHref : null,
+  };
+}
+
+function area(href: string | null): FakeNode {
+  return {
+    nodeType: 1,
+    tagName: "AREA",
+    localName: "area",
+    parentNode: null,
+    getAttribute: (name: string) => (name === "href" ? href : null),
+  };
 }
 
 function anchor(href: string | null, parent: FakeNode | null = null): FakeNode {
@@ -135,6 +163,28 @@ describe("preview bridge links", () => {
     expect(env.click({ target: anchor(null) })).toBe(false);
     expect(env.click({ target: anchor("") })).toBe(false);
     expect(env.links()).toHaveLength(0);
+  });
+
+  it("reports a click on an SVG link and stops the frame navigating", () => {
+    expect(env.click({ target: svgAnchor("https://example.com/svg") })).toBe(true);
+    expect(env.links()[0]?.href).toBe("https://example.com/svg");
+  });
+
+  it("reads an SVG link's legacy xlink:href", () => {
+    expect(env.click({ target: svgAnchor(null, "https://example.com/xlink") })).toBe(true);
+    expect(env.links()[0]?.href).toBe("https://example.com/xlink");
+  });
+
+  it("finds an SVG link from a click on the shape inside it", () => {
+    const link = svgAnchor("https://example.com/shape");
+    const shape: FakeNode = { nodeType: 1, tagName: "rect", localName: "rect", parentNode: link };
+    expect(env.click({ target: shape })).toBe(true);
+    expect(env.links()[0]?.href).toBe("https://example.com/shape");
+  });
+
+  it("reports a click on an image-map area and stops the frame navigating", () => {
+    expect(env.click({ target: area("https://example.com/area") })).toBe(true);
+    expect(env.links()[0]?.href).toBe("https://example.com/area");
   });
 
   it("ignores a non-primary button and an already-handled click", () => {

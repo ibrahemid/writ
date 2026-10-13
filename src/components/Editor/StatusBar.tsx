@@ -3,6 +3,7 @@ import { saveStatusStore } from "../../stores/global/save-status";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
+import PreviewScriptsField from "../Preview/PreviewScriptsField";
 import TokenEstimate from "./TokenEstimate";
 import WordCount from "./WordCount";
 import "./StatusBar.css";
@@ -101,6 +102,7 @@ export default function StatusBar() {
           <TokenEstimate />
         </Show>
         <span class="statusbar-field">UTF-8</span>
+        <PreviewScriptsField />
         <PreviewLayoutToggle />
       </div>
     </div>

@@ -38,6 +38,7 @@ import { bufferRegistry, type OpenOutcome } from "./stores/global/buffer-registr
 import { reportOpenOutcomes } from "./stores/global/open-report";
 import { openFailureReason } from "./lib/open-failure";
 import { saveStatusStore } from "./stores/global/save-status";
+import { previewScriptsStore } from "./stores/global/preview-scripts";
 import { logFailure } from "./lib/log";
 import { armReveal } from "./lib/boot-reveal";
 import { openBootTab } from "./stores/window/boot-tab";
@@ -72,7 +73,8 @@ import PromptFillModal from "./components/PromptFill/PromptFillModal";
 import { registerPreviewKeymap } from "./keymap/preview";
 import { rendererRegistry } from "./stores/global/renderer-registry";
 import { probeDefaultAppSupport } from "./stores/global/default-app-support";
-import { previewListRenderers, getRecoveredBuffers } from "./services/tauri";
+import { previewListRenderers, getRecoveredBuffers, previewUrlPrefix } from "./services/tauri";
+import { loadPreviewUrlPrefix } from "./stores/global/preview-url";
 import { editorZoom } from "./stores/global/editor-zoom";
 import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
 import {
@@ -232,6 +234,9 @@ function AppShell() {
     // single-window, so it is written once and never recomputed (ADR-030).
     document.documentElement.setAttribute("data-platform", resolvePlatform());
     themeStore.applyToRoot();
+    // The preview URL base is host-decided; load it before any preview renders
+    // so the iframe never requests a scheme the engine treats as external.
+    await loadPreviewUrlPrefix(previewUrlPrefix);
     await configStore.load();
     // A config written before ADR-030 carries overrides in the old vocabulary.
     // They are translated on load; writing the result back means the next
@@ -889,6 +894,7 @@ function AppShell() {
       openBuffers: () => bufferRegistry.buffers(),
       refreshBuffer: (id) => bufferRegistry.refreshBuffer(id),
       forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
+      refreshScripts: (id) => previewScriptsStore.refresh(id),
     });
 
     const unlisten2 = await onEvent("buffer:external", (payload) => {

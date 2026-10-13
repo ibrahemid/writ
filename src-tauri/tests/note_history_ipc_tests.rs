@@ -39,7 +39,8 @@ use writ_tauri_lib::commands::note_history::{
     copy_note_version_inner, note_version_content_inner, note_versions_inner,
     restore_note_version_for_tab, restore_note_version_inner, NoteVersion,
 };
-use writ_tauri_lib::preview::handler::RenderCache;
+use writ_tauri_lib::commands::preview::{preview_get_scripts_inner, preview_set_scripts_inner};
+use writ_tauri_lib::preview::handler::{RenderCache, RenderedDoc};
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
 use writ_tauri_lib::state::AppState;
@@ -614,6 +615,44 @@ fn a_restore_undone_by_the_row_above_it_lands_rather_than_reading_as_a_change_on
         vec!["Launch.md".to_string()],
         "a restore Writ itself wrote leaves no dated copy behind"
     );
+}
+
+#[test]
+fn a_restore_turns_off_the_preview_scripts_of_the_tab_it_writes_to() {
+    // A version put back from history is not the editor's write, so the
+    // scripts opted in for the text it replaced go with that text (ADR-043),
+    // in the row and in the render already cached, before the tab is told.
+    let app = Running::new();
+    let (id, path) = app.open("Launch.md", "<p>the first</p>\n");
+    save_buffer_content_inner(&app.state, &id, "<p>the second</p>\n").expect("save");
+    preview_set_scripts_inner(&app.state, &id, true).expect("turn the scripts on");
+    app.state.preview_render_cache.put(
+        id.clone(),
+        RenderedDoc {
+            html: "<p>the second</p>\n".to_string(),
+            assets: None,
+            scripts_enabled: true,
+        },
+    );
+    let first = app.version_holding(&path, b"<p>the first</p>\n");
+
+    restore_note_version_for_tab(&app.state, first).expect("restore");
+
+    assert!(!app
+        .state
+        .store
+        .lock()
+        .expect("store")
+        .preview_scripts(&id)
+        .expect("row"));
+    assert!(
+        !app.state
+            .preview_render_cache
+            .get(&id)
+            .expect("a cached render")
+            .scripts_enabled
+    );
+    assert_eq!(preview_get_scripts_inner(&app.state, &id), Ok(false));
 }
 
 #[test]

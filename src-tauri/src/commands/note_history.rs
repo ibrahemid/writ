@@ -381,6 +381,9 @@ pub fn restore_note_version_for_tab(
     // dated copy. A note nothing has open has no record to keep.
     if let Some(id) = tab {
         state.set_disk_state(&id, restored.disk_state);
+        // A restored version is not the editor's write, so an opted-in file's
+        // scripts go with the text it replaced (ADR-043).
+        crate::commands::preview::lapse_scripts_opt_in_now(state, &id);
         // The record is half of it. The other half is the tab, which shows
         // the text the restore replaced until something tells it otherwise,
         // and the folder watcher no longer will: it compares that record
