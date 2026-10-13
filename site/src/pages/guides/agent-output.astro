@@ -23,7 +23,7 @@ import Prose from '../../layouts/Prose.astro';
   <h2>4. What it can do</h2>
   <p>With reading approved: list the text files in the folder, search, read a file, and read a file's links, backlinks, properties and tags. With writing approved: write, create and rename a file. No tool deletes one. A write is checked against the version the program read, so a write over a newer file is refused and the program's text lands beside the file as a conflict copy. A file the program has not read is not written unless it asks to overwrite it. Writ keeps the text every write replaces, and Revert To, in the File menu, puts it back. Nothing outside Writ's folder is reachable.</p>
   <h2>5. See what it did</h2>
-  <p>Program activity, in the View menu and on the toolbar, lists every call: the program, what it did, the file, and whether it was allowed, not allowed or left waiting. Repeated reads of one file share a line with a count. The list holds no file text and stays in Writ's data folder on your machine.</p>
+  <p>Program activity, in the View menu and on the toolbar, lists every call: the program, what it asked for, the file, and whether it was allowed, not allowed or left waiting. Repeated reads of one file share a line with a count. The list holds no file text and stays in Writ's data folder on your machine.</p>
   <h2>Output that arrives as files</h2>
   <p>If a script writes files rather than calling tools, Settings, Advanced, Folder to watch for new files opens each file as it lands and brings the window forward. Have the program write there, or pipe its output in:</p>
   <pre><code>make test 2>&1 | writ --title tests</code></pre>

@@ -49,7 +49,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
-use writ_core::activity::{ActivityRecord, Actor, RepeatFold};
+use writ_core::activity::{display_program_name, ActivityRecord, Actor, RepeatFold};
 use writ_core::config::{FileExtension, FilesConfig};
 use writ_core::hash::digest_from_hex;
 use writ_core::notes::containment::resolve_for_containment;
@@ -88,7 +88,7 @@ pub use writ_core::notes::host::{
 /// replace a note without comparing it with anything the client read.
 ///
 /// Its own name rather than `write_note`, so the line a person reads in
-/// Recent activity says the program overwrote the file.
+/// Program activity says the program overwrote the file.
 pub const OVERWRITE_ACTION: &str = "overwrite_note";
 
 /// The tools that answer from the index and cannot answer without it.
@@ -113,14 +113,18 @@ pub enum ToolError {
     NotEnabled,
     /// Nobody has decided on the client yet. It is on the waiting list the app
     /// shows, which is where the approve control is.
-    #[error("{client} is waiting for approval in Writ, under Settings, Apps, Connected programs, Waiting for you.")]
+    #[error("{} is waiting for approval in Writ, under Settings, Apps, Connected programs, Waiting for you.", display_program_name(client))]
     NotApproved {
         /// The name the client sent.
         client: String,
         /// The tool it called.
         tool: String,
     },
-    #[error("{client} is not allowed to {} files in Writ. Allow it in Settings, Apps, Connected programs.", direction_of(tool))]
+    #[error(
+        "{} is not allowed to {} files in Writ. Allow it in Settings, Apps, Connected programs.",
+        display_program_name(client),
+        direction_of(tool)
+    )]
     NotAllowed { client: String, tool: String },
     #[error("Writ approves programs by name, and this program sent none.")]
     Unnamed,
@@ -1565,6 +1569,67 @@ mod tests {
         assert_eq!(all[0].action, OVERWRITE_ACTION);
         assert_eq!(all[0].path.as_deref(), Some(Path::new("Launch.md")));
         assert_eq!(std::fs::read(&note).expect("read back"), b"before\n");
+    }
+
+    #[test]
+    fn a_refusal_names_a_known_client_the_way_people_know_it() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "before\n");
+        std::fs::write(
+            fixture.writ.join("config.toml"),
+            "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"cursor\"\nfirst_seen = \"2026-09-09T10:00:00Z\"\nread = true\nwrite = false\n",
+        )
+        .expect("seed the settings file");
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host");
+
+        let waiting = host
+            .read_note(&ClientId::named("claude-code"), "Launch.md")
+            .expect_err("nobody has decided on the program yet");
+        let not_allowed = host
+            .write_note(
+                &ClientId::named("cursor"),
+                "Launch.md",
+                "after\n",
+                None,
+                true,
+            )
+            .expect_err("approved to read only");
+        let unknown = host
+            .read_note(&ClientId::named("Zed"), "Launch.md")
+            .expect_err("nobody has decided on the program yet");
+
+        assert!(
+            waiting
+                .to_string()
+                .starts_with("Claude Code is waiting for approval in Writ,"),
+            "{waiting}"
+        );
+        assert!(
+            not_allowed
+                .to_string()
+                .starts_with("Cursor is not allowed to write files in Writ."),
+            "{not_allowed}"
+        );
+        assert!(
+            unknown.to_string().starts_with("Zed is waiting"),
+            "{unknown}"
+        );
+        let listed: Vec<String> = writ_storage::pending_clients::read(&fixture.writ)
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
+        assert_eq!(
+            listed,
+            ["claude-code", "Zed"],
+            "the list keeps the names as sent"
+        );
     }
 
     #[test]

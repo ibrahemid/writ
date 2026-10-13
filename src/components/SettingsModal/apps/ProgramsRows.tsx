@@ -1,4 +1,4 @@
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
 import Button from "../../Button/Button";
 import Tooltip from "../../Tooltip/Tooltip";
@@ -22,7 +22,15 @@ import { SettingsRow, ToggleSwitch } from "../SettingsRow";
  * and the tool phrases turn them into the words under each grant.
  */
 export default function ProgramsRows(props: { onOpenActivity: () => void }) {
-  const [forgotten, setForgotten] = createSignal<ClientApproval[]>([]);
+  const [forgottenHere, setForgottenHere] = createSignal<ClientApproval[]>([]);
+  const forgotten = createMemo(() =>
+    forgottenHere().filter((client) => !activityStore.isDecided(client.name)),
+  );
+
+  createEffect(() => {
+    const shown = forgotten();
+    if (shown.length !== untrack(forgottenHere).length) setForgottenHere(shown);
+  });
 
   onMount(() => {
     void activityStore.refreshClients();
@@ -50,7 +58,7 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
   async function onForget(client: ClientApproval) {
     try {
       await activityStore.forget(client.name);
-      setForgotten((list) => [...list.filter((entry) => entry.name !== client.name), client]);
+      setForgottenHere((list) => [...list.filter((entry) => entry.name !== client.name), client]);
     } catch {
       showToast("Could not forget the program", "error");
     }
@@ -59,7 +67,7 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
   async function onUndoForget(client: ClientApproval) {
     try {
       await activityStore.restore(client);
-      setForgotten((list) => list.filter((entry) => entry.name !== client.name));
+      setForgottenHere((list) => list.filter((entry) => entry.name !== client.name));
     } catch {
       showToast("Could not undo the change", "error");
     }

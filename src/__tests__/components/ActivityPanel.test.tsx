@@ -215,8 +215,59 @@ describe("ActivityPanel", () => {
 
     const row = container.querySelector(".activity-row")!;
     expect(row.querySelector(".activity-program")!.textContent).toBe("Claude Code");
-    expect(row.querySelector(".activity-action")!.textContent).toBe("opened");
+    expect(row.querySelector(".activity-action")!.textContent).toBe("asked to open");
     expect(row.querySelector(".activity-note")!.textContent).toBe("Ideas/Tessera.md");
+  });
+
+  it("shows a known program by the name people know it by", () => {
+    h.setRecords([record({ actor: { kind: "client", name: "cursor", version: null } })]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    expect(container.querySelector(".activity-row .activity-program")!.textContent).toBe("Cursor");
+  });
+
+  it("puts chat and Writ's own rows under a heading of their own, below the programs' calls", () => {
+    h.setRecords([
+      record({ at: "2026-09-09T10:33:00.000Z" }),
+      record({
+        at: "2026-09-09T10:32:45.000Z",
+        actor: { kind: "chat", host: "api.openai.com" },
+        action: "apply_proposal",
+        path: "plan.md",
+      }),
+      record({ at: "2026-09-09T10:32:30.000Z" }),
+      record({
+        at: "2026-09-09T10:31:00.000Z",
+        actor: { kind: "app" },
+        action: "restore_note_version",
+        path: "plan.md",
+      }),
+    ]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    const programs = container.querySelector("[data-rows='programs']")!;
+    const writ = container.querySelector("[data-rows='writ']")!;
+    const names = (list: Element) =>
+      Array.from(list.querySelectorAll(".activity-program"), (name) => name.textContent);
+    expect(names(programs)).toEqual(["Claude Code"]);
+    expect(programs.querySelector(".activity-count")!.textContent).toBe("2 times");
+    expect(names(writ)).toEqual(["api.openai.com", "Writ"]);
+    const heading = document.getElementById(writ.getAttribute("aria-labelledby")!);
+    expect(heading?.textContent?.trim()).toBe("Chat and earlier versions");
+  });
+
+  it("gives the next step when only chat has changed a file", () => {
+    h.setRecords([
+      record({ actor: { kind: "chat", host: "api.openai.com" }, action: "apply_proposal" }),
+    ]);
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+
+    expect(container.querySelector(".activity-empty")).not.toBeNull();
+    expect(container.querySelector("[data-rows='programs']")).toBeNull();
+    expect(container.querySelector("[data-rows='writ'] .activity-row")).not.toBeNull();
   });
 
   it("words a call that names no file without one", () => {
@@ -225,7 +276,7 @@ describe("ActivityPanel", () => {
     const { container } = render(() => <ActivityPanel />);
 
     const row = container.querySelector(".activity-row")!;
-    expect(row.querySelector(".activity-action")!.textContent).toBe("listed files");
+    expect(row.querySelector(".activity-action")!.textContent).toBe("asked to list files");
     expect(row.querySelector(".activity-note")).toBeNull();
   });
 

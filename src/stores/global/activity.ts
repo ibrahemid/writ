@@ -112,6 +112,14 @@ async function watchWaiting(): Promise<void> {
   await refreshClients();
 }
 
+function isDecided(name: string): boolean {
+  return clients().some((client) => client.name === name);
+}
+
+function isNotAllowed(name: string): boolean {
+  return clients().some((client) => client.name === name && !client.read && !client.write);
+}
+
 function notice(): PendingClient | null {
   const waiting = pending();
   for (const name of announced()) {
@@ -213,6 +221,8 @@ export const activityStore = {
   refresh,
   refreshClients,
   watchWaiting,
+  isDecided,
+  isNotAllowed,
   notice,
   dismissNotice,
   announce,

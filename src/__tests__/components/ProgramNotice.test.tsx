@@ -114,6 +114,24 @@ describe("ProgramNotice", () => {
     expect(notice.closest("[aria-modal='true']")).toBeNull();
   });
 
+  it("names a known program the way people know it, and answers by the name it sent", async () => {
+    h.mcpSetClientPermission.mockResolvedValue({
+      approved: [{ ...denied("claude-code"), read: true }],
+      waiting: [],
+    });
+    const { container } = await mount();
+    send([waiting("claude-code")]);
+
+    const notice = container.querySelector("[data-program='claude-code']")!;
+    expect(notice.querySelector(".program-notice-text")!.textContent!.trim()).toBe(
+      "Claude Code wants to read your folder.",
+    );
+    fireEvent.click(notice.querySelector("[data-action='approve-read']")!);
+    await waitFor(() =>
+      expect(h.mcpSetClientPermission).toHaveBeenCalledWith("claude-code", true, false),
+    );
+  });
+
   it("says nothing about a program already waiting at launch", async () => {
     const { container } = await mount([waiting("Zed")]);
 
@@ -153,6 +171,23 @@ describe("ProgramNotice", () => {
     await waitFor(() => expect(container.querySelector("[data-program='Claude Code']")).not.toBeNull());
     expect(h.mcpReturnToWaiting).toHaveBeenCalledWith("Claude Code");
     expect(container.querySelector("[data-denied]")).toBeNull();
+  });
+
+  it("drops the not-allowed line once the program is allowed somewhere else", async () => {
+    h.mcpDenyClient.mockResolvedValue({ approved: [denied("Claude Code")], waiting: [] });
+    h.mcpSetClientPermission.mockResolvedValue({
+      approved: [{ ...denied("Claude Code"), read: true }],
+      waiting: [],
+    });
+    const { container } = await mount();
+    send([waiting("Claude Code")]);
+    fireEvent.click(container.querySelector("[data-action='refuse']")!);
+    await waitFor(() => expect(container.querySelector("[data-denied='Claude Code']")).not.toBeNull());
+
+    await activityStore.setPermission("Claude Code", true, false);
+
+    await waitFor(() => expect(container.querySelector("[data-denied='Claude Code']")).toBeNull());
+    expect(container.querySelector(".program-notice")).toBeNull();
   });
 
   it("closing it keeps the program on the waiting list", async () => {

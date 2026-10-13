@@ -102,12 +102,18 @@ While Connected programs is on, its rows are, in order:
   wait again; switching a direction on there approves it.
 - Program activity, which opens the Activity window.
 
-Don't allow and Forget each leave a line with Undo for as long as the list is
-on screen. Undo of Don't allow puts the program back to wait; Undo of Forget
-puts its entry back as it was. The app also brings, while on, a notice when a
-program starts waiting while Writ is open, with the same three answers; a
-programs mark in the toolbar that opens Activity and carries a dot while a
-program waits; and View, Program Activity (section 3).
+Don't allow and Forget each leave a line with Undo while the list is on screen
+and the program is still not allowed, or still forgotten. Undo of Don't allow
+puts the program back to wait; Undo of Forget puts its entry back as it was.
+The app also brings, while on, a notice when a program starts waiting while
+Writ is open, with the same three answers; a programs mark in the toolbar that
+opens Activity and carries a dot while a program waits; and View, Program
+Activity (section 3).
+
+The notice, the waiting list, Program activity and the server's refusals show
+a known client by the name people know it by (`claude-code` as Claude Code,
+`writ_core::activity::PROGRAM_NAMES`). The Programs list and the gate keep the
+name as sent, so two names that read alike are still two programs.
 
 Amended 2026-10-13. Until then the app kept its command, its per-program
 switches and Forget, and an Activity link; a waiting program could be approved

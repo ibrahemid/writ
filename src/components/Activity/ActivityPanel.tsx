@@ -1,4 +1,13 @@
-import { createEffect, createSignal, For, onCleanup, onMount, Show, createUniqueId } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+  createUniqueId,
+} from "solid-js";
 
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
@@ -78,8 +87,16 @@ function Row(props: { row: ActivityRow }) {
 function ActivityDialog() {
   const titleId = createUniqueId();
   const subtitleId = createUniqueId();
+  const writHeadingId = createUniqueId();
   const win = useWindow();
   let dialogRef: HTMLDivElement | undefined;
+
+  const programRows = createMemo(() =>
+    foldActivity(activityStore.records().filter((record) => record.actor.kind === "client")),
+  );
+  const writRows = createMemo(() =>
+    foldActivity(activityStore.records().filter((record) => record.actor.kind !== "client")),
+  );
 
   onMount(() => {
     void activityStore.load();
@@ -170,26 +187,37 @@ function ActivityDialog() {
 
         <WaitingList />
 
-        <Show
-          when={activityStore.records().length > 0}
-          fallback={
-            <div class="activity-empty">
-              <p class="activity-empty-line">No program has called yet.</p>
-              <p class="activity-empty-line">
-                Add the command to a program's MCP settings, then ask it to read a file.
-              </p>
-              <Show when={activityStore.serverCommand()}>
-                <Button data-action="activity-copy-command" onClick={() => void onCopyCommand()}>
-                  Copy command
-                </Button>
-              </Show>
-            </div>
-          }
-        >
-          <ul class="activity-list">
-            <For each={foldActivity(activityStore.records())}>{(row) => <Row row={row} />}</For>
-          </ul>
-        </Show>
+        <div class="activity-log">
+          <Show
+            when={programRows().length > 0}
+            fallback={
+              <div class="activity-empty">
+                <p class="activity-empty-line">No program has called yet.</p>
+                <p class="activity-empty-line">
+                  Add the command to a program's MCP settings, then ask it to read a file.
+                </p>
+                <Show when={activityStore.serverCommand()}>
+                  <Button data-action="activity-copy-command" onClick={() => void onCopyCommand()}>
+                    Copy command
+                  </Button>
+                </Show>
+              </div>
+            }
+          >
+            <ul class="activity-list" data-rows="programs">
+              <For each={programRows()}>{(row) => <Row row={row} />}</For>
+            </ul>
+          </Show>
+
+          <Show when={writRows().length > 0}>
+            <h2 id={writHeadingId} class="activity-section-title">
+              Chat and earlier versions
+            </h2>
+            <ul class="activity-list" data-rows="writ" aria-labelledby={writHeadingId}>
+              <For each={writRows()}>{(row) => <Row row={row} />}</For>
+            </ul>
+          </Show>
+        </div>
       </div>
     </div>
   );

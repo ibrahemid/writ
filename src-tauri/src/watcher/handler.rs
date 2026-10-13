@@ -1706,6 +1706,133 @@ mod tests {
         );
     }
 
+    /// One delivery from the watcher thread, `after_ms` into a replay. The
+    /// debouncer hands the handler a path and no event kind, so a replay of
+    /// what inotify raises is a list of paths and times.
+    fn deliver(
+        path: &Path,
+        pending: &Path,
+        ignore: &IgnoreSet,
+        seen: &mut LastSeen,
+        start: Instant,
+        after_ms: u64,
+    ) -> bool {
+        report_pending_event(
+            path,
+            pending,
+            ignore,
+            seen,
+            DEFAULT_IGNORE_TTL,
+            start + Duration::from_millis(after_ms),
+        )
+        .is_some()
+    }
+
+    #[test]
+    fn a_server_write_by_rename_is_reported_once_however_its_events_arrive() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        let temp = dir.path().join(".tmpAb12Cd");
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let start = Instant::now();
+
+        fs::write(&temp, b"{\"clients\":[{\"name\":\"Zed\"}]}").unwrap();
+        fs::rename(&temp, &pending).unwrap();
+
+        // IN_CREATE, IN_MODIFY and IN_MOVED_FROM name the temp file; IN_MOVED_TO,
+        // and IN_CLOSE_WRITE once the server drops the renamed file, the target.
+        assert!(!deliver(&temp, &pending, &ignore, &mut seen, start, 500));
+        assert!(deliver(&pending, &pending, &ignore, &mut seen, start, 500));
+        assert!(!deliver(&pending, &pending, &ignore, &mut seen, start, 520));
+        // IN_OPEN from the handler's own read, then from announce_waiting's.
+        for after_ms in [1_000, 1_100, 1_600] {
+            assert!(
+                !deliver(&pending, &pending, &ignore, &mut seen, start, after_ms),
+                "{after_ms}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_write_in_place_is_reported_once_however_its_events_arrive() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        fs::write(&pending, b"{\"clients\":[]}").unwrap();
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let start = Instant::now();
+        assert!(deliver(&pending, &pending, &ignore, &mut seen, start, 0));
+        assert!(!deliver(&pending, &pending, &ignore, &mut seen, start, 500));
+
+        fs::write(&pending, b"{\"clients\":[{\"name\":\"Zed\"}]}").unwrap();
+
+        // IN_OPEN, IN_MODIFY for the truncate and for the write, IN_CLOSE_WRITE:
+        // one delivery or several, wherever the debounce window falls.
+        assert!(deliver(
+            &pending, &pending, &ignore, &mut seen, start, 2_000
+        ));
+        for after_ms in [2_010, 2_500, 3_000] {
+            assert!(
+                !deliver(&pending, &pending, &ignore, &mut seen, start, after_ms),
+                "{after_ms}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_apps_own_write_by_rename_is_absorbed_however_its_events_arrive() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        let temp = dir.path().join(".tmpEf34Gh");
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let start = Instant::now();
+        let bytes = b"{\"clients\":[]}";
+        ignore
+            .lock()
+            .unwrap()
+            .record(pending_stamp_key(&pending), bytes, start);
+
+        fs::write(&temp, bytes).unwrap();
+        fs::rename(&temp, &pending).unwrap();
+
+        for after_ms in [500, 520, 1_000] {
+            assert!(
+                !deliver(&pending, &pending, &ignore, &mut seen, start, after_ms),
+                "{after_ms}"
+            );
+        }
+        fs::write(&pending, b"{\"clients\":[{\"name\":\"Zed\"}]}").unwrap();
+        assert!(
+            deliver(&pending, &pending, &ignore, &mut seen, start, 2_000),
+            "the server's next write is news"
+        );
+    }
+
+    #[test]
+    fn a_read_after_the_last_sighting_has_aged_out_is_reported_once_more() {
+        let dir = tempdir().unwrap();
+        let pending = dir.path().join("mcp-pending.json");
+        fs::write(&pending, b"{\"clients\":[]}").unwrap();
+        let ignore = make_set();
+        let mut seen = LastSeen::new();
+        let start = Instant::now();
+        let aged = DEFAULT_SIGHTING_TTL.as_millis() as u64 + 1_000;
+
+        assert!(deliver(&pending, &pending, &ignore, &mut seen, start, 0));
+        assert!(!deliver(&pending, &pending, &ignore, &mut seen, start, 500));
+        assert!(deliver(&pending, &pending, &ignore, &mut seen, start, aged));
+        assert!(!deliver(
+            &pending,
+            &pending,
+            &ignore,
+            &mut seen,
+            start,
+            aged + 500
+        ));
+    }
+
     #[test]
     fn classifies_config_path_as_config_changed() {
         let dir = tempdir().unwrap();

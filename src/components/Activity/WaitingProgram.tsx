@@ -1,15 +1,16 @@
-import { createSignal, For, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show, untrack, type JSX } from "solid-js";
 
 import Button from "../Button/Button";
 import { showToast } from "../Notifications/Toast";
 import { activityStore, type PendingClient } from "../../stores/global/activity";
+import { displayProgramName } from "../../lib/program-names";
 import "./WaitingProgram.css";
 
 /** A program that sent no name still made a call, and the row still shows it. */
 export const UNNAMED_PROGRAM = "Unknown program";
 
 export function programName(name: string): string {
-  return name.trim() || UNNAMED_PROGRAM;
+  return displayProgramName(name).trim() || UNNAMED_PROGRAM;
 }
 
 /** The time of day, in the reader's own locale. */
@@ -94,17 +95,23 @@ export function WaitingProgram(props: { client: PendingClient; onDenied?: (name:
 }
 
 export function WaitingList(props: { empty?: JSX.Element }) {
-  const [denied, setDenied] = createSignal<string[]>([]);
+  const [deniedHere, setDeniedHere] = createSignal<string[]>([]);
+  const denied = createMemo(() => deniedHere().filter((name) => activityStore.isNotAllowed(name)));
+
+  createEffect(() => {
+    const shown = denied();
+    if (shown.length !== untrack(deniedHere).length) setDeniedHere(shown);
+  });
 
   function onDenied(name: string) {
     if (!name.trim()) return;
-    setDenied((names) => [...names.filter((entry) => entry !== name), name]);
+    setDeniedHere((names) => [...names.filter((entry) => entry !== name), name]);
   }
 
   async function undo(name: string) {
     try {
       await activityStore.undoDenial(name);
-      setDenied((names) => names.filter((entry) => entry !== name));
+      setDeniedHere((names) => names.filter((entry) => entry !== name));
     } catch {
       showToast("Could not undo the change", "error");
     }

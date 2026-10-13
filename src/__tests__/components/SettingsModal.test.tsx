@@ -277,6 +277,7 @@ vi.spyOn(configStore, "isAppOn").mockImplementation((app) => isAppOnIn(mocks.con
 
 import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
 import { aiConnectionStore } from "../../stores/global/ai-connection";
+import { activityStore } from "../../stores/global/activity";
 import {
   aiProvidersStore,
   groupProviders,
@@ -1913,6 +1914,28 @@ describe("Connected programs section, programs you approved", () => {
     expect(container.querySelector("[data-forgotten='Desk helper']")).toBeNull();
   });
 
+  it("drops the forgotten line once the program is on the list again", async () => {
+    mocks.mcpForgetClient.mockReset().mockResolvedValue({ approved: [], waiting: [] });
+    const { container } = await openProgramList([READING_CLIENT]);
+    fireEvent.click(container.querySelector("[data-program='Desk helper'] [data-action='mcp-forget']")!);
+    await waitFor(() => expect(container.querySelector("[data-forgotten='Desk helper']")).not.toBeNull());
+
+    mocks.mcpClients.mockResolvedValue({
+      approved: [],
+      waiting: [{ ...WAITING_CLIENT, name: "Desk helper" }],
+    });
+    await activityStore.refreshClients();
+    mocks.mcpSetClientPermission.mockReset().mockResolvedValue({ approved: [READING_CLIENT], waiting: [] });
+    const waitingRow = "[data-setting-id='mcp.waiting'] [data-program='Desk helper']";
+    await waitFor(() => expect(container.querySelector(waitingRow)).not.toBeNull());
+    fireEvent.click(container.querySelector(`${waitingRow} [data-action='approve-read']`)!);
+
+    await waitFor(() =>
+      expect(container.querySelector(".settings-program[data-program='Desk helper']")).not.toBeNull(),
+    );
+    expect(container.querySelector("[data-forgotten='Desk helper']")).toBeNull();
+  });
+
   it("carries no caution on the row, now that the rule is at the switch", async () => {
     const { container } = await openProgramList([WRITING_CLIENT]);
 
@@ -1981,6 +2004,27 @@ describe("Connected programs section, waiting for you", () => {
     await waitFor(() => expect(container.querySelector(waitingRow)).not.toBeNull());
     expect(mocks.mcpReturnToWaiting).toHaveBeenCalledWith("Claude Code");
     expect(container.querySelector(deniedRow)).toBeNull();
+  });
+
+  it("drops the not-allowed line once the program is allowed under Programs", async () => {
+    mocks.mcpDenyClient.mockReset().mockResolvedValue({ approved: [DENIED_CLIENT], waiting: [] });
+    mocks.mcpSetClientPermission
+      .mockReset()
+      .mockResolvedValue({ approved: [{ ...DENIED_CLIENT, read: true }], waiting: [] });
+    const { container } = await openPrograms();
+
+    const waitingRow = "[data-setting-id='mcp.waiting'] [data-program='Claude Code']";
+    await waitFor(() => expect(container.querySelector(waitingRow)).not.toBeNull());
+    fireEvent.click(container.querySelector(`${waitingRow} [data-action='refuse']`)!);
+    const deniedRow = "[data-setting-id='mcp.waiting'] [data-denied='Claude Code']";
+    await waitFor(() => expect(container.querySelector(deniedRow)).not.toBeNull());
+
+    fireEvent.click(container.querySelector('[data-setting="mcp_read_Claude Code"]')!);
+
+    await waitFor(() =>
+      expect(mocks.mcpSetClientPermission).toHaveBeenCalledWith("Claude Code", true, false),
+    );
+    await waitFor(() => expect(container.querySelector(deniedRow)).toBeNull());
   });
 
   it("says where a program appears while none is waiting", async () => {

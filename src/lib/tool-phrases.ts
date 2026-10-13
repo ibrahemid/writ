@@ -98,7 +98,7 @@ const CALL_PHRASES: Readonly<Record<string, CallPhrase>> = {
 export function describeCall(action: string, namesFile: boolean, decision: ActivityDecision): string {
   const phrase = CALL_PHRASES[action];
   if (!phrase) return action.replace(/_/g, " ");
-  const done = decision === "allow";
+  const done = decision === "allow" && !isReadAction(action);
   if (action === "rename_note" && namesFile && done) return "renamed a file to";
   const verb = done ? phrase.done : `asked to ${phrase.asked}`;
   const object = namesFile && phrase.beforePath !== undefined ? phrase.beforePath : phrase.alone;

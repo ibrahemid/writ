@@ -1,7 +1,7 @@
 /* A log, not a dashboard. Rows sit on the sidebar's pitch, carry no fill and
    no border of their own, and spend their one piece of colour on the verdict
    that is not the ordinary one. The shell is the settings modal's, narrower:
-   this is one list, not a panel of sections. */
+   this is one log, not a panel of sections. */
 
 @keyframes activity-in {
   from { opacity: 0; transform: translateY(6px); }
@@ -68,12 +68,25 @@
   gap: var(--writ-space-2);
 }
 
-.activity-list {
+.activity-log {
   flex: 1;
   overflow-y: auto;
+}
+
+.activity-list {
   margin: 0;
   padding: var(--writ-space-2) 0 var(--writ-space-4);
   list-style: none;
+}
+
+.activity-section-title {
+  margin: 0;
+  padding: var(--writ-space-3) var(--writ-space-5) 0;
+  border-top: 1px solid var(--writ-border-soft);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  font-weight: 600;
+  color: var(--writ-fg-muted);
 }
 
 .activity-row {

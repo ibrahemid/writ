@@ -236,3 +236,29 @@ fn the_app_s_own_write_to_the_waiting_list_does_not_come_back() {
         "the app's own stamped write must not come back as a change"
     );
 }
+
+#[test]
+fn a_waiting_file_written_in_place_reaches_the_app_once() {
+    let data = TempDir::new().expect("data dir");
+    let config_path = data.path().join("config.toml");
+    pending_clients::note_calls(data.path(), &ClientId::named("Claude Code"), 1)
+        .expect("seed the waiting file");
+    let (bus, rx) = bus_with_channel();
+    let _watcher = start_file_watcher(
+        bus,
+        config_path.clone(),
+        pending_beside(&config_path),
+        create_ignore_set(),
+    )
+    .expect("start the config watcher");
+    count_pending_changes(&rx);
+
+    std::fs::write(pending_clients::path(data.path()), b"{\"clients\":[]}")
+        .expect("rewrite the waiting file in place");
+
+    assert_eq!(
+        count_pending_changes(&rx),
+        1,
+        "a write in place must reach the app exactly once"
+    );
+}

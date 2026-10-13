@@ -269,6 +269,24 @@ describe("deciding on a program", () => {
     expect(h.mcpRestoreClient).toHaveBeenCalledWith(entry);
     expect(activityStore.clients()).toEqual([entry]);
   });
+
+  it("knows which programs are decided on and which are not allowed", async () => {
+    h.mcpClients.mockResolvedValue(
+      answer(
+        [approval("Claude Code", false, false), approval("Cursor", true, false)],
+        [waiting("Zed")],
+      ),
+    );
+
+    await activityStore.refreshClients();
+
+    expect(activityStore.isDecided("Claude Code")).toBe(true);
+    expect(activityStore.isDecided("Cursor")).toBe(true);
+    expect(activityStore.isDecided("Zed")).toBe(false);
+    expect(activityStore.isNotAllowed("Claude Code")).toBe(true);
+    expect(activityStore.isNotAllowed("Cursor")).toBe(false);
+    expect(activityStore.isNotAllowed("Zed")).toBe(false);
+  });
 });
 
 describe("a program asking while the app runs", () => {

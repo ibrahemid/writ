@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createEffect, createSignal, Show, untrack } from "solid-js";
 
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
@@ -24,15 +24,23 @@ function CloseButton(props: { onClick: () => void }) {
 }
 
 export default function ProgramNotice() {
-  const [denied, setDenied] = createSignal<string | null>(null);
+  const [deniedHere, setDeniedHere] = createSignal<string | null>(null);
+  const denied = () => {
+    const name = deniedHere();
+    return name !== null && activityStore.isNotAllowed(name) ? name : null;
+  };
   const on = () => configStore.isAppOn("programs");
   const waiting = () => (on() ? activityStore.notice() : null);
+
+  createEffect(() => {
+    if (denied() === null && untrack(deniedHere) !== null) setDeniedHere(null);
+  });
 
   async function undo(name: string) {
     try {
       await activityStore.undoDenial(name);
       activityStore.announce(name);
-      setDenied(null);
+      setDeniedHere(null);
     } catch {
       showToast("Could not undo the change", "error");
     }
@@ -40,7 +48,7 @@ export default function ProgramNotice() {
 
   function close() {
     if (denied() !== null) {
-      setDenied(null);
+      setDeniedHere(null);
       return;
     }
     const client = waiting();
@@ -58,7 +66,7 @@ export default function ProgramNotice() {
                 <span class="program-notice-text">
                   {programName(client().name)} wants to read your folder.
                 </span>
-                <WaitingChoices client={client()} onDenied={(name) => setDenied(name)} />
+                <WaitingChoices client={client()} onDenied={(name) => setDeniedHere(name)} />
                 <CloseButton onClick={close} />
               </section>
             )}

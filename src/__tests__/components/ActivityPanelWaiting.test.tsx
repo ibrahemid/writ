@@ -157,6 +157,42 @@ describe("not allowing a waiting program", () => {
     );
   });
 
+  it("drops the line once the program is allowed somewhere else", async () => {
+    h.mcpClients.mockResolvedValue({ approved: [], waiting: [waiting("Claude Code")] });
+    h.mcpDenyClient.mockResolvedValue({ approved: [denied("Claude Code")], waiting: [] });
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+    await vi.advanceTimersByTimeAsync(0);
+    fireEvent.click(container.querySelector('[data-action="refuse"]')!);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(container.querySelector("[data-denied='Claude Code']")).not.toBeNull();
+
+    h.mcpClients.mockResolvedValue({
+      approved: [{ ...denied("Claude Code"), read: true }],
+      waiting: [],
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(container.querySelector("[data-denied='Claude Code']")).toBeNull();
+  });
+
+  it("shows a known program by the name people know it by, and decides by the name it sent", async () => {
+    h.mcpClients.mockResolvedValue({ approved: [], waiting: [waiting("codex-cli")] });
+    h.mcpDenyClient.mockResolvedValue({ approved: [denied("codex-cli")], waiting: [] });
+    openActivity();
+    const { container } = render(() => <ActivityPanel />);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(container.querySelector(".activity-waiting .activity-program")!.textContent).toBe("Codex");
+
+    fireEvent.click(container.querySelector('[data-action="refuse"]')!);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(h.mcpDenyClient).toHaveBeenCalledWith("codex-cli");
+    expect(container.querySelector("[data-denied='codex-cli']")!.textContent).toContain(
+      "Codex is not allowed.",
+    );
+  });
+
   it("sends the name the program gave, not the one the row shows", async () => {
     h.mcpClients.mockResolvedValue({ approved: [], waiting: [waiting("")] });
     h.mcpDenyClient.mockResolvedValue({ approved: [], waiting: [] });

@@ -9,7 +9,7 @@ import { APP_REGISTRATIONS } from "../commands/app-registrations";
 const TOOLS_RS = readFileSync(resolve(process.cwd(), "crates/writ-mcp/src/tools.rs"), "utf8");
 
 function refusalContaining(marker: string): string {
-  const texts = [...TOOLS_RS.matchAll(/#\[error\("([^"]*)"/g)].map((match) => match[1]!);
+  const texts = [...TOOLS_RS.matchAll(/#\[error\(\s*"([^"]*)"/g)].map((match) => match[1]!);
   const found = texts.filter((text) => text.includes(marker));
   expect(found, `one refusal in crates/writ-mcp/src/tools.rs says "${marker}"`).toHaveLength(1);
   return found[0]!;

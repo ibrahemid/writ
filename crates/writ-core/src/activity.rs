@@ -40,6 +40,32 @@ impl ClientId {
     }
 }
 
+/// The names people know some MCP clients by, keyed by the name each sends.
+///
+/// For display only: the gate, the stored approvals and the log keep the name
+/// as sent (rule 3.1), so two names that read alike here are two clients.
+/// `src/lib/program-names.ts` holds the same table for the app.
+pub const PROGRAM_NAMES: &[(&str, &str)] = &[
+    ("claude-code", "Claude Code"),
+    ("claude-desktop", "Claude Desktop"),
+    ("codex", "Codex"),
+    ("codex-cli", "Codex"),
+    ("cursor", "Cursor"),
+    ("vscode", "VS Code"),
+    ("code", "VS Code"),
+    ("gemini-cli", "Gemini CLI"),
+    ("lm-studio", "LM Studio"),
+];
+
+/// The name to show a person for a client that sent `sent`: its entry in
+/// [`PROGRAM_NAMES`], or `sent` itself.
+pub fn display_program_name(sent: &str) -> &str {
+    PROGRAM_NAMES
+        .iter()
+        .find(|&&(name, _)| name == sent)
+        .map_or(sent, |&(_, shown)| shown)
+}
+
 /// What was decided about one call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -344,6 +370,42 @@ mod rfc3339 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_known_client_reads_by_the_name_people_know_it_by() {
+        assert_eq!(display_program_name("claude-code"), "Claude Code");
+        assert_eq!(display_program_name("claude-desktop"), "Claude Desktop");
+        assert_eq!(display_program_name("codex"), "Codex");
+        assert_eq!(display_program_name("codex-cli"), "Codex");
+        assert_eq!(display_program_name("cursor"), "Cursor");
+        assert_eq!(display_program_name("vscode"), "VS Code");
+        assert_eq!(display_program_name("code"), "VS Code");
+        assert_eq!(display_program_name("gemini-cli"), "Gemini CLI");
+        assert_eq!(display_program_name("lm-studio"), "LM Studio");
+    }
+
+    #[test]
+    fn any_other_name_reads_exactly_as_it_was_sent() {
+        for sent in [
+            "Zed",
+            "Claude-Code",
+            " claude-code",
+            "cursor ",
+            "",
+            "Claude Code",
+        ] {
+            assert_eq!(display_program_name(sent), sent);
+        }
+    }
+
+    #[test]
+    fn each_name_a_client_sends_has_one_entry() {
+        let mut sent: Vec<&str> = PROGRAM_NAMES.iter().map(|&(name, _)| name).collect();
+        let entries = sent.len();
+        sent.sort_unstable();
+        sent.dedup();
+        assert_eq!(sent.len(), entries);
+    }
 
     fn record() -> ActivityRecord {
         ActivityRecord::now(
