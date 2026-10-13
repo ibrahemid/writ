@@ -894,7 +894,7 @@ function AppShell() {
       openBuffers: () => bufferRegistry.buffers(),
       refreshBuffer: (id) => bufferRegistry.refreshBuffer(id),
       forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
-      turnScriptsOff: (id) => void previewScriptsStore.turnOff(id),
+      refreshScripts: (id) => previewScriptsStore.refresh(id),
     });
 
     const unlisten2 = await onEvent("buffer:external", (payload) => {

@@ -72,32 +72,54 @@ buffer the store does not hold is refused. While the preview shows an HTML or
 Markdown document, the status bar reads the choice, checked as below,
 `Scripts off` or `Scripts on`, and a click on it runs the same command.
 
-The opt-in is given to the document the user had in front of them. It covers
-the bytes the file held then, whose digest is recorded with it, and the bytes
-each save from Writ writes, whose digest replaces the recorded one
-(`BufferStore::write_source_guarded`, and the relaunch's restore of journaled
-text). Every read of the opt-in, by a render and by the status bar, compares
-the file's digest with the recorded one (`BufferStore::check_preview_scripts`,
-`writ_core::preview::scripts::opt_in_standing`). A file that holds other bytes
-was changed by another program, with its tab open or closed or while Writ was
-not running, and the opt-in lapses. A save checks first, so it cannot carry the
-opt-in over a change it did not make. A file that cannot be read, or whose
-bytes are not on this machine and would be fetched by a read, runs nothing
-until a check can read it. A write that does not come from the editor counts
-as another program's: a connected program's or the chat pane's write, and a
-version restored from history, either record no digest or reach the tab as a
-change, and the opt-in lapses. A move keeps the opt-in, since the bytes did not
-change.
+The opt-in is given to the document the user had in front of them, which Writ
+built from the bytes it last read from the file. It covers those bytes, whose
+digest is recorded with it, and the bytes each save from Writ writes, whose
+digest replaces the recorded one (`BufferStore::write_source_guarded`, and the
+relaunch's restore of journaled text). A save carries the opt-in over only when
+the file held covered bytes as the save's guard found them
+(`WriteOutcome::found`), so it cannot pass a change it did not make off as
+Writ's. Every check of the opt-in, by a render and by the status bar, compares
+the recorded digest with the digest of the bytes Writ holds for the file, the
+record the open, the editor's read and each save keep (`AppState::disk_state`;
+`BufferStore::check_preview_scripts`,
+`writ_core::preview::scripts::opt_in_standing`). Bytes another program wrote
+reach the preview only through a read: the editor's read of a tab reopened from
+History, of a tab restored at launch, or of a tab reloading after a change. So
+a file changed while its tab was closed or while Writ was not running loses its
+opt-in at the first check after that read, before a render of the new bytes
+runs a script. With none of the file's bytes in hand, a check runs nothing and
+keeps the opt-in. No check reads the file: a render or a status-bar read of an
+opted-in file on a share that stopped answering does not wait on it, and holds
+the buffer store only while it reads and writes the row, so a save of another
+tab never waits behind it.
 
-For an open tab the watcher acts first. When it reports that another program
-changed the file, a bus subscriber ahead of the frontend bridge turns the row's
-scripts off and serves the cached render with them off
-(`writ_core::preview::scripts::opt_in_lost_by`,
-`commands::preview::forget_scripts_opt_in`), so they are off before the
-frontend hears of the change. The frontend turns them off too whenever it acts
-on a modified file, which covers a change it finds itself after a sweep of the
-notes folder, and reloads the preview showing the file. Writ's own writes never
-reach either path: the ignore set and the disk state Writ recorded drop them.
+A write that does not come from the editor counts as another program's. A
+connected program's write reaches an open tab through the watcher, below. The
+chat pane's write and a version restored from history lapse the opt-in where
+they announce the write to the tab (`commands::chat::announce_note_change`,
+`commands::note_history::restore_note_version_for_tab`): an apply to a file
+open in a tab saves through the editor's path, which would otherwise carry the
+opt-in over it. A move keeps the opt-in, since the bytes did not change.
+
+For an open tab the change is acted on where it is found, before the tab is
+told: the watcher's report of a modification (`NoteFiles::note_file_changed`,
+asked by both watchers' modification decisions), and a reopen whose read finds
+the file changed (`commands::file::resync_open_buffer`, which also serves
+Today's note and a generated document). Each turns the row's scripts off and
+serves the cached render with them off (`commands::preview::lapse_scripts_opt_in`).
+No event-bus subscriber does it. The bus runs its subscribers on the emitting
+thread, and a reopen emits the change with the buffer store's lock held, so a
+subscriber that took the store would wait on its own thread for good, with
+every later save and journal write behind it. No subscriber may take the
+store's lock: the app subscribes in one place (`src-tauri/src/bus_subscribers.rs`),
+and `src-tauri/tests/event_bus_store_lock_tests.rs` hangs those subscribers on
+a state, holds the store and emits one of every event. The frontend, on the
+modification it already handles for the change bar, reads the opt-in again and
+reloads the preview showing the file by navigating the iframe, so the document
+is rendered and served under the opt-in as it stands; each render's verdict
+also reaches the status bar. Writ's own writes never reach the watcher path:
+the ignore set and the disk state Writ recorded drop them.
 
 The document CSP's `script-src` follows the opt-in, checked at render time and
 carried on the cached render. The first-party runtimes are not the document's
@@ -291,9 +313,11 @@ and the app `frame-src` by `tests/app_csp_tests.rs`.
 - The preview draws on Windows.
 - Mermaid and KaTeX draw in every note regardless of the opt-in, because their
   runtimes are first-party.
-- A file another program changes loses its opt-in, whether its tab was open
-  or closed or Writ was not running, and a preview showing it reloads with
-  scripts off.
+- A file another program changes loses its opt-in before a render of the new
+  bytes runs a script, whether its tab was open or closed or Writ was not
+  running, and a preview showing it reloads with scripts off.
+- No check of the opt-in reads the file, and no event-bus subscriber takes the
+  buffer store's lock.
 
 ## Residual risks
 
@@ -308,6 +332,11 @@ and the app `frame-src` by `tests/app_csp_tests.rs`.
   scripts on only for a file the user trusts.
 - **The opt-in follows the file through Writ's own saves.** A file edited and
   saved in Writ keeps its opt-in, whatever the edit put in it.
+- **A change Writ has not read.** The opt-in is checked against the bytes Writ
+  last read from the file or wrote to it. While a change no watcher reported
+  sits on disk under a tab still showing the text from before it, the preview
+  runs the scripts of that text, the document the opt-in was given to; the
+  opt-in lapses when Writ reads the change.
 - **First-party runtimes as gadgets.** With scripts off any document can still
   load the bridge, Mermaid and KaTeX through `script-src 'self'`. Mermaid runs
   in strict mode and KaTeX with `trust` off, and neither opens a channel the

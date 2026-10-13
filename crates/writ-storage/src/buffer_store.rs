@@ -8,18 +8,17 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use tracing::{info, warn};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
-use writ_core::hash::{digest_from_hex, digest_hex, sha256_bytes, Sha256Digest};
+use writ_core::hash::{digest_from_hex, digest_hex, Sha256Digest};
 use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::WriteOrigin;
-use writ_core::preview::scripts::{
-    opt_in_carries_over_write, opt_in_standing, FileLook, OptInStanding,
-};
+use writ_core::preview::scripts::{opt_in_carries_over_write, opt_in_standing, OptInStanding};
 
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
 use crate::guarded::{
     write_note_guarded, write_recovered_copy, ConflictPolicy, DiskRead, GuardedWrite, WriteCapture,
+    WriteOutcome,
 };
 use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::note_history::NoteHistoryStore;
@@ -759,7 +758,6 @@ impl BufferStore {
         // make every save of an untouched Windows note look like a change.
         let content = doc.line_ending.apply(content);
 
-        let carries_opt_in = self.settle_preview_scripts_before_write(id, path);
         let keep = self.history.as_deref().map(crate::guarded::keep_versions);
         let outcome = write_note_guarded(
             GuardedWrite {
@@ -774,9 +772,7 @@ impl BufferStore {
             },
             before_write,
         )?;
-        if carries_opt_in {
-            self.record_preview_scripts_bytes(id, &outcome.disk_state);
-        }
+        self.settle_preview_scripts(id, &outcome);
         Ok((doc, outcome.disk_state))
     }
 
@@ -913,7 +909,6 @@ impl BufferStore {
             return Ok(RecoveredText::Restored(state));
         }
 
-        let carries_opt_in = self.settle_preview_scripts_before_write(id, path);
         let keep = self.history.as_deref().map(crate::guarded::keep_versions);
         let outcome = write_note_guarded(
             GuardedWrite {
@@ -930,9 +925,7 @@ impl BufferStore {
             },
             before_write,
         )?;
-        if carries_opt_in {
-            self.record_preview_scripts_bytes(id, &outcome.disk_state);
-        }
+        self.settle_preview_scripts(id, &outcome);
         Ok(RecoveredText::Restored(outcome.disk_state))
     }
 
@@ -947,107 +940,108 @@ impl BufferStore {
     }
 
     /// The preview-scripts opt-in as recorded on the row, before it is checked
-    /// against the file. What a render obeys is [`Self::check_preview_scripts`].
+    /// against the bytes Writ holds for the file. What a render obeys is
+    /// [`Self::check_preview_scripts`].
     pub fn preview_scripts(&self, id: &str) -> StorageResult<bool> {
         queries::get_preview_scripts(&self.conn, id)
     }
 
     /// Whether this document's own scripts may run in its preview: the user
-    /// opted the file in, and the file still holds bytes the opt-in covers
-    /// (ADR-043). Off for every document until the user opts the file in
-    /// (decision RC-D1/TS-D1).
+    /// opted the file in, and the bytes Writ holds for it are ones the opt-in
+    /// covers (ADR-043). Off for every document until the user opts the file
+    /// in (decision RC-D1/TS-D1).
     ///
-    /// The opt-in covers what the file held when it was given and what Writ
-    /// has written to it since. A file that holds anything else was changed by
-    /// another program, with its tab open or closed or while Writ was not
-    /// running, and the opt-in lapses here. A file that cannot be checked runs
-    /// nothing this time and keeps the opt-in; one whose bytes are not on this
-    /// machine is not read, since reading it would fetch it (ADR-028 §5).
-    pub fn check_preview_scripts(&self, id: &str) -> StorageResult<bool> {
+    /// `seen` is the digest of the bytes Writ last read from the file or wrote
+    /// to it, which the caller keeps; no file is read here, so the check never
+    /// waits on a file that does not answer. The opt-in covers what Writ held
+    /// when it was given and what Writ has written since. Other bytes were
+    /// another program's, read in with the tab open, on a reopen or after a
+    /// relaunch, and the opt-in lapses here. With no bytes to compare the
+    /// scripts stay off this time and the opt-in is kept.
+    pub fn check_preview_scripts(
+        &self,
+        id: &str,
+        seen: Option<Sha256Digest>,
+    ) -> StorageResult<bool> {
         let Some(opt_in) = queries::get_preview_scripts_opt_in(&self.conn, id)? else {
             return Ok(false);
         };
         if !opt_in.enabled {
             return Ok(false);
         }
-        let read = read_opted_in_file(opt_in.source_path.as_deref().map(Path::new));
-        let recorded = opt_in.recorded_hash.as_deref().and_then(digest_from_hex);
-        match opt_in_standing(recorded, file_look(&read)) {
+        let covered = opt_in.recorded_hash.as_deref().and_then(digest_from_hex);
+        match opt_in_standing(covered, seen) {
             OptInStanding::Stands => Ok(true),
-            OptInStanding::Unchecked => {
-                if let Err(error) = &read {
-                    warn!(buffer = %id, %error, "the file behind a preview-scripts opt-in could not be checked; its scripts stay off");
-                }
-                Ok(false)
-            }
+            OptInStanding::Unchecked => Ok(false),
             OptInStanding::Lapses => {
                 queries::disable_preview_scripts(&self.conn, id)?;
-                info!(buffer = %id, "the file changed outside Writ; its preview-scripts opt-in lapsed");
+                info!(buffer = %id, "the file holds bytes another program wrote; its preview-scripts opt-in lapsed");
                 Ok(false)
             }
         }
     }
 
-    /// Records the per-document preview-scripts opt-in, remembered on the
-    /// buffer row so it survives a relaunch. Opting in records the digest of
-    /// what the file holds now, the bytes the opt-in covers; opting out
-    /// forgets it.
+    /// Opts the file in to running its own scripts in the preview, remembered
+    /// on the buffer row so it survives a relaunch. `covers` is the digest of
+    /// the bytes Writ holds for the file, the document the user is looking at;
+    /// `None` for a file Writ holds none of yet, whose first save it follows.
     ///
     /// # Errors
     ///
-    /// [`StorageError::BufferMissing`] for an id with no row;
-    /// [`StorageError::SourceNotDownloaded`] when opting in a file whose bytes
-    /// are not on this machine; [`StorageError::Io`] when the file cannot be
-    /// read.
-    pub fn set_preview_scripts(&self, id: &str, enabled: bool) -> StorageResult<()> {
-        if !enabled {
-            return queries::disable_preview_scripts(&self.conn, id);
-        }
-        let opt_in = queries::get_preview_scripts_opt_in(&self.conn, id)?
-            .ok_or_else(|| StorageError::BufferMissing { id: id.to_string() })?;
-        let hash =
-            read_opted_in_file(opt_in.source_path.as_deref().map(Path::new))?.map(digest_hex);
-        queries::enable_preview_scripts(&self.conn, id, hash.as_deref())
+    /// [`StorageError::BufferMissing`] for an id with no row.
+    pub fn enable_preview_scripts(
+        &self,
+        id: &str,
+        covers: Option<Sha256Digest>,
+    ) -> StorageResult<()> {
+        queries::enable_preview_scripts(&self.conn, id, covers.map(digest_hex).as_deref())
     }
 
-    /// Whether `id`'s preview-scripts opt-in carries over the write Writ is
-    /// about to make to `path` (ADR-043). An opt-in whose file holds bytes it
-    /// does not cover, or cannot be checked, lapses here, so a save cannot
-    /// pass another program's change off as Writ's. A failure to read or
-    /// clear the opt-in is logged and the write goes ahead without it: a save
-    /// never fails over a preview setting.
-    fn settle_preview_scripts_before_write(&self, id: &str, path: &Path) -> bool {
+    /// Turns the file's scripts off and forgets the bytes the opt-in covered.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::BufferMissing`] for an id with no row.
+    pub fn disable_preview_scripts(&self, id: &str) -> StorageResult<()> {
+        queries::disable_preview_scripts(&self.conn, id)
+    }
+
+    /// Carries `id`'s preview-scripts opt-in over the write Writ just made, or
+    /// lets it lapse (ADR-043). It carries only when the file held bytes the
+    /// opt-in covers as the write's guard found it, so a save cannot pass
+    /// another program's change off as Writ's, and then it covers the bytes
+    /// written. Both digests come from the write itself: no file is read
+    /// again. A failure to read or update the row is logged and the write
+    /// stands: a save never fails over a preview setting, and an opt-in whose
+    /// digest was not moved lapses at its next check.
+    fn settle_preview_scripts(&self, id: &str, outcome: &WriteOutcome) {
         let opt_in = match queries::get_preview_scripts_opt_in(&self.conn, id) {
             Ok(Some(opt_in)) if opt_in.enabled => opt_in,
-            Ok(_) => return false,
+            Ok(_) => return,
             Err(error) => {
-                warn!(buffer = %id, %error, "could not read the preview-scripts opt-in before a save");
-                return false;
+                warn!(buffer = %id, %error, "could not read the preview-scripts opt-in after a save");
+                return;
             }
         };
-        let recorded = opt_in.recorded_hash.as_deref().and_then(digest_from_hex);
-        if opt_in_carries_over_write(recorded, file_look(&read_opted_in_file(Some(path)))) {
-            return true;
+        let covered = opt_in.recorded_hash.as_deref().and_then(digest_from_hex);
+        let found = outcome.found.map(|state| state.hash);
+        if opt_in_carries_over_write(covered, found) {
+            if let Err(error) = queries::record_preview_scripts_hash(
+                &self.conn,
+                id,
+                &digest_hex(outcome.disk_state.hash),
+            ) {
+                warn!(buffer = %id, %error, "could not record the bytes a preview-scripts opt-in covers");
+            }
+            return;
         }
         match queries::disable_preview_scripts(&self.conn, id) {
             Ok(()) => {
-                info!(buffer = %id, "the file held bytes its preview-scripts opt-in does not cover, or could not be checked, before a save; the opt-in lapsed")
+                info!(buffer = %id, "a save landed where the file held bytes the preview-scripts opt-in does not cover, or none; the opt-in lapsed")
             }
             Err(error) => {
                 warn!(buffer = %id, %error, "could not clear a lapsed preview-scripts opt-in")
             }
-        }
-        false
-    }
-
-    /// Records the bytes Writ just wrote to `id`'s file as the ones its
-    /// preview-scripts opt-in covers. A failure is logged; the opt-in then
-    /// lapses at its next check.
-    fn record_preview_scripts_bytes(&self, id: &str, written: &DiskState) {
-        if let Err(error) =
-            queries::record_preview_scripts_hash(&self.conn, id, &digest_hex(written.hash))
-        {
-            warn!(buffer = %id, %error, "could not record the bytes a preview-scripts opt-in covers");
         }
     }
 
@@ -1353,35 +1347,6 @@ pub fn read_note_file_state(path: &Path) -> StorageResult<Option<NoteFileState>>
 /// What `path` holds right now, for the write guard alone.
 pub fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
     Ok(read_note_file_state(path)?.map(|state| state.disk))
-}
-
-/// The digest of what an opted-in document's file holds, for the
-/// preview-scripts check: `None` when it has no file or nothing is at the
-/// path. A file whose bytes are not on this machine is refused unread, since
-/// reading it would fetch it (ADR-028 §5).
-fn read_opted_in_file(path: Option<&Path>) -> StorageResult<Option<Sha256Digest>> {
-    let Some(path) = path else {
-        return Ok(None);
-    };
-    if is_not_downloaded(dataless_flags(path)) {
-        return Err(StorageError::SourceNotDownloaded {
-            path: path.display().to_string(),
-        });
-    }
-    match std::fs::read(path) {
-        Ok(bytes) => Ok(Some(sha256_bytes(&bytes))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.into()),
-    }
-}
-
-/// What a read of an opted-in document's file tells the preview-scripts check.
-fn file_look(read: &StorageResult<Option<Sha256Digest>>) -> FileLook {
-    match read {
-        Ok(None) => FileLook::Absent,
-        Ok(Some(digest)) => FileLook::Holds(*digest),
-        Err(_) => FileLook::Unread,
-    }
 }
 
 /// The names `dir` already holds, lowercased the way the dedupe compares them.

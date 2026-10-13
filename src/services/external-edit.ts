@@ -61,10 +61,12 @@ export interface ExternalEditDeps {
   // the last copy of and cancels the queue, in that order, so this must not
   // be paired with a `cancelAutosave` of its own.
   markRemoved: (id: string) => void;
-  // Turns off the file's preview scripts: the opt-in was given to the document
-  // the file held before another program changed it (ADR-043). Started ahead
-  // of the reload or the bar and not awaited, so neither waits on it.
-  turnScriptsOff: (id: string) => void;
+  // Reads the file's preview-scripts opt-in again, which the backend let lapse
+  // with the change: it was given to the document the file held before
+  // another program changed it (ADR-043). It also reloads the preview showing
+  // the file. Started ahead of the reload or the bar and not awaited, so
+  // neither waits on it.
+  refreshScripts: (id: string) => void;
 }
 
 // What the backend says about a file that changed outside Writ. `path` names
@@ -141,11 +143,11 @@ export async function handleExternalEdit(
       deps.markRemoved(buffer.id);
       return;
     case "reload":
-      deps.turnScriptsOff(buffer.id);
+      deps.refreshScripts(buffer.id);
       deps.reload(buffer.id);
       return;
     case "prompt":
-      deps.turnScriptsOff(buffer.id);
+      deps.refreshScripts(buffer.id);
       // The store cancels the queue as it raises the bar, and reads what the
       // queue was carrying first: for a background tab that is the only copy
       // of its text, and cancelling first is what threw it away.

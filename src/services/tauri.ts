@@ -1111,7 +1111,13 @@ export interface PreviewRendererInfo {
 }
 
 export type PreviewRenderResult =
-  | { kind: "rendered"; used_fallback_stylesheet: boolean; parser_warnings: string[] }
+  | {
+      kind: "rendered";
+      used_fallback_stylesheet: boolean;
+      parser_warnings: string[];
+      /** Whether the document is served with its own scripts on (ADR-043). */
+      scripts_enabled: boolean;
+    }
   | { kind: "no_renderer"; content_type: string }
   | { kind: "failed"; message: string };
 

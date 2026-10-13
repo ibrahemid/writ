@@ -345,7 +345,7 @@ describe("a file Writ could not read", () => {
       openBuffers: () => bufferRegistry.buffers(),
       refreshBuffer: async () => {},
       forgetSaveStatus: () => {},
-      turnScriptsOff: () => {},
+      refreshScripts: () => {},
     });
     const modified: ExternalEditPayload = {
       bufferId: "L10",
@@ -449,7 +449,7 @@ describe("a file Writ could not read", () => {
       openBuffers: () => bufferRegistry.buffers(),
       refreshBuffer: async () => {},
       forgetSaveStatus: () => {},
-      turnScriptsOff: () => {},
+      refreshScripts: () => {},
     });
     await handleExternalEdit({ bufferId: "L14", change: "removed", path: "/notes/L14.txt" }, deps);
     await flush();

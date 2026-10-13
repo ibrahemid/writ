@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot } from "solid-js";
 
-// The stored preview-scripts opt-in as the status bar reads it: unknown until
-// read, set by the toggle, and turned off when another program changes the
-// file, which also reloads the preview showing it.
+// The preview-scripts opt-in as the status bar reads it: unknown until read,
+// set by the toggle and by each render's verdict, the answer asked for last
+// winning, and read again when another program changes the file, which also
+// reloads the preview showing it.
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -76,15 +77,18 @@ describe("previewScriptsStore", () => {
     expect(store.enabled("buf-1")).toBeUndefined();
   });
 
-  it("turns a changed file's scripts off and reloads the preview showing it", async () => {
+  it("reads a changed file's opt-in again and reloads the preview showing it", async () => {
+    mocks.get.mockResolvedValueOnce(true);
+    await store.load("buf-1");
     const win = windowRegistry.getActive()!;
     win.tabs.setActiveTabId("buf-1");
     const before = win.preview.forceRefreshToken();
+    mocks.get.mockResolvedValue(false);
 
-    await store.turnOff("buf-1");
+    store.refresh("buf-1");
 
-    expect(mocks.set).toHaveBeenCalledWith("buf-1", false);
-    expect(store.enabled("buf-1")).toBe(false);
+    await vi.waitFor(() => expect(store.enabled("buf-1")).toBe(false));
+    expect(mocks.set).not.toHaveBeenCalled();
     expect(win.preview.forceRefreshToken()).toBe(before + 1);
   });
 
@@ -92,20 +96,45 @@ describe("previewScriptsStore", () => {
     const win = windowRegistry.getActive()!;
     win.tabs.setActiveTabId("buf-2");
     const before = win.preview.forceRefreshToken();
+    mocks.get.mockResolvedValue(false);
 
-    await store.turnOff("buf-1");
+    store.refresh("buf-1");
 
-    expect(store.enabled("buf-1")).toBe(false);
+    await vi.waitFor(() => expect(store.enabled("buf-1")).toBe(false));
     expect(win.preview.forceRefreshToken()).toBe(before);
   });
 
-  it("reads the stored choice back when turning it off fails", async () => {
-    mocks.set.mockRejectedValue(new Error("store locked"));
+  it("keeps what it knew when the read after a change fails", async () => {
+    mocks.get.mockResolvedValueOnce(false);
+    await store.load("buf-1");
+    mocks.get.mockRejectedValue(new Error("store locked"));
+
+    store.refresh("buf-1");
+
+    await vi.waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(2));
+    expect(store.enabled("buf-1")).toBe(false);
+  });
+
+  it("shows a render's verdict over a read asked for before the render", async () => {
+    let answerRead: (enabled: boolean) => void = () => {};
+    mocks.get.mockReturnValue(new Promise<boolean>((resolve) => (answerRead = resolve)));
+    const reading = store.load("buf-1");
+    const rendered = store.issue();
+
+    store.settle("buf-1", rendered, false);
+    answerRead(true);
+    await reading;
+
+    expect(store.enabled("buf-1")).toBe(false);
+  });
+
+  it("shows a read over the verdict of a render asked for before it", async () => {
+    const rendered = store.issue();
     mocks.get.mockResolvedValue(false);
+    await store.load("buf-1");
 
-    await store.turnOff("buf-1");
+    store.settle("buf-1", rendered, true);
 
-    expect(mocks.get).toHaveBeenCalledWith("buf-1");
     expect(store.enabled("buf-1")).toBe(false);
   });
 });

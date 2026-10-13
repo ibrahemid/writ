@@ -1,4 +1,5 @@
 pub mod app_menu;
+pub mod bus_subscribers;
 pub mod commands;
 pub mod events;
 pub mod first_run;
@@ -25,7 +26,7 @@ pub mod watcher;
 pub mod window_state;
 pub mod workspace_index;
 
-use events::{bus_bridge, emit_event, WritFrontendEvent};
+use events::{emit_event, WritFrontendEvent};
 use poison::recover_poison;
 use state::AppState;
 use tauri::{Listener, Manager};
@@ -124,7 +125,7 @@ fn dropped_paths_to_open(
 /// finished against the old folder would prune every row the move re-keyed.
 /// The generation is taken per walk, so the one that follows reads the folder
 /// Writ holds now.
-fn spawn_notes_reconcile(
+pub(crate) fn spawn_notes_reconcile(
     index: std::sync::Arc<writ_storage::notes_index::NotesIndexStore>,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     gate: std::sync::Arc<writ_core::watcher::reconcile::ReconcileGate>,
@@ -657,124 +658,9 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
 
-            // An edit to config.toml from outside Writ is read back into the
-            // copy every command answers from. Subscribed ahead of the bridge,
-            // so by the time the frontend hears the file changed and asks for
-            // the config, the answer is the file's.
-            {
-                use writ_core::events::bus::WritEvent;
-                let state = app.state::<AppState>();
-                let reload_handle = handle.clone();
-                state.event_bus.subscribe(move |event| {
-                    if let WritEvent::ConfigChanged { .. } = event {
-                        if reload_handle.state::<AppState>().reload_config_from_disk() {
-                            app_menu::sync(&reload_handle);
-                        }
-                    }
-                });
-            }
-
-            // A file another program changed loses its preview-scripts opt-in
-            // (ADR-043). Ahead of the bridge, so the opt-in is off before the
-            // frontend hears of the change and renders the file again.
-            {
-                let state = app.state::<AppState>();
-                let forget_handle = handle.clone();
-                commands::preview::subscribe_scripts_reset(&state.event_bus, move |buffer_id| {
-                    let state = forget_handle.state::<AppState>();
-                    commands::preview::forget_scripts_opt_in(
-                        &state.store,
-                        &state.preview_render_cache,
-                        buffer_id,
-                    );
-                });
-            }
-
-            {
-                let state = app.state::<AppState>();
-                let bridge_handle = handle.clone();
-                bus_bridge::attach_bridge_behind_notes_index(
-                    &state.event_bus,
-                    state.notes_index.clone(),
-                    move |frontend_event| {
-                        let _ = emit_event(&bridge_handle, frontend_event);
-                    },
-                );
-                info!("event bus bridge attached");
-            }
-
-            {
-                use writ_core::events::bus::WritEvent;
-                let state = app.state::<AppState>();
-                let pending_handle = handle.clone();
-                state.event_bus.subscribe(move |event| {
-                    if let WritEvent::McpPendingChanged = event {
-                        commands::activity::announce_waiting(&pending_handle);
-                    }
-                });
-            }
-
-            // Maintain the workspace file-name index from watcher events
-            // (ADR-026). A separate subscriber from the frontend bridge, so
-            // both observe every WorkspaceChanged.
-            {
-                use writ_core::events::bus::WritEvent;
-                let state = app.state::<AppState>();
-                let index = state.workspace_index.clone();
-                state.event_bus.subscribe(move |event| {
-                    if let WritEvent::WorkspaceChanged { path, removed } = event {
-                        workspace_index::on_workspace_changed(&index, path, *removed);
-                    }
-                });
-            }
-
-            // Keep the notes index honest when the watcher saw more change than
-            // it listed (ADR-028 section 7). A file another program wrote is
-            // patched in ahead of the bridge instead
-            // (`bus_bridge::attach_bridge_behind_notes_index`).
-            {
-                use writ_core::events::bus::WritEvent;
-                let state = app.state::<AppState>();
-                let index = state.notes_index.clone();
-                let cancel = state.notes_index_cancel.clone();
-                let reconcile_gate = state.notes_reconcile.clone();
-                // The live root, read per event rather than captured: moving
-                // the notes folder restarts the watcher, and a marker carrying
-                // the new root has to still read as a marker.
-                let handle = app.handle().clone();
-                state.event_bus.subscribe(move |event| {
-                    // More changed in one window than was worth listing, so
-                    // the index walks the folder instead of patching a path.
-                    // The root is read live rather than captured: moving the
-                    // notes folder restarts the watcher, and the walk has to
-                    // follow.
-                    if let WritEvent::NotesSwept { .. } = event {
-                        let state = handle.state::<AppState>();
-                        spawn_notes_reconcile(
-                            index.clone(),
-                            cancel.clone(),
-                            reconcile_gate.clone(),
-                            state.notes_root(),
-                            state.event_bus.clone(),
-                        );
-                    }
-                });
-            }
-
-            // A rename the note's own first line asks for is only safe while
-            // nothing outside Writ has looked at the note. The bus is where
-            // that is seen: every write Writ made has already been dropped by
-            // the watcher's ignore set before an event reaches here.
-            {
-                use writ_core::events::bus::WritEvent;
-                let state = app.state::<AppState>();
-                let watch = state.retitle_watch.clone();
-                state.event_bus.subscribe(move |event| {
-                    if let WritEvent::NotesChanged { path, .. } = event {
-                        watch.changed_outside(std::path::Path::new(path));
-                    }
-                });
-            }
+            // Every subscriber the bus runs, and the rule they keep: none of
+            // them takes the buffer store (`bus_subscribers`).
+            bus_subscribers::attach_bus_subscribers(&handle);
 
             // The window is created hidden (tauri.conf `visible: false`) to kill
             // the cold-start flash. Restore its saved geometry from the cached

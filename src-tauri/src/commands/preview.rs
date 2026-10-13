@@ -13,21 +13,19 @@
 //! Phase 2b adds `preview_set_layout`, `preview_detach`, `preview_print`,
 //! `preview_export` alongside the layout surface.
 
-use std::sync::{Mutex, RwLock};
-
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use tracing::{info, warn};
-use writ_core::events::bus::EventBus;
-use writ_core::preview::scripts::opt_in_lost_by;
+use writ_core::hash::Sha256Digest;
 use writ_core::preview::{
     inline_image_data_url, resolve_inline_image, size_within_inline_limit, AssetScope,
-    ContentRendererRegistry, ContentTypeId, InlineImageRefusal, RenderError, RenderRequest,
-    RendererCapabilities, ThemePolarity,
+    ContentTypeId, InlineImageRefusal, RenderError, RenderRequest, RendererCapabilities,
+    ThemePolarity,
 };
 
 use writ_storage::buffer_store::BufferStore;
+use writ_storage::errors::StorageResult;
 use writ_storage::layout_state::LayoutStateRecord;
 
 use crate::events::{emit_event, WritFrontendEvent};
@@ -92,19 +90,20 @@ fn preview_url_prefix_for(is_windows: bool) -> &'static str {
 
 /// Whether this file's own scripts may run in its preview. Off for every
 /// document until the user opts the file in (decision RC-D1/TS-D1), and off
-/// again once the file holds bytes the opt-in does not cover (ADR-043).
+/// again once Writ holds bytes of the file the opt-in does not cover
+/// (ADR-043).
 #[tauri::command]
 pub fn preview_get_scripts(state: State<'_, AppState>, buffer_id: String) -> Result<bool, String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    preview_get_scripts_inner(&store, &buffer_id)
+    preview_get_scripts_inner(&state, &buffer_id)
 }
 
-/// [`preview_get_scripts`] without Tauri: an id the store does not hold
-/// answers off, and an opt-in its file no longer matches lapses.
-pub fn preview_get_scripts_inner(store: &BufferStore, buffer_id: &str) -> Result<bool, String> {
-    store
-        .check_preview_scripts(buffer_id)
-        .map_err(|e| e.to_string())
+/// [`preview_get_scripts`] without Tauri: what the next render of the file
+/// decides, from its row and the digest of the bytes Writ last read from the
+/// file or wrote to it. No file is read, so the status bar never waits on one
+/// that does not answer. An id the store does not hold answers off.
+pub fn preview_get_scripts_inner(state: &AppState, buffer_id: &str) -> Result<bool, String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    scripts_may_run(state, &store, buffer_id).map_err(|e| e.to_string())
 }
 
 /// Record whether this file's own scripts may run, remembered on its buffer
@@ -117,42 +116,74 @@ pub fn preview_set_scripts(
     buffer_id: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    preview_set_scripts_inner(&store, &buffer_id, enabled)
+    preview_set_scripts_inner(&state, &buffer_id, enabled)
 }
 
-/// [`preview_set_scripts`] without Tauri: an id the store does not hold is
-/// refused, so the caller never reports a choice that was not recorded.
+/// [`preview_set_scripts`] without Tauri. An opt-in covers the bytes Writ
+/// holds for the file, the ones the document on screen was built from, so no
+/// file is read. An id the store does not hold is refused, so the caller
+/// never reports a choice that was not recorded.
 pub fn preview_set_scripts_inner(
-    store: &BufferStore,
+    state: &AppState,
     buffer_id: &str,
     enabled: bool,
 ) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    if enabled {
+        return store
+            .enable_preview_scripts(buffer_id, bytes_writ_holds(state, buffer_id))
+            .map_err(|e| e.to_string());
+    }
     store
-        .set_preview_scripts(buffer_id, enabled)
-        .map_err(|e| e.to_string())
+        .disable_preview_scripts(buffer_id)
+        .map_err(|e| e.to_string())?;
+    state.preview_render_cache.turn_scripts_off(buffer_id);
+    Ok(())
 }
 
-/// Turn off the scripts of `buffer_id`'s file, in the store and in the document
-/// already rendered from it, because another program changed the file
-/// (ADR-043). Answers whether they were on.
+/// The digest of the bytes Writ last read from `buffer_id`'s file or wrote to
+/// it.
 ///
-/// A buffer the store does not hold has nothing to turn off. A store that
-/// cannot be read or written leaves the row as it was and is logged; the next
-/// render reads the row again and treats a failed read as off.
-pub fn forget_scripts_opt_in(
-    store: &Mutex<BufferStore>,
-    cache: &RenderCache,
-    buffer_id: &str,
-) -> bool {
+/// Asked with the store held: the save and the editor's read move this record
+/// while they hold the store, so the record and the row read together describe
+/// the same moment.
+fn bytes_writ_holds(state: &AppState, buffer_id: &str) -> Option<Sha256Digest> {
+    state.disk_state(buffer_id).map(|disk| disk.hash)
+}
+
+/// Whether `buffer_id`'s own scripts may run now, checked against the bytes
+/// Writ holds for its file, with `store` the guard the caller holds. When they
+/// may not, the document already rendered from the file is served with them
+/// off from now on.
+///
+/// The render cache's lock is taken under the store's. Nothing holds that lock
+/// while it takes another, so the order cannot turn round.
+fn scripts_may_run(state: &AppState, store: &BufferStore, buffer_id: &str) -> StorageResult<bool> {
+    let verdict = store.check_preview_scripts(buffer_id, bytes_writ_holds(state, buffer_id));
+    if !matches!(verdict, Ok(true)) {
+        state.preview_render_cache.turn_scripts_off(buffer_id);
+    }
+    verdict
+}
+
+/// Turn off the scripts of `buffer_id`'s file, in its row and in the document
+/// already rendered from it, because a program other than the editor changed
+/// the file (ADR-043). Answers whether they were on.
+///
+/// `store` is the guard the caller already holds: the emitters that report the
+/// change hold it while they do, and the bus runs its subscribers on the
+/// emitting thread, so the lapse is made here rather than in a subscriber. No
+/// file is read, and the render cache's lock is a leaf. A row that cannot be
+/// read or written is logged; the next check compares the bytes Writ holds
+/// with the recorded digest and turns the scripts off then.
+pub fn lapse_scripts_opt_in(store: &BufferStore, cache: &RenderCache, buffer_id: &str) -> bool {
     cache.turn_scripts_off(buffer_id);
-    let store = recover_poison(store.lock(), "commands::preview::forget_scripts_opt_in");
     match store.preview_scripts(buffer_id) {
-        Ok(true) => match store.set_preview_scripts(buffer_id, false) {
+        Ok(true) => match store.disable_preview_scripts(buffer_id) {
             Ok(()) => {
                 info!(
                     buffer_id,
-                    "scripts turned off: the file changed outside Writ"
+                    "scripts turned off: the file changed outside the editor"
                 );
                 true
             }
@@ -169,19 +200,15 @@ pub fn forget_scripts_opt_in(
     }
 }
 
-/// Run `forget` for each file `bus` reports another program changed
-/// ([`opt_in_lost_by`]). The app subscribes it ahead of the frontend bridge, so
-/// the opt-in is off before the frontend hears of the change and renders the
-/// file again.
-pub fn subscribe_scripts_reset<F>(bus: &EventBus, forget: F)
-where
-    F: Fn(&str) + Send + Sync + 'static,
-{
-    bus.subscribe(move |event| {
-        if let Some(buffer_id) = opt_in_lost_by(event) {
-            forget(buffer_id);
-        }
-    });
+/// [`lapse_scripts_opt_in`] for a caller that does not hold the store: it is
+/// taken for the row's read and write and let go. A caller holding it would wait on
+/// itself, so one that does calls [`lapse_scripts_opt_in`] with its guard.
+pub fn lapse_scripts_opt_in_now(state: &AppState, buffer_id: &str) -> bool {
+    let store = recover_poison(
+        state.store.lock(),
+        "commands::preview::lapse_scripts_opt_in_now",
+    );
+    lapse_scripts_opt_in(&store, &state.preview_render_cache, buffer_id)
 }
 
 /// A buffer's persisted layout, returned to the frontend on open.
@@ -263,6 +290,9 @@ pub enum PreviewRenderResult {
         used_fallback_stylesheet: bool,
         /// Cheap parser warnings surfaced in the status chip.
         parser_warnings: Vec<String>,
+        /// Whether the document is served with its own scripts on: the opt-in
+        /// as this render checked it, which the status bar shows.
+        scripts_enabled: bool,
     },
     /// No renderer registered for the content type — caller falls back to
     /// `Source`.
@@ -307,6 +337,8 @@ pub enum CachedRender {
         used_fallback_stylesheet: bool,
         /// Cheap parser warnings surfaced in the status chip.
         parser_warnings: Vec<String>,
+        /// Whether the document is served with its own scripts on.
+        scripts_enabled: bool,
     },
     /// No renderer is registered for the request's content type.
     NoRenderer,
@@ -316,44 +348,56 @@ pub enum CachedRender {
 
 /// [`preview_render`] without Tauri: render the request with the renderer
 /// registered for its content type and cache the document for the protocol
-/// handler, with the request's asset scope and the file's scripts opt-in,
-/// checked against the file now. The handler serves the cached document under
-/// the CSP that opt-in calls for. An id the store does not hold, a store that
-/// cannot be read, or a file that no longer holds bytes the opt-in covers
-/// renders with scripts off.
+/// handler, with the request's asset scope and the file's scripts opt-in. The
+/// handler serves the cached document under the CSP that opt-in calls for.
+///
+/// The renderer runs without the store. The opt-in is checked and the document
+/// cached under one hold of the store, which every lapse of an opt-in takes
+/// too, so a lapse lands either before the check or after the document is in
+/// the cache, where it turns the scripts off. The check reads no file
+/// ([`preview_get_scripts_inner`]). An id the store does not hold, a store that
+/// cannot be read, or bytes the opt-in does not cover render with scripts off.
 pub fn render_into_cache(
-    store: &Mutex<BufferStore>,
-    registry: &RwLock<ContentRendererRegistry>,
-    cache: &RenderCache,
+    state: &AppState,
     buffer_id: &str,
     request: RenderRequest,
 ) -> CachedRender {
-    let registry = registry.read().expect("preview registry rwlock poisoned");
+    let registry = state
+        .preview_registry
+        .read()
+        .expect("preview registry rwlock poisoned");
     let Some(renderer) = registry.get(&request.content_type) else {
         return CachedRender::NoRenderer;
     };
-    let scripts_enabled = store
-        .lock()
-        .ok()
-        .and_then(|store| store.check_preview_scripts(buffer_id).ok())
-        .unwrap_or(false);
     let assets = request.assets.clone();
     let result = renderer.render(request);
     drop(registry);
 
     match result {
         Ok(output) => {
-            cache.put(
-                buffer_id,
-                RenderedDoc {
-                    html: output.document_html,
-                    assets,
-                    scripts_enabled,
-                },
-            );
+            let doc = |scripts_enabled| RenderedDoc {
+                html: output.document_html,
+                assets,
+                scripts_enabled,
+            };
+            let scripts_enabled = match state.store.lock() {
+                Ok(store) => {
+                    let scripts_enabled =
+                        scripts_may_run(state, &store, buffer_id).unwrap_or(false);
+                    state
+                        .preview_render_cache
+                        .put(buffer_id, doc(scripts_enabled));
+                    scripts_enabled
+                }
+                Err(_) => {
+                    state.preview_render_cache.put(buffer_id, doc(false));
+                    false
+                }
+            };
             CachedRender::Rendered {
                 used_fallback_stylesheet: output.used_fallback_stylesheet,
                 parser_warnings: output.parser_warnings,
+                scripts_enabled,
             }
         }
         Err(err) => CachedRender::Failed(err),
@@ -378,17 +422,12 @@ fn run_render(
         zoom,
         assets: asset_scope(state, &buffer_id),
     };
-    match render_into_cache(
-        &state.store,
-        &state.preview_registry,
-        &state.preview_render_cache,
-        &buffer_id,
-        request,
-    ) {
+    match render_into_cache(state, &buffer_id, request) {
         CachedRender::NoRenderer => PreviewRenderResult::NoRenderer { content_type },
         CachedRender::Rendered {
             used_fallback_stylesheet,
             parser_warnings,
+            scripts_enabled,
         } => {
             let _ = emit_event(
                 app,
@@ -402,6 +441,7 @@ fn run_render(
             PreviewRenderResult::Rendered {
                 used_fallback_stylesheet,
                 parser_warnings,
+                scripts_enabled,
             }
         }
         CachedRender::Failed(err) => {

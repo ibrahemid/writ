@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 
 // The status bar field for a previewed document's own scripts: it reads the
-// stored opt-in, a click runs the toggle command, and it follows the stored
-// choice when another program's change turns it off.
+// stored opt-in, a click runs the toggle command, and it follows the backend
+// when another program's change lets the opt-in lapse, whether the change
+// arrives as an event or a render finds it.
 
 const mocks = vi.hoisted(() => ({
   getScripts: vi.fn(),
@@ -37,6 +38,8 @@ import { previewScriptsStore } from "../../stores/global/preview-scripts";
 import { unregisterCommand } from "../../commands/registry";
 import { registerPreviewKeymap } from "../../keymap/preview";
 import { defaultSplit, type LayoutMode } from "../../lib/preview-layout";
+import { createExternalEditDeps } from "../../lib/external-edit-deps";
+import { handleExternalEdit } from "../../services/external-edit";
 import type { BufferDocument } from "../../types/buffer";
 
 const PREVIEW_COMMANDS = [
@@ -159,14 +162,55 @@ describe("PreviewScriptsField", () => {
     expect(mocks.toast).toHaveBeenCalledWith("Scripts on for this file", "info");
   });
 
-  it("reads Scripts off once another program's change turns them off", async () => {
+  it("reads Scripts off once the backend lets the opt-in lapse with a change", async () => {
     mocks.getScripts.mockResolvedValue(true);
     const { findByRole } = await mountWith({ ...HTML_FILE, id: "S7" }, defaultSplit());
     await findByRole("button", { name: "Scripts on" });
+    mocks.getScripts.mockResolvedValue(false);
 
-    await previewScriptsStore.turnOff("S7");
+    previewScriptsStore.refresh("S7");
 
     await findByRole("button", { name: "Scripts off" });
-    expect(mocks.setScripts).toHaveBeenCalledWith("S7", false);
+    expect(mocks.setScripts).not.toHaveBeenCalled();
+  });
+
+  it("reads Scripts off when the file changes on disk, through the app's own wiring", async () => {
+    mocks.getScripts.mockResolvedValue(true);
+    const file = { ...HTML_FILE, id: "S9" };
+    const { findByRole } = await mountWith(file, defaultSplit());
+    await findByRole("button", { name: "Scripts on" });
+    const win = windowRegistry.getActive()!;
+    const before = win.preview.forceRefreshToken();
+    const reload = vi.fn();
+    const deps = createExternalEditDeps({
+      editor: {
+        isDirty: () => false,
+        isRemovedOnDisk: () => false,
+        requestExternalReload: reload,
+        recordFileEvent: () => {},
+      },
+      openBuffers: () => [file],
+      refreshBuffer: () => Promise.resolve(),
+      forgetSaveStatus: () => {},
+      refreshScripts: (id) => previewScriptsStore.refresh(id),
+    });
+    mocks.getScripts.mockResolvedValue(false);
+
+    await handleExternalEdit({ bufferId: "S9", change: "modified" }, deps);
+
+    await findByRole("button", { name: "Scripts off" });
+    expect(win.preview.forceRefreshToken()).toBe(before + 1);
+    expect(reload).toHaveBeenCalledWith("S9");
+    expect(mocks.setScripts).not.toHaveBeenCalled();
+  });
+
+  it("reads Scripts off once a render finds the opt-in lapsed", async () => {
+    mocks.getScripts.mockResolvedValue(true);
+    const { findByRole } = await mountWith({ ...HTML_FILE, id: "S8" }, defaultSplit());
+    await findByRole("button", { name: "Scripts on" });
+
+    previewScriptsStore.settle("S8", previewScriptsStore.issue(), false);
+
+    await findByRole("button", { name: "Scripts off" });
   });
 });

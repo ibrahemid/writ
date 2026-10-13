@@ -47,6 +47,12 @@ pub trait NoteFiles: Send + Sync {
     /// marked removed, which is a file that came back from the Trash.
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool;
 
+    /// Records that another program changed the note's file, before the tab
+    /// is told. What was granted to the document the file held goes with it:
+    /// its preview-scripts opt-in lapses (ADR-043). Asked only for a change
+    /// that is news to the tab, never for a write of Writ's own.
+    fn note_file_changed(&self, note_id: &str);
+
     /// The digest of what the note's file held the last time Writ read or
     /// wrote it.
     ///
@@ -144,6 +150,8 @@ impl NoteFiles for NoNoteFiles {
         false
     }
 
+    fn note_file_changed(&self, _note_id: &str) {}
+
     fn last_disk_state(&self, _note_id: &str) -> Option<DiskState> {
         None
     }
@@ -173,6 +181,10 @@ impl NoteFiles for AppNoteFiles {
 
     fn note_file_returned(&self, note_id: &str, path: &Path) -> bool {
         apply_return(&self.app.state::<AppState>(), note_id, path)
+    }
+
+    fn note_file_changed(&self, note_id: &str) {
+        crate::commands::preview::lapse_scripts_opt_in_now(&self.app.state::<AppState>(), note_id);
     }
 
     fn last_disk_state(&self, note_id: &str) -> Option<DiskState> {
@@ -219,6 +231,12 @@ impl NoteFiles for SharedNoteFiles {
         match self.state.upgrade() {
             Some(state) => apply_return(&state, note_id, path),
             None => false,
+        }
+    }
+
+    fn note_file_changed(&self, note_id: &str) {
+        if let Some(state) = self.state.upgrade() {
+            crate::commands::preview::lapse_scripts_opt_in_now(&state, note_id);
         }
     }
 

@@ -6,6 +6,7 @@ import {
 } from "../../services/tauri";
 import type { ThemePolarity } from "../../types/theme";
 import type { PreviewSearchController } from "../../editor/search/preview-search-controller";
+import { previewScriptsStore } from "../global/preview-scripts";
 
 // Per-window preview coordination. Lean scope: the preview is a same-window
 // iframe, so there is no per-pane webview process to pool, idle-pause, or
@@ -38,7 +39,11 @@ export function createPreviewStore(deps: { windowId: number }) {
     return searchController();
   }
 
-  /** Render the live buffer text and cache the HTML for the iframe to load. */
+  /**
+   * Render the live buffer text and cache the HTML for the iframe to load. The
+   * render checks the file's scripts opt-in, so its verdict is what the status
+   * bar shows from then on.
+   */
   async function render(
     bufferId: string,
     contentType: string,
@@ -46,7 +51,12 @@ export function createPreviewStore(deps: { windowId: number }) {
     theme: ThemePolarity,
     zoom: number,
   ): Promise<PreviewRenderResult> {
-    return previewForceRender(windowId, bufferId, contentType, text, theme, zoom);
+    const issuedAt = previewScriptsStore.issue();
+    const result = await previewForceRender(windowId, bufferId, contentType, text, theme, zoom);
+    if (result.kind === "rendered") {
+      previewScriptsStore.settle(bufferId, issuedAt, result.scripts_enabled);
+    }
+    return result;
   }
 
   /** Drop the host-side render cache entry when a pane unmounts. */

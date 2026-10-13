@@ -205,6 +205,10 @@ pub struct CreateNote<'a> {
 pub struct WriteOutcome {
     /// What the file holds afterwards.
     pub disk_state: DiskState,
+    /// What the guard found at the path before the write, from the read it
+    /// decided on, or `None` when no file was there. A caller weighing what
+    /// the write replaced asks this rather than reading the file again.
+    pub found: Option<DiskState>,
     /// What the guard decided.
     pub decision: SaveDecision,
     /// The dated copy written beside the note, for a resolution that wrote
@@ -265,6 +269,7 @@ pub fn write_note_guarded(
     match (decision, on_disk) {
         (SaveDecision::AlreadyIdentical, Some(state)) => Ok(WriteOutcome {
             disk_state: state,
+            found: on_disk,
             decision,
             conflict_copy: None,
         }),
@@ -295,6 +300,7 @@ pub fn write_note_guarded(
             }
             Ok(WriteOutcome {
                 disk_state: after,
+                found: on_disk,
                 decision,
                 conflict_copy: None,
             })

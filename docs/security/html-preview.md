@@ -114,9 +114,11 @@ A document's own scripts are off until the user turns them on for that file
 status bar shows while an HTML or Markdown document is in the preview), kept
 on the buffer row with the digest of the bytes the file held (ADR-043). A save
 from Writ records the digest of what it wrote. Every render and every read by
-the status bar compares the file with the recorded digest, so a change another
-program makes turns the scripts off again, whether the tab was open or closed
-or Writ was not running, and a preview showing the file reloads. When
+the status bar compares the recorded digest with the one of the bytes Writ last
+read from the file or wrote to it, without reading the file, so a change
+another program makes turns the scripts off again before the new bytes run a
+script, whether the tab was open or closed or Writ was not running, and a
+preview showing the file reloads. When
 off, `script-src` admits only `'self'` and the preview scheme, so the
 document's own inline and authored scripts do not run; the first-party
 runtimes (the bridge, Mermaid, KaTeX, served same-origin under `_assets/`)
@@ -214,12 +216,26 @@ invariants as a merge gate.
   `javascript:` and lookalike host; `src-tauri/tests/preview_scripts_ipc_tests.rs`
   that it is installed on the app.
 - **The scripts opt-in.** `crates/writ-storage/tests/buffer_store_tests.rs`
-  checks that an opt-in lapses when another program rewrites the file while its
-  tab is closed or while Writ is not running, that a save from Writ keeps it
-  and cannot carry it over another program's change, and that a file that
-  cannot be read runs nothing; `src-tauri/tests/preview_scripts_external_change_tests.rs`
-  drives the same cases through the app's watcher, close, History reopen and
-  render.
+  checks that an opt-in lapses when Writ reads bytes another program wrote
+  while the tab was closed or while Writ was not running, that a save from
+  Writ keeps it and cannot carry it over another program's change, that a CRLF
+  file is covered by the bytes the save wrote, and that a check with none of
+  the file's bytes in hand runs nothing;
+  `src-tauri/tests/preview_scripts_external_change_tests.rs` drives the same
+  cases through the app's watcher, close, History reopen, the editor's read and
+  render, and checks that a move keeps the opt-in and a chat apply to an open
+  tab takes it; `src-tauri/tests/note_history_ipc_tests.rs` that a restored
+  version takes it; `src-tauri/tests/preview_scripts_stall_tests.rs` that a
+  render and a status-bar read of an opted-in tab on a file whose reads never
+  return wait on nothing, and a save of another tab does not wait behind them.
+- **No event-bus subscriber takes the buffer store.** The bus runs its
+  subscribers on the emitting thread, and a reopen emits with the store held.
+  `src-tauri/tests/event_bus_store_lock_tests.rs` hangs the app's own
+  subscribers on a state, holds the store and emits one of every event, each of
+  which returns; pins `src-tauri/src/bus_subscribers.rs` as the one place the
+  app subscribes; and reopens a tab whose file another program changed, and
+  asks for Today's note on a changed file, both of which answer and turn the
+  file's scripts off.
 - **Parser fuzzing.** `fuzz/fuzz_targets/preview_url_parser.rs` fuzzes
   `parse` for "never panics" and "no traversal survives into an accepted
   request." A stable-toolchain property test
@@ -245,6 +261,10 @@ invariants as a merge gate.
   each platform is a manual check.
 - **The opt-in follows the file through Writ's own saves.** A file edited and
   saved in Writ keeps its opt-in, whatever the edit put in it.
+- **A change Writ has not read.** The opt-in is checked against the bytes Writ
+  last read from the file or wrote to it. While a change no watcher reported
+  sits on disk under a tab still showing the text from before it, the preview
+  runs the scripts of that text; the opt-in lapses when Writ reads the change.
 - **We trust the webview engine to enforce the attached policy per spec.** A
   CSP- or sandbox-enforcement bypass, a 0-day in WebKit (macOS), WebKit2GTK
   (Linux) or WebView2 (Windows), would defeat the boundary. This is out of

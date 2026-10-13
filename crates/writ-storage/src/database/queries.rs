@@ -354,7 +354,7 @@ pub fn update_line_ending(conn: &Connection, id: &str, ending: LineEnding) -> St
 }
 
 /// Reads the per-document preview-scripts opt-in for a buffer as recorded,
-/// before it is checked against the file.
+/// before it is checked against the bytes Writ holds for the file.
 ///
 /// A row that names no buffer answers `false`: an unknown id is treated as
 /// not opted in, the same posture a fresh document takes.
@@ -369,32 +369,29 @@ pub fn get_preview_scripts(conn: &Connection, id: &str) -> StorageResult<bool> {
     Ok(enabled.unwrap_or(0) != 0)
 }
 
-/// A buffer's preview-scripts opt-in with what it is checked against.
+/// A buffer's preview-scripts opt-in with the digest it is checked against.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewScriptsOptIn {
     /// Whether the user opted the file in.
     pub enabled: bool,
     /// The digest of the bytes the opt-in covers, as 64 hex characters.
     pub recorded_hash: Option<String>,
-    /// The file the opt-in is checked against.
-    pub source_path: Option<String>,
 }
 
-/// Reads a buffer's preview-scripts opt-in with the digest recorded for it and
-/// the file it covers. `None` for an id with no row.
+/// Reads a buffer's preview-scripts opt-in with the digest recorded for it.
+/// `None` for an id with no row.
 pub fn get_preview_scripts_opt_in(
     conn: &Connection,
     id: &str,
 ) -> StorageResult<Option<PreviewScriptsOptIn>> {
     Ok(conn
         .query_row(
-            "SELECT preview_scripts, preview_scripts_hash, source_path FROM buffers WHERE id = ?1",
+            "SELECT preview_scripts, preview_scripts_hash FROM buffers WHERE id = ?1",
             params![id],
             |row| {
                 Ok(PreviewScriptsOptIn {
                     enabled: row.get::<_, i64>(0)? != 0,
                     recorded_hash: row.get(1)?,
-                    source_path: row.get(2)?,
                 })
             },
         )
@@ -402,7 +399,7 @@ pub fn get_preview_scripts_opt_in(
 }
 
 /// Opts a buffer's file in to running its own scripts in the preview, for the
-/// bytes `hash` names: `None` when the file has none yet.
+/// bytes `hash` names: `None` when Writ holds none of the file's bytes yet.
 ///
 /// `updated_at` is left alone: opting a file's preview in or out is a view
 /// preference, not an edit to its text, so it must not reorder History. An id

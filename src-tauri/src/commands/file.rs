@@ -690,6 +690,11 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
         return;
     };
     if known.hash != writ_core::hash::sha256_bytes(&source) {
+        // Another program changed the file, so an opt-in given to the bytes
+        // Writ read before goes with them (ADR-043). It lapses here, under the
+        // guard this function is handed: the bus runs its subscribers on this
+        // thread with that guard held, so none of them may take the store.
+        crate::commands::preview::lapse_scripts_opt_in(store, &state.preview_render_cache, &doc.id);
         // The digest is the file's own, computed from the bytes just read, in
         // the form the editor compares its document against. A reopen is the
         // one place the file has already been read, so leaving it out and

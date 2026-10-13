@@ -385,7 +385,7 @@ describe("a note whose file changed outside Writ", () => {
       openBuffers: () => [{ id: "A", title: "A", filename: "A.md" }],
       refreshBuffer: async () => {},
       forgetSaveStatus: () => {},
-      turnScriptsOff: () => {},
+      refreshScripts: () => {},
     });
     await handleExternalEdit(
       { bufferId: "A", change: "modified", path: "/notes/A.md", diskHash: "back" },
