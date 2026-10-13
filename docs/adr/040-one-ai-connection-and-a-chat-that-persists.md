@@ -154,7 +154,7 @@ fetch and the endpoint guard read one definition.
 | `deepseek` | DeepSeek | hosted | OpenAI | `https://api.deepseek.com` | `GET /models` | key |
 | `mistral` | Mistral | hosted | OpenAI | `https://api.mistral.ai/v1` | `GET /v1/models` | key |
 | `xai` | xAI | hosted | OpenAI | `https://api.x.ai/v1` | `GET /v1/models` | key |
-| `together` | Together | hosted | OpenAI | `https://api.together.xyz/v1` | `GET /v1/models` | key |
+| `together` | Together | hosted | OpenAI | `https://api.together.ai/v1` | `GET /v1/models` | key |
 | `fireworks` | Fireworks | hosted | OpenAI | `https://api.fireworks.ai/inference/v1` | `GET /inference/v1/models` | key |
 | `custom` | Custom (OpenAI-compatible) | custom | OpenAI | typed | `GET {base_url}/models` | optional |
 
