@@ -15,49 +15,64 @@ set -euo pipefail
 #       cargo install cargo-about --version 0.9.1 --locked --features cli
 #   - cargo-deny, for the advisory, licence, ban and source checks:
 #       cargo install cargo-deny --version 0.20.2 --locked
-#   - Docker (only required for the act-driven Linux dry run)
+#   - minisign 0.12 (brew install minisign), which signs the updater archive
+#   - gh, signed in, to read the updater key of the latest published release
+#   - Docker (only required for the act dry run of the release job graph)
 #   - act (https://github.com/nektos/act, optional; install with `brew install act`)
 #
 # Tauri updater signing:
-#   The mac build needs TAURI_SIGNING_PRIVATE_KEY and
-#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD to produce the .sig used by the
-#   in-app updater. This script reads:
-#     - the key from $TAURI_SIGNING_PRIVATE_KEY_PATH (default
-#       ~/.tauri/writ.key);
-#     - the password from the macOS Keychain item
-#       service="writ-tauri-signing" account="$USER", or from
-#       $TAURI_SIGNING_PRIVATE_KEY_PASSWORD if pre-set.
+#   Gate 9 signs the mac updater archive the way the sign-updater job does and
+#   checks it against the key installed copies trust, so it needs the updater
+#   key and its password. This script reads:
+#     - the key from $TAURI_SIGNING_PRIVATE_KEY if set, else from the file at
+#       $TAURI_SIGNING_PRIVATE_KEY_PATH (default ~/.tauri/writ.key);
+#     - the password from $TAURI_SIGNING_PRIVATE_KEY_PASSWORD if set, else from
+#       the macOS Keychain item service="writ-tauri-signing" account="$USER".
+#   It takes these variables out of the environment before anything runs and
+#   hands the key and password to the signing command alone, so no build
+#   script, proc macro or package script below can read them.
 #   First-time setup (one shot, paste the password when prompted):
 #     security add-generic-password -a "$USER" -s "writ-tauri-signing" -w
 
+declare +x UPDATER_KEY="${TAURI_SIGNING_PRIVATE_KEY:-}"
+declare +x UPDATER_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
+declare +x UPDATER_KEY_PATH="${TAURI_SIGNING_PRIVATE_KEY_PATH:-${HOME}/.tauri/writ.key}"
+unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD TAURI_SIGNING_PRIVATE_KEY_PATH
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${ROOT}"
+
+VERSION="$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)"
 
 step() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m!! %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mxx %s\033[0m\n' "$*" >&2; exit 1; }
 
-load_signing_secrets() {
-  local key_path="${TAURI_SIGNING_PRIVATE_KEY_PATH:-${HOME}/.tauri/writ.key}"
-  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
-    if [[ -f "${key_path}" ]]; then
-      TAURI_SIGNING_PRIVATE_KEY="$(cat "${key_path}")"
-      export TAURI_SIGNING_PRIVATE_KEY
-    else
-      fail "No TAURI_SIGNING_PRIVATE_KEY env and no key at ${key_path}.
+load_updater_key() {
+  if [[ -z "${UPDATER_KEY}" ]]; then
+    [[ -f "${UPDATER_KEY_PATH}" ]] || fail "No TAURI_SIGNING_PRIVATE_KEY env and no key at ${UPDATER_KEY_PATH}.
        Generate one with: npx tauri signer generate -w ~/.tauri/writ.key"
-    fi
+    UPDATER_KEY="${UPDATER_KEY_PATH}"
   fi
-  if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
-    if pw="$(security find-generic-password -a "${USER}" -s "writ-tauri-signing" -w 2>/dev/null)"; then
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${pw}"
-      export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-    else
+  if [[ -z "${UPDATER_KEY_PASSWORD}" ]]; then
+    UPDATER_KEY_PASSWORD="$(security find-generic-password -a "${USER}" -s "writ-tauri-signing" -w 2>/dev/null)" ||
       fail "No TAURI_SIGNING_PRIVATE_KEY_PASSWORD env and no Keychain entry.
        Store it once: security add-generic-password -a \"\$USER\" -s \"writ-tauri-signing\" -w
        (you will be prompted for the password; nothing hits disk)"
-    fi
   fi
+}
+
+# Installed copies verify an update against the key of the latest published
+# release, so a key transition release is signed with that key while carrying
+# the next one (docs/RELEASING.md 1.5).
+trusted_updater_config() {
+  local out="$1" latest
+  latest="$(gh release view --json tagName --jq .tagName)" ||
+    fail "could not read the latest release with gh; run gh auth login"
+  gh api -H "Accept: application/vnd.github.raw+json" \
+    "repos/{owner}/{repo}/contents/src-tauri/tauri.conf.json?ref=${latest}" > "${out}" ||
+    fail "could not read src-tauri/tauri.conf.json at ${latest}"
+  echo "installed copies trust the updater key of ${latest}"
 }
 
 # tauri-build copies the sidecar in src-tauri/binaries over target/debug/writ
@@ -81,6 +96,10 @@ refresh_mac_sidecars() {
     "${TARGET_DIR}/x86_64-apple-darwin/release/writ" \
     -output src-tauri/binaries/writ-universal-apple-darwin
 }
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  load_updater_key
+fi
 
 step "0/10 rebuild the mac sidecars"
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -118,39 +137,63 @@ node scripts/check-release-json.mjs
 step "8/10 pnpm --dir site build"
 pnpm --dir site build
 
-step "9/10 cargo tauri build (universal mac .app + .dmg + .pkg, ad-hoc signed)"
+step "9/10 mac release: unsigned build, then the sign-macos and sign-updater steps with an ad-hoc identity"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   warn "Skipping mac build: this script is running on $(uname -s), not Darwin."
 else
-  load_signing_secrets
+  command -v minisign >/dev/null 2>&1 || fail "minisign not installed; brew install minisign"
+  BUILT_DMG="${TARGET_DIR}/universal-apple-darwin/release/bundle/dmg/Writ_${VERSION}_universal.dmg"
+  OUT_DIR="${TARGET_DIR}/release-preflight"
+  APP_ARCHIVE="${OUT_DIR}/assets/Writ_${VERSION}_universal.app.tar.gz"
   APPLE_SIGNING_IDENTITY="-" \
     npx tauri build \
       --target universal-apple-darwin \
       --bundles app,dmg \
+      --config '{"bundle":{"createUpdaterArtifacts":false}}' \
       -- --locked
-  bash scripts/build-mac-pkg.sh
+  rm -rf "${OUT_DIR}"
+  mkdir -p "${OUT_DIR}/assets"
+  bash scripts/macos-release.sh extract-app "${BUILT_DMG}" "${OUT_DIR}/Writ.app"
+  bash scripts/macos-release.sh sign-app "${OUT_DIR}/Writ.app" -
+  WRIT_APP_PATH="${OUT_DIR}/Writ.app" WRIT_PKG_OUT_DIR="${OUT_DIR}/assets" bash scripts/build-mac-pkg.sh
+  bash scripts/macos-release.sh repack-dmg "${BUILT_DMG}" "${OUT_DIR}/Writ.app" "${OUT_DIR}/assets/Writ_${VERSION}_universal.dmg"
+  python3 .github/scripts/archive_app.py create "${OUT_DIR}/Writ.app" "${APP_ARCHIVE}"
+  python3 .github/scripts/archive_app.py check "${APP_ARCHIVE}" Writ.app
+  TAURI_SIGNING_PRIVATE_KEY="${UPDATER_KEY}" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${UPDATER_KEY_PASSWORD}" \
+    python3 .github/scripts/release_signing.py sign-payloads --version "${VERSION}" "${APP_ARCHIVE}"
+  trusted_updater_config "${OUT_DIR}/trusted-tauri.conf.json"
+  python3 .github/scripts/release_signing.py verify-payloads --version "${VERSION}" \
+    --pubkey-from "${OUT_DIR}/trusted-tauri.conf.json" "${APP_ARCHIVE}"
   echo
   echo "Mac artefacts:"
-  find "${TARGET_DIR}/universal-apple-darwin/release/bundle" -type f \( -name '*.pkg' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.sig' \) 2>/dev/null | sort
+  ls -la "${OUT_DIR}/assets"
 fi
 
-step "10/10 act --dryrun (Linux release leg)"
+step "10/10 act --dryrun (the release job graph)"
 if ! command -v act >/dev/null 2>&1; then
-  warn "act not installed; skipping Linux dry run."
+  warn "act not installed; skipping the dry run."
   warn "Install with: brew install act"
-  warn "Then run: act -W .github/workflows/release.yml -j build --matrix os:ubuntu-22.04 --container-architecture linux/amd64"
 elif ! docker info >/dev/null 2>&1; then
-  warn "Docker daemon not running; skipping Linux dry run."
+  warn "Docker daemon not running; skipping the dry run."
   warn "Start Docker Desktop, then re-run this script."
 else
-  act -W .github/workflows/release.yml \
-      -j build \
-      --matrix os:ubuntu-22.04 \
+  ACT_EVENT="$(mktemp -t writ-act-event.XXXXXX)"
+  trap 'rm -f "${ACT_EVENT}"' EXIT
+  printf '{"ref":"refs/tags/v%s","ref_name":"v%s"}\n' "${VERSION}" "${VERSION}" > "${ACT_EVENT}"
+  # The macOS and Windows jobs map to a Linux image only because --dryrun runs
+  # nothing. Never map them to -self-hosted: act then runs the steps on this
+  # Mac even under --dryrun.
+  act push -W .github/workflows/release.yml \
+      -e "${ACT_EVENT}" \
+      -P ubuntu-latest=catthehacker/ubuntu:act-latest \
+      -P ubuntu-22.04=catthehacker/ubuntu:act-22.04 \
+      -P macos-latest=catthehacker/ubuntu:act-latest \
+      -P windows-latest=catthehacker/ubuntu:act-latest \
       --container-architecture linux/amd64 \
       --dryrun
   echo
-  warn "act --dryrun only validates the workflow shape, not the build itself."
-  warn "For a full Linux build run drop --dryrun. It pulls a ~2 GB image and takes ~15 min."
+  warn "act --dryrun only validates the workflow shape and job graph, not the build."
+  warn "sign-windows shows as skipped: its condition reads an output only a real run sets."
 fi
 
 echo
