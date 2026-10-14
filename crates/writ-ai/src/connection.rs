@@ -1800,8 +1800,8 @@ mod tests {
     struct NoReads;
 
     impl KeyStore for NoReads {
-        fn get(&self, account: &str) -> Result<Option<String>, String> {
-            panic!("the store was read for {account}");
+        fn get(&self, _account: &str) -> Result<Option<String>, String> {
+            panic!("the store was read");
         }
 
         fn set(&self, _account: &str, _key: &str) -> Result<(), String> {
