@@ -9,6 +9,9 @@ Section 4 amended 2026-10-13: Connected programs lists the programs waiting to
 be approved and answers them in Settings, keeps a program turned down on its
 list, and names MCP in its sentence.
 
+Section 3 amended 2026-10-15: every app's chord answers while the app is off,
+and each app row says where the app lives.
+
 ## Context
 
 ADR-041 section 5 names chat, rewrite, the MCP server, connections, the graph
@@ -77,6 +80,18 @@ section, toolbar button or panel.
   off and comes back as it was. It deletes nothing: chat history, approved
   programs, panel widths, command usage and custom shortcuts are kept for the
   next time it is on.
+
+Amended 2026-10-15. Every app's commands stay registered while it is off,
+stamped with the app (`defineAppCommands`), which is what Chat alone did
+before: the palette, both menus and the shortcut editor leave them out, and a
+chord bound to one (⌘⇧\ for Connections, ⌘⌥G for Graph, a person's own chord
+for a Rewrite action) opens Settings, Apps at that app's row, marked. Until
+then ⌘⇧\ on a fresh install did nothing. Each row lists where the app lives
+once on (toolbar, menu, chord or place, from `src/lib/apps.ts`) with Open
+while it is on, and the setup cards list the same places with the app's icon.
+The first switch-on of Chat, Connections, Graph or Tags from Settings opens
+it once, when Settings closes, recorded in `[apps] opened`; the setup step
+opens nothing, because the first file opens there.
 
 ### 4. Settings, Apps
 

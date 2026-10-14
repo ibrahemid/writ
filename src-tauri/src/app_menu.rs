@@ -35,6 +35,11 @@ pub fn install(app: &AppHandle) {
             app_handle.exit(0);
             return;
         }
+        // The items act on the main window, and their chords still reach the
+        // menu bar while the capture note has the keyboard.
+        if crate::capture::is_in_front(app_handle) {
+            return;
+        }
         if let Some(action) = crate::menu::menu_action_for_id(id) {
             let state = app_handle.state::<AppState>();
             state.event_bus.emit(WritEvent::MenuAction {

@@ -159,6 +159,11 @@ pub enum WritFrontendEvent {
     /// say a chord is taken rather than leaving a dead key.
     #[serde(rename = "hotkey:status")]
     HotkeyStatus(crate::hotkey::GlobalHotkeyStatus),
+
+    /// [`Self::HotkeyStatus`] for the chord that opens the quick capture note
+    /// (ADR-055).
+    #[serde(rename = "hotkey:capture-status")]
+    CaptureHotkeyStatus(crate::hotkey::GlobalHotkeyStatus),
 }
 
 fn event_name(event: &WritFrontendEvent) -> &'static str {
@@ -184,6 +189,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::ActivityChanged { .. } => "writ://activity",
         WritFrontendEvent::McpPending { .. } => "writ://mcp-pending",
         WritFrontendEvent::HotkeyStatus(..) => "writ://hotkey-status",
+        WritFrontendEvent::CaptureHotkeyStatus(..) => "writ://hotkey-capture-status",
     }
 }
 

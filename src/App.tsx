@@ -377,29 +377,29 @@ function AppShell() {
       },
     ]);
 
-    registerCommand({
-      id: "chat.toggle",
-      icon: "chat-text",
-      label: "Toggle chat",
-      description: "Ask a model about the files you attach",
-      keywords: ["chat", "ai", "ask", "model"],
-      keybinding: "CmdOrCtrl+Shift+A",
-      scope: "app",
-      // Global, for the reason the two toggles above it are: the editor holds
-      // focus almost all the time.
-      global: true,
-      // Registered while chat is off so its chord can open the switch; its
-      // app keeps it out of the palette and both menus.
-      app: "chat",
-      execute: () => toggleChat(),
-    });
+    defineAppCommands("chat", [
+      {
+        id: "chat.toggle",
+        icon: "chat-text",
+        label: "Toggle chat",
+        description: "Ask a model about the files you attach",
+        keywords: ["chat", "ai", "ask", "model"],
+        keybinding: "CmdOrCtrl+Shift+A",
+        scope: "app",
+        // Global, for the reason the two toggles above it are: the editor holds
+        // focus almost all the time.
+        global: true,
+        execute: () => toggleChat(),
+      },
+    ]);
 
     defineAppCommands("graph", [
       {
         id: "folderGraph.open",
-        icon: "folder-simple",
+        icon: "graph",
         label: "Open graph",
         description: "Show every file in the folder and the links between them",
+        keybinding: "CmdOrCtrl+Alt+G",
         scope: "app",
         // Global, like the two toggles above: the editor holds focus while you
         // write, and this is reached from there or from nowhere.

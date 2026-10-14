@@ -20,7 +20,16 @@ interface Props {
   edges: LayoutEdge[];
   /** The open note, drawn filled while everything around it is drawn hollow. */
   focusPath: string;
+  /** Opens a note: a click, or with `onSelect` set a double-click. */
   onOpen: (path: string) => void;
+  /**
+   * Set when a click should choose a note rather than open it, as the whole
+   * folder's drawing does (ADR-037 section 9): a click selects and names it,
+   * and a double-click opens it.
+   */
+  onSelect?: (path: string) => void;
+  /** The note a click or a key chose, drawn with a ring of the accent. */
+  selectedPath?: string | null;
   /** What the drawing is settled with. The near note's numbers by default. */
   options?: LayoutOptions;
   /** What the drawing is called, for a reader who is never shown it. */
@@ -35,7 +44,8 @@ interface Props {
   pan?: { x: number; y: number };
   /** Set to let a pointer drag move the drawing. */
   onPanBy?: (dx: number, dy: number) => void;
-  /** Set to let the wheel take the drawing in and out. */
+  /** Set to let a pinch, or the wheel with Ctrl or Cmd held, take the
+   * drawing in and out. A plain scroll moves it (`onPanBy`). */
   onZoomBy?: (factor: number) => void;
   /** Puts the canvas in the tab order, for a drawing that is moved by keys. */
   focusable?: boolean;
@@ -91,6 +101,15 @@ const DRAG_SLOP = 3;
 
 /** How much one notch of the wheel takes the drawing in or out. */
 const WHEEL_ZOOM = 0.0015;
+
+/** How far a wheel line is, for a wheel that counts in lines. */
+const WHEEL_LINE = 16;
+
+/** How far outside a disc the ring of the chosen note is drawn. */
+const SELECTED_RING_GAP = 3;
+
+/** How far the hovered name sits from the pointer. */
+const HOVER_OFFSET = 12;
 
 /** How far the open note's name sits under its disc. */
 const LABEL_OFFSET = 12;
@@ -175,6 +194,8 @@ export default function GraphCanvas(props: Props) {
   let press: { x: number; y: number; dragging: boolean } | null = null;
 
   const [hovered, setHovered] = createSignal<string | null>(null);
+  /** Where the pointer is over the drawing, which the hovered name follows. */
+  const [pointer, setPointer] = createSignal<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const options = () => props.options ?? DEFAULT_LAYOUT_OPTIONS;
   /**
@@ -326,6 +347,15 @@ export default function GraphCanvas(props: Props) {
       }
     }
     ctx.globalAlpha = 1;
+
+    const chosen = props.selectedPath ? by.get(props.selectedPath) : undefined;
+    if (chosen) {
+      ctx.beginPath();
+      ctx.arc(chosen.x, chosen.y, chosen.radius + SELECTED_RING_GAP, 0, Math.PI * 2);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = paint.focus;
+      ctx.stroke();
+    }
 
     const focus = by.get(props.focusPath);
     const name = focusNode()?.name;
@@ -517,7 +547,15 @@ export default function GraphCanvas(props: Props) {
   // start the settle again.
   createEffect(
     on(
-      () => [props.zoom, props.pan, props.dimmed, props.colors, props.focusPath] as const,
+      () =>
+        [
+          props.zoom,
+          props.pan,
+          props.dimmed,
+          props.colors,
+          props.focusPath,
+          props.selectedPath,
+        ] as const,
       () => {
         if (canvas && state) draw();
       },
@@ -559,7 +597,9 @@ export default function GraphCanvas(props: Props) {
               return;
             }
           }
-          const next = nodeAt(placed, pointIn(element, event));
+          const at = pointIn(element, event);
+          setPointer(at);
+          const next = nodeAt(placed, at);
           if (next !== hovered()) {
             setHovered(next);
             draw();
@@ -575,9 +615,15 @@ export default function GraphCanvas(props: Props) {
           }
         }}
         onWheel={(event) => {
-          if (!props.onZoomBy) return;
+          // A trackpad pinch arrives as the wheel with Ctrl held, which is
+          // also how a mouse asks to zoom; anything else is a scroll, and a
+          // scroll moves the drawing the way it moves a page.
+          const zooms = event.ctrlKey || event.metaKey;
+          if (zooms ? !props.onZoomBy : !props.onPanBy) return;
           event.preventDefault();
-          props.onZoomBy(Math.exp(-event.deltaY * WHEEL_ZOOM));
+          const unit = event.deltaMode === 1 ? WHEEL_LINE : 1;
+          if (zooms) props.onZoomBy!(Math.exp(-event.deltaY * unit * WHEEL_ZOOM));
+          else props.onPanBy!(-event.deltaX * unit, -event.deltaY * unit);
         }}
         onClick={(event) => {
           const element = canvas;
@@ -587,10 +633,27 @@ export default function GraphCanvas(props: Props) {
           press = null;
           if (dragged) return;
           const picked = nodeAt(placed, pointIn(element, event));
+          if (picked === null) return;
+          if (props.onSelect) props.onSelect(picked);
+          else props.onOpen(picked);
+        }}
+        onDblClick={(event) => {
+          const element = canvas;
+          if (!element || !props.onSelect) return;
+          const picked = nodeAt(placed, pointIn(element, event));
           if (picked !== null) props.onOpen(picked);
         }}
       />
-      <p class="graph-hovered">{props.nodes.find((node) => node.path === hovered())?.name ?? ""}</p>
+      <p
+        class="graph-hovered"
+        classList={{ "is-left": pointer().x > size.width / 2 }}
+        style={{
+          left: `${pointer().x + (canvas?.offsetLeft ?? 0)}px`,
+          top: `${pointer().y + (canvas?.offsetTop ?? 0) + HOVER_OFFSET}px`,
+        }}
+      >
+        {props.nodes.find((node) => node.path === hovered())?.name ?? ""}
+      </p>
     </div>
   );
 }

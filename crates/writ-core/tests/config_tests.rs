@@ -514,3 +514,33 @@ fn markdown_layout_defaults_to_inline_and_html_keeps_split() {
     );
     assert_eq!(config.preview.default_layout_html, DefaultLayout::Split);
 }
+
+#[test]
+fn a_fresh_install_opens_at_login() {
+    assert!(WritConfig::default().general.launch_at_login);
+}
+
+#[test]
+fn a_config_written_before_general_existed_adds_no_login_item() {
+    let cfg = WritConfig::parse("[hotkey]\ntoggle = \"CmdOrCtrl+Shift+Space\"\n").unwrap();
+    assert!(!cfg.general.launch_at_login);
+}
+
+#[test]
+fn launch_at_login_round_trips_through_toml() {
+    let mut cfg = WritConfig::default();
+    cfg.general.launch_at_login = false;
+    let text = toml::to_string(&cfg).unwrap();
+    assert!(text.contains("[general]"), "{text}");
+    assert!(!WritConfig::parse(&text).unwrap().general.launch_at_login);
+}
+
+#[test]
+fn a_stale_frontend_write_keeps_the_login_item_choice() {
+    let mut live = WritConfig::default();
+    live.general.launch_at_login = false;
+    let mut stale = WritConfig::default();
+    stale.general.launch_at_login = true;
+    stale.carry_rust_owned(&live);
+    assert!(!stale.general.launch_at_login);
+}

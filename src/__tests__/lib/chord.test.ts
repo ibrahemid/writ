@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import {
   canonicalChord,
   chordForRecording,
+  sameChord,
   chordFromKey,
   chordFromPosition,
   chordParts,
+  worksFromAnyApp,
 } from "../../lib/chord";
 
 const altGraph = (on: boolean) => (modifier: string) => modifier === "AltGraph" && on;
@@ -59,6 +61,17 @@ describe("chordFromPosition", () => {
     ).toBe("CmdOrCtrl+Shift+0");
   });
 
+  // Shift+\ types "|", so ⌘⇧\ arrived as a chord nothing is bound to and the
+  // connections chord answered only through the macOS menu bar.
+  it("reads the punctuation key under a shifted punctuation key", () => {
+    expect(
+      chordFromPosition({ key: "|", code: "Backslash", metaKey: true, shiftKey: true }, "mac"),
+    ).toBe("CmdOrCtrl+Shift+\\");
+    expect(
+      chordFromPosition({ key: "?", code: "Slash", ctrlKey: true, shiftKey: true }, "win"),
+    ).toBe("CmdOrCtrl+Shift+/");
+  });
+
   it("adds nothing for a Latin letter, so AZERTY and Dvorak keep the printed letter", () => {
     expect(chordFromPosition({ key: "a", code: "KeyQ", metaKey: true }, "mac")).toBeNull();
   });
@@ -100,6 +113,32 @@ describe("chordForRecording", () => {
   });
 });
 
+describe("Option+Space on a Mac", () => {
+  // Before, the no-break space Option+Space types recorded as a chord no part
+  // of Writ could read, so a chord with Option and Space could not be recorded.
+  it("records as Space", () => {
+    expect(
+      chordForRecording(
+        { key: "\u00a0", code: "Space", metaKey: true, shiftKey: true, altKey: true },
+        "mac",
+      ),
+    ).toBe("CmdOrCtrl+Shift+Alt+Space");
+  });
+});
+
+describe("sameChord", () => {
+  it("matches the same keys whatever order the modifiers are written in", () => {
+    expect(sameChord("CmdOrCtrl+Shift+Alt+Space", "CmdOrCtrl+Alt+Shift+Space")).toBe(true);
+    expect(sameChord("CmdOrCtrl+Shift+N", "CmdOrCtrl+Shift+n")).toBe(true);
+  });
+
+  it("tells different keys and modifiers apart, and matches nothing to empty", () => {
+    expect(sameChord("CmdOrCtrl+Shift+Space", "CmdOrCtrl+Shift+Alt+Space")).toBe(false);
+    expect(sameChord("CmdOrCtrl+Space", "Ctrl+Space")).toBe(false);
+    expect(sameChord("", "")).toBe(false);
+  });
+});
+
 describe("chordParts", () => {
   it("keeps the plus key at the end of a chord", () => {
     expect(chordParts("CmdOrCtrl+Shift++")).toEqual(["CmdOrCtrl", "Shift", "+"]);
@@ -115,5 +154,26 @@ describe("canonicalChord", () => {
 
   it("keeps Control apart from Command on macOS", () => {
     expect(canonicalChord("Ctrl+K", "mac")).toBe("Ctrl+K");
+  });
+});
+
+describe("worksFromAnyApp", () => {
+  it("refuses a key other apps type, Shift or not", () => {
+    for (const binding of ["A", "Space", "F2", "Shift+A", "Shift+Space", "Shift+Shift"]) {
+      expect(worksFromAnyApp(binding), binding).toBe(false);
+    }
+  });
+
+  it("takes a chord with Cmd, Ctrl or Alt", () => {
+    for (const binding of ["CmdOrCtrl+Shift+Space", "Ctrl+Space", "Cmd+K", "Alt+Space", "Shift+Alt+W"]) {
+      expect(worksFromAnyApp(binding), binding).toBe(true);
+    }
+  });
+
+  it("takes F13 to F24 on their own", () => {
+    for (const binding of ["F13", "F20", "F24", "Shift+F13"]) {
+      expect(worksFromAnyApp(binding), binding).toBe(true);
+    }
+    expect(worksFromAnyApp("F12")).toBe(false);
   });
 });

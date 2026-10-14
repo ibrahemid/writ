@@ -7,6 +7,8 @@ import Tooltip from "../Tooltip/Tooltip";
 import { resolvePlatform } from "../../lib/platform";
 import { resolveChromeLayout } from "../../lib/window-chrome";
 import { executeCommand } from "../../commands/registry";
+import { openShortcutEditor, WAYLAND_LINE } from "../ShortcutEditor/ShortcutEditor";
+import { formatKeybinding } from "../../lib/keybinding-format";
 import { configStore } from "../../stores/global/config";
 import { hotkeyStore } from "../../stores/global/hotkey";
 import { osWindowStore } from "../../stores/global/os-window";
@@ -46,6 +48,15 @@ export default function TitleBar() {
     osWindowStore.startDragging();
   }
 
+  const windowChord = () => hotkeyStore.chord() || configStore.config().hotkey.toggle;
+  // The chord does nothing from other apps: another app holds it, or the
+  // session cannot deliver it. The keycap goes quiet and says which.
+  const chordUnheld = () => hotkeyStore.isTaken() || hotkeyStore.isUnsupported();
+  const unheldLine = () =>
+    hotkeyStore.isTaken()
+      ? `Another app is using ${formatKeybinding(windowChord())}`
+      : WAYLAND_LINE;
+
   function handleDblClick(e: MouseEvent) {
     if (isInteractiveTarget(e.target)) return;
     osWindowStore.toggleMaximize();
@@ -77,11 +88,29 @@ export default function TitleBar() {
         </Show>
 
         <div class="titlebar-end">
-          <Tooltip label="Toggle Writ from anywhere">
-            <div class="titlebar-right" data-no-drag>
-              <Kbd binding={hotkeyStore.chord() || configStore.config().hotkey.toggle} />
-            </div>
-          </Tooltip>
+          <Show
+            when={chordUnheld()}
+            fallback={
+              <Tooltip label="Toggle Writ from anywhere">
+                <div class="titlebar-right" data-no-drag>
+                  <Kbd binding={windowChord()} />
+                </div>
+              </Tooltip>
+            }
+          >
+            <Tooltip label={unheldLine()}>
+              <button
+                type="button"
+                class="titlebar-right titlebar-chord-unheld"
+                data-no-drag
+                data-state={hotkeyStore.isTaken() ? "taken" : "unsupported"}
+                aria-label={unheldLine()}
+                onClick={() => openShortcutEditor({ recordWindowChord: hotkeyStore.isTaken() })}
+              >
+                <Kbd binding={windowChord()} muted />
+              </button>
+            </Tooltip>
+          </Show>
           <CaptionButtons kind={layout.caption} maximized={osWindowStore.maximized()} />
         </div>
       </div>

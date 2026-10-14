@@ -16,10 +16,12 @@ const h = vi.hoisted(() => ({
   collapsed: new Set<string>(),
   toggleSection: vi.fn<(section: string) => void>(),
   setWidth: vi.fn<(width: number) => void>(),
+  hide: vi.fn(),
   setPanelWidth: vi.fn<(width: number) => void>(),
   requestReveal: vi.fn<(bufferId: string, line: number) => void>(),
   openFile: vi.fn<(path: string) => Promise<{ id: string } | null>>(),
   activeTabId: "buf-1" as string | null,
+  cursorLine: 1,
   activeTabIdOverride: null as null | (() => string | null),
   graphHolds: 0,
   graphReleases: 0,
@@ -68,12 +70,13 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       setWidth: h.setWidth,
       isCollapsed: (section: string) => h.collapsed.has(section),
       toggleSection: h.toggleSection,
+      hide: h.hide,
     },
     tabs: {
       activeTabId: () => (h.activeTabIdOverride ? h.activeTabIdOverride() : h.activeTabId),
       openFile: h.openFile,
     },
-    editor: { requestReveal: h.requestReveal },
+    editor: { requestReveal: h.requestReveal, cursorLine: () => h.cursorLine },
   }),
 }));
 
@@ -137,6 +140,7 @@ beforeEach(() => {
   h.isOpen = true;
   h.collapsed = new Set();
   h.activeTabId = "buf-1";
+  h.cursorLine = 1;
   h.activeTabIdOverride = null;
   h.graphHolds = 0;
   h.graphReleases = 0;
@@ -164,10 +168,20 @@ describe("a note with nothing to show", () => {
     expect(container.querySelector(".right-panel-section")).toBeNull();
   });
 
-  it("says the note has nothing around it rather than opening blank", () => {
+  it("says how a link is made rather than opening blank", () => {
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Nothing links to this file yet.",
+      "Type [[ to link this file to another.",
+    );
+  });
+
+  // The index reads links, headings and properties out of Markdown alone, so
+  // telling a plain-text file how to link would teach something that fails.
+  it("says why a plain-text file has none", () => {
+    h.tabs = [{ id: "buf-1", source_path: "/notes/Open.txt" }];
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
+      "Links, headings and properties are read from Markdown files.",
     );
   });
 
@@ -196,9 +210,7 @@ describe("a note with nothing to show", () => {
   it("treats an unsaved note as a note, not as no note", () => {
     h.tabs = [{ id: "buf-1", source_path: null }];
     const { container } = mount();
-    expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Nothing links to this file yet.",
-    );
+    expect(container.querySelector(".right-panel-empty")!.textContent).not.toBe("No file open.");
   });
 
   // A read that failed leaves the same empty lists as a note with nothing in
@@ -286,6 +298,17 @@ describe("a note with nothing to show", () => {
   });
 });
 
+describe("the panel's header", () => {
+  // NV-24: the panel had no name on screen and no way to close it there.
+  it("names the panel and closes it", () => {
+    h.hide.mockClear();
+    const { container } = mount();
+    expect(container.querySelector(".right-panel-title")?.textContent).toBe("Connections");
+    fireEvent.click(container.querySelector('[aria-label="Close connections"]')!);
+    expect(h.hide).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("the panel is a named landmark", () => {
   it("carries the concept's public name and is out of the tree when closed", () => {
     const { panel } = mount();
@@ -329,6 +352,17 @@ describe("the outline", () => {
       "calc(var(--writ-space-3) + 16px)",
       "calc(var(--writ-space-3) + 32px)",
     ]);
+  });
+
+  // NV-25: the outline did not say where in a long file the caret is.
+  it("marks the heading the caret is under, and none above the first", () => {
+    h.cursorLine = 9;
+    const { container } = mount();
+    const marked = () =>
+      [...container.querySelectorAll<HTMLElement>(".right-panel-heading")].map(
+        (row) => row.getAttribute("aria-current"),
+      );
+    expect(marked()).toEqual([null, "location", null]);
   });
 
   it("moves the caret to the heading's line through the editor store", () => {

@@ -219,6 +219,19 @@ Fitting has a bound of its own at the other end: a drawing is opened out to at
 most 1.6x, so a two-note neighbourhood is not blown up until two notes read as
 a whole folder. Both views inherit that.
 
+### 9. Choosing a note, and the drawing around one (amended 2026-10-15)
+
+In the whole-folder view a click chooses a note: a ring of the accent, and its
+name read out with "Enter opens it." Enter or a double-click opens it and
+closes the layer, so a note is never opened out of sight behind it. From the
+search, the arrows step through what it names by name and Enter opens the
+chosen note, or the first. A legend of folder chips names each colour and
+keeps one folder lit; minus, plus and Fit sit opposite the search; a scroll
+moves the drawing and a pinch or Ctrl-scroll zooms. The same layer draws the
+open file and the files one link from it ("This file"), so the graph around a
+file does not need the connections panel. The panel's Nearby files keeps
+click-to-open: it covers nothing.
+
 ## Consequences
 
 - A note's neighbourhood looks the same every time it is opened, on every

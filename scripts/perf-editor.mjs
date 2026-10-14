@@ -8,7 +8,7 @@ import http from "node:http";
 import os from "node:os";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 import {
   BUDGETS,
   METRICS,
@@ -21,9 +21,8 @@ import {
   overBudget,
   percentile,
 } from "./perf-editor/budgets.mjs";
+import { ROOT, harnessBuildConfig } from "./perf-editor/harness.mjs";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const APP_ROOT = join(ROOT, "scripts/perf-editor/app");
 const RARE_WORD = "zebrafish";
 const ABSENT_WORD = "qxjzv";
 const TYPED = "The quick brown fox jumps over";
@@ -72,13 +71,7 @@ async function loadChromium() {
 
 async function buildHarness(outDir) {
   const { build } = await import("vite");
-  await build({
-    configFile: join(ROOT, "vite.config.ts"),
-    root: APP_ROOT,
-    base: "./",
-    logLevel: "error",
-    build: { outDir, emptyOutDir: true, sourcemap: false, reportCompressedSize: false },
-  });
+  await build(harnessBuildConfig(outDir));
 }
 
 const MIME = {

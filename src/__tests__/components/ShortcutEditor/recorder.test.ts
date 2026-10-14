@@ -67,10 +67,10 @@ describe("ShortcutRecorder", () => {
     });
   });
 
-  it("records a function key on its own, and waits on any other bare key", () => {
+  it("records a function key on its own, and names any other bare key without capturing it", () => {
     const recorder = new ShortcutRecorder(DOUBLE_TAP_WINDOW_MS, "mac");
     expect(recorder.handle({ key: "F2", code: "F2" })).toEqual({ kind: "captured", binding: "F2" });
-    expect(recorder.handle({ key: "a", code: "KeyA" })).toEqual({ kind: "waiting" });
+    expect(recorder.handle({ key: "a", code: "KeyA" })).toEqual({ kind: "bare", binding: "A" });
   });
 
   it("cancels and clears pending state on Escape", () => {

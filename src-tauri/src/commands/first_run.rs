@@ -3,7 +3,9 @@
 //! in.
 
 use serde::Serialize;
-use tauri::{AppHandle, Runtime, State};
+use std::sync::atomic::Ordering;
+
+use tauri::{AppHandle, Manager, Runtime, State};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::config::{AppId, FileExtension};
 use writ_core::startup::{file_manager_name, RetitleAnswer};
@@ -76,11 +78,18 @@ pub async fn finish_first_run(
     default_extension: FileExtension,
     apps: Vec<AppId>,
 ) -> Result<Option<BufferDocument>, String> {
+    let finishing = {
+        let state = app.state::<AppState>();
+        state.first_run && !state.first_run_finished.load(Ordering::SeqCst)
+    };
     let opened = run_blocking(app.clone(), ERR_WRITE_FAILED, move |state| {
         crate::first_run::finish_first_run_inner(state, default_extension, &apps)
     })
     .await?;
     crate::app_menu::sync(&app);
+    if finishing {
+        crate::commands::login_item::apply_first_run_choice_detached(app).await;
+    }
     Ok(opened)
 }
 

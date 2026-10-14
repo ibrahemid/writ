@@ -1,0 +1,45 @@
+.capture-note {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--writ-bg-raised);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-window);
+  overflow: hidden;
+}
+
+.capture-note-field {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  border: 0;
+  background: transparent;
+  color: var(--writ-fg);
+  font-family: var(--writ-font-prose);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  padding: var(--writ-space-4) var(--writ-space-5);
+}
+
+.capture-note-footer {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: var(--writ-space-2) var(--writ-space-5);
+  border-top: 1px solid var(--writ-border-soft);
+  font-size: var(--writ-ui-xs);
+  line-height: var(--writ-ui-xs-lh);
+  color: var(--writ-fg-muted);
+}
+
+.capture-note-key {
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-xs);
+  padding: 0 var(--writ-space-1);
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-control);
+}
+
+.capture-note-problem {
+  color: var(--writ-status-error);
+}

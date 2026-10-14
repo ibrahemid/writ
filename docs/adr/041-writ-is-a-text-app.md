@@ -120,6 +120,14 @@ existing config keeps its current values. The plugin runtime stays deferred
 will plug into. The section and its onboarding step ship in the record after
 this one; this record fixes what the section holds.
 
+Amended 2026-10-15: an app that is off may be offered once, in context. A
+Markdown file with `[[links]]` offers Connections and one with `#tags` offers
+Tags, as one notice with Turn on; the offer is recorded when it shows
+(`[apps] offered`), so it never returns, and one Settings switch (`[apps]
+offers`, "Offer apps that are off") stops every offer. One offer at a time.
+Connected programs has no offer yet: the app learns nothing of a call made
+while the server is off.
+
 ## Consequences
 
 **Positive**

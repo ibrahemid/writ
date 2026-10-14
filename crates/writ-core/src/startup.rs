@@ -542,6 +542,22 @@ pub fn is_first_run(config_exists: bool) -> bool {
     !config_exists
 }
 
+/// The argument the login item starts Writ with.
+///
+/// A launch carrying it keeps its window hidden: the window chord, the Dock
+/// and a second launch each show it, and nothing else does.
+pub const LOGIN_LAUNCH_ARG: &str = "--login";
+
+/// Whether this launch is the login item's.
+pub fn is_login_launch<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    args.into_iter()
+        .any(|arg| arg.as_ref() == OsStr::new(LOGIN_LAUNCH_ARG))
+}
+
 /// The file name of the note that belongs to the day `now` falls in locally,
 /// in `extension`.
 ///

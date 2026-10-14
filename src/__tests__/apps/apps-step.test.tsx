@@ -94,6 +94,18 @@ describe("the Apps step", () => {
     expect(container.querySelector("[data-action='cancel-apps']")).toBeNull();
   });
 
+  // NV-34: the card said what an app does and never where it would be.
+  it("draws each card with its icon and where the app lives once on", () => {
+    const { container } = mount();
+    for (const app of APPS) {
+      const row = container.querySelector(`[data-app='${app.id}']`)!;
+      expect(row.querySelector("use")?.getAttribute("href"), app.id).toBe(`#ph-${app.icon}`);
+      expect(row.querySelector(".app-entry-points"), app.id).not.toBeNull();
+    }
+    const tags = container.querySelector("[data-app='tags'] .app-entry-points")!.textContent;
+    expect(tags).toBe("Sidebar, once a file has a tag");
+  });
+
   it("names MCP and two programs on the Connected programs card", () => {
     const { container } = mount();
     const card = container.querySelector("[data-app='programs']")!.textContent ?? "";
@@ -145,7 +157,7 @@ describe("the Apps step", () => {
     expect(mocks.finishFirstRun).not.toHaveBeenCalled();
     expect(mocks.updateConfig).toHaveBeenCalledTimes(1);
     const written = mocks.updateConfig.mock.calls[0][0];
-    expect(written.apps).toEqual({ connections: false, graph: true, tags: true });
+    expect(written.apps).toMatchObject({ connections: false, graph: true, tags: true });
     expect(written.ai.chat.enabled).toBe(false);
   });
 

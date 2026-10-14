@@ -8,6 +8,8 @@ const h = vi.hoisted(() => ({
   platform: "mac" as "mac" | "win" | "linux",
   setSearchQuery: vi.fn(),
   panelOpen: false,
+  graphOpen: false,
+  toggleGraph: vi.fn(),
 }));
 
 const waitingList = await vi.hoisted(async () => {
@@ -44,6 +46,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       restoreFromHistory: vi.fn(),
     },
     rightPanel: { isOpen: () => h.panelOpen },
+    folderGraph: { isOpen: () => h.graphOpen, toggle: h.toggleGraph },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({
@@ -339,5 +342,22 @@ describe("Toolbar programs mark", () => {
     fireEvent.click(mark(container)!);
 
     expect(open).toHaveBeenCalledTimes(1);
+  });
+});
+
+// NV-09: a person who switched Graph on had one View menu item to find it by.
+// Last in the file: nothing switches Graph back off here.
+describe("the graph button", () => {
+  it("is in the toolbar while Graph is on, pressed while the graph shows", async () => {
+    const { queryByLabelText } = render(() => <Toolbar />);
+    expect(queryByLabelText("Graph")).toBeNull();
+
+    configStore.noteAppsOn(["graph"]);
+    const button = queryByLabelText("Graph") as HTMLButtonElement;
+    expect(button).not.toBeNull();
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(button);
+    expect(h.toggleGraph).toHaveBeenCalledTimes(1);
   });
 });

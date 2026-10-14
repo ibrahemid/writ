@@ -53,6 +53,7 @@ tokio-util = { version = "0.7", default-features = false }
 # tauri; this is the edge, not a new package.
 tokio = { version = "1", default-features = false, features = ["sync"] }
 tauri-plugin-clipboard-manager = "2"
+tauri-plugin-autostart = "2"
 # The OS entropy source, already in the tree under rustls/ring. Taken directly
 # for the PKCE verifier and state of the connect flow (ADR-040 section 6); no
 # generator crate is added, because 48 bytes read once per flow is all that is
@@ -81,9 +82,16 @@ core-foundation = "0.10"
 fsevent-sys = "4"
 # The same objc2 line tauri, tao and wry already resolve, so this unifies
 # rather than adding a second copy of the AppKit bindings. Needed to install
-# `applicationShouldTerminate:`, which nothing above this crate exposes.
+# `applicationShouldTerminate:`, which nothing above this crate exposes, and to
+# give the keyboard back to the app in front before the capture note.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder"] }
+objc2-app-kit = { version = "0.3", features = [
+    "NSApplication",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSWorkspace",
+    "libc",
+] }
 dispatch2 = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]

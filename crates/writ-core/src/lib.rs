@@ -56,6 +56,8 @@ pub mod activity;
 pub mod ai;
 /// Buffer document model and in-memory manager.
 pub mod buffer;
+/// What the quick capture note adds to Today's File.
+pub mod capture;
 /// Request shape and stream grammar for the chat pane.
 pub mod chat;
 /// Where the `writ` command is installed and which one a client is handed.

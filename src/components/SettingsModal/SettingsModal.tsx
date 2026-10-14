@@ -21,7 +21,11 @@ import { themeStore } from "../../stores/global/theme";
 import { updateStore } from "../../stores/global/update";
 import { PRESETS } from "../../styles/themes";
 import { openThemeEditor } from "../ThemeEditor/ThemeEditor";
-import { openShortcutEditor } from "../ShortcutEditor/ShortcutEditor";
+import { openShortcutEditor, WAYLAND_LINE } from "../ShortcutEditor/ShortcutEditor";
+import Kbd from "../Kbd/Kbd";
+import { hotkeyStore } from "../../stores/global/hotkey";
+import { loginItemStore } from "../../stores/global/login-item";
+import { formatKeybinding } from "../../lib/keybinding-format";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { logFailure } from "../../lib/log";
 import { FILE_MANAGER_NAME, IS_MAC, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
@@ -94,6 +98,13 @@ import Tooltip from "../Tooltip/Tooltip";
 import { ACCENTS, TYPE } from "../../styles/generated/tokens";
 import { resolvePlatform } from "../../lib/platform";
 import { APPS, type AppEntry } from "../../lib/apps";
+import AppEntryPoints from "../Apps/AppEntryPoints";
+import {
+  canOpenApp,
+  openAppSurface,
+  openDueApps,
+  switchAppFromSettings,
+} from "../../commands/app-surfaces";
 import { firstRunStore } from "../../stores/global/first-run";
 import {
   SearchContext,
@@ -131,6 +142,9 @@ export function openSettings(section?: SettingsSection, settingId?: string) {
 export function closeSettings() {
   setHighlightId(null);
   setIsOpen(false);
+  // After the dialog has handed focus back, so a surface that takes focus
+  // keeps it.
+  queueMicrotask(openDueApps);
 }
 
 export function toggleSettings() {
@@ -1718,9 +1732,43 @@ function SidebarSettingsSection() {
 }
 
 function ShortcutsSection() {
+  const windowChord = () => hotkeyStore.chord() || configStore.config().hotkey.toggle;
+  // The chord does nothing from other apps: another app holds it, or the
+  // session cannot deliver it.
+  const chordCaution = () => {
+    if (hotkeyStore.isTaken()) return `Another app is using ${formatKeybinding(windowChord())}.`;
+    if (hotkeyStore.isUnsupported()) return WAYLAND_LINE;
+    return undefined;
+  };
+
+  onMount(() => void loginItemStore.load());
+
   return (
     <div data-section="shortcuts">
       <SectionLabel section="shortcuts" />
+      <SettingsRow id="shortcuts.window" label="Show and hide Writ" caution={chordCaution()}>
+        <span class="settings-window-chord">
+          <Kbd binding={windowChord()} muted={chordCaution() !== undefined} />
+          <Button
+            data-action="record-window-chord"
+            onClick={() => {
+              closeSettings();
+              openShortcutEditor({ recordWindowChord: true });
+            }}
+          >
+            Change…
+          </Button>
+        </span>
+      </SettingsRow>
+      <SettingsRow id="general.launch_at_login" label="Open at login" description="Starts hidden.">
+        <ToggleSwitch
+          setting="launch_at_login"
+          label="Open at login"
+          checked={loginItemStore.enabled()}
+          disabled={loginItemStore.busy()}
+          onChange={() => void loginItemStore.set(!loginItemStore.enabled())}
+        />
+      </SettingsRow>
       <SettingsRow id="shortcuts.edit" label="Keyboard shortcuts">
         <Button
           data-action="open-shortcut-editor"
@@ -1862,19 +1910,43 @@ function AdvancedSection() {
 }
 
 
+/**
+ * One app: its switch, its sentence, and where it lives once on, with Open
+ * while it is on (ADR-042 section 4).
+ */
 function AppRow(props: { app: AppEntry }) {
   const on = () => configStore.isAppOn(props.app.id);
 
   async function onToggle() {
     try {
-      await configStore.setAppOn(props.app.id, !on());
+      await switchAppFromSettings(props.app.id, !on());
     } catch {
       showToast("Could not save your settings", "error");
     }
   }
 
+  function open() {
+    const app = props.app.id;
+    closeSettings();
+    queueMicrotask(() => openAppSurface(app));
+  }
+
   return (
-    <SettingsRow id={props.app.settingId} label={props.app.label} description={props.app.detail}>
+    <SettingsRow
+      id={props.app.settingId}
+      label={props.app.label}
+      description={props.app.detail}
+      footer={
+        <span class="settings-app-where">
+          <AppEntryPoints app={props.app} />
+          <Show when={on() && canOpenApp(props.app.id)}>
+            <Button class="settings-app-open" data-action="open-app" onClick={open}>
+              Open
+            </Button>
+          </Show>
+        </span>
+      }
+    >
       <ToggleSwitch
         setting={`app_${props.app.id}`}
         label={props.app.label}
@@ -1914,6 +1986,18 @@ function AppsSection() {
       <AppRow app={app("connections")} />
       <AppRow app={app("graph")} />
       <AppRow app={app("tags")} />
+      <SettingsRow
+        id="apps.offers"
+        label="Offer apps that are off"
+        description="Once per app, when an open file has links or tags."
+      >
+        <ToggleSwitch
+          setting="apps_offers"
+          label="Offer apps that are off"
+          checked={configStore.appOffersOn()}
+          onChange={() => configStore.setAppOffersOn(!configStore.appOffersOn())}
+        />
+      </SettingsRow>
       <SettingsRow id="apps.screen" label="Setup screen">
         <Button
           data-action="open-apps-screen"

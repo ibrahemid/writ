@@ -11,6 +11,7 @@ import type {
 } from "../../types/config";
 import * as api from "../../services/tauri";
 import { dismissToast, showToast } from "./notifications";
+import { SHIPPED_CAPTURE_CHORD, SHIPPED_WINDOW_CHORD } from "./hotkey";
 import { logFailure } from "../../lib/log";
 import { knownSidebarSections, withSidebarSection } from "../../lib/sidebar-sections";
 import { SIDEBAR } from "../../styles/generated/tokens";
@@ -82,7 +83,7 @@ const DEFAULT_APPEARANCE: AppearanceConfig = {
 };
 
 const DEFAULT_CONFIG: WritConfig = {
-  hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
+  hotkey: { toggle: SHIPPED_WINDOW_CHORD, capture: SHIPPED_CAPTURE_CHORD },
   sidebar: {
     toggle: "CmdOrCtrl+\\",
     default_visible: false,
@@ -125,7 +126,7 @@ const DEFAULT_CONFIG: WritConfig = {
   },
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
-  apps: { connections: false, graph: false, tags: false },
+  apps: { connections: false, graph: false, tags: false, offers: true, offered: [], opened: [] },
 };
 
 const PERSIST_DEBOUNCE_MS = 750;
@@ -142,6 +143,20 @@ function plainCopy(config: WritConfig): WritConfig {
 // Both answer the same way the first launch answers when nobody has chosen.
 function knownExtension(value: unknown): FileExtension {
   return value === "md" || value === "txt" ? value : DEFAULT_CONFIG.files.default_extension;
+}
+
+const APP_IDS: readonly AppId[] = ["chat", "rewrite", "programs", "connections", "graph", "tags"];
+
+/** The apps a list names, once each in the order written, leaving out a word
+ * that names none (as Rust reads `[apps] offered` and `opened`). */
+function knownApps(value: unknown): AppId[] {
+  if (!Array.isArray(value)) return [];
+  const known: AppId[] = [];
+  for (const word of value) {
+    const app = APP_IDS.find((id) => id === word);
+    if (app && !known.includes(app)) known.push(app);
+  }
+  return known;
 }
 
 /** Whether `app` is on in `config`. */
@@ -237,6 +252,9 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       connections: incoming.apps?.connections ?? false,
       graph: incoming.apps?.graph ?? false,
       tags: incoming.apps?.tags ?? false,
+      offers: incoming.apps?.offers ?? true,
+      offered: knownApps(incoming.apps?.offered),
+      opened: knownApps(incoming.apps?.opened),
     },
     spelling: {
       enabled: incoming.spelling?.enabled ?? false,
@@ -505,6 +523,48 @@ function createConfigStore() {
     }
   }
 
+  // The three below change what Writ does next rather than what it shows, and
+  // each is read again before the file could be: they are set here at once
+  // and written straight after, so an app switched on in the same moment
+  // cannot write a copy without them.
+
+  /** Whether an app that is off may be offered when a file shows a use for
+   * it. Reactive. */
+  function appOffersOn(): boolean {
+    return state.apps.offers ?? true;
+  }
+
+  function setAppOffersOn(on: boolean) {
+    if (appOffersOn() === on) return;
+    setState("apps", "offers", on);
+    persistNow();
+  }
+
+  /** Whether `app` has been offered already. Reactive. */
+  function wasAppOffered(app: AppId): boolean {
+    return (state.apps.offered ?? []).includes(app);
+  }
+
+  /** Records that `app` has been offered, so it is never offered again. */
+  function noteAppOffered(app: AppId) {
+    if (wasAppOffered(app)) return;
+    setState("apps", "offered", [...(state.apps.offered ?? []), app]);
+    persistNow();
+  }
+
+  /** Whether a first switch-on has opened `app` already. Reactive. */
+  function wasAppOpened(app: AppId): boolean {
+    return (state.apps.opened ?? []).includes(app);
+  }
+
+  /** Records that each of `apps` has been opened by its first switch-on. */
+  function noteAppsOpened(apps: readonly AppId[]) {
+    const fresh = [...new Set(apps)].filter((app) => !wasAppOpened(app));
+    if (fresh.length === 0) return;
+    setState("apps", "opened", [...(state.apps.opened ?? []), ...fresh]);
+    persistNow();
+  }
+
   /** Puts apps Rust has already switched on (the first launch) into the
    * running copy, so the next whole-config write keeps them. */
   function noteAppsOn(apps: readonly AppId[]) {
@@ -544,6 +604,12 @@ function createConfigStore() {
     isAppOn,
     setAppOn,
     noteAppsOn,
+    appOffersOn,
+    setAppOffersOn,
+    wasAppOffered,
+    noteAppOffered,
+    wasAppOpened,
+    noteAppsOpened,
   };
 }
 

@@ -169,9 +169,10 @@ export function toggleChatPane() {
 
 /** Shows the pane, or opens the switch that would make one.
  *
- * The command stays registered while chat is off, unavailable, so the palette
- * and both menus leave it out while its chord still answers: with no pane to
- * show, the chord lands on the Chat row in Settings, Apps (ADR-042 section 3). */
+ * The command stays registered while chat is off, like every app's, so the
+ * palette and both menus leave it out while its chord still answers: with no
+ * pane to show, the chord lands on the Chat row in Settings, Apps (ADR-042
+ * section 3). */
 export function toggleChat() {
   if (configStore.isAppOn("chat")) {
     toggleChatPane();

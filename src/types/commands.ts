@@ -43,9 +43,9 @@ export interface Command {
   /**
    * The app the command belongs to. While that app is off the command is left
    * out of the palette, both menus and the shortcut editor, and stays
-   * registered so its chord can still answer (ADR-042 section 3). An app whose
-   * commands should not answer at all while off registers them through
-   * `defineAppCommands` instead.
+   * registered so its chord can still answer (ADR-042 section 3).
+   * `defineAppCommands` sets it, and what the command does while the app is
+   * off: open the app's switch in Settings.
    */
   app?: AppId;
   /**

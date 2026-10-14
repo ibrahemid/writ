@@ -3,6 +3,7 @@
    side padding, the panel's type, the panel's muted second line. */
 
 .graph {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);
@@ -25,15 +26,30 @@
   cursor: pointer;
 }
 
-/* One line, always there. The name arrives and leaves without the section
-   under it moving. */
+/* The name of the note under the pointer, beside the pointer, and on its
+   left once the pointer is past the middle so it stays inside the drawing.
+   Positioned after the canvas, so it paints over it without a stacking
+   number. */
 .graph-hovered {
+  position: absolute;
   margin: 0;
-  min-height: var(--writ-ui-sm-lh);
+  max-width: 40%;
+  padding: var(--writ-space-1) var(--writ-space-2);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-raised);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
-  color: var(--writ-fg-muted);
+  color: var(--writ-fg);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  pointer-events: none;
+}
+
+.graph-hovered.is-left {
+  transform: translateX(-100%);
+}
+
+.graph-hovered:empty {
+  display: none;
 }

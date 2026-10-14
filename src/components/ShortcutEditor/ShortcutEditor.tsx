@@ -15,11 +15,23 @@ import {
   rebuildKeyMap,
   setKeybindingOverrides,
 } from "../../commands/keybindings";
-import { ShortcutRecorder, findConflicts, findFixedConflicts } from "./recorder";
+import {
+  ShortcutRecorder,
+  findConflicts,
+  findFixedConflicts,
+  type RecorderOutcome,
+} from "./recorder";
 import { fixedMenuChords } from "../../commands/menu-commands";
-import { detectPlatform } from "../../lib/platform";
+import { detectPlatform, type Platform } from "../../lib/platform";
+import { sameChord, worksFromAnyApp } from "../../lib/chord";
+import { formatKeybinding } from "../../lib/keybinding-format";
 import { configStore } from "../../stores/global/config";
-import { hotkeyStore } from "../../stores/global/hotkey";
+import {
+  captureHotkeyStore,
+  hotkeyStore,
+  SHIPPED_CAPTURE_CHORD,
+  SHIPPED_WINDOW_CHORD,
+} from "../../stores/global/hotkey";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
 import Kbd from "../Kbd/Kbd";
@@ -35,9 +47,16 @@ import "./ShortcutEditor.css";
 // Singleton state — Writ is single-window
 const [isOpen, setIsOpen] = createSignal(false);
 let openSnapshot: Record<string, string> | null = null;
+let recordWindowChordOnOpen = false;
 
-export function openShortcutEditor() {
+interface OpenShortcutEditorOptions {
+  /** Open listening on the window's chord, for a chord another app holds. */
+  recordWindowChord?: boolean;
+}
+
+export function openShortcutEditor(options: OpenShortcutEditorOptions = {}) {
   openSnapshot = { ...configStore.config().keybindings };
+  recordWindowChordOnOpen = options.recordWindowChord === true;
   setIsOpen(true);
 }
 
@@ -50,8 +69,32 @@ export function closeShortcutEditor() {
   setIsOpen(false);
 }
 
+/** Why the window's row refused a chord: the rule it breaks, another app
+ * holding it, or a key Writ cannot register. */
+interface WindowChordProblem {
+  state: "rule" | "refused" | "unusable";
+  text: string;
+}
+
 interface DraftEntry {
   binding: string;
+}
+
+/** One row whose chord the OS holds for every app. */
+interface AnyAppRow {
+  id: string;
+  label: string;
+  desc?: string;
+  dataShortcut: string;
+  recordAction: string;
+  resetAction: string;
+  shipped: string;
+  draft: () => string;
+  setDraft: (chord: string) => void;
+  problem: () => WindowChordProblem | null;
+  setProblem: (problem: WindowChordProblem | null) => void;
+  isTaken: () => boolean;
+  isUnsupported: () => boolean;
 }
 
 /**
@@ -61,7 +104,24 @@ interface DraftEntry {
  */
 const GLOBAL_TOGGLE_ROW = "hotkey.toggle";
 const GLOBAL_ROW_LABEL = "Show and hide Writ";
-const GLOBAL_ROW_DESC = "Works while another app is in front";
+/** The heading over both rows the OS holds for every app. */
+const ANY_APP_GROUP = "From any app";
+
+/** The row for the chord that opens the quick capture note (ADR-055), held
+ * by the OS the same way. */
+const CAPTURE_ROW = "hotkey.capture";
+const CAPTURE_ROW_LABEL = "Quick capture";
+const CAPTURE_ROW_DESC = "Adds a line to today's file";
+
+/** What the window's chord cannot do on a Wayland desktop. */
+export const WAYLAND_LINE = "Wayland doesn't pass this shortcut to Writ from other apps.";
+
+/** The rule a chord for the window has to keep, as the row states it. */
+export function windowChordRule(platform: Platform): string {
+  return platform === "mac"
+    ? "A shortcut that works from any app needs Command, Control or Option. F13 to F20 work on their own."
+    : "A shortcut that works from any app needs Ctrl or Alt. F13 to F24 work on their own.";
+}
 
 export default function ShortcutEditor() {
   const win = useWindow();
@@ -69,7 +129,9 @@ export default function ShortcutEditor() {
   const recorder = new ShortcutRecorder();
   const [drafts, setDrafts] = createSignal<Record<string, DraftEntry>>({});
   const [globalDraft, setGlobalDraft] = createSignal("");
-  const [globalProblem, setGlobalProblem] = createSignal("");
+  const [globalProblem, setGlobalProblem] = createSignal<WindowChordProblem | null>(null);
+  const [captureDraft, setCaptureDraft] = createSignal("");
+  const [captureProblem, setCaptureProblem] = createSignal<WindowChordProblem | null>(null);
   const [listeningId, setListeningId] = createSignal<string | null>(null);
   const [filter, setFilter] = createSignal("");
   const platform = detectPlatform();
@@ -87,7 +149,11 @@ export default function ShortcutEditor() {
     return words === "" || text.toLowerCase().includes(words);
   };
   const listsCommand = (c: Command) => matchesFilter(`${c.label} ${c.description ?? ""}`);
-  const showsGlobalRow = () => matchesFilter(`${GLOBAL_ROW_LABEL} ${GLOBAL_ROW_DESC}`);
+  const showsGlobalRow = () => matchesFilter(`${GLOBAL_ROW_LABEL} ${ANY_APP_GROUP}`);
+  const showsCaptureRow = () =>
+    matchesFilter(`${CAPTURE_ROW_LABEL} ${CAPTURE_ROW_DESC} ${ANY_APP_GROUP}`);
+  const savedCapture = () => configStore.config().hotkey.capture ?? SHIPPED_CAPTURE_CHORD;
+  const heldCapture = () => captureHotkeyStore.chord() || savedCapture();
   const appCommands = createMemo<Command[]>(() =>
     commands().filter((c) => c.scope === "app" && listsCommand(c)),
   );
@@ -116,8 +182,11 @@ export default function ShortcutEditor() {
       }
       setDrafts(initial);
       setGlobalDraft(hotkeyStore.chord() || configStore.config().hotkey.toggle);
-      setGlobalProblem("");
-      setListeningId(null);
+      setGlobalProblem(null);
+      setCaptureDraft(heldCapture());
+      setCaptureProblem(null);
+      setListeningId(recordWindowChordOnOpen ? GLOBAL_TOGGLE_ROW : null);
+      recordWindowChordOnOpen = false;
       setFilter("");
       recorder.reset();
     });
@@ -132,6 +201,15 @@ export default function ShortcutEditor() {
       if (!isOpen() || !held) return;
       if (listeningId() === GLOBAL_TOGGLE_ROW) return;
       setGlobalDraft(held);
+    });
+  });
+
+  createEffect(() => {
+    const held = captureHotkeyStore.chord();
+    untrack(() => {
+      if (!isOpen() || !held) return;
+      if (listeningId() === CAPTURE_ROW) return;
+      setCaptureDraft(held);
     });
   });
 
@@ -178,13 +256,14 @@ export default function ShortcutEditor() {
       event.preventDefault();
       event.stopPropagation();
       const outcome = recorder.handle(event);
-      if (outcome.kind === "captured") {
-        if (id === GLOBAL_TOGGLE_ROW) {
-          setGlobalDraft(outcome.binding);
-          setGlobalProblem("");
-        } else setDraft(id, outcome.binding);
+      if (outcome.kind === "cancelled") {
         stopRecording();
-      } else if (outcome.kind === "cancelled") {
+      } else if (id === GLOBAL_TOGGLE_ROW) {
+        recordWindowChord(outcome);
+      } else if (id === CAPTURE_ROW) {
+        recordCaptureChord(outcome);
+      } else if (outcome.kind === "captured") {
+        setDraft(id, outcome.binding);
         stopRecording();
       }
     };
@@ -206,13 +285,61 @@ export default function ShortcutEditor() {
     onCleanup(teardown);
   });
 
+  // A chord the OS would hold for every app has to leave the other apps their
+  // keys: refused, the row says the rule and keeps listening.
+  function recordWindowChord(outcome: RecorderOutcome) {
+    if (outcome.kind === "bare") {
+      setGlobalProblem({ state: "rule", text: windowChordRule(platform) });
+      return;
+    }
+    if (outcome.kind !== "captured") return;
+    if (!worksFromAnyApp(outcome.binding)) {
+      setGlobalProblem({ state: "rule", text: windowChordRule(platform) });
+      recorder.reset();
+      return;
+    }
+    if (captureDraft() !== "" && sameChord(outcome.binding, captureDraft())) {
+      setGlobalProblem({ state: "rule", text: `${CAPTURE_ROW_LABEL} uses this shortcut.` });
+      recorder.reset();
+      return;
+    }
+    setGlobalDraft(outcome.binding);
+    setGlobalProblem(null);
+    stopRecording();
+  }
+
+  // The capture row keeps the same rule, and cannot take the window's chord:
+  // the OS holds one chord for one of them.
+  function recordCaptureChord(outcome: RecorderOutcome) {
+    if (outcome.kind === "bare") {
+      setCaptureProblem({ state: "rule", text: windowChordRule(platform) });
+      return;
+    }
+    if (outcome.kind !== "captured") return;
+    if (!worksFromAnyApp(outcome.binding)) {
+      setCaptureProblem({ state: "rule", text: windowChordRule(platform) });
+      recorder.reset();
+      return;
+    }
+    if (sameChord(outcome.binding, globalDraft())) {
+      setCaptureProblem({ state: "rule", text: `${GLOBAL_ROW_LABEL} uses this shortcut.` });
+      recorder.reset();
+      return;
+    }
+    setCaptureDraft(outcome.binding);
+    setCaptureProblem(null);
+    stopRecording();
+  }
+
   function handleReset(id: string) {
     setDraft(id, defaultBindingFor(id));
   }
 
   function handleResetAll() {
-    setGlobalDraft(configStore.config().hotkey.toggle);
-    setGlobalProblem("");
+    setGlobalDraft(SHIPPED_WINDOW_CHORD);
+    setGlobalProblem(null);
+    setCaptureDraft(SHIPPED_CAPTURE_CHORD);
+    setCaptureProblem(null);
     const next: Record<string, DraftEntry> = {};
     for (const cmd of commands()) {
       next[cmd.id] = { binding: cmd.keybinding ?? "" };
@@ -245,8 +372,12 @@ export default function ShortcutEditor() {
     for (const id of new Set([...Object.keys(saved), ...Object.keys(next)])) {
       if (saved[id] !== next[id]) return true;
     }
+    // Against the chord held rather than the one saved: a saved chord the
+    // rule refuses fell back at startup, and the row opens on the fallback.
     const toggle = globalDraft().trim();
-    return toggle !== "" && toggle !== configStore.config().hotkey.toggle;
+    const held = hotkeyStore.chord() || configStore.config().hotkey.toggle;
+    if (toggle !== "" && toggle !== held) return true;
+    return captureDraft().trim() !== heldCapture();
   }
 
   async function requestClose() {
@@ -275,50 +406,90 @@ export default function ShortcutEditor() {
       // rows on screen.
       let toggle = configStore.config().hotkey.toggle;
       let toggleRefused = false;
-      setGlobalProblem("");
+      setGlobalProblem(null);
       if (toggleChanged) {
         try {
-          await hotkeyStore.rebind(nextToggle);
+          const given = await hotkeyStore.rebind(nextToggle);
           toggle = hotkeyStore.chord() || toggle;
+          if (!given) {
+            toggleRefused = true;
+            setGlobalProblem({
+              state: "refused",
+              text: `Another app is using ${formatKeybinding(nextToggle)}.`,
+            });
+          }
         } catch {
           toggleRefused = true;
-          setGlobalProblem("Writ can't use this shortcut.");
+          setGlobalProblem({ state: "unusable", text: "Writ can't use this shortcut." });
+        }
+      }
+      // The capture chord the same way, on its own: one the OS turns down
+      // leaves the window's chord and the rest of the rows as saved.
+      const nextCapture = captureDraft().trim();
+      let capture: { capture?: string } = {};
+      let captureRefused = false;
+      setCaptureProblem(null);
+      if (nextCapture !== savedCapture()) {
+        try {
+          const given = await captureHotkeyStore.rebind(nextCapture);
+          if (given) capture = { capture: nextCapture };
+          else {
+            captureRefused = true;
+            setCaptureProblem({
+              state: "refused",
+              text: `Another app is using ${formatKeybinding(nextCapture)}.`,
+            });
+          }
+        } catch {
+          captureRefused = true;
+          setCaptureProblem({ state: "unusable", text: "Writ can't use this shortcut." });
         }
       }
       await configStore.save({
         ...configStore.config(),
         keybindings: nextKeybindings,
-        hotkey: { ...configStore.config().hotkey, toggle },
+        hotkey: { ...configStore.config().hotkey, toggle, ...capture },
       });
       setKeybindingOverrides(nextKeybindings);
       rebuildKeyMap();
       openSnapshot = { ...nextKeybindings };
       if (toggleRefused) showToast("Shortcuts saved. The window shortcut is unchanged.", "error");
+      else if (captureRefused)
+        showToast("Shortcuts saved. The quick capture shortcut is unchanged.", "error");
       else showToast("Shortcuts saved", "success");
     } catch {
       showToast("Could not save the shortcuts", "error");
     }
   }
 
-  // The one row the OS answers for. It carries the same recorder as the rest,
-  // and one thing they cannot show: a chord another app is already holding.
-  function renderGlobalRow() {
-    const isListening = () => listeningId() === GLOBAL_TOGGLE_ROW;
+  // The rows the OS answers for. They carry the same recorder as the rest, and
+  // one thing the others cannot show: a chord another app is already holding.
+  function renderAnyAppRow(row: AnyAppRow) {
+    const isListening = () => listeningId() === row.id;
 
     return (
-      <div class="shortcut-row" data-shortcut="global-toggle">
+      <div class="shortcut-row" data-shortcut={row.dataShortcut}>
         <div class="shortcut-row-info">
-          <div class="shortcut-row-label">{GLOBAL_ROW_LABEL}</div>
-          <div class="shortcut-row-desc">{GLOBAL_ROW_DESC}</div>
-          <Show when={hotkeyStore.isTaken()}>
+          <div class="shortcut-row-label">{row.label}</div>
+          <Show when={row.desc}>
+            <div class="shortcut-row-desc">{row.desc}</div>
+          </Show>
+          <Show when={row.isTaken()}>
             <div class="shortcut-row-conflict" data-state="taken">
               Another app is using this shortcut.
             </div>
           </Show>
-          <Show when={globalProblem()}>
-            <div class="shortcut-row-conflict" data-state="unusable">
-              {globalProblem()}
+          <Show when={row.isUnsupported()}>
+            <div class="shortcut-row-conflict" data-state="unsupported">
+              {WAYLAND_LINE}
             </div>
+          </Show>
+          <Show when={row.problem()}>
+            {(problem) => (
+              <div class="shortcut-row-conflict" data-state={problem().state}>
+                {problem().text}
+              </div>
+            )}
           </Show>
         </div>
         <div class="shortcut-row-chip" aria-live="polite">
@@ -326,10 +497,10 @@ export default function ShortcutEditor() {
             when={isListening()}
             fallback={
               <Show
-                when={globalDraft()}
+                when={row.draft()}
                 fallback={<span class="shortcut-row-empty">Not set</span>}
               >
-                <Kbd binding={globalDraft()} />
+                <Kbd binding={row.draft()} />
               </Show>
             }
           >
@@ -339,21 +510,19 @@ export default function ShortcutEditor() {
         <div class="shortcut-row-controls">
           <Button
             variant="ghost"
-            data-action="record-global-shortcut"
-            onClick={() =>
-              isListening() ? stopRecording() : startRecording(GLOBAL_TOGGLE_ROW)
-            }
+            data-action={row.recordAction}
+            onClick={() => (isListening() ? stopRecording() : startRecording(row.id))}
           >
             {isListening() ? "Cancel" : "Record"}
           </Button>
           <Button
             variant="ghost"
-            data-action="reset-global-shortcut"
+            data-action={row.resetAction}
             onClick={() => {
-              setGlobalDraft(configStore.config().hotkey.toggle);
-              setGlobalProblem("");
+              row.setDraft(row.shipped);
+              row.setProblem(null);
             }}
-            disabled={globalDraft() === configStore.config().hotkey.toggle}
+            disabled={row.draft() === row.shipped}
           >
             Reset
           </Button>
@@ -361,6 +530,37 @@ export default function ShortcutEditor() {
       </div>
     );
   }
+
+  const windowRow: AnyAppRow = {
+    id: GLOBAL_TOGGLE_ROW,
+    label: GLOBAL_ROW_LABEL,
+    dataShortcut: "global-toggle",
+    recordAction: "record-global-shortcut",
+    resetAction: "reset-global-shortcut",
+    shipped: SHIPPED_WINDOW_CHORD,
+    draft: globalDraft,
+    setDraft: setGlobalDraft,
+    problem: globalProblem,
+    setProblem: setGlobalProblem,
+    isTaken: hotkeyStore.isTaken,
+    isUnsupported: hotkeyStore.isUnsupported,
+  };
+
+  const captureRow: AnyAppRow = {
+    id: CAPTURE_ROW,
+    label: CAPTURE_ROW_LABEL,
+    desc: CAPTURE_ROW_DESC,
+    dataShortcut: "global-capture",
+    recordAction: "record-capture-shortcut",
+    resetAction: "reset-capture-shortcut",
+    shipped: SHIPPED_CAPTURE_CHORD,
+    draft: captureDraft,
+    setDraft: setCaptureDraft,
+    problem: captureProblem,
+    setProblem: setCaptureProblem,
+    isTaken: captureHotkeyStore.isTaken,
+    isUnsupported: captureHotkeyStore.isUnsupported,
+  };
 
   /** A conflicting row is named the way its command is named on screen. */
   function labelFor(commandId: string): string {
@@ -496,9 +696,10 @@ export default function ShortcutEditor() {
           </div>
 
           <div class="shortcut-editor-body">
-            <Show when={showsGlobalRow()}>
-              <div class="shortcut-group-label">Window</div>
-              {renderGlobalRow()}
+            <Show when={showsGlobalRow() || showsCaptureRow()}>
+              <div class="shortcut-group-label">{ANY_APP_GROUP}</div>
+              <Show when={showsGlobalRow()}>{renderAnyAppRow(windowRow)}</Show>
+              <Show when={showsCaptureRow()}>{renderAnyAppRow(captureRow)}</Show>
             </Show>
             <Show when={appCommands().length > 0}>
               <div class="shortcut-group-label">Commands</div>
@@ -513,7 +714,10 @@ export default function ShortcutEditor() {
             </Show>
             <Show
               when={
-                !showsGlobalRow() && appCommands().length === 0 && editorCommands().length === 0
+                !showsGlobalRow() &&
+                !showsCaptureRow() &&
+                appCommands().length === 0 &&
+                editorCommands().length === 0
               }
             >
               <div class="shortcut-group-note">No shortcuts match.</div>

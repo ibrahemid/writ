@@ -144,10 +144,17 @@ export interface AppsConfig {
   connections: boolean;
   graph: boolean;
   tags: boolean;
+  /** Whether an app that is off may be offered once, when a file shows a use
+   * for it. One switch for every offer. Read as on when absent. */
+  offers?: boolean;
+  /** The apps already offered, each once. */
+  offered?: AppId[];
+  /** The apps a first switch-on in Settings has already opened. */
+  opened?: AppId[];
 }
 
 export interface WritConfig {
-  hotkey: { toggle: string };
+  hotkey: { toggle: string; capture?: string };
   sidebar: SidebarConfig;
   panel: PanelConfig;
   chat_panel: ChatPanelConfig;

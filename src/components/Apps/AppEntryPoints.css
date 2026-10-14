@@ -1,0 +1,12 @@
+.app-entry-points {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--writ-space-1) var(--writ-space-3);
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg-muted);
+}
+
+.app-entry-point {
+  white-space: nowrap;
+}

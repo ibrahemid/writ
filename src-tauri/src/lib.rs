@@ -1,5 +1,6 @@
 pub mod app_menu;
 pub mod bus_subscribers;
+pub mod capture;
 pub mod commands;
 pub mod events;
 pub mod first_run;
@@ -480,6 +481,13 @@ pub fn run() {
         // the plugin's own command and skip the link policy (ADR-025).
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Rust-side only (`commands::login_item`): none of the plugin's own
+        // commands is granted to the webview.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(writ_core::startup::LOGIN_LAUNCH_ARG)
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("writ-preview", preview::handler::serve)
         .manage(app_state)
@@ -618,6 +626,13 @@ pub fn run() {
             commands::storage::reveal_storage_path,
             hotkey::global_hotkey_status,
             hotkey::set_global_hotkey,
+            hotkey::capture_hotkey_status,
+            hotkey::set_capture_hotkey,
+            commands::capture::capture_append,
+            commands::capture::capture_target,
+            commands::capture::capture_close,
+            commands::login_item::launch_at_login_status,
+            commands::login_item::set_launch_at_login,
             commands::notices::open_third_party_notices,
             commands::ai::ai_rewrite,
             commands::ai::ai_cancel,
@@ -658,6 +673,14 @@ pub fn run() {
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // Started by the login item: the window stays hidden until the
+            // chord, the Dock or a second launch asks for it, so neither
+            // startup reveal below may show it.
+            if writ_core::startup::is_login_launch(std::env::args_os().skip(1)) {
+                note_window_dismissed(&handle);
+                info!("started at login; the window stays hidden");
+            }
 
             // Every subscriber the bus runs, and the rule they keep: none of
             // them takes the buffer store (`bus_subscribers`).
@@ -723,6 +746,7 @@ pub fn run() {
                     let state = ready_handle.state::<AppState>();
                     let drained =
                         startup::mark_ready_and_drain(&state.pending_opens, &state.frontend_ready);
+                    capture::prepare(&ready_handle);
                     info!(
                         count = drained.len(),
                         "frontend-ready: draining pending opens"

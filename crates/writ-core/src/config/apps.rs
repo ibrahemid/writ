@@ -4,7 +4,8 @@
 //! (`ai.chat.enabled`, `ai.rewrite.enabled`, `mcp.enabled`); this table holds
 //! the three that had none. [`super::WritConfig::is_app_on`] reads all six.
 
-use serde::{Deserialize, Serialize};
+use serde::de::IntoDeserializer;
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// One app, in the order Settings lists them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -36,12 +37,14 @@ impl AppId {
     ];
 }
 
-/// The switches for the apps that have no section of their own.
+/// The switches for the apps that have no section of their own, and what
+/// Writ has already done to make each app findable.
 ///
-/// [`Default`] is a fresh install: everything off. A file written before this
-/// table existed reads [`AppsConfig::existing`] instead, because those apps
-/// were on for everybody who had one.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// [`Default`] is a fresh install: everything off, offers allowed and none
+/// made yet. A file written before this table existed reads
+/// [`AppsConfig::existing`] instead, because those apps were on for everybody
+/// who had one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppsConfig {
     /// The connections panel.
     #[serde(default)]
@@ -52,6 +55,57 @@ pub struct AppsConfig {
     /// The tags section.
     #[serde(default)]
     pub tags: bool,
+    /// Whether an app that is off may be offered once, when a file shows a
+    /// use for it (ADR-041 section 5). One switch for every offer.
+    #[serde(default = "default_offers")]
+    pub offers: bool,
+    /// The apps already offered. Each is offered once and never again.
+    #[serde(default, deserialize_with = "deserialize_app_ids")]
+    pub offered: Vec<AppId>,
+    /// The apps a first switch-on in Settings has already opened, so a
+    /// second switch-on leaves the window as it is.
+    #[serde(default, deserialize_with = "deserialize_app_ids")]
+    pub opened: Vec<AppId>,
+}
+
+/// Reads a list of app ids, keeping the ones this build knows, once each in
+/// the order written, and dropping the rest. An id from another version or a
+/// hand edit then costs that one entry rather than the whole `[apps]` table,
+/// whose switches would otherwise fall back to off.
+fn deserialize_app_ids<'de, D>(deserializer: D) -> Result<Vec<AppId>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let ids = Vec::<String>::deserialize(deserializer)?;
+    let mut known: Vec<AppId> = Vec::new();
+    for id in ids {
+        let folded = id.to_lowercase();
+        let parsed: Result<AppId, serde::de::value::Error> =
+            AppId::deserialize(folded.as_str().into_deserializer());
+        if let Ok(app) = parsed {
+            if !known.contains(&app) {
+                known.push(app);
+            }
+        }
+    }
+    Ok(known)
+}
+
+fn default_offers() -> bool {
+    true
+}
+
+impl Default for AppsConfig {
+    fn default() -> Self {
+        Self {
+            connections: false,
+            graph: false,
+            tags: false,
+            offers: default_offers(),
+            offered: Vec::new(),
+            opened: Vec::new(),
+        }
+    }
 }
 
 impl AppsConfig {
@@ -61,6 +115,7 @@ impl AppsConfig {
             connections: true,
             graph: true,
             tags: true,
+            ..Self::default()
         }
     }
 }
@@ -155,6 +210,46 @@ mod tests {
         config.set_app(AppId::Chat, true);
         let back = WritConfig::parse(&toml::to_string(&config).unwrap()).unwrap();
         assert_eq!(back, config);
+    }
+
+    #[test]
+    fn offers_start_allowed_and_none_made_on_a_fresh_or_an_older_config() {
+        for config in [
+            WritConfig::default(),
+            WritConfig::parse("[editor]\nfont_size = 14\n").unwrap(),
+            WritConfig::parse("[apps]\ngraph = true\n").unwrap(),
+        ] {
+            assert!(config.apps.offers);
+            assert!(config.apps.offered.is_empty());
+            assert!(config.apps.opened.is_empty());
+        }
+    }
+
+    #[test]
+    fn offers_and_opened_apps_survive_a_round_trip_through_toml() {
+        let mut config = WritConfig::default();
+        config.apps.offers = false;
+        config.apps.offered = vec![AppId::Tags, AppId::Connections];
+        config.apps.opened = vec![AppId::Graph];
+        let text = toml::to_string(&config).unwrap();
+        assert!(
+            text.contains("offered = [\"tags\", \"connections\"]"),
+            "{text}"
+        );
+        let back = WritConfig::parse(&text).unwrap();
+        assert_eq!(back.apps, config.apps);
+    }
+
+    #[test]
+    fn an_unknown_app_in_a_list_costs_that_entry_and_not_the_switches() {
+        let config = WritConfig::parse(
+            "[apps]\ngraph = true\ntags = true\noffered = [\"nonsense\", \"Tags\", \"tags\"]\nopened = [\"later\"]\n",
+        )
+        .unwrap();
+        assert!(config.is_app_on(AppId::Graph));
+        assert!(config.is_app_on(AppId::Tags));
+        assert_eq!(config.apps.offered, vec![AppId::Tags]);
+        assert!(config.apps.opened.is_empty());
     }
 
     #[test]

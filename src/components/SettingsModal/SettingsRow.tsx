@@ -61,6 +61,10 @@ interface SettingsRowProps {
   /** A control that belongs with the label rather than with the row's own
    * control, such as the link to a provider's key page. */
   labelAside?: JSX.Element;
+  /** What follows the description in the label column, such as where an app
+   * lives and the control that opens it. Kept out of the row's control
+   * column, so the description stays on the row's own control. */
+  footer?: JSX.Element;
   align?: "start";
   children: JSX.Element;
 }
@@ -127,6 +131,7 @@ export function SettingsRow(props: SettingsRowProps) {
               {props.caution}
             </span>
           </Show>
+          {props.footer}
         </span>
         {props.children}
       </div>

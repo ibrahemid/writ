@@ -14,6 +14,9 @@ export type RecorderEvent = ChordEvent;
 
 export type RecorderOutcome =
   | { kind: "captured"; binding: string }
+  /** A key that types text, pressed with no modifier: no chord, and the row
+   * keeps listening. */
+  | { kind: "bare"; binding: string }
   | { kind: "cancelled" }
   | { kind: "waiting" };
 
@@ -64,7 +67,7 @@ export class ShortcutRecorder {
     // types nothing, so it is one on its own (F2 renames).
     const bare = !binding.includes("+") || binding === "+";
     if (bare && !isFunctionKey(binding)) {
-      return { kind: "waiting" };
+      return { kind: "bare", binding };
     }
 
     return { kind: "captured", binding };

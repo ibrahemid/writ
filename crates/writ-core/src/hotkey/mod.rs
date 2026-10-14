@@ -136,6 +136,18 @@ pub enum HotkeyKey {
     F10,
     F11,
     F12,
+    F13,
+    F14,
+    F15,
+    F16,
+    F17,
+    F18,
+    F19,
+    F20,
+    F21,
+    F22,
+    F23,
+    F24,
     Enter,
     Escape,
     Tab,
@@ -186,6 +198,78 @@ impl HotkeyChord {
     }
 }
 
+impl HotkeyKey {
+    /// Whether the key types nothing in any app, so it can be held globally
+    /// without a modifier: F13 to F24.
+    pub fn types_nothing(self) -> bool {
+        matches!(
+            self,
+            HotkeyKey::F13
+                | HotkeyKey::F14
+                | HotkeyKey::F15
+                | HotkeyKey::F16
+                | HotkeyKey::F17
+                | HotkeyKey::F18
+                | HotkeyKey::F19
+                | HotkeyKey::F20
+                | HotkeyKey::F21
+                | HotkeyKey::F22
+                | HotkeyKey::F23
+                | HotkeyKey::F24
+        )
+    }
+}
+
+/// Why a chord cannot be the one that works from every app.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GlobalChordError {
+    /// No Cmd, Ctrl or Alt, and a key other apps use: held globally, the
+    /// chord would take that key from every app.
+    NeedsModifier,
+}
+
+impl fmt::Display for GlobalChordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GlobalChordError::NeedsModifier => write!(
+                f,
+                "a shortcut that works from any app needs Cmd, Ctrl or Alt, unless its key is F13 to F24"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for GlobalChordError {}
+
+/// Checks that `chord` can be held by the OS for every app.
+///
+/// Shift does not count: Shift+A is a capital A in every other app.
+pub fn check_global_chord(chord: &HotkeyChord) -> Result<(), GlobalChordError> {
+    let has_holding_modifier = chord.modifiers().iter().any(|m| {
+        matches!(
+            m,
+            HotkeyMod::CmdOrCtrl | HotkeyMod::Ctrl | HotkeyMod::Cmd | HotkeyMod::Alt
+        )
+    });
+    if has_holding_modifier || chord.key().types_nothing() {
+        Ok(())
+    } else {
+        Err(GlobalChordError::NeedsModifier)
+    }
+}
+
+/// Whether the session is a Wayland one, from `XDG_SESSION_TYPE` and
+/// `WAYLAND_DISPLAY`.
+///
+/// A key grab made through X11 there only sees keys typed into other X11
+/// windows, so a chord registered that way does nothing from a native app.
+pub fn is_wayland_session(xdg_session_type: Option<&str>, wayland_display: Option<&str>) -> bool {
+    let session_says_wayland =
+        xdg_session_type.is_some_and(|kind| kind.trim().eq_ignore_ascii_case("wayland"));
+    let display_set = wayland_display.is_some_and(|display| !display.trim().is_empty());
+    session_says_wayland || display_set
+}
+
 /// Parse a chord string like `"CmdOrCtrl+Shift+Space"` into a
 /// [`HotkeyChord`].
 ///
@@ -194,7 +278,7 @@ impl HotkeyChord {
 /// `Ctrl`, `Control`, `Cmd`, `Command`, `Meta`, `Super`, `Shift`,
 /// `Alt`, `Option`.
 ///
-/// Recognized key tokens: `Space`, `A`-`Z`, `0`-`9`, `F1`-`F12`,
+/// Recognized key tokens: `Space`, `A`-`Z`, `0`-`9`, `F1`-`F24`,
 /// arrow keys, and a small set of punctuation. Exactly one key token
 /// must be present.
 pub fn parse_hotkey_chord(input: &str) -> Result<HotkeyChord, HotkeyParseError> {
@@ -351,6 +435,18 @@ fn function_key(n: u8) -> Option<HotkeyKey> {
         10 => Some(HotkeyKey::F10),
         11 => Some(HotkeyKey::F11),
         12 => Some(HotkeyKey::F12),
+        13 => Some(HotkeyKey::F13),
+        14 => Some(HotkeyKey::F14),
+        15 => Some(HotkeyKey::F15),
+        16 => Some(HotkeyKey::F16),
+        17 => Some(HotkeyKey::F17),
+        18 => Some(HotkeyKey::F18),
+        19 => Some(HotkeyKey::F19),
+        20 => Some(HotkeyKey::F20),
+        21 => Some(HotkeyKey::F21),
+        22 => Some(HotkeyKey::F22),
+        23 => Some(HotkeyKey::F23),
+        24 => Some(HotkeyKey::F24),
         _ => None,
     }
 }

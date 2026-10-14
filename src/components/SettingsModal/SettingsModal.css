@@ -493,6 +493,15 @@
   line-height: 1.4;
 }
 
+/* Where an app lives once it is on, and Open, under the app's sentence. */
+.settings-app-where {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--writ-space-2) var(--writ-space-4);
+  margin-top: var(--writ-space-2);
+}
+
 .settings-notes {
   display: flex;
   flex-direction: column;
@@ -532,6 +541,12 @@
   align-items: center;
   gap: var(--writ-space-2);
   min-width: 0;
+}
+
+.settings-window-chord {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-2);
 }
 
 .settings-inbox-path {

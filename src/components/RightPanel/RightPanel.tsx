@@ -1,5 +1,7 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import EdgeResizer from "../Resizer/EdgeResizer";
+import Button from "../Button/Button";
+import Tooltip from "../Tooltip/Tooltip";
 import BacklinksSection from "./BacklinksSection";
 import LinksSection from "./LinksSection";
 import LocalGraphSection from "./LocalGraphSection";
@@ -8,6 +10,7 @@ import PropertiesSection from "./PropertiesSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { indexCacheStore } from "../../stores/global/index-cache";
+import { isMarkdownBuffer } from "../../lib/content-type";
 import {
   configStore,
   PANEL_WIDTH_DEFAULT,
@@ -52,18 +55,21 @@ function ConnectionsPanel() {
    *
    * A read that failed leaves the same empty lists as a note with nothing in
    * it, so the line says which of the two it is rather than stating the
-   * cheerier one for good.
+   * cheerier one for good. A Markdown file with nothing around it is told how
+   * a link is made; a plain-text file is told why it has none, because the
+   * index reads links, headings and properties out of Markdown alone.
    */
   function PanelEmptyLine() {
-    return (
-      <p class="right-panel-empty">
-        {win.tabs.activeTabId() === null
-          ? "No file open."
-          : readFailed()
-            ? "Could not read this file's connections."
-            : "Nothing links to this file yet."}
-      </p>
-    );
+    const line = () => {
+      const id = win.tabs.activeTabId();
+      if (id === null) return "No file open.";
+      if (readFailed()) return "Could not read this file's connections.";
+      const doc = bufferRegistry.activeTabs().find((tab) => tab.id === id);
+      return doc && !isMarkdownBuffer(doc)
+        ? "Links, headings and properties are read from Markdown files."
+        : "Type [[ to link this file to another.";
+    };
+    return <p class="right-panel-empty">{line()}</p>;
   }
 
 
@@ -181,6 +187,18 @@ function ConnectionsPanel() {
         onReset={() => win.rightPanel.setWidth(PANEL_WIDTH_DEFAULT)}
       />
       <div class="right-panel-inner">
+        <div class="right-panel-header">
+          <span class="right-panel-title">Connections</span>
+          <Tooltip label="Close connections" kbd="panel.toggle">
+            <Button
+              variant="ghost"
+              class="right-panel-close"
+              icon="x"
+              aria-label="Close connections"
+              onClick={() => win.rightPanel.hide()}
+            />
+          </Tooltip>
+        </div>
         <div class="right-panel-scroll">
           <Show when={openNote()} fallback={<PanelEmptyLine />}>
             {(note) => (

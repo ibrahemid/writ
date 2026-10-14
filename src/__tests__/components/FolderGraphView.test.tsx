@@ -41,6 +41,7 @@ const h = vi.hoisted(() => ({
   rows: null as null | (() => Rows),
   buffer: null as null | (() => { source_path: string } | null),
   error: null as string | null,
+  settled: true,
   openFile: vi.fn<(path: string) => Promise<null>>(),
   releaseGraph: vi.fn(),
   focusEditor: vi.fn(),
@@ -71,6 +72,7 @@ vi.mock("../../stores/global/index-cache", () => ({
     holdGraph: () => h.releaseGraph,
     graph: () => () => h.rows!(),
     graphError: () => () => h.error,
+    graphSettled: () => () => h.settled,
   },
 }));
 
@@ -150,6 +152,7 @@ beforeEach(() => {
   folderGraph = createRoot(createFolderGraphStore);
   folderGraph.open();
   h.error = null;
+  h.settled = true;
   h.openFile.mockReset();
   h.releaseGraph.mockClear();
   h.focusEditor.mockClear();
@@ -435,7 +438,9 @@ describe("what it says when there is nothing to draw", () => {
 });
 
 describe("choosing a note from the drawing", () => {
-  it("opens the note and stays open", () => {
+  // ADR-037 section 9: a click chooses and names; Enter or a double-click
+  // opens and closes the layer, so the note is never opened out of sight.
+  it("chooses the note on a click, names it, and opens nothing", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
     const canvas = view.container.querySelector("canvas") as HTMLCanvasElement;
@@ -444,9 +449,39 @@ describe("choosing a note from the drawing", () => {
     const disc = recorder.spots[0];
     fireEvent.click(canvas, { clientX: disc.x, clientY: disc.y });
 
+    expect(h.openFile).not.toHaveBeenCalled();
+    expect(folderGraph.isOpen()).toBe(true);
+    const chosen = folderGraph.selected();
+    expect(chosen).toMatch(/\.md$/);
+    const name = rows().nodes.find((node) => node.path === chosen)!.name;
+    const line = view.container.querySelector(".folder-graph-chosen")!;
+    expect(line.getAttribute("aria-live")).toBe("polite");
+    expect(line.textContent).toBe(`${name}. Enter opens it.`);
+  });
+
+  it("opens the chosen note on Enter and closes the layer", async () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const canvas = view.container.querySelector("canvas") as HTMLCanvasElement;
+    const disc = recorder.spots[0];
+    fireEvent.click(canvas, { clientX: disc.x, clientY: disc.y });
+    const chosen = folderGraph.selected();
+
+    fireEvent.keyDown(canvas, { key: "Enter" });
+    await vi.waitFor(() => expect(folderGraph.isOpen()).toBe(false));
+    expect(h.openFile).toHaveBeenCalledWith(chosen);
+  });
+
+  it("opens a note on a double-click and closes the layer", async () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const canvas = view.container.querySelector("canvas") as HTMLCanvasElement;
+    const disc = recorder.spots[0];
+    fireEvent.dblClick(canvas, { clientX: disc.x, clientY: disc.y });
+
+    await vi.waitFor(() => expect(folderGraph.isOpen()).toBe(false));
     expect(h.openFile).toHaveBeenCalledTimes(1);
     expect(h.openFile.mock.calls[0][0]).toMatch(/\.md$/);
-    expect(folderGraph.isOpen()).toBe(true);
   });
 
   it("leaves every note where it settled and the drawing where it was taken", () => {
@@ -468,7 +503,7 @@ describe("choosing a note from the drawing", () => {
 
     recorder.spots = [];
     const started = settles.started;
-    fireEvent.click(canvas, { clientX: before[0].x, clientY: before[0].y });
+    fireEvent.dblClick(canvas, { clientX: before[0].x, clientY: before[0].y });
 
     // The note is open, the drawing repainted to ring it, and not one disc
     // moved: the settle belongs to the folder, not to which note is open. The
@@ -682,5 +717,201 @@ describe("what it does with focus when the palette opened it", () => {
 
     fireEvent.keyDown(layerOf(view), { key: "Escape" });
     expect(document.activeElement).toBe(note);
+  });
+});
+
+// The ux rows for the graph: loading is not empty, the colours have a legend,
+// a file opens from the keyboard, the view comes back to the whole drawing,
+// and the drawing around a file needs no panel.
+describe("while the folder is still being read", () => {
+  it("says it is reading rather than that the folder is empty", () => {
+    h.settled = false;
+    setRows({ nodes: [], edges: [] });
+    const view = render(() => <FolderGraphView />);
+    expect(view.getByText("Reading the folder…")).toBeTruthy();
+    expect(view.queryByText("No files yet")).toBeNull();
+  });
+});
+
+describe("the title", () => {
+  it("names the folder the drawing is of", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    expect(view.getByRole("heading").textContent).toBe("Graph · notes");
+  });
+});
+
+describe("the legend", () => {
+  function chips(view: { container: HTMLElement }): HTMLButtonElement[] {
+    return [...view.container.querySelectorAll<HTMLButtonElement>(".folder-graph-chip")];
+  }
+
+  it("names each top-level folder in the colour its files are drawn in", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    expect(chips(view).map((chip) => chip.textContent)).toEqual(["Archive", "Projects", "notes"]);
+    const swatch = (label: string) =>
+      chips(view)
+        .find((chip) => chip.textContent === label)!
+        .querySelector<HTMLElement>(".folder-graph-swatch")!.style.background;
+    expect(swatch("notes")).toBe(TOKEN_VALUES["--writ-fg-muted"]);
+    expect(swatch("Archive")).not.toBe(swatch("Projects"));
+  });
+
+  it("keeps one folder lit and dims the rest, and lights them all again", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const dim = Number(TOKEN_VALUES["--writ-icon-opacity"]);
+    const projects = chips(view).find((chip) => chip.textContent === "Projects")!;
+
+    recorder.discs = [];
+    fireEvent.click(projects);
+    expect(projects.getAttribute("aria-pressed")).toBe("true");
+    expect(recorder.discs.filter((disc) => disc.alpha === 1).length).toBe(2);
+    expect(recorder.discs.filter((disc) => disc.alpha === dim).length).toBe(2);
+    expect(view.getByText("2 of 4 files match")).toBeTruthy();
+
+    recorder.discs = [];
+    fireEvent.click(projects);
+    expect(folderGraph.isolated()).toBeNull();
+    expect(recorder.discs.every((disc) => disc.alpha === 1)).toBe(true);
+  });
+});
+
+describe("opening a file from the keyboard", () => {
+  it("opens the first file the search names on Enter and closes the layer", async () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const field = view.getByLabelText("Search files");
+    fireEvent.input(field, { target: { value: "a" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await vi.waitFor(() => expect(folderGraph.isOpen()).toBe(false));
+    // Alpha, Beta, Gamma all carry an "a"; by name, Alpha is first.
+    expect(h.openFile).toHaveBeenCalledWith("Projects/alpha.md");
+  });
+
+  it("steps through what the search names with the arrows and says which", async () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const field = view.getByLabelText("Search files");
+    const said = () => view.container.querySelector(".folder-graph-chosen")!.textContent;
+    fireEvent.input(field, { target: { value: "a" } });
+
+    fireEvent.keyDown(field, { key: "ArrowDown" });
+    expect(said()).toBe("Alpha. Enter opens it.");
+    fireEvent.keyDown(field, { key: "ArrowDown" });
+    expect(said()).toBe("Beta. Enter opens it.");
+    fireEvent.keyDown(field, { key: "ArrowUp" });
+    fireEvent.keyDown(field, { key: "ArrowUp" });
+    expect(said()).toBe("Gamma. Enter opens it.");
+    // The arrows chose; the drawing stayed where it was.
+    expect(folderGraph.pan()).toEqual({ x: 0, y: 0 });
+
+    fireEvent.keyDown(field, { key: "Enter" });
+    await vi.waitFor(() => expect(folderGraph.isOpen()).toBe(false));
+    expect(h.openFile).toHaveBeenCalledWith("Archive/gamma.md");
+  });
+
+  it("does nothing on Enter with nothing typed and nothing chosen", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    fireEvent.keyDown(view.getByLabelText("Search files"), { key: "Enter" });
+    expect(h.openFile).not.toHaveBeenCalled();
+    expect(folderGraph.isOpen()).toBe(true);
+  });
+
+  it("types a name pressed at the layer into the search", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const field = view.getByLabelText("Search files") as HTMLInputElement;
+    fireEvent.keyDown(layerOf(view), { key: "g" });
+    fireEvent.keyDown(layerOf(view), { key: "a" });
+    expect(folderGraph.query()).toBe("ga");
+    expect(document.activeElement).toBe(field);
+    // The zoom keys stay the drawing's.
+    fireEvent.keyDown(layerOf(view), { key: "+" });
+    expect(folderGraph.query()).toBe("ga");
+  });
+
+  it("hands focus to the editor of the file it opened", async () => {
+    twoFolders();
+    const note = document.createElement("input");
+    document.body.append(note);
+    note.focus();
+    const view = render(() => (
+      <Show when={folderGraph.isOpen()}>
+        <FolderGraphView />
+      </Show>
+    ));
+    const canvas = view.container.querySelector("canvas") as HTMLCanvasElement;
+    const disc = recorder.spots[0];
+    fireEvent.dblClick(canvas, { clientX: disc.x, clientY: disc.y });
+    await vi.waitFor(() => expect(folderGraph.isOpen()).toBe(false));
+    expect(h.focusEditor).toHaveBeenCalled();
+    expect(document.activeElement).not.toBe(note);
+    note.remove();
+  });
+});
+
+describe("the view controls", () => {
+  it("puts the whole drawing back in view from Fit", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    fireEvent.click(view.getByLabelText("Zoom in"));
+    fireEvent.keyDown(layerOf(view), { key: "ArrowLeft" });
+    expect(folderGraph.zoom()).toBeGreaterThan(1);
+
+    fireEvent.click(view.getByLabelText("Fit to window"));
+    expect(folderGraph.zoom()).toBe(1);
+    expect(folderGraph.pan()).toEqual({ x: 0, y: 0 });
+  });
+
+  it("zooms out from its button", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    fireEvent.click(view.getByLabelText("Zoom out"));
+    expect(folderGraph.zoom()).toBeLessThan(1);
+  });
+
+  it("moves the drawing on a scroll and zooms on a pinch", () => {
+    twoFolders();
+    const view = render(() => <FolderGraphView />);
+    const canvas = view.container.querySelector("canvas") as HTMLCanvasElement;
+    fireEvent.wheel(canvas, { deltaX: 10, deltaY: 20 });
+    expect(folderGraph.pan()).toEqual({ x: -10, y: -20 });
+    expect(folderGraph.zoom()).toBe(1);
+
+    fireEvent.wheel(canvas, { deltaY: -100, ctrlKey: true });
+    expect(folderGraph.zoom()).toBeGreaterThan(1);
+    expect(folderGraph.pan()).toEqual({ x: -10, y: -20 });
+  });
+});
+
+describe("the files around the open one", () => {
+  it("draws the open file and the files one link from it", () => {
+    twoFolders();
+    setBuffer({ source_path: "Projects/beta.md" });
+    const view = render(() => <FolderGraphView />);
+    fireEvent.click(view.getByRole("button", { name: "This file" }));
+
+    expect(folderGraph.scope()).toBe("file");
+    // Beta links with Alpha and Gamma; Loose is two links away.
+    expect(recorder.discs.length).toBeGreaterThan(0);
+    expect(view.getByText("2 files one link away")).toBeTruthy();
+  });
+
+  it("says when the open file links with nothing", () => {
+    setRows({
+      nodes: [
+        { path: "a.md", name: "A", folder: "" },
+        { path: "b.md", name: "B", folder: "" },
+      ],
+      edges: [],
+    });
+    setBuffer({ source_path: "a.md" });
+    const view = render(() => <FolderGraphView />);
+    fireEvent.click(view.getByRole("button", { name: "This file" }));
+    expect(view.getByText("No links to or from this file yet.")).toBeTruthy();
+    expect(view.container.querySelector("canvas")).toBeNull();
   });
 });
