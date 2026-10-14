@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-#[tauri::command]
+/// Off the main thread: the estimate walks the whole document, which can be a
+/// file in the large tiers (EP-14).
+#[tauri::command(async)]
 pub fn prompt_estimate_tokens(text: String) -> usize {
     writ_core::prompt::estimate_tokens(&text)
 }

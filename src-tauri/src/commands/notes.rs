@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Runtime, State};
 use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
@@ -27,8 +27,9 @@ use writ_storage::notes_move;
 use writ_storage::paths::file_name_only;
 use writ_storage::workspace_store;
 
-use crate::commands::buffer::{ignore_stamper, save_failure_message};
+use crate::commands::buffer::{ignore_stamper, save_failure_message, ERR_WRITE_FAILED};
 use crate::commands::note_index::{announce_indexed, announce_walk, holds_own_write, index_copy};
+use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::security::{canonicalize_for_authorization, resolve_for_containment, RenameUndo};
 use crate::state::{AppState, NotesRootFallback};
 
@@ -347,23 +348,29 @@ fn create_note_at_in(
 
 /// IPC: [`new_note_inner`].
 #[tauri::command]
-pub fn new_note(state: State<'_, AppState>) -> Result<BufferDocument, String> {
-    new_note_inner(&state)
+pub async fn new_note<R: Runtime>(app: AppHandle<R>) -> Result<BufferDocument, String> {
+    run_blocking(app, ERR_WRITE_FAILED, new_note_inner).await
 }
 
 /// IPC: [`todays_note_inner`].
 #[tauri::command]
-pub fn todays_note(state: State<'_, AppState>) -> Result<TodaysFile, String> {
-    todays_note_inner(&state, Utc::now())
+pub async fn todays_note<R: Runtime>(app: AppHandle<R>) -> Result<TodaysFile, String> {
+    run_blocking(app, ERR_WRITE_FAILED, |state| {
+        todays_note_inner(state, Utc::now())
+    })
+    .await
 }
 
 /// IPC: [`new_note_from_link_inner`].
 #[tauri::command]
-pub fn new_note_from_link(
-    state: State<'_, AppState>,
+pub async fn new_note_from_link<R: Runtime>(
+    app: AppHandle<R>,
     target: String,
 ) -> Result<BufferDocument, String> {
-    new_note_from_link_inner(&state, &target)
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        new_note_from_link_inner(state, &target)
+    })
+    .await
 }
 
 /// Renames a note's file and the row that points at it.
@@ -423,15 +430,22 @@ fn record_rename(
 /// stamped like any other, and a failure of *it* is reported alongside the
 /// original, because at that point the two disagree and only a person can say
 /// which is right.
+///
+/// Runs in the note's turn ([`AppState::buffer_writes`]): a save of the note
+/// still landing finishes at the old path before the file moves. The guard
+/// and the stamps read the whole file before the store is taken; only the
+/// move and the row write run under it (ADR-047).
 pub fn rename_note_recording(
     state: &AppState,
     id: &str,
     title: &str,
     record: RecordRename<'_>,
 ) -> Result<BufferDocument, String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let doc = store.get(id).map_err(|e| e.to_string())?;
-    let from = note_path(&doc)?;
+    let _turn = state.buffer_writes.turn(id);
+    let from = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        note_path(&store.get(id).map_err(|e| e.to_string())?)?
+    };
     // A rename rewrites where the file is, so it passes the gate a save does:
     // a file in the notes folder, or one an open tab holds. The id comes from
     // the webview, and a closed tab's file is not one it may move.
@@ -441,7 +455,7 @@ pub fn rename_note_recording(
     let stem = rename_stem(from, title).ok_or_else(|| NAME_IS_EMPTY.to_string())?;
 
     let stamp = ignore_stamper(state);
-    let to = note_ops::rename_note(
+    let prepared = note_ops::prepare_rename(
         from,
         &stem,
         state.disk_state(id),
@@ -449,11 +463,14 @@ pub fn rename_note_recording(
         Some(&stamp),
     )
     .map_err(|e| note_failure_message(&e))?;
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    let to = prepared.commit().map_err(|e| note_failure_message(&e))?;
     let to_text = to
         .to_str()
         .ok_or_else(|| format!("the file name {} cannot be recorded", to.display()))?;
 
     if let Err(error) = record(&store, id, to_text, &note_name(&to)) {
+        drop(store);
         return Err(undo_rename(&to, from, &stamp, error));
     }
 
@@ -508,12 +525,15 @@ fn undo_rename(
 
 /// IPC: [`rename_note_inner`].
 #[tauri::command]
-pub fn rename_note(
-    state: State<'_, AppState>,
+pub async fn rename_note<R: Runtime>(
+    app: AppHandle<R>,
     id: String,
     title: String,
 ) -> Result<BufferDocument, String> {
-    rename_note_inner(&state, &id, &title)
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        rename_note_inner(state, &id, &title)
+    })
+    .await
 }
 
 /// One note a rename left exactly as it was, and the code saying why.
@@ -674,13 +694,16 @@ fn hold_undo(state: &AppState, from: &Path, outcome: &RenamePropagationDto) -> O
 
 /// IPC: [`rename_note_with_links_inner`].
 #[tauri::command]
-pub fn rename_note_with_links(
-    state: State<'_, AppState>,
+pub async fn rename_note_with_links<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
     new_name: String,
     update_links: bool,
 ) -> Result<RenamePropagationDto, String> {
-    rename_note_with_links_inner(&state, &path, &new_name, update_links)
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        rename_note_with_links_inner(state, &path, &new_name, update_links)
+    })
+    .await
 }
 
 /// Puts a propagated rename back: the note takes its previous name again and
@@ -724,11 +747,14 @@ pub fn undo_rename_with_links_inner(
 
 /// IPC: [`undo_rename_with_links_inner`].
 #[tauri::command]
-pub fn undo_rename_with_links(
-    state: State<'_, AppState>,
+pub async fn undo_rename_with_links<R: Runtime>(
+    app: AppHandle<R>,
     token: String,
 ) -> Result<RenamePropagationDto, String> {
-    undo_rename_with_links_inner(&state, &token)
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        undo_rename_with_links_inner(state, &token)
+    })
+    .await
 }
 
 /// The path a link has to write to reach `file`, spelled the way the index
@@ -970,7 +996,11 @@ const NOT_YOURS_TO_DELETE: &str = "Only files in your folder can be moved to the
 /// the file leaves the note both on disk and in Writ rather than leaving a row
 /// pointing at a file nobody can reach. A note with no file yet has nothing to
 /// trash and only loses its row.
+///
+/// Runs in the note's turn, so a save still landing cannot put the file back
+/// after it went to the Trash.
 pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
+    let turn = state.buffer_writes.turn(id);
     let source_path = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;
@@ -999,7 +1029,7 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
         trashed = Some(key);
     }
 
-    let deleted = crate::commands::buffer::delete_buffer_inner(state, id);
+    let deleted = crate::commands::buffer::delete_buffer_in_turn(state, &turn);
     if let Some(key) = trashed {
         announce_indexed(&state.event_bus, [key]);
     }
@@ -1008,8 +1038,11 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
 
 /// IPC: [`delete_note_inner`].
 #[tauri::command]
-pub fn delete_note(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    delete_note_inner(&state, &id)
+pub async fn delete_note<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        delete_note_inner(state, &id)
+    })
+    .await
 }
 
 /// Writes `content` into the notes folder as a new note, leaving the file it
@@ -1071,12 +1104,15 @@ fn copy_stem(doc: &BufferDocument) -> String {
 
 /// IPC: [`save_note_copy_inner`].
 #[tauri::command]
-pub fn save_note_copy(
-    state: State<'_, AppState>,
+pub async fn save_note_copy<R: Runtime>(
+    app: AppHandle<R>,
     id: String,
     content: String,
 ) -> Result<String, String> {
-    save_note_copy_inner(&state, &id, &content)
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        save_note_copy_inner(state, &id, &content)
+    })
+    .await
 }
 
 /// The notes folder as text.
@@ -1112,11 +1148,14 @@ pub fn list_notes_dir_inner(
 
 /// IPC: [`list_notes_dir_inner`].
 #[tauri::command]
-pub fn list_notes_dir(
-    state: State<'_, AppState>,
+pub async fn list_notes_dir<R: Runtime>(
+    app: AppHandle<R>,
     dir_path: String,
 ) -> Result<Vec<writ_core::workspace::WorkspaceEntry>, String> {
-    list_notes_dir_inner(&state, &dir_path)
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        list_notes_dir_inner(state, &dir_path)
+    })
+    .await
 }
 
 /// The file note `id` lives in, as its row records it.
@@ -1489,10 +1528,9 @@ fn repoint_notes(state: &AppState, from: &Path, to: &Path) -> Result<(), String>
 /// `Ok(None)` when the dialog was dismissed.
 #[tauri::command]
 pub async fn pick_notes_folder(app: tauri::AppHandle) -> Result<Option<MoveNotesOutcome>, String> {
-    use tauri::Manager;
     use tauri_plugin_dialog::DialogExt;
 
-    let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<tauri_plugin_dialog::FilePath>>();
     app.dialog()
         .file()
         .set_title("Choose a folder")
@@ -1500,14 +1538,15 @@ pub async fn pick_notes_folder(app: tauri::AppHandle) -> Result<Option<MoveNotes
             let _ = tx.send(path);
         });
 
-    let picked = rx.recv().map_err(|e| e.to_string())?;
+    let picked = rx.await.map_err(|e| e.to_string())?;
     let Some(file_path) = picked else {
         return Ok(None);
     };
     let destination = file_path.into_path().map_err(|e| e.to_string())?;
-
-    let state = app.state::<AppState>();
-    move_notes_folder_to(&state, &destination).map(Some)
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        move_notes_folder_to(state, &destination).map(Some)
+    })
+    .await
 }
 
 /// [`get_notes_migration_report`] without the IPC wrapper.

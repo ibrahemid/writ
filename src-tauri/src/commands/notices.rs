@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager};
 use writ_storage::paths::file_name_only;
 
+use crate::commands::buffer::ERR_READ_FAILED;
 use crate::commands::file::{open_generated_document, FileOpenResult};
-use crate::state::AppState;
+use crate::commands::offload::run_blocking;
 
 const NOTICES_FILE: &str = "THIRD-PARTY-NOTICES.md";
 
@@ -71,12 +72,13 @@ fn bundled_third_party_notices(app: &AppHandle) -> Result<String, String> {
 /// wrote. [`open_generated_document`] is what keeps the listing out of the
 /// notes folder and out of the search index (ADR-028 §1).
 #[tauri::command]
-pub fn open_third_party_notices(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<FileOpenResult, String> {
-    let content = bundled_third_party_notices(&app)?;
-    open_generated_document(&state, THIRD_PARTY_NOTICES_TITLE, &content)
+pub async fn open_third_party_notices(app: AppHandle) -> Result<FileOpenResult, String> {
+    let reader = app.clone();
+    run_blocking(app, ERR_READ_FAILED, move |state| {
+        let content = bundled_third_party_notices(&reader)?;
+        open_generated_document(state, THIRD_PARTY_NOTICES_TITLE, &content)
+    })
+    .await
 }
 
 #[cfg(test)]

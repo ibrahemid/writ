@@ -3,12 +3,14 @@
 //! in.
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Runtime, State};
 use writ_core::buffer::document::BufferDocument;
 use writ_core::config::{AppId, FileExtension};
 use writ_core::startup::{file_manager_name, RetitleAnswer};
 
+use crate::commands::buffer::ERR_WRITE_FAILED;
 use crate::commands::config::mutate_config;
+use crate::commands::offload::run_blocking;
 use crate::state::AppState;
 
 /// What the frontend needs to know about this launch.
@@ -69,13 +71,15 @@ pub fn dismiss_first_run_hint(state: State<'_, AppState>) -> Result<(), String> 
 /// ADR-041 §3). `None` on a launch that is not a first one, which writes
 /// nothing.
 #[tauri::command]
-pub fn finish_first_run(
+pub async fn finish_first_run(
     app: tauri::AppHandle,
-    state: State<'_, AppState>,
     default_extension: FileExtension,
     apps: Vec<AppId>,
 ) -> Result<Option<BufferDocument>, String> {
-    let opened = crate::first_run::finish_first_run_inner(&state, default_extension, &apps)?;
+    let opened = run_blocking(app.clone(), ERR_WRITE_FAILED, move |state| {
+        crate::first_run::finish_first_run_inner(state, default_extension, &apps)
+    })
+    .await?;
     crate::app_menu::sync(&app);
     Ok(opened)
 }
@@ -153,8 +157,14 @@ pub fn auto_retitle_note_inner(state: &AppState, id: &str) -> Result<RetitleOutc
 /// [`writ_core::startup::retitle_answer`], and the title is the note's own
 /// first line, read from the file the save just wrote.
 #[tauri::command]
-pub fn auto_retitle_note(state: State<'_, AppState>, id: String) -> Result<RetitleOutcome, String> {
-    auto_retitle_note_inner(&state, &id)
+pub async fn auto_retitle_note<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<RetitleOutcome, String> {
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        auto_retitle_note_inner(state, &id)
+    })
+    .await
 }
 
 /// The word this host uses for the app that opens a folder.

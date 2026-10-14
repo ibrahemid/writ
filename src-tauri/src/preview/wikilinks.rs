@@ -7,10 +7,11 @@
 //! sees only the [`WikilinkResolver`] trait, so it keeps building to wasm for
 //! the site, where no resolver is supplied and a wikilink stays text.
 
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use writ_core::notes::links::{self, Resolution};
+use writ_core::notes::links::{self, LinkKind, Resolution, WikilinkTarget};
 use writ_render::{WikilinkRender, WikilinkResolver};
 
 /// What a preview link to a note is written with.
@@ -49,6 +50,18 @@ pub struct IndexWikilinks {
     /// the folder ranks identically to any file in it, so the note's own file
     /// name is not needed here.
     from: String,
+    /// What each target of the note's own text resolved to, asked for in one
+    /// lookup before the render ([`Self::prefetch`]), keyed by the folder and
+    /// name the resolution depends on.
+    prefetched: Mutex<HashMap<TargetKey, Resolution>>,
+}
+
+/// The parts of a target its resolution depends on: the folder written before
+/// the name, and the name. The heading and the alias choose nothing.
+type TargetKey = (Option<String>, String);
+
+fn target_key(target: &WikilinkTarget) -> TargetKey {
+    (target.folder.clone(), target.name.clone())
 }
 
 impl IndexWikilinks {
@@ -58,6 +71,58 @@ impl IndexWikilinks {
             index,
             notes_root: notes_index::index_key(notes_root),
             from: notes_index::index_key(note_dir),
+            prefetched: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Resolves every `[[…]]` in `text` in one lookup
+    /// ([`NotesIndexStore::resolve_links`]), so the render that follows asks
+    /// the index nothing per link (TS-06). A link the render meets that is not
+    /// here, one in an embedded note, is resolved on its own as before.
+    pub fn prefetch(&self, text: &str) {
+        let mut targets: Vec<WikilinkTarget> = Vec::new();
+        let mut seen = HashSet::new();
+        for link in links::scan(text) {
+            if link.kind != LinkKind::Wikilink {
+                continue;
+            }
+            let target = link.wikilink_target();
+            if seen.insert(target_key(&target)) {
+                targets.push(target);
+            }
+        }
+        if targets.is_empty() {
+            return;
+        }
+        match self.index.resolve_links(&self.from, &targets) {
+            Ok(resolutions) => {
+                let mut prefetched = crate::poison::recover_poison(
+                    self.prefetched.lock(),
+                    "preview::wikilinks::prefetch",
+                );
+                for (target, resolution) in targets.iter().zip(resolutions) {
+                    prefetched.insert(target_key(target), resolution);
+                }
+            }
+            Err(error) => {
+                tracing::debug!(error = %error, "preview wikilinks not resolved together");
+            }
+        }
+    }
+
+    /// What `inner` resolves to: the prefetched answer when there is one, the
+    /// index's otherwise.
+    fn resolution(&self, inner: &str, parsed: &WikilinkTarget) -> Result<Resolution, String> {
+        let known =
+            crate::poison::recover_poison(self.prefetched.lock(), "preview::wikilinks::resolution")
+                .get(&target_key(parsed))
+                .cloned();
+        match known {
+            Some(resolution) => Ok(resolution),
+            None => self
+                .index
+                .resolve_link(&self.from, inner)
+                .map_err(|error| error.to_string()),
         }
     }
 
@@ -110,7 +175,7 @@ impl WikilinkResolver for IndexWikilinks {
             .alias
             .clone()
             .unwrap_or_else(|| inner.split('|').next().unwrap_or(inner).trim().to_string());
-        let resolution = self.index.resolve_link(&self.from, inner);
+        let resolution = self.resolution(inner, &parsed);
         match resolution {
             Ok(Resolution::Resolved(path)) => WikilinkRender {
                 href: Some(self.href_for(&path, parsed.heading.as_deref())),
@@ -220,6 +285,46 @@ mod tests {
         assert_eq!(
             resolver.resolve("Note#").href.as_deref(),
             Some("writ-note:Note.md")
+        );
+    }
+
+    // Prefetched answers are what the render reads: the notes leave the
+    // folder and the index after the prefetch, and the links still resolve to
+    // them, so none of these went back to the index.
+    #[test]
+    fn links_resolved_before_the_render_are_answered_without_the_index() {
+        let (dir, resolver) = fixture();
+        resolver.prefetch(
+            "[[Note]], [[Deep|the deep one]], [[Note#Some Heading]], [[folder/Deep]] and [[Nowhere]]\n",
+        );
+        let root = dir.path().join("notes");
+        fs::remove_file(root.join("Note.md")).expect("remove");
+        fs::remove_file(root.join("folder/Deep.md")).expect("remove");
+        resolver
+            .index
+            .reconcile(&root, &|| false, &|_| false)
+            .expect("reconcile");
+
+        assert_eq!(
+            resolver.resolve("Note").href.as_deref(),
+            Some("writ-note:Note.md")
+        );
+        assert!(resolver.resolve("Deep|the deep one").resolved);
+        assert!(resolver.resolve("folder/Deep").resolved);
+        assert_eq!(
+            resolver.resolve("Note#Some Heading").href.as_deref(),
+            Some("writ-note:Note.md#some-heading")
+        );
+        assert!(!resolver.resolve("Nowhere").resolved);
+    }
+
+    #[test]
+    fn a_link_the_prefetch_did_not_see_is_resolved_from_the_index() {
+        let (_dir, resolver) = fixture();
+        resolver.prefetch("[[Note]]\n");
+        assert_eq!(
+            resolver.resolve("Deep").href.as_deref(),
+            Some("writ-note:folder/Deep.md")
         );
     }
 

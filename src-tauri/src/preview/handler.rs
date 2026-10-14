@@ -23,11 +23,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
 use tauri::http::{HeaderValue, StatusCode};
-use tauri::{Manager, Runtime, UriSchemeContext};
+use tauri::{Manager, Runtime, UriSchemeContext, UriSchemeResponder};
 use tracing::{error, warn};
 use writ_core::preview::frames::disarm_frame_navigations;
 use writ_core::preview::hints::neutralize_resource_hints;
@@ -35,6 +35,7 @@ use writ_core::preview::protocol::{
     resolve_asset, sniff_image_mime, split_asset_request, AssetRequest,
 };
 use writ_core::preview::AssetScope;
+use writ_core::serial::{KeyedQueue, Ticket};
 
 use super::csp::{build_chrome_csp, build_document_csp};
 use super::protocol::{parse, record, Disposition, PreviewScope, RefusalReason, RequestRecord};
@@ -75,10 +76,13 @@ pub struct RenderedDoc {
 /// Per-buffer cache of the most recently rendered document.
 ///
 /// Keyed by buffer id: the rendered HTML is identical across windows (one
-/// fixed policy, no per-window trust state in the lean scope).
+/// fixed policy, no per-window trust state in the lean scope). A document is
+/// shared through an `Arc`, so a request for it does not copy the HTML before
+/// serving it.
 #[derive(Default)]
 pub struct RenderCache {
-    docs: Mutex<HashMap<String, RenderedDoc>>,
+    docs: Mutex<HashMap<String, Arc<RenderedDoc>>>,
+    renders: KeyedQueue,
 }
 
 impl RenderCache {
@@ -90,14 +94,23 @@ impl RenderCache {
     /// Store (or replace) the rendered document for `buffer_id`.
     pub fn put(&self, buffer_id: impl Into<String>, doc: RenderedDoc) {
         recover_poison(self.docs.lock(), "preview::render_cache::put")
-            .insert(buffer_id.into(), doc);
+            .insert(buffer_id.into(), Arc::new(doc));
     }
 
     /// Fetch the rendered document for `buffer_id`.
-    pub fn get(&self, buffer_id: &str) -> Option<RenderedDoc> {
+    pub fn get(&self, buffer_id: &str) -> Option<Arc<RenderedDoc>> {
         recover_poison(self.docs.lock(), "preview::render_cache::get")
             .get(buffer_id)
             .cloned()
+    }
+
+    /// Takes the next place in `buffer_id`'s render queue.
+    ///
+    /// Renders of one buffer run one at a time in the order they were asked
+    /// for, so a slow render of older text cannot land in the cache after a
+    /// newer one (ADR-047).
+    pub fn render_ticket(&self, buffer_id: &str) -> Ticket {
+        self.renders.ticket(buffer_id)
     }
 
     /// Fetch just the asset scope of the cached document.
@@ -142,7 +155,7 @@ impl RenderCache {
             recover_poison(self.docs.lock(), "preview::render_cache::turn_scripts_off")
                 .get_mut(buffer_id)
         {
-            doc.scripts_enabled = false;
+            Arc::make_mut(doc).scripts_enabled = false;
         }
     }
 }
@@ -201,7 +214,7 @@ impl ResolvedResponse {
 pub fn resolve_with_assets(
     url: &str,
     scripts_enabled: bool,
-    document_lookup: impl Fn(&str) -> Option<RenderedDoc>,
+    document_lookup: impl Fn(&str) -> Option<Arc<RenderedDoc>>,
     chrome_asset: impl Fn(&str) -> Option<(&'static [u8], &'static str)>,
     is_dataless: &dyn Fn(&Path) -> bool,
 ) -> ResolvedResponse {
@@ -224,11 +237,11 @@ pub fn resolve_with_assets(
 /// file, so a note reads the same whether or not its images are at hand.
 fn resolve_note_asset(
     request: AssetRequest<'_>,
-    document_lookup: &impl Fn(&str) -> Option<RenderedDoc>,
+    document_lookup: &impl Fn(&str) -> Option<Arc<RenderedDoc>>,
     is_dataless: &dyn Fn(&Path) -> bool,
 ) -> ResolvedResponse {
     let file_name = request.relative.rsplit('/').next().unwrap_or_default();
-    let Some(scope) = document_lookup(request.buffer_id).and_then(|doc| doc.assets) else {
+    let Some(scope) = document_lookup(request.buffer_id).and_then(|doc| doc.assets.clone()) else {
         return ResolvedResponse::not_found();
     };
     // The scope is reached by quoting the token its own render was given.
@@ -362,7 +375,7 @@ fn escape_xml(text: &str) -> String {
 pub fn resolve(
     url: &str,
     scripts_enabled: bool,
-    document_lookup: impl Fn(&str) -> Option<RenderedDoc>,
+    document_lookup: impl Fn(&str) -> Option<Arc<RenderedDoc>>,
     chrome_asset: impl Fn(&str) -> Option<(&'static [u8], &'static str)>,
 ) -> ResolvedResponse {
     let parsed = match parse(url) {
@@ -417,7 +430,7 @@ pub fn resolve(
             match document_lookup(buffer_id) {
                 Some(doc) => ResolvedResponse {
                     status: 200,
-                    body: Cow::Owned(served_document(doc.html)),
+                    body: Cow::Owned(served_document(&doc.html)),
                     headers: vec![
                         ("Content-Type", "text/html; charset=utf-8".to_string()),
                         ("X-Content-Type-Options", "nosniff".to_string()),
@@ -442,15 +455,13 @@ pub fn resolve(
 /// ([`neutralize_resource_hints`]) and the frame navigations it would start
 /// without a script disarmed ([`disarm_frame_navigations`]), whether or not the
 /// file is opted in to its scripts.
-fn served_document(html: String) -> Vec<u8> {
-    let html = match neutralize_resource_hints(&html) {
-        Cow::Borrowed(_) => html,
-        Cow::Owned(rewritten) => rewritten,
+fn served_document(html: &str) -> Vec<u8> {
+    let hinted = neutralize_resource_hints(html);
+    let disarmed = match disarm_frame_navigations(&hinted) {
+        Cow::Owned(rewritten) => Some(rewritten),
+        Cow::Borrowed(_) => None,
     };
-    match disarm_frame_navigations(&html) {
-        Cow::Borrowed(_) => html.into_bytes(),
-        Cow::Owned(rewritten) => rewritten.into_bytes(),
-    }
+    disarmed.unwrap_or_else(|| hinted.into_owned()).into_bytes()
 }
 
 /// MIME type for a bundled chrome asset, by extension. Chrome assets are a
@@ -519,28 +530,38 @@ pub fn record_for(url: &str, response: &ResolvedResponse) -> RequestRecord {
     }
 }
 
-/// Tauri `register_uri_scheme_protocol` glue for `writ-preview://`.
+/// Tauri `register_asynchronous_uri_scheme_protocol` glue for
+/// `writ-preview://`.
 ///
 /// Resolves the request through the pure [`resolve`] core wired to the
 /// `AppState` render cache and the bundled chrome assets, records the
 /// disposition for the verification suite (debug builds), and serializes
 /// the result into a Tauri HTTP response.
+///
+/// The work runs on the blocking pool, not in the web view's callback on the
+/// main thread: an embedded image is read off disk and a document is
+/// rewritten before it is served (ADR-047). Every path responds, a panic
+/// included ([`respond_contained`]): a request left unanswered would hang the
+/// frame's load, and the frame is never recreated.
 pub fn serve<R: Runtime>(
     ctx: UriSchemeContext<'_, R>,
     request: tauri::http::Request<Vec<u8>>,
-) -> tauri::http::Response<Cow<'static, [u8]>> {
+    responder: UriSchemeResponder,
+) {
+    let app = ctx.app_handle().clone();
     let url = request.uri().to_string();
-    let state = ctx.app_handle().state::<AppState>();
-
-    respond_contained(|| {
-        let resolved = resolve_cached(
-            &url,
-            &state.preview_render_cache,
-            &writ_storage::notes_index::is_dataless,
-        );
-        record(record_for(&url, &resolved));
-        resolved
-    })
+    tauri::async_runtime::spawn_blocking(move || {
+        responder.respond(respond_contained(|| {
+            let state = app.state::<AppState>();
+            let resolved = resolve_cached(
+                &url,
+                &state.preview_render_cache,
+                &writ_storage::notes_index::is_dataless,
+            );
+            record(record_for(&url, &resolved));
+            resolved
+        }));
+    });
 }
 
 /// Resolves and serializes a response, answering 500 if either step panics.
@@ -631,6 +652,26 @@ fn failure_response() -> tauri::http::Response<Cow<'static, [u8]>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn renders_of_one_buffer_queue_and_another_buffer_does_not_wait() {
+        let cache = Arc::new(RenderCache::new());
+        let first = cache.render_ticket("a").wait();
+        let second = cache.render_ticket("a");
+        drop(cache.render_ticket("b").wait());
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _turn = second.wait();
+            done.send(()).unwrap();
+        });
+        assert!(finished
+            .recv_timeout(std::time::Duration::from_millis(50))
+            .is_err());
+        drop(first);
+        finished
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the second render ran once the first was done");
+    }
+
     // Scripts are a per-document opt-in (off by default); these resolve() tests
     // pass the document CSP's script flag explicitly to exercise both forms.
     const SCRIPTS_ON: bool = true;
@@ -643,7 +684,7 @@ mod tests {
         }
     }
 
-    fn no_doc(_: &str) -> Option<RenderedDoc> {
+    fn no_doc(_: &str) -> Option<Arc<RenderedDoc>> {
         None
     }
 
@@ -1194,7 +1235,7 @@ mod tests {
         let r = resolve(
             "writ-preview://document/buf-1",
             false,
-            |_| Some(doc(html)),
+            |_| Some(Arc::new(doc(html))),
             chrome_asset,
         );
         assert_eq!(&*r.body, html.as_bytes());

@@ -98,6 +98,7 @@ fn make_state(dir: &TempDir) -> AppState {
         search_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         last_disk_hash: Mutex::new(std::collections::HashMap::new()),
         source_records: Mutex::new(std::collections::HashMap::new()),
+        buffer_writes: Default::default(),
     }
 }
 /// A state with the open-file watcher running, and every event it raises.

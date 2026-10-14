@@ -17,6 +17,7 @@ pub mod note_history;
 pub mod note_index;
 pub mod notes;
 pub mod notices;
+pub mod offload;
 pub mod perf;
 pub mod preview;
 pub mod prompt;

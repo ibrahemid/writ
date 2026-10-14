@@ -13,7 +13,7 @@
 //! `preview_export` alongside the layout surface.
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Manager, Runtime, State};
 
 use tracing::{info, warn};
 use writ_core::hash::Sha256Digest;
@@ -27,6 +27,7 @@ use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::StorageResult;
 use writ_storage::layout_state::LayoutStateRecord;
 
+use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::poison::recover_poison;
 use crate::preview::handler::{RenderCache, RenderedDoc};
 use crate::state::AppState;
@@ -432,31 +433,63 @@ fn render_error_message(err: &RenderError) -> String {
 
 /// Render the live buffer text and cache the result for the protocol
 /// handler. Invoked by the frontend debouncer after a keystroke.
+///
+/// Off the main thread, and in the buffer's render queue: renders of one
+/// buffer run one at a time in the order they were asked for, so the cache
+/// ends on the newest text (ADR-047).
 #[tauri::command]
-pub fn preview_render(
-    state: State<'_, AppState>,
+pub async fn preview_render<R: Runtime>(
+    app: AppHandle<R>,
     buffer_id: String,
     content_type: String,
     text: String,
     theme: ThemePolarity,
     zoom: f64,
-) -> PreviewRenderResult {
-    run_render(&state, buffer_id, content_type, text, theme, zoom)
+) -> Result<PreviewRenderResult, String> {
+    render_in_order(app, buffer_id, content_type, text, theme, zoom).await
 }
 
 /// Force a render regardless of frontend debounce gating (Cmd+R). Identical
 /// to [`preview_render`] at the IPC boundary; the debounce lives frontend-
 /// side.
 #[tauri::command]
-pub fn preview_force_render(
-    state: State<'_, AppState>,
+pub async fn preview_force_render<R: Runtime>(
+    app: AppHandle<R>,
     buffer_id: String,
     content_type: String,
     text: String,
     theme: ThemePolarity,
     zoom: f64,
-) -> PreviewRenderResult {
-    run_render(&state, buffer_id, content_type, text, theme, zoom)
+) -> Result<PreviewRenderResult, String> {
+    render_in_order(app, buffer_id, content_type, text, theme, zoom).await
+}
+
+/// [`run_render`] on the blocking pool, after every render of the buffer that
+/// was asked for before it.
+async fn render_in_order<R: Runtime>(
+    app: AppHandle<R>,
+    buffer_id: String,
+    content_type: String,
+    text: String,
+    theme: ThemePolarity,
+    zoom: f64,
+) -> Result<PreviewRenderResult, String> {
+    let ticket = app
+        .state::<AppState>()
+        .preview_render_cache
+        .render_ticket(&buffer_id);
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        let _turn = ticket.wait();
+        Ok(run_render(
+            state,
+            buffer_id,
+            content_type,
+            text,
+            theme,
+            zoom,
+        ))
+    })
+    .await
 }
 
 /// Outcome of a request for one inline image.
@@ -498,12 +531,15 @@ impl InlineImageResult {
 /// file resolves against the notes folder alone. The size refusal is decided
 /// on the metadata, so a file over the cap is never read.
 #[tauri::command]
-pub fn preview_inline_image(
-    state: State<'_, AppState>,
+pub async fn preview_inline_image<R: Runtime>(
+    app: AppHandle<R>,
     note_path: Option<String>,
     reference: String,
 ) -> Result<InlineImageResult, String> {
-    preview_inline_image_inner(&state, note_path.as_deref(), &reference)
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        preview_inline_image_inner(state, note_path.as_deref(), &reference)
+    })
+    .await
 }
 
 /// [`preview_inline_image`] without Tauri.

@@ -143,6 +143,65 @@ fn rename_note_moves_the_file_and_the_old_name_is_gone() {
 }
 
 #[test]
+fn a_prepared_rename_moves_nothing_until_it_is_committed() {
+    let root = TempDir::new().expect("temp dir");
+    let from = root.path().join("2026-08-29.md");
+    std::fs::write(&from, "the text").expect("seed");
+    let last_known = recorded(&from);
+
+    let prepared = note_ops::prepare_rename(
+        &from,
+        "Grocery list",
+        Some(last_known),
+        WriteOrigin::Editor,
+        None,
+    )
+    .expect("prepare");
+    assert_eq!(prepared.to(), root.path().join("Grocery list.md"));
+    assert!(
+        from.exists() && !prepared.to().exists(),
+        "the file moved early"
+    );
+
+    let to = prepared.commit().expect("commit");
+    assert!(!from.exists(), "the old name is still there");
+    assert_eq!(std::fs::read_to_string(&to).expect("read"), "the text");
+}
+
+#[test]
+fn a_name_taken_after_the_checks_stops_the_move() {
+    let root = TempDir::new().expect("temp dir");
+    let from = root.path().join("2026-08-29.md");
+    std::fs::write(&from, "the text").expect("seed");
+    let last_known = recorded(&from);
+
+    let prepared = note_ops::prepare_rename(
+        &from,
+        "Grocery list",
+        Some(last_known),
+        WriteOrigin::Editor,
+        None,
+    )
+    .expect("prepare");
+    let taken = root.path().join("Grocery list.md");
+    std::fs::write(&taken, "somebody else's").expect("seed");
+
+    match prepared.commit().expect_err("the move should stop") {
+        StorageError::NoteNameTaken { name, folder } => {
+            assert_eq!(name, "Grocery list.md");
+            assert_eq!(folder, root.path());
+        }
+        other => panic!("expected a taken name, got {other:?}"),
+    }
+    assert_eq!(std::fs::read_to_string(&from).expect("read"), "the text");
+    assert_eq!(
+        std::fs::read_to_string(&taken).expect("read"),
+        "somebody else's",
+        "the file that took the name was written over"
+    );
+}
+
+#[test]
 fn rename_to_a_colliding_name_refuses_and_names_the_collision() {
     let root = TempDir::new().expect("temp dir");
     let from = root.path().join("2026-08-29.md");

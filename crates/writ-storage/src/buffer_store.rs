@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -364,11 +365,44 @@ impl BufferStore {
     /// Large-file and binary buffers (`size_bytes > THRESHOLD_NORMAL_BYTES`)
     /// are skipped, matching the write-time policy in [`Self::save_content`].
     /// A read-only row indexes nothing: search is over what the user wrote, and
-    /// neither a hex view nor a document Writ generated is that.
+    /// neither a hex view nor a document Writ generated is that. Neither file
+    /// is read ([`Self::reindex_target`]).
     pub fn reindex_buffer(&self, id: &str) -> StorageResult<()> {
+        let Some(doc) = self.reindex_target(id)? else {
+            return Ok(());
+        };
+        let content = read_indexable_text(&doc);
+        self.reindex_with(&doc, &content)
+    }
+
+    /// The row a reindex of `id` reads the file of, or `None` when the index
+    /// takes nothing from that file: a read-only row, one over
+    /// [`THRESHOLD_NORMAL_BYTES`], one with no file, and one outside the notes
+    /// folder. The caller reads nothing for `None`, so a 300 MB log is never
+    /// read to find out it is not indexed.
+    ///
+    /// The split lets a caller read the file without holding the store
+    /// (ADR-047): the row here, [`read_indexable_text`] outside, and
+    /// [`Self::reindex_with`] back under the store.
+    pub fn reindex_target(&self, id: &str) -> StorageResult<Option<BufferDocument>> {
         let doc = queries::get_buffer(&self.conn, id)?;
-        let content = Self::indexable_text(&doc);
-        self.index_note(&doc, &content)
+        Ok(self.takes_text_of(&doc).then_some(doc))
+    }
+
+    /// Records `content`, read from `doc`'s file, in the notes index
+    /// ([`Self::reindex_target`]).
+    pub fn reindex_with(&self, doc: &BufferDocument, content: &str) -> StorageResult<()> {
+        self.index_note(doc, content)
+    }
+
+    /// Whether the notes index holds the text of `doc`'s file.
+    fn takes_text_of(&self, doc: &BufferDocument) -> bool {
+        !doc.read_only
+            && doc.size_bytes <= THRESHOLD_NORMAL_BYTES
+            && doc
+                .source_path
+                .as_deref()
+                .is_some_and(|path| self.holds_as_note(Path::new(path)))
     }
 
     /// Records `doc`'s file in the notes index, when the row is one the index
@@ -423,21 +457,6 @@ impl BufferStore {
             .is_some_and(|rest| rest.starts_with(['/', '\\']))
     }
 
-    /// The text of `doc` as the index may hold it.
-    ///
-    /// Empty for a read-only row, whatever its file holds otherwise. A
-    /// generated document must never enter the index no matter how often it
-    /// is opened or rebuilt (ADR-028 §1), and a binary row's file is not text
-    /// to search in the first place; both are read-only, and both keep the
-    /// title-only entry [`Self::open_from_path_unindexed`] and [`Self::insert`]
-    /// seed, so a rebuild leaves the index the same shape it found.
-    fn indexable_text(doc: &BufferDocument) -> String {
-        if doc.read_only {
-            return String::new();
-        }
-        read_source_text(doc)
-    }
-
     /// Reads a note's text from its file ([`Self::read_text`] without the
     /// bytes).
     pub fn read_content(&self, id: &str) -> StorageResult<String> {
@@ -466,54 +485,7 @@ impl BufferStore {
     /// [`StorageError::FileTooLarge`] with the size a stat found, none of it
     /// read (ADR-019).
     pub fn read_text(&self, id: &str) -> StorageResult<ReadText> {
-        let doc = queries::get_buffer(&self.conn, id)?;
-        let Some(source_path) = doc.source_path.as_deref() else {
-            return Ok(ReadText {
-                text: String::new(),
-                bytes: ReadBytes::NoFile,
-            });
-        };
-        let size_bytes = std::fs::metadata(source_path)?.len();
-        if let FileOpenMode::Refused { .. } =
-            writ_core::file_ops::classify_size(size_bytes, doc.read_only)
-        {
-            return Err(StorageError::FileTooLarge { size_bytes });
-        }
-        let bytes = std::fs::read(source_path)?;
-        if doc.read_only {
-            // A NUL alone decides here, as it did when the row was made: a row
-            // opened as a hex view before UTF-16 was text (ADR-049) stays one
-            // until the file is opened again.
-            let prefix = &bytes[..bytes.len().min(writ_core::file_ops::BINARY_CHECK_BYTES)];
-            let text = if prefix.contains(&0) {
-                writ_core::file_ops::generate_hex_dump(&bytes, doc.size_bytes as usize)
-            } else {
-                String::from_utf8_lossy(&bytes).into_owned()
-            };
-            return Ok(ReadText {
-                text,
-                bytes: ReadBytes::Raw(bytes),
-            });
-        }
-        let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
-        // Bytes that are already the text are handed over as the text rather
-        // than copied, so a file in the large tiers is held once.
-        let decoded = match encoding.decode(&bytes)? {
-            std::borrow::Cow::Borrowed(text) if text.len() == bytes.len() => None,
-            other => Some(other.into_owned()),
-        };
-        Ok(match decoded {
-            Some(text) => ReadText {
-                text,
-                bytes: ReadBytes::Raw(bytes),
-            },
-            None => ReadText {
-                text: String::from_utf8(bytes).map_err(|error| {
-                    StorageError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
-                })?,
-                bytes: ReadBytes::Text,
-            },
-        })
+        read_doc_text(&queries::get_buffer(&self.conn, id)?)
     }
 
     /// Reads the bytes of a note's file.
@@ -559,7 +531,11 @@ impl BufferStore {
             source_path: Some(source_path.to_string()),
             ..doc
         };
-        let content = read_source_text(&renamed);
+        let content = if self.takes_text_of(&renamed) {
+            read_indexable_text(&renamed)
+        } else {
+            String::new()
+        };
 
         let tx = self.conn.unchecked_transaction()?;
         queries::update_source_path(&tx, id, source_path)?;
@@ -793,6 +769,29 @@ impl BufferStore {
         last_known: Option<DiskState>,
         before_write: BeforeWrite<'_>,
     ) -> StorageResult<(BufferDocument, DiskState)> {
+        let planned = self.plan_source_write(id, content)?;
+        let outcome = planned.land(last_known, before_write)?;
+        self.settle_preview_scripts(id, &outcome);
+        Ok((planned.doc, outcome.disk_state))
+    }
+
+    /// [`Self::write_source_guarded`] up to the write: the row, the file it
+    /// names, and `content` as the bytes that file will hold. Reads no file.
+    ///
+    /// The write itself is [`SourceWrite::land`], which needs nothing of the
+    /// store, so a caller can let the store go while the file is written and
+    /// come back for [`Self::settle_source_write`] (ADR-047). What keeps two
+    /// writes of one note apart then is the caller's, not the store's.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Consistency`] for a read-only row or one with no file,
+    /// and the encoding's refusal of text it has no bytes for.
+    pub fn plan_source_write<'a>(
+        &self,
+        id: &str,
+        content: &'a str,
+    ) -> StorageResult<SourceWrite<'a>> {
         let doc = queries::get_buffer(&self.conn, id)?;
         if doc.read_only {
             return Err(StorageError::Consistency {
@@ -806,7 +805,6 @@ impl BufferStore {
                 message: format!("file {id} has no file to save into"),
             })?
             .clone();
-        let path = Path::new(&source_path);
 
         // The file's own line ending and encoding go back on before anything
         // is hashed, so the digest compared against the disk is a digest of
@@ -815,28 +813,33 @@ impl BufferStore {
         // change. Text the encoding cannot hold is refused here, before the
         // guard reads anything (ADR-049).
         let content = doc.line_ending.apply(content);
-        let bytes = doc
+        let bytes = match doc
             .encoding
             .unwrap_or_else(TextEncoding::utf8)
-            .encode(&content)?;
-
-        let keep = self.history.as_deref().map(crate::guarded::keep_versions);
-        let outcome = write_note_guarded(
-            GuardedWrite {
-                target: path,
-                bytes: &bytes,
-                last_known,
-                on_disk: DiskRead::Fresh,
-                dataless: None,
-                origin: WriteOrigin::Editor,
-                on_conflict: ConflictPolicy::RefuseWithCopy,
-                history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
-                lock: self.write_lock.as_ref(),
+            .encode(&content)?
+        {
+            Cow::Owned(bytes) => Cow::Owned(bytes),
+            // Text that is already its file's bytes is written as it is, so a
+            // file in the large tiers is not held twice.
+            Cow::Borrowed(_) => match content {
+                Cow::Borrowed(text) => Cow::Borrowed(text.as_bytes()),
+                Cow::Owned(text) => Cow::Owned(text.into_bytes()),
             },
-            before_write,
-        )?;
-        self.settle_preview_scripts(id, &outcome);
-        Ok((doc, outcome.disk_state))
+        };
+        Ok(SourceWrite {
+            target: PathBuf::from(source_path),
+            bytes,
+            doc,
+            history: self.history.clone(),
+            write_lock: self.write_lock.clone(),
+        })
+    }
+
+    /// What follows a [`SourceWrite`] that landed: the preview-scripts opt-in
+    /// follows the bytes or lapses, and the row's `updated_at` moves.
+    pub fn settle_source_write(&self, id: &str, outcome: &WriteOutcome) -> StorageResult<()> {
+        self.settle_preview_scripts(id, outcome);
+        queries::update_timestamp(&self.conn, id)
     }
 
     /// Writes text the unsaved-text journal kept into the note's file, unless
@@ -1410,6 +1413,57 @@ pub fn dataless_flags(_path: &Path) -> Option<u32> {
     None
 }
 
+/// One save of a note's file, planned under the store
+/// ([`BufferStore::plan_source_write`]) and landed without it.
+pub struct SourceWrite<'a> {
+    target: PathBuf,
+    bytes: Cow<'a, [u8]>,
+    doc: BufferDocument,
+    history: Option<Arc<NoteHistoryStore>>,
+    write_lock: Option<WriteLock>,
+}
+
+impl SourceWrite<'_> {
+    /// The row the write was planned from.
+    pub fn doc(&self) -> &BufferDocument {
+        &self.doc
+    }
+
+    /// Writes the planned bytes unless that would lose a change Writ never
+    /// read: [`write_note_guarded`] with the version store and the data
+    /// folder's write lock, which `writ mcp` holds across the same compare
+    /// and rename (AM-40).
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::SourceChangedOnDisk`] when the file changed under Writ
+    /// and holds something other than what is being written;
+    /// [`StorageError::SourceNotDownloaded`] when the file has not finished
+    /// downloading; [`StorageError::Io`] when the file cannot be read or
+    /// written.
+    pub fn land(
+        &self,
+        last_known: Option<DiskState>,
+        before_write: BeforeWrite<'_>,
+    ) -> StorageResult<WriteOutcome> {
+        let keep = self.history.as_deref().map(crate::guarded::keep_versions);
+        write_note_guarded(
+            GuardedWrite {
+                target: &self.target,
+                bytes: &self.bytes,
+                last_known,
+                on_disk: DiskRead::Fresh,
+                dataless: None,
+                origin: WriteOrigin::Editor,
+                on_conflict: ConflictPolicy::RefuseWithCopy,
+                history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
+                lock: self.write_lock.as_ref(),
+            },
+            before_write,
+        )
+    }
+}
+
 /// A file read once, answering both questions asked of it.
 pub struct NoteFileState {
     /// What the write guard compares: the digest of the bytes as they are,
@@ -1431,28 +1485,51 @@ pub fn read_note_file_state(
     path: &Path,
     encoding: TextEncoding,
 ) -> StorageResult<Option<NoteFileState>> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
-    let metadata = std::fs::metadata(path).ok();
-    Ok(Some(NoteFileState {
-        comparison_hash: encoding.comparison_digest_hex(&bytes),
-        disk: DiskState {
-            hash: writ_core::hash::sha256_bytes(&bytes),
-            size: metadata
-                .as_ref()
-                .map(|m| m.len())
-                .unwrap_or(bytes.len() as u64),
-            mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
-        },
-    }))
+    Ok(read_note_file(path, encoding)?.map(|(state, _)| state))
 }
 
-/// What `path` holds right now, for the write guard alone.
+/// [`read_note_file_state`] with the bytes it was read from, for a caller that
+/// keeps them as well, so the file is read once.
+pub fn read_note_file(
+    path: &Path,
+    encoding: TextEncoding,
+) -> StorageResult<Option<(NoteFileState, Vec<u8>)>> {
+    let Some(bytes) = read_if_there(path)? else {
+        return Ok(None);
+    };
+    let state = NoteFileState {
+        comparison_hash: encoding.comparison_digest_hex(&bytes),
+        disk: disk_state_of(path, &bytes),
+    };
+    Ok(Some((state, bytes)))
+}
+
+/// What `path` holds right now, for the write guard alone: the SHA-256 and
+/// no comparison digest.
 pub fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
-    Ok(read_note_file_state(path, TextEncoding::utf8())?.map(|state| state.disk))
+    Ok(read_if_there(path)?.map(|bytes| disk_state_of(path, &bytes)))
+}
+
+/// The bytes at `path`, or `None` when no file is there.
+fn read_if_there(path: &Path) -> StorageResult<Option<Vec<u8>>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
+    }
+}
+
+/// The guard's description of `bytes`, just read from `path`.
+fn disk_state_of(path: &Path, bytes: &[u8]) -> DiskState {
+    let metadata = std::fs::metadata(path).ok();
+    DiskState {
+        hash: writ_core::hash::sha256_bytes(bytes),
+        size: metadata
+            .as_ref()
+            .map(|m| m.len())
+            .unwrap_or(bytes.len() as u64),
+        mtime: metadata.as_ref().and_then(|m| m.modified().ok()),
+    }
 }
 
 /// The names `dir` already holds, lowercased the way the dedupe compares them.
@@ -1466,9 +1543,67 @@ pub(crate) fn taken_names(dir: &Path) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// Reads the text of `doc`'s file with the bytes it was read from
+/// ([`BufferStore::read_text`] for a row already in hand).
+///
+/// Reads no row, so a caller holding the store can let it go for the read
+/// (ADR-047).
+pub fn read_doc_text(doc: &BufferDocument) -> StorageResult<ReadText> {
+    let Some(source_path) = doc.source_path.as_deref() else {
+        return Ok(ReadText {
+            text: String::new(),
+            bytes: ReadBytes::NoFile,
+        });
+    };
+    let size_bytes = std::fs::metadata(source_path)?.len();
+    if let FileOpenMode::Refused { .. } =
+        writ_core::file_ops::classify_size(size_bytes, doc.read_only)
+    {
+        return Err(StorageError::FileTooLarge { size_bytes });
+    }
+    let bytes = std::fs::read(source_path)?;
+    if doc.read_only {
+        // A NUL alone decides here, as it did when the row was made: a row
+        // opened as a hex view before UTF-16 was text (ADR-049) stays one
+        // until the file is opened again.
+        let prefix = &bytes[..bytes.len().min(writ_core::file_ops::BINARY_CHECK_BYTES)];
+        let text = if prefix.contains(&0) {
+            writ_core::file_ops::generate_hex_dump(&bytes, doc.size_bytes as usize)
+        } else {
+            String::from_utf8_lossy(&bytes).into_owned()
+        };
+        return Ok(ReadText {
+            text,
+            bytes: ReadBytes::Raw(bytes),
+        });
+    }
+    let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
+    // Bytes that are already the text are handed over as the text rather
+    // than copied, so a file in the large tiers is held once.
+    let decoded = match encoding.decode(&bytes)? {
+        std::borrow::Cow::Borrowed(text) if text.len() == bytes.len() => None,
+        other => Some(other.into_owned()),
+    };
+    Ok(match decoded {
+        Some(text) => ReadText {
+            text,
+            bytes: ReadBytes::Raw(bytes),
+        },
+        None => ReadText {
+            text: String::from_utf8(bytes).map_err(|error| {
+                StorageError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+            })?,
+            bytes: ReadBytes::Text,
+        },
+    })
+}
+
 /// A note's text for the index, read in its encoding; empty for a note with
 /// no file and for bytes that are not text in it.
-fn read_source_text(doc: &BufferDocument) -> String {
+///
+/// Reads whatever file `doc` names: [`BufferStore::reindex_target`] is what
+/// says whether the index takes it.
+pub fn read_indexable_text(doc: &BufferDocument) -> String {
     let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
     doc.source_path
         .as_deref()

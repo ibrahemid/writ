@@ -466,7 +466,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .register_uri_scheme_protocol("writ-preview", preview::handler::serve)
+        .register_asynchronous_uri_scheme_protocol("writ-preview", preview::handler::serve)
         .manage(app_state)
         .manage(commands::ai::AiState::default())
         .manage(commands::ai_connect::ConnectState::default())
@@ -656,6 +656,15 @@ pub fn run() {
                     restore_main_window_geometry(&window, &cfg_window);
                 }
             }
+
+            // The database is maintained once the window is up, so a launch
+            // whose VACUUM takes seconds still shows its window first (TS-35).
+            let maintenance_handle = handle.clone();
+            std::thread::spawn(move || {
+                let state = maintenance_handle.state::<AppState>();
+                state.wait_for_reveal(FIRST_PAINT_FALLBACK * 2);
+                state.run_startup_maintenance();
+            });
 
             let fallback_handle = handle.clone();
             tauri::async_runtime::spawn(async move {

@@ -35,6 +35,8 @@
 //! - [`prompt`]: prompt-document helpers — token estimation, stripping,
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
+//! - [`serial`]: per-key queues that keep one note's commands in order
+//!   off the main thread (ADR-047).
 //! - [`startup`]: startup-failure report formatting and location policy.
 //! - [`text_encoding`]: which text encoding a file is in, and reading and
 //!   writing it in that encoding (ADR-049).
@@ -102,6 +104,8 @@ pub mod search;
 /// The seeded number stream the property tests draw their cases from.
 #[cfg(test)]
 pub(crate) mod seeded;
+/// Work that runs one at a time per key, in the order it was asked for.
+pub mod serial;
 /// Startup-failure report formatting and report-location policy.
 pub mod startup;
 /// Which text encoding a file is in, and reading and writing it — ADR-049.
