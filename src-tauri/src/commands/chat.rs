@@ -422,8 +422,11 @@ pub fn chat_stop(chat: State<'_, ChatState>, conversation_id: String, request_id
 /// proposal the guard refused is as decided as one it wrote, and a card that
 /// still offered its two buttons after a refusal would offer a write that
 /// cannot happen.
+///
+/// Off the main thread: the write reads and writes the note's file, and waits
+/// for any save of an open tab on it that is still landing (ADR-047).
 #[tauri::command]
-pub fn chat_apply_proposal(
+pub async fn chat_apply_proposal(
     app: AppHandle,
     conversation_id: String,
     turn: usize,
@@ -431,29 +434,78 @@ pub fn chat_apply_proposal(
     new_content: String,
     before_hash: String,
 ) -> Result<ProposalOutcome, String> {
-    let (notes_root, writ_dir) = {
-        let state = app.state::<AppState>();
-        (state.notes_root(), state.writ_dir.clone())
-    };
-    let state = app.state::<AppState>();
-    let open_tabs = state.open_tabs();
-    let context = chat::resolve_context_file(&notes_root, &Tabs(&open_tabs), &path).ok();
-    let write_app = app.clone();
-    let write_file = context.as_ref().map(|context| context.file.clone());
-    let write_name = context
-        .as_ref()
-        .map_or_else(|| file_name_only(&path), chat::context_name);
-    let outcome = apply_proposal_inner(
-        &notes_root,
-        &open_tabs,
-        &writ_dir,
-        &chat_host(&app),
+    crate::commands::offload::run_detached(crate::commands::buffer::ERR_WRITE_FAILED, move || {
+        apply_proposal_blocking(app, conversation_id, turn, path, new_content, before_hash)
+    })
+    .await
+}
+
+/// [`chat_apply_proposal`] on the thread that runs it.
+fn apply_proposal_blocking(
+    app: AppHandle,
+    conversation_id: String,
+    turn: usize,
+    path: String,
+    new_content: String,
+    before_hash: String,
+) -> Result<ProposalOutcome, String> {
+    let host = chat_host(&app);
+    let outcome = apply_proposal_to_state(
+        &app.state::<AppState>(),
+        &host,
         &path,
         &new_content,
         &before_hash,
+    );
+    let status = if outcome.is_ok() {
+        ProposalStatus::Applied
+    } else {
+        ProposalStatus::Refused
+    };
+    chat::record_status(&chat_store(&app), &conversation_id, turn, &path, status);
+    announce_activity(&app);
+    outcome
+}
+
+/// Writes one proposal against the app's state, and tells the tab holding the
+/// file what it now holds.
+///
+/// A file only an open tab reaches is written through that tab's save, and the
+/// tab's turn ([`AppState::buffer_writes`]) is held from the read that checks
+/// the offer to the notice that follows the write. A save of the tab is then
+/// either landed before the check, which refuses the offer, or waits until the
+/// write is told.
+pub fn apply_proposal_to_state(
+    state: &AppState,
+    host: &str,
+    path: &str,
+    new_content: &str,
+    before_hash: &str,
+) -> Result<ProposalOutcome, String> {
+    let notes_root = state.notes_root();
+    let open_tabs = state.open_tabs();
+    let context = chat::resolve_context_file(&notes_root, &Tabs(&open_tabs), path).ok();
+    let tab_turn = match context.as_ref().map(|context| &context.scope) {
+        Some(chat::ContextScope::OpenTab { tab_id }) => Some(state.buffer_writes.turn(tab_id)),
+        _ => None,
+    };
+    let write_file = context.as_ref().map(|context| context.file.clone());
+    let write_name = context
+        .as_ref()
+        .map_or_else(|| file_name_only(path), chat::context_name);
+    let outcome = apply_proposal_inner(
+        &notes_root,
+        &open_tabs,
+        &state.writ_dir,
+        host,
+        path,
+        new_content,
+        before_hash,
         Some(&state.note_history),
         |tab_id, content, verified| {
-            let state = write_app.state::<AppState>();
+            let Some(turn) = tab_turn.as_ref().filter(|turn| turn.key() == tab_id) else {
+                return Err(format!("{write_name} was not written."));
+            };
             // The apply has just read this file and found it holding what the
             // offer was made against, and those are the bytes handed here.
             // Recording them as the tab's disk state is what stops the buffer
@@ -463,7 +515,7 @@ pub fn chat_apply_proposal(
             if let Some(file) = write_file.as_ref() {
                 state.record_disk_state_bytes(tab_id, file, verified);
             }
-            crate::commands::buffer::save_buffer_content_inner(&state, tab_id, content)
+            crate::commands::buffer::save_in_turn(state, turn, content)
                 .map(|_| ())
                 .map_err(|error| save_error_sentence(&write_name, &error))
         },
@@ -484,21 +536,15 @@ pub fn chat_apply_proposal(
             };
             match &context.scope {
                 chat::ContextScope::OpenTab { tab_id } => {
-                    announce_note_change(&state, tab_id, &context.file, &bytes)
+                    announce_note_change(state, tab_id, &context.file, &bytes)
                 }
                 chat::ContextScope::Notes => {
-                    announce_applied_note(&state, &context.file, &bytes);
+                    announce_applied_note(state, &context.file, &bytes);
                 }
             }
         }
     }
-    let status = if outcome.is_ok() {
-        ProposalStatus::Applied
-    } else {
-        ProposalStatus::Refused
-    };
-    chat::record_status(&chat_store(&app), &conversation_id, turn, &path, status);
-    announce_activity(&app);
+    drop(tab_turn);
     outcome
 }
 

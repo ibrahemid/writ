@@ -141,7 +141,27 @@ pub fn rename_note(
     origin: WriteOrigin,
     before_write: BeforeWrite<'_>,
 ) -> StorageResult<PathBuf> {
-    rename_note_probed(
+    prepare_rename(from, new_stem, last_known, origin, before_write)?.commit()
+}
+
+/// [`rename_note`] up to the move: the name checks, the guard and the stamps,
+/// each of which reads the whole file.
+///
+/// A caller that keeps the move atomic with a lock it must not hold across a
+/// file's bytes runs this before taking the lock and
+/// [`PreparedRename::commit`] under it (ADR-047).
+///
+/// # Errors
+///
+/// Those of [`rename_note`], except a failed move.
+pub fn prepare_rename(
+    from: &Path,
+    new_stem: &str,
+    last_known: Option<DiskState>,
+    origin: WriteOrigin,
+    before_write: BeforeWrite<'_>,
+) -> StorageResult<PreparedRename> {
+    prepare_rename_probed(
         from,
         new_stem,
         last_known,
@@ -151,21 +171,65 @@ pub fn rename_note(
     )
 }
 
-/// [`rename_note`], with the filesystem flags read through `dataless` so a
-/// test can stand in for a file whose bytes are not on this machine.
+/// A rename that passed its checks and stamped both names, before the move.
+#[must_use = "a prepared rename moves nothing until it is committed"]
+#[derive(Debug)]
+pub struct PreparedRename {
+    from: PathBuf,
+    to: PathBuf,
+    /// `false` when the new name is the one the file already has.
+    moves: bool,
+}
+
+impl PreparedRename {
+    /// The path the file has once the rename is committed.
+    pub fn to(&self) -> &Path {
+        &self.to
+    }
+
+    /// Moves the file. Only the two names are touched, never the bytes.
+    ///
+    /// The new name is checked again first: [`std::fs::rename`] replaces a
+    /// file already at the destination, and one can arrive there between the
+    /// checks and the move.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::NoteNameTaken`] when the new name was taken since the
+    /// checks, and [`StorageError::Io`] when the move fails.
+    pub fn commit(self) -> StorageResult<PathBuf> {
+        if !self.moves {
+            return Ok(self.to);
+        }
+        if self.to.exists() {
+            return Err(StorageError::NoteNameTaken {
+                name: self
+                    .to
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                folder: self.to.parent().map(Path::to_path_buf).unwrap_or_default(),
+            });
+        }
+        std::fs::rename(&self.from, &self.to)?;
+        Ok(self.to)
+    }
+}
+
+/// [`prepare_rename`], with the filesystem flags read through `dataless`.
 ///
-/// Such a file is moved unread and unstamped: the stamp fingerprints the
-/// bytes, and reading them is the download the move must not cause. The
-/// watcher then reports the move as a change it cannot fingerprint, which the
-/// index answers without reading either.
-fn rename_note_probed(
+/// A file whose bytes are not on this machine is moved unread and unstamped:
+/// the stamp fingerprints the bytes, and reading them is the download the move
+/// must not cause. The watcher then reports the move as a change it cannot
+/// fingerprint, which the index answers without reading either.
+fn prepare_rename_probed(
     from: &Path,
     new_stem: &str,
     last_known: Option<DiskState>,
     origin: WriteOrigin,
     before_write: BeforeWrite<'_>,
     dataless: &dyn Fn(&Path) -> Option<u32>,
-) -> StorageResult<PathBuf> {
+) -> StorageResult<PreparedRename> {
     let new_stem = new_stem.trim();
     if new_stem.is_empty() {
         return Err(StorageError::NoteNameEmpty);
@@ -187,7 +251,11 @@ fn rename_note_probed(
     let to = folder.join(&name);
 
     if is_same_file(from, &to) {
-        return Ok(to);
+        return Ok(PreparedRename {
+            from: from.to_path_buf(),
+            to,
+            moves: false,
+        });
     }
     if to.exists() {
         return Err(StorageError::NoteNameTaken {
@@ -205,8 +273,11 @@ fn rename_note_probed(
             stamp(&to, &bytes);
         }
     }
-    std::fs::rename(from, &to)?;
-    Ok(to)
+    Ok(PreparedRename {
+        from: from.to_path_buf(),
+        to,
+        moves: true,
+    })
 }
 
 /// What one file's links did during a rename.
@@ -494,6 +565,19 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use writ_core::notes::guard::SF_DATALESS;
+
+    /// [`rename_note`], with the filesystem flags read through `dataless` so
+    /// a test can stand in for a file whose bytes are not on this machine.
+    fn rename_note_probed(
+        from: &Path,
+        new_stem: &str,
+        last_known: Option<DiskState>,
+        origin: WriteOrigin,
+        before_write: BeforeWrite<'_>,
+        dataless: &dyn Fn(&Path) -> Option<u32>,
+    ) -> StorageResult<PathBuf> {
+        prepare_rename_probed(from, new_stem, last_known, origin, before_write, dataless)?.commit()
+    }
 
     #[test]
     fn a_placeholder_is_renamed_without_being_stamped() {

@@ -376,6 +376,9 @@ pub fn restore_note_version_for_tab(
     // never read.
     let (file, _) = note_file_of(&notes_root, &state.note_history, version_id)?;
     let tab = open_tab_id(state, &file);
+    // The tab's turn: a save of it still landing finishes first, and the
+    // record read here is the one this write is judged against.
+    let _turn = tab.as_deref().map(|id| state.buffer_writes.turn(id));
     let last_known = tab.as_deref().and_then(|id| state.disk_state(id));
     let restored = restore_note_version_inner(
         &notes_root,
@@ -417,11 +420,16 @@ pub fn restore_note_version_for_tab(
 
 /// IPC: [`restore_note_version_for_tab`].
 #[tauri::command]
-pub fn restore_note_version(
-    state: State<'_, AppState>,
+pub async fn restore_note_version<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     version_id: i64,
 ) -> Result<RestoredVersion, String> {
-    restore_note_version_for_tab(&state, version_id)
+    crate::commands::offload::run_blocking(
+        app,
+        crate::commands::buffer::ERR_WRITE_FAILED,
+        move |state| restore_note_version_for_tab(state, version_id),
+    )
+    .await
 }
 
 /// [`copy_note_version_inner`] in the app's notes folder, with the copy

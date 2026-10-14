@@ -9,6 +9,7 @@ use writ_core::events::bus::EventBus;
 use writ_core::notes::identity::{identity_to_keep, observe_file, FileIdentity, SourceState};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::recovery::RecoveredBuffer;
+use writ_core::serial::KeyedQueue;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::pending::RemovalHolds;
 use writ_core::watcher::reconcile::ReconcileGate;
@@ -262,6 +263,13 @@ pub struct AppState {
     /// filesystem as it is now. A relaunch reads it back from the file when
     /// the tab is restored.
     pub source_records: Mutex<HashMap<String, SourceRecord>>,
+    /// One queue per note for the commands that read and record, or write,
+    /// that note's file: they run one at a time, in the order they began.
+    ///
+    /// They used to run on the main thread, which ordered them; off it, two
+    /// saves of one note could otherwise pass each other and leave the older
+    /// text on disk (ADR-047). Taken before the store lock, never under it.
+    pub buffer_writes: KeyedQueue,
 }
 
 impl AppState {
@@ -467,34 +475,6 @@ impl AppState {
             Err(e) => warn!(error = %e, "storage consistency check failed"),
         }
 
-        // Reclaim the space left by superseded session snapshots before the
-        // window shows: a VACUUM needs exclusive access to the database, which
-        // only holds while nothing else is running yet.
-        match store.run_maintenance() {
-            Ok(outcome) if outcome.vacuumed => info!(
-                before_bytes = outcome.before.file_bytes(),
-                after_bytes = outcome.after.file_bytes(),
-                "reclaimed database free space at startup"
-            ),
-            Ok(_) => {}
-            Err(e) => warn!(error = %e, "database maintenance failed"),
-        }
-
-        // The version store is kept on the same schedule, and for the same
-        // reason: a table written on every save and pruned on a timer leaves
-        // a file of free pages behind. Retention runs here rather than after
-        // a save, so what a person is waiting on is never a prune
-        // (`writ_core::maintenance`).
-        match note_history.prune(std::time::SystemTime::now()) {
-            Ok(outcome) if outcome.retired > 0 => info!(
-                retired = outcome.retired,
-                bytes_freed = outcome.bytes_freed,
-                "retired versions of notes past what is kept"
-            ),
-            Ok(_) => {}
-            Err(e) => warn!(error = %e, "note version retention failed"),
-        }
-
         let watcher_ignore = crate::watcher::handler::create_ignore_set();
 
         let authorized_paths = AuthorizedPaths::new();
@@ -597,7 +577,66 @@ impl AppState {
             search_generation: Arc::new(AtomicU64::new(0)),
             last_disk_hash: Mutex::new(recovered_disk_states),
             source_records: Mutex::new(HashMap::new()),
+            buffer_writes: KeyedQueue::new(),
         })
+    }
+
+    /// Waits until the window has been shown, or for `longest` when nothing
+    /// shows it, and answers whether it was shown. Polled rather than
+    /// signalled: the flag is the reveal's own claim ([`crate::claim_reveal`]).
+    pub fn wait_for_reveal(&self, longest: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + longest;
+        loop {
+            if self
+                .window_revealed
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                return true;
+            }
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    }
+
+    /// Reclaims the space superseded rows left in the database and retires the
+    /// note versions past what is kept: once per launch, after the window has
+    /// shown (TS-35).
+    ///
+    /// A `VACUUM` needs the database to itself and can take seconds on a large
+    /// file, so it runs behind the store and with the notes index's writer
+    /// held: a command that needs either waits on its worker thread for it, as
+    /// does the notes walk at its next file, rather than meeting a busy
+    /// database. Nothing here is fatal; a database left unvacuumed is still a
+    /// working one. The version store has a file and a lock of its own, kept on
+    /// the same schedule and for the same reason: a table written on every save
+    /// and pruned on a timer leaves a file of free pages behind, and a prune is
+    /// never what a person is waiting on (`writ_core::maintenance`).
+    pub fn run_startup_maintenance(&self) {
+        // The store before the index's writer: the order a save takes them in.
+        let maintained = {
+            let store = recover_poison(self.store.lock(), "state::run_startup_maintenance");
+            self.notes_index.holding_writes(|| store.run_maintenance())
+        };
+        match maintained {
+            Ok(outcome) if outcome.vacuumed => info!(
+                before_bytes = outcome.before.file_bytes(),
+                after_bytes = outcome.after.file_bytes(),
+                "reclaimed database free space"
+            ),
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, "database maintenance failed"),
+        }
+        match self.note_history.prune(std::time::SystemTime::now()) {
+            Ok(outcome) if outcome.retired > 0 => info!(
+                retired = outcome.retired,
+                bytes_freed = outcome.bytes_freed,
+                "retired versions of notes past what is kept"
+            ),
+            Ok(_) => {}
+            Err(e) => warn!(error = %e, "note version retention failed"),
+        }
     }
 
     /// The notes folder as it stands now.

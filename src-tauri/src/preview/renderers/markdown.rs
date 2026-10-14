@@ -192,6 +192,9 @@ impl ContentRenderer for MarkdownRenderer {
             });
         }
         let wikilinks = self.wikilinks(request.assets.as_ref());
+        if let Some(resolver) = &wikilinks {
+            resolver.prefetch(&request.buffer_text);
+        }
         let wikilinks = wikilinks
             .as_ref()
             .map(|resolver| resolver as &dyn writ_render::WikilinkResolver);

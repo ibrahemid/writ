@@ -48,6 +48,10 @@ reqwest = { version = "0.13", default-features = false, features = [
     "json",
 ] }
 tokio-util = { version = "0.7", default-features = false }
+# The pickers await the dialog's answer on a oneshot rather than parking a
+# runtime worker on a blocking receive (ADR-047). Already in the tree under
+# tauri; this is the edge, not a new package.
+tokio = { version = "1", default-features = false, features = ["sync"] }
 tauri-plugin-clipboard-manager = "2"
 # The OS entropy source, already in the tree under rustls/ring. Taken directly
 # for the PKCE verifier and state of the connect flow (ADR-040 section 6); no
@@ -99,6 +103,10 @@ windows = { version = "0.62", features = [
 [dev-dependencies]
 tempfile = "3"
 toml = "1.1"
+# The mock runtime, for the shell budget (tests/shell_budget.rs): a command is
+# dispatched the way the webview dispatches it, and the time the dispatching
+# thread is held is measured. The feature adds a module and no package.
+tauri = { version = "2", features = ["test"] }
 # Test-only. The write half of the harness runs in the client's own process,
 # and the one thing a unit test cannot prove is that a write from there reaches
 # a tab in this one. Not a runtime dependency: nothing in `src/` names it, and

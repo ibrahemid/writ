@@ -1,7 +1,9 @@
+use crate::commands::buffer::ERR_READ_FAILED;
 use crate::commands::file::FileOpenResult;
+use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::state::AppState;
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Runtime, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::file_ops::{self, FileOpenMode};
 use writ_core::search::SearchHit;
@@ -34,17 +36,26 @@ pub fn list_history(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, S
 
 /// IPC: [`restore_buffer_inner`].
 #[tauri::command]
-pub fn restore_buffer(state: State<'_, AppState>, id: String) -> Result<FileOpenResult, String> {
-    restore_buffer_inner(&state, &id)
+pub async fn restore_buffer<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<FileOpenResult, String> {
+    run_blocking(app, ERR_READ_FAILED, move |state| {
+        restore_buffer_inner(state, &id)
+    })
+    .await
 }
 
 /// IPC: [`restore_buffer_confirmed_inner`].
 #[tauri::command]
-pub fn restore_buffer_confirmed(
-    state: State<'_, AppState>,
+pub async fn restore_buffer_confirmed<R: Runtime>(
+    app: AppHandle<R>,
     id: String,
 ) -> Result<FileOpenResult, String> {
-    restore_buffer_confirmed_inner(&state, &id)
+    run_blocking(app, ERR_READ_FAILED, move |state| {
+        restore_buffer_confirmed_inner(state, &id)
+    })
+    .await
 }
 
 /// Brings a closed file back as an open tab, answering as an open does.
@@ -195,14 +206,25 @@ pub fn clear_history_inner(state: &AppState) -> Result<(), String> {
 /// the note's path, plus the id of the tab already showing it when there is
 /// one, so the sidebar can focus an open tab and open everything else by path.
 #[tauri::command]
-pub fn search_buffers(state: State<'_, AppState>, query: String) -> Result<SearchResults, String> {
-    let Some(match_query) = writ_core::search::to_prefix_match(&query) else {
+pub async fn search_buffers<R: Runtime>(
+    app: AppHandle<R>,
+    query: String,
+) -> Result<SearchResults, String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        search_buffers_inner(state, &query)
+    })
+    .await
+}
+
+/// [`search_buffers`] as everything but the IPC boundary sees it.
+pub fn search_buffers_inner(state: &AppState, query: &str) -> Result<SearchResults, String> {
+    let Some(match_query) = writ_core::search::to_prefix_match(query) else {
         return Ok(SearchResults {
             hits: Vec::new(),
             total: 0,
         });
     };
-    let terms = writ_core::search::search_terms(&query);
+    let terms = writ_core::search::search_terms(query);
     let mut hits = state
         .notes_index
         .search_hits(&match_query, &terms, SEARCH_RESULT_LIMIT)
@@ -233,15 +255,18 @@ pub fn search_buffers(state: State<'_, AppState>, query: String) -> Result<Searc
 /// lines inside them. Ranked by the same subsequence scorer the workspace file
 /// palette uses, so a prefix of a name comes first.
 #[tauri::command]
-pub fn search_notes_by_name(
-    state: State<'_, AppState>,
+pub async fn search_notes_by_name<R: Runtime>(
+    app: AppHandle<R>,
     query: String,
 ) -> Result<Vec<FileHit>, String> {
     if query.trim().is_empty() {
         return Ok(Vec::new());
     }
-    state
-        .notes_index
-        .search_names(&query, &state.notes_root(), QUICK_OPEN_LIMIT)
-        .map_err(|e| e.to_string())
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        state
+            .notes_index
+            .search_names(&query, &state.notes_root(), QUICK_OPEN_LIMIT)
+            .map_err(|e| e.to_string())
+    })
+    .await
 }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tracing::warn;
 use writ_core::workspace::file_search::FileHit;
@@ -15,6 +15,7 @@ use writ_storage::workspace_grep::{
 use writ_storage::workspace_store;
 
 use crate::commands::config::persist_config;
+use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::state::AppState;
 use crate::watcher::handler::start_workspace_watcher;
 use crate::workspace_index::{self, IndexStatus};
@@ -137,7 +138,7 @@ pub fn list_workspace_dir_inner(
 
 #[tauri::command]
 pub async fn pick_workspace_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<tauri_plugin_dialog::FilePath>>();
     app.dialog()
         .file()
         .set_title("Open Folder")
@@ -145,15 +146,15 @@ pub async fn pick_workspace_folder(app: tauri::AppHandle) -> Result<Option<Strin
             let _ = tx.send(path);
         });
 
-    let picked = rx.recv().map_err(|e| e.to_string())?;
+    let picked = rx.await.map_err(|e| e.to_string())?;
     let Some(fp) = picked else {
         return Ok(None);
     };
     let pb = fp.into_path().map_err(|e| e.to_string())?;
-
-    let state = app.state::<AppState>();
-    let root = set_workspace_root_from_path(&state, &pb)?;
-    Ok(Some(root))
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        set_workspace_root_from_path(state, &pb).map(Some)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -162,11 +163,14 @@ pub fn clear_workspace_root(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn list_workspace_dir(
-    state: State<'_, AppState>,
+pub async fn list_workspace_dir<R: Runtime>(
+    app: AppHandle<R>,
     dir_path: String,
 ) -> Result<Vec<WorkspaceEntry>, String> {
-    list_workspace_dir_inner(&state, &dir_path)
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        list_workspace_dir_inner(state, &dir_path)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -191,10 +195,17 @@ pub fn workspace_index_status_inner(state: &AppState) -> IndexStatus {
         .status()
 }
 
-/// Ranks workspace file names against `query` via the in-memory index.
+/// Ranks workspace file names against `query` via the in-memory index, off
+/// the main thread: a folder of 200,000 files is ranked on every keystroke.
 #[tauri::command]
-pub fn search_workspace_files(state: State<'_, AppState>, query: String) -> Vec<FileHit> {
-    search_workspace_files_inner(&state, &query)
+pub async fn search_workspace_files<R: Runtime>(
+    app: AppHandle<R>,
+    query: String,
+) -> Result<Vec<FileHit>, String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        Ok(search_workspace_files_inner(state, &query))
+    })
+    .await
 }
 
 /// Reports the file-name index size and whether it is truncated.

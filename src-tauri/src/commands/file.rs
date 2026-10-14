@@ -1,13 +1,15 @@
 use std::path::Path;
 use std::time::Instant;
 
+use crate::commands::buffer::ERR_READ_FAILED;
+use crate::commands::offload::run_blocking;
 use crate::poison::recover_poison;
 use crate::security::{
     canonicalize_for_authorization, paths_equal_for_authorization, resolve_for_containment,
 };
 use crate::state::AppState;
 use serde::Serialize;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 use writ_core::buffer::document::BufferDocument;
 use writ_core::buffer::manager::BufferManager;
@@ -15,9 +17,9 @@ use writ_core::events::bus::WritEvent;
 use writ_core::file_ops::{self, FileOpenMode};
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::materialise::{decide_open, OpenDecision};
+use writ_core::serial::Turn;
 use writ_core::text_encoding::{decode_detected_owned, TextEncoding};
 use writ_core::watcher::change_event::ExternalChange;
-use writ_storage::buffer_store::BufferStore;
 use writ_storage::paths::file_name_only;
 
 const ERR_UNAUTHORIZED_PATH: &str =
@@ -258,21 +260,25 @@ fn open_authorized_path(state: &AppState, canonical: &str) -> Result<FileOpenRes
 /// The answer for a file a tab already shows: that tab's row, in the mode the
 /// row gives, with the tab brought back in line with the file. `None` when no
 /// tab shows it.
-fn shown_tab_answer(
-    state: &AppState,
-    store: &BufferStore,
-    canonical: &str,
-) -> Result<Option<FileOpenResult>, String> {
-    let Some(existing) = store
-        .find_active_by_source_path(canonical)
+///
+/// The file is read again in the tab's turn ([`AppState::buffer_writes`]), so
+/// a save of the tab that is still landing is not taken for another program's
+/// change.
+fn shown_tab_answer(state: &AppState, canonical: &str) -> Result<Option<FileOpenResult>, String> {
+    let existing = state
+        .store
+        .lock()
         .map_err(|e| e.to_string())?
-    else {
+        .find_active_by_source_path(canonical)
+        .map_err(|e| e.to_string())?;
+    let Some(existing) = existing else {
         return Ok(None);
     };
     state
         .authorized_paths
         .record_blessed_source(canonical.to_string());
-    resync_open_buffer(state, store, &existing);
+    let turn = state.buffer_writes.turn(&existing.id);
+    resync_open_buffer(state, &turn, &existing);
     let mode = file_ops::classify_file(existing.size_bytes, existing.read_only).once_open();
     Ok(Some(FileOpenResult {
         mode,
@@ -373,9 +379,7 @@ fn open_file_classified_inner(
     size_bytes: u64,
 ) -> Result<FileOpenResult, String> {
     let file_path = Path::new(canonical);
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-
-    if let Some(shown) = shown_tab_answer(state, &store, canonical)? {
+    if let Some(shown) = shown_tab_answer(state, canonical)? {
         return Ok(shown);
     }
 
@@ -392,6 +396,9 @@ fn open_file_classified_inner(
     // Text is read in the encoding detected from its bytes (ADR-049), which
     // the row keeps beside the ending, both read off the decoded text so a
     // UTF-16 file's CRLF counts as CRLF.
+    //
+    // The file is read, hashed once and decoded before the store is taken
+    // (ADR-047); the store is held for the rows alone.
     let bytes = std::fs::read(file_path).map_err(|e| io_read_failure_message(&e))?;
     let digest = writ_core::hash::sha256_bytes(&bytes);
     let bytes_prefix = bytes[..bytes.len().min(file_ops::BINARY_CHECK_BYTES)].to_vec();
@@ -406,6 +413,23 @@ fn open_file_classified_inner(
         let line_ending = LineEnding::detect(&text);
         (text, line_ending, Some(encoding))
     };
+
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    // Another open of this file may have made its tab while this one read it.
+    // A file is one open tab, so this open answers with that one.
+    if let Some(opened) = store
+        .find_active_by_source_path(canonical)
+        .map_err(|e| e.to_string())?
+    {
+        state
+            .authorized_paths
+            .record_blessed_source(canonical.to_string());
+        return Ok(FileOpenResult {
+            mode: file_ops::classify_file(opened.size_bytes, opened.read_only).once_open(),
+            size_bytes: opened.size_bytes,
+            doc: Some(opened),
+        });
+    }
 
     if let Some(history_buf) = store
         .find_history_by_source_path(canonical)
@@ -431,9 +455,18 @@ fn open_file_classified_inner(
         }
         // Reopening reads the file; it never writes it back. The index is
         // refreshed instead, which is the only thing the old write-back was
-        // achieving now that the file is the only copy (ADR-028 §1).
-        if let Err(e) = store.reindex_buffer(&history_buf.id) {
-            tracing::debug!(buffer_id = %history_buf.id, error = %e, "reindex on reopening failed");
+        // achieving now that the file is the only copy (ADR-028 §1). It takes
+        // the text just read, measured as the file is now, rather than reading
+        // the file a second time.
+        if !is_binary {
+            let restored = store.get(&history_buf.id).map_err(|e| e.to_string())?;
+            let measured = BufferDocument {
+                size_bytes,
+                ..restored
+            };
+            if let Err(e) = store.reindex_with(&measured, &content) {
+                tracing::debug!(buffer_id = %history_buf.id, error = %e, "reindex on reopening failed");
+            }
         }
         state
             .authorized_paths
@@ -477,9 +510,16 @@ fn open_file_classified_inner(
     })
 }
 
+/// IPC: [`open_file_from_path`], off the main thread (ADR-047).
 #[tauri::command]
-pub fn open_file(state: State<'_, AppState>, path: String) -> Result<FileOpenResult, String> {
-    open_file_from_path(&state, &path)
+pub async fn open_file<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+) -> Result<FileOpenResult, String> {
+    run_blocking(app, ERR_READ_FAILED, move |state| {
+        open_file_from_path(state, &path)
+    })
+    .await
 }
 
 /// Opens a file in the 50-500 MiB tier once the person said Open.
@@ -488,11 +528,14 @@ pub fn open_file(state: State<'_, AppState>, path: String) -> Result<FileOpenRes
 /// file now over the limit answers `Refused`, and one in the confirm tier
 /// opens as a large file.
 #[tauri::command]
-pub fn open_file_confirmed(
-    state: State<'_, AppState>,
+pub async fn open_file_confirmed<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
 ) -> Result<FileOpenResult, String> {
-    open_file_confirmed_from_path(&state, &path)
+    run_blocking(app, ERR_READ_FAILED, move |state| {
+        open_file_confirmed_from_path(state, &path)
+    })
+    .await
 }
 
 /// [`open_file_confirmed`] against an `AppState` rather than a Tauri handle.
@@ -533,7 +576,7 @@ fn open_confirmed_path(state: &AppState, canonical: &str) -> Result<FileOpenResu
 
 #[tauri::command]
 pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, String> {
-    let (tx, rx) = std::sync::mpsc::channel::<Option<Vec<tauri_plugin_dialog::FilePath>>>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<Vec<tauri_plugin_dialog::FilePath>>>();
     app.dialog()
         .file()
         .set_title("Open File")
@@ -541,7 +584,7 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
             let _ = tx.send(paths);
         });
 
-    let paths = rx.recv().map_err(|e| e.to_string())?;
+    let paths = rx.await.map_err(|e| e.to_string())?;
     let Some(paths) = paths else {
         return Ok(Vec::new());
     };
@@ -586,7 +629,7 @@ pub async fn pick_note_save_path(
 ) -> Result<Option<String>, String> {
     let (folder, name) = suggest_note_save_path(&app.state::<AppState>(), &id)?;
 
-    let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<tauri_plugin_dialog::FilePath>>();
     app.dialog()
         .file()
         .set_title("Save As")
@@ -596,7 +639,7 @@ pub async fn pick_note_save_path(
             let _ = tx.send(path);
         });
 
-    let Some(picked) = rx.recv().map_err(|e| e.to_string())? else {
+    let Some(picked) = rx.await.map_err(|e| e.to_string())? else {
         return Ok(None);
     };
     let picked = picked.into_path().map_err(|e| e.to_string())?;
@@ -667,40 +710,33 @@ pub fn accept_note_save_path(state: &AppState, picked: &Path) -> Result<String, 
 /// generated document must never index its body no matter how often it is
 /// reopened (ADR-028 §1) — [`open_generated_document`] seeds its title-only
 /// entry once and nothing here may overwrite that with the full text.
-fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocument) {
-    let Ok(source) = store.read_source(&doc.id) else {
+///
+/// The file is read outside the store, in the tab's turn, and the store is
+/// held only for the row's line ending, the index and the opt-in (ADR-047).
+/// The event goes out after the store is let go.
+fn resync_open_buffer(state: &AppState, turn: &Turn, doc: &BufferDocument) {
+    debug_assert_eq!(turn.key(), doc.id);
+    let Some(path) = doc.source_path.as_deref() else {
+        return;
+    };
+    let Ok(source) = std::fs::read(path) else {
         return;
     };
     // The tab's encoding stands: it is what the open detected or what Reopen
     // with Encoding chose, and opening the file again chooses nothing.
     let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
-    if !doc.read_only {
-        if let Ok(text) = encoding.decode(&source) {
-            let ending = LineEnding::detect(&text);
-            if ending != doc.line_ending {
-                if let Err(e) = store.set_line_ending(&doc.id, ending) {
-                    tracing::debug!(buffer_id = %doc.id, error = %e, "the file's line ending could not be recorded");
-                }
-            }
-        }
-    }
+    let text = (!doc.read_only)
+        .then(|| encoding.decode(&source).ok())
+        .flatten();
     {
         let mut ignore = recover_poison(
             state.watcher_ignore.lock(),
             "commands::file::resync_open_buffer",
         );
-        let now = Instant::now();
-        if let Some(path) = doc.source_path.as_deref() {
-            let key = writ_core::watcher::ignore::source_key(
-                &crate::watcher::handler::ignore_key_path(Path::new(path)),
-            );
-            ignore.record(key, &source, now);
-        }
-    }
-    if !doc.read_only {
-        if let Err(e) = store.reindex_buffer(&doc.id) {
-            tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
-        }
+        let key = writ_core::watcher::ignore::source_key(
+            &crate::watcher::handler::ignore_key_path(Path::new(path)),
+        );
+        ignore.record(key, &source, Instant::now());
     }
     // A change is only reportable against a record of what the file held. A
     // note Writ has not read this launch has none, and saying it changed would
@@ -709,15 +745,45 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
     // the front, whose editor is not mounted and which reads the file itself
     // the moment it is. Silence costs nothing there and a claim costs a prompt
     // over a document nobody touched.
-    let Some(known) = state.disk_state(&doc.id) else {
-        return;
-    };
-    if known.hash != writ_core::hash::sha256_bytes(&source) {
+    let changed = state
+        .disk_state(&doc.id)
+        .is_some_and(|known| known.hash != writ_core::hash::sha256_bytes(&source));
+    {
+        let store = recover_poison(state.store.lock(), "commands::file::resync_open_buffer");
+        if let Some(text) = text.as_deref() {
+            let ending = LineEnding::detect(text);
+            if ending != doc.line_ending {
+                if let Err(e) = store.set_line_ending(&doc.id, ending) {
+                    tracing::debug!(buffer_id = %doc.id, error = %e, "the file's line ending could not be recorded");
+                }
+            }
+        }
+        if !doc.read_only {
+            // Bytes that are not text in the note's encoding index as no text,
+            // as a reindex that read them itself would.
+            match store.reindex_target(&doc.id) {
+                Ok(Some(target)) => {
+                    if let Err(e) = store.reindex_with(&target, text.as_deref().unwrap_or("")) {
+                        tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::debug!(buffer_id = %doc.id, error = %e, "reindex after reopening failed");
+                }
+            }
+        }
         // Another program changed the file, so an opt-in given to the bytes
-        // Writ read before goes with them (ADR-043). It lapses here, under the
-        // guard this function is handed: the bus runs its subscribers on this
-        // thread with that guard held, so none of them may take the store.
-        crate::commands::preview::lapse_scripts_opt_in(store, &state.preview_render_cache, &doc.id);
+        // Writ read before goes with them (ADR-043).
+        if changed {
+            crate::commands::preview::lapse_scripts_opt_in(
+                &store,
+                &state.preview_render_cache,
+                &doc.id,
+            );
+        }
+    }
+    if changed {
         // The digest is the file's own, computed from the bytes just read, in
         // the form the editor compares its document against. A reopen is the
         // one place the file has already been read, so leaving it out and
@@ -725,7 +791,7 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
         // answer already in hand.
         state.event_bus.emit(WritEvent::BufferExternal {
             buffer_id: doc.id.clone(),
-            path: doc.source_path.clone().unwrap_or_default(),
+            path: path.to_string(),
             change: ExternalChange::Modified,
             new_path: None,
             disk_hash: Some(encoding.comparison_digest_hex(&source)),
@@ -766,22 +832,26 @@ pub fn open_generated_document(
     let canonical = canonicalize_for_authorization(&path).map_err(|e| e.to_string())?;
     let size_bytes = content.len() as u64;
 
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-
-    if let Some(existing) = store
-        .find_active_by_source_path(&canonical)
+    let existing = state
+        .store
+        .lock()
         .map_err(|e| e.to_string())?
-    {
+        .find_active_by_source_path(&canonical)
+        .map_err(|e| e.to_string())?;
+    if let Some(existing) = existing {
         state
             .authorized_paths
             .record_blessed_source(canonical.clone());
-        resync_open_buffer(state, &store, &existing);
+        let turn = state.buffer_writes.turn(&existing.id);
+        resync_open_buffer(state, &turn, &existing);
         return Ok(FileOpenResult {
             mode: FileOpenMode::Normal,
             size_bytes,
             doc: Some(existing),
         });
     }
+
+    let store = state.store.lock().map_err(|e| e.to_string())?;
 
     if let Some(closed) = store
         .find_history_by_source_path(&canonical)

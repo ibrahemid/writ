@@ -1,11 +1,12 @@
 use std::path::Path;
 
-use tauri::{Manager, State};
+use tauri::{AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use writ_core::inbox::InboxFile;
 use writ_storage::inbox_store;
 
 use crate::commands::config::persist_config;
+use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::state::AppState;
 use crate::watcher::handler::start_inbox_watcher;
 
@@ -63,7 +64,7 @@ pub fn clear_inbox_inner(state: &AppState) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn pick_inbox_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let (tx, rx) = std::sync::mpsc::channel::<Option<tauri_plugin_dialog::FilePath>>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<tauri_plugin_dialog::FilePath>>();
     app.dialog()
         .file()
         .set_title("Watch Folder")
@@ -71,15 +72,15 @@ pub async fn pick_inbox_folder(app: tauri::AppHandle) -> Result<Option<String>, 
             let _ = tx.send(path);
         });
 
-    let picked = rx.recv().map_err(|e| e.to_string())?;
+    let picked = rx.await.map_err(|e| e.to_string())?;
     let Some(fp) = picked else {
         return Ok(None);
     };
     let pb = fp.into_path().map_err(|e| e.to_string())?;
-
-    let state = app.state::<AppState>();
-    let root = set_inbox_path_from_path(&state, &pb)?;
-    Ok(Some(root))
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        set_inbox_path_from_path(state, &pb).map(Some)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -94,10 +95,13 @@ pub fn get_inbox_path(state: State<'_, AppState>) -> Result<Option<String>, Stri
 }
 
 #[tauri::command]
-pub fn list_inbox_files(state: State<'_, AppState>) -> Result<Vec<InboxFile>, String> {
-    let root = state.inbox_root.lock().map_err(|e| e.to_string())?.clone();
-    match root {
-        Some(root) => inbox_store::list_files(&root).map_err(|e| e.to_string()),
-        None => Ok(Vec::new()),
-    }
+pub async fn list_inbox_files<R: Runtime>(app: AppHandle<R>) -> Result<Vec<InboxFile>, String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, |state| {
+        let root = state.inbox_root.lock().map_err(|e| e.to_string())?.clone();
+        match root {
+            Some(root) => inbox_store::list_files(&root).map_err(|e| e.to_string()),
+            None => Ok(Vec::new()),
+        }
+    })
+    .await
 }

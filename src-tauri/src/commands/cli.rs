@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use crate::commands::offload::{run_detached, ERR_COMMAND_STOPPED};
+
 #[derive(Debug, serde::Serialize)]
 pub struct InstallCliResult {
     pub symlink_path: String,
@@ -186,8 +188,17 @@ fn link_with_privileges(sidecar: &Path, target: &Path) -> Result<(), String> {
     }
 }
 
+/// IPC: [`install_cli_blocking`], off the main thread. The administrator
+/// password dialog waits on the person, and the window keeps drawing while it
+/// is up (ADR-047).
 #[tauri::command]
-pub fn install_cli() -> Result<InstallCliResult, String> {
+pub async fn install_cli() -> Result<InstallCliResult, String> {
+    run_detached(ERR_COMMAND_STOPPED, install_cli_blocking).await
+}
+
+/// Links the bundled `writ` binary into `/usr/local/bin`, asking for an
+/// administrator's password when the folder is not writable.
+pub fn install_cli_blocking() -> Result<InstallCliResult, String> {
     if !install_supported() {
         return Err(INSTALL_UNSUPPORTED.to_string());
     }
@@ -256,7 +267,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn installing_where_there_is_nowhere_to_install_is_refused() {
-        assert_eq!(install_cli().unwrap_err(), INSTALL_UNSUPPORTED);
+        assert_eq!(install_cli_blocking().unwrap_err(), INSTALL_UNSUPPORTED);
     }
 
     #[test]

@@ -3,20 +3,22 @@ use std::path::Path;
 use std::time::{Instant, UNIX_EPOCH};
 
 use crate::commands::note_index::{announce_indexed, holds_own_write, index_copy};
+use crate::commands::offload::{note_ticket, run_blocking, run_in_turn, ERR_COMMAND_STOPPED};
 use crate::fts_scheduler::{PollOutcome, FTS_REINDEX_DEBOUNCE};
 use crate::poison::recover_poison;
 use crate::state::AppState;
 use serde::Serialize;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::buffer::manager::BufferManager;
 use writ_core::notes::guard::is_not_downloaded;
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
 use writ_core::recovery::{journal_step, JournalStep, SaveLanding};
+use writ_core::serial::Turn;
 use writ_core::text_encoding::TextEncoding;
 use writ_core::watcher::pending::HoldAnswer;
-use writ_storage::buffer_store::{dataless_flags, BufferStore, NoteFileState};
+use writ_storage::buffer_store::{dataless_flags, BufferStore, NoteFileState, SourceWrite};
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::write_conflict_copy;
 
@@ -332,12 +334,25 @@ pub fn get_buffer(state: State<'_, AppState>, id: String) -> Result<BufferDocume
 /// A save that does not land leaves its text in the unsaved-text journal
 /// before it returns, and one that lands clears the tab's entry
 /// ([`keep_unsaved_text`], ADR-044).
+///
+/// Waits its turn in the note's queue ([`AppState::buffer_writes`]), so a save
+/// never runs beside another write of the same note.
 pub fn save_buffer_content_inner(
     state: &AppState,
     id: &str,
     content: &str,
 ) -> Result<Option<String>, String> {
-    write_note_source(state, id, content, RemovedFile::Refuse)
+    let turn = state.buffer_writes.turn(id);
+    save_in_turn(state, &turn, content)
+}
+
+/// [`save_buffer_content_inner`] for a caller already holding the note's turn.
+pub fn save_in_turn(
+    state: &AppState,
+    turn: &Turn,
+    content: &str,
+) -> Result<Option<String>, String> {
+    write_note_source(state, turn, content, RemovedFile::Refuse)
 }
 
 /// What a write does about a note whose file was deleted outside Writ.
@@ -400,12 +415,12 @@ impl SaveRefused {
 /// the caller.
 fn write_note_source(
     state: &AppState,
-    id: &str,
+    turn: &Turn,
     content: &str,
     removed: RemovedFile,
 ) -> Result<Option<String>, String> {
     let mut set_aside = Vec::new();
-    let written = write_note_source_unannounced(state, id, content, removed, &mut set_aside);
+    let written = write_note_source_unannounced(state, turn, content, removed, &mut set_aside);
     announce_indexed(&state.event_bus, set_aside);
     written.map_err(|refused| refused.message)
 }
@@ -425,11 +440,12 @@ fn write_note_source(
 /// records what this write did with it.
 fn write_note_source_unannounced(
     state: &AppState,
-    id: &str,
+    turn: &Turn,
     content: &str,
     removed: RemovedFile,
     set_aside: &mut Vec<String>,
 ) -> Result<Option<String>, SaveRefused> {
+    let id = turn.key();
     let written = land_note_source(state, id, content, removed, set_aside);
     let (landing, minted) = match &written {
         Ok(_) => (SaveLanding::Landed, None),
@@ -535,6 +551,82 @@ fn land_note_source(
     // never taken under a held store lock, and finding out whether this write
     // needs the format at all takes the store lock first.
     let default_extension = state.default_extension();
+    let Some(PlannedNoteWrite {
+        write,
+        source_path,
+        minted,
+    }) = plan_note_write(state, id, content, removed, default_extension)?
+    else {
+        return Ok(None);
+    };
+    let carry_minted = |refused: SaveRefused| {
+        if minted {
+            refused.with_minted(source_path.clone())
+        } else {
+            refused
+        }
+    };
+
+    // The file is written without the store (ADR-047). The note's turn is
+    // what keeps every other write and recorded read of it out until the
+    // record below describes what landed.
+    let stamp = ignore_stamper(state);
+    let outcome = match write.land(state.disk_state(id), Some(&stamp)) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            if let StorageError::SourceChangedOnDisk {
+                conflict_copy: Some(copy),
+                ..
+            } = &error
+            {
+                set_aside.extend(index_copy(state, Path::new(copy)));
+            }
+            return Err(carry_minted(SaveRefused::storage(&error)));
+        }
+    };
+    // The record and the opt-in move under one hold of the store, which a
+    // render's scripts check takes too: it never sees the new bytes recorded
+    // beside an opt-in that has not followed them yet.
+    let settled = {
+        let store = recover_poison(state.store.lock(), "commands::buffer::land_note_source");
+        let settled = store.settle_source_write(id, &outcome);
+        state.set_disk_state(id, outcome.disk_state);
+        settled
+    };
+    // Every save writes a temporary file and renames it over the note, so the
+    // file behind this tab is a new file now. A record taken before the save
+    // names one nothing carries any more, and the first delete after it would
+    // read a move as a delete.
+    state.refresh_source_identity(id, Path::new(&source_path));
+    settled.map_err(|error| carry_minted(SaveRefused::storage(&error)))?;
+    // The digest the editor compares its document against, not the guard's
+    // raw one: the bytes just written are the document, so this is the answer
+    // that makes the tab read clean.
+    Ok(Some(writ_core::hash::comparison_digest_hex(
+        content.as_bytes(),
+    )))
+}
+
+/// A write of a note's text, planned under the store: what to write, where,
+/// and whether that file was minted for it.
+struct PlannedNoteWrite<'a> {
+    write: SourceWrite<'a>,
+    source_path: String,
+    minted: bool,
+}
+
+/// Everything [`land_note_source`] needs the store for before the file is
+/// written, under one hold of it: the row's checks, the first file a note with
+/// none is given, the write gate, and the bytes the file will hold.
+///
+/// `None` for a note with no file and no text, which has nothing to write.
+fn plan_note_write<'a>(
+    state: &AppState,
+    id: &str,
+    content: &'a str,
+    removed: RemovedFile,
+    default_extension: writ_core::config::FileExtension,
+) -> Result<Option<PlannedNoteWrite<'a>>, SaveRefused> {
     let store = state
         .store
         .lock()
@@ -578,34 +670,14 @@ fn land_note_source(
     };
     crate::commands::file::authorize_source_write(state, &source_path)
         .map_err(|message| carry_minted(SaveRefused::not_landed(message)))?;
-    let stamp = ignore_stamper(state);
-    let saved = store.save_to_source_without_index(id, content, state.disk_state(id), Some(&stamp));
-    let written = match saved {
-        Ok(written) => written,
-        Err(error) => {
-            drop(store);
-            if let StorageError::SourceChangedOnDisk {
-                conflict_copy: Some(copy),
-                ..
-            } = &error
-            {
-                set_aside.extend(index_copy(state, Path::new(copy)));
-            }
-            return Err(carry_minted(SaveRefused::storage(&error)));
-        }
-    };
-    state.set_disk_state(id, written);
-    // Every save writes a temporary file and renames it over the note, so the
-    // file behind this tab is a new file now. A record taken before the save
-    // names one nothing carries any more, and the first delete after it would
-    // read a move as a delete.
-    state.refresh_source_identity(id, Path::new(&source_path));
-    // The digest the editor compares its document against, not the guard's
-    // raw one: the bytes just written are the document, so this is the answer
-    // that makes the tab read clean.
-    Ok(Some(writ_core::hash::comparison_digest_hex(
-        content.as_bytes(),
-    )))
+    let write = store
+        .plan_source_write(id, content)
+        .map_err(|error| carry_minted(SaveRefused::storage(&error)))?;
+    Ok(Some(PlannedNoteWrite {
+        write,
+        source_path,
+        minted,
+    }))
 }
 
 /// Waits out a removal a watcher is still holding for this note.
@@ -704,18 +776,38 @@ fn attach_new_note_file(
     Ok(path)
 }
 
+/// IPC: [`save_buffer_content_inner`], off the main thread and in the note's
+/// queue (ADR-047).
 #[tauri::command]
-pub fn save_buffer_content(
-    app: AppHandle,
-    state: State<'_, AppState>,
+pub async fn save_buffer_content<R: Runtime>(
+    app: AppHandle<R>,
     id: String,
     content: String,
 ) -> Result<Option<String>, String> {
-    let disk_hash = save_buffer_content_inner(&state, &id, &content)?;
-    if let Some(generation) = state.fts_scheduler.on_edit(&id) {
-        spawn_deferred_reindex(app, id, generation);
+    let ticket = note_ticket(&app, &id);
+    let reindex = app.clone();
+    run_in_turn(app, ticket, ERR_WRITE_FAILED, move |state, turn| {
+        let disk_hash = save_in_turn(state, turn, &content)?;
+        schedule_reindex(&reindex, state, turn.key());
+        Ok(disk_hash)
+    })
+    .await
+}
+
+/// Schedules the deferred reindex of note `id` after a write, unless the
+/// index takes nothing from its file: a file over the normal tier, or a
+/// read-only one, is never read for it (EP-15).
+fn schedule_reindex<R: Runtime>(app: &AppHandle<R>, state: &AppState, id: &str) {
+    let indexed = match state.store.lock() {
+        Ok(store) => matches!(store.reindex_target(id), Ok(Some(_))),
+        Err(_) => false,
+    };
+    if !indexed {
+        return;
     }
-    Ok(disk_hash)
+    if let Some(generation) = state.fts_scheduler.on_edit(id) {
+        spawn_deferred_reindex(app.clone(), id.to_string(), generation);
+    }
 }
 
 /// Writes a note whose file was deleted outside Writ back to the path it
@@ -736,7 +828,14 @@ pub fn restore_note_file_inner(
     id: &str,
     content: &str,
 ) -> Result<Option<String>, String> {
-    let disk_hash = write_note_source(state, id, content, RemovedFile::WriteBack)?;
+    let turn = state.buffer_writes.turn(id);
+    restore_in_turn(state, &turn, content)
+}
+
+/// [`restore_note_file_inner`] for a caller already holding the note's turn.
+fn restore_in_turn(state: &AppState, turn: &Turn, content: &str) -> Result<Option<String>, String> {
+    let id = turn.key();
+    let disk_hash = write_note_source(state, turn, content, RemovedFile::WriteBack)?;
     let source_path = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         store.get(id).map_err(|e| e.to_string())?.source_path
@@ -749,17 +848,19 @@ pub fn restore_note_file_inner(
 
 /// IPC: [`restore_note_file_inner`].
 #[tauri::command]
-pub fn restore_note_file(
-    app: AppHandle,
-    state: State<'_, AppState>,
+pub async fn restore_note_file<R: Runtime>(
+    app: AppHandle<R>,
     id: String,
     content: String,
 ) -> Result<Option<String>, String> {
-    let disk_hash = restore_note_file_inner(&state, &id, &content)?;
-    if let Some(generation) = state.fts_scheduler.on_edit(&id) {
-        spawn_deferred_reindex(app, id, generation);
-    }
-    Ok(disk_hash)
+    let ticket = note_ticket(&app, &id);
+    let reindex = app.clone();
+    run_in_turn(app, ticket, ERR_WRITE_FAILED, move |state, turn| {
+        let disk_hash = restore_in_turn(state, turn, &content)?;
+        schedule_reindex(&reindex, state, turn.key());
+        Ok(disk_hash)
+    })
+    .await
 }
 
 /// Gives a note with no file its first one at `path`, a place the person
@@ -792,6 +893,18 @@ pub fn save_note_to_inner(
     content: &str,
     path: &str,
 ) -> Result<Option<String>, String> {
+    let turn = state.buffer_writes.turn(id);
+    save_note_to_in_turn(state, &turn, content, path)
+}
+
+/// [`save_note_to_inner`] for a caller already holding the note's turn.
+fn save_note_to_in_turn(
+    state: &AppState,
+    turn: &Turn,
+    content: &str,
+    path: &str,
+) -> Result<Option<String>, String> {
+    let id = turn.key();
     let resolved = crate::security::resolve_for_containment(Path::new(path))
         .ok_or_else(|| format!("{ERR_WRITE_FAILED}: {path} cannot be written to"))?;
     let path = resolved.as_str();
@@ -811,7 +924,7 @@ pub fn save_note_to_inner(
     }
     let target = Path::new(path);
     state.follow_note_path(id, target);
-    restore_note_file_inner(state, id, content).inspect_err(|_| {
+    restore_in_turn(state, turn, content).inspect_err(|_| {
         let store = recover_poison(state.store.lock(), "commands::buffer::save_note_to_inner");
         match store.detach_source_path(id, path) {
             Ok(true) => {
@@ -828,32 +941,34 @@ pub fn save_note_to_inner(
 
 /// IPC: [`save_note_to_inner`].
 #[tauri::command]
-pub fn save_note_to(
-    app: AppHandle,
-    state: State<'_, AppState>,
+pub async fn save_note_to<R: Runtime>(
+    app: AppHandle<R>,
     id: String,
     content: String,
     path: String,
 ) -> Result<Option<String>, String> {
-    let disk_hash = save_note_to_inner(&state, &id, &content, &path)?;
-    if let Some(generation) = state.fts_scheduler.on_edit(&id) {
-        spawn_deferred_reindex(app, id, generation);
-    }
-    Ok(disk_hash)
+    let ticket = note_ticket(&app, &id);
+    let reindex = app.clone();
+    run_in_turn(app, ticket, ERR_WRITE_FAILED, move |state, turn| {
+        let disk_hash = save_note_to_in_turn(state, turn, &content, &path)?;
+        schedule_reindex(&reindex, state, turn.key());
+        Ok(disk_hash)
+    })
+    .await
 }
 
 /// Spawns the worker that reindexes a buffer once its edits settle. The worker
 /// waits one debounce window, and either reindexes (the buffer stopped
 /// changing) or waits again (a newer edit arrived), so an edit burst collapses
 /// to a single reindex of the latest on-disk content (ADR-020).
-fn spawn_deferred_reindex(app: AppHandle, id: String, first_generation: u64) {
-    tauri::async_runtime::spawn(async move {
+///
+/// The worker is a blocking-pool thread, since the reindex reads the file
+/// (TS-23).
+fn spawn_deferred_reindex<R: Runtime>(app: AppHandle<R>, id: String, first_generation: u64) {
+    tauri::async_runtime::spawn_blocking(move || {
         let mut seen = first_generation;
         loop {
-            let _ = tauri::async_runtime::spawn_blocking(|| {
-                std::thread::sleep(FTS_REINDEX_DEBOUNCE);
-            })
-            .await;
+            std::thread::sleep(FTS_REINDEX_DEBOUNCE);
             let state = app.state::<AppState>();
             match close_debounce_window(&state, &id, seen) {
                 Some(generation) => seen = generation,
@@ -891,10 +1006,15 @@ pub fn reindex_settled_buffer(state: &AppState, id: &str) {
 
 /// Reindexes a buffer's file, and returns the path to announce it under when
 /// the notes index holds the file.
+///
+/// The file is read without the store, which is held only to find the row and
+/// to write what was read (TS-23). A row the index takes nothing from has no
+/// file read at all (EP-15), and one whose file moved while it was read is
+/// left to whatever moved it.
 fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
-    let indexed = match state.store.lock() {
-        Ok(store) => match store.reindex_buffer(id) {
-            Ok(()) => store.get(id).ok().and_then(|doc| doc.source_path),
+    let target = match state.store.lock() {
+        Ok(store) => match store.reindex_target(id) {
+            Ok(target) => target,
             Err(e) => {
                 tracing::debug!(buffer_id = %id, error = %e, "fts reindex failed");
                 None
@@ -903,6 +1023,21 @@ fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
         Err(_) => {
             tracing::debug!(buffer_id = %id, "store poisoned; skipping reindex");
             None
+        }
+    }?;
+    let content = writ_storage::buffer_store::read_indexable_text(&target);
+    let indexed = {
+        let store = state.store.lock().ok()?;
+        match store.get(id) {
+            Ok(now) if now.source_path == target.source_path => {}
+            _ => return None,
+        }
+        match store.reindex_with(&target, &content) {
+            Ok(()) => target.source_path,
+            Err(e) => {
+                tracing::debug!(buffer_id = %id, error = %e, "fts reindex failed");
+                None
+            }
         }
     };
     let path = indexed?;
@@ -930,16 +1065,29 @@ fn reindex_buffer_now(state: &AppState, id: &str) -> Option<String> {
 /// editor states it from there, and the index, which picks files by the row's
 /// size, leaves the file alone. The record of what the file held does not
 /// move, since nothing was read.
+///
+/// The file is read without the store, which is held to find the row and again
+/// to record what was read (ADR-047); the note's turn keeps a save of it from
+/// landing in between. The bytes are hashed once.
 pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
-    let store = state
+    let turn = state.buffer_writes.turn(id);
+    read_in_turn(state, &turn)
+}
+
+/// [`read_buffer_content_inner`] for a caller already holding the note's turn.
+pub fn read_in_turn(state: &AppState, turn: &Turn) -> Result<Vec<u8>, String> {
+    let id = turn.key();
+    let doc = state
         .store
         .lock()
-        .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?;
-    let doc = store.get(id).map_err(|e| read_failure_message(&e))?;
-    let read = match store.read_text(id) {
+        .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?
+        .get(id)
+        .map_err(|e| read_failure_message(&e))?;
+    let read = match writ_storage::buffer_store::read_doc_text(&doc) {
         Ok(read) => read,
         Err(error) => {
             if let StorageError::FileTooLarge { size_bytes } = error {
+                let store = recover_poison(state.store.lock(), "commands::buffer::read_in_turn");
                 if let Err(e) = store.record_size(id, size_bytes) {
                     tracing::debug!(buffer_id = %id, error = %e, "the measured size was not recorded");
                 }
@@ -950,9 +1098,12 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
     let content = read.text.as_str();
     if let (Some(source_path), Some(bytes)) = (doc.source_path.as_deref(), read.bytes()) {
         let path = Path::new(source_path);
+        let digest = writ_core::hash::sha256_bytes(bytes);
+        let size = bytes.len() as u64;
         if doc.read_only {
-            state.record_disk_state_bytes(id, path, bytes);
+            state.record_disk_state(id, path, digest, size);
         } else {
+            let store = recover_poison(state.store.lock(), "commands::buffer::read_in_turn");
             // What is recorded and kept is the file's bytes, which for a file
             // that is not UTF-8 are not the text handed to the tab: the next
             // save is guarded against them, and the history keeps them as
@@ -961,23 +1112,14 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
             // The reload of an externally changed note comes through here, so
             // this is where the tab learns what the file holds, and where the
             // row learns it too (`BufferStore::note_synced_from_disk`).
-            match store.note_synced_from_disk(
-                id,
-                writ_core::hash::sha256_bytes(bytes),
-                bytes.len() as u64,
-            ) {
+            match store.note_synced_from_disk(id, digest, size) {
                 Ok(Some(disk)) => state.set_disk_state(id, disk),
-                Ok(None) => state.record_disk_state_bytes(id, path, bytes),
+                Ok(None) => state.record_disk_state(id, path, digest, size),
                 Err(e) => {
                     tracing::debug!(buffer_id = %id, error = %e, "the read was not recorded on the row");
-                    state.record_disk_state_bytes(id, path, bytes);
+                    state.record_disk_state(id, path, digest, size);
                 }
             }
-            // The text the tab is about to be given is kept. The text it is
-            // replacing was kept when Writ read or wrote it, which is what
-            // puts the pre-overwrite text in the store before the reload
-            // lands.
-            keep_what_was_seen(state, path, bytes);
             // A file that gained or lost its carriage returns while Writ had
             // it open is followed rather than written back the old way.
             let ending = writ_core::notes::line_ending::LineEnding::detect(content);
@@ -994,6 +1136,12 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
                     tracing::debug!(buffer_id = %id, error = %e, "the file's encoding could not be recorded");
                 }
             }
+            drop(store);
+            // The text the tab is about to be given is kept. The text it is
+            // replacing was kept when Writ read or wrote it, which is what
+            // puts the pre-overwrite text in the store before the reload
+            // lands.
+            keep_what_was_seen(state, path, bytes);
         }
     }
     Ok(read.text.into_bytes())
@@ -1005,13 +1153,15 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
 /// `ArrayBuffer` directly, bypassing JSON string-escaping. The caller
 /// decodes with `new TextDecoder().decode(bytes)`.
 #[tauri::command]
-pub fn read_buffer_content(
-    state: State<'_, AppState>,
+pub async fn read_buffer_content<R: Runtime>(
+    app: AppHandle<R>,
     id: String,
 ) -> Result<tauri::ipc::Response, String> {
-    Ok(tauri::ipc::Response::new(read_buffer_content_inner(
-        &state, &id,
-    )?))
+    let ticket = note_ticket(&app, &id);
+    run_in_turn(app, ticket, ERR_READ_FAILED, |state, turn| {
+        read_in_turn(state, turn).map(tauri::ipc::Response::new)
+    })
+    .await
 }
 
 /// What a note's file holds right now, as the editor reads it.
@@ -1072,21 +1222,29 @@ pub enum NoteDiskAnswer {
 /// being read: reading it makes the provider daemon fetch it over the network
 /// (ADR-028 §5), which is the one thing a re-check after a failed save must
 /// not set off.
-fn note_disk_state_of(
+///
+/// Answers with the bytes it read as well, `None` when nothing was read, so the
+/// caller that keeps them does not read the file again.
+fn note_file_answer_of(
     path: &Path,
     st_flags: Option<u32>,
     encoding: TextEncoding,
-) -> Result<NoteDiskAnswer, String> {
+) -> Result<(NoteDiskAnswer, Option<Vec<u8>>), String> {
     if is_not_downloaded(st_flags) {
-        return Ok(NoteDiskAnswer::Undescribed);
+        return Ok((NoteDiskAnswer::Undescribed, None));
     }
     Ok(
-        writ_storage::buffer_store::read_note_file_state(path, encoding)
+        match writ_storage::buffer_store::read_note_file(path, encoding)
             .map_err(|e| e.to_string())?
-            .map(|state| NoteDiskAnswer::Described {
-                disk: DiskStateDto::from(state),
-            })
-            .unwrap_or(NoteDiskAnswer::Undescribed),
+        {
+            Some((state, bytes)) => (
+                NoteDiskAnswer::Described {
+                    disk: DiskStateDto::from(state),
+                },
+                Some(bytes),
+            ),
+            None => (NoteDiskAnswer::Undescribed, None),
+        },
     )
 }
 
@@ -1101,12 +1259,26 @@ fn note_disk_state_of(
 /// The path is resolved from the note's row rather than passed in, for the
 /// same reason a save's destination is ([`save_buffer_content_inner`]).
 #[tauri::command]
-pub fn note_disk_state(state: State<'_, AppState>, id: String) -> Result<NoteDiskAnswer, String> {
-    note_disk_state_inner(&state, &id)
+pub async fn note_disk_state<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<NoteDiskAnswer, String> {
+    let ticket = note_ticket(&app, &id);
+    run_in_turn(app, ticket, ERR_READ_FAILED, note_disk_state_in_turn).await
 }
 
 /// [`note_disk_state`] as everything but the IPC boundary sees it.
 pub fn note_disk_state_inner(state: &AppState, id: &str) -> Result<NoteDiskAnswer, String> {
+    let turn = state.buffer_writes.turn(id);
+    note_disk_state_in_turn(state, &turn)
+}
+
+/// [`note_disk_state_inner`] for a caller already holding the note's turn.
+///
+/// One read answers the editor and keeps the version: the bytes the state is
+/// computed from are the bytes kept.
+fn note_disk_state_in_turn(state: &AppState, turn: &Turn) -> Result<NoteDiskAnswer, String> {
+    let id = turn.key();
     let (source_path, read_only, encoding) = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;
@@ -1120,7 +1292,7 @@ pub fn note_disk_state_inner(state: &AppState, id: &str) -> Result<NoteDiskAnswe
         )
     };
     let path = Path::new(&source_path);
-    let answer = note_disk_state_of(
+    let (answer, bytes) = note_file_answer_of(
         path,
         writ_storage::buffer_store::dataless_flags(path),
         encoding,
@@ -1129,13 +1301,10 @@ pub fn note_disk_state_inner(state: &AppState, id: &str) -> Result<NoteDiskAnswe
     // answer decides whether it reloads at all. A tab that leaves the
     // question standing still leaves the text on disk in the store, so a
     // second change over the top of the first does not take the first with
-    // it. Nothing is read for a file the store would refuse anyway.
-    if let NoteDiskAnswer::Described { disk } = &answer {
+    // it. Nothing is kept for a file the store would refuse anyway.
+    if let (NoteDiskAnswer::Described { disk }, Some(bytes)) = (&answer, bytes) {
         if !read_only && writ_core::note_history::is_versionable(disk.size) {
-            match std::fs::read(path) {
-                Ok(bytes) => keep_what_was_seen(state, path, &bytes),
-                Err(e) => tracing::debug!(error = %e, "the file could not be read for its version"),
-            }
+            keep_what_was_seen(state, path, &bytes);
         }
     }
     Ok(answer)
@@ -1189,7 +1358,20 @@ pub fn resolve_external_change_inner(
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, String> {
-    let answered = answer_external_change(state, id, choice, content);
+    let turn = state.buffer_writes.turn(id);
+    resolve_in_turn(state, &turn, choice, content)
+}
+
+/// [`resolve_external_change_inner`] for a caller already holding the note's
+/// turn.
+fn resolve_in_turn(
+    state: &AppState,
+    turn: &Turn,
+    choice: ChangeChoice,
+    content: &str,
+) -> Result<ResolveOutcome, String> {
+    let id = turn.key();
+    let answered = answer_external_change(state, turn, choice, content);
     let landing = match &answered {
         Ok(_) => SaveLanding::Landed,
         Err(refused) => refused.landing,
@@ -1202,10 +1384,11 @@ pub fn resolve_external_change_inner(
 /// tab's text when there was none.
 fn answer_external_change(
     state: &AppState,
-    id: &str,
+    turn: &Turn,
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, SaveRefused> {
+    let id = turn.key();
     // An answer is a write, so it waits out a held removal like any other one
     // and for the same reasons ([`wait_out_a_held_removal`]): the path read
     // below is the one a move has already left the row on, and a file that
@@ -1237,7 +1420,7 @@ fn answer_external_change(
     let path = Path::new(&source_path);
     answer_external_change_at(
         state,
-        id,
+        turn,
         path,
         dataless_flags(path),
         line_ending,
@@ -1249,7 +1432,7 @@ fn answer_external_change(
 
 /// [`resolve_external_change_inner`] once the file's path and flags are known.
 ///
-/// The flags are a parameter for the same reason [`note_disk_state_of`]'s are:
+/// The flags are a parameter for the same reason [`note_file_answer_of`]'s are:
 /// a file whose bytes are not on this machine must be refused without being
 /// read, and that refusal is only testable where the flags can be supplied.
 /// `line_ending` and `encoding` are the note's, read off the same row as the
@@ -1265,9 +1448,10 @@ pub fn resolve_external_change_at(
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, String> {
+    let turn = state.buffer_writes.turn(id);
     answer_external_change_at(
         state,
-        id,
+        &turn,
         path,
         st_flags,
         line_ending,
@@ -1288,7 +1472,7 @@ pub fn resolve_external_change_at(
 #[allow(clippy::too_many_arguments)]
 fn answer_external_change_at(
     state: &AppState,
-    id: &str,
+    turn: &Turn,
     path: &Path,
     st_flags: Option<u32>,
     line_ending: LineEnding,
@@ -1296,6 +1480,7 @@ fn answer_external_change_at(
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, SaveRefused> {
+    let id = turn.key();
     if is_not_downloaded(st_flags) {
         return Err(SaveRefused::not_landed(format!(
             "{ERR_FILE_NOT_DOWNLOADED}: {} has not been downloaded",
@@ -1383,7 +1568,7 @@ fn answer_external_change_at(
             // has nothing left to protect and the save may land. Recording it
             // is also what makes the record true: Writ has read this file.
             state.record_disk_state_bytes(id, path, &disk_bytes);
-            write_note_source_unannounced(state, id, content, RemovedFile::Refuse, &mut set_aside)
+            write_note_source_unannounced(state, turn, content, RemovedFile::Refuse, &mut set_aside)
                 .map(|written| {
                     rewritten = reindex_buffer_now(state, id);
                     ResolveOutcome {
@@ -1413,13 +1598,17 @@ fn answer_external_change_at(
 
 /// IPC: [`resolve_external_change_inner`] as the bar calls it.
 #[tauri::command]
-pub fn resolve_external_change(
-    state: State<'_, AppState>,
+pub async fn resolve_external_change<R: Runtime>(
+    app: AppHandle<R>,
     buffer_id: String,
     choice: ChangeChoice,
     content: String,
 ) -> Result<ResolveOutcome, String> {
-    resolve_external_change_inner(&state, &buffer_id, choice, &content)
+    let ticket = note_ticket(&app, &buffer_id);
+    run_in_turn(app, ticket, ERR_WRITE_FAILED, move |state, turn| {
+        resolve_in_turn(state, turn, choice, &content)
+    })
+    .await
 }
 
 /// One note's text as the editor holds it, for a save that could not land.
@@ -1500,10 +1689,13 @@ pub fn discard_unsaved_text_inner(state: &AppState, ids: &[String]) -> Result<()
     Ok(())
 }
 
-/// IPC: [`list_active_buffers_inner`].
+/// IPC: [`list_active_buffers_inner`], off the main thread: it measures every
+/// restored file and starts following each one.
 #[tauri::command]
-pub fn list_active_buffers(state: State<'_, AppState>) -> Result<Vec<BufferDocument>, String> {
-    list_active_buffers_inner(&state)
+pub async fn list_active_buffers<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<Vec<BufferDocument>, String> {
+    run_blocking(app, ERR_READ_FAILED, list_active_buffers_inner).await
 }
 
 /// The tabs the last session left open, each file measured before anything
@@ -1610,7 +1802,11 @@ pub(crate) fn revoke_released(state: &AppState, released: &[String]) {
 /// "did this change since Writ last looked", and after a close Writ has not
 /// looked; keeping it would let a note edited elsewhere while its tab was
 /// closed reopen without a word. So is the permission to write the file.
+///
+/// Waits for the note's turn, so a write still landing finishes before the
+/// record of it is forgotten.
 pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
+    let _turn = state.buffer_writes.turn(id);
     let released = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;
@@ -1631,11 +1827,25 @@ pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    close_buffer_inner(&state, &id)
+pub async fn close_buffer<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        close_buffer_inner(state, &id)
+    })
+    .await
 }
 
+/// [`close_buffer_inner`] for several tabs at once, each closed after its
+/// note's turn.
 pub fn close_buffers_inner(state: &AppState, ids: &[String]) -> Result<(), String> {
+    // One turn per note, taken in one order, so two closes of overlapping
+    // sets cannot each hold a turn the other is waiting for.
+    let mut order: Vec<&String> = ids.iter().collect();
+    order.sort();
+    order.dedup();
+    let _turns: Vec<Turn> = order
+        .into_iter()
+        .map(|id| state.buffer_writes.turn(id))
+        .collect();
     let released: Vec<String> = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let mut sources = Vec::new();
@@ -1663,11 +1873,21 @@ pub fn close_buffers_inner(state: &AppState, ids: &[String]) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn close_buffers(state: State<'_, AppState>, ids: Vec<String>) -> Result<(), String> {
-    close_buffers_inner(&state, &ids)
+pub async fn close_buffers<R: Runtime>(app: AppHandle<R>, ids: Vec<String>) -> Result<(), String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        close_buffers_inner(state, &ids)
+    })
+    .await
 }
 
 pub fn delete_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
+    let turn = state.buffer_writes.turn(id);
+    delete_buffer_in_turn(state, &turn)
+}
+
+/// [`delete_buffer_inner`] for a caller already holding the note's turn.
+pub(crate) fn delete_buffer_in_turn(state: &AppState, turn: &Turn) -> Result<(), String> {
+    let id = turn.key();
     let released = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).ok();
@@ -1685,8 +1905,11 @@ pub fn delete_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn delete_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    delete_buffer_inner(&state, &id)
+pub async fn delete_buffer<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        delete_buffer_inner(state, &id)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1740,6 +1963,7 @@ pub fn reopen_with_encoding_inner(
     id: &str,
     encoding: &str,
 ) -> Result<BufferDocument, String> {
+    let _turn = state.buffer_writes.turn(id);
     let chosen = TextEncoding::from_label(encoding)
         .ok_or_else(|| format!("{ERR_UNKNOWN_ENCODING}: {encoding:?} is not an encoding"))?;
     let source_path = {
@@ -1787,12 +2011,15 @@ pub fn reopen_with_encoding_inner(
 
 /// IPC: [`reopen_with_encoding_inner`].
 #[tauri::command]
-pub fn reopen_with_encoding(
-    state: State<'_, AppState>,
+pub async fn reopen_with_encoding<R: Runtime>(
+    app: AppHandle<R>,
     buffer_id: String,
     encoding: String,
 ) -> Result<BufferDocument, String> {
-    reopen_with_encoding_inner(&state, &buffer_id, &encoding)
+    run_blocking(app, ERR_READ_FAILED, move |state| {
+        reopen_with_encoding_inner(state, &buffer_id, &encoding)
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -1865,7 +2092,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("gone.md");
         assert_eq!(
-            note_disk_state_of(&missing, None, TextEncoding::utf8()).unwrap(),
+            note_file_answer_of(&missing, None, TextEncoding::utf8())
+                .unwrap()
+                .0,
             NoteDiskAnswer::Undescribed
         );
     }
@@ -1876,7 +2105,11 @@ mod tests {
         let path = dir.path().join("note.md");
         std::fs::write(&path, b"one line\n").unwrap();
 
-        let state = described(note_disk_state_of(&path, None, TextEncoding::utf8()).unwrap());
+        let state = described(
+            note_file_answer_of(&path, None, TextEncoding::utf8())
+                .unwrap()
+                .0,
+        );
         assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one line\n"));
         assert_eq!(state.size, 9);
         assert!(state.mtime_ms.is_some());
@@ -1889,7 +2122,9 @@ mod tests {
         std::fs::write(&path, b"placeholder").unwrap();
 
         assert_eq!(
-            note_disk_state_of(&path, Some(SF_DATALESS), TextEncoding::utf8()).unwrap(),
+            note_file_answer_of(&path, Some(SF_DATALESS), TextEncoding::utf8())
+                .unwrap()
+                .0,
             NoteDiskAnswer::Undescribed
         );
     }
@@ -1904,7 +2139,11 @@ mod tests {
         let path = dir.path().join("windows.md");
         std::fs::write(&path, b"one\r\ntwo\r\n").unwrap();
 
-        let state = described(note_disk_state_of(&path, None, TextEncoding::utf8()).unwrap());
+        let state = described(
+            note_file_answer_of(&path, None, TextEncoding::utf8())
+                .unwrap()
+                .0,
+        );
         assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one\ntwo\n"));
         assert_ne!(state.hash, writ_core::hash::sha256_hex(b"one\r\ntwo\r\n"));
         // The length is the file's, not the normalised text's.

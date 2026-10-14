@@ -53,6 +53,13 @@ WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
 step "perf gate: editor in headless Chromium (frontend)"
 WRIT_PERF_GATE=1 node scripts/perf-editor.mjs
 
+step "perf gate: shell budget (writ-tauri, release, one test at a time)"
+WRIT_PERF_GATE=1 cargo test \
+    --release \
+    -p writ-tauri \
+    --test shell_budget \
+    -- --nocapture --test-threads=1
+
 step "perf gate: storage budget (writ-storage, release, one test at a time)"
 WRIT_PERF_GATE=1 cargo test \
     --release \

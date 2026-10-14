@@ -133,7 +133,7 @@ fn the_documents_the_renderers_write_pass_the_frame_rewrite_unchanged() {
 
 // --- 2. Scope/traversal boundary: what the recorder observes -------------
 
-fn no_doc(_: &str) -> Option<RenderedDoc> {
+fn no_doc(_: &str) -> Option<std::sync::Arc<RenderedDoc>> {
     None
 }
 

@@ -411,6 +411,56 @@ other than a Find budget never drops below the audit figure for its file.
 
 ---
 
+## writ-tauri: shell budget (main-thread time per IPC command)
+
+**Test file:** `src-tauri/tests/shell_budget.rs`
+
+**What is measured:** how long a command holds the thread that dispatched it.
+Each command is sent through Tauri's mock runtime with `Webview::on_message`,
+the call the webview's IPC handler makes on the main thread, so a command that
+runs inline holds that thread for its whole body and one that is `async`
+returns as soon as it is queued. The work (dispatch to answer) is reported
+beside it.
+
+**Budget: 16 ms (one frame at 60 Hz) per command**, held by the release build
+under the perf gate. The always-on tests in the same file block each command's
+work (the store, the note's queue, the render queue, the workspace index) and
+fail when the dispatch does not return while it is blocked, so a command that
+goes back to running inline fails `cargo test` as well.
+
+Measured on 2026-10-14, release, on an M4 MacBook Air, before and after ADR-047.
+Before, every listed command was synchronous, so the main thread was held for
+the whole of its work.
+
+| Command | Fixture | Main thread before | Main thread after | Work after |
+|---|---|---|---|---|
+| `open_file_confirmed` | 300 MB log | 311 ms | 0 ms | 313 ms |
+| `read_buffer_content` | the same file | 315 ms | 0 ms | 300 ms |
+| `save_buffer_content` | the same file, one byte changed | 1,107 ms | 0 ms | 960 ms |
+| `preview_render` | 5 MB note, 54,359 wikilinks to 200 notes | 287 ms | 0 ms | 143 ms |
+| `search_workspace_files` | 200,000 files, slowest of six keystrokes | 104 ms | 0 ms | 104 ms |
+| `install_cli` | administrator password dialog | the whole dialog | 0 ms | the person |
+
+Notes:
+
+- `install_cli` is paced by the person at the dialog and is not measured
+  headless; it runs on the blocking pool (`run_detached`), and the editor
+  repainting while the dialog is up is a smoke row.
+- The search row's "before" is its work: the ranking code did not change, only
+  where it runs.
+- The render's work halved because a note's wikilinks are resolved in one
+  lookup before it renders.
+- Not covered: the JSON body of a large save is parsed on the main thread
+  before dispatch (EP-13), so a 300 MB autosave still costs that parse there.
+
+### Re-baselining
+
+Add a command to the budget by registering it in `mock_app` and adding an
+always-on test that blocks its work and a timed one under `WRIT_PERF_GATE`.
+Change `SHELL_BUDGET_MS` only with the reason here.
+
+---
+
 ## writ-storage: FTS search latency
 
 **Test file:** `crates/writ-storage/tests/perf_budget.rs` (`fts_search_budget`)

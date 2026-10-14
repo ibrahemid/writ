@@ -368,6 +368,32 @@ impl NotesIndexStore {
         self.with_names(|names| names.resolve(&parsed, from_path))
     }
 
+    /// Resolves every target in `targets` as seen from the note at
+    /// `from_path`, in order, against one check of the names: the wikilinks of
+    /// a note a preview is about to render, asked for together rather than
+    /// one query each (ADR-047).
+    pub fn resolve_links(
+        &self,
+        from_path: &str,
+        targets: &[links::WikilinkTarget],
+    ) -> StorageResult<Vec<Resolution>> {
+        self.with_names(|names| {
+            targets
+                .iter()
+                .map(|target| names.resolve(target, from_path))
+                .collect()
+        })
+    }
+
+    /// Runs `f` with the index's writer held, so a walk waits for `f` at its
+    /// next file rather than meeting a database `f` keeps busy: the startup
+    /// maintenance, whose `VACUUM` holds the database's write lock for as long
+    /// as it takes.
+    pub fn holding_writes<R>(&self, f: impl FnOnce() -> R) -> R {
+        let _writer = self.writer();
+        f()
+    }
+
     /// The line a heading anchor is on. See
     /// [`super::NotesIndex::heading_line`].
     pub fn heading_line(&self, path: &str, slug: &str) -> StorageResult<Option<u32>> {
