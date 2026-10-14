@@ -133,7 +133,7 @@ describe("CommandPalette settings results", () => {
       ".palette-section-settings .palette-item",
     );
     await user.click(item!);
-    expect(h.openSettings).toHaveBeenCalledWith("files", "notes.folder");
+    expect(h.openSettings).toHaveBeenCalledWith("general", "notes.folder");
   });
 
   it("opens settings deep-linked and does not record usage when a setting is chosen", async () => {

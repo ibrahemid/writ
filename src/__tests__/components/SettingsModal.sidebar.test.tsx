@@ -28,7 +28,6 @@ const mocks = vi.hoisted(() => ({
   setPreset: vi.fn(),
   focusEditor: vi.fn(),
   openThemeEditor: vi.fn(),
-  openShortcutEditor: vi.fn(),
   fetchDefaultAppStatus: vi.fn().mockResolvedValue({ status: "unsupported" }),
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
@@ -144,7 +143,7 @@ vi.mock("../../stores/global/storage", () => ({
 
 
 vi.mock("../../stores/global/notices", () => ({
-  THIRD_PARTY_NOTICES_TITLE: "Third-party licences",
+  THIRD_PARTY_NOTICES_TITLE: "Third-party licenses",
   openThirdPartyNoticesBuffer: mocks.openThirdPartyNoticesBuffer,
 }));
 
@@ -162,7 +161,8 @@ vi.mock("../../components/ThemeEditor/ThemeEditor", () => ({
 }));
 
 vi.mock("../../components/ShortcutEditor/ShortcutEditor", () => ({
-  openShortcutEditor: mocks.openShortcutEditor,
+  hasUnsavedShortcuts: () => false,
+  discardShortcutDrafts: vi.fn(),
   default: () => null,
 }));
 
@@ -212,8 +212,9 @@ function baseConfig(): WritConfig {
   };
 }
 
-// Tags is an app with its switch under Apps, and the watched folder's switch
-// sits under Advanced with the folder it shows (ADR-042 section 4).
+// The sidebar's switches sit under Editor. Tags is an app with its switch under
+// Apps, and the watched folder's switch sits under Integrations with the folder
+// it shows (ADR-042 section 4).
 const SIDEBAR_SETTINGS = ["sidebar_folder", "sidebar_recent"];
 
 /** The switches read and write the real store; `save` only seeds it. */
@@ -223,13 +224,13 @@ async function seedConfig(config: WritConfig) {
 
 function switches(container: Element): HTMLButtonElement[] {
   return Array.from(
-    container.querySelectorAll<HTMLButtonElement>("[data-section='sidebar'] [role='switch']"),
+    container.querySelectorAll<HTMLButtonElement>("[data-section='editor'] [data-setting^='sidebar_']"),
   );
 }
 
 async function openSidebarSection(container: Element) {
-  openSettings("sidebar");
-  await waitFor(() => expect(container.querySelector("[data-section='sidebar']")).not.toBeNull());
+  openSettings("editor");
+  await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
 }
 
 async function openAndSearch(container: Element, term: string) {
@@ -249,7 +250,6 @@ describe("SettingsModal sidebar section", () => {
     mocks.polarity.mockReset().mockReturnValue("light");
     mocks.setPreset.mockReset();
     mocks.openThemeEditor.mockReset();
-    mocks.openShortcutEditor.mockReset();
     mocks.fetchDefaultAppStatus.mockReset().mockResolvedValue({ status: "unsupported" });
     mocks.claimDefaultApp.mockReset().mockResolvedValue(undefined);
     mocks.fetchDefaultAppTypes.mockReset().mockResolvedValue([TEST_CLAIMABLE_TYPE]);
@@ -284,15 +284,14 @@ describe("SettingsModal sidebar section", () => {
     cleanup();
   });
 
-  it("lists Sidebar in the nav between Appearance and Updates", async () => {
+  it("puts the sidebar's switches under Editor, with no section of their own", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const labels = Array.from(container.querySelectorAll(".settings-nav-item")).map((n) => n.textContent);
-    const at = labels.indexOf("Sidebar");
-    expect(at).toBeGreaterThan(0);
-    expect(labels[at - 1]).toBe("Appearance");
-    expect(labels[at + 1]).toBe("Updates");
+    expect(labels).not.toContain("Sidebar");
+    await openSidebarSection(container);
+    expect(switches(container)).toHaveLength(2);
   });
 
   it("shows one switch per section, all on by default", async () => {
@@ -307,12 +306,12 @@ describe("SettingsModal sidebar section", () => {
     ]);
   });
 
-  it("keeps the watched folder's switch under Advanced", async () => {
+  it("keeps the watched folder's switch under Integrations", async () => {
     const { container } = render(() => <SettingsModal />);
-    openSettings("advanced");
-    await waitFor(() => expect(container.querySelector("[data-section='advanced']")).not.toBeNull());
+    openSettings("integrations");
+    await waitFor(() => expect(container.querySelector("[data-section='integrations']")).not.toBeNull());
     const inbox = container.querySelector<HTMLButtonElement>(
-      "[data-section='advanced'] [data-setting='sidebar_inbox']",
+      "[data-section='integrations'] [data-setting='sidebar_inbox']",
     );
     expect(inbox?.getAttribute("aria-checked")).toBe("true");
     expect(inbox?.getAttribute("aria-label")).toBe("Show watched folder");

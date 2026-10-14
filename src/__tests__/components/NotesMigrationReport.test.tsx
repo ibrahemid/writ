@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 
 const mocks = vi.hoisted(() => ({
   report: vi.fn(),
@@ -83,7 +84,7 @@ describe("NotesMigrationReport", () => {
   // migrated + piped + recovered: every note the pass put in the folder.
   it("counts every note that became a file in the folder", () => {
     const { container } = render(() => <NotesMigrationReport />);
-    expect(text(container)).toContain("5 notes are now files in ~/Writ.");
+    expect(text(container)).toContain("5 files are now in ~/Writ.");
     expect(text(container)).not.toContain("archive");
     expect(container.querySelector("[data-action='notes-report-show']")).not.toBeNull();
   });
@@ -91,7 +92,7 @@ describe("NotesMigrationReport", () => {
   it("offers to move the archived notes only when there are some", async () => {
     mocks.report.mockReturnValue(report({ archived: 4 }));
     const { container } = render(() => <NotesMigrationReport />);
-    expect(text(container)).toContain("4 older notes are waiting in an archive folder.");
+    expect(text(container)).toContain("4 older files are waiting in an archive folder.");
 
     fireEvent.click(container.querySelector("[data-action='notes-report-archive']")!);
     await waitFor(() => expect(mocks.moveArchived).toHaveBeenCalledTimes(1));
@@ -100,7 +101,11 @@ describe("NotesMigrationReport", () => {
   it("links to the details only when a note could not be checked", async () => {
     mocks.report.mockReturnValue(report({ failed: 2 }));
     const { container } = render(() => <NotesMigrationReport />);
-    expect(text(container)).toContain("2 notes could not be checked.");
+    expect(text(container)).toContain("2 files could not be checked.");
+    // The button opens the file manager, so it is named for it (ED-31).
+    expect(container.querySelector("[data-action='notes-report-details']")!.textContent).toBe(
+      SHOW_IN_FILE_MANAGER,
+    );
 
     fireEvent.click(container.querySelector("[data-action='notes-report-details']")!);
     await waitFor(() => expect(mocks.showRecovered).toHaveBeenCalledTimes(1));
@@ -117,9 +122,9 @@ describe("NotesMigrationReport", () => {
       report({ migrated: 1, recovered: 0, piped: 0, archived: 1, failed: 1 }),
     );
     const { container } = render(() => <NotesMigrationReport />);
-    expect(text(container)).toContain("1 note is now a file in ~/Writ.");
-    expect(text(container)).toContain("1 older note is waiting in an archive folder.");
-    expect(text(container)).toContain("1 note could not be checked.");
+    expect(text(container)).toContain("1 file is now in ~/Writ.");
+    expect(text(container)).toContain("1 older file is waiting in an archive folder.");
+    expect(text(container)).toContain("1 file could not be checked.");
   });
 
   // A run can place nothing and still have something to say.
@@ -128,10 +133,10 @@ describe("NotesMigrationReport", () => {
       report({ migrated: 0, recovered: 0, piped: 0, archived: 4 }),
     );
     const { container } = render(() => <NotesMigrationReport />);
-    expect(text(container)).not.toContain("are now files");
-    expect(text(container)).not.toContain("is now a file");
+    expect(text(container)).not.toContain("are now in");
+    expect(text(container)).not.toContain("is now in");
     expect(container.querySelector("[data-action='notes-report-show']")).toBeNull();
-    expect(text(container)).toContain("4 older notes are waiting in an archive folder.");
+    expect(text(container)).toContain("4 older files are waiting in an archive folder.");
   });
 
   it("dismisses", async () => {

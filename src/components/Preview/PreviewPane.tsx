@@ -18,6 +18,7 @@ import {
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
 import Button from "../Button/Button";
 import LinkConfirm, { type LinkRequest } from "./LinkConfirm";
+import { userErrorText } from "../../lib/error-text";
 import "./preview-chrome.css";
 
 interface Props {
@@ -264,7 +265,7 @@ export default function PreviewPane(props: Props) {
       }
     } catch (err) {
       setState("error");
-      setMessage(String(err));
+      setMessage(userErrorText(err) ?? "Writ could not draw the preview.");
     }
   }
 

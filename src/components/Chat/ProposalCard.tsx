@@ -8,7 +8,6 @@ import {
   type ChatProposal,
   type ChatProposalOutcome,
 } from "../../stores/global/chat";
-import { byteLabel } from "../../commands/chat";
 import { hunkRows } from "../../lib/diff-rows";
 
 /**
@@ -101,7 +100,7 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
 
       <Show when={settled() || status() === "refused"}>
         <p class="chat-proposal-verdict" role="status">
-          {verdict(status(), refusal(), outcome(), props.proposal.stale === true)}
+          {verdict(status(), refusal(), outcome(), props.proposal.stale === true, label())}
         </p>
       </Show>
 
@@ -129,9 +128,10 @@ function verdict(
   refusal: string | undefined,
   outcome: ChatProposalOutcome | null,
   stale: boolean,
+  name: string,
 ): string {
   if (outcome && !outcome.changed) return "The file already held this text.";
-  if (outcome) return `Applied. The file is now ${byteLabel(outcome.bytes)}.`;
+  if (outcome) return `Applied to ${name}.`;
   if (status === "applied") return "Applied.";
   if (status === "discarded") return "Discarded.";
   if (refusal) return refusal;

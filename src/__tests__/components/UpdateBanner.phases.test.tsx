@@ -25,7 +25,7 @@ vi.mock("../../stores/global/update", () => ({
 
 import UpdateBanner from "../../components/UpdateBanner/UpdateBanner";
 
-const UNREACHABLE = "Couldn't reach the update server.";
+const UNREACHABLE = "Could not reach the update server.";
 
 afterEach(() => {
   fixtures.setPhase({ status: "idle" });

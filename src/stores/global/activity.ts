@@ -21,6 +21,7 @@ import {
 } from "../../services/tauri";
 import { writeClipboardText } from "../../services/tauri";
 import { logFailure } from "../../lib/log";
+import { SECTION_LABELS, settingEntry, UnknownSettingError } from "../../settings";
 
 export type { ActivityRecord, ClientApproval, McpServerCommand, McpTools, PendingClient };
 
@@ -184,9 +185,18 @@ function commandCaution(): string | undefined {
     return "Move Writ to your Applications folder and open it from there first.";
   }
   if (command?.needs_install) {
-    return "Install the writ command under Advanced, Terminal command, first.";
+    return `Install the writ command first, under ${cliRowPath()}.`;
   }
   return undefined;
+}
+
+const CLI_SETTING_ID = "files.cli";
+
+/** Where the install lives, read from the settings index. */
+function cliRowPath(): string {
+  const entry = settingEntry(CLI_SETTING_ID);
+  if (!entry) throw new UnknownSettingError(CLI_SETTING_ID);
+  return `Settings, ${SECTION_LABELS[entry.section]}, ${entry.title}`;
 }
 
 /** Puts the command on the clipboard, for pasting into a client. */

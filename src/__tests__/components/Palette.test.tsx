@@ -314,14 +314,44 @@ describe("the platform layer", () => {
     expect(title.textContent).not.toContain('"');
   });
 
-  it("does not spend a line saying Esc dismisses a layer just opened", async () => {
+  it("adds no advice to a search that found nothing in a palette that cannot read files", async () => {
     const { container } = harness([]);
+    fireEvent.input(container.querySelector(".palette-input")!, { target: { value: "zzz" } });
+    await waitFor(() => expect(container.querySelector(".palette-empty-title")).not.toBeNull());
+    expect(container.querySelector(".palette-empty-hint")).toBeNull();
+  });
+
+  it("names the prefix that searches inside files when a plain search found nothing", async () => {
+    const content: ResultProvider = {
+      id: "content",
+      section: "Text",
+      order: 3,
+      cap: 10,
+      modes: ["content"],
+      query: () => [],
+    };
+    const { container } = harness([{ ...COMMANDS, query: () => [] }, content]);
     fireEvent.input(container.querySelector(".palette-input")!, { target: { value: "zzz" } });
     const hint = await waitFor(() => {
       const el = container.querySelector(".palette-empty-hint");
       expect(el).not.toBeNull();
       return el!;
     });
-    expect(hint.textContent).toBe("Try a different word.");
+    expect(hint.textContent).toBe("Search inside files with #.");
+  });
+
+  it("adds no hint where a plain search already read inside files", async () => {
+    const content: ResultProvider = {
+      id: "content",
+      section: "Text",
+      order: 3,
+      cap: 10,
+      modes: ["all", "content"],
+      query: () => [],
+    };
+    const { container } = harness([{ ...COMMANDS, query: () => [] }, content]);
+    fireEvent.input(container.querySelector(".palette-input")!, { target: { value: "zzz" } });
+    await waitFor(() => expect(container.querySelector(".palette-empty-title")).not.toBeNull());
+    expect(container.querySelector(".palette-empty-hint")).toBeNull();
   });
 });

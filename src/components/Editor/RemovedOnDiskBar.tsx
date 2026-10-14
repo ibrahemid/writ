@@ -56,7 +56,7 @@ export default function RemovedOnDiskBar(props: { noteId: string | null }) {
           {(file) => (
             <div class="editor-bar removed-on-disk-bar" role="alert">
               <p class="editor-bar-text">
-                Couldn't create {file().name} in {file().folder}.
+                Could not create {file().name} in {file().folder}.
               </p>
               <div class="editor-bar-actions">
                 <Button onClick={() => void saveNoteAs(id())}>Save As…</Button>

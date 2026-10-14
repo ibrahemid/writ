@@ -107,7 +107,7 @@ describe("a proposal card", () => {
     expect(mocks.chatApplyProposal).toHaveBeenCalledTimes(1);
 
     land({ path: "Launch.md", hash: "def", bytes: 40, changed: true });
-    await waitFor(() => expect(container.textContent).toContain("40 bytes"));
+    await waitFor(() => expect(container.textContent).toContain("Applied to Launch.md."));
   });
 
   it("a refused apply can be retried and reaches IPC again", async () => {
@@ -125,7 +125,7 @@ describe("a proposal card", () => {
 
     fireEvent.click(apply());
     await waitFor(() => expect(mocks.chatApplyProposal).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(container.textContent).toContain("40 bytes"));
+    await waitFor(() => expect(container.textContent).toContain("Applied to Launch.md."));
     expect(container.textContent).not.toContain("changed since the offer was made");
   });
 

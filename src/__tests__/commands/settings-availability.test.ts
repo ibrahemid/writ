@@ -18,6 +18,7 @@ vi.mock("../../stores/global/default-app-support", () => ({
 }));
 
 import { isSectionAvailable, isSettingAvailable } from "../../settings/availability";
+import { SECTION_ORDER } from "../../settings";
 
 describe("setting availability", () => {
   beforeEach(() => {
@@ -68,27 +69,20 @@ describe("setting availability", () => {
   });
 
   // The format row is every platform's, so the section is offered on all
-  // three even where the file-types row under it cannot render.
-  it("keeps the Files section on every platform", () => {
+  // three even where the file-types row cannot render.
+  it("keeps the General and Integrations sections on every platform", () => {
     for (const platform of ["mac", "win", "linux"] as const) {
       mocks.detectPlatform.mockReturnValue(platform);
-      expect(isSectionAvailable("files"), platform).toBe(true);
+      mocks.hasSupportedDefaultAppTypes.mockReturnValue(false);
+      expect(isSectionAvailable("general"), platform).toBe(true);
+      expect(isSectionAvailable("integrations"), platform).toBe(true);
     }
   });
 
-  it("keeps every other section on every platform", () => {
+  it("keeps every section on every platform", () => {
     for (const platform of ["mac", "win", "linux"] as const) {
       mocks.detectPlatform.mockReturnValue(platform);
-      for (const section of [
-        "files",
-        "editor",
-        "preview",
-        "apps",
-        "appearance",
-        "updates",
-        "shortcuts",
-        "advanced",
-      ] as const) {
+      for (const section of SECTION_ORDER) {
         expect(isSectionAvailable(section), `${platform}/${section}`).toBe(true);
       }
     }
@@ -96,18 +90,15 @@ describe("setting availability", () => {
 
   // NAV_ITEMS is built once at import, so no mount test can watch it filter.
   it("the nav rail is built from the sections this platform can fill", () => {
-    const source = readFileSync(
+    const shell = readFileSync(
       resolve(process.cwd(), "src/components/SettingsModal/SettingsModal.tsx"),
       "utf8",
     );
-    expect(source).toMatch(/const NAV_ITEMS[^=]*=\s*SECTION_ORDER\.filter\(\s*isSectionAvailable/);
-    expect(source).toMatch(/isSectionAvailable\(section\) \? section : DEFAULT_SECTION/);
-  });
-
-  // The section gate answers before any type has reported in; asking the
-  // registry would hide Files on macOS too, and it would never mount to answer.
-  it("offers the Files section before any type has reported support", () => {
-    mocks.hasSupportedDefaultAppTypes.mockReturnValue(false);
-    expect(isSectionAvailable("files")).toBe(true);
+    const state = readFileSync(
+      resolve(process.cwd(), "src/components/SettingsModal/state.ts"),
+      "utf8",
+    );
+    expect(shell).toMatch(/const NAV_ITEMS[^=]*=\s*SECTION_ORDER\.filter\(\s*isSectionAvailable/);
+    expect(state).toMatch(/isSectionAvailable\(wanted\) \? wanted : DEFAULT_SECTION/);
   });
 });

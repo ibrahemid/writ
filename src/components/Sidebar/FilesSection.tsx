@@ -22,7 +22,7 @@ import "./FilesSection.css";
 function closeFolder() {
   workspaceStore.closeFolder().catch(() => {
     logFailure("the open folder could not be closed");
-    showToast("Couldn't close the folder.", "error");
+    showToast("Could not close the folder.", "error");
   });
 }
 

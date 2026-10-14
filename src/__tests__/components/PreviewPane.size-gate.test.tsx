@@ -116,6 +116,20 @@ describe("PreviewPane size gate", () => {
     expect(mocks.render).not.toHaveBeenCalled();
   });
 
+  it("says its own line when the render call fails with log text", async () => {
+    await refuseAbove(50 * 1024 * 1024);
+    mocks.render.mockRejectedValueOnce("consistency error: buffer not found: P5");
+    const win = mount(9325, "P5");
+    load(win, "P5", "<body>hi</body>");
+
+    await waitFor(() =>
+      expect(document.querySelector(".preview-chip-live")!.textContent).toContain(
+        "Writ could not draw the preview.",
+      ),
+    );
+    expect(document.querySelector(".preview-chip-live")!.textContent).not.toContain("buffer");
+  });
+
   it("states the cap over a file past it and switches the file to Source", async () => {
     const current = configStore.config();
     await configStore.save({

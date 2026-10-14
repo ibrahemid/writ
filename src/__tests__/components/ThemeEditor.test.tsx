@@ -178,12 +178,14 @@ describe("ThemeEditor", () => {
     expect(themeStore.presetId()).toBe("writ-light");
   });
 
-  it("says the accent setting drives the accent tokens", () => {
+  it("says the accent setting drives the accent colors, naming where it lives", () => {
     const { container } = render(() => <ThemeEditor />);
     openThemeEditor();
     const note = container.querySelector(".theme-editor-note");
     expect(note).not.toBeNull();
-    expect(note!.textContent).toContain("Accent");
+    expect(note!.textContent!.trim()).toBe(
+      "Accent colors follow Settings, Appearance, Accent color until you pick one here.",
+    );
   });
 
   it("rows read as words, not token leaves", () => {

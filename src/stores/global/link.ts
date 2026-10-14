@@ -19,6 +19,7 @@ import type {
   NoteFolderHit,
   NoteNameHit,
 } from "../../services/tauri";
+import { userErrorText } from "../../lib/error-text";
 
 export type { LinkResolution, LinkStatus, NoteFolderHit, NoteNameHit };
 
@@ -30,7 +31,7 @@ async function openExternal(url: string): Promise<void> {
   try {
     await tauri.openExternalUrl(url);
   } catch (err) {
-    showToast(typeof err === "string" && err !== "" ? err : FALLBACK_MESSAGE, "error");
+    showToast(userErrorText(err) ?? FALLBACK_MESSAGE, "error");
   }
 }
 
@@ -184,10 +185,7 @@ async function createNote(target: string): Promise<BufferDocument | null> {
     indexCacheStore.forgetResolutions();
     return doc;
   } catch (err) {
-    showToast(
-      typeof err === "string" && err !== "" ? err : "Could not create the file.",
-      "error",
-    );
+    showToast(userErrorText(err) ?? "Could not create the file.", "error");
     return null;
   }
 }

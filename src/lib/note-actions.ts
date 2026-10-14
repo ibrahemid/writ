@@ -14,6 +14,7 @@ import { formatSaveError } from "./save-error";
 import { detectPlatform } from "./platform";
 import { noteFiles } from "../stores/global/note-files";
 import type { ChangeChoice, ResolveOutcome } from "../types/buffer";
+import { userErrorText } from "./error-text";
 
 export { noteName };
 
@@ -71,7 +72,7 @@ async function undoRenameFromToast(token: string): Promise<void> {
     await renameLinksStore.undoRename(token);
   } catch (error) {
     logFailure("a rename could not be undone");
-    showToast(`Couldn't undo the rename: ${formatSaveError(error)}`, "error");
+    showToast(`Could not undo the rename: ${formatSaveError(error)}`, "error");
   }
 }
 
@@ -127,7 +128,7 @@ export async function confirmAndDeleteNote(id: string): Promise<void> {
     undo = win ? await win.tabs.deleteNote(id) : await bufferRegistry.deleteNote(id);
   } catch {
     logFailure("a note could not be moved to the trash");
-    showToast(`Couldn't move "${name}" to the Trash.`, "error");
+    showToast(`Could not move "${name}" to the Trash.`, "error");
     return;
   }
   showToast({
@@ -144,7 +145,8 @@ async function putBackFromTrash(token: string, name: string): Promise<void> {
     path = await bufferRegistry.undoDeleteNote(token);
   } catch (error) {
     logFailure("a trashed note could not be put back");
-    showToast(`Couldn't put "${name}" back. ${String(error)}`, "error");
+    const reason = userErrorText(error);
+    showToast(`Could not put "${name}" back.${reason ? ` ${reason}` : ""}`, "error");
     return;
   }
   const win = windowRegistry.getActive();
@@ -174,7 +176,7 @@ export async function saveCopyOfNote(id: string): Promise<void> {
     await win.tabs.openFile(path);
   } catch {
     logFailure("a copy of a note could not be written");
-    showToast(`Couldn't copy "${noteName(id)}"`, "error");
+    showToast(`Could not copy "${noteName(id)}"`, "error");
   }
 }
 
@@ -194,7 +196,7 @@ export async function saveNoteAs(id: string): Promise<void> {
     path = await noteFiles.pickSavePath(id);
   } catch {
     logFailure("the save panel for a note with no file could not be shown");
-    showToast(`Couldn't save "${noteName(id)}"`, "error");
+    showToast(`Could not save "${noteName(id)}"`, "error");
     return;
   }
   if (path === null) return;
@@ -241,7 +243,7 @@ export async function resolveNoteChange(
     outcome = await noteFiles.resolveExternalChange(id, choice, content);
   } catch (error) {
     logFailure("a change outside Writ could not be resolved");
-    showToast(`Couldn't update "${noteName(id)}": ${formatSaveError(error)}`, "error");
+    showToast(`Could not update "${noteName(id)}": ${formatSaveError(error)}`, "error");
     return;
   }
 
@@ -309,7 +311,7 @@ async function openCopy(path: string): Promise<void> {
     await win.tabs.openFile(path);
   } catch {
     logFailure("the copy beside a note could not be opened");
-    showToast("Couldn't open the copy.", "error");
+    showToast("Could not open the copy.", "error");
   }
 }
 

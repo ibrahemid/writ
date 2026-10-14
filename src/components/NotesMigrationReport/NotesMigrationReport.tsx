@@ -5,7 +5,7 @@ import { notesStore } from "../../stores/global/notes";
 import Button from "../Button/Button";
 import { showToast } from "../../stores/global/notifications";
 import { logFailure } from "../../lib/log";
-import { SHOW_IN_FILE_MANAGER } from "../../lib/platform";
+import { FILE_MANAGER_NAME, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import "./NotesMigrationReport.css";
 
 /**
@@ -18,27 +18,23 @@ function placedCount(report: { migrated: number; piped: number; recovered: numbe
   return report.migrated + report.piped + report.recovered;
 }
 
-function noteWord(count: number): string {
-  return count === 1 ? "note" : "notes";
+function fileWord(count: number): string {
+  return count === 1 ? "file" : "files";
 }
 
-/** `1 note is now a file in ~/Writ.` / `4 notes are now files in ~/Writ.` */
+/** `1 file is now in ~/Writ.` / `4 files are now in ~/Writ.` */
 function placedLine(count: number, where: string): string {
-  return count === 1
-    ? `1 note is now a file in ${where}.`
-    : `${count} notes are now files in ${where}.`;
+  return count === 1 ? `1 file is now in ${where}.` : `${count} files are now in ${where}.`;
 }
 
 function archivedLine(count: number): string {
   return count === 1
-    ? "1 older note is waiting in an archive folder."
-    : `${count} older notes are waiting in an archive folder.`;
+    ? "1 older file is waiting in an archive folder."
+    : `${count} older files are waiting in an archive folder.`;
 }
 
 function failedLine(count: number): string {
-  return count === 1
-    ? "1 note could not be checked."
-    : `${count} notes could not be checked.`;
+  return count === 1 ? "1 file could not be checked." : `${count} files could not be checked.`;
 }
 
 /**
@@ -47,7 +43,7 @@ function failedLine(count: number): string {
  * "Meeting.md" would not find it, because it landed as "Meeting 2.md".
  */
 function archiveLine(outcome: MoveArchiveOutcome): string {
-  const moved = `${outcome.moved} ${noteWord(outcome.moved)} moved into your notes folder.`;
+  const moved = `${outcome.moved} ${fileWord(outcome.moved)} moved into your folder.`;
   const renamed = outcome.collided.length;
   if (renamed === 0) return moved;
   if (renamed === 1) {
@@ -73,7 +69,7 @@ export default function NotesMigrationReport() {
     try {
       await notesMigrationStore.showInFileManager();
     } catch {
-      showToast("Could not open the file manager", "error");
+      showToast(`Could not open ${FILE_MANAGER_NAME}`, "error");
     }
   }
 
@@ -81,7 +77,7 @@ export default function NotesMigrationReport() {
     try {
       await notesMigrationStore.showRecovered();
     } catch {
-      showToast("Could not open the file manager", "error");
+      showToast(`Could not open ${FILE_MANAGER_NAME}`, "error");
     }
   }
 
@@ -139,7 +135,7 @@ export default function NotesMigrationReport() {
                 data-action="notes-report-details"
                 onClick={() => void onShowRecovered()}
               >
-                Show details
+                {SHOW_IN_FILE_MANAGER}
               </Button>
             </div>
           </Show>

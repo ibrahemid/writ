@@ -16,7 +16,7 @@ export default function BootError(props: Props) {
   return (
     <div class="boot-error">
       <FailureScreen
-        heading="Writ couldn't open its list of files"
+        heading="Writ could not open its list of files"
         message="The database that remembers your tabs and Recent could not be read. Your files on disk are unchanged."
         details={failureDetails(props.failure.detail)}
         retryLabel="Try again"

@@ -37,6 +37,12 @@ export default function ChatReadiness() {
       {(readiness) => (
         <div class="chat-readiness" role="status" data-state={readiness().state}>
           <p class="chat-readiness-text">{readiness().message}</p>
+          <Show when={readiness().state === "no_model"}>
+            <p class="chat-readiness-text">
+              Chat sends what you attach to a model you choose: one on this computer, or a provider
+              with your key.
+            </p>
+          </Show>
           <Button onClick={() => recover(readiness())}>{recoveryLabel(readiness())}</Button>
         </div>
       )}

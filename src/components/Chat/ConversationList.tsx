@@ -27,7 +27,7 @@ export default function ConversationList(props: { onPick: () => void }) {
   async function remove(row: ChatConversationSummary) {
     const confirmed = await requestConfirm({
       title: `Delete ${row.title}?`,
-      message: "The file goes with it.",
+      message: "The conversation is deleted. Your files are not changed.",
       confirmLabel: "Delete",
       danger: true,
       defaultAction: "cancel",

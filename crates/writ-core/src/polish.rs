@@ -105,7 +105,7 @@ pub enum PolishError {
     #[error("This base URL is not allowed. Use https, or http for localhost.")]
     EndpointNotAllowed,
     /// No model id is configured.
-    #[error("Choose a model in AI settings.")]
+    #[error("Choose a model in Settings, Apps, Rewrite.")]
     ModelRequired,
     /// The one-time send notice for this host has not been accepted.
     #[error("Confirm sending text to {host} first.")]

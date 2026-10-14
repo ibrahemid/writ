@@ -132,10 +132,27 @@ describe("Move to Trash", () => {
     await confirmAndDeleteNote("n-1");
     await lastToast().action!.run();
 
+    expect(h.showToast).toHaveBeenLastCalledWith('Could not put "Plan.md" back.', "error");
+    expect(h.openPath).not.toHaveBeenCalled();
+  });
+
+  it("adds the reason Rust wrote for a person, and only that", async () => {
+    h.requestConfirm.mockResolvedValue(true);
+    h.tabsDeleteNote.mockResolvedValue("trash-1");
+    h.undoDeleteNote.mockRejectedValue("Your folder moved since the file was deleted.");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await confirmAndDeleteNote("n-1");
+    await lastToast().action!.run();
+
     expect(h.showToast).toHaveBeenLastCalledWith(
-      expect.stringContaining("Couldn't put \"Plan.md\" back."),
+      'Could not put "Plan.md" back. Your folder moved since the file was deleted.',
       "error",
     );
-    expect(h.openPath).not.toHaveBeenCalled();
+
+    h.undoDeleteNote.mockRejectedValue("consistency error: buffer not found: 3f2a9c1e");
+    await confirmAndDeleteNote("n-1");
+    await lastToast().action!.run();
+    expect(h.showToast).toHaveBeenLastCalledWith('Could not put "Plan.md" back.', "error");
   });
 });

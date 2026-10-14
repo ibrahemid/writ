@@ -10,7 +10,7 @@ export default function ErrorBoundary(props: ParentProps) {
         logFailure("the window could not be drawn");
         return (
           <FailureScreen
-            heading="Writ couldn't draw this window"
+            heading="Writ could not draw this window"
             message="Saved files are unchanged on disk. Try again draws the window again."
             details={failureDetails(String(err))}
             retryLabel="Try again"
