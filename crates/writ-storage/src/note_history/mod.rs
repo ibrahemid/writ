@@ -27,7 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use tracing::warn;
-use writ_core::hash::{digest_from_hex, sha256_hex, Sha256Digest};
+use writ_core::hash::{digest_from_hex, digest_hex, sha256_bytes, sha256_hex, Sha256Digest};
 use writ_core::note_history::{
     is_versionable, prune_plan, should_capture, VersionFacts, VersionKey,
 };
@@ -239,7 +239,24 @@ impl NoteHistoryStore {
         at: SystemTime,
         origin: &WriteOrigin,
     ) -> StorageResult<Kept> {
-        self.record(key, bytes, at, Merge::for_origin(origin))
+        self.record(key, bytes, None, at, Merge::for_origin(origin))
+    }
+
+    /// [`Self::capture`] for a caller that already holds the digest of
+    /// `bytes`, so a save hashes its text once.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::capture`].
+    pub fn capture_hashed(
+        &self,
+        key: &VersionKey,
+        bytes: &[u8],
+        digest: Sha256Digest,
+        at: SystemTime,
+        origin: &WriteOrigin,
+    ) -> StorageResult<Kept> {
+        self.record(key, bytes, Some(digest), at, Merge::for_origin(origin))
     }
 
     /// Keeps `bytes` as a version of the note `key` names, whatever the merge
@@ -261,7 +278,23 @@ impl NoteHistoryStore {
         bytes: &[u8],
         at: SystemTime,
     ) -> StorageResult<Kept> {
-        self.record(key, bytes, at, Merge::Never)
+        self.record(key, bytes, None, at, Merge::Never)
+    }
+
+    /// [`Self::capture_replaced`] for a caller that already holds the digest
+    /// of `bytes`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::capture`].
+    pub fn capture_replaced_hashed(
+        &self,
+        key: &VersionKey,
+        bytes: &[u8],
+        digest: Sha256Digest,
+        at: SystemTime,
+    ) -> StorageResult<Kept> {
+        self.record(key, bytes, Some(digest), at, Merge::Never)
     }
 
     /// The versions of the note `key` names, newest first.
@@ -303,8 +336,10 @@ impl NoteHistoryStore {
     /// # Errors
     ///
     /// [`StorageError::VersionMissing`] when the index does not hold the
-    /// entry or the text it names is not on disk, and [`StorageError::Io`]
-    /// when the text cannot be read.
+    /// entry or the text it names is not on disk,
+    /// [`StorageError::VersionDamaged`] when the text on disk is not the one
+    /// the entry was kept with, and [`StorageError::Io`] when the text cannot
+    /// be read.
     pub fn content(&self, version_id: i64) -> StorageResult<Vec<u8>> {
         let hash: Option<String> = self
             .conn()
@@ -316,10 +351,17 @@ impl NoteHistoryStore {
             .optional()?;
         let hash = hash.ok_or(StorageError::VersionMissing { id: version_id })?;
         let path = self.blob_path(&hash);
-        if !path.exists() {
-            return Err(StorageError::VersionMissing { id: version_id });
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(StorageError::VersionMissing { id: version_id })
+            }
+            Err(e) => return Err(e.into()),
+        };
+        if sha256_hex(&bytes) != hash {
+            return Err(StorageError::VersionDamaged { id: version_id });
         }
-        Ok(std::fs::read(path)?)
+        Ok(bytes)
     }
 
     /// Where the note an entry belongs to sits inside the notes folder.
@@ -478,16 +520,15 @@ impl NoteHistoryStore {
         &self,
         key: &VersionKey,
         bytes: &[u8],
+        digest: Option<Sha256Digest>,
         at: SystemTime,
         merge: Merge,
     ) -> StorageResult<Kept> {
         if !is_versionable(bytes.len() as u64) {
             return Ok(Kept::Nothing);
         }
-        let hash = sha256_hex(bytes);
-        let Some(digest) = digest_from_hex(&hash) else {
-            return Ok(Kept::Nothing);
-        };
+        let digest = digest.unwrap_or_else(|| sha256_bytes(bytes));
+        let hash = digest_hex(digest);
         let mut held = self.conn();
         // One immediate transaction from the lookup to the insert. The other
         // process can reach the same note at the same moment, and without the
@@ -862,13 +903,14 @@ fn decode_identity(name: &str, birth: Option<&str>) -> Option<FileIdentity> {
 
 /// Every entry in the store, as the planner wants them.
 fn read_facts(conn: &Connection) -> StorageResult<Vec<VersionFacts>> {
-    let mut statement = conn.prepare("SELECT id, note_id, at_ms, bytes FROM versions")?;
+    let mut statement = conn.prepare("SELECT id, note_id, at_ms, bytes, merges FROM versions")?;
     let rows = statement.query_map([], |row| {
         Ok(VersionFacts {
             id: row.get(0)?,
             note: row.get(1)?,
             at: from_millis(row.get(2)?),
             bytes: row.get::<_, i64>(3)?.max(0) as u64,
+            set_aside: row.get::<_, i64>(4)? == 0,
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)

@@ -27,7 +27,15 @@ import { logFailure } from "../../lib/log";
 import { FILE_MANAGER_NAME, IS_MAC, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showToast } from "../Notifications/Toast";
-import { fetchCliStatus, installCli } from "../../stores/global/cli";
+import { joinAnd } from "../../lib/join-and";
+import {
+  CLI_EXAMPLES,
+  copyCliExample,
+  fetchCliStatus,
+  installCli,
+  installFailureMessage,
+} from "../../stores/global/cli";
+import type { CliStatus } from "../../stores/global/cli";
 import {
   aiRewriteStore,
   type AiKeyState,
@@ -484,6 +492,19 @@ function FilesSection() {
       return s !== undefined && s.status !== "unsupported";
     });
 
+  // Windows lets no app make itself the default: the person picks Writ in the
+  // system's Default apps page, which `set_default_app` opens there.
+  const inSystemSettings = () =>
+    claimable().some((t) => statuses()[t.id]?.status === "system_settings");
+
+  function onOpenDefaultApps() {
+    const first = claimable()[0];
+    if (!first) return;
+    void claimDefaultApp(first.id).catch(() => {
+      showToast("Could not open Default apps", "error");
+    });
+  }
+
   function onDefaultExtensionChange(raw: string) {
     const extension = raw as FileExtension;
     void patchConfig((prev) => ({ ...prev, files: { ...prev.files, default_extension: extension } }));
@@ -515,21 +536,30 @@ function FilesSection() {
       </SettingsRow>
       <Show when={hasSupportedDefaultAppTypes() || claimable().length > 0}>
         <SettingsRow id={DEFAULT_APP_SETTING_ID} label="Open these file types with Writ">
-          <span class="settings-file-types">
-            <For each={claimable()}>
-              {(t) => (
-                <DefaultAppItem
-                  type={t}
-                  status={statuses()[t.id]!}
-                  claiming={claimingId() === t.id}
-                  onClaim={onClaim}
-                />
-              )}
-            </For>
-            <span class="settings-file-types-note">
-              Writ keeps a type until you pick another app in {FILE_MANAGER_NAME}.
+          <Show
+            when={!inSystemSettings()}
+            fallback={
+              <Button data-action="open-default-apps" onClick={onOpenDefaultApps}>
+                Open Default apps
+              </Button>
+            }
+          >
+            <span class="settings-file-types">
+              <For each={claimable()}>
+                {(t) => (
+                  <DefaultAppItem
+                    type={t}
+                    status={statuses()[t.id]!}
+                    claiming={claimingId() === t.id}
+                    onClaim={onClaim}
+                  />
+                )}
+              </For>
+              <span class="settings-file-types-note">
+                Writ keeps a type until you pick another app in {FILE_MANAGER_NAME}.
+              </span>
             </span>
-          </span>
+          </Show>
         </SettingsRow>
       </Show>
     </div>
@@ -596,7 +626,16 @@ function FolderRow() {
         showToast(collisionLine(outcome.collided), "error");
         return;
       }
-      showToast(`Your files are now in ${folder()?.display_path ?? outcome.new_root}.`, "success");
+      const where = folder()?.display_path ?? outcome.new_root;
+      if (outcome.left_behind.length > 0) {
+        showToast(
+          `Your files are now in ${where}. A copy of ${joinAnd(outcome.left_behind)} is still in the old folder.`,
+          "info",
+          8000,
+        );
+        return;
+      }
+      showToast(`Your files are now in ${where}.`, "success");
     } catch {
       showToast("Could not move the folder", "error");
       logFailure("the folder could not be moved");
@@ -646,15 +685,16 @@ function VersionsRow() {
   );
 }
 
-/** The Files row installing the `writ` terminal command. */
+/** The Advanced row installing the `writ` terminal command, or showing where it is. */
 function CliRow() {
   const [isInstallingCli, setIsInstallingCli] = createSignal(false);
-  const [cliInstalled, setCliInstalled] = createSignal(false);
+  const [status, setStatus] = createSignal<CliStatus | null>(null);
+  const installed = () => status()?.installed === true;
 
   function refreshCliStatus() {
     void fetchCliStatus()
-      .then((s) => setCliInstalled(s.installed))
-      .catch(() => setCliInstalled(false));
+      .then(setStatus)
+      .catch(() => setStatus(null));
   }
 
   onMount(() => {
@@ -666,43 +706,88 @@ function CliRow() {
     setIsInstallingCli(true);
     try {
       const result = await installCli();
-      setCliInstalled(true);
       showToast(`writ installed at ${result.symlink_path}`, "success");
-    } catch {
-      showToast("Could not install the writ command", "error");
+    } catch (error) {
+      showToast(installFailureMessage(error), "error");
       logFailure("the writ command could not be installed");
-      refreshCliStatus();
     } finally {
+      refreshCliStatus();
       setIsInstallingCli(false);
     }
   }
+
+  async function onCopyExample(example: string) {
+    try {
+      await copyCliExample(example);
+      showToast("Command copied", "success");
+    } catch {
+      showToast("Could not copy the command", "error");
+    }
+  }
+
+  const caution = () => {
+    const current = status();
+    if (current === null || installed()) return undefined;
+    if (current.needs_move) {
+      return "Move Writ to your Applications folder and open it from there first.";
+    }
+    return current.can_install && IS_MAC
+      ? "macOS will ask for your password to install this."
+      : undefined;
+  };
 
   return (
     <Show when={isSettingAvailable("files.cli")}>
       <SettingsRow
         id="files.cli"
         label="Terminal command"
-        caution={
-          !cliInstalled() && IS_MAC
-            ? "macOS will ask for your password to install this."
-            : undefined
-        }
+        caution={caution()}
+        align={installed() ? "start" : undefined}
       >
         <Show
-          when={!cliInstalled()}
+          when={installed()}
           fallback={
-            <span class="settings-default-app-status settings-default-app-status-active">
-              writ command installed
-            </span>
+            <Show
+              when={status()?.can_install !== false}
+              fallback={
+                <span class="settings-default-app-status" data-cli-missing>
+                  Reinstall Writ to put writ on your PATH.
+                </span>
+              }
+            >
+              <Button
+                data-action="install-cli"
+                disabled={isInstallingCli() || status()?.needs_move === true}
+                onClick={() => void onInstallCli()}
+              >
+                {isInstallingCli() ? "Installing…" : "Install the writ command"}
+              </Button>
+            </Show>
           }
         >
-          <Button
-            data-action="install-cli"
-            disabled={isInstallingCli()}
-            onClick={() => void onInstallCli()}
-          >
-            {isInstallingCli() ? "Installing…" : "Install the writ command"}
-          </Button>
+          <span class="settings-cli" data-cli-installed>
+            <Tooltip label={status()?.path ?? ""}>
+              <span class="settings-inbox-path" data-cli-path>
+                {status()?.path}
+              </span>
+            </Tooltip>
+            <For each={CLI_EXAMPLES}>
+              {(example) => (
+                <span class="settings-inbox-controls">
+                  <span class="settings-cli-example" data-cli-example>
+                    {example}
+                  </span>
+                  <Button
+                    data-action="cli-copy-example"
+                    aria-label={`Copy ${example}`}
+                    onClick={() => void onCopyExample(example)}
+                  >
+                    Copy
+                  </Button>
+                </span>
+              )}
+            </For>
+          </span>
         </Show>
       </SettingsRow>
     </Show>

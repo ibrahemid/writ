@@ -8,11 +8,12 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use writ_core::notes::links::{self, Resolution};
 use writ_core::notes::{self, snippet};
 use writ_core::search::{
-    MarkedFragment, SearchHit, FRAGMENT_CUT, FRAGMENT_MATCH_CLOSE, FRAGMENT_MATCH_OPEN,
+    MarkedFragment, SearchHit, SearchPlan, SearchQuery, FRAGMENT_CUT, FRAGMENT_MATCH_CLOSE,
+    FRAGMENT_MATCH_OPEN,
 };
 use writ_core::workspace::file_search::{rank_keyed_file_hits, FileHit};
 
@@ -113,6 +114,209 @@ fn match_line(
         .query_row(params![rowid, fragment, offset as i64], |row| row.get(0))
         .optional()?;
     Ok(line.flatten().map(|line| line as u32))
+}
+
+/// Up to `limit` ranked hits for `query` after the first `offset`, from the
+/// index its plan names ([`SearchPlan`]).
+pub(crate) fn search(
+    conn: &Connection,
+    query: &SearchQuery,
+    offset: usize,
+    limit: usize,
+) -> StorageResult<Vec<SearchHit>> {
+    match &query.plan {
+        SearchPlan::Words(expression) => search_hits(conn, expression, &query.terms, offset, limit),
+        SearchPlan::Folded { expression, short } => folded_hits(
+            conn,
+            &FoldedFilter::new(expression.as_deref(), short),
+            &query.terms,
+            offset,
+            limit,
+        ),
+    }
+}
+
+/// Total number of notes matching `query`, from the index its plan names.
+pub(crate) fn search_count(conn: &Connection, query: &SearchQuery) -> StorageResult<usize> {
+    match &query.plan {
+        SearchPlan::Words(expression) => count(conn, expression),
+        SearchPlan::Folded { expression, short } => {
+            let filter = FoldedFilter::new(expression.as_deref(), short);
+            let total: i64 = conn.query_row(
+                &format!(
+                    "SELECT count(*) FROM files_folded y WHERE {}",
+                    filter.clause(1)
+                ),
+                params_from_iter(filter.values.iter()),
+                |row| row.get(0),
+            )?;
+            Ok(total as usize)
+        }
+    }
+}
+
+/// The `WHERE` clause a folded search asks `files_folded`, and its values in
+/// the order the clause numbers them.
+struct FoldedFilter {
+    expression: bool,
+    short: usize,
+    values: Vec<String>,
+}
+
+impl FoldedFilter {
+    fn new(expression: Option<&str>, short: &[String]) -> Self {
+        let mut values: Vec<String> = expression.map(str::to_string).into_iter().collect();
+        values.extend(short.iter().map(|run| format!("%{run}%")));
+        Self {
+            expression: expression.is_some(),
+            short: short.len(),
+            values,
+        }
+    }
+
+    /// The clause, its parameters numbered from `first`. A run too short for
+    /// its trigrams is matched with `LIKE`, against the name or the text.
+    fn clause(&self, first: usize) -> String {
+        let mut parts = Vec::with_capacity(self.short + 1);
+        let mut at = first;
+        if self.expression {
+            parts.push(format!("files_folded MATCH ?{at}"));
+            at += 1;
+        }
+        for _ in 0..self.short {
+            parts.push(format!("(y.name LIKE ?{at} OR y.content LIKE ?{at})"));
+            at += 1;
+        }
+        parts.join(" AND ")
+    }
+}
+
+/// [`search_hits`] over `files_folded`.
+///
+/// The fragment is cut and marked by the folded index, so it shows the folded
+/// text: Arabic without its harakat, and with one spelling of each letter
+/// variant. A query whose every run is shorter than a trigram is answered by
+/// a scan that marks nothing; the hit's line and fragment are then found from
+/// where the first run sits in the note's folded text ([`folded_window`]).
+fn folded_hits(
+    conn: &Connection,
+    filter: &FoldedFilter,
+    terms: &[String],
+    offset: usize,
+    limit: usize,
+) -> StorageResult<Vec<SearchHit>> {
+    let rows: Vec<(i64, String, Vec<u8>)> = {
+        let mut stmt = conn.prepare_cached(&format!(
+            "SELECT y.rowid, f.path,
+                    CAST(snippet(files_folded, 1, ?4, ?5, ?6, ?3) AS BLOB)
+               FROM files_folded y
+               JOIN files f ON f.rowid = y.rowid
+              WHERE {}
+              ORDER BY rank, y.rowid
+              LIMIT ?1 OFFSET ?2",
+            filter.clause(7)
+        ))?;
+        let fixed: [&dyn rusqlite::ToSql; 6] = [
+            &(limit as i64),
+            &(offset as i64),
+            &SNIPPET_TOKENS,
+            &[FRAGMENT_MATCH_OPEN].as_slice(),
+            &[FRAGMENT_MATCH_CLOSE].as_slice(),
+            &[FRAGMENT_CUT].as_slice(),
+        ];
+        let values = fixed.into_iter().chain(
+            filter
+                .values
+                .iter()
+                .map(|value| value as &dyn rusqlite::ToSql),
+        );
+        let rows = stmt.query_map(params_from_iter(values), |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+
+    let first_short = filter.values.get(usize::from(filter.expression));
+    let mut hits = Vec::with_capacity(rows.len());
+    for (rowid, path, marked) in rows {
+        let fragment = MarkedFragment::read(&marked);
+        let (fragment, line) = match fragment.first_match() {
+            Some(offset) => {
+                let line = folded_match_line(conn, rowid, &fragment.text, offset)?;
+                (fragment, line)
+            }
+            None => match first_short {
+                Some(pattern) => {
+                    let run = pattern.trim_matches('%');
+                    match folded_window(conn, rowid, run, terms)? {
+                        Some((fragment, line)) => (fragment, Some(line)),
+                        None => (fragment, None),
+                    }
+                }
+                None => (fragment, None),
+            },
+        };
+        let mut hit = fragment.into_hit(file_name_of(&path), line, terms);
+        hit.path = Some(path);
+        hits.push(hit);
+    }
+    Ok(hits)
+}
+
+/// [`match_line`] over the folded text the fragment was cut from.
+fn folded_match_line(
+    conn: &Connection,
+    rowid: i64,
+    fragment: &str,
+    offset: usize,
+) -> StorageResult<Option<u32>> {
+    let line: Option<Option<i64>> = conn
+        .prepare_cached(
+            "SELECT CASE WHEN at = 0 THEN NULL
+                         ELSE 1 + length(substr(content, 1, at - 1 + ?3))
+                                - length(replace(substr(content, 1, at - 1 + ?3), char(10), ''))
+                    END
+               FROM (SELECT content, instr(content, ?2) AS at FROM files_folded WHERE rowid = ?1)",
+        )?
+        .query_row(params![rowid, fragment, offset as i64], |row| row.get(0))
+        .optional()?;
+    Ok(line.flatten().map(|line| line as u32))
+}
+
+/// Characters of folded text read on each side of a run found by a scan.
+const FOLDED_WINDOW_CHARS: i64 = 160;
+
+/// The stretch of a note's folded text around the first place `run` sits,
+/// with `terms` marked, and the 1-based line it is on. `None` when the run is
+/// only in the note's name.
+///
+/// The stretch is cut inside the index, the way `snippet()` cuts one, so the
+/// note's text never leaves it whole.
+fn folded_window(
+    conn: &Connection,
+    rowid: i64,
+    run: &str,
+    terms: &[String],
+) -> StorageResult<Option<(MarkedFragment, u32)>> {
+    let found: Option<(i64, i64, String, i64)> = conn
+        .prepare_cached(
+            "SELECT 1 + length(substr(content, 1, at - 1))
+                      - length(replace(substr(content, 1, at - 1), char(10), '')),
+                    max(1, at - ?3),
+                    substr(content, max(1, at - ?3), 2 * ?3 + length(?2)),
+                    length(content)
+               FROM (SELECT content, instr(content, ?2) AS at FROM files_folded WHERE rowid = ?1)
+              WHERE at > 0",
+        )?
+        .query_row(params![rowid, run, FOLDED_WINDOW_CHARS], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .optional()?;
+    Ok(found.map(|(line, start, window, total)| {
+        let ends = start - 1 + window.chars().count() as i64;
+        let fragment = MarkedFragment::found_in(window, terms, start > 1, ends < total);
+        (fragment, line as u32)
+    }))
 }
 
 /// Total number of notes matching `query`, independent of any result limit.
@@ -534,6 +738,18 @@ impl NotesIndex<'_> {
     /// limit, so the UI can report "N of M" honestly.
     pub fn count(&self, query: &str) -> StorageResult<usize> {
         count(self.conn, query)
+    }
+
+    /// Up to `limit` ranked hits for a planned search
+    /// ([`writ_core::search::plan_search`]), from the index the plan names:
+    /// the word index, or the folded index for Han, kana, Hangul and Arabic.
+    pub fn search(&self, query: &SearchQuery, limit: usize) -> StorageResult<Vec<SearchHit>> {
+        search(self.conn, query, 0, limit)
+    }
+
+    /// Total number of notes a planned search matches.
+    pub fn search_count(&self, query: &SearchQuery) -> StorageResult<usize> {
+        search_count(self.conn, query)
     }
 
     /// Up to `limit` ranked name-only hits under `notes_root`, for quick open.

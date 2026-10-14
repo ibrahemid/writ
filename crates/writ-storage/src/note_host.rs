@@ -368,12 +368,11 @@ impl NoteHost for NoteHostImpl<'_> {
         self.permit(Capability::SearchNotes)?;
         let index = self.index()?;
 
-        let Some(expression) = writ_core::search::to_prefix_match(query) else {
+        let Some(planned) = writ_core::search::plan_search(query) else {
             return Ok(Vec::new());
         };
-        let terms = writ_core::search::search_terms(query);
         let hits = index
-            .search_hits_from(&expression, &terms, offset, limit)
+            .search(&planned, offset, limit)
             .map_err(|_| HostError::IndexUnavailable)?;
 
         Ok(hits

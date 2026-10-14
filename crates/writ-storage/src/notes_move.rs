@@ -5,12 +5,15 @@
 //! move — which folder was picked, what the config now says — belongs to the
 //! caller.
 //!
-//! Two rules make a move safe to run against a folder holding somebody's
+//! Three rules make a move safe to run against a folder holding somebody's
 //! notes. Nothing moves at all when the destination already holds a name the
-//! notes folder holds, so no file is ever written over. And a move that fails
-//! part way puts back everything it had already moved and clears whatever the
-//! failed entry left behind, so the notes are in one folder when it returns,
-//! never spread across two.
+//! notes folder holds, so no file is ever written over. A move within one
+//! volume is a rename per entry, and one that fails part way puts back
+//! everything it had already moved. A move to another volume copies
+//! everything into a staging folder at the destination, syncs it, renames it
+//! into place, and only then removes the originals: until the last rename
+//! the notes are whole where they were, and after it they are whole where
+//! they went.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -36,6 +39,10 @@ pub struct MoveOutcome {
     pub moved: usize,
     /// Names the destination already held, sorted.
     pub collided: Vec<String>,
+    /// Entries copied to another volume whose originals could not all be
+    /// removed, sorted. The copy at the destination is whole; what is left in
+    /// the old folder is a second copy of it.
+    pub left_behind: Vec<String>,
 }
 
 /// How an entry is moved, so the copy-across path can be exercised.
@@ -45,12 +52,22 @@ pub struct MoveOutcome {
 /// nothing can provoke.
 pub type Rename<'a> = &'a dyn Fn(&Path, &Path) -> std::io::Result<()>;
 
+/// The prefix of the folder a move to another volume copies into before
+/// anything takes its final name. A dot name, so no walk, watcher or listing
+/// of the notes folder treats it as a note.
+const STAGING_PREFIX: &str = ".writ-move-";
+
+/// Room left over on the destination beyond the bytes copied, for the
+/// directory entries and blocks a filesystem spends on them.
+const SPACE_MARGIN: u64 = 1024 * 1024;
+
 /// Moves every entry of `from` into `to`.
 ///
 /// `to` is created when it does not exist. An entry is moved with
-/// [`std::fs::rename`], which is atomic within one volume; a rename that
-/// cannot be made — a different volume is the ordinary reason — falls back to
-/// a copy followed by a delete of the original.
+/// [`std::fs::rename`], which is atomic within one volume. A rename refused
+/// because the two folders are on different volumes moves the rest by copy
+/// ([`copy_across`]); a rename refused for any other reason puts back what
+/// had moved and fails.
 ///
 /// Dotfiles are left where they are, the same filter
 /// [`move_archive_into_notes`] applies. `.DS_Store`, `.obsidian` and the rest
@@ -59,9 +76,11 @@ pub type Rename<'a> = &'a dyn Fn(&Path, &Path) -> std::io::Result<()>;
 ///
 /// # Errors
 ///
-/// [`crate::errors::StorageError::Io`] when the destination cannot be created
-/// or read, or when an entry can be neither renamed nor copied. In the last
-/// case every entry already moved is put back first.
+/// [`StorageError::Io`] when the destination cannot be created or read, or
+/// when an entry can be neither renamed nor copied, in which case every entry
+/// already moved is put back first; [`StorageError::FolderNotDownloaded`] and
+/// [`StorageError::NotEnoughSpace`] when a copy to another volume is refused
+/// before it starts.
 pub fn move_notes_folder(from: &Path, to: &Path) -> StorageResult<MoveOutcome> {
     move_notes_folder_renaming(from, to, &|from, to| std::fs::rename(from, to))
 }
@@ -71,6 +90,31 @@ pub fn move_notes_folder_renaming(
     from: &Path,
     to: &Path,
     rename: Rename<'_>,
+) -> StorageResult<MoveOutcome> {
+    move_with(from, to, rename, &Probes::FILESYSTEM)
+}
+
+/// What a copy to another volume asks before it writes anything, handed in so
+/// a placeholder and a full disk can be exercised where neither exists.
+struct Probes<'a> {
+    /// Whether the entry at a path has no bytes on this machine.
+    is_dataless: &'a dyn Fn(&Path) -> bool,
+    /// The bytes the volume holding a folder has free, when it will say.
+    available: &'a dyn Fn(&Path) -> Option<u64>,
+}
+
+impl Probes<'static> {
+    const FILESYSTEM: Self = Self {
+        is_dataless: &crate::notes_index::is_dataless,
+        available: &available_bytes,
+    };
+}
+
+fn move_with(
+    from: &Path,
+    to: &Path,
+    rename: Rename<'_>,
+    probes: &Probes<'_>,
 ) -> StorageResult<MoveOutcome> {
     std::fs::create_dir_all(to)?;
 
@@ -83,34 +127,53 @@ pub fn move_notes_folder_renaming(
         .collect();
     if !collided.is_empty() {
         collided.sort();
-        return Ok(MoveOutcome { moved: 0, collided });
+        return Ok(MoveOutcome {
+            collided,
+            ..MoveOutcome::default()
+        });
     }
 
     let mut done: Vec<(PathBuf, PathBuf)> = Vec::new();
-    for name in &entries {
+    for (index, name) in entries.iter().enumerate() {
         let source = from.join(name);
         let destination = to.join(name);
-        if let Err(error) = move_entry(rename, &source, &destination) {
-            put_back(rename, &done);
-            return Err(error.into());
+        match rename(&source, &destination) {
+            Ok(()) => done.push((source, destination)),
+            Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+                let rest = &entries[index..];
+                return match copy_across(from, to, rest, probes) {
+                    Ok(left_behind) => Ok(MoveOutcome {
+                        moved: done.len() + rest.len(),
+                        collided: Vec::new(),
+                        left_behind,
+                    }),
+                    Err(error) => {
+                        put_back(rename, &done);
+                        Err(error)
+                    }
+                };
+            }
+            Err(error) => {
+                put_back(rename, &done);
+                return Err(error.into());
+            }
         }
-        done.push((source, destination));
     }
 
     Ok(MoveOutcome {
         moved: done.len(),
-        collided: Vec::new(),
+        ..MoveOutcome::default()
     })
 }
 
-/// Puts every entry a failed move had already moved back where it was.
+/// Puts every entry a failed move had already renamed back where it was.
 ///
 /// Best effort: an entry that will not go back is logged and the rest are
 /// still tried, because stopping here would leave more of them stranded than
 /// carrying on does.
 fn put_back(rename: Rename<'_>, done: &[(PathBuf, PathBuf)]) {
     for (was, is) in done.iter().rev() {
-        if let Err(error) = move_entry(rename, is, was) {
+        if let Err(error) = rename(is, was) {
             warn!(
                 path = %file_name_only(&is.to_string_lossy()),
                 %error,
@@ -120,50 +183,266 @@ fn put_back(rename: Rename<'_>, done: &[(PathBuf, PathBuf)]) {
     }
 }
 
-/// Renames one entry, copying it across when a rename cannot be made.
+/// Copies the entries `names` of `from` into `to` on another volume, then
+/// removes the originals, and answers the names whose originals could not
+/// all be removed.
 ///
-/// A copy that fails part way is cleared before the error is returned. Half a
-/// note at the destination is worse than none: the original is still where it
-/// was, and a truncated twin of it would read as the note.
-fn move_entry(rename: Rename<'_>, from: &Path, to: &Path) -> std::io::Result<()> {
-    match rename(from, to) {
-        Ok(()) => Ok(()),
-        Err(_) => {
-            if let Err(error) = copy_tree(from, to) {
-                if let Err(cleanup) = remove_tree(to) {
+/// In order: every file is checked to be on this machine and the destination
+/// to have room, before anything is written; everything is copied into a
+/// staging folder inside `to`, each file and folder synced; each staged entry
+/// is renamed to its name, refusing a name something took in between; `to`
+/// is synced; and only then are the originals removed. A failure before the
+/// last rename leaves `from` as it was and clears the staging folder. A
+/// removal that fails afterwards is not a failed move: the notes are whole at
+/// the destination, and what is left in `from` is reported.
+///
+/// Symlinks are copied as links, never followed.
+fn copy_across(
+    from: &Path,
+    to: &Path,
+    names: &[String],
+    probes: &Probes<'_>,
+) -> StorageResult<Vec<String>> {
+    let mut needed: u64 = 0;
+    let mut dataless: Vec<String> = Vec::new();
+    for name in names {
+        survey(&from.join(name), probes, &mut needed, &mut dataless)?;
+    }
+    if let Some(first) = dataless.first() {
+        return Err(StorageError::FolderNotDownloaded {
+            count: dataless.len(),
+            first: first.clone(),
+        });
+    }
+    let needed = needed
+        .saturating_add(needed / 20)
+        .saturating_add(SPACE_MARGIN);
+    if let Some(available) = (probes.available)(to) {
+        if needed > available {
+            return Err(StorageError::NotEnoughSpace { needed, available });
+        }
+    }
+
+    let staging = tempfile::Builder::new()
+        .prefix(STAGING_PREFIX)
+        .tempdir_in(to)?;
+    for name in names {
+        copy_entry(&from.join(name), &staging.path().join(name))?;
+    }
+    sync_dir(staging.path())?;
+
+    let mut placed: Vec<&String> = Vec::new();
+    for name in names {
+        let staged = staging.path().join(name);
+        if let Err(error) = crate::note_ops::rename_no_replace(&staged, &to.join(name)) {
+            for name in placed.iter().rev() {
+                if let Err(error) =
+                    crate::note_ops::rename_no_replace(&to.join(name), &staging.path().join(name))
+                {
                     warn!(
-                        path = %file_name_only(&to.to_string_lossy()),
-                        %cleanup,
-                        "a part-copied entry could not be cleared"
+                        path = %file_name_only(name),
+                        %error,
+                        "a copied entry could not be taken back after a failed move"
                     );
                 }
-                return Err(error);
             }
-            remove_tree(from)
+            return Err(error.into());
+        }
+        placed.push(name);
+    }
+    sync_dir(to)?;
+    drop(staging);
+
+    let mut left_behind = Vec::new();
+    for name in names {
+        if let Err(error) = remove_tree(&from.join(name)) {
+            warn!(
+                path = %file_name_only(name),
+                %error,
+                "a moved entry's original could not be removed"
+            );
+            left_behind.push(name.clone());
         }
     }
+    left_behind.sort();
+    Ok(left_behind)
 }
 
-fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    if from.is_dir() {
-        std::fs::create_dir_all(to)?;
+/// Adds up what copying `path` would write and names what under it has no
+/// bytes on this machine, without following a symlink or reading a file.
+fn survey(
+    path: &Path,
+    probes: &Probes<'_>,
+    bytes: &mut u64,
+    dataless: &mut Vec<String>,
+) -> StorageResult<()> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if (probes.is_dataless)(path) {
+        dataless.push(file_name_only(&path.to_string_lossy()));
+        return Ok(());
+    }
+    if metadata.file_type().is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            survey(&entry?.path(), probes, bytes, dataless)?;
+        }
+    } else if metadata.file_type().is_file() {
+        *bytes = bytes.saturating_add(metadata.len());
+    }
+    Ok(())
+}
+
+/// Copies `from` to `to`, a folder with everything in it, syncing each file
+/// and folder it writes. A symlink is copied as the link it is.
+fn copy_entry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let kind = std::fs::symlink_metadata(from)?.file_type();
+    if kind.is_symlink() {
+        return copy_link(from, to);
+    }
+    if kind.is_dir() {
+        std::fs::create_dir(to)?;
         for entry in std::fs::read_dir(from)? {
             let entry = entry?;
-            copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+            copy_entry(&entry.path(), &to.join(entry.file_name()))?;
         }
-        return Ok(());
+        return sync_dir(to);
     }
-    std::fs::copy(from, to).map(|_| ())
+    std::fs::copy(from, to)?;
+    sync_file(to)
 }
 
-fn remove_tree(path: &Path) -> std::io::Result<()> {
-    if !path.exists() {
-        return Ok(());
-    }
-    if path.is_dir() {
-        std::fs::remove_dir_all(path)
+#[cfg(unix)]
+fn copy_link(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(std::fs::read_link(from)?, to)
+}
+
+#[cfg(windows)]
+fn copy_link(from: &Path, to: &Path) -> std::io::Result<()> {
+    let target = std::fs::read_link(from)?;
+    if std::fs::metadata(from).is_ok_and(|meta| meta.is_dir()) {
+        std::os::windows::fs::symlink_dir(target, to)
     } else {
-        std::fs::remove_file(path)
+        std::os::windows::fs::symlink_file(target, to)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn copy_link(_from: &Path, _to: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+}
+
+/// Flushes a copied file to the disk.
+#[cfg(unix)]
+fn sync_file(path: &Path) -> std::io::Result<()> {
+    std::fs::File::open(path)?.sync_all()
+}
+
+/// Flushes a copied file to the disk. Windows flushes only a handle open for
+/// writing, which a read-only file will not give; its copy is left to the
+/// system's own flush.
+#[cfg(not(unix))]
+fn sync_file(path: &Path) -> std::io::Result<()> {
+    match std::fs::OpenOptions::new().write(true).open(path) {
+        Ok(file) => file.sync_all(),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Flushes a folder's entries to the disk, so a file synced inside it is
+/// also found under its name after a crash.
+#[cfg(unix)]
+fn sync_dir(path: &Path) -> std::io::Result<()> {
+    std::fs::File::open(path)?.sync_all()
+}
+
+/// Windows records a folder's entries with the files themselves.
+#[cfg(not(unix))]
+fn sync_dir(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// The bytes the volume holding `dir` has free for this user, or `None` when
+/// the platform will not say.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[allow(unsafe_code, clippy::unnecessary_cast)]
+fn available_bytes(dir: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    // SAFETY: an all-zero `statvfs` is a valid value of the plain C struct the
+    // call fills in.
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: `path` is NUL-terminated and outlives the call, and `stat` is a
+    // valid place for the answer.
+    let status = unsafe { libc::statvfs(path.as_ptr(), &mut stat) };
+    (status == 0).then(|| (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn available_bytes(dir: &Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = dir
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    let mut available: u64 = 0;
+    // SAFETY: `wide` is NUL-terminated UTF-16 that outlives the call, and
+    // `available` is a valid place for the answer.
+    unsafe { GetDiskFreeSpaceExW(PCWSTR(wide.as_ptr()), Some(&mut available), None, None) }.ok()?;
+    Some(available)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn available_bytes(_dir: &Path) -> Option<u64> {
+    None
+}
+
+/// Moves one archived file into the notes folder, copying it across when the
+/// archive is on another volume.
+///
+/// The copy is synced beside its destination and renamed into place, so the
+/// notes folder never holds part of it. An original that cannot be removed
+/// afterwards is logged and the move stands: the file is whole where it went.
+fn move_archived_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::rename(from, to) {
+        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {}
+        other => return other,
+    }
+    let folder = to.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "the destination has no folder",
+        )
+    })?;
+    let staging = tempfile::Builder::new()
+        .prefix(STAGING_PREFIX)
+        .tempdir_in(folder)?;
+    let staged = staging.path().join("file");
+    copy_entry(from, &staged)?;
+    crate::note_ops::rename_no_replace(&staged, to)?;
+    sync_dir(folder)?;
+    drop(staging);
+    if let Err(error) = remove_tree(from) {
+        warn!(
+            path = %file_name_only(&from.to_string_lossy()),
+            %error,
+            "an archived note's original could not be removed"
+        );
+    }
+    Ok(())
+}
+
+/// Removes a file, or a folder and everything in it, without following a
+/// symlink.
+fn remove_tree(path: &Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+        Ok(metadata) if metadata.file_type().is_dir() => std::fs::remove_dir_all(path),
+        Ok(_) => std::fs::remove_file(path),
     }
 }
 
@@ -213,15 +492,18 @@ pub struct Repointed {
 ///
 /// Returns the rows whose file moved, so a caller holding a record of what
 /// each file last held can move that record with them.
+///
+/// One transaction: a crash or an error part way leaves every row naming the
+/// old folder, never some of each.
 pub fn repoint_rows(store: &BufferStore, from: &Path, to: &Path) -> StorageResult<Vec<Repointed>> {
-    let conn = store.connection();
+    let transaction = store.connection().unchecked_transaction()?;
     let mut moved = Vec::new();
 
-    for (id, path) in queries::list_source_paths(conn)? {
+    for (id, path) in queries::list_source_paths(&transaction)? {
         let Some(destination) = rebase(&path, from, to) else {
             continue;
         };
-        queries::update_source_path(conn, &id, &destination)?;
+        queries::update_source_path(&transaction, &id, &destination)?;
         moved.push(Repointed {
             id,
             from: path,
@@ -229,13 +511,14 @@ pub fn repoint_rows(store: &BufferStore, from: &Path, to: &Path) -> StorageResul
         });
     }
 
-    for (id, path) in queries::list_migrated_paths(conn)? {
+    for (id, path) in queries::list_migrated_paths(&transaction)? {
         let Some(destination) = rebase(&path, from, to) else {
             continue;
         };
-        queries::set_migrated_path(conn, &id, &destination)?;
+        queries::set_migrated_path(&transaction, &id, &destination)?;
     }
 
+    transaction.commit()?;
     Ok(moved)
 }
 
@@ -301,7 +584,7 @@ pub fn move_archive_into_notes(
         taken.insert(name.to_lowercase());
         let destination = notes.join(&name);
 
-        if let Err(error) = move_entry(&|from, to| std::fs::rename(from, to), &file, &destination) {
+        if let Err(error) = move_archived_file(&file, &destination) {
             warn!(
                 path = %file_name_only(&file.to_string_lossy()),
                 %error,
@@ -440,7 +723,72 @@ mod tests {
     /// A rename the filesystem will not make, which is what a move across
     /// volumes looks like.
     fn refuse_rename(_: &Path, _: &Path) -> std::io::Result<()> {
-        Err(std::io::Error::from_raw_os_error(18))
+        Err(std::io::Error::from(std::io::ErrorKind::CrossesDevices))
+    }
+
+    /// A rename the filesystem refused for a reason a copy would not get
+    /// around.
+    fn deny_rename(_: &Path, _: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+    }
+
+    #[test]
+    fn a_rename_refused_for_another_reason_copies_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::write(from.join("Notes.md"), "one").unwrap();
+
+        let error = move_notes_folder_renaming(&from, &to, &deny_rename).unwrap_err();
+
+        assert!(
+            matches!(error, crate::errors::StorageError::Io(_)),
+            "{error}"
+        );
+        assert!(!to.join("Notes.md").exists(), "nothing was copied across");
+        assert_eq!(
+            std::fs::read_to_string(from.join("Notes.md")).unwrap(),
+            "one"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_remove_that_fails_part_way_leaves_every_file_at_the_destination() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        std::fs::create_dir_all(from.join("projects")).unwrap();
+        std::fs::write(from.join("Notes.md"), "one").unwrap();
+        std::fs::write(from.join("projects").join("a.md"), "two").unwrap();
+        std::fs::write(from.join("projects").join("b.md"), "three").unwrap();
+        // A folder whose entries cannot be unlinked: the copy reads it, the
+        // remove of the original fails inside it.
+        let locked = from.join("projects");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let outcome = move_notes_folder_renaming(&from, &to, &refuse_rename);
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let outcome = outcome.expect("every file reached the destination");
+        assert_eq!(outcome.moved, 2);
+        assert_eq!(outcome.left_behind, vec!["projects".to_string()]);
+        assert!(
+            !from.join("Notes.md").exists(),
+            "a removable original was removed"
+        );
+        assert_eq!(std::fs::read_to_string(to.join("Notes.md")).unwrap(), "one");
+        assert_eq!(
+            std::fs::read_to_string(to.join("projects").join("a.md")).unwrap(),
+            "two"
+        );
+        assert_eq!(
+            std::fs::read_to_string(to.join("projects").join("b.md")).unwrap(),
+            "three"
+        );
     }
 
     #[test]
@@ -518,7 +866,11 @@ mod tests {
         );
         assert!(
             !to.join("Notes.md").exists(),
-            "the entry already moved was put back"
+            "the entry already copied never took its name"
+        );
+        assert!(
+            std::fs::read_dir(&to).unwrap().next().is_none(),
+            "the staging folder was cleared"
         );
         assert_eq!(
             std::fs::read_to_string(from.join("Notes.md")).unwrap(),
@@ -528,6 +880,173 @@ mod tests {
             std::fs::read_to_string(from.join("projects").join("ok.md")).unwrap(),
             "two"
         );
+    }
+
+    /// A folder to move with a note at the top and one in a subfolder.
+    fn two_notes(dir: &Path) -> (PathBuf, PathBuf) {
+        let from = dir.join("from");
+        let to = dir.join("to");
+        std::fs::create_dir_all(from.join("projects")).unwrap();
+        std::fs::write(from.join("Notes.md"), "one").unwrap();
+        std::fs::write(from.join("projects").join("Deep.md"), "two").unwrap();
+        (from, to)
+    }
+
+    fn untouched(from: &Path, to: &Path) {
+        assert_eq!(
+            std::fs::read_to_string(from.join("Notes.md")).unwrap(),
+            "one"
+        );
+        assert_eq!(
+            std::fs::read_to_string(from.join("projects").join("Deep.md")).unwrap(),
+            "two"
+        );
+        assert!(
+            std::fs::read_dir(to).unwrap().next().is_none(),
+            "nothing was copied and no staging folder is left"
+        );
+    }
+
+    #[test]
+    fn a_folder_holding_a_placeholder_is_refused_before_anything_is_copied() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = two_notes(dir.path());
+        let probes = Probes {
+            is_dataless: &|path: &Path| path.ends_with("Deep.md"),
+            available: &|_: &Path| None,
+        };
+
+        let error = move_with(&from, &to, &refuse_rename, &probes).unwrap_err();
+
+        match error {
+            StorageError::FolderNotDownloaded { count, first } => {
+                assert_eq!(count, 1);
+                assert_eq!(first, "Deep.md");
+            }
+            other => panic!("expected a refusal, got {other}"),
+        }
+        untouched(&from, &to);
+    }
+
+    #[test]
+    fn a_destination_without_room_is_refused_before_anything_is_copied() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = two_notes(dir.path());
+        let probes = Probes {
+            is_dataless: &|_: &Path| false,
+            available: &|_: &Path| Some(1),
+        };
+
+        let error = move_with(&from, &to, &refuse_rename, &probes).unwrap_err();
+
+        assert!(
+            matches!(error, StorageError::NotEnoughSpace { available: 1, .. }),
+            "{error}"
+        );
+        untouched(&from, &to);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_is_copied_as_a_link_and_never_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        let elsewhere = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("big.log"), "not a note").unwrap();
+        std::os::unix::fs::symlink(&elsewhere, from.join("linked")).unwrap();
+
+        let outcome = move_notes_folder_renaming(&from, &to, &refuse_rename).unwrap();
+
+        assert_eq!(outcome.moved, 1);
+        let moved = to.join("linked");
+        assert!(std::fs::symlink_metadata(&moved)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read_link(&moved).unwrap(), elsewhere);
+        assert!(
+            elsewhere.join("big.log").exists(),
+            "removing the original link left what it pointed at alone"
+        );
+    }
+
+    #[test]
+    fn a_copy_across_leaves_no_staging_folder_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("from");
+        let to = dir.path().join("to");
+        std::fs::create_dir_all(from.join("projects")).unwrap();
+        std::fs::write(from.join("Notes.md"), "one").unwrap();
+        std::fs::write(from.join("projects").join("Deep.md"), "two").unwrap();
+
+        move_notes_folder_renaming(&from, &to, &refuse_rename).unwrap();
+
+        let mut names: Vec<String> = std::fs::read_dir(&to)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["Notes.md".to_string(), "projects".to_string()]);
+    }
+
+    fn store_with_rows(dir: &Path, paths: &[&str]) -> BufferStore {
+        let conn = crate::database::connection::open_database(&dir.join("writ.db")).unwrap();
+        crate::database::migrations::run_migrations(&conn).unwrap();
+        let buffers = dir.join("buffers");
+        std::fs::create_dir_all(&buffers).unwrap();
+        let store = BufferStore::new(conn, buffers);
+        let mut manager = writ_core::buffer::manager::BufferManager::new();
+        for path in paths {
+            let doc = manager.create_buffer(None).unwrap();
+            store.insert(&doc).unwrap();
+            store.attach_source_path(&doc.id, path).unwrap();
+        }
+        store
+    }
+
+    fn source_paths(store: &BufferStore) -> Vec<String> {
+        let mut paths: Vec<String> = queries::list_source_paths(store.connection())
+            .unwrap()
+            .into_iter()
+            .map(|(_, path)| path)
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn rows_are_repointed_all_together_or_not_at_all() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("Writ");
+        let to = dir.path().join("Moved");
+        let first = from.join("a.md").to_string_lossy().into_owned();
+        let second = from.join("b.md").to_string_lossy().into_owned();
+        let store = store_with_rows(dir.path(), &[&first, &second]);
+        // The second row refuses its update, the way a disk error part way
+        // through would.
+        store
+            .connection()
+            .execute_batch(&format!(
+                "CREATE TEMP TRIGGER refuse BEFORE UPDATE OF source_path ON buffers \
+                 WHEN OLD.source_path = '{second}' BEGIN SELECT RAISE(ABORT, 'refused'); END;"
+            ))
+            .unwrap();
+
+        assert!(repoint_rows(&store, &from, &to).is_err());
+        assert_eq!(source_paths(&store), vec![first.clone(), second.clone()]);
+
+        store
+            .connection()
+            .execute_batch("DROP TRIGGER refuse;")
+            .unwrap();
+        let moved = repoint_rows(&store, &from, &to).unwrap();
+        assert_eq!(moved.len(), 2);
+        assert!(source_paths(&store)
+            .iter()
+            .all(|path| Path::new(path).starts_with(&to)));
     }
 
     #[test]

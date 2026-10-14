@@ -1,4 +1,13 @@
-import { createEffect, createSignal, For, onCleanup, Show, createUniqueId } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  Match,
+  onCleanup,
+  Show,
+  Switch,
+  createUniqueId,
+} from "solid-js";
 
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
@@ -6,6 +15,7 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { showToast } from "../Notifications/Toast";
 import { formatBytes } from "../../lib/format-bytes";
+import { hunkRows } from "../../lib/diff-rows";
 import { noteVersionsStore, type NoteVersion } from "../../stores/global/note-versions";
 import "./NoteHistoryPanel.css";
 
@@ -80,6 +90,90 @@ function Row(props: { version: NoteVersion }) {
   );
 }
 
+/** What the panel says when it has no list to show. */
+function NoList() {
+  return (
+    <Switch
+      fallback={
+        <div class="note-versions-empty">
+          <p class="note-versions-empty-line">No versions of this file yet.</p>
+          <p class="note-versions-empty-hint">Writ keeps one each time the file is saved.</p>
+        </div>
+      }
+    >
+      <Match when={noteVersionsStore.loading()}>
+        <div class="note-versions-empty note-versions-loading">
+          <p class="note-versions-empty-line">Loading versions…</p>
+        </div>
+      </Match>
+      <Match when={noteVersionsStore.failed()}>
+        <div class="note-versions-empty" role="alert">
+          <p class="note-versions-empty-line">Could not read the versions of this file.</p>
+          <div>
+            <Button data-action="versions-retry" onClick={() => void noteVersionsStore.retry()}>
+              Try again
+            </Button>
+          </div>
+        </div>
+      </Match>
+      <Match when={noteVersionsStore.reason() === "too_large"}>
+        <div class="note-versions-empty">
+          <p class="note-versions-empty-line">Files over 2 MB are not versioned.</p>
+        </div>
+      </Match>
+      <Match when={noteVersionsStore.reason() === "outside_folder"}>
+        <div class="note-versions-empty">
+          <p class="note-versions-empty-line">Only files in your folder have versions.</p>
+        </div>
+      </Match>
+    </Switch>
+  );
+}
+
+/** The selected version as the lines restoring it would remove and add. */
+function Comparison() {
+  const rows = () => (noteVersionsStore.hunks() ?? []).map(hunkRows);
+  return (
+    <Switch>
+      <Match when={noteVersionsStore.compareError()}>
+        {(message) => (
+          <p class="note-versions-failure" role="alert">
+            {message()}
+          </p>
+        )}
+      </Match>
+      <Match when={noteVersionsStore.hunks() === null}>
+        <div class="note-versions-diff" />
+      </Match>
+      <Match when={rows().length === 0}>
+        <p class="note-versions-failure">Same as the current text.</p>
+      </Match>
+      <Match when={rows().length > 0}>
+        <div class="note-versions-diff" data-comparison>
+          <For each={rows()}>
+            {(hunk) => (
+              <div class="note-versions-diff-hunk">
+                <For each={hunk}>
+                  {(row) => (
+                    <div class="note-versions-diff-row" data-kind={row.kind}>
+                      <span class="note-versions-diff-num">{row.before ?? ""}</span>
+                      <span class="note-versions-diff-num">{row.after ?? ""}</span>
+                      <span class="note-versions-diff-mark" aria-hidden="true">
+                        {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
+                      </span>
+                      <span class="note-versions-diff-text">{row.text}</span>
+                    </div>
+                  )}
+                </For>
+              </div>
+            )}
+          </For>
+        </div>
+      </Match>
+    </Switch>
+  );
+}
+
 function VersionsDialog() {
   const titleId = createUniqueId();
   const win = useWindow();
@@ -137,8 +231,15 @@ function VersionsDialog() {
 
   async function onRestore(id: number) {
     try {
-      const restored = await noteVersionsStore.restore(id);
-      showToast(`Restored ${nameOf(restored.note)}`);
+      await noteVersionsStore.restore(id);
+    } catch (error) {
+      showToast(readableError(error), "error");
+    }
+  }
+
+  async function onUndo() {
+    try {
+      await noteVersionsStore.undoRestore();
     } catch (error) {
       showToast(readableError(error), "error");
     }
@@ -147,7 +248,7 @@ function VersionsDialog() {
   async function onCopy(id: number) {
     try {
       const copy = await noteVersionsStore.copy(id);
-      showToast(`Copied to ${copy.name}`);
+      showToast(`Saved as ${copy.name}`);
     } catch (error) {
       showToast(readableError(error), "error");
     }
@@ -183,24 +284,7 @@ function VersionsDialog() {
           </span>
         </div>
 
-        <Show
-          when={noteVersionsStore.versions().length > 0}
-          fallback={
-            <Show
-              when={!noteVersionsStore.loading()}
-              fallback={
-                <div class="note-versions-empty note-versions-loading">
-                  <p class="note-versions-empty-line">Loading versions…</p>
-                </div>
-              }
-            >
-              <div class="note-versions-empty">
-                <p class="note-versions-empty-line">No versions of this file yet.</p>
-                <p class="note-versions-empty-hint">Writ keeps one each time the file is saved.</p>
-              </div>
-            </Show>
-          }
-        >
+        <Show when={noteVersionsStore.versions().length > 0} fallback={<NoList />}>
           <div class="note-versions-body">
             <div class="note-versions-side">
               <ul
@@ -214,27 +298,70 @@ function VersionsDialog() {
                   {(version) => <Row version={version} />}
                 </For>
               </ul>
-              <p class="note-versions-kept">Restoring keeps the current text as another version.</p>
+              <Show
+                when={noteVersionsStore.undo()}
+                fallback={
+                  <p class="note-versions-kept">
+                    Restoring keeps the current text as another version.
+                  </p>
+                }
+              >
+                {(restored) => (
+                  <div class="note-versions-undo" role="status">
+                    <span>Restored {nameOf(restored().note)}</span>
+                    <Button variant="ghost" data-action="undo-restore" onClick={() => void onUndo()}>
+                      Undo
+                    </Button>
+                  </div>
+                )}
+              </Show>
             </div>
             <div class="note-versions-reading">
-              <pre class="note-versions-text">
-                {noteVersionsStore.reading() ? "" : noteVersionsStore.text()}
-              </pre>
+              <Show
+                when={noteVersionsStore.comparing()}
+                fallback={
+                  <Show
+                    when={noteVersionsStore.textError()}
+                    fallback={
+                      <pre class="note-versions-text">
+                        {noteVersionsStore.reading() ? "" : noteVersionsStore.text()}
+                      </pre>
+                    }
+                  >
+                    {(message) => (
+                      <p class="note-versions-failure" role="alert">
+                        {message()}
+                      </p>
+                    )}
+                  </Show>
+                }
+              >
+                <Comparison />
+              </Show>
               <Show when={selected()}>
                 {(version) => (
                   <div class="note-versions-controls">
                     <Button
                       variant="primary"
                       data-action="restore-version"
+                      disabled={noteVersionsStore.textError() !== null}
                       onClick={() => void onRestore(version().id)}
                     >
                       Restore this version
                     </Button>
                     <Button
                       data-action="copy-version"
+                      disabled={noteVersionsStore.textError() !== null}
                       onClick={() => void onCopy(version().id)}
                     >
-                      Copy this version
+                      Save as a new file
+                    </Button>
+                    <Button
+                      data-action="compare-version"
+                      pressed={noteVersionsStore.comparing()}
+                      onClick={() => void noteVersionsStore.setCompare(!noteVersionsStore.comparing())}
+                    >
+                      Compare with current text
                     </Button>
                   </div>
                 )}

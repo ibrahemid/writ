@@ -88,6 +88,12 @@
             "wix": {
                 "language": [
                     "en-US"
+                ],
+                "fragmentPaths": [
+                    "wix/cli-path.wxs"
+                ],
+                "componentRefs": [
+                    "WritCommandOnPath"
                 ]
             }
         },
@@ -129,13 +135,7 @@
                 "role": "Editor",
                 "contentTypes": [
                     "net.daringfireball.markdown"
-                ],
-                "exportedType": {
-                    "identifier": "net.daringfireball.markdown",
-                    "conformsTo": [
-                        "public.plain-text"
-                    ]
-                }
+                ]
             },
             {
                 "ext": [
@@ -168,7 +168,7 @@
                     "cfg"
                 ],
                 "name": "TOML",
-                "mimeType": "text/x-toml",
+                "mimeType": "application/toml",
                 "rank": "Alternate",
                 "role": "Editor",
                 "contentTypes": [
@@ -180,7 +180,7 @@
                     "rs"
                 ],
                 "name": "Rust",
-                "mimeType": "text/x-rust",
+                "mimeType": "text/rust",
                 "rank": "Alternate",
                 "role": "Editor",
                 "contentTypes": [
@@ -233,7 +233,7 @@
                     "mts"
                 ],
                 "name": "TypeScript",
-                "mimeType": "text/typescript",
+                "mimeType": "application/typescript",
                 "rank": "Alternate",
                 "role": "Editor",
                 "contentTypes": [
@@ -451,11 +451,9 @@
                 "role": "Editor"
             },
             {
-                "ext": [
-                    "dockerfile"
-                ],
+                "ext": [],
                 "name": "Dockerfile",
-                "mimeType": "text/plain",
+                "mimeType": "text/x-dockerfile",
                 "rank": "Alternate",
                 "role": "Editor"
             }

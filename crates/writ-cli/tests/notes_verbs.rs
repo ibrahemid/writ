@@ -1109,8 +1109,8 @@ fn a_verb_with_no_note_prints_usage_and_exits_two() {
 
     assert_eq!(code(&output), 2);
     let said = stderr(&output);
-    assert!(said.contains("writ links needs a file"), "{said}");
-    assert!(said.contains("Usage: writ <verb>"), "{said}");
+    assert!(said.contains("<FILE>"), "{said}");
+    assert!(said.contains("Usage: writ links <FILE>"), "{said}");
 }
 
 #[test]
@@ -1120,7 +1120,7 @@ fn a_flag_a_verb_does_not_take_prints_usage_and_exits_two() {
 
     assert_eq!(code(&output), 2);
     assert!(
-        stderr(&output).contains("does not take --yaml"),
+        stderr(&output).contains("unexpected argument '--yaml'"),
         "{}",
         stderr(&output)
     );
@@ -1133,16 +1133,18 @@ fn too_many_arguments_prints_usage_and_exits_two() {
 
     assert_eq!(code(&output), 2);
     assert!(
-        stderr(&output).contains("more arguments than it takes"),
+        stderr(&output).contains("unexpected argument 'Two'"),
         "{}",
         stderr(&output)
     );
 }
 
 #[test]
-fn the_usage_text_lists_every_verb() {
+fn the_help_lists_every_verb() {
     let fixture = Fixture::new();
-    let said = stderr(&fixture.run(&["links"]));
+    let output = fixture.run(&["--help"]);
+    assert_eq!(code(&output), 0);
+    let said = stdout(&output);
     for verb in [
         "links",
         "backlinks",

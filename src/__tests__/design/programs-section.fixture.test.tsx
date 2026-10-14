@@ -125,6 +125,9 @@ vi.mock("../../stores/global/default-app", () => ({
 vi.mock("../../stores/global/cli", () => ({
   installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
   fetchCliStatus: mocks.fetchCliStatus,
+  CLI_EXAMPLES: ["writ .", "git log | writ --title log"],
+  copyCliExample: vi.fn().mockResolvedValue(undefined),
+  installFailureMessage: () => "Could not install the writ command",
 }));
 
 vi.mock("../../stores/global/notes", () => ({

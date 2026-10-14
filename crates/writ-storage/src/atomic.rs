@@ -579,6 +579,47 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AtomicWriteError>
     Ok(())
 }
 
+/// Writes `bytes` to a new file at `target`, synced before it takes the name.
+///
+/// The name is taken with an exclusive rename
+/// (`crate::note_ops::rename_no_replace`), so a file another process puts at
+/// `target` after the caller chose the name is never replaced: the write
+/// fails instead and the caller picks another name.
+///
+/// # Errors
+///
+/// [`AtomicWriteError::Io`] carrying [`io::ErrorKind::AlreadyExists`] when
+/// `target` is taken, [`AtomicWriteError::FolderNotWritable`] when the folder
+/// will not take the temp file, and [`AtomicWriteError::Io`] when the write,
+/// the sync or the rename fails. No temp file is left behind.
+pub fn write_new(target: &Path, bytes: &[u8]) -> Result<(), AtomicWriteError> {
+    let dir = target.parent().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("target path has no parent directory: {}", target.display()),
+        )
+    })?;
+    let mut tmp = match temp_sibling(dir) {
+        Ok(tmp) => tmp,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+            return Err(AtomicWriteError::FolderNotWritable)
+        }
+        Err(e) => return Err(AtomicWriteError::Io(e)),
+    };
+    tmp.as_file_mut().write_all(bytes)?;
+    tmp.as_file_mut().sync_all()?;
+    let path = tmp.into_temp_path();
+    crate::note_ops::rename_no_replace(&path, target)?;
+    // The temp name is the new file's now; dropping the path would delete
+    // whatever holds that name.
+    let _ = path.keep();
+    #[cfg(unix)]
+    if let Ok(dir_handle) = std::fs::File::open(dir) {
+        let _ = dir_handle.sync_all();
+    }
+    Ok(())
+}
+
 /// A replacement for `target`, written and synced beside it and not yet moved
 /// onto it.
 ///
@@ -635,13 +676,17 @@ pub(crate) fn prepare_replacement(
     };
 
     tmp.as_file_mut().write_all(bytes)?;
-    tmp.as_file_mut().sync_all()?;
 
+    // Before the sync, so the mode and attributes are on the disk with the
+    // bytes: a crash right after the rename otherwise leaves the file with the
+    // temp file's defaults.
     #[cfg(unix)]
     inherit_mode(target, tmp.as_file());
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     inherit_xattrs(target, tmp.as_file());
+
+    tmp.as_file_mut().sync_all()?;
 
     Ok(PreparedReplacement {
         tmp,

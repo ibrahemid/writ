@@ -186,6 +186,40 @@ pub enum StorageError {
         id: i64,
     },
 
+    /// A version's text no longer matches the digest it was kept under.
+    ///
+    /// The file in the data directory was changed or damaged after it was
+    /// written, so what it holds is not the text the entry names, and putting
+    /// it back would put back something nobody wrote.
+    #[error("version {id} does not hold the text it was kept with")]
+    VersionDamaged {
+        /// The entry that was asked for.
+        id: i64,
+    },
+
+    /// A move of the notes folder to another disk found files whose bytes are
+    /// not on this machine, and copied nothing.
+    ///
+    /// Copying one would download it, and a folder of them is a download the
+    /// person did not ask for (ADR-028 §5).
+    #[error("{count} files in the folder have not finished downloading, {first} among them")]
+    FolderNotDownloaded {
+        /// How many entries are not on this machine.
+        count: usize,
+        /// The name of the first one found.
+        first: String,
+    },
+
+    /// A move of the notes folder to another disk needs more free space than
+    /// the destination has, and copied nothing.
+    #[error("the move needs {needed} bytes and the destination has {available}")]
+    NotEnoughSpace {
+        /// What the copy would take.
+        needed: u64,
+        /// What the destination has free.
+        available: u64,
+    },
+
     /// A note was asked to take a name with nothing in it.
     ///
     /// The wording here is for logs. What the editor says is written at the

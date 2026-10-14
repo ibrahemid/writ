@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 
-import type { NoteVersion } from "../../services/tauri";
+import type { NoteVersion, NoteVersions } from "../../services/tauri";
+
+/** The answer `note_versions` gives for these versions. */
+function listed(versions: NoteVersion[]): NoteVersions {
+  return { versions, no_versions_reason: versions.length > 0 ? null : "none_yet" };
+}
 
 // What the panel shows while it is still reading, and what the list is to a
 // keyboard. The IPC layer is replaced and held open on purpose: the defect
@@ -64,7 +69,7 @@ afterEach(() => {
 
 describe("NoteHistoryPanel while it reads", () => {
   it("does not say the note has nothing kept while the list is still coming", async () => {
-    const list = held<NoteVersion[]>();
+    const list = held<NoteVersions>();
     h.noteVersions.mockReturnValue(list.promise);
     h.noteVersionContent.mockResolvedValue("what the note said\n");
 
@@ -75,14 +80,14 @@ describe("NoteHistoryPanel while it reads", () => {
     expect(screen.queryByText("No versions of this file yet.")).toBeNull();
     expect(screen.getByText("Loading versions…")).toBeTruthy();
 
-    list.settle([version(4, at(0, 14, 32))]);
+    list.settle(listed([version(4, at(0, 14, 32))]));
     await waitFor(() => expect(screen.container.querySelector(".note-versions-row")).toBeTruthy());
     expect(screen.queryByText("No versions of this file yet.")).toBeNull();
     expect(screen.queryByText("Loading versions…")).toBeNull();
   });
 
   it("keeps the empty state for a note that really has nothing kept", async () => {
-    h.noteVersions.mockResolvedValue([]);
+    h.noteVersions.mockResolvedValue(listed([]));
 
     const screen = render(() => <NoteHistoryPanel />);
     openNoteVersions(NOTE);
@@ -91,7 +96,7 @@ describe("NoteHistoryPanel while it reads", () => {
   });
 
   it("does not label one version's text with another version's row", async () => {
-    h.noteVersions.mockResolvedValue([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]);
+    h.noteVersions.mockResolvedValue(listed([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]));
     h.noteVersionContent.mockResolvedValueOnce("the newest text\n");
 
     const screen = render(() => <NoteHistoryPanel />);
@@ -121,11 +126,11 @@ describe("NoteHistoryPanel while it reads", () => {
   // starts one. An earlier read settling must not un-blank the pane while the
   // read the selected row is waiting for is still open.
   it("never shows a version the row beside it does not name, whatever settles first", async () => {
-    h.noteVersions.mockResolvedValue([
+    h.noteVersions.mockResolvedValue(listed([
       version(11, at(0, 14, 32)),
       version(12, at(2, 9, 11)),
       version(13, at(5, 9, 11)),
-    ]);
+    ]));
     h.noteVersionContent.mockResolvedValueOnce("newest text\n");
 
     const screen = render(() => <NoteHistoryPanel />);
@@ -163,7 +168,7 @@ describe("NoteHistoryPanel while it reads", () => {
   });
 
   it("says once that a restore keeps what the note holds now", async () => {
-    h.noteVersions.mockResolvedValue([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]);
+    h.noteVersions.mockResolvedValue(listed([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]));
     h.noteVersionContent.mockResolvedValue("what the note said\n");
 
     const screen = render(() => <NoteHistoryPanel />);
@@ -177,7 +182,7 @@ describe("NoteHistoryPanel while it reads", () => {
 
 describe("the version list as a keyboard sees it", () => {
   it("is a listbox whose rows carry the selection", async () => {
-    h.noteVersions.mockResolvedValue([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]);
+    h.noteVersions.mockResolvedValue(listed([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]));
     h.noteVersionContent.mockResolvedValue("what the note said\n");
 
     const screen = render(() => <NoteHistoryPanel />);
@@ -192,11 +197,11 @@ describe("the version list as a keyboard sees it", () => {
   });
 
   it("moves the selection on the arrow keys and the ends", async () => {
-    h.noteVersions.mockResolvedValue([
+    h.noteVersions.mockResolvedValue(listed([
       version(11, at(0, 14, 32)),
       version(12, at(2, 9, 11)),
       version(13, at(5, 9, 11)),
-    ]);
+    ]));
     h.noteVersionContent.mockResolvedValue("what the note said\n");
 
     const screen = render(() => <NoteHistoryPanel />);
@@ -223,7 +228,7 @@ describe("the version list as a keyboard sees it", () => {
 
 describe("closing the panel", () => {
   it("puts focus back in the editor when what opened it is gone", async () => {
-    h.noteVersions.mockResolvedValue([version(11, at(0, 14, 32))]);
+    h.noteVersions.mockResolvedValue(listed([version(11, at(0, 14, 32))]));
     h.noteVersionContent.mockResolvedValue("what the note said\n");
 
     const opener = document.createElement("button");

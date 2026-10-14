@@ -261,7 +261,7 @@ fn a_save_from_writ_keeps_the_opt_in_across_closing_and_reopening() {
     let edited = "<p id=a></p><script>a.textContent='ran'</script>";
 
     store
-        .save_content("buf-saved", edited)
+        .save_to_source("buf-saved", edited, None, None)
         .expect("save failed");
     let written = Some(sha256_bytes(edited.as_bytes()));
     assert!(store.check_preview_scripts("buf-saved", written).unwrap());
@@ -282,7 +282,7 @@ fn a_save_does_not_carry_an_opt_in_over_a_change_another_program_made() {
     rewrite_from_outside(&path, b"<script>fetch('/leak')</script>");
     let edited = "<script>fetch('/leak')</script><p>edited</p>";
     store
-        .save_content("buf-carried", edited)
+        .save_to_source("buf-carried", edited, None, None)
         .expect("save failed");
 
     assert!(
@@ -308,7 +308,7 @@ fn an_opt_in_given_before_the_file_exists_follows_the_first_save() {
     assert!(store.check_preview_scripts("buf-first", None).unwrap());
 
     store
-        .save_content("buf-first", "<script>1</script>")
+        .save_to_source("buf-first", "<script>1</script>", None, None)
         .expect("first save failed");
     let written = Some(sha256_bytes(b"<script>1</script>"));
     assert!(store.check_preview_scripts("buf-first", written).unwrap());
@@ -354,7 +354,12 @@ fn the_carry_compares_what_the_guard_found_and_records_the_bytes_written() {
         .expect("opt in failed");
 
     store
-        .save_content("buf-crlf", "<p>approved</p>\n<script>1</script>\n")
+        .save_to_source(
+            "buf-crlf",
+            "<p>approved</p>\n<script>1</script>\n",
+            None,
+            None,
+        )
         .expect("save failed");
 
     let on_disk = std::fs::read(&path).expect("read the file");
@@ -370,7 +375,7 @@ fn save_content_writes_the_file_and_no_copy() {
     let doc = make_doc("buf-2", "Content Test");
     store.insert(&doc).expect("insert failed");
     store
-        .save_content("buf-2", "Hello, file content!")
+        .save_to_source("buf-2", "Hello, file content!", None, None)
         .expect("save_content failed");
 
     assert_eq!(
@@ -421,7 +426,7 @@ fn save_on_a_note_with_no_file_is_a_consistency_error() {
         .unwrap();
 
     let err = store
-        .save_content("unwritten-2", "typed")
+        .save_to_source("unwritten-2", "typed", None, None)
         .expect_err("there is nowhere to write it")
         .to_string();
     assert!(err.contains("has no file"), "error: {err}");
@@ -438,7 +443,9 @@ fn attach_source_path_makes_the_next_read_return_the_file() {
     store
         .attach_source_path("attach-1", file.to_str().unwrap())
         .unwrap();
-    store.save_content("attach-1", "first keystroke").unwrap();
+    store
+        .save_to_source("attach-1", "first keystroke", None, None)
+        .unwrap();
 
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "first keystroke");
     assert_eq!(store.read_content("attach-1").unwrap(), "first keystroke");
@@ -617,7 +624,7 @@ fn delete_removes_the_row_but_never_the_file() {
     let doc = make_doc("buf-4", "Delete Me");
     store.insert(&doc).expect("insert failed");
     store
-        .save_content("buf-4", "the note itself")
+        .save_to_source("buf-4", "the note itself", None, None)
         .expect("save_content failed");
 
     store.delete("buf-4").expect("delete failed");
@@ -670,7 +677,12 @@ fn save_content_updates_the_notes_index() {
     let doc = make_doc("fts1", "fts-test");
     store.insert(&doc).unwrap();
     store
-        .save_content("fts1", "searchable content about rust programming")
+        .save_to_source(
+            "fts1",
+            "searchable content about rust programming",
+            None,
+            None,
+        )
         .unwrap();
 
     assert_eq!(search(&dir, "rust programming"), vec![indexed_key("fts1")]);
@@ -683,7 +695,7 @@ fn save_content_without_index_persists_bytes_but_skips_fts() {
     let (_dir, store) = setup();
     store.insert(&make_doc("deferred-1", "deferred")).unwrap();
     store
-        .save_content_without_index("deferred-1", "uniqueterm pending reindex")
+        .save_to_source_without_index("deferred-1", "uniqueterm pending reindex", None, None)
         .expect("save_content_without_index failed");
 
     assert_eq!(
@@ -702,7 +714,7 @@ fn reindex_buffer_makes_a_deferred_write_searchable() {
     let (dir, store) = setup();
     store.insert(&make_doc("deferred-2", "deferred")).unwrap();
     store
-        .save_content_without_index("deferred-2", "alpha beta gamma")
+        .save_to_source_without_index("deferred-2", "alpha beta gamma", None, None)
         .unwrap();
     assert!(search(&dir, "beta").is_empty());
 
@@ -717,10 +729,10 @@ fn reindex_buffer_reflects_latest_disk_content_after_coalesced_writes() {
     let (dir, store) = setup();
     store.insert(&make_doc("deferred-3", "deferred")).unwrap();
     store
-        .save_content_without_index("deferred-3", "staleword first version")
+        .save_to_source_without_index("deferred-3", "staleword first version", None, None)
         .unwrap();
     store
-        .save_content_without_index("deferred-3", "freshword second version")
+        .save_to_source_without_index("deferred-3", "freshword second version", None, None)
         .unwrap();
 
     store.reindex_buffer("deferred-3").expect("reindex failed");
@@ -741,7 +753,9 @@ fn delete_leaves_the_note_in_the_index_because_the_file_is_still_there() {
     let (dir, store) = setup();
     let doc = make_doc("orphan-1", "untitled");
     store.insert(&doc).unwrap();
-    store.save_content("orphan-1", "foobar baseline").unwrap();
+    store
+        .save_to_source("orphan-1", "foobar baseline", None, None)
+        .unwrap();
     assert_eq!(search(&dir, "foobar"), vec![indexed_key("orphan-1")]);
 
     store.delete("orphan-1").expect("delete failed");
@@ -772,7 +786,9 @@ fn rename_to_file_re_keys_the_note_in_the_index() {
     let (dir, store) = setup();
     let doc = make_doc("ren-fts-a", "alpha");
     store.insert(&doc).unwrap();
-    store.save_content("ren-fts-a", "body text").unwrap();
+    store
+        .save_to_source("ren-fts-a", "body text", None, None)
+        .unwrap();
     assert_eq!(search(&dir, "body"), vec![indexed_key("ren-fts-a")]);
 
     let renamed = notes_root().join("beta.md");
@@ -798,7 +814,9 @@ fn rename_to_file_moves_the_note_row_in_the_index() {
     let (dir, store) = setup();
     let doc = make_doc("ren-row-a", "alpha");
     store.insert(&doc).unwrap();
-    store.save_content("ren-row-a", "body text").unwrap();
+    store
+        .save_to_source("ren-row-a", "body text", None, None)
+        .unwrap();
     let before = indexed_key("ren-row-a");
     assert!(indexed_paths(&dir).contains(&before));
 
@@ -827,7 +845,9 @@ fn rename_alone_leaves_the_index_untouched() {
     let (dir, store) = setup();
     let doc = make_doc("ren-fts-b", "alpha");
     store.insert(&doc).unwrap();
-    store.save_content("ren-fts-b", "body text").unwrap();
+    store
+        .save_to_source("ren-fts-b", "body text", None, None)
+        .unwrap();
 
     store.rename("ren-fts-b", "beta").unwrap();
 
@@ -923,7 +943,9 @@ fn delete_many_removes_rows_and_index_entries_but_no_files() {
     for id in ["dm-a", "dm-b", "dm-c"] {
         let doc = make_doc(id, id);
         store.insert(&doc).unwrap();
-        store.save_content(id, "shared needle text").unwrap();
+        store
+            .save_to_source(id, "shared needle text", None, None)
+            .unwrap();
     }
 
     store
@@ -953,7 +975,9 @@ fn delete_many_rolls_back_every_row_when_a_delete_fails_mid_transaction() {
     for id in ["dm-tx-1", "dm-tx-2"] {
         let doc = make_doc(id, id);
         store.insert(&doc).unwrap();
-        store.save_content(id, "in transaction").unwrap();
+        store
+            .save_to_source(id, "in transaction", None, None)
+            .unwrap();
     }
 
     // Refuse the second row's delete from inside the database, so the batch
@@ -983,7 +1007,7 @@ fn delete_many_is_all_or_nothing_when_an_id_is_unknown() {
     for id in ["dm-keep-1", "dm-keep-2"] {
         let doc = make_doc(id, id);
         store.insert(&doc).unwrap();
-        store.save_content(id, "persist me").unwrap();
+        store.save_to_source(id, "persist me", None, None).unwrap();
     }
 
     let result = store.delete_many(&[
@@ -1053,7 +1077,7 @@ fn rename_preserves_content_searchability() {
     let doc = make_doc("ren-fts-c", "alpha");
     store.insert(&doc).unwrap();
     store
-        .save_content("ren-fts-c", "lorem ipsum dolor sit amet")
+        .save_to_source("ren-fts-c", "lorem ipsum dolor sit amet", None, None)
         .unwrap();
 
     store.rename("ren-fts-c", "beta").unwrap();
@@ -1112,7 +1136,9 @@ fn reclaim_empty_scratch_deletes_notes_with_no_file_in_any_status() {
         .unwrap();
     store.close("re-history-empty").unwrap();
     store.insert(&make_doc("re-content", "Kept")).unwrap();
-    store.save_content("re-content", "keep me").unwrap();
+    store
+        .save_to_source("re-content", "keep me", None, None)
+        .unwrap();
 
     let count = store.reclaim_empty_scratch().unwrap();
 
@@ -1137,7 +1163,7 @@ fn reclaim_empty_scratch_keeps_every_note_that_has_a_file() {
 fn reclaim_empty_scratch_never_deletes_a_file() {
     let (_dir, store) = setup();
     store.insert(&make_doc("re-file", "Kept")).unwrap();
-    store.save_content("re-file", "").unwrap();
+    store.save_to_source("re-file", "", None, None).unwrap();
 
     store.reclaim_empty_scratch().unwrap();
 

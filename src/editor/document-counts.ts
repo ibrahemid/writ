@@ -6,6 +6,10 @@ export interface TextCounts {
   words: number;
   /** Code points, line breaks included, as `[...text].length` counts them. */
   characters: number;
+  /** Han, kana and Hangul code points, which a tokenizer spends about a token each on. */
+  cjk: number;
+  /** Arabic-script code points, which a tokenizer spends about half a token each on. */
+  arabic: number;
 }
 
 /** Where a count stands after a slice of work. */
@@ -43,18 +47,49 @@ function isLowSurrogate(code: number): boolean {
   return code >= 0xdc00 && code <= 0xdfff;
 }
 
+// The ranges writ_core::prompt::estimate_tokens classifies, read from UTF-16
+// units: 0xd840-0xd87f lead the astral Han planes, U+20000-U+2FFFF.
+function isCjk(code: number, next: number): boolean {
+  return (
+    (code >= 0x1100 && code <= 0x11ff) ||
+    (code >= 0x3040 && code <= 0x30ff) ||
+    (code >= 0x3130 && code <= 0x318f) ||
+    (code >= 0x3400 && code <= 0x4dbf) ||
+    (code >= 0x4e00 && code <= 0x9fff) ||
+    (code >= 0xac00 && code <= 0xd7af) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xd840 && code <= 0xd87f && isLowSurrogate(next))
+  );
+}
+
+function isArabic(code: number): boolean {
+  return (
+    (code >= 0x0600 && code <= 0x06ff) ||
+    (code >= 0x0750 && code <= 0x077f) ||
+    (code >= 0x08a0 && code <= 0x08ff) ||
+    (code >= 0xfb50 && code <= 0xfdff) ||
+    (code >= 0xfe70 && code <= 0xfefc)
+  );
+}
+
 interface ScanState {
   inWord: boolean;
   words: number;
   characters: number;
+  cjk: number;
+  arabic: number;
 }
 
 function scanSpan(line: string, from: number, to: number, state: ScanState): void {
-  let { inWord, words, characters } = state;
+  let { inWord, words, characters, cjk, arabic } = state;
   for (let i = from; i < to; i++) {
     const code = line.charCodeAt(i);
     if (isLowSurrogate(code) && i > 0 && isHighSurrogate(line.charCodeAt(i - 1))) continue;
     characters++;
+    if (code >= 0x0600) {
+      if (isCjk(code, line.charCodeAt(i + 1))) cjk++;
+      else if (isArabic(code)) arabic++;
+    }
     if (isWordSpace(code)) inWord = false;
     else if (!inWord) {
       inWord = true;
@@ -64,6 +99,8 @@ function scanSpan(line: string, from: number, to: number, state: ScanState): voi
   state.inWord = inWord;
   state.words = words;
   state.characters = characters;
+  state.cjk = cjk;
+  state.arabic = arabic;
 }
 
 // Counts of finished subtrees. A document shares every subtree an edit did
@@ -84,6 +121,8 @@ interface Frame {
   index: number;
   words: number;
   characters: number;
+  cjk: number;
+  arabic: number;
   covered: number;
 }
 
@@ -96,12 +135,28 @@ interface LeafScan extends ScanState {
 }
 
 function frameFor(node: Text, children: readonly Text[]): Frame {
-  return { node, children, index: 0, words: 0, characters: 0, covered: 0 };
+  return { node, children, index: 0, words: 0, characters: 0, cjk: 0, arabic: 0, covered: 0 };
+}
+
+/** The four counts of `from`, without whatever else it carries. */
+export function countsOf(from: TextCounts): TextCounts {
+  return { words: from.words, characters: from.characters, cjk: from.cjk, arabic: from.arabic };
 }
 
 function startLeafScan(scan: LeafScan | null, leaf: Text): LeafScan {
   if (scan === null) {
-    return { leaf, cursor: leaf.iter(), line: null, offset: 0, inWord: false, words: 0, characters: 0, covered: 0 };
+    return {
+      leaf,
+      cursor: leaf.iter(),
+      line: null,
+      offset: 0,
+      inWord: false,
+      words: 0,
+      characters: 0,
+      cjk: 0,
+      arabic: 0,
+      covered: 0,
+    };
   }
   scan.leaf = leaf;
   scan.cursor = leaf.iter();
@@ -110,6 +165,8 @@ function startLeafScan(scan: LeafScan | null, leaf: Text): LeafScan {
   scan.inWord = false;
   scan.words = 0;
   scan.characters = 0;
+  scan.cjk = 0;
+  scan.arabic = 0;
   scan.covered = 0;
   return scan;
 }
@@ -145,27 +202,26 @@ export class TextCounter {
         const scan = this.leaf;
         this.leaf = null;
         this.spare = scan;
-        if (scan.leaf.length >= CACHED_LEAF_LENGTH) {
-          subtreeCounts.set(scan.leaf, { words: scan.words, characters: scan.characters });
-        }
-        if (this.frames.length === 0) this.result = { words: scan.words, characters: scan.characters };
-        else this.finishChild(scan.words, scan.characters, scan.leaf.length);
+        const counts = countsOf(scan);
+        if (scan.leaf.length >= CACHED_LEAF_LENGTH) subtreeCounts.set(scan.leaf, counts);
+        if (this.frames.length === 0) this.result = counts;
+        else this.finishChild(counts, scan.leaf.length);
         continue;
       }
       const top = this.frames[this.frames.length - 1];
       if (top.index === top.children.length) {
-        const counts = { words: top.words, characters: top.characters };
+        const counts = countsOf(top);
         subtreeCounts.set(top.node, counts);
         this.frames.pop();
         if (this.frames.length === 0) this.result = counts;
-        else this.finishChild(counts.words, counts.characters, top.node.length);
+        else this.finishChild(counts, top.node.length);
         continue;
       }
       if (progressed && outOfTime()) return this.progress();
       const child = top.children[top.index];
       const known = subtreeCounts.get(child);
       if (known) {
-        this.finishChild(known.words, known.characters, child.length);
+        this.finishChild(known, child.length);
         progressed = true;
         continue;
       }
@@ -196,11 +252,13 @@ export class TextCounter {
     return startLeafScan(spare, leaf);
   }
 
-  private finishChild(words: number, characters: number, length: number): void {
+  private finishChild(counts: TextCounts, length: number): void {
     const top = this.frames[this.frames.length - 1];
     const lineBreak = top.index > 0 ? 1 : 0;
-    top.words += words;
-    top.characters += characters + lineBreak;
+    top.words += counts.words;
+    top.characters += counts.characters + lineBreak;
+    top.cjk += counts.cjk;
+    top.arabic += counts.arabic;
     top.covered += length + lineBreak;
     top.index++;
   }
@@ -240,25 +298,23 @@ export class TextCounter {
   private progress(): CountProgress {
     let words = 0;
     let characters = 0;
+    let cjk = 0;
+    let arabic = 0;
     let covered = 0;
-    for (const frame of this.frames) {
-      words += frame.words;
-      characters += frame.characters;
-      covered += frame.covered;
+    for (const part of this.leaf ? [...this.frames, this.leaf] : this.frames) {
+      words += part.words;
+      characters += part.characters;
+      cjk += part.cjk;
+      arabic += part.arabic;
+      covered += part.covered;
     }
-    if (this.leaf) {
-      words += this.leaf.words;
-      characters += this.leaf.characters;
-      covered += this.leaf.covered;
-    }
-    return { words, characters, covered, done: false };
+    return { words, characters, cjk, arabic, covered, done: false };
   }
 }
 
 /** Counts the whole of `doc` now. */
 export function countText(doc: Text): TextCounts {
-  const { words, characters } = new TextCounter().count(doc, () => false);
-  return { words, characters };
+  return countsOf(new TextCounter().count(doc, () => false));
 }
 
 /**
@@ -266,11 +322,13 @@ export function countText(doc: Text): TextCounts {
  * for a count that has not finished.
  */
 export function projectCounts(progress: CountProgress, length: number): TextCounts {
-  if (progress.done || progress.covered <= 0) return { words: progress.words, characters: progress.characters };
+  if (progress.done || progress.covered <= 0) return countsOf(progress);
   const scale = length / progress.covered;
   return {
     words: Math.round(progress.words * scale),
     characters: Math.round(progress.characters * scale),
+    cjk: Math.round(progress.cjk * scale),
+    arabic: Math.round(progress.arabic * scale),
   };
 }
 

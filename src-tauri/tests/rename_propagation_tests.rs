@@ -971,3 +971,56 @@ fn an_undo_leaves_a_rewritten_file_the_folder_no_longer_holds() {
     assert_eq!(undone.updated, 0);
     assert!(note(&state, "Old note.md").exists());
 }
+
+#[test]
+fn a_case_only_rename_leaves_one_index_row_under_the_new_spelling() {
+    let (_dir, state) = seeded(&[
+        ("Notes.md", "the note itself\n"),
+        ("First.md", "see [[Notes]]\n"),
+    ]);
+
+    let outcome =
+        rename_note_with_links_inner(&state, &path_text(&state, "Notes.md"), "notes", true)
+            .expect("rename");
+
+    let renamed = path_text(&state, "notes.md");
+    assert_eq!(outcome.renamed_path, renamed);
+    let listed: Vec<String> = std::fs::read_dir(state.notes_root())
+        .expect("list")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert!(listed.contains(&"notes.md".to_string()), "{listed:?}");
+    assert!(!listed.contains(&"Notes.md".to_string()), "{listed:?}");
+    let rows: Vec<String> = state
+        .notes_index
+        .note_paths()
+        .expect("paths")
+        .into_iter()
+        .filter(|path| path.to_lowercase().ends_with("/notes.md"))
+        .collect();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0].ends_with("/notes.md"), "{rows:?}");
+    assert_eq!(
+        count_links_to_inner(&state, &renamed).expect("count"),
+        1,
+        "the link no longer reaches the renamed note"
+    );
+
+    let token = outcome.undo_token.expect("an undo");
+    undo_rename_with_links_inner(&state, &token).expect("undo");
+    let rows: Vec<String> = state
+        .notes_index
+        .note_paths()
+        .expect("paths")
+        .into_iter()
+        .filter(|path| path.to_lowercase().ends_with("/notes.md"))
+        .collect();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0].ends_with("/Notes.md"), "{rows:?}");
+}

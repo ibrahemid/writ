@@ -173,6 +173,16 @@ three over one table of adversarial inputs and fails the moment any of them
 moves. That is the same trade `writ_core::prompt::strip` already made, made
 once more and tested harder.
 
+### 9. A Markdown note is named so a link can spell it (amendment)
+
+`#`, `[`, `]` and `^` are link syntax, so a Markdown note named with one is a
+note no `[[…]]` reaches: `[[C# notes]]` is the note `C` at the heading `notes`.
+Every create and every rename of a `.md` or `.markdown` file replaces them with
+a space once its extension is settled (`writ_core::notes::note_stem_for`, called
+from `create_note_guarded` and the rename), as Obsidian does, so `C# notes`
+becomes `C notes.md` and the links a rename rewrites name it by that name.
+Other extensions keep them. Names already on disk are left as they are.
+
 ## Consequences
 
 - Four consumers, one rule. Changing what `[[…]]` means is one edit.

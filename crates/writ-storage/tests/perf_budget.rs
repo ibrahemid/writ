@@ -414,7 +414,9 @@ fn open_read_10mb_budget() {
     let content = make_content(0, size);
     let doc = make_large_doc(&notes, "lg10", size as u64);
     store.insert(&doc).expect("insert");
-    store.save_content(&doc.id, &content).expect("initial save");
+    store
+        .save_to_source(&doc.id, &content, None, None)
+        .expect("initial save");
 
     let mut read_samples = Vec::with_capacity(MEDIAN_SAMPLES);
     for _ in 0..MEDIAN_SAMPLES {
@@ -451,7 +453,9 @@ fn open_read_50mb_budget() {
     let content = make_content(0, size);
     let doc = make_large_doc(&notes, "lg50", size as u64);
     store.insert(&doc).expect("insert");
-    store.save_content(&doc.id, &content).expect("initial save");
+    store
+        .save_to_source(&doc.id, &content, None, None)
+        .expect("initial save");
 
     let mut read_samples = Vec::with_capacity(MEDIAN_SAMPLES);
     for _ in 0..MEDIAN_SAMPLES {
@@ -1015,14 +1019,17 @@ fn vault_of_10000_notes_and_200000_links_stays_under_budget() {
     );
 
     // Migration 045 over the same rows: the shape a database written before it
-    // has, migrated forward. The runner applies only versions above the
-    // highest one recorded, so 046 to 048 go too.
+    // has, migrated forward. The runner applies every version not recorded,
+    // so 046 to 051 go too.
     conn.execute_batch(
         "DROP INDEX idx_links_name_key;
          ALTER TABLE links DROP COLUMN name_key;
          DROP TABLE unsaved_text;
          ALTER TABLE buffers DROP COLUMN preview_scripts_hash;
          ALTER TABLE buffers DROP COLUMN preview_scripts;
+         DROP TABLE command_usage;
+         ALTER TABLE buffers DROP COLUMN encoding;
+         DROP TABLE files_folded;
          DELETE FROM schema_version WHERE version >= 45;",
     )
     .expect("roll back to before 045");

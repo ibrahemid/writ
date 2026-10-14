@@ -9,7 +9,7 @@ use std::sync::{Mutex, RwLock, RwLockReadGuard};
 use rusqlite::Connection;
 use writ_core::file_ops::THRESHOLD_NORMAL_BYTES;
 use writ_core::notes::links::{self, Resolution};
-use writ_core::search::SearchHit;
+use writ_core::search::{SearchHit, SearchQuery};
 use writ_core::workspace::file_search::FileHit;
 
 use super::queries;
@@ -282,6 +282,23 @@ impl NotesIndexStore {
         self.read(|conn| queries::count(conn, query))
     }
 
+    /// Up to `limit` ranked hits for a planned search after the first
+    /// `offset`. See [`super::NotesIndex::search`].
+    pub fn search(
+        &self,
+        query: &SearchQuery,
+        offset: usize,
+        limit: usize,
+    ) -> StorageResult<Vec<SearchHit>> {
+        self.read(|conn| queries::search(conn, query, offset, limit))
+    }
+
+    /// Total number of notes a planned search matches. See
+    /// [`super::NotesIndex::search_count`].
+    pub fn search_count(&self, query: &SearchQuery) -> StorageResult<usize> {
+        self.read(|conn| queries::search_count(conn, query))
+    }
+
     /// Up to `limit` ranked name hits under `notes_root`, read from the names
     /// in memory. See [`super::NotesIndex::search_names`].
     pub fn search_names(
@@ -451,10 +468,19 @@ impl NotesIndexStore {
     /// link naming it is resolved again, so a second note of the same name left
     /// standing picks them up rather than waiting for a walk.
     pub fn forget_path(&self, path: &Path) -> StorageResult<()> {
-        let key = index_key(path);
+        self.forget_key(&index_key(path))
+    }
+
+    /// [`NotesIndexStore::forget_path`] for a row whose key the caller read
+    /// while the file was still under it.
+    ///
+    /// After a rename that changes only case or normalisation, the old name
+    /// still resolves on APFS and NTFS, to the file under its new spelling, so
+    /// the key of the old row can no longer be read from the old path.
+    pub fn forget_key(&self, key: &str) -> StorageResult<()> {
         self.write_ahead(|conn, names| {
-            upsert::forget_file(conn, names, &key)?;
-            recover(self.recent_writes.lock()).wrote(&key);
+            upsert::forget_file(conn, names, key)?;
+            recover(self.recent_writes.lock()).wrote(key);
             Ok(())
         })
     }

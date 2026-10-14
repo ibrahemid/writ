@@ -39,6 +39,12 @@ describe("estimateTokens", () => {
     expect(estimateTokens({ words: 1, characters: 1 })).toBe(1);
   });
 
+  it("counts a Han character as a token and an Arabic one as half", () => {
+    expect(estimateTokens({ words: 1, characters: 8, cjk: 8, arabic: 0 })).toBe(9);
+    expect(estimateTokens({ words: 1, characters: 8, cjk: 0, arabic: 8 })).toBe(5);
+    expect(estimateTokens({ words: 1, characters: 8, cjk: 0, arabic: 0 })).toBe(2);
+  });
+
   it("blends the characters-per-token and tokens-per-word rules", () => {
     expect(estimateTokens({ words: 100, characters: 400 })).toBe(113);
   });

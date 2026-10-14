@@ -30,7 +30,7 @@ use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDec
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::WriteOrigin;
 
-use crate::atomic::{prepare_replacement, write_atomic, AtomicWriteError};
+use crate::atomic::{prepare_replacement, write_new, AtomicWriteError};
 use crate::buffer_store::{
     dataless_flags, read_disk_state, taken_names, BeforeWrite, DatalessProbe,
 };
@@ -94,8 +94,10 @@ pub struct WriteCapture<'a> {
     /// written after this one, and the version a person restores has to be
     /// the text this write put there.
     pub bytes: &'a [u8],
-    /// What the file holds now.
+    /// What the file holds now, whose digest is the digest of `bytes`.
     pub after: &'a DiskState,
+    /// The digest of `before`, from the read that found it.
+    pub before_hash: Option<Sha256Digest>,
 }
 
 /// The seam a version store is hung on: called once per write that landed,
@@ -134,7 +136,10 @@ pub fn history_hook(store: &NoteHistoryStore, capture: WriteCapture<'_>) {
         let earlier = now
             .checked_sub(std::time::Duration::from_millis(1))
             .unwrap_or(now);
-        if let Err(e) = store.capture_replaced(&note, before, earlier) {
+        let digest = capture
+            .before_hash
+            .unwrap_or_else(|| writ_core::hash::sha256_bytes(before));
+        if let Err(e) = store.capture_replaced_hashed(&note, before, digest, earlier) {
             warn!(
                 note = %file_name_only(&capture.target.to_string_lossy()),
                 error = %e,
@@ -142,7 +147,13 @@ pub fn history_hook(store: &NoteHistoryStore, capture: WriteCapture<'_>) {
             );
         }
     }
-    if let Err(e) = store.capture(&note, capture.bytes, now, capture.origin) {
+    if let Err(e) = store.capture_hashed(
+        &note,
+        capture.bytes,
+        capture.after.hash,
+        now,
+        capture.origin,
+    ) {
         warn!(
             note = %file_name_only(&capture.target.to_string_lossy()),
             error = %e,
@@ -192,7 +203,8 @@ pub struct CreateNote<'a> {
     /// The folder the note is minted in.
     pub notes_root: &'a Path,
     /// The sanitised filename stem
-    /// ([`writ_core::notes::note_file_stem`]), before the dedupe.
+    /// ([`writ_core::notes::note_file_stem`]), before the dedupe. The mint
+    /// runs it through [`writ_core::notes::note_stem_for`] its extension.
     pub stem: &'a str,
     /// The extension the file carries, without the dot: the caller's
     /// configured one ([`writ_core::config::FilesConfig`]), or the extension
@@ -372,6 +384,7 @@ fn land(
                     before: current.as_ref().map(|(bytes, _)| bytes.as_slice()),
                     bytes: req.bytes,
                     after: &after,
+                    before_hash: found.map(|state| state.hash),
                 });
             }
             Ok(WriteOutcome {
@@ -466,14 +479,12 @@ pub fn create_note_guarded(
     req: CreateNote<'_>,
     before_write: BeforeWrite<'_>,
 ) -> StorageResult<PathBuf> {
-    let stem = req.stem.trim();
-    if stem.is_empty() {
-        return Err(StorageError::NoteNameEmpty);
-    }
+    let stem = writ_core::notes::note_stem_for(req.stem.trim(), req.extension)
+        .ok_or(StorageError::NoteNameEmpty)?;
     std::fs::create_dir_all(req.notes_root)?;
     let asked_for = format!("{stem}.{}", req.extension);
     let name =
-        writ_core::notes::dedupe_file_name(stem, req.extension, &taken_names(req.notes_root));
+        writ_core::notes::dedupe_file_name(&stem, req.extension, &taken_names(req.notes_root));
     // The name in the error is the one the caller asked for, not the one the
     // dedupe would have picked: a caller told `Launch-2.md` is taken is being
     // told about a name it never mentioned.
@@ -696,29 +707,45 @@ fn write_beside(
         .map(|ext| ext.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    let name =
-        writ_core::notes::dedupe_file_name(&name_stem(&stem, now), &extension, &taken_names(dir));
-    let target = dir.join(name);
-    write_guarded_by_stamp(&target, bytes, before_write)?;
-    Ok(target)
+    let name_stem = name_stem(&stem, now);
+    let mut taken = taken_names(dir);
+    // A name taken between the listing and the write is listed and the next
+    // one tried; the bound is for a folder something keeps filling.
+    for _ in 0..BESIDE_ATTEMPTS {
+        let name = writ_core::notes::dedupe_file_name(&name_stem, &extension, &taken);
+        let target = dir.join(&name);
+        match write_guarded_by_stamp(&target, bytes, before_write) {
+            Ok(()) => return Ok(target),
+            Err(StorageError::Io(error)) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                taken.insert(name.to_lowercase());
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(StorageError::Io(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "every name tried for the copy was taken while it was written",
+    )))
 }
 
-/// Refuses, stamps, then writes, in that order, for a write with no file of
-/// its own to compare: a dated copy beside a note, or a file the notes
-/// migration moves.
+/// How many names a dated copy tries before it gives up.
+const BESIDE_ATTEMPTS: usize = 16;
+
+/// Refuses, stamps, then writes a new file, in that order, for a write with
+/// no file of its own to compare: a dated copy beside a note, or a file the
+/// notes migration moves.
 ///
 /// Every write this crate performs is stamped before it lands, because a
 /// write the caller has not been told about first is a write its watcher
 /// reads as somebody else's edit. A note's own write lands through [`land`],
 /// which stamps just before the rename it holds the write lock across; every
-/// other write comes through here, the one call site of [`write_atomic`], so
-/// that no future write can skip the stamp by reaching past it.
+/// other write comes through here, so that no future write can skip the stamp
+/// by reaching past it.
 ///
-/// The destination is asked whether it can be replaced before the stamp
-/// rather than after: an ignore entry for a write that never happens is one
-/// the watcher spends on the next real change carrying those bytes.
-/// [`write_atomic`] asks again, so a caller reaching for it directly is
-/// covered too.
+/// Both callers chose a name the folder did not hold, and the write keeps it
+/// that way ([`write_new`]): a file that took the name in between is never
+/// replaced, and the write answers [`StorageError::Io`] carrying
+/// [`std::io::ErrorKind::AlreadyExists`].
 pub(crate) fn write_guarded_by_stamp(
     target: &Path,
     bytes: &[u8],
@@ -729,7 +756,7 @@ pub(crate) fn write_guarded_by_stamp(
     if let Some(stamp) = before_write {
         stamp(target, bytes);
     }
-    write_atomic(target, bytes).map_err(|e| refusal_as_storage_error(target, e))
+    write_new(target, bytes).map_err(|e| refusal_as_storage_error(target, e))
 }
 
 /// The state of a file just written, without reading it back.

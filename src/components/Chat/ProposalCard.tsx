@@ -7,35 +7,9 @@ import {
   proposalLabel,
   type ChatProposal,
   type ChatProposalOutcome,
-  type DiffHunk,
-  type DiffLine,
 } from "../../stores/global/chat";
 import { byteLabel } from "../../commands/chat";
-
-/** One diff row, with the line number each side gives it. */
-interface Row {
-  kind: DiffLine["kind"];
-  text: string;
-  before: number | null;
-  after: number | null;
-}
-
-/** Numbers the lines of one hunk, counting each side only where it has one. */
-export function hunkRows(hunk: DiffHunk): Row[] {
-  let before = hunk.before_start;
-  let after = hunk.after_start;
-  return hunk.lines.map((line) => {
-    const row: Row = {
-      kind: line.kind,
-      text: line.text,
-      before: line.kind === "added" ? null : before,
-      after: line.kind === "removed" ? null : after,
-    };
-    if (line.kind !== "added") before += 1;
-    if (line.kind !== "removed") after += 1;
-    return row;
-  });
-}
+import { hunkRows } from "../../lib/diff-rows";
 
 /**
  * One offered change, read as a diff.

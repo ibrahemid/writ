@@ -69,6 +69,10 @@ Settings → Files section gains an "Install `writ` command" button. The action 
 
 Documents the `PostToolUse` hook recipe and pipe example for use with Claude Code's `/init` or manual `.claude/settings.json`.
 
+### Amended (2026-10-14): subcommands, piped names, and where the command lives
+
+The verbs and `mcp` are clap subcommands of one parser, so `writ --help` lists them and every usage error exits 2. Stdin is read only when it is a pipe or a regular file; anything else opens the app, and an empty pipe still opens nothing. Piped text with no `--title` is named `writ-<yymmdd>-<hhmm>` (ADR-041 §3), a title keeps what `writ_core::notes::sanitize_title` keeps, and the note is minted by `create_note_guarded` under the data folder's write lock. Windows opens a path with `ShellExecuteW`, never through `cmd`, and the MSI puts the install folder on the PATH (`src-tauri/wix/cli-path.wxs`). An AppImage copies the command to `~/.local/bin`, and that copy is what a connected program is handed; a translocated macOS app asks to be moved first. An install replaces only Writ's own command: a link into a Writ bundle, or a copy carrying `writ_core::cli_install::CLI_SIGNATURE`. `src-tauri/build.rs` fails the build when the sidecar's `--version` is not this version.
+
 ## Consequences
 
 - The origin gate is not weakened: all file-path operations arrive through `RunEvent::Opened` (macOS) or the single-instance argv path (Linux/Windows), which are the existing authorized channels. No new authorization path is introduced.

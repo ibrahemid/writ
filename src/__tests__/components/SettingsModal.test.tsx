@@ -37,6 +37,8 @@ const mocks = vi.hoisted(() => ({
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
   fetchCliStatus: vi.fn().mockResolvedValue({ installed: false }),
+  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
+  copyCliExample: vi.fn().mockResolvedValue(undefined),
   fetchStorageInfo: vi.fn().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" }),
   revealStoragePath: vi.fn().mockResolvedValue(undefined),
   copyStoragePath: vi.fn().mockResolvedValue(undefined),
@@ -214,8 +216,12 @@ vi.mock("../../stores/global/default-app", () => ({
 }));
 
 vi.mock("../../stores/global/cli", () => ({
-  installCli: vi.fn().mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" }),
+  CLI_EXAMPLES: ["writ .", "git log | writ --title log"],
+  installCli: mocks.installCli,
   fetchCliStatus: mocks.fetchCliStatus,
+  copyCliExample: mocks.copyCliExample,
+  installFailureMessage: (error: unknown) =>
+    typeof error === "string" && error !== "" ? error : "Could not install the writ command",
 }));
 
 vi.mock("../../stores/global/notes", () => ({
@@ -331,6 +337,10 @@ describe("SettingsModal", () => {
     mocks.claimDefaultApp.mockReset().mockResolvedValue(undefined);
     mocks.fetchDefaultAppTypes.mockReset().mockResolvedValue([TEST_CLAIMABLE_TYPE]);
     mocks.fetchCliStatus.mockReset().mockResolvedValue({ installed: false });
+    mocks.installCli
+      .mockReset()
+      .mockResolvedValue({ symlink_path: "/usr/local/bin/writ", manual_command: "" });
+    mocks.copyCliExample.mockReset().mockResolvedValue(undefined);
     mocks.fetchStorageInfo.mockReset().mockResolvedValue({ db_path: "/home/user/.writ/writ.db", dir: "/home/user/.writ" });
     mocks.revealStoragePath.mockReset().mockResolvedValue(undefined);
     mocks.copyStoragePath.mockReset().mockResolvedValue(undefined);
@@ -863,6 +873,20 @@ describe("SettingsModal", () => {
       );
     });
 
+    // Windows lets no app make itself the default: the row opens the
+    // system's Default apps page instead of offering boxes it cannot honour.
+    it("opens Default apps where only the person picks a default", async () => {
+      mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "system_settings" });
+      const { container } = render(() => <SettingsModal />);
+      await openFilesSection(container);
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='open-default-apps']")).not.toBeNull(),
+      );
+      expect(container.querySelector("[data-default-app-type]")).toBeNull();
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='open-default-apps']")!);
+      await waitFor(() => expect(mocks.claimDefaultApp).toHaveBeenCalledWith("markdown"));
+    });
+
     it("leaves the owner unnamed when the OS does not name it", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "other_app", name: null });
       const { container } = render(() => <SettingsModal />);
@@ -965,6 +989,86 @@ describe("SettingsModal", () => {
       ]) {
         expect(container.querySelector(`[data-setting-id='${id}']`)).not.toBeNull();
       }
+    });
+
+    it("shows where the installed writ command is, with two commands to copy", async () => {
+      mocks.fetchCliStatus.mockResolvedValue({
+        installed: true,
+        path: "/usr/local/bin/writ",
+        can_install: true,
+        needs_move: false,
+      });
+      const { container } = render(() => <SettingsModal />);
+      await openAdvancedSection(container);
+      await waitFor(() =>
+        expect(container.querySelector("[data-cli-path]")?.textContent).toBe("/usr/local/bin/writ"),
+      );
+      const examples = Array.from(container.querySelectorAll("[data-cli-example]")).map(
+        (el) => el.textContent,
+      );
+      expect(examples).toEqual(["writ .", "git log | writ --title log"]);
+      expect(container.querySelector("[data-action='install-cli']")).toBeNull();
+
+      const copies = container.querySelectorAll<HTMLButtonElement>("[data-action='cli-copy-example']");
+      fireEvent.click(copies[1]!);
+      await waitFor(() =>
+        expect(mocks.copyCliExample).toHaveBeenCalledWith("git log | writ --title log"),
+      );
+    });
+
+    it("offers no install where the installer puts the command on the PATH", async () => {
+      mocks.fetchCliStatus.mockResolvedValue({
+        installed: false,
+        path: "",
+        can_install: false,
+        needs_move: false,
+      });
+      const { container } = render(() => <SettingsModal />);
+      await openAdvancedSection(container);
+      await waitFor(() => expect(container.querySelector("[data-cli-missing]")).not.toBeNull());
+      expect(container.querySelector("[data-action='install-cli']")).toBeNull();
+    });
+
+    it("asks for the app to be moved before the command can point at it", async () => {
+      mocks.fetchCliStatus.mockResolvedValue({
+        installed: false,
+        path: "/usr/local/bin/writ",
+        can_install: true,
+        needs_move: true,
+      });
+      const { container } = render(() => <SettingsModal />);
+      await openAdvancedSection(container);
+      await waitFor(() => {
+        const row = container.querySelector("[data-setting-id='files.cli']");
+        expect(row?.textContent).toContain("Move Writ to your Applications folder");
+      });
+      expect(
+        container.querySelector<HTMLButtonElement>("[data-action='install-cli']")!.disabled,
+      ).toBe(true);
+    });
+
+    it("installs the command and shows where it went", async () => {
+      mocks.fetchCliStatus
+        .mockResolvedValueOnce({
+          installed: false,
+          path: "/usr/local/bin/writ",
+          can_install: true,
+          needs_move: false,
+        })
+        .mockResolvedValue({
+          installed: true,
+          path: "/usr/local/bin/writ",
+          can_install: true,
+          needs_move: false,
+        });
+      const { container } = render(() => <SettingsModal />);
+      await openAdvancedSection(container);
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='install-cli']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector<HTMLButtonElement>("[data-action='install-cli']")!);
+      await waitFor(() => expect(mocks.installCli).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(container.querySelector("[data-cli-path]")).not.toBeNull());
     });
 
     it("surfaces the data folder in search by keyword", async () => {

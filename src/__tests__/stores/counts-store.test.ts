@@ -68,7 +68,7 @@ describe("counts store", () => {
     counts.watch();
     await vi.runAllTimersAsync();
 
-    expect(counts.counts()).toEqual({ words: 3, characters: 13, exact: true });
+    expect(counts.counts()).toEqual({ words: 3, characters: 13, cjk: 0, arabic: 0, exact: true });
   });
 
   it("counts the keystrokes inside one wait once, after the wait", async () => {
@@ -87,7 +87,7 @@ describe("counts store", () => {
     await vi.advanceTimersByTimeAsync(RECOUNT_DELAY_MS);
 
     expect(count).toHaveBeenCalledTimes(1);
-    expect(counts.counts()).toEqual({ words: 2, characters: 7, exact: true });
+    expect(counts.counts()).toEqual({ words: 2, characters: 7, cjk: 0, arabic: 0, exact: true });
   });
 
   it("recounts continuous typing at most once per wait, and counts its last change", async () => {
@@ -109,7 +109,7 @@ describe("counts store", () => {
     expect(duringBurst).toBeLessThanOrEqual(Math.ceil(BURST_MS / RECOUNT_DELAY_MS));
 
     await vi.advanceTimersByTimeAsync(RECOUNT_DELAY_MS);
-    expect(counts.counts()).toEqual({ words: 13, characters: text.length, exact: true });
+    expect(counts.counts()).toEqual({ words: 13, characters: text.length, cjk: 0, arabic: 0, exact: true });
   });
 
   it("drops the last note's counts as soon as another note is in the view", async () => {
@@ -121,7 +121,7 @@ describe("counts store", () => {
     view.show("b", doc("four"));
     expect(counts.counts()).toBeNull();
     await vi.runAllTimersAsync();
-    expect(counts.counts()).toEqual({ words: 1, characters: 4, exact: true });
+    expect(counts.counts()).toEqual({ words: 1, characters: 4, cjk: 0, arabic: 0, exact: true });
   });
 
   it("stops counting when the last thing showing the counts lets go", async () => {
@@ -159,7 +159,7 @@ describe("counts store", () => {
     expect(projected!.words).toBeGreaterThan(0);
 
     await vi.runAllTimersAsync();
-    expect(counts.counts()).toEqual({ words: 16_000, characters: text.length, exact: true });
+    expect(counts.counts()).toEqual({ words: 16_000, characters: text.length, cjk: 0, arabic: 0, exact: true });
   });
 
   it("keeps the last exact counts of a file that is not large until the recount finishes", async () => {
@@ -173,7 +173,7 @@ describe("counts store", () => {
     vi.spyOn(performance, "now").mockImplementation(() => (now += 10));
     view.edit(doc(Array.from({ length: 4_000 }, () => "five six").join("\n")));
     await vi.advanceTimersByTimeAsync(RECOUNT_DELAY_MS);
-    expect(counts.counts()).toEqual({ words: 16_000, characters: text.length, exact: true });
+    expect(counts.counts()).toEqual({ words: 16_000, characters: text.length, cjk: 0, arabic: 0, exact: true });
 
     await vi.runAllTimersAsync();
     expect(counts.counts()?.words).toBe(8_000);

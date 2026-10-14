@@ -16,6 +16,7 @@
 //! - [`ai`]: the provider table and the model-list parsers (ADR-040).
 //! - [`buffer`]: document model and the in-memory [`buffer::BufferManager`].
 //! - [`chat`]: request shape and stream grammar for the chat pane (ADR-031).
+//! - [`cli_install`]: where the `writ` command is installed (ADR-017).
 //! - [`command`]: command registry types for palette-driven actions.
 //! - [`config`]: typed user configuration with serde defaults.
 //! - [`crash`]: what a panic report may say (ADR-045).
@@ -57,6 +58,8 @@ pub mod ai;
 pub mod buffer;
 /// Request shape and stream grammar for the chat pane.
 pub mod chat;
+/// Where the `writ` command is installed and which one a client is handed.
+pub mod cli_install;
 /// Command registry types for the command palette.
 pub mod command;
 /// Typed configuration schema with serde defaults.

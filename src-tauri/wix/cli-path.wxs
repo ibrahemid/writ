@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <DirectoryRef Id="INSTALLDIR">
+            <Component Id="WritCommandOnPath" Guid="E48693D8-AA17-4D27-9EAB-F2A34A39862D">
+                <Environment Id="WritCommandPathEntry"
+                             Name="PATH"
+                             Value="[INSTALLDIR]"
+                             Action="set"
+                             Part="last"
+                             System="yes"
+                             Permanent="no" />
+                <RegistryValue Root="HKCU"
+                               Key="Software\Writ\Command"
+                               Name="OnPath"
+                               Type="integer"
+                               Value="1"
+                               KeyPath="yes" />
+            </Component>
+        </DirectoryRef>
+    </Fragment>
+</Wix>

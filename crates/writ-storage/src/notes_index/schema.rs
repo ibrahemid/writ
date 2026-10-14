@@ -1,11 +1,13 @@
 //! What the index records beside its rows: the folded name every link row
-//! carries (migration 045), the version of the set of paths it holds, and the
-//! census a complete walk leaves for the next one.
+//! carries (migration 045), the folded search text of the notes in Han, kana,
+//! Hangul or Arabic script (migration 051), the version of the set of paths it
+//! holds, and the census a complete walk leaves for the next one.
 
 use std::collections::{HashMap, HashSet};
 
 use rusqlite::{params, Connection};
 use writ_core::notes::{facts, links};
+use writ_core::search::{fold_for_search, needs_folded_index};
 
 use super::IndexedBy;
 use crate::errors::StorageResult;
@@ -44,6 +46,54 @@ pub(crate) fn backfill_link_name_keys(conn: &Connection) -> StorageResult<usize>
         stmt.execute(params![rowid, key])?;
     }
     Ok(rows.len())
+}
+
+/// Writes `rowid`'s row of `files_folded` from the note's `name` and `content`
+/// when either holds a script that index is for
+/// ([`writ_core::search::needs_folded_index`]), and leaves none otherwise.
+///
+/// Runs inside the caller's transaction, after its `files_fts` row: the two
+/// indexes describe one note at one moment.
+pub(crate) fn write_folded(
+    conn: &Connection,
+    rowid: i64,
+    name: &str,
+    content: &str,
+) -> rusqlite::Result<()> {
+    conn.prepare_cached("DELETE FROM files_folded WHERE rowid = ?1")?
+        .execute(params![rowid])?;
+    if !needs_folded_index(name) && !needs_folded_index(content) {
+        return Ok(());
+    }
+    conn.prepare_cached("INSERT INTO files_folded (rowid, name, content) VALUES (?1, ?2, ?3)")?
+        .execute(params![
+            rowid,
+            fold_for_search(name).as_ref(),
+            fold_for_search(content).as_ref()
+        ])?;
+    Ok(())
+}
+
+/// Fills `files_folded` from the text `files_fts` already holds, for every
+/// note that needs a row there. Returns the rows written.
+///
+/// Migration 051 runs this inside its own transaction, and the repair runs it
+/// when the table was lost, so no note is read off disk to fill it: a note
+/// the index holds by name alone has empty text here as in `files_fts`.
+pub(crate) fn backfill_folded(conn: &Connection) -> StorageResult<usize> {
+    let mut written = 0usize;
+    let mut stmt = conn.prepare("SELECT rowid, name, content FROM files_fts")?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let rowid: i64 = row.get(0)?;
+        let name: String = row.get(1)?;
+        let content: String = row.get(2)?;
+        if needs_folded_index(&name) || needs_folded_index(&content) {
+            write_folded(conn, rowid, &name, &content)?;
+            written += 1;
+        }
+    }
+    Ok(written)
 }
 
 /// The version of the set of paths in `files`

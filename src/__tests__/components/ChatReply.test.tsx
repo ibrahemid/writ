@@ -34,7 +34,7 @@ vi.mock("../../services/tauri", () => ({
 
 import ChatTurn from "../../components/Chat/ChatTurn";
 import ProposalCard from "../../components/Chat/ProposalCard";
-import { hunkRows } from "../../components/Chat/ProposalCard";
+import { hunkRows } from "../../lib/diff-rows";
 import type { Message } from "../../stores/global/chat";
 
 function reply(html: string): Message {
