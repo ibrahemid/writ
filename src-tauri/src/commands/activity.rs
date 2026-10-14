@@ -306,14 +306,92 @@ fn stamp_waiting_write(state: &AppState) -> impl FnOnce(&[u8]) + '_ {
     }
 }
 
+/// Whether setting `name` to `write` hands it writing it does not hold yet.
+///
+/// Writing changes, creates and renames notes, so it is the one direction the
+/// person confirms outside the webview (ADR-031 rule 3.8). Taking writing away,
+/// or keeping a grant already made, asks nothing.
+pub fn is_new_write_grant(config: &McpConfig, name: &str, write: bool) -> bool {
+    write
+        && !config
+            .approved_clients
+            .iter()
+            .any(|approval| approval.name == name && approval.write)
+}
+
+/// The longest program name the confirmation shows before it is cut.
+const DIALOG_NAME_MAX_CHARS: usize = 60;
+
+/// A program's name as the confirmation shows it.
+///
+/// The name is whatever the program sent, so it is cut to one short line:
+/// control characters become spaces and a long name ends in an ellipsis, and
+/// no name can add lines of its own to the dialog's text.
+pub fn dialog_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let cleaned = cleaned.trim();
+    if cleaned.chars().count() <= DIALOG_NAME_MAX_CHARS {
+        return cleaned.to_string();
+    }
+    let cut: String = cleaned.chars().take(DIALOG_NAME_MAX_CHARS).collect();
+    format!("{}…", cut.trim_end())
+}
+
+/// Asks the person in a native dialog whether `name` may change their files.
+///
+/// The webview can call the grant commands, so a grant of writing is confirmed
+/// where no script in it can draw or answer the question. Waits on the dialog,
+/// so it is only called from an async command, never on the main thread.
+fn confirm_write_grant(app: &AppHandle, name: &str) -> bool {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+    let (tx, rx) = std::sync::mpsc::channel::<bool>();
+    app.dialog()
+        .message("It can write, create and rename files in your folder.")
+        .title(format!(
+            "Let \u{201c}{}\u{201d} change your files?",
+            dialog_name(name)
+        ))
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Allow".to_string(),
+            "Cancel".to_string(),
+        ))
+        .show(move |allowed| {
+            let _ = tx.send(allowed);
+        });
+    rx.recv().unwrap_or(false)
+}
+
+/// Whether the grant may go ahead: it hands out no new writing, or the person
+/// allowed it. The settings lock is let go before the dialog is up.
+fn write_grant_allowed(app: &AppHandle, location: &'static str, name: &str, write: bool) -> bool {
+    let is_new = {
+        let state = app.state::<AppState>();
+        let guard = recover_poison(state.config.lock(), location);
+        is_new_write_grant(&guard.mcp, name, write)
+    };
+    !is_new || confirm_write_grant(app, name)
+}
+
 /// IPC: set what one client may do.
+///
+/// A grant of writing waits on the native confirmation; turned down, nothing
+/// changes and the lists come back as they were.
 #[tauri::command]
-pub fn mcp_set_client_permission(
+pub async fn mcp_set_client_permission(
     app: AppHandle,
     name: String,
     read: bool,
     write: bool,
 ) -> Result<McpClients, String> {
+    let location = "commands::activity::mcp_set_client_permission";
+    if !write_grant_allowed(&app, location, &name, write) {
+        return Ok(clients_now(&app.state::<AppState>(), location));
+    }
     write_approvals(&app, "mcp_set_client_permission", &name, |mcp| {
         set_client_permission_inner(mcp, &name, read, write).map_err(|e| e.to_string())
     })
@@ -380,9 +458,20 @@ pub fn return_to_waiting_inner(
     Ok(clients_now(state, location))
 }
 
+/// IPC: undo a forget, putting the approval back as it was.
+///
+/// The approval comes from the webview, so one that carries writing the
+/// program no longer holds waits on the same native confirmation a grant does.
 #[tauri::command]
-pub fn mcp_restore_client(app: AppHandle, approval: ClientApproval) -> Result<McpClients, String> {
+pub async fn mcp_restore_client(
+    app: AppHandle,
+    approval: ClientApproval,
+) -> Result<McpClients, String> {
+    let location = "commands::activity::mcp_restore_client";
     let name = approval.name.clone();
+    if !write_grant_allowed(&app, location, &name, approval.write) {
+        return Ok(clients_now(&app.state::<AppState>(), location));
+    }
     write_approvals(&app, "mcp_restore_client", &name, |mcp| {
         restore_client_inner(mcp, approval).map_err(|e| e.to_string())
     })

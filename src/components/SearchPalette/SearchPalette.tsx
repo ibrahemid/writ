@@ -58,6 +58,10 @@ export function searchNotice(): string | null {
   if (outcome?.truncated) {
     parts.push(`Text search stopped at ${outcome.hit_count} matches`);
   }
+  const skipped = outcome?.skipped_not_downloaded ?? 0;
+  if (skipped > 0) {
+    parts.push(`${skipped} ${skipped === 1 ? "file" : "files"} not downloaded, not searched`);
+  }
   if (parts.length === 0) return PREFIX_HINT;
   return parts.join(" · ");
 }

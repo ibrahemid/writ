@@ -4,8 +4,10 @@
     "description": "Default capabilities for Writ",
     "windows": ["main"],
     "permissions": [
-        "core:default",
+        "core:event:default",
+        "core:window:default",
         "core:window:allow-hide",
+        "core:window:allow-destroy",
         "core:window:allow-minimize",
         "core:window:allow-unminimize",
         "core:window:allow-maximize",
@@ -18,10 +20,6 @@
         "core:window:allow-set-focus",
         "core:window:allow-start-dragging",
         "clipboard-manager:allow-read-text",
-        "clipboard-manager:allow-write-text",
-        "dialog:allow-save",
-        "global-shortcut:allow-register",
-        "global-shortcut:allow-unregister",
-        "global-shortcut:allow-is-registered"
+        "clipboard-manager:allow-write-text"
     ]
 }

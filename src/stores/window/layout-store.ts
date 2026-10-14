@@ -17,8 +17,7 @@ export type LayoutStore = ReturnType<typeof createLayoutStore>;
 
 const DEFAULT_LAYOUT: LayoutMode = { kind: "source" };
 
-export function createLayoutStore(deps: { windowId: number }) {
-  const { windowId } = deps;
+export function createLayoutStore() {
   const layouts = new Map<string, LayoutMode>();
   const previousLayouts = new Map<string, LayoutMode>();
   const [version, setVersion] = createSignal(0);
@@ -52,9 +51,7 @@ export function createLayoutStore(deps: { windowId: number }) {
   /** Set the layout in memory and persist it (scratch buffers — null path — are not persisted). */
   function set(bufferId: string, path: string | null, layout: LayoutMode): void {
     setLocal(bufferId, layout);
-    void previewSetLayout(windowId, bufferId, path, layout.kind, layoutRatio(layout)).catch(
-      () => {},
-    );
+    void previewSetLayout(path, layout.kind, layoutRatio(layout)).catch(() => {});
   }
 
   /** Load a source-backed buffer's persisted layout, if any. */

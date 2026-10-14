@@ -1,5 +1,6 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type {
   BufferDocument,
   ChangeChoice,
@@ -99,6 +100,9 @@ export interface RenamePropagation {
   updated: number;
   updated_paths: string[];
   skipped: SkippedFile[];
+  /** What puts this rename back, or null when there is nothing to undo. The
+   * files the undo touches are held by the backend, never sent from here. */
+  undo_token: string | null;
 }
 
 /** How many notes link to the note at `path`, that note itself left out. */
@@ -114,13 +118,10 @@ export async function renameNoteWithLinks(
   return invoke("rename_note_with_links", { path, newName, updateLinks });
 }
 
-/** Puts a rename back, over the files it rewrote and no others. */
-export async function undoRenameWithLinks(
-  path: string,
-  previousName: string,
-  paths: string[],
-): Promise<RenamePropagation> {
-  return invoke("undo_rename_with_links", { path, previousName, paths });
+/** Puts a rename back, over the files it rewrote and no others, by the token
+ * the rename handed out. */
+export async function undoRenameWithLinks(token: string): Promise<RenamePropagation> {
+  return invoke("undo_rename_with_links", { token });
 }
 
 export async function deleteNote(id: string): Promise<void> {
@@ -513,13 +514,6 @@ export async function restoreNoteFile(id: string, content: string): Promise<stri
   return invoke("restore_note_file", { id, content });
 }
 
-export async function saveBufferContentUnindexed(
-  id: string,
-  content: string,
-): Promise<string | null> {
-  return invoke("save_buffer_content_unindexed", { id, content });
-}
-
 /**
  * What the backend can say about a note's file.
  *
@@ -676,10 +670,6 @@ export async function deleteBuffer(id: string): Promise<void> {
   return invoke("delete_buffer", { id });
 }
 
-export async function updateTabOrder(id: string, order: number): Promise<void> {
-  return invoke("update_tab_order", { id, order });
-}
-
 export async function listHistory(): Promise<BufferDocument[]> {
   return invoke("list_history");
 }
@@ -737,10 +727,6 @@ export async function clearCommandUsage(): Promise<void> {
 
 export async function pruneCommandUsage(knownIds: string[]): Promise<void> {
   return invoke("prune_command_usage", { knownIds });
-}
-
-export async function toggleWindow(): Promise<void> {
-  return invoke("toggle_window");
 }
 
 export async function confirmQuitFlush(): Promise<void> {
@@ -1150,25 +1136,23 @@ export async function previewListRenderers(): Promise<PreviewRendererInfo[]> {
 }
 
 export async function previewRender(
-  windowId: number,
   bufferId: string,
   contentType: string,
   text: string,
   theme: ThemePolarity,
   zoom: number,
 ): Promise<PreviewRenderResult> {
-  return invoke("preview_render", { windowId, bufferId, contentType, text, theme, zoom });
+  return invoke("preview_render", { bufferId, contentType, text, theme, zoom });
 }
 
 export async function previewForceRender(
-  windowId: number,
   bufferId: string,
   contentType: string,
   text: string,
   theme: ThemePolarity,
   zoom: number,
 ): Promise<PreviewRenderResult> {
-  return invoke("preview_force_render", { windowId, bufferId, contentType, text, theme, zoom });
+  return invoke("preview_force_render", { bufferId, contentType, text, theme, zoom });
 }
 
 export async function previewClose(bufferId: string): Promise<void> {
@@ -1196,13 +1180,11 @@ export async function previewSetScripts(bufferId: string, enabled: boolean): Pro
 }
 
 export async function previewSetLayout(
-  windowId: number,
-  bufferId: string,
   path: string | null,
   layout: string,
   ratio: number | null,
 ): Promise<void> {
-  return invoke("preview_set_layout", { windowId, bufferId, path, layout, ratio });
+  return invoke("preview_set_layout", { path, layout, ratio });
 }
 
 export interface PersistedLayout {
@@ -2003,4 +1985,22 @@ export interface McpTools {
 
 export async function mcpTools(): Promise<McpTools> {
   return invoke("mcp_tools");
+}
+
+// --- Clipboard ---
+//
+// Through the Tauri plugin rather than `navigator.clipboard`: reading in
+// WKWebView can raise WebKit's own paste-confirmation UI, and webkitgtk's
+// clipboard read is unreliable, so the web API would behave differently on each
+// of the three platforms Writ ships.
+
+export async function writeClipboardText(text: string): Promise<void> {
+  await writeText(text);
+}
+
+/** Reads clipboard text. Returns "" when the clipboard holds no text, so a
+ * caller pasting an image or an empty clipboard inserts nothing rather than
+ * failing. */
+export async function readClipboardText(): Promise<string> {
+  return (await readText()) ?? "";
 }

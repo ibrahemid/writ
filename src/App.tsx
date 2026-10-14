@@ -294,6 +294,11 @@ function AppShell() {
     });
     unlisteners.push(unlistenWorkspace);
 
+    const unlistenWorkspaceSwept = await onEvent("workspace:swept", () => {
+      workspaceStore.handleSwept();
+    });
+    unlisteners.push(unlistenWorkspaceSwept);
+
     const unlistenInbox = await onEvent("inbox:file-arrived", (payload) => {
       void inboxStore.handleFileArrived(payload.path);
     });
@@ -908,10 +913,11 @@ function AppShell() {
     // file was named and every open note asks after its own.
     const unlistenSwept = await onEvent("notes:swept", () => {
       void recheckOpenNotes({
-        openNotes: () => bufferRegistry.buffers(),
+        tabs: bufferRegistry,
         diskStateOf: (id) => win.editor.readDiskState(id),
         lastKnownDiskHash: (id) => win.editor.lastKnownDiskHash(id),
         onChanged: (payload) => handleExternalEdit(payload, externalEditDeps),
+        onFailure: () => logFailure("an open note could not be checked after the folder changed"),
       });
     });
     unlisteners.push(unlistenSwept);

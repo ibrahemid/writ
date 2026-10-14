@@ -414,7 +414,6 @@ impl PendingRemovals {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hash::sha256_bytes;
 
     fn inode(ino: u64) -> FileIdentity {
         FileIdentity::Inode {
@@ -614,7 +613,7 @@ mod tests {
             path: "/notes/a.md".to_string(),
             size: 4,
             mtime_ms: Some(1),
-            hash: sha256_bytes(b"text"),
+            birth_ns: None,
         };
         let removal = vanished("/notes/a.md", Some(fallback));
         assert!(!pending.hold(removal, Instant::now()));

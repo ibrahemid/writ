@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: vi.fn().mockResolvedValue(undefined),
   chatList: mocks.chatList,
   chatOpen: mocks.chatOpen,
   chatRenderReply: mocks.chatRenderReply,
@@ -58,9 +59,6 @@ vi.mock("../../commands/chat", async () => {
   };
 });
 
-vi.mock("../../services/clipboard", () => ({
-  writeClipboardText: vi.fn().mockResolvedValue(undefined),
-}));
 
 // The column's open state is the config's (F17), so the fixture's copy of it
 // follows the column's own setter.

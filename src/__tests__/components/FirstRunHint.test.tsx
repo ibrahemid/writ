@@ -26,6 +26,7 @@ vi.mock("../../services/tauri", () => ({
   getBuffer: mocks.getBuffer,
   renameNote: mocks.renameNote,
   renameNoteWithLinks: mocks.renameNoteWithLinks,
+  getNotesRoot: vi.fn().mockResolvedValue("/notes"),
   previewListRenderers: vi.fn().mockResolvedValue([]),
   previewGetLayout: vi.fn().mockResolvedValue(null),
   previewSetLayout: vi.fn().mockResolvedValue(undefined),
@@ -37,6 +38,7 @@ vi.spyOn(configStore, "config").mockImplementation(() => mocks.config() as WritC
 
 import FirstRunHint from "../../components/Editor/FirstRunHint";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
+import { notesStore } from "../../stores/global/notes";
 import {
   createFirstRunStore,
   firstRunStore,
@@ -77,6 +79,7 @@ describe("the first launch's one line", () => {
       updated: 1,
       updated_paths: [],
       skipped: [],
+      undo_token: "tok-1",
     });
     mocks.listActiveBuffers.mockReset().mockResolvedValue([]);
     mocks.getBuffer
@@ -182,6 +185,7 @@ describe("the first launch's one line", () => {
       },
     ]);
     await bufferRegistry.load();
+    await notesStore.load();
     const { container } = mount();
     win!.tabs.setActiveTabId("note-7");
 

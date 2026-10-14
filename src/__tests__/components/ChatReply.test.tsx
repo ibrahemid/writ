@@ -3,17 +3,19 @@ import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 
 // A reply is model output. It is rendered into the pane's own element, never
 // the preview iframe; a link in it opens where every other external link
-// opens, and only after a click; and every code block can be copied as the
-// source the model wrote.
+// opens, and only after the person has seen its whole address and said Open;
+// and every code block can be copied as the source the model wrote.
 
 const mocks = vi.hoisted(() => ({
   openExternalUrl: vi.fn(),
+  classifyExternalUrl: vi.fn(),
   writeClipboardText: vi.fn(),
 }));
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: mocks.writeClipboardText,
   openExternalUrl: mocks.openExternalUrl,
-  classifyExternalUrl: vi.fn(),
+  classifyExternalUrl: mocks.classifyExternalUrl,
   noteNameCandidates: vi.fn(),
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn(),
@@ -29,9 +31,6 @@ vi.mock("../../services/tauri", () => ({
   chatState: vi.fn(),
 }));
 
-vi.mock("../../services/clipboard", () => ({
-  writeClipboardText: mocks.writeClipboardText,
-}));
 
 import ChatTurn from "../../components/Chat/ChatTurn";
 import ProposalCard from "../../components/Chat/ProposalCard";
@@ -54,6 +53,9 @@ function reply(html: string): Message {
 
 beforeEach(() => {
   mocks.openExternalUrl.mockReset().mockResolvedValue(undefined);
+  mocks.classifyExternalUrl
+    .mockReset()
+    .mockImplementation(async (url: string) => ({ allowed: true, url, reason: null, message: null }));
   mocks.writeClipboardText.mockReset().mockResolvedValue(undefined);
 });
 
@@ -84,10 +86,10 @@ describe("a rendered reply", () => {
     await waitFor(() => expect(mocks.writeClipboardText).toHaveBeenLastCalledWith("echo hi"));
   });
 
-  it("opens an http link outside, and never navigates", () => {
+  it("asks before it opens an http link, and never navigates", async () => {
     const { container } = render(() => (
       <ChatTurn
-        message={reply('<p><a href="https://writ.md/docs">the docs</a></p>')}
+        message={reply('<p><a href="https://writ.md/docs?d=note">the docs</a></p>')}
         thinking={false}
       />
     ));
@@ -97,12 +99,44 @@ describe("a rendered reply", () => {
     link.dispatchEvent(click);
 
     expect(click.defaultPrevented).toBe(true);
-    expect(mocks.openExternalUrl).toHaveBeenCalledWith("https://writ.md/docs");
+    expect(mocks.openExternalUrl).not.toHaveBeenCalled();
+    const ask = container.querySelector(".link-confirm") as HTMLElement;
+    expect(ask).not.toBeNull();
+    await waitFor(() =>
+      expect(ask.querySelector(".link-confirm-url")?.textContent).toBe(
+        "https://writ.md/docs?d=note",
+      ),
+    );
+    const open = ask.querySelector(".link-confirm-open") as HTMLButtonElement;
+    await waitFor(() => expect(open.disabled).toBe(false));
+
+    fireEvent.click(open);
+
+    expect(mocks.openExternalUrl).toHaveBeenCalledWith("https://writ.md/docs?d=note");
+    expect(container.querySelector(".link-confirm")).toBeNull();
+  });
+
+  it("opens nothing when the question is cancelled", async () => {
+    const { container } = render(() => (
+      <ChatTurn
+        message={reply('<p><a href="https://writ.md/docs">the docs</a></p>')}
+        thinking={false}
+      />
+    ));
+
+    (container.querySelector("a") as HTMLAnchorElement).dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    const cancel = container.querySelector(".link-confirm-cancel") as HTMLButtonElement;
+    fireEvent.click(cancel);
+
+    expect(container.querySelector(".link-confirm")).toBeNull();
+    expect(mocks.openExternalUrl).not.toHaveBeenCalled();
   });
 
   // The renderer keeps http, https and mailto and drops the rest, so the pane
   // opens the same three and nothing else.
-  it("opens a mailto link outside as well", () => {
+  it("asks about a mailto link as well", () => {
     const { container } = render(() => (
       <ChatTurn
         message={reply('<p><a href="mailto:x@example.com">the maintainer</a></p>')}
@@ -115,7 +149,8 @@ describe("a rendered reply", () => {
     link.dispatchEvent(click);
 
     expect(click.defaultPrevented).toBe(true);
-    expect(mocks.openExternalUrl).toHaveBeenCalledWith("mailto:x@example.com");
+    expect(container.querySelector(".link-confirm")).not.toBeNull();
+    expect(mocks.openExternalUrl).not.toHaveBeenCalled();
   });
 
   it("does nothing for a script link", () => {
@@ -132,6 +167,7 @@ describe("a rendered reply", () => {
 
     expect(click.defaultPrevented).toBe(true);
     expect(mocks.openExternalUrl).not.toHaveBeenCalled();
+    expect(container.querySelector(".link-confirm")).toBeNull();
   });
 
   it("does nothing for a link that is not http", () => {
@@ -145,6 +181,7 @@ describe("a rendered reply", () => {
 
     expect(click.defaultPrevented).toBe(true);
     expect(mocks.openExternalUrl).not.toHaveBeenCalled();
+    expect(container.querySelector(".link-confirm")).toBeNull();
   });
 
   it("puts a table in a box of its own so a wide one scrolls", () => {

@@ -105,7 +105,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-core/src/startup.rs",
-        line: 54,
+        line: 57,
         word: "buffer",
         note: "startup failure remedy text, release 0.6",
     },

@@ -270,6 +270,7 @@ fn every_event(state: &AppState, id: &str, path: &str) -> Vec<WritEvent> {
             path: path.to_string(),
             removed: true,
         },
+        WritEvent::WorkspaceSwept { root: root.clone() },
         WritEvent::NotesSwept { root },
         WritEvent::NotesIndexed {
             paths: vec![path.to_string()],
@@ -302,6 +303,7 @@ fn listed(event: &WritEvent) {
         | WritEvent::ConfigChanged { .. }
         | WritEvent::BufferExternal { .. }
         | WritEvent::WorkspaceChanged { .. }
+        | WritEvent::WorkspaceSwept { .. }
         | WritEvent::NotesChanged { .. }
         | WritEvent::NotesSwept { .. }
         | WritEvent::NotesIndexed { .. }

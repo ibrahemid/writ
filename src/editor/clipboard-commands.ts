@@ -1,5 +1,5 @@
 import type { EditorView } from "@codemirror/view";
-import { readClipboardText, writeClipboardText } from "../services/clipboard";
+import { readClipboardText, writeClipboardText } from "../services/tauri";
 
 /**
  * Clipboard verbs for the editor's context menu.
@@ -7,7 +7,7 @@ import { readClipboardText, writeClipboardText } from "../services/clipboard";
  * Everything goes through CodeMirror transactions rather than
  * `document.execCommand`, so a cut or paste lands in one undo step and a
  * read-only buffer is respected. Reads and writes use the Tauri clipboard
- * plugin (see `services/clipboard`), which behaves the same on all three
+ * plugin (see `services/tauri`), which behaves the same on all three
  * platforms.
  */
 

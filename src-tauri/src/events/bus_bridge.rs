@@ -21,6 +21,7 @@ use std::sync::Arc;
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::watcher::change_event::ExternalChange;
 use writ_storage::notes_index::NotesIndexStore;
+use writ_storage::paths::file_name_only;
 
 use crate::events::WritFrontendEvent;
 
@@ -68,7 +69,11 @@ pub fn attach_bridge_behind_notes_index<F>(
             notes_index.index_path(path).map(|_| ())
         };
         if let Err(e) = result {
-            tracing::warn!(path = %path.display(), error = %e, "notes index update failed");
+            tracing::warn!(
+                path = %file_name_only(&path.to_string_lossy()),
+                error = %e,
+                "notes index update failed"
+            );
         }
     });
     attach_bridge(bus, on_emit);
@@ -76,10 +81,6 @@ pub fn attach_bridge_behind_notes_index<F>(
 
 fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
     match event {
-        WritEvent::BufferOpened { id, title } => Some(WritFrontendEvent::BufferOpened {
-            id: id.clone(),
-            title: title.clone(),
-        }),
         WritEvent::ConfigChanged { keys } => {
             Some(WritFrontendEvent::ConfigChanged { keys: keys.clone() })
         }
@@ -113,6 +114,9 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             path: path.clone(),
             removed: *removed,
         }),
+        WritEvent::WorkspaceSwept { root } => {
+            Some(WritFrontendEvent::WorkspaceSwept { root: root.clone() })
+        }
         WritEvent::NotesSwept { root } => {
             Some(WritFrontendEvent::NotesSwept { root: root.clone() })
         }
@@ -123,9 +127,10 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             Some(WritFrontendEvent::InboxFileArrived { path: path.clone() })
         }
         WritEvent::FlushBeforeQuit => Some(WritFrontendEvent::FlushBeforeQuit {}),
-        WritEvent::HotkeyToggle | WritEvent::PluginEvent { .. } | WritEvent::McpPendingChanged => {
-            None
-        }
+        WritEvent::BufferOpened { .. }
+        | WritEvent::HotkeyToggle
+        | WritEvent::PluginEvent { .. }
+        | WritEvent::McpPendingChanged => None,
     }
 }
 
@@ -141,27 +146,6 @@ mod tests {
             captured_clone.lock().unwrap().push(event);
         });
         captured
-    }
-
-    #[test]
-    fn bridge_translates_buffer_opened_to_frontend_event() {
-        let bus = EventBus::new();
-        let captured = capture(&bus);
-
-        bus.emit(WritEvent::BufferOpened {
-            id: "id-1".to_string(),
-            title: "draft".to_string(),
-        });
-
-        let events = captured.lock().unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(
-            events[0],
-            WritFrontendEvent::BufferOpened {
-                id: "id-1".to_string(),
-                title: "draft".to_string(),
-            }
-        );
     }
 
     #[test]
@@ -409,6 +393,10 @@ mod tests {
         let captured = capture(&bus);
 
         bus.emit(WritEvent::HotkeyToggle);
+        bus.emit(WritEvent::BufferOpened {
+            id: "id-1".to_string(),
+            title: "draft".to_string(),
+        });
         bus.emit(WritEvent::PluginEvent {
             plugin_id: "plg".to_string(),
             data: serde_json::Value::Null,

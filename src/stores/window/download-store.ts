@@ -128,6 +128,15 @@ export function createDownloadStore() {
     }
   }
 
+  // The person asks again for a note whose download stopped: the same tab
+  // asking, never a second entry. Bytes that arrived but did not open are
+  // already here, so the ask ends in the open.
+  async function retry(path: string): Promise<void> {
+    const entry = find(path);
+    if (!entry || entry.state === "downloading") return;
+    await start({ path: entry.path, title: entry.title, provider: entry.provider });
+  }
+
   // The person is done with this note. One gesture whether the download is
   // still running or ended a while ago: the entry goes, the wait behind it
   // stops if there is one, and the permission the entry was holding for a
@@ -199,6 +208,7 @@ export function createDownloadStore() {
     select,
     attachOpener,
     start,
+    retry,
     dismiss,
     handle,
     mount,

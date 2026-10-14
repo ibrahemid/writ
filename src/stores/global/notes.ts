@@ -5,7 +5,7 @@ import type {
   NotesFallbackReason,
   NotesFolderInfo,
 } from "../../services/tauri";
-import { writeClipboardText } from "../../services/clipboard";
+import { writeClipboardText } from "../../services/tauri";
 
 // Singleton state — Writ is single-window. The notes folder changes only when
 // the user moves it from Settings, which goes through `move` below and

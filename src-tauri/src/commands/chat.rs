@@ -239,10 +239,22 @@ pub fn chat_delete(app: AppHandle, id: String) -> Result<(), String> {
 ///
 /// The untrusted variant: a model's reply is untrusted input (ADR-031 rule
 /// 4.1), so raw HTML is dropped rather than passed through, and the pane loads
-/// neither the diagram runtime nor the math one.
+/// neither the diagram runtime nor the math one. A panic in the renderer fails
+/// this reply's render instead of the app (ADR-045).
 #[tauri::command]
-pub fn chat_render_reply(markdown: String) -> String {
-    writ_render::render_markdown_fragment_untrusted(&markdown).html
+pub fn chat_render_reply(markdown: String) -> Result<String, String> {
+    render_reply_with(&markdown, |markdown| {
+        writ_render::render_markdown_fragment_untrusted(markdown).html
+    })
+}
+
+fn render_reply_with(
+    markdown: &str,
+    render: impl FnOnce(&str) -> String,
+) -> Result<String, String> {
+    // The closure never returns an error of its own: an `Err` is a panic.
+    writ_core::preview::render_contained(|| Ok(render(markdown)))
+        .map_err(|_| writ_core::preview::RENDERER_PANICKED.to_string())
 }
 
 /// What the card reads when the tab's own save path refused the write.
@@ -561,6 +573,29 @@ mod tests {
             save_error_sentence("README.md", ""),
             "README.md was not written.",
             "a code the card has no sentence for still says which file, never the code"
+        );
+    }
+}
+
+#[cfg(test)]
+mod render_reply_tests {
+    use super::*;
+
+    #[test]
+    fn a_reply_renders_to_its_fragment() {
+        assert_eq!(
+            chat_render_reply("**bold**".to_string()).unwrap().trim(),
+            "<p><strong>bold</strong></p>"
+        );
+    }
+
+    #[test]
+    fn a_renderer_panic_fails_the_reply_without_quoting_it() {
+        let failed = render_reply_with("a private reply", |text| panic!("renderer bug on {text}"));
+
+        assert_eq!(
+            failed,
+            Err(writ_core::preview::RENDERER_PANICKED.to_string())
         );
     }
 }

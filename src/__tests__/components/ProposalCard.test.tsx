@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: vi.fn().mockResolvedValue(undefined),
   chatState: vi.fn(),
   chatAttachedSizes: mocks.chatAttachedSizes,
   chatList: vi.fn().mockResolvedValue([]),
@@ -29,9 +30,6 @@ vi.mock("../../services/tauri", () => ({
   chatDiscardProposal: mocks.chatDiscardProposal,
 }));
 
-vi.mock("../../services/clipboard", () => ({
-  writeClipboardText: vi.fn().mockResolvedValue(undefined),
-}));
 
 import ProposalCard from "../../components/Chat/ProposalCard";
 import { chatStore } from "../../stores/global/chat";

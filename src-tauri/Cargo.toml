@@ -30,6 +30,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 notify = "8"
 notify-debouncer-mini = "0.7"
+hashbrown = { version = "0.16", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
@@ -73,6 +74,7 @@ rustix = { version = "1", default-features = false, features = ["std", "fs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
+fsevent-sys = "4"
 # The same objc2 line tauri, tao and wry already resolve, so this unifies
 # rather than adding a second copy of the AppKit bindings. Needed to install
 # `applicationShouldTerminate:`, which nothing above this crate exposes.

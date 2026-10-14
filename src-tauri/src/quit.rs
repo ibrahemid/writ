@@ -101,6 +101,12 @@ impl QuitState {
             .is_ok()
     }
 
+    /// Whether a quit, a relaunch or a final shutdown has started, so the
+    /// process is on its way out.
+    pub fn has_begun(&self) -> bool {
+        self.phase.load(Ordering::SeqCst) != IDLE
+    }
+
     /// Whether the shutdown work has finished and the process may go.
     pub fn is_complete(&self) -> bool {
         self.phase.load(Ordering::SeqCst) == COMPLETE

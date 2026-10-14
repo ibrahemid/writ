@@ -388,3 +388,60 @@ fn the_workspace_the_notes_folder_moves_into_lists_and_hears_vendor() {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
 }
+
+/// An install into `.venv` inside an opened code folder reaches nothing: no
+/// event for any of its files, while a file written beside it afterwards still
+/// arrives, which shows the watcher was listening the whole time (TS-12).
+#[test]
+fn an_install_into_a_venv_inside_the_workspace_raises_no_event() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let ws = TempDir::new().unwrap();
+
+    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let received_clone = received.clone();
+    state.event_bus.subscribe(move |event| match event {
+        writ_core::events::bus::WritEvent::WorkspaceChanged { path, .. } => {
+            received_clone.lock().unwrap().push(path.clone());
+        }
+        writ_core::events::bus::WritEvent::WorkspaceSwept { root } => {
+            received_clone.lock().unwrap().push(format!("swept:{root}"));
+        }
+        _ => {}
+    });
+
+    set_workspace_root_from_path(&state, ws.path()).expect("set root");
+
+    let site = ws.path().join(".venv/lib/python3.12/site-packages");
+    for package in 0..40 {
+        let folder = site.join(format!("pkg{package}"));
+        std::fs::create_dir_all(&folder).unwrap();
+        for module in 0..10 {
+            std::fs::write(folder.join(format!("m{module}.py")), "x = 1\n").unwrap();
+        }
+    }
+    std::fs::write(ws.path().join("after.md"), "written last").unwrap();
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if received
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|p| p.ends_with("after.md"))
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the file written after the install never arrived"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let received = received.lock().unwrap();
+    let from_the_install: Vec<&String> = received
+        .iter()
+        .filter(|p| p.contains(".venv") || p.starts_with("swept:"))
+        .collect();
+    assert!(from_the_install.is_empty(), "{from_the_install:?}");
+}

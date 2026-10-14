@@ -133,6 +133,23 @@ impl IgnoreStamps {
         }
     }
 
+    /// [`Self::decide`] for a file the watcher will not read: one too large to
+    /// fingerprint on every change.
+    ///
+    /// A stamp within `ttl` suppresses and is kept, because the only writer
+    /// that stamps a path is Writ, moments before its own write. An expired
+    /// stamp is removed and the event emitted, as no stamp is.
+    pub fn decide_unread(&mut self, key: &str, now: Instant, ttl: Duration) -> SuppressDecision {
+        let Some(stamp) = self.inner.get(key).copied() else {
+            return SuppressDecision::Emit;
+        };
+        if now.saturating_duration_since(stamp.at) > ttl {
+            self.inner.remove(key);
+            return SuppressDecision::Emit;
+        }
+        SuppressDecision::Suppress
+    }
+
     /// Removes any stamp for `key`. Used by close/delete commands.
     pub fn remove(&mut self, key: &str) {
         self.inner.remove(key);

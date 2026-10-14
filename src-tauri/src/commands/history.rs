@@ -127,6 +127,10 @@ fn reopen_closed(state: &AppState, id: &str, confirmed: bool) -> Result<FileOpen
     };
     if reopened {
         state.follow_note_file(&doc);
+        // Closing the tab took its file's write permission away.
+        if let Some(path) = doc.source_path.as_deref() {
+            state.authorized_paths.bless_source_path(path);
+        }
     }
     Ok(FileOpenResult {
         mode,
@@ -153,14 +157,29 @@ fn open_elsewhere(
     Ok(open.filter(|open| open.id != closed.id))
 }
 
+/// IPC: [`clear_history_inner`].
 #[tauri::command]
 pub fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    let history = store
-        .list_by_status(BufferStatus::History)
-        .map_err(|e| e.to_string())?;
-    let ids: Vec<String> = history.into_iter().map(|buf| buf.id).collect();
-    store.delete_many(&ids).map_err(|e| e.to_string())
+    clear_history_inner(&state)
+}
+
+/// Forgets every closed tab, and with it any permission to write the files
+/// they named that no open tab still holds.
+pub fn clear_history_inner(state: &AppState) -> Result<(), String> {
+    let released: Vec<String> = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        let history = store
+            .list_by_status(BufferStatus::History)
+            .map_err(|e| e.to_string())?;
+        let ids: Vec<String> = history.iter().map(|buf| buf.id.clone()).collect();
+        store.delete_many(&ids).map_err(|e| e.to_string())?;
+        history
+            .into_iter()
+            .filter_map(|buf| crate::commands::buffer::released_source(&store, buf.source_path))
+            .collect()
+    };
+    crate::commands::buffer::revoke_released(state, &released);
+    Ok(())
 }
 
 /// Searches note names and content for the user's query.

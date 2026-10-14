@@ -64,6 +64,8 @@ pub mod guarded;
 pub mod identity;
 /// Watched-inbox file listing.
 pub mod inbox_store;
+/// The data-folder lock and the requests a second launch leaves.
+pub mod instance;
 /// Per-buffer preview layout persistence (ADR-009).
 pub mod layout_state;
 /// WAL checkpointing and freelist reclamation.

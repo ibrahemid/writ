@@ -10,7 +10,7 @@ vi.mock("../../components/ContextMenu/ContextMenu", () => ({
   showContextMenu: mocks.showContextMenu,
 }));
 
-vi.mock("../../services/clipboard", () => ({
+vi.mock("../../services/tauri", () => ({
   readClipboardText: mocks.readClipboardText,
   writeClipboardText: mocks.writeClipboardText,
 }));

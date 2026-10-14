@@ -73,6 +73,16 @@ const DEFAULT_IGNORES: &[&str] = &[
     ".trash",
     ".stfolder",
     ".stversions",
+    // Environments and build output another tool fills by the thousand: a
+    // `pip install` into `.venv` raises an event per file it writes (TS-12).
+    ".venv",
+    "venv",
+    "Pods",
+    "out",
+    ".gradle",
+    ".idea",
+    ".terraform",
+    "DerivedData",
 ];
 
 /// Name patterns for the files a sync client, another editor or Writ's own
@@ -394,6 +404,29 @@ mod tests {
         assert!(!dirs.contains(&".env"));
         assert!(!is_ignored(".env"));
         assert!(!is_ignored(".github"));
+    }
+
+    #[test]
+    fn environments_and_build_output_are_left_out_of_a_code_folder_only() {
+        for name in [
+            ".venv",
+            "venv",
+            "Pods",
+            "out",
+            ".gradle",
+            ".idea",
+            ".terraform",
+            "DerivedData",
+        ] {
+            assert!(is_ignored(name), "{name} should be ignored");
+            assert!(WorkspaceKind::Code.hides_change(
+                Path::new("/repo"),
+                &Path::new("/repo").join(name).join("lib/site.py")
+            ));
+            // A notes folder holds writing, so a folder of notes called `out`
+            // is listed there like any other (ADR-028 section 7).
+            assert!(!is_notes_ignored_name(name), "{name} is a note folder name");
+        }
     }
 
     #[test]

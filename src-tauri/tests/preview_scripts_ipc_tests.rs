@@ -27,7 +27,8 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::preview::{
-    preview_get_scripts_inner, preview_set_scripts_inner, render_into_cache, CachedRender,
+    preview_get_scripts_inner, preview_inline_image_inner, preview_set_scripts_inner,
+    render_into_cache, CachedRender, InlineImageResult,
 };
 use writ_tauri_lib::preview::csp::build_document_csp;
 use writ_tauri_lib::preview::handler::{resolve_cached, RenderCache};
@@ -273,6 +274,38 @@ fn a_render_is_served_under_the_csp_its_files_opt_in_calls_for() {
 }
 
 #[test]
+fn a_render_after_a_panic_poisoned_the_store_is_served_with_scripts_off() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = state_with(&dir, "buf-1", None);
+    preview_set_scripts_inner(&state, "buf-1", true).expect("on");
+    assert!(rendered_with_scripts(render_into_cache(
+        &state,
+        "buf-1",
+        html_request()
+    )));
+
+    let poisoned = std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                let _store = state.store.lock().expect("store");
+                panic!("a holder of the store lock panicked");
+            })
+            .join()
+    });
+    assert!(poisoned.is_err() && state.store.is_poisoned());
+
+    assert!(!rendered_with_scripts(render_into_cache(
+        &state,
+        "buf-1",
+        html_request()
+    )));
+    assert_eq!(
+        served_csp(&state.preview_render_cache, "buf-1"),
+        build_document_csp(false)
+    );
+}
+
+#[test]
 fn a_render_of_a_file_the_store_does_not_hold_is_served_with_scripts_off() {
     let dir = TempDir::new().expect("temp dir");
     let state = state_with(&dir, "buf-1", None);
@@ -323,4 +356,49 @@ fn the_navigation_guard_is_installed_on_the_app() {
         "the guard plugin does not route navigations through navigation::is_allowed_navigation \
          with the app's dev server"
     );
+}
+
+/// A file in a folder of its own beside an image, outside the notes folder.
+fn image_beside_a_file(dir: &TempDir) -> std::path::PathBuf {
+    let folder = dir.path().join("elsewhere");
+    std::fs::create_dir_all(&folder).expect("folder");
+    std::fs::write(folder.join("pic.png"), b"\x89PNG\r\n\x1a\nrest").expect("image");
+    let file = folder.join("note.md");
+    std::fs::write(&file, "![](pic.png)\n").expect("file");
+    file
+}
+
+/// The webview names the file a reference was written in, and that folder
+/// becomes a root images are read from. A file no open tab holds is refused,
+/// or any folder on disk could be named and read.
+#[test]
+fn an_inline_image_for_a_file_no_open_tab_holds_is_refused() {
+    let dir = TempDir::new().expect("temp dir");
+    let file = image_beside_a_file(&dir);
+    let state = state_with(&dir, "buf-1", None);
+
+    let answer = preview_inline_image_inner(&state, Some(&file.to_string_lossy()), "pic.png")
+        .expect("an answer");
+
+    match answer {
+        InlineImageResult::Refused { reason } => assert_eq!(reason, "outside_root"),
+        InlineImageResult::Ready { .. } => panic!("an image was read beside a file no tab holds"),
+    }
+}
+
+#[test]
+fn an_inline_image_resolves_against_the_open_tabs_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let file = image_beside_a_file(&dir);
+    let state = state_with(&dir, "buf-1", Some(&file));
+
+    let answer = preview_inline_image_inner(&state, Some(&file.to_string_lossy()), "pic.png")
+        .expect("an answer");
+
+    match answer {
+        InlineImageResult::Ready { mime, .. } => assert_eq!(mime, "image/png"),
+        InlineImageResult::Refused { reason } => {
+            panic!("the open tab's image was refused: {reason}")
+        }
+    }
 }

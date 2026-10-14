@@ -61,6 +61,7 @@ export function createSearchCommands(state: DemoState): CommandTable {
           files_scanned: scanned,
           truncated: hits.length >= CONTENT_HIT_CAP,
           cancelled: false,
+          skipped_not_downloaded: 0,
         },
       });
       return null;

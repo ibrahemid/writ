@@ -16,6 +16,7 @@ use tauri::State;
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::notes::links::{self, Resolution};
 use writ_storage::notes_index::{self, NotesIndexStore, ReconcileOutcome};
+use writ_storage::paths::file_name_only;
 
 use crate::state::AppState;
 
@@ -202,7 +203,11 @@ pub fn index_copy(state: &AppState, path: &Path) -> Option<String> {
         return None;
     }
     if let Err(error) = state.notes_index.index_path(path) {
-        tracing::warn!(path = %path.display(), %error, "a copy could not be indexed");
+        tracing::warn!(
+            path = %file_name_only(&path.to_string_lossy()),
+            %error,
+            "a copy could not be indexed"
+        );
     }
     Some(notes_index::index_key(path))
 }

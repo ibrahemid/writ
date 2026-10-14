@@ -750,6 +750,75 @@ colour escape codes, Unicode rendering) legitimately increases output size.
 
 ---
 
+## app: shipped binary size
+
+**Checked by hand at the release preflight;** no test reads it.
+
+**What is measured:** the size in bytes of the `writ-tauri` executable each
+release ships, per platform, and of each bundle. The release profile unwinds on
+panic and keeps line tables in separate symbol files (ADR-045); unwind tables
+and landing pads are the part of that change that stays in the binary.
+
+**Budget: each executable and each bundle at most 15% over the previous
+release.** A release past it says why in its notes.
+
+| Artifact | 0.6.0 (`panic = "abort"`, `strip = true`) | 0.7.0 |
+|---|---|---|
+| `writ-tauri`, macOS arm64 slice | 24,974,192 | at the 0.7.0 preflight |
+| `writ-tauri`, macOS x86_64 slice | 27,847,680 | at the 0.7.0 preflight |
+| `writ-tauri`, Linux x86_64 (deb) | 31,451,480 | at the 0.7.0 preflight |
+| `writ-tauri.exe`, Windows x64 | not recorded | at the 0.7.0 preflight |
+| `Writ_<v>_universal.dmg` | 29,677,412 | at the 0.7.0 preflight |
+| `Writ_<v>_x64_en-US.msi` | 15,163,392 | at the 0.7.0 preflight |
+| `Writ_<v>_amd64.deb` | 16,812,232 | at the 0.7.0 preflight |
+| `Writ_<v>_amd64.AppImage` | 94,083,576 | at the 0.7.0 preflight |
+
+Method:
+
+- Bundles: `gh release view v<version> --json assets` lists each asset's size.
+- macOS slices: unpack `Writ_<v>_universal.app.tar.gz` and read
+  `lipo -detailed_info Writ.app/Contents/MacOS/writ-tauri`.
+- Linux: `ar x Writ_<v>_amd64.deb`, then `tar -tvzf data.tar.gz | grep usr/bin/writ-tauri`.
+- Windows: the `writ-tauri.exe` in the run's `build-windows-binaries` artifact.
+- Before a tag, the same commands run on the preflight's local build
+  (`scripts/release-preflight.sh`) give the number to compare.
+
+A debug build does not stand in for these: the dev profile already unwinds and
+keeps full debug info. For reference, `cargo build -p writ-tauri` on
+aarch64-apple-darwin at the branch that switched the release profile gave a
+130,914,872-byte `target/debug/writ-tauri` (`stat -f %z`).
+
+### Re-baselining
+
+Each release's row replaces the previous one once it ships. Raise the 15% only
+for a change that adds a dependency or a bundled asset on purpose, and name it
+here.
+
+---
+
+## app: watcher events per second
+
+What a folder watcher may send the webview about the folder itself. Each
+watcher spends an `EmissionBudget` (`writ-core/src/watcher/budget.rs`) per
+500 ms debounce window: nine changes named, then one sweep that stands for the
+rest, and at most one sweep per 2 s cooldown.
+
+| Watcher | Budget | Gate |
+|---|---|---|
+| Notes folder (`NotesChanged`, `NotesSwept`) | 10 events per 500 ms window, 20 per second | `writ-core` budget tests |
+| Workspace folder (`WorkspaceChanged`, `WorkspaceSwept`) | 10 events per 500 ms window, 20 per second | `a_workspace_burst_stays_within_the_budget` in `src-tauri/src/watcher/handler.rs`: 10,000 paths in one window give 10 events, the last a sweep |
+| Workspace folder, an install into `.venv`, `venv`, `node_modules` and the other default-ignored folders | 0 events | `an_install_into_a_venv_inside_the_workspace_raises_no_event` in `src-tauri/tests/workspace_tests.rs` |
+
+Telling an open tab its own file changed is outside the budget and bounded by
+the number of open tabs, one message per tab per window.
+
+### Re-baselining
+
+The numbers are the constants in `budget.rs`; change them there and in this
+table together.
+
+---
+
 ## Fixture determinism guarantee
 
 Both the transform fixture and the storage corpus are fully deterministic:

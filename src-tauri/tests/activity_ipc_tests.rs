@@ -13,9 +13,9 @@ use writ_mcp::consent::{ConfigGate, ConsentGate, Verdict};
 use writ_storage::config_store::ConfigStore;
 use writ_tauri_lib::commands::activity::{
     activity_clear_inner, activity_recent_inner, announce_waiting_inner, deny_client_inner,
-    deny_unnamed_inner, forget_client_inner, mcp_clients_inner, mcp_tools, restore_client_inner,
-    return_to_waiting_inner, server_command_for, set_client_permission_inner, waiting_in,
-    ApprovalError, MAX_ACTIVITY_LIMIT,
+    deny_unnamed_inner, dialog_name, forget_client_inner, is_new_write_grant, mcp_clients_inner,
+    mcp_tools, restore_client_inner, return_to_waiting_inner, server_command_for,
+    set_client_permission_inner, waiting_in, ApprovalError, MAX_ACTIVITY_LIMIT,
 };
 use writ_tauri_lib::events::emitter::WritFrontendEvent;
 use writ_tauri_lib::state::AppState;
@@ -618,4 +618,56 @@ fn every_app_write_to_the_waiting_file_is_stamped_first() {
         writes >= 3,
         "deny, undo and every decision write the waiting file"
     );
+}
+
+/// Writing is the grant a script in the webview could hand a program, so it is
+/// the one that waits on a native dialog; reading, a denial, a revocation and
+/// a grant already made ask nothing.
+#[test]
+fn only_a_grant_of_writing_a_program_lacks_is_confirmed() {
+    let mut config = McpConfig::default();
+    assert!(is_new_write_grant(&config, "claude", true));
+    assert!(!is_new_write_grant(&config, "claude", false));
+
+    set_client_permission_inner(&mut config, "claude", true, false).expect("read");
+    assert!(is_new_write_grant(&config, "claude", true));
+
+    set_client_permission_inner(&mut config, "claude", true, true).expect("write");
+    assert!(!is_new_write_grant(&config, "claude", true));
+    assert!(!is_new_write_grant(&config, "claude", false));
+    assert!(is_new_write_grant(&config, "claude-2", true));
+}
+
+#[test]
+fn the_confirmation_shows_a_programs_name_on_one_short_line() {
+    assert_eq!(dialog_name("claude-code"), "claude-code");
+    assert_eq!(dialog_name("evil\nAllow it\r\tnow"), "evil Allow it  now");
+    let long = "x".repeat(200);
+    let shown = dialog_name(&long);
+    assert_eq!(shown.chars().count(), 61);
+    assert!(shown.ends_with('…'));
+}
+
+/// Both commands that can hand a program writing ask first. The dialog itself
+/// needs a person at the app; this pins that neither command skips it.
+#[test]
+fn both_commands_that_can_grant_writing_ask_first() {
+    for command in [
+        "pub async fn mcp_set_client_permission(",
+        "pub async fn mcp_restore_client(",
+    ] {
+        let start = ACTIVITY_RS
+            .find(command)
+            .unwrap_or_else(|| panic!("{command} is not an async command in activity.rs"));
+        let body = &ACTIVITY_RS[start..];
+        let body = &body[..body.find("\n}\n").expect("the command ends")];
+        let asks = body
+            .find("write_grant_allowed(")
+            .expect("asks before writing");
+        let writes = body.find("write_approvals(").expect("writes the approval");
+        assert!(
+            asks < writes,
+            "{command} writes the approval before it asks"
+        );
+    }
 }

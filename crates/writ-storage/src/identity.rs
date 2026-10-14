@@ -43,13 +43,16 @@ pub fn read_identity(path: &Path) -> Option<FileIdentity> {
     fallback_identity(path)
 }
 
-/// Describes the file for a platform with no stable id to give.
+/// Describes the file for a platform with no stable id to give, from its
+/// metadata alone: size, modification time and creation time.
 ///
-/// A file whose bytes are not on this machine is left without an identity
-/// rather than described: the description carries a hash, and hashing it would
-/// make the sync provider fetch the whole file (ADR-028 §5). A note in that
-/// state has nothing to compare against, which reads the same as an
-/// unreadable id and degrades the same way.
+/// Nothing is read. The description used to carry a hash of the bytes, which
+/// on a FAT or exFAT card or an SMB share meant reading the whole file on
+/// every save (TS-19), and for a file whose bytes are not on this machine
+/// would make the sync provider fetch it (ADR-028 §5). Such a file is still
+/// left without an identity: a note in that state has nothing to compare
+/// against, which reads the same as an unreadable id and degrades the same
+/// way.
 fn fallback_identity(path: &Path) -> Option<FileIdentity> {
     if is_not_downloaded(dataless_flags(path)) {
         return None;
@@ -58,7 +61,6 @@ fn fallback_identity(path: &Path) -> Option<FileIdentity> {
     if !metadata.is_file() {
         return None;
     }
-    let bytes = std::fs::read(path).ok()?;
     Some(FileIdentity::Fallback {
         path: path.to_string_lossy().into_owned(),
         size: metadata.len(),
@@ -67,7 +69,7 @@ fn fallback_identity(path: &Path) -> Option<FileIdentity> {
             .ok()
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|since| since.as_millis() as i64),
-        hash: writ_core::hash::sha256_bytes(&bytes),
+        birth_ns: birth_nanos(&metadata),
     })
 }
 
@@ -420,5 +422,29 @@ mod tests {
             classify_delete(&described, &[(path, described.clone())]),
             DeleteVerdict::ExternalModification
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_fallback_describes_a_file_without_reading_it() {
+        // Unreadable, so a description that needed the bytes would be none
+        // at all (TS-19).
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("on-a-card.md");
+        std::fs::write(&path, "body").expect("write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        let readable = std::fs::read(&path).is_ok();
+
+        let described = fallback_identity(&path);
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("restore");
+        if readable {
+            return;
+        }
+        let Some(FileIdentity::Fallback { size, .. }) = described else {
+            panic!("expected a description, got {described:?}");
+        };
+        assert_eq!(size, 4);
     }
 }

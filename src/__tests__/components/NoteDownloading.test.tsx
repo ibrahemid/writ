@@ -20,7 +20,7 @@ describe("NoteDownloading", () => {
 
   it("names the provider fetching the file", () => {
     const { getByText } = render(() => (
-      <NoteDownloading download={download()} onDismiss={() => {}} />
+      <NoteDownloading download={download()} onRetry={() => {}} onDismiss={() => {}} />
     ));
 
     expect(getByText("Downloading from iCloud Drive…")).toBeTruthy();
@@ -30,7 +30,7 @@ describe("NoteDownloading", () => {
     const { getByText } = render(() => (
       <NoteDownloading
         download={download({ provider: null })}
-        onDismiss={() => {}}
+        onRetry={() => {}} onDismiss={() => {}}
       />
     ));
 
@@ -40,7 +40,11 @@ describe("NoteDownloading", () => {
   it("cancels the wait from the Cancel button", () => {
     const onDismissWhileDownloading = vi.fn();
     const { getByRole } = render(() => (
-      <NoteDownloading download={download()} onDismiss={onDismissWhileDownloading} />
+      <NoteDownloading
+        download={download()}
+        onRetry={() => {}}
+        onDismiss={onDismissWhileDownloading}
+      />
     ));
 
     fireEvent.click(getByRole("button", { name: "Cancel" }));
@@ -51,7 +55,7 @@ describe("NoteDownloading", () => {
     const { getByText, getByRole } = render(() => (
       <NoteDownloading
         download={download({ state: "failed", message: "iCloud Drive is signed out" })}
-        onDismiss={() => {}}
+        onRetry={() => {}} onDismiss={() => {}}
       />
     ));
 
@@ -64,7 +68,7 @@ describe("NoteDownloading", () => {
     const { getByText, queryByText } = render(() => (
       <NoteDownloading
         download={download({ state: "failed" })}
-        onDismiss={() => {}}
+        onRetry={() => {}} onDismiss={() => {}}
       />
     ));
 
@@ -76,11 +80,11 @@ describe("NoteDownloading", () => {
     const { getByText, queryByText } = render(() => (
       <NoteDownloading
         download={download({ state: "failed", reason: "open" })}
-        onDismiss={() => {}}
+        onRetry={() => {}} onDismiss={() => {}}
       />
     ));
 
-    expect(getByText("The file downloaded but it did not open. Open it again.")).toBeTruthy();
+    expect(getByText("The file downloaded but it did not open.")).toBeTruthy();
     expect(queryByText("This file could not be downloaded.")).toBeNull();
   });
 
@@ -88,11 +92,11 @@ describe("NoteDownloading", () => {
     const { getByText } = render(() => (
       <NoteDownloading
         download={download({ state: "failed", reason: "listener" })}
-        onDismiss={() => {}}
+        onRetry={() => {}} onDismiss={() => {}}
       />
     ));
 
-    expect(getByText("Writ lost track of this download. Open the file again.")).toBeTruthy();
+    expect(getByText("Writ lost track of this download.")).toBeTruthy();
   });
 
   it("says what to do after the wait ran out", () => {
@@ -100,13 +104,12 @@ describe("NoteDownloading", () => {
     const { getByText, getByRole } = render(() => (
       <NoteDownloading
         download={download({ state: "timed_out" })}
+        onRetry={() => {}}
         onDismiss={onDismissAfterItStopped}
       />
     ));
 
-    expect(
-      getByText("Still waiting for iCloud Drive. Try again once the file has downloaded."),
-    ).toBeTruthy();
+    expect(getByText("iCloud Drive has not finished downloading this file.")).toBeTruthy();
 
     fireEvent.click(getByRole("button", { name: "Close" }));
     expect(onDismissAfterItStopped).toHaveBeenCalledTimes(1);
@@ -116,10 +119,33 @@ describe("NoteDownloading", () => {
     const { getByText } = render(() => (
       <NoteDownloading
         download={download({ state: "timed_out", provider: null })}
-        onDismiss={() => {}}
+        onRetry={() => {}} onDismiss={() => {}}
       />
     ));
 
-    expect(getByText("Still waiting. Try again once the file has downloaded.")).toBeTruthy();
+    expect(getByText("This file has not finished downloading.")).toBeTruthy();
+  });
+
+  it.each(["failed", "timed_out"] as const)(
+    "asks again from the Try again button once the download has stopped (%s)",
+    (state) => {
+      const onRetry = vi.fn();
+      const onDismiss = vi.fn();
+      const { getByRole } = render(() => (
+        <NoteDownloading download={download({ state })} onRetry={onRetry} onDismiss={onDismiss} />
+      ));
+
+      fireEvent.click(getByRole("button", { name: "Try again" }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+      expect(onDismiss).not.toHaveBeenCalled();
+    },
+  );
+
+  it("offers no Try again while the download is running", () => {
+    const { queryByRole } = render(() => (
+      <NoteDownloading download={download()} onRetry={() => {}} onDismiss={() => {}} />
+    ));
+
+    expect(queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });

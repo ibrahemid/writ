@@ -186,7 +186,6 @@ describe("PreviewLayout — rename to renderable extension activates preview (re
     );
 
     expect(mocks.forceRender).toHaveBeenCalledWith(
-      9101,
       "R1",
       "html",
       expect.any(String),

@@ -23,3 +23,8 @@
   font-size: var(--writ-ui-sm);
   color: var(--writ-status-error);
 }
+
+.note-downloading-choices {
+  display: flex;
+  gap: var(--writ-space-3);
+}

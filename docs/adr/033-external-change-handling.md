@@ -15,6 +15,28 @@ compares documents rather than digests; the frontend computes no digest. The
 hold in decision 15 keeps a snapshot of the document rather than a string made
 of it on each keystroke.
 
+Amended 2026-10-14. One process holds a data folder: `run` takes an exclusive
+lock on `<data dir>/instance.lock` before the database opens, and a second
+launch writes its paths to `<data dir>/open-requests/` and waits up to 5 s for
+the running instance to take them, claiming the folder itself if the holder
+exits first (a relaunch). That mailbox, rather than a socket, is how macOS
+forwards paths without the single-instance plugin; Linux and Windows use it
+too, since the lock is taken before the plugin runs. A file whose bytes are not
+on this machine is never read by a watcher, a rename with no record, or content
+search. The notes and inbox watchers read a file only when a stamp names it;
+the open-file watcher compares size and modification time with its record
+first and reads nothing past 50 MB. The workspace watcher spends the notes
+watcher's budget (decision 3) and sweeps past it; the file-name index reads
+its ignore rules once per root and replays changes that land during a walk. On
+macOS the open files' folders share one FSEvents stream, rebuilt by a thread
+of its own: the new stream starts before the old one stops, and the old one
+reports for one more second, so nothing is lost while it is rebuilt and the
+caller only waits for the new stream to start (decision 5 still holds for every
+other platform). A stream started from a past event id replays history before
+anything live, 0.6 to 3.4 s here, so streams start from now;
+the polling fallback in decision 4 compares size and modification time instead
+of contents.
+
 ## Context
 
 Notes live on disk and the file is the only copy (ADR-028 §1). That makes every

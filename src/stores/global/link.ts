@@ -2,7 +2,7 @@
 // of the notes index and lives with the others in `index-cache.ts`; this
 // store opens, copies, classifies and creates what links point at.
 import * as tauri from "../../services/tauri";
-import { writeClipboardText } from "../../services/clipboard";
+import { writeClipboardText } from "../../services/tauri";
 import { indexCacheStore } from "./index-cache";
 import { showToast } from "../../components/Notifications/Toast";
 import { resolveWithinRoot } from "../../lib/path";
