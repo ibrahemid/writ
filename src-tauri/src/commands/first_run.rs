@@ -8,7 +8,7 @@ use writ_core::buffer::document::BufferDocument;
 use writ_core::config::{AppId, FileExtension};
 use writ_core::startup::{file_manager_name, RetitleAnswer};
 
-use crate::commands::config::persist_config;
+use crate::commands::config::mutate_config;
 use crate::state::AppState;
 
 /// What the frontend needs to know about this launch.
@@ -44,19 +44,14 @@ pub fn first_run_state(state: State<'_, AppState>) -> Result<FirstRunState, Stri
 
 /// [`dismiss_first_run_hint`] without the IPC wrapper.
 pub fn dismiss_first_run_hint_inner(state: &AppState) -> Result<(), String> {
-    let mut config = {
-        let current = state.config.lock().map_err(|e| e.to_string())?;
-        current.clone()
-    };
-    if config.first_run.hint_dismissed {
-        return Ok(());
-    }
-    config.first_run.hint_dismissed = true;
-    persist_config(state, &config)?;
-
-    let mut current = state.config.lock().map_err(|e| e.to_string())?;
-    *current = config;
-    Ok(())
+    mutate_config(state, |config| {
+        if config.first_run.hint_dismissed {
+            return false;
+        }
+        config.first_run.hint_dismissed = true;
+        true
+    })
+    .map(|_| ())
 }
 
 /// IPC: the one line under the cursor goes and stays gone.

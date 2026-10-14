@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 vi.mock("../../services/tauri", () => ({
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
+  recordCommandUses: vi.fn().mockResolvedValue(undefined),
 }));
 
 import {
@@ -13,7 +14,9 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
 } from "../../stores/global/config";
-import { getConfig, updateConfig } from "../../services/tauri";
+import { commandUsageStore } from "../../stores/global/command-usage";
+import { createEffect, createRoot } from "solid-js";
+import { getConfig, recordCommandUses, updateConfig } from "../../services/tauri";
 import type { WritConfig } from "../../types/config";
 
 const mockedGetConfig = vi.mocked(getConfig);
@@ -29,10 +32,8 @@ const MOCK_CONFIG: WritConfig = {
   window: { width: 1200, height: 800, maximized: false },
   keybindings: {},
   history: { max_entries: 1000 },
-  storage: { path: "~/.writ" },
   theme: { preset: "warp-dark", overrides: {} },
   appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
-  commands: { usage: {} },
   files: { default_extension: "txt" },
   workspace: { root: null },
   inbox: { path: null, focus: true },
@@ -140,25 +141,13 @@ describe("configStore", () => {
       expect(config.hotkey.toggle).toBeTruthy();
       expect(config.editor.autosave_debounce_ms).toBeGreaterThan(0);
       expect(config.history.max_entries).toBeGreaterThan(0);
-      expect(config.commands.usage).toEqual({});
       consoleSpy.mockRestore();
-    });
-
-    it("normalizes a config that is missing the commands section", async () => {
-      const partial = { ...MOCK_CONFIG } as Partial<WritConfig> as WritConfig;
-      delete (partial as { commands?: unknown }).commands;
-      mockedGetConfig.mockResolvedValueOnce(partial);
-
-      await configStore.load();
-
-      expect(configStore.config().commands.usage).toEqual({});
     });
   });
 
-  describe("command usage tracking", () => {
-    // recordCommandUse/pruneCommandUsage schedule a debounced flush on the
-    // shared singleton; fake timers here keep those timers from leaking real
-    // pending callbacks into the other test files.
+  // F6: the config is read field by field, so a write reruns the readers of
+  // the fields it changed and nothing else.
+  describe("fine-grained reads", () => {
     beforeEach(() => {
       vi.useFakeTimers();
     });
@@ -167,59 +156,83 @@ describe("configStore", () => {
       vi.useRealTimers();
     });
 
-    it("increments count and stamps last_used_ms on recordCommandUse", async () => {
-      await configStore.save(MOCK_CONFIG);
-
-      configStore.recordCommandUse("palette.open", 1_715_000_000_000);
-      configStore.recordCommandUse("palette.open", 1_715_000_001_000);
-
-      const entry = configStore.config().commands.usage["palette.open"];
-      expect(entry.count).toBe(2);
-      expect(entry.last_used_ms).toBe(1_715_000_001_000);
-    });
-
-    it("clears all usage entries via clearCommandUsage", async () => {
-      await configStore.save({
-        ...MOCK_CONFIG,
-        commands: { usage: { "x.y": { count: 4, last_used_ms: 100 } } },
+    /** Counts the runs of an effect reading `read`, after its first. */
+    function countReruns(read: () => unknown): { reruns: () => number; dispose: () => void } {
+      let runs = 0;
+      const dispose = createRoot((done) => {
+        createEffect(() => {
+          read();
+          runs += 1;
+        });
+        return done;
       });
+      return { reruns: () => runs - 1, dispose };
+    }
 
-      await configStore.clearCommandUsage();
-
-      expect(configStore.config().commands.usage).toEqual({});
-      expect(mockedUpdateConfig).toHaveBeenCalled();
-    });
-
-    it("prunes usage entries whose command id is unknown", async () => {
-      await configStore.save({
-        ...MOCK_CONFIG,
-        commands: {
-          usage: {
-            "live.cmd": { count: 1, last_used_ms: 1 },
-            "removed.cmd": { count: 5, last_used_ms: 2 },
-          },
-        },
-      });
-
-      configStore.pruneCommandUsage(new Set(["live.cmd"]));
-
-      expect(configStore.config().commands.usage).toEqual({
-        "live.cmd": { count: 1, last_used_ms: 1 },
-      });
-    });
-
-    it("debounces the usage flush so rapid records coalesce into one updateConfig", async () => {
+    it("running a command reruns no config reader and writes no config", async () => {
       await configStore.save(MOCK_CONFIG);
       mockedUpdateConfig.mockClear();
+      const fontReader = countReruns(() => configStore.config().editor.font_size);
+      const aiReader = countReruns(() => configStore.config().ai.provider);
 
-      configStore.recordCommandUse("palette.open", 1_715_000_000_000);
-      configStore.recordCommandUse("palette.open", 1_715_000_000_500);
+      for (let i = 0; i < 5; i += 1) commandUsageStore.record("palette.open", 1_000 + i);
+      await vi.advanceTimersByTimeAsync(1000);
 
-      await vi.advanceTimersByTimeAsync(749);
+      expect(fontReader.reruns()).toBe(0);
+      expect(aiReader.reruns()).toBe(0);
       expect(mockedUpdateConfig).not.toHaveBeenCalled();
+      expect(vi.mocked(recordCommandUses)).toHaveBeenCalledTimes(1);
+      fontReader.dispose();
+      aiReader.dispose();
+    });
 
-      await vi.advanceTimersByTimeAsync(1);
-      expect(mockedUpdateConfig).toHaveBeenCalledTimes(1);
+    it("a section setter reruns the readers of that field alone", async () => {
+      await configStore.save(MOCK_CONFIG);
+      const fontReader = countReruns(() => configStore.config().editor.font_size);
+      const widthReader = countReruns(() => configStore.config().sidebar.width);
+
+      configStore.setSidebarWidth(300);
+      configStore.setSidebarSectionCollapsed("tags", true);
+
+      expect(widthReader.reruns()).toBe(1);
+      expect(fontReader.reruns()).toBe(0);
+      fontReader.dispose();
+      widthReader.dispose();
+    });
+
+    it("a reload reruns only the readers of the values that changed", async () => {
+      mockedGetConfig.mockResolvedValueOnce(MOCK_CONFIG);
+      await configStore.load();
+      const fontReader = countReruns(() => configStore.config().editor.font_size);
+      const hostsReader = countReruns(() => configStore.config().ai.consented_hosts.join("\n"));
+
+      mockedGetConfig.mockResolvedValueOnce({
+        ...MOCK_CONFIG,
+        sidebar: { ...MOCK_CONFIG.sidebar, width: 288 },
+      });
+      await configStore.load();
+      expect(fontReader.reruns()).toBe(0);
+      expect(hostsReader.reruns()).toBe(0);
+
+      mockedGetConfig.mockResolvedValueOnce({
+        ...MOCK_CONFIG,
+        editor: { ...MOCK_CONFIG.editor, font_size: 21 },
+        ai: { ...MOCK_CONFIG.ai, consented_hosts: ["api.example.com"] },
+      });
+      await configStore.load();
+      expect(fontReader.reruns()).toBe(1);
+      expect(hostsReader.reruns()).toBe(1);
+      fontReader.dispose();
+      hostsReader.dispose();
+    });
+
+    it("never hands the store's own objects to a write", async () => {
+      await configStore.save(MOCK_CONFIG);
+      const sent = mockedUpdateConfig.mock.calls[mockedUpdateConfig.mock.calls.length - 1][0];
+
+      configStore.setEditorFontSize(30);
+
+      expect(sent.editor.font_size).toBe(18);
     });
   });
 

@@ -67,10 +67,8 @@ function configWithoutStatusBar(): WritConfig {
     window: { width: 800, height: 600, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
-    storage: { path: "~/.writ" },
     theme: { preset: "writ-light", overrides: {} },
     appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
-    commands: { usage: {} },
     files: { default_extension: "txt" },
     preview: {
       default_layout_html: "split",

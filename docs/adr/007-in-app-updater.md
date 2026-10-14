@@ -2,7 +2,10 @@
 
 **Status:** Accepted. Amended 2026-10-13: signing runs in its own jobs, apart
 from the build, and the updater key has a custody rule and a transition path
-(Signing; Key custody and transition).
+(Signing; Key custody and transition). Amended 2026-10-14: an install a
+package manager owns is told to update through it, and the silent check runs
+again each day while Writ stays running (Installs a package manager owns;
+Consent and visibility).
 **Date:** 2026-05-21
 
 ## Context
@@ -47,6 +50,27 @@ a single debug log — no banner, no log spam. A manual "Check for Updates…"
 (menu → `app.check_updates` command) surfaces every outcome, including a
 graceful, non-alarming failure message. Install and restart are always
 user-initiated through the banner.
+
+The silent check also runs while Writ stays running. A thread looks at the
+wall clock at most an hour apart (`next_silent_check_step`) and checks once
+the last silent check is a day old, so a copy left resident for weeks still
+hears of a release, and a machine that slept past the day checks within an
+hour of waking. `updater.auto_check` is read on every look. A silent check
+does not start while a download, an install or a restart is pending.
+
+### Installs a package manager owns
+
+On Linux the plugin replaces the running AppImage in place, with no installer
+and no elevation. The AUR package unpacks the AppImage into root-owned
+`/opt/writ`, where that replacement fails, and would write into files pacman
+owns if it succeeded. A found update is reported as the `managed` phase, which
+never downloads, when the install tree holds a `.package-manager` marker (the
+PKGBUILD writes one), when the AppImage runs without `APPIMAGE` (so the target
+is the unpacked executable), or when the user cannot write the directory
+holding the file the plugin would replace. The banner then says to update with
+the package manager. Policy is `writ_core::update::install::is_managed`; the
+facts come from `read_install_facts` in the adapter. The `.deb` and `.rpm`
+bundles go through dpkg or rpm with elevation and are not managed.
 
 ### Distribution endpoint
 

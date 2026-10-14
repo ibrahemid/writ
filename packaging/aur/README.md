@@ -25,15 +25,11 @@ The PKGBUILD pulls the official AppImage from GitHub Releases:
 https://github.com/ibrahemid/writ/releases/download/v<version>/Writ_<version>_amd64.AppImage
 ```
 
-It then extracts the AppImage under `/opt/writ/` and installs `/usr/bin/writ` as a `/bin/sh` wrapper that execs the CLI from the payload (`/opt/writ/usr/bin/writ`) with `WRIT_GUI_BIN` defaulting to `/opt/writ/AppRun`. The CLI therefore handles `writ file.rs` and `... | writ`, while the app starts through `AppRun`, which sets up the bundled GTK environment the payload expects. The desktop entry launches `AppRun` directly. The AppImage is not executed at install time, only unpacked, so no FUSE runtime is required for `pacman -S writ-bin` to succeed. `fuse2` is still listed as a runtime dependency because the app launcher re-executes `AppRun`, which many Tauri AppImages expect to run under a FUSE loopback.
+`prepare()` first checks the AppImage's minisign signature (the release's `Writ_<version>_amd64.AppImage.sig`, saved as `writ-<version>.AppImage.minisign` so makepkg does not take it for a PGP signature) against the release key in `_minisign_pubkey`, which needs `minisign` at build time. It then extracts the AppImage under `/opt/writ/` and installs `/usr/bin/writ` as a `/bin/sh` wrapper that execs the CLI from the payload (`/opt/writ/usr/bin/writ`) with `WRIT_GUI_BIN` defaulting to `/opt/writ/AppRun`. The CLI therefore handles `writ file.rs` and `... | writ`, while the app starts through `AppRun`, which sets up the bundled GTK environment the payload expects. The desktop entry launches `AppRun` directly. `/opt/writ/.package-manager` (containing `pacman`) tells Writ that pacman owns the install, so the app reports a new release with "Update with your package manager" instead of downloading it. The AppImage is not executed at install time, only unpacked, so no FUSE runtime is required for `pacman -S writ-bin` to succeed. `fuse2` is still listed as a runtime dependency because the app launcher re-executes `AppRun`, which many Tauri AppImages expect to run under a FUSE loopback.
 
-## Placeholders
+## Checksums
 
-The PKGBUILD uses one placeholder that the post-release workflow rewrites:
-
-- `__SHA256_APPIMAGE__` replaced with the SHA256 of the released AppImage.
-
-The `LICENSE` source is pinned with `SKIP` because GitHub serves the raw LICENSE file over HTTP without a stable content hash we can pin; auditing is done at the `v<version>` ref level via the `source` URL itself.
+`sha256sums` pins the AppImage and the `LICENSE` at the release tag; the signature file is `SKIP`, since minisign checks it against the key. The post-release workflow rewrites both hashes: the AppImage's from the release asset, the licence's from `git show v<version>:LICENSE`.
 
 ## Local validation
 

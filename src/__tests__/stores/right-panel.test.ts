@@ -20,6 +20,7 @@ vi.mock("../../stores/global/config", async () => {
     ...actual,
     configStore: {
       config: () => ({ panel: h.panel }),
+      loaded: () => true,
       setPanelOpen: (open: boolean) => {
         h.panel = { ...h.panel, open };
         h.setPanelOpen(open);
@@ -53,7 +54,6 @@ beforeEach(() => {
 describe("the panel beside the note", () => {
   it("starts closed on a first launch", () => {
     withStore((store) => {
-      store.hydrateFromConfig();
       expect(store.isOpen()).toBe(false);
     });
   });
@@ -61,7 +61,6 @@ describe("the panel beside the note", () => {
   it("opens where it was left", () => {
     h.panel = { open: true, width: 280 };
     withStore((store) => {
-      store.hydrateFromConfig();
       expect(store.isOpen()).toBe(true);
       expect(store.width()).toBe(280);
     });
@@ -81,7 +80,6 @@ describe("the panel beside the note", () => {
     withStore((store) => store.setWidth(305));
     expect(h.setPanelWidth).toHaveBeenCalledWith(305);
     withStore((store) => {
-      store.hydrateFromConfig();
       expect(store.width()).toBe(305);
     });
   });

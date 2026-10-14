@@ -16,11 +16,14 @@ use thiserror::Error;
 
 /// Silent-startup-check gating policy (interval + opt-out).
 pub mod auto_check;
+/// Whether the running install may replace itself.
+pub mod install;
 
 /// A phase in the update lifecycle.
 ///
 /// Serializes with an internal `status` tag, e.g.
-/// `{"status":"available","version":"0.9.0"}` or
+/// `{"status":"available","version":"0.9.0"}`,
+/// `{"status":"managed","version":"0.9.0"}` or
 /// `{"status":"downloading","downloaded":350,"total":2048}`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -34,6 +37,12 @@ pub enum UpdatePhase {
     UpToDate,
     /// A newer version is available and awaiting user action.
     Available {
+        /// Semver of the available update.
+        version: String,
+    },
+    /// A newer version is available, and the package manager that installed
+    /// Writ delivers it. Nothing is downloaded from this phase.
+    Managed {
         /// Semver of the available update.
         version: String,
     },
@@ -64,6 +73,9 @@ pub enum UpdateEvent {
     UpdateFound {
         /// Semver of the discovered update.
         version: String,
+        /// The install is managed by a package manager
+        /// ([`install::is_managed`]).
+        managed: bool,
     },
     /// A check found no newer version.
     NoUpdate,
@@ -114,11 +126,25 @@ impl UpdatePhase {
         let attempted = event.label();
 
         let next = match (self, event) {
-            (P::Idle | P::UpToDate | P::Available { .. } | P::Failed { .. }, E::CheckStarted) => {
-                P::Checking
-            }
+            (
+                P::Idle | P::UpToDate | P::Available { .. } | P::Managed { .. } | P::Failed { .. },
+                E::CheckStarted,
+            ) => P::Checking,
 
-            (P::Checking, E::UpdateFound { version }) => P::Available { version },
+            (
+                P::Checking,
+                E::UpdateFound {
+                    version,
+                    managed: false,
+                },
+            ) => P::Available { version },
+            (
+                P::Checking,
+                E::UpdateFound {
+                    version,
+                    managed: true,
+                },
+            ) => P::Managed { version },
             (P::Checking, E::NoUpdate) => P::UpToDate,
 
             (P::Available { .. }, E::DownloadStarted { total }) => P::Downloading {
@@ -139,7 +165,12 @@ impl UpdatePhase {
             ) => P::Failed { message },
 
             (
-                P::Checking | P::UpToDate | P::Available { .. } | P::Ready | P::Failed { .. },
+                P::Checking
+                | P::UpToDate
+                | P::Available { .. }
+                | P::Managed { .. }
+                | P::Ready
+                | P::Failed { .. },
                 E::Dismissed,
             ) => P::Idle,
 
@@ -160,6 +191,7 @@ impl UpdatePhase {
             UpdatePhase::Checking => "checking",
             UpdatePhase::UpToDate => "up_to_date",
             UpdatePhase::Available { .. } => "available",
+            UpdatePhase::Managed { .. } => "managed",
             UpdatePhase::Downloading { .. } => "downloading",
             UpdatePhase::Installing => "installing",
             UpdatePhase::Ready => "ready",

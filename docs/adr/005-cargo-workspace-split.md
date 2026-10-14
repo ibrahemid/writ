@@ -65,3 +65,11 @@ that `writ-core` does not re-export Tauri types.
 - **Onboarding explanation required**: New contributors need to understand why there are four
   crates instead of one. The payoff (testable domain logic, enforced boundaries) is not
   obvious until they try to write a unit test without it.
+
+## Amendment, 2026-10-14: `writ-ai`
+
+`crates/writ-ai` depends on `writ-core`, `writ-storage` and `reqwest`, and holds the AI connection:
+the key store, the HTTP client, the stream reader, model lists, probes, Rewrite, and the chat
+pane's request, stream, context and apply. `src-tauri/src/commands/ai.rs` and `chat.rs` keep only
+the commands. `writ-cli` and `writ-mcp` must not depend on it: `deny.toml` lists `writ-ai` among
+the only crates that may wrap `reqwest` (threat-model row 4).

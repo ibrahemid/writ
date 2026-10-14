@@ -49,13 +49,18 @@ Once Writ reaches a `1.x` release, this table will be updated with a formal supp
 The following are in scope:
 
 - Every Rust crate in the workspace: `writ-core`, `writ-storage`, `writ-plugin`,
-  `writ-render`, `writ-lint`, and `writ-cli` (the `writ` command, which parses argv
-  and piped stdin).
+  `writ-render`, `writ-lint`, `writ-ai`, and `writ-cli` (the `writ` command, which
+  parses argv and piped stdin).
+- `writ-mcp`, the MCP server `writ mcp` runs over stdio for AI clients: its tools,
+  the client consent check, and every note it reads or writes.
 - The `src-tauri` Tauri IPC layer and its command surface.
+- The OAuth loopback receiver the AI Connect flow opens on 127.0.0.1.
 - The SolidJS frontend under `src/`.
 - Markdown and HTML rendering in the preview pane.
 - SQLite database handling and FTS5 query construction.
 - Release artifacts published under GitHub Releases.
+- `install.sh` and the package manifests under `packaging/` (the AUR PKGBUILD, the
+  Homebrew cask and the winget manifests).
 
 The following are out of scope:
 

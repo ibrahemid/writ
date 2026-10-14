@@ -48,6 +48,8 @@ pub mod atomic;
 pub mod buffer_store;
 /// Conversation files under the data directory (ADR-040 section 8).
 pub mod chat_store;
+/// How often each palette command ran (ADR-048).
+pub mod command_usage;
 /// TOML configuration load and save.
 pub mod config_store;
 /// Startup consistency checker reconciling the database with the files.

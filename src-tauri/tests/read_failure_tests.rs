@@ -92,6 +92,10 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
+        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+            open_database(&db_path).expect("usage db"),
+        ),
+        config_diagnostics: std::sync::Mutex::new(Vec::new()),
         recovered_buffers: Mutex::new(Vec::new()),
         was_dirty_shutdown: false,
         workspace_root: Mutex::new(None),

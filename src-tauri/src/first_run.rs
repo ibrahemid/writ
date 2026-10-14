@@ -196,11 +196,11 @@ fn is_note_file(path: &Path) -> bool {
 /// the apps it was answered with (ADR-042 section 5), so the next launch is a later one and mints what was asked
 /// for.
 ///
-/// It goes through the same [`crate::commands::config::persist_config`] every
-/// command uses, so the file has the shape the next read expects and the write
-/// is stamped into the watcher's ignore set. The running copy is replaced
-/// after the file lands, so the mint that follows reads the same answer the
-/// next launch will.
+/// It goes through [`crate::commands::config::mutate_config`], so the file has
+/// the shape the next read expects, the write is stamped into the watcher's
+/// ignore set, and the change is made under the config lock. The running copy
+/// is replaced after the file lands, so the mint that follows reads the same
+/// answer the next launch will.
 ///
 /// A failure stops the launch here rather than minting: a file made in a
 /// format the config does not record is the one file the person cannot explain
@@ -210,12 +210,14 @@ fn remember_the_launch(
     default_extension: FileExtension,
     apps: &[AppId],
 ) -> Result<(), String> {
-    let mut config = recover_poison(state.config.lock(), "first_run::remember_the_launch").clone();
-    config.files.default_extension = default_extension;
-    for app in apps {
-        config.set_app(*app, true);
-    }
-    crate::commands::config::persist_config(state, &config).map_err(|error| {
+    crate::commands::config::mutate_config(state, |config| {
+        config.files.default_extension = default_extension;
+        for app in apps {
+            config.set_app(*app, true);
+        }
+        true
+    })
+    .map_err(|error| {
         tracing::warn!(
             %error,
             path = %state.config_store.path().display(),
@@ -223,7 +225,6 @@ fn remember_the_launch(
         );
         error
     })?;
-    *recover_poison(state.config.lock(), "first_run::remember_the_launch") = config;
     Ok(())
 }
 

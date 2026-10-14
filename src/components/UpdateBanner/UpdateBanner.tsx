@@ -14,6 +14,10 @@ export default function UpdateBanner() {
     const p = phase();
     return p.status === "available" ? p : undefined;
   };
+  const managed = () => {
+    const p = phase();
+    return p.status === "managed" ? p : undefined;
+  };
   const downloading = () => {
     const p = phase();
     return p.status === "downloading" ? p : undefined;
@@ -55,6 +59,21 @@ export default function UpdateBanner() {
                   </Button>
                   <Button variant="primary" onClick={() => void updateStore.install()}>
                     Install
+                  </Button>
+                </div>
+              </>
+            )}
+          </Match>
+
+          <Match when={managed()}>
+            {(p) => (
+              <>
+                <span class="update-banner-text">
+                  <strong>v{p().version}</strong> is available. Update with your package manager.
+                </span>
+                <div class="update-banner-actions">
+                  <Button variant="ghost" onClick={() => void updateStore.dismiss()}>
+                    Later
                   </Button>
                 </div>
               </>

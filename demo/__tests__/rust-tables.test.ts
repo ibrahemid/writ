@@ -97,7 +97,7 @@ describe("the demo's copies of Rust tables", () => {
 
   it("refuses in the sentences the Rust commands use", () => {
     const notes = rust("crates/writ-core/src/notes/mod.rs");
-    const chat = rust("src-tauri/src/commands/chat.rs");
+    const chat = rust("crates/writ-ai/src/chat.rs");
     expect(stringConstant(notes, "NAME_IS_EMPTY")).toBe(NAME_IS_EMPTY);
     expect(stringConstant(chat, "MISSING_CONVERSATION")).toBe(MISSING_CONVERSATION);
     expect(numberConstant(chat, "MAX_ATTACHED_NOTES")).toBe(MAX_ATTACHED_NOTES);

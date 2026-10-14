@@ -69,9 +69,11 @@ jobs:
       - name: Compute checksums
         id: checksums
         env:
+          TAG: ${{ steps.tag.outputs.tag }}
           VERSION: ${{ steps.tag.outputs.version }}
         run: |
           set -euo pipefail
+          SHA_LICENSE=$(git show "${TAG}:LICENSE" | sha256sum | awk '{print $1}')
           cd artifacts
           compute_sha() {
             local file="$1"
@@ -90,6 +92,7 @@ jobs:
             echo "sha_msi=${SHA_MSI}"
             echo "sha_appimage=${SHA_APPIMAGE}"
             echo "sha_deb=${SHA_DEB}"
+            echo "sha_license=${SHA_LICENSE}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Bump Homebrew cask
@@ -123,6 +126,7 @@ jobs:
         env:
           VERSION: ${{ steps.tag.outputs.version }}
           SHA_APPIMAGE: ${{ steps.checksums.outputs.sha_appimage }}
+          SHA_LICENSE: ${{ steps.checksums.outputs.sha_license }}
         run: |
           set -euo pipefail
           python3 scripts/packaging_bump_aur.py

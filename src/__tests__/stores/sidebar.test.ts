@@ -75,10 +75,8 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
     window: { width: 800, height: 600, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
-    storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
     appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
-    commands: { usage: {} },
     files: { default_extension: "txt" },
   workspace: { root: null },
   inbox: { path: null, focus: true },
@@ -101,9 +99,12 @@ function buildConfig(overrides: Partial<WritConfig["sidebar"]> = {}): WritConfig
 describe("sidebar-store (per-window factory)", () => {
   let sidebarStore: SidebarStore;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    // The open state is the config's, which every test starts from closed.
+    mockedGetConfig.mockResolvedValueOnce(buildConfig({ open: false }));
+    await configStore.load();
     sidebarStore = createSidebarStore();
   });
 
@@ -149,12 +150,29 @@ describe("sidebar-store (per-window factory)", () => {
       expect(saved.sidebar.open).toBe(true);
     });
 
-    it("hydrates open from configStore", async () => {
+    it("reads open from configStore", async () => {
       mockedGetConfig.mockResolvedValueOnce(buildConfig({ open: true }));
       await configStore.load();
-      sidebarStore.hydrateFromConfig();
 
       expect(sidebarStore.isOpen()).toBe(true);
+    });
+
+    // F17: the open state is the config's, so a hand edit of config.toml
+    // reaches the window and the next toggle starts from it.
+    it("follows a reload of an edited config and toggles from it", async () => {
+      mockedGetConfig.mockResolvedValueOnce(buildConfig({ open: false }));
+      await configStore.load();
+      expect(sidebarStore.isOpen()).toBe(false);
+
+      mockedGetConfig.mockResolvedValueOnce(buildConfig({ open: true }));
+      await configStore.load();
+      expect(sidebarStore.isOpen()).toBe(true);
+
+      sidebarStore.toggle();
+      expect(sidebarStore.isOpen()).toBe(false);
+      await vi.runAllTimersAsync();
+      const calls = mockedUpdateConfig.mock.calls;
+      expect((calls[calls.length - 1]?.[0] as WritConfig).sidebar.open).toBe(false);
     });
   });
 
@@ -352,12 +370,12 @@ describe("sidebar-store (per-window factory)", () => {
   });
 
   describe("per-window isolation", () => {
-    it("two instances are independent", () => {
+    it("two instances keep their own search", () => {
       const a = createSidebarStore();
       const b = createSidebarStore();
-      a.show();
-      expect(a.isOpen()).toBe(true);
-      expect(b.isOpen()).toBe(false);
+      a.setSearchQuery("alpha");
+      expect(a.searchQuery()).toBe("alpha");
+      expect(b.searchQuery()).toBe("");
     });
   });
 });

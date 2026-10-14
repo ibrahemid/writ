@@ -5,10 +5,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // file opened from somebody else's folder, and Writ never moves that to the
 // Trash.
 
-vi.mock("../../stores/global/config", () => ({
-  configStore: {
-    config: () => ({ commands: { usage: {} } }),
-    recordCommandUse: vi.fn(),
+vi.mock("../../stores/global/command-usage", () => ({
+  commandUsageStore: {
+    usage: () => ({}),
+    record: vi.fn(),
   },
 }));
 

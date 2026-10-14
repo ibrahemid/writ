@@ -1218,6 +1218,9 @@ pub fn move_notes_folder_to(
         return Err(CANNOT_BE_CHECKED.to_string());
     };
     refuse_destination(state, &from, Path::new(&planned))?;
+    // The files move before the config learns where they went, so a config
+    // that could not take the path is found out while nothing has moved.
+    crate::commands::config::check_notes_root_writable(state, &planned)?;
 
     std::fs::create_dir_all(destination).map_err(|e| e.to_string())?;
     let to = crate::security::canonicalize_root(destination).map_err(|e| e.to_string())?;
@@ -1261,7 +1264,8 @@ pub fn move_notes_folder_to(
 ///
 /// The config is written first: a folder Writ forgets on the next launch is
 /// worse than one it has not started using yet, and every note is already in
-/// it by the time this runs.
+/// it by the time this runs. It is written while the launch holds values it
+/// could not read too, as the one value in the file that changes.
 fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     let next = writ_core::config::WritConfig {
@@ -1270,7 +1274,7 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
         },
         ..config.clone()
     };
-    crate::commands::config::persist_config(state, &next)?;
+    crate::commands::config::persist_notes_root(state, &next)?;
     *config = next;
     drop(config);
 

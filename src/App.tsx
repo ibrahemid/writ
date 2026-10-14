@@ -53,6 +53,7 @@ import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
 import { hotkeyStore } from "./stores/global/hotkey";
 import { configStore } from "./stores/global/config";
+import { commandUsageStore } from "./stores/global/command-usage";
 import { syncConfigFromDisk } from "./stores/global/config-sync";
 import { themeStore } from "./stores/global/theme";
 import { osWindowStore } from "./stores/global/os-window";
@@ -238,6 +239,7 @@ function AppShell() {
     // so the iframe never requests a scheme the engine treats as external.
     await loadPreviewUrlPrefix(previewUrlPrefix);
     await configStore.load();
+    void configStore.noticeUnreadValues();
     // A config written before ADR-030 carries overrides in the old vocabulary.
     // They are translated on load; writing the result back means the next
     // launch reads a clean map.
@@ -259,9 +261,6 @@ function AppShell() {
     unlisteners.push(await osWindowStore.installGeometryPersistence());
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
     unlisteners.push(...(await startWindowLifecycle()));
-    win.sidebar.hydrateFromConfig();
-    win.rightPanel.hydrateFromConfig();
-    win.chatPanel.hydrateFromConfig();
     await bufferRegistry.loadSession();
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
@@ -777,7 +776,7 @@ function AppShell() {
           confirmLabel: "Clear",
         });
         if (!confirmed) return;
-        configStore.clearCommandUsage().then(
+        commandUsageStore.clear().then(
           () => showToast("Command usage cleared", "success"),
           () => showToast("Failed to clear command usage", "error"),
         );
@@ -863,8 +862,9 @@ function AppShell() {
 
     registerPreviewKeymap();
 
-    setExecuteListener((id) => configStore.recordCommandUse(id));
-    configStore.pruneCommandUsage(
+    await commandUsageStore.load();
+    setExecuteListener((id) => commandUsageStore.record(id));
+    commandUsageStore.prune(
       new Set([...getAllCommands().map((c) => c.id), ...definedAppCommandIds()]),
     );
 

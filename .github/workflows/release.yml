@@ -289,6 +289,22 @@ jobs:
           read -ra TARGET_ARGS <<< "$TAURI_ARGS"
           pnpm exec tauri build "${TARGET_ARGS[@]}" --bundles "$BUNDLES" --ci --config '{"bundle":{"createUpdaterArtifacts":false}}' -- --locked
 
+      # The AppImage carries GTK and WebKitGTK libraries from this runner, LGPL
+      # among them. Their notices and the offer of their source go into the
+      # notices file, and the AppImage is bundled again so it ships them.
+      - name: Credit the AppImage's system libraries
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        env:
+          TAURI_ARGS: ${{ matrix.tauri_args }}
+        run: |
+          set -euo pipefail
+          APPIMAGE="$(ls target/x86_64-unknown-linux-gnu/release/bundle/appimage/Writ_*_amd64.AppImage)"
+          python3 scripts/gen-linux-library-notices.py append --appimage "$APPIMAGE" --notices THIRD-PARTY-NOTICES.md
+          read -ra TARGET_ARGS <<< "$TAURI_ARGS"
+          pnpm exec tauri bundle "${TARGET_ARGS[@]}" --bundles appimage --ci --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          python3 scripts/gen-linux-library-notices.py check --appimage "$APPIMAGE"
+
       - name: Require every AppImage file to be readable and runnable by any user
         if: matrix.os == 'ubuntu-22.04'
         shell: bash

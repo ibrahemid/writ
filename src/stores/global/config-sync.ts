@@ -12,6 +12,7 @@ import { themeStore } from "./theme";
 export async function syncConfigFromDisk(): Promise<void> {
   const loaded = await configStore.load();
   if (!loaded) return;
+  void configStore.noticeUnreadValues();
   const config = configStore.config();
   themeStore.loadConfig(config.theme, config.appearance);
 }

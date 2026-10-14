@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use writ_core::config::WritConfig;
+use writ_core::config::{LenientConfig, WritConfig};
 
 use crate::atomic::write_atomic;
 use crate::errors::StorageResult;
@@ -33,6 +33,42 @@ impl ConfigStore {
         let contents = std::fs::read_to_string(&self.path)?;
         let config = WritConfig::parse(&contents)?;
         Ok(config)
+    }
+
+    /// Reads the configuration for a launch, which has no running copy to fall
+    /// back on: every value that reads is kept and each one that does not is
+    /// named ([`WritConfig::parse_lenient`], ADR-048). Answers the file's text
+    /// as well, empty when there is no file, for the other things a launch
+    /// reads out of it.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Io`](crate::errors::StorageError::Io) when the file is
+    /// there and cannot be read.
+    pub fn read_lenient(&self) -> StorageResult<(LenientConfig, String)> {
+        if !self.path.exists() {
+            let fresh = LenientConfig {
+                config: WritConfig::default(),
+                diagnostics: Vec::new(),
+            };
+            return Ok((fresh, String::new()));
+        }
+        let contents = std::fs::read_to_string(&self.path)?;
+        Ok((WritConfig::parse_lenient(&contents), contents))
+    }
+
+    /// The file's text as it stands, empty when there is no file.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Io`](crate::errors::StorageError::Io) when the file is
+    /// there and cannot be read.
+    pub fn read_text(&self) -> StorageResult<String> {
+        match std::fs::read_to_string(&self.path) {
+            Ok(contents) => Ok(contents),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Serializes `config` to the exact TOML bytes that [`write`] will

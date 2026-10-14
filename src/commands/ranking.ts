@@ -1,5 +1,5 @@
 import type { Command } from "../types/commands";
-import type { CommandUsage } from "../types/config";
+import type { CommandUsage } from "../types/command-usage";
 
 export const RECENCY_HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
 export const RECENT_SECTION_LIMIT = 5;

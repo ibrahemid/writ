@@ -5,3 +5,5 @@
 
 /// Command registry primitives.
 pub mod registry;
+/// How often each command ran, which ranks the palette.
+pub mod usage;

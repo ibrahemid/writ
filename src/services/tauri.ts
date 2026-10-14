@@ -12,9 +12,11 @@ import type {
   AiWire,
   ClientApproval,
   AppId,
+  ConfigDiagnostic,
   FileExtension,
   WritConfig,
 } from "../types/config";
+import type { CommandUsage, CommandUse } from "../types/command-usage";
 
 export type { ClientApproval };
 import type { TransformDescriptor } from "../types/transforms";
@@ -713,6 +715,28 @@ export async function getConfig(): Promise<WritConfig> {
 
 export async function updateConfig(config: WritConfig): Promise<void> {
   return invoke("update_config", { config });
+}
+
+/** The values in config.toml the launch could not use; empty once the file
+ * reads in full. */
+export async function getConfigDiagnostics(): Promise<ConfigDiagnostic[]> {
+  return invoke("get_config_diagnostics");
+}
+
+export async function getCommandUsage(): Promise<Record<string, CommandUsage>> {
+  return invoke("get_command_usage");
+}
+
+export async function recordCommandUses(uses: CommandUse[]): Promise<void> {
+  return invoke("record_command_uses", { uses });
+}
+
+export async function clearCommandUsage(): Promise<void> {
+  return invoke("clear_command_usage");
+}
+
+export async function pruneCommandUsage(knownIds: string[]): Promise<void> {
+  return invoke("prune_command_usage", { knownIds });
 }
 
 export async function toggleWindow(): Promise<void> {
