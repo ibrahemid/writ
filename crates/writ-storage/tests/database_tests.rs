@@ -1048,7 +1048,7 @@ fn a_migration_listed_below_the_highest_recorded_one_still_runs() {
         .expect("failed to query")
         .collect::<Result<_, _>>()
         .expect("failed to read the stamps");
-    assert_eq!(stamps, vec![48, 50]);
+    assert_eq!(stamps, vec![48, 49, 50]);
     let row: (Option<String>, String) = conn
         .query_row(
             "SELECT preview_scripts_hash, encoding FROM buffers WHERE id = 'buf'",
