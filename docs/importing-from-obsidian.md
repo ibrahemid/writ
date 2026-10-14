@@ -1,7 +1,7 @@
 # Opening an Obsidian folder in Writ
 
 There is no import step. Point Writ at the folder Obsidian was using and the
-files open from where they are: Settings, Files, Folder, or run Writ with
+files open from where they are: Settings, General, Folder, or run Writ with
 `WRIT_NOTES_DIR` set to the folder. Nothing is copied, converted or rewritten,
 and both apps can keep using the same files.
 

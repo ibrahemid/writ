@@ -113,7 +113,7 @@ describe("InboxSection", () => {
     const { container } = render(() => <InboxSection />);
     fireEvent.click(container.querySelector(".sidebar-section-action")!);
     await vi.waitFor(() =>
-      expect(h.showToast).toHaveBeenCalledWith("Couldn't stop watching the folder.", "error"),
+      expect(h.showToast).toHaveBeenCalledWith("Could not stop watching the folder.", "error"),
     );
   });
 });

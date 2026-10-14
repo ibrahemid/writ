@@ -25,7 +25,7 @@ import Prose from '../../layouts/Prose.astro';
   <h2>5. See what it did</h2>
   <p>Program activity, in the View menu and on the toolbar, lists every call: the program, what it asked for, the file, and whether it was allowed, not allowed or left waiting. Repeated reads of one file share a line with a count. The list holds no file text and stays in Writ's data folder on your machine.</p>
   <h2>Output that arrives as files</h2>
-  <p>If a script writes files rather than calling tools, Settings, Advanced, Folder to watch for new files opens each file as it lands and brings the window forward. Have the program write there, or pipe its output in:</p>
+  <p>If a script writes files rather than calling tools, Settings, Integrations, Folder to watch for new files opens each file as it lands and brings the window forward. Have the program write there, or pipe its output in:</p>
   <pre><code>make test 2>&1 | writ --title tests</code></pre>
   <p>The output is saved as a file in Writ's folder, so search finds it later.</p>
 </Prose>

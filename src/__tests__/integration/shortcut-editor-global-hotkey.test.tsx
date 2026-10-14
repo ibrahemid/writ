@@ -13,11 +13,12 @@ const h = vi.hoisted(() => ({
   setGlobalHotkey: vi.fn(),
   globalHotkeyStatus: vi.fn(),
   onEvent: vi.fn().mockResolvedValue(() => {}),
+  toggle: "CmdOrCtrl+Shift+Space",
 }));
 
 vi.mock("../../stores/global/config", () => ({
   configStore: {
-    config: () => ({ keybindings: {}, hotkey: { toggle: "CmdOrCtrl+Shift+Space" } }),
+    config: () => ({ keybindings: {}, hotkey: { toggle: h.toggle } }),
     save: h.saveConfig,
   },
 }));
@@ -34,8 +35,8 @@ vi.mock("../../services/tauri", () => ({
 vi.mock("../../services/events", () => ({ onEvent: h.onEvent }));
 
 import ShortcutEditor, {
-  openShortcutEditor,
-  closeShortcutEditor,
+  discardShortcutDrafts,
+  hasUnsavedShortcuts,
 } from "../../components/ShortcutEditor/ShortcutEditor";
 import { hotkeyStore } from "../../stores/global/hotkey";
 import { keybindingSegments } from "../../lib/keybinding-format";
@@ -79,10 +80,11 @@ describe("the chord that shows and hides the window", () => {
     for (const command of [...getAllCommands()]) unregisterCommand(command.id);
     h.setGlobalHotkey.mockReset();
     h.globalHotkeyStatus.mockReset();
+    h.toggle = "CmdOrCtrl+Shift+Space";
   });
 
   afterEach(() => {
-    closeShortcutEditor();
+    discardShortcutDrafts();
     cleanup();
   });
 
@@ -94,7 +96,6 @@ describe("the chord that shows and hides the window", () => {
     await hotkeyStore.load();
 
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
 
     expect(row(container).textContent).toContain("Show and hide Writ");
     expect(row(container).querySelector('[data-state="taken"]')).toBeNull();
@@ -108,7 +109,6 @@ describe("the chord that shows and hides the window", () => {
     await hotkeyStore.load();
 
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
 
     const taken = row(container).querySelector('[data-state="taken"]');
     expect(taken?.textContent).toContain("Another app is using this shortcut");
@@ -127,7 +127,6 @@ describe("the chord that shows and hides the window", () => {
     await hotkeyStore.load();
 
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
 
     fireEvent.click(row(container).querySelector('[data-action="record-global-shortcut"]')!);
     fireEvent.keyDown(document, { key: "Space", metaKey: true, altKey: true });
@@ -154,7 +153,6 @@ describe("the chord that shows and hides the window", () => {
     await hotkeyStore.load();
 
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
 
     fireEvent.click(row(container).querySelector('[data-action="record-global-shortcut"]')!);
     fireEvent.keyDown(document, { key: " ", metaKey: true, altKey: true });
@@ -186,8 +184,7 @@ describe("the chord that shows and hides the window", () => {
       registerRenameCommand();
 
       const { container } = render(() => <ShortcutEditor />);
-      openShortcutEditor();
-
+  
       // One ordinary row is edited first: that write is what a refusal used to
       // take down with it.
       fireEvent.click(container.querySelector('[data-action="record-shortcut"]')!);
@@ -205,7 +202,7 @@ describe("the chord that shows and hides the window", () => {
 
       expect(h.setGlobalHotkey).toHaveBeenCalledWith(chord);
       expect(row(container).querySelector('[data-state="unusable"]')?.textContent).toContain(
-        "Writ can't use this shortcut",
+        "Writ can't use that key. Pick a letter",
       );
       expect(h.saveConfig).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -230,7 +227,6 @@ describe("the chord that shows and hides the window", () => {
     registerRenameCommand();
 
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
 
     fireEvent.click(container.querySelector('[data-action="record-shortcut"]')!);
     fireEvent.keyDown(document, { key: "r", metaKey: true, altKey: true });
@@ -258,10 +254,10 @@ describe("the chord that shows and hides the window", () => {
     ).toContain(chordAsShown("CmdOrCtrl+Alt+Space"));
   });
 
-  // `hotkey:status` is emitted by the Rust side, not by the modal, so the chord
+  // `hotkey:status` is emitted by the Rust side, not by the list, so the chord
   // can move while the editor is up. It used to re-seed every row from the
   // config, which took recorded but unsaved chords down with it.
-  it("keeps the recorded rows when the chord moves while the editor is open", async () => {
+  it("keeps the recorded rows when the chord moves while the list is open", async () => {
     h.globalHotkeyStatus.mockResolvedValue({
       chord: "CmdOrCtrl+Shift+Space",
       registered: true,
@@ -271,23 +267,39 @@ describe("the chord that shows and hides the window", () => {
     registerRenameCommand();
 
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
 
     fireEvent.click(container.querySelector('[data-action="record-shortcut"]')!);
     fireEvent.keyDown(document, { key: "r", metaKey: true, altKey: true });
     expect(ordinaryRowChord(container)).toBe(chordAsShown("CmdOrCtrl+Alt+R"));
 
-    // Nothing in the modal asked for this: it is the answer arriving on its own.
+    // Nothing in the list asked for this: it is the answer arriving on its own.
     await hotkeyStore.rebind("CmdOrCtrl+Alt+Space");
     await settle();
 
     expect(
       ordinaryRowChord(container),
-      "a status from outside the modal must not reach the other rows",
+      "a status from outside the list must not reach the other rows",
     ).toBe(chordAsShown("CmdOrCtrl+Alt+R"));
     expect(
       row(container).textContent,
       "the row the status is about takes the chord the OS now holds",
     ).toContain(chordAsShown("CmdOrCtrl+Alt+Space"));
+  });
+
+  // Settings, General records the chord straight to the OS and the config. The
+  // list, seeded on an earlier visit, must follow it rather than hold the old
+  // chord as a change nobody made.
+  it("leaves nothing unsaved when the chord moves while the list is off screen", async () => {
+    h.globalHotkeyStatus.mockResolvedValue({ chord: "CmdOrCtrl+Shift+Space", registered: true });
+    await hotkeyStore.load();
+    const { unmount } = render(() => <ShortcutEditor />);
+    unmount();
+
+    h.setGlobalHotkey.mockResolvedValue({ chord: "CmdOrCtrl+Alt+Space", registered: true });
+    await hotkeyStore.rebind("CmdOrCtrl+Alt+Space");
+    h.toggle = "CmdOrCtrl+Alt+Space";
+    await settle();
+
+    expect(hasUnsavedShortcuts()).toBe(false);
   });
 });

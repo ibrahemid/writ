@@ -62,6 +62,10 @@ const SCANNED_ROOTS: &[(&str, &str)] = &[
 /// Directories inside a scanned root that hold no user message.
 const SKIPPED_DIRS: &[&str] = &["tests", "benches", "target", "fixtures"];
 
+/// A test module kept in a file of its own: its strings are fixtures, such as
+/// the British spellings writ-lint's dictionary tests feed it.
+const SKIPPED_FILES: &[&str] = &["tests.rs"];
+
 /// One string that already says a retired word. The file can only shrink: a
 /// record whose string is gone fails the staleness test, so a rename deletes
 /// its record in the same change.
@@ -102,12 +106,6 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
         line: 205,
         word: "MiB",
         note: "size formatter unit, release 0.6",
-    },
-    AllowedString {
-        file: "crates/writ-core/src/startup.rs",
-        line: 57,
-        word: "buffer",
-        note: "startup failure remedy text, release 0.6",
     },
     AllowedString {
         file: "crates/writ-storage/src/database/queries.rs",
@@ -174,24 +172,6 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
         line: 33,
         word: "note",
         note: "MCP server instructions, out of the copy sweep (decision C1)",
-    },
-    AllowedString {
-        file: "crates/writ-mcp/src/tools.rs",
-        line: 163,
-        word: "note",
-        note: "MCP tool error, read by a program rather than a person",
-    },
-    AllowedString {
-        file: "crates/writ-mcp/src/tools.rs",
-        line: 169,
-        word: "note",
-        note: "MCP tool error, read by a program rather than a person",
-    },
-    AllowedString {
-        file: "crates/writ-mcp/src/tools.rs",
-        line: 177,
-        word: "note",
-        note: "MCP tool error, read by a program rather than a person",
     },
     AllowedString {
         file: "crates/writ-ai/src/chat.rs",
@@ -598,7 +578,7 @@ fn collect_rust_files(root: &Path, display: &str, out: &mut Vec<(String, PathBuf
                 continue;
             }
             collect_rust_files(&path, &format!("{display}/{name}"), &mut found);
-        } else if name.ends_with(".rs") {
+        } else if name.ends_with(".rs") && !SKIPPED_FILES.contains(&name.as_str()) {
             found.push((format!("{display}/{name}"), path));
         }
     }
@@ -619,6 +599,10 @@ fn scanned_files() -> Vec<(String, PathBuf)> {
 }
 
 fn collect_offenders() -> Vec<(String, usize, &'static str)> {
+    collect_matches(BANNED)
+}
+
+fn collect_matches(words: &[&'static str]) -> Vec<(String, usize, &'static str)> {
     let mut offenders: Vec<(String, usize, &'static str)> = Vec::new();
     for (display, path) in scanned_files() {
         let src = std::fs::read_to_string(&path)
@@ -632,7 +616,7 @@ fn collect_offenders() -> Vec<(String, usize, &'static str)> {
             if literal.is_log_argument() || !is_user_message(&literal.value) {
                 continue;
             }
-            for word in BANNED {
+            for word in words {
                 let found = (display.clone(), literal.line, *word);
                 if contains_banned_word(&literal.value, word) && !offenders.contains(&found) {
                     offenders.push(found);
@@ -663,6 +647,34 @@ fn banned_words_have_no_new_violations_in_rust_user_messages() {
         new_violations.is_empty(),
         "ADR-028 §10 retires this vocabulary from user-visible messages: {}",
         new_violations.join("\n")
+    );
+}
+
+/// Decision OD-14: US spelling and one way of saying a failure ("Could not")
+/// in every message, as the app's own strings do.
+const OTHER_LOCALE_AND_VOICE: &[&str] = &[
+    "licence",
+    "colour",
+    "behaviour",
+    "organise",
+    "recognise",
+    "customise",
+    "favourite",
+    "centre",
+    "cancelled",
+    "couldn't",
+];
+
+#[test]
+fn rust_user_messages_use_one_locale_and_one_voice() {
+    let found: Vec<String> = collect_matches(OTHER_LOCALE_AND_VOICE)
+        .into_iter()
+        .map(|(file, line, word)| key(&file, line, word))
+        .collect();
+    assert!(
+        found.is_empty(),
+        "user messages spell in US English and say \"Could not\": {}",
+        found.join("\n")
     );
 }
 

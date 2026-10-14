@@ -320,7 +320,7 @@ export default function ChatConnectionControl() {
             }}
           >
             <span class="chat-menu-mark" aria-hidden="true" />
-            <span class="chat-menu-name">AI settings</span>
+            <span class="chat-menu-name">Connection settings</span>
           </button>
         </div>
       </Show>

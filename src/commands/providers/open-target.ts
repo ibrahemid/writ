@@ -59,7 +59,7 @@ export function openTarget(target: OpenTarget, line?: number): void {
       },
       () => {
         logFailure("a history entry could not be restored");
-        showToast("Couldn't reopen that file", "error");
+        showToast("Could not reopen that file", "error");
       },
     );
     return;
@@ -72,7 +72,7 @@ export function openTarget(target: OpenTarget, line?: number): void {
     },
     () => {
       logFailure("a file could not be opened from the palette");
-      showToast(`Couldn't open ${basename(target.path)}`, "error");
+      showToast(`Could not open ${basename(target.path)}`, "error");
     },
   );
 }

@@ -138,6 +138,17 @@ describe("the readiness line", () => {
     });
   }
 
+  it("says what chat sends where before a model is chosen, and only then", () => {
+    const explains = "Chat sends what you attach to a model you choose";
+    mocks.readiness.mockReturnValue({ state: "no_model", message: "No model is set.", action: SETTINGS });
+    const { container } = render(() => <ChatReadiness />);
+    expect(container.textContent).toContain(explains);
+    cleanup();
+    mocks.readiness.mockReturnValue(CASES.find((c) => c.readiness.state === "no_key")!.readiness);
+    const other = render(() => <ChatReadiness />);
+    expect(other.container.textContent).not.toContain(explains);
+  });
+
   it("puts the chat back on the connection's model", () => {
     mocks.readiness.mockReturnValue(CASES[5].readiness);
     const { getByText } = render(() => <ChatReadiness />);

@@ -1062,7 +1062,7 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<Option<String>, S
         let key = notes_index::index_key(path);
         let kept = bytes_for_undo(path);
         note_ops::trash_note(path)
-            .map_err(|_| format!("Couldn't move \"{}\" to the Trash.", note_name(path)))?;
+            .map_err(|_| format!("Could not move \"{}\" to the Trash.", note_name(path)))?;
         undo = kept.and_then(|bytes| {
             state.authorized_paths.hold_trash_undo(TrashUndo {
                 path: path.to_path_buf(),

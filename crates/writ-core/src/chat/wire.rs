@@ -312,7 +312,7 @@ pub enum ChatError {
     #[error("Chat is turned off.")]
     Disabled,
     /// The configured provider id is not one this build speaks.
-    #[error("Choose a provider in AI settings.")]
+    #[error("Choose a provider in Settings, Apps, Chat.")]
     UnknownProvider(String),
     /// The configured base URL did not parse, or carried no host.
     #[error("The chat base URL is not a valid URL.")]
@@ -323,7 +323,7 @@ pub enum ChatError {
     )]
     EndpointNotAllowed,
     /// No model id is configured.
-    #[error("Choose a chat model in AI settings.")]
+    #[error("Choose a chat model in Settings, Apps, Chat.")]
     ModelRequired,
     /// The send notice for this host has not been accepted.
     #[error("Confirm sending your files to {host} first.")]

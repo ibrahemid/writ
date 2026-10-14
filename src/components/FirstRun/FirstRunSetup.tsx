@@ -23,6 +23,8 @@ const FORMATS: readonly FormatOption[] = [
 
 const HEADING_ID = "first-run-format-heading";
 const APPS_HEADING_ID = "first-run-apps-heading";
+const LEAD_ID = "first-run-format-lead";
+const APPS_LEAD_ID = "first-run-apps-lead";
 
 /**
  * The questions a first launch asks, one step at a time, on the window it is
@@ -124,12 +126,18 @@ function FormatStep() {
         role="dialog"
         aria-modal="true"
         aria-labelledby={HEADING_ID}
+        aria-describedby={LEAD_ID}
         ref={panel}
         onKeyDown={(event) => answerOnEnter(event, submit)}
       >
-        <h1 class="first-run-setup-heading" id={HEADING_ID}>
-          Default format
-        </h1>
+        <div class="first-run-setup-head">
+          <h1 class="first-run-setup-heading" id={HEADING_ID}>
+            Default format
+          </h1>
+          <p class="first-run-setup-lead" id={LEAD_ID}>
+            New files are saved in this format. Settings, General changes it later.
+          </p>
+        </div>
         <div
           class="first-run-formats"
           role="radiogroup"
@@ -209,12 +217,19 @@ function AppsStep() {
       role="dialog"
       aria-modal="true"
       aria-labelledby={APPS_HEADING_ID}
+      aria-describedby={APPS_LEAD_ID}
       ref={panel}
       onKeyDown={(event) => answerOnEnter(event, submit)}
     >
-      <h1 class="first-run-setup-heading" id={APPS_HEADING_ID}>
-        Apps
-      </h1>
+      <div class="first-run-setup-head">
+        <h1 class="first-run-setup-heading" id={APPS_HEADING_ID}>
+          Apps
+        </h1>
+        <p class="first-run-setup-lead" id={APPS_LEAD_ID}>
+          Each app adds one thing to the window. They stay off until you switch them on, here or in
+          Settings, Apps.
+        </p>
+      </div>
       <ul class="first-run-apps" aria-labelledby={APPS_HEADING_ID}>
         <For each={APPS}>
           {(app, index) => {

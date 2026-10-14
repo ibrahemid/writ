@@ -45,7 +45,7 @@ describe("updateStore", () => {
     await updateStore.checkForUpdate();
     expect(updateStore.phase()).toEqual({
       status: "failed",
-      message: "Couldn't reach the update server.",
+      message: "Could not reach the update server.",
     });
   });
 

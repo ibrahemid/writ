@@ -42,7 +42,7 @@ async function clearBlockersBeforeSending(wholeDocument: number | null): Promise
   try {
     endpoint = await aiRewriteStore.endpointState();
   } catch {
-    showToast("Could not read the AI settings.", "error");
+    showToast("Could not read the connection settings.", "error");
     return false;
   }
 
@@ -130,7 +130,12 @@ export async function runRewriteAction(action: AiAction, presetRange?: AnchoredR
   // failing mid-request.
   const status = aiConnectionStore.status();
   if (status?.kind === "model_missing" && status.detail === model) {
-    showToast(`"${model}" is not available. Choose a model in AI settings.`, "info", 5000);
+    showToast({
+      text: `"${model}" is not available on the server.`,
+      type: "info",
+      durationMs: 5000,
+      action: { label: "Connection settings", run: () => openSettings("apps", "ai.model") },
+    });
     return;
   }
 

@@ -65,14 +65,14 @@ async function handleFileArrived(filePath: string, nowMs: number = Date.now()): 
   const win = windowRegistry.getActive();
   if (!win) {
     logFailure("an inbox file arrived with no window to open into");
-    showToast(`Couldn't open ${basename(filePath)} from the watched folder`, "error");
+    showToast(`Could not open ${basename(filePath)} from the watched folder`, "error");
     return;
   }
   try {
     await win.tabs.openFile(filePath);
   } catch {
     logFailure("an inbox file could not be opened");
-    showToast(`Couldn't open ${basename(filePath)} from the watched folder`, "error");
+    showToast(`Could not open ${basename(filePath)} from the watched folder`, "error");
     return;
   }
   if (configStore.config().inbox.focus) {

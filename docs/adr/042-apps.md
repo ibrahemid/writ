@@ -9,6 +9,10 @@ Section 4 amended 2026-10-13: Connected programs lists the programs waiting to
 be approved and answers them in Settings, keeps a program turned down on its
 list, and names MCP in its sentence.
 
+Section 4 amended 2026-10-15: Settings is eight sections named for the job,
+Apps is a card and a page per app, and the terminal command, the file types
+and the watched folder move to Integrations.
+
 ## Context
 
 ADR-041 section 5 names chat, rewrite, the MCP server, connections, the graph
@@ -80,10 +84,13 @@ section, toolbar button or panel.
 
 ### 4. Settings, Apps
 
-The section sits after Files and holds one row per app, a switch and one
-sentence. The AI connection (provider, address, key, model) is a row under
-Apps shown while Chat or Rewrite is on; the chat model row shows with Chat.
-Settings search finds only rows that are drawn.
+Settings has eight sections, in this order: General, Editor, Appearance,
+Apps, Integrations, Shortcuts, Advanced and About. Apps holds a card per app,
+its switch and one sentence, and a page per app with what the app brings
+while it is on: the AI connection (provider, address, key, model) on the Chat
+and Rewrite pages, the chat model on Chat's, and the rows below on Connected
+programs'. Settings search finds only rows that are drawn, reads every card
+and page at once, and offers a section whose name matches.
 
 Connected programs' sentence names MCP and two clients, Claude Code and
 Cursor: a person who knows the protocol finds the app by its name, and one who
@@ -120,9 +127,14 @@ switches and Forget, and an Activity link; a waiting program could be approved
 only from the Activity window, the server's refusal pointed at a list that did
 not hold it, and Forget had no undo.
 
-Rows a fresh install needs for neither an app nor its format move under
-Advanced: the terminal command, how long versions are kept, the two HTML rows
-and the watched folder's sidebar row. The tags sidebar row is the Tags switch.
+Integrations holds the terminal command, the file types Writ opens and the
+watched folder with its sidebar row. Advanced holds how an HTML file opens,
+the two preview limits, Writ's data folder and how long versions are kept.
+The tags sidebar row is the Tags switch.
+
+Amended 2026-10-15. Until then Apps listed one row per app with the
+connection and the program rows under their switches, and Advanced held the
+terminal command, the versions row, the HTML row and the watched folder.
 
 ### 5. The first launch has two steps
 

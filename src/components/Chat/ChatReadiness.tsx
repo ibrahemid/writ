@@ -105,7 +105,10 @@ export default function ChatReadiness() {
           <div class="chat-readiness-body">
             <p class="chat-readiness-text">{readiness().message}</p>
             <Show when={readiness().state === "no_model"}>
-              <p class="chat-readiness-help">Chat sends what you attach to a model you choose.</p>
+              <p class="chat-readiness-help">
+                Chat sends what you attach to a model you choose: one on this computer, or a provider
+                with your key.
+              </p>
             </Show>
           </div>
           <Switch

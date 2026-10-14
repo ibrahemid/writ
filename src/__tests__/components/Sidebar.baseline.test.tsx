@@ -253,7 +253,7 @@ describe("sidebar lists and their controls", () => {
     const { container } = render(() => <FilesSection />);
     fireEvent.click(container.querySelector<HTMLButtonElement>('[aria-label="Close folder"]')!);
     await vi.waitFor(() =>
-      expect(h.showToast).toHaveBeenCalledWith("Couldn't close the folder.", "error"),
+      expect(h.showToast).toHaveBeenCalledWith("Could not close the folder.", "error"),
     );
   });
 });

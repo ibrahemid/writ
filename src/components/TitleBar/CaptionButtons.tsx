@@ -1,10 +1,21 @@
 import { Show, onMount, onCleanup } from "solid-js";
+import { configStore } from "../../stores/global/config";
+import { hotkeyStore } from "../../stores/global/hotkey";
 import { osWindowStore } from "../../stores/global/os-window";
+import { formatKeybinding } from "../../lib/keybinding-format";
 import type { CaptionKind } from "../../lib/window-chrome";
+import Tooltip from "../Tooltip/Tooltip";
 
 interface Props {
   kind: CaptionKind;
   maximized: boolean;
+}
+
+function hideHint(): string {
+  const chord = hotkeyStore.chord() || configStore.config().hotkey.toggle;
+  return chord && !hotkeyStore.isTaken()
+    ? `Writ keeps running. ${formatKeybinding(chord)} brings it back.`
+    : "Writ keeps running in the background.";
 }
 
 /**
@@ -61,21 +72,23 @@ export default function CaptionButtons(props: Props) {
       fallback={
         <Show when={props.kind === "linux-close"}>
           <div class="titlebar-controls titlebar-controls-linux">
-            <button
-              type="button"
-              class="gnomectrl gnomectrl-close"
-              onClick={osWindowStore.hide}
-              aria-label="Hide"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
-                <path
-                  d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                />
-              </svg>
-            </button>
+            <Tooltip label={hideHint()} placement="bottom">
+              <button
+                type="button"
+                class="gnomectrl gnomectrl-close"
+                onClick={osWindowStore.hide}
+                aria-label="Hide"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </Tooltip>
           </div>
         </Show>
       }
@@ -120,16 +133,18 @@ export default function CaptionButtons(props: Props) {
             </svg>
           </Show>
         </button>
-        <button
-          type="button"
-          class="winctrl winctrl-close"
-          onClick={osWindowStore.hide}
-          aria-label="Hide"
-        >
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-            <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="currentColor" stroke-width="1" />
-          </svg>
-        </button>
+        <Tooltip label={hideHint()} placement="bottom">
+          <button
+            type="button"
+            class="winctrl winctrl-close"
+            onClick={osWindowStore.hide}
+            aria-label="Hide"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+              <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke="currentColor" stroke-width="1" />
+            </svg>
+          </button>
+        </Tooltip>
       </div>
     </Show>
   );

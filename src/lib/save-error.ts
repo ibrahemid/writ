@@ -24,7 +24,7 @@ const ERR_LINK_NOT_FOUND = "ERR_LINK_NOT_FOUND";
 const ERR_LINK_NAME_NOT_UNIQUE = "ERR_LINK_NAME_NOT_UNIQUE";
 
 // What each code says to the person whose save did not land. Both read as the
-// second half of "Couldn't save <name>: ".
+// second half of "Could not save <name>: ".
 const CODE_MESSAGES: Record<string, string> = {
   [ERR_FILE_CHANGED_ON_DISK]: "the file changed outside Writ. A copy of your version is beside it.",
   [ERR_FILE_NOT_DOWNLOADED]:
@@ -135,7 +135,7 @@ const NOT_WORTH_A_SECOND_PRESS = new Set([
 export interface SaveFailureReason {
   /** The code Writ minted, or null for a failure that carried none. */
   code: string | null;
-  /** The reason, as the second half of `Couldn't save <name>: `. */
+  /** The reason, as the second half of `Could not save <name>: `. */
   message: string;
   /** Whether writing the same text again could land. */
   retryable: boolean;

@@ -194,7 +194,7 @@ impl ConnectError {
     /// The one sentence the user sees.
     fn message(self) -> String {
         match self {
-            Self::Cancelled => "Connect was cancelled.".to_string(),
+            Self::Cancelled => "Connect was canceled.".to_string(),
             Self::TimedOut => "OpenRouter did not answer within five minutes.".to_string(),
             Self::Refused => "OpenRouter did not accept the connection.".to_string(),
             Self::Exchange => "The key exchange failed.".to_string(),
@@ -997,7 +997,7 @@ mod tests {
         assert_eq!(
             sentences,
             vec![
-                "Connect was cancelled.",
+                "Connect was canceled.",
                 "OpenRouter did not answer within five minutes.",
                 "OpenRouter did not accept the connection.",
                 "The key exchange failed.",

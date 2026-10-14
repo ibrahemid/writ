@@ -24,6 +24,7 @@ vi.hoisted(() => {
 });
 
 const mocks = vi.hoisted(() => ({
+  openSearchPalette: vi.fn(),
   accentApplies: vi.fn(() => true),
   activePresetId: vi.fn(() => "warp-dark"),
   polarity: vi.fn(() => "light"),
@@ -32,7 +33,11 @@ const mocks = vi.hoisted(() => ({
   config: vi.fn(),
   focusEditor: vi.fn(),
   openThemeEditor: vi.fn(),
-  openShortcutEditor: vi.fn(),
+  hasUnsavedShortcuts: vi.fn(() => false),
+  discardShortcutDrafts: vi.fn(),
+  executeCommand: vi.fn(() => true),
+  checkForUpdate: vi.fn().mockResolvedValue(undefined),
+  rebindHotkey: vi.fn(),
   fetchDefaultAppStatus: vi.fn().mockResolvedValue({ status: "unsupported" }),
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
@@ -200,6 +205,8 @@ vi.mock("../../services/tauri", () => ({
   aiOpenrouterConnect: mocks.aiOpenrouterConnect,
   aiOpenrouterCancel: mocks.aiOpenrouterCancel,
   openExternalUrl: mocks.openExternalUrl,
+  checkForUpdate: mocks.checkForUpdate,
+  setGlobalHotkey: mocks.rebindHotkey,
   classifyExternalUrl: vi.fn().mockResolvedValue({ kind: "allow" }),
   activityRecent: mocks.activityRecent,
   activityClear: mocks.activityClear,
@@ -251,7 +258,7 @@ vi.mock("../../stores/global/storage", () => ({
 
 
 vi.mock("../../stores/global/notices", () => ({
-  THIRD_PARTY_NOTICES_TITLE: "Third-party licences",
+  THIRD_PARTY_NOTICES_TITLE: "Third-party licenses",
   openThirdPartyNoticesBuffer: mocks.openThirdPartyNoticesBuffer,
 }));
 
@@ -269,8 +276,22 @@ vi.mock("../../components/ThemeEditor/ThemeEditor", () => ({
 }));
 
 vi.mock("../../components/ShortcutEditor/ShortcutEditor", () => ({
-  openShortcutEditor: mocks.openShortcutEditor,
-  default: () => null,
+  hasUnsavedShortcuts: mocks.hasUnsavedShortcuts,
+  discardShortcutDrafts: mocks.discardShortcutDrafts,
+  default: () => {
+    const list = document.createElement("div");
+    list.setAttribute("data-shortcut-editor", "");
+    return list;
+  },
+}));
+
+vi.mock("../../components/SearchPalette/SearchPalette", () => ({
+  openSearchPalette: mocks.openSearchPalette,
+}));
+
+vi.mock("../../commands/registry", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../commands/registry")>()),
+  executeCommand: mocks.executeCommand,
 }));
 
 vi.mock("../../stores/global/theme", () => ({
@@ -297,7 +318,21 @@ import {
   type AiProviderInfo,
   type ProviderGroupedOptions,
 } from "../../stores/global/ai-providers";
-import { SETTINGS_INDEX, SECTION_ORDER } from "../../settings";
+import { SETTINGS_INDEX, SECTION_ORDER, settingDescription, settingTitle } from "../../settings";
+import { setKeybindingOverrides } from "../../commands/effective-bindings";
+import { UNUSABLE_GLOBAL_KEY } from "../../lib/chord";
+import { spokenKeybinding } from "../../lib/keybinding-format";
+import { getPreset } from "../../styles/themes";
+import { ACCENTS } from "../../styles/generated/tokens";
+
+function hexToRgb(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+}
+import { APPS } from "../../lib/apps";
+import { pendingConfirm, settleConfirm } from "../../stores/global/dialogs";
+import { updateStore } from "../../stores/global/update";
+import { APP_VERSION } from "../../lib/app-info";
 import { clearDefaultAppSupport, probeDefaultAppSupport } from "../../stores/global/default-app-support";
 
 function baseConfig(): WritConfig {
@@ -341,7 +376,11 @@ describe("SettingsModal", () => {
     mocks.setPreset.mockReset();
     mocks.config.mockReset().mockReturnValue(baseConfig());
     mocks.openThemeEditor.mockReset();
-    mocks.openShortcutEditor.mockReset();
+    mocks.hasUnsavedShortcuts.mockReset().mockReturnValue(false);
+    mocks.discardShortcutDrafts.mockReset();
+    mocks.executeCommand.mockReset().mockReturnValue(true);
+    mocks.checkForUpdate.mockReset().mockResolvedValue(undefined);
+    mocks.rebindHotkey.mockReset();
     mocks.fetchDefaultAppStatus.mockReset().mockResolvedValue({ status: "unsupported" });
     mocks.claimDefaultApp.mockReset().mockResolvedValue(undefined);
     mocks.fetchDefaultAppTypes.mockReset().mockResolvedValue([TEST_CLAIMABLE_TYPE]);
@@ -381,6 +420,9 @@ describe("SettingsModal", () => {
     mocks.aiEndpointState.mockReset().mockResolvedValue(hostedEndpoint());
     mocks.aiConsentHost.mockReset().mockResolvedValue(hostedEndpoint({ is_consented: true }));
     clearDefaultAppSupport();
+    // Settings reopens where it was left, so each test starts from General.
+    openSettings("general");
+    closeSettings();
   });
 
   afterEach(() => {
@@ -445,20 +487,38 @@ describe("SettingsModal", () => {
     expect(container.querySelector("[data-section='editor']")).toBeNull();
   });
 
-  it("switches to Files section on nav click", async () => {
-    // Files renders only once a type reports claimable, so the nav has
-    // something to switch to.
-    mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
+  it("switches to Integrations on nav click", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
-    const filesItem = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("files"));
-    expect(filesItem).toBeTruthy();
-    fireEvent.click(filesItem!);
+    const item = Array.from(navItems).find((n) => n.textContent === "Integrations");
+    expect(item).toBeTruthy();
+    fireEvent.click(item!);
     await waitFor(() => {
-      expect(container.querySelector("[data-section='files']")).not.toBeNull();
+      expect(container.querySelector("[data-section='integrations']")).not.toBeNull();
     });
+  });
+
+  it("lists the eight sections named for the job, General first", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings();
+    await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
+    expect(
+      Array.from(container.querySelectorAll(".settings-nav-item")).map((n) => n.textContent),
+    ).toEqual(["General", "Editor", "Appearance", "Apps", "Integrations", "Shortcuts", "Advanced", "About"]);
+    expect(container.querySelector("[data-section='general']")).not.toBeNull();
+  });
+
+  // Two Appearance rows across two visits: the second opens where the first left.
+  it("reopens on the section it was left on", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings("appearance");
+    await waitFor(() => expect(container.querySelector("[data-section='appearance']")).not.toBeNull());
+    closeSettings();
+    openSettings();
+    await waitFor(() => expect(container.querySelector("[data-section='appearance']")).not.toBeNull());
+    expect(container.querySelector("[data-section='general']")).toBeNull();
   });
 
   it("saves font size change", async () => {
@@ -475,8 +535,8 @@ describe("SettingsModal", () => {
 
   it("offers inline and source for a markdown file and writes the choice", async () => {
     const { container } = render(() => <SettingsModal />);
-    openSettings("preview");
-    await waitFor(() => expect(container.querySelector("[data-section='preview']")).not.toBeNull());
+    openSettings("editor");
+    await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
     const select = container.querySelector<HTMLSelectElement>(
       "[data-setting='default_layout_markdown']",
     );
@@ -543,22 +603,56 @@ describe("SettingsModal", () => {
     await waitFor(() => expect(container.querySelector("[data-section='appearance']")).not.toBeNull());
     const editBtn = container.querySelector<HTMLButtonElement>("[data-action='open-theme-editor']");
     expect(editBtn).not.toBeNull();
+    // The palette command and the editor's own title use the same name.
+    expect(editBtn!.textContent).toBe("Customize theme…");
     fireEvent.click(editBtn!);
-    expect(mocks.openThemeEditor).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.openThemeEditor).toHaveBeenCalledTimes(1));
   });
 
-  it("opens ShortcutEditor from Shortcuts section", async () => {
+  it("comes back to Appearance when the theme editor closes", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings("appearance");
+    await waitFor(() => expect(container.querySelector("[data-section='appearance']")).not.toBeNull());
+    fireEvent.click(container.querySelector("[data-action='open-theme-editor']")!);
+    await waitFor(() => expect(mocks.openThemeEditor).toHaveBeenCalledTimes(1));
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+    const backToSettings = mocks.openThemeEditor.mock.calls[0][0] as () => void;
+    backToSettings();
+    await waitFor(() =>
+      expect(container.querySelector("[data-setting-id='appearance.custom_colors']")).not.toBeNull(),
+    );
+  });
+
+  it("draws the shortcut list in place under Shortcuts", async () => {
     const { container } = render(() => <SettingsModal />);
     openSettings();
     await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
     const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
-    const shortcutsNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("shortcuts"));
+    const shortcutsNav = Array.from(navItems).find((n) => n.textContent === "Shortcuts");
     fireEvent.click(shortcutsNav!);
     await waitFor(() => expect(container.querySelector("[data-section='shortcuts']")).not.toBeNull());
-    const editBtn = container.querySelector<HTMLButtonElement>("[data-action='open-shortcut-editor']");
-    expect(editBtn).not.toBeNull();
-    fireEvent.click(editBtn!);
-    expect(mocks.openShortcutEditor).toHaveBeenCalledTimes(1);
+    const row = container.querySelector("[data-setting-id='shortcuts.edit']")!;
+    expect(row.querySelector("[data-shortcut-editor]")).not.toBeNull();
+    expect(container.querySelector("[role='dialog']")).not.toBeNull();
+  });
+
+  it("asks before closing over a shortcut recorded and not saved", async () => {
+    mocks.hasUnsavedShortcuts.mockReturnValue(true);
+    const { container } = render(() => <SettingsModal />);
+    openSettings("shortcuts");
+    await waitFor(() => expect(container.querySelector("[role='dialog']")).not.toBeNull());
+    fireEvent.click(container.querySelector("[aria-label='Close settings']")!);
+    await waitFor(() => expect(pendingConfirm()).not.toBeNull());
+    expect(pendingConfirm()!.title).toBe("Discard your changes?");
+    expect(container.querySelector("[role='dialog']")).not.toBeNull();
+    settleConfirm("cancel");
+    await Promise.resolve();
+    expect(container.querySelector("[role='dialog']")).not.toBeNull();
+    fireEvent.click(container.querySelector("[aria-label='Close settings']")!);
+    await waitFor(() => expect(pendingConfirm()).not.toBeNull());
+    settleConfirm("confirm");
+    await waitFor(() => expect(container.querySelector("[role='dialog']")).toBeNull());
+    expect(mocks.discardShortcutDrafts).toHaveBeenCalled();
   });
 
   it("saves theme preset from Appearance section", async () => {
@@ -748,31 +842,213 @@ describe("SettingsModal", () => {
     expect(saved.editor.status_bar).toBe(true);
   });
 
-  describe("Files section — the file-types row", () => {
+  it("flips a switch from a click on its row's words", async () => {
+    const { container } = render(() => <SettingsModal />);
+    openSettings("editor");
+    await waitFor(() => expect(container.querySelector("[data-section='editor']")).not.toBeNull());
+    const words = container.querySelector<HTMLElement>(
+      "[data-setting-id='editor.word_wrap'] .settings-row-label-text",
+    )!;
+    expect(words.tagName).toBe("LABEL");
+    fireEvent.click(words);
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+    expect((mocks.save.mock.calls[0][0] as WritConfig).editor.word_wrap).toBe(false);
+  });
+
+  describe("General — the chord that shows and hides Writ", () => {
+    it("shows the chord with its recorder", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("general");
+      const row = await waitFor(() => {
+        const found = container.querySelector("[data-setting-id='hotkey.toggle']");
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      expect(row.querySelector(".settings-row-label-text")!.textContent).toBe("Show and hide Writ");
+      expect(row.querySelectorAll(".kbd-chord .kbd-key").length).toBeGreaterThan(1);
+      expect(row.querySelector("[data-action='record-global-chord']")!.textContent).toBe("Record");
+    });
+
+    it("asks the OS for a recorded chord and keeps the one it gave", async () => {
+      mocks.rebindHotkey.mockResolvedValue({ chord: "Alt+Space", registered: true });
+      const { container } = render(() => <SettingsModal />);
+      openSettings("general");
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='record-global-chord']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector("[data-action='record-global-chord']")!);
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='record-global-chord']")!.textContent).toBe(
+          "Cancel",
+        ),
+      );
+      fireEvent.keyDown(document.body, { key: " ", code: "Space", altKey: true });
+      await waitFor(() => expect(mocks.rebindHotkey).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1));
+      expect((mocks.save.mock.calls[0][0] as WritConfig).hotkey.toggle).toBe("Alt+Space");
+    });
+
+    it("cancels a recording on Escape and keeps Settings open", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("general");
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='record-global-chord']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector("[data-action='record-global-chord']")!);
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='record-global-chord']")!.textContent).toBe(
+          "Cancel",
+        ),
+      );
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='record-global-chord']")!.textContent).toBe(
+          "Record",
+        ),
+      );
+      expect(container.querySelector("[role='dialog']")).not.toBeNull();
+      expect(mocks.rebindHotkey).not.toHaveBeenCalled();
+    });
+
+    it("says so when the OS refuses the chord", async () => {
+      mocks.rebindHotkey.mockRejectedValue("unparseable");
+      const { container } = render(() => <SettingsModal />);
+      openSettings("general");
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='record-global-chord']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector("[data-action='record-global-chord']")!);
+      fireEvent.keyDown(document.body, { key: "k", code: "KeyK", ctrlKey: true, altKey: true });
+      await waitFor(() =>
+        expect(
+          container.querySelector("[data-setting-id='hotkey.toggle'] .settings-row-caution")
+            ?.textContent,
+        ).toBe(UNUSABLE_GLOBAL_KEY),
+      );
+      expect(mocks.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Apps — a card and a page per app", () => {
+    it("draws a card per app, each with its switch and the way into its page", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("apps");
+      await waitFor(() => expect(container.querySelector(".settings-app-cards")).not.toBeNull());
+      const cards = Array.from(
+        container.querySelectorAll(".settings-app-cards > [data-setting-id]"),
+      ).map((card) => card.getAttribute("data-setting-id"));
+      expect(cards).toEqual(APPS.map((app) => app.settingId));
+      for (const app of APPS) {
+        expect(container.querySelector(`[data-action='open-app-page-${app.id}']`), app.id).not.toBeNull();
+      }
+    });
+
+    it("opens an app's page and comes back to the cards", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("apps");
+      await waitFor(() => expect(container.querySelector(".settings-app-cards")).not.toBeNull());
+      fireEvent.click(container.querySelector("[data-action='open-app-page-graph']")!);
+      await waitFor(() => expect(container.querySelector("[data-app-page='graph']")).not.toBeNull());
+      expect(container.querySelector(".settings-app-page-title")!.textContent).toBe("Graph");
+      expect(container.querySelector(".settings-app-cards")).toBeNull();
+      fireEvent.click(container.querySelector("[data-action='apps-back']")!);
+      await waitFor(() => expect(container.querySelector(".settings-app-cards")).not.toBeNull());
+    });
+
+    it("takes focus to the page and back to the card it came from", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("apps");
+      await waitFor(() => expect(container.querySelector(".settings-app-cards")).not.toBeNull());
+      fireEvent.click(container.querySelector("[data-action='open-app-page-graph']")!);
+      await waitFor(() =>
+        expect(document.activeElement).toBe(container.querySelector("[data-action='apps-back']")),
+      );
+      fireEvent.click(container.querySelector("[data-action='apps-back']")!);
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          container.querySelector("[data-action='open-app-page-graph']"),
+        ),
+      );
+    });
+
+    it("opens a page from a card a search found, and leaves the search", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings();
+      await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
+      fireEvent.input(container.querySelector(".settings-search-input")!, {
+        target: { value: "graph" },
+      });
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='open-app-page-graph']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector("[data-action='open-app-page-graph']")!);
+      await waitFor(() => expect(container.querySelector("[data-app-page='graph']")).not.toBeNull());
+      expect(container.querySelector<HTMLInputElement>(".settings-search-input")!.value).toBe("");
+    });
+
+    it("switches an app from its page", async () => {
+      const setAppOn = vi.spyOn(configStore, "setAppOn").mockResolvedValue(undefined);
+      const { container } = render(() => <SettingsModal />);
+      openSettings("apps");
+      await waitFor(() => expect(container.querySelector(".settings-app-cards")).not.toBeNull());
+      fireEvent.click(container.querySelector("[data-action='open-app-page-tags']")!);
+      await waitFor(() => expect(container.querySelector("[data-app-page='tags']")).not.toBeNull());
+      fireEvent.click(container.querySelector("[data-setting='app_tags_page']")!);
+      expect(setAppOn).toHaveBeenCalledWith("tags", true);
+      setAppOn.mockRestore();
+    });
+
+    it("holds the AI connection on the Chat page and leaves the chat model off Rewrite's", async () => {
+      const base = baseConfig();
+      mocks.config.mockReturnValue({
+        ...base,
+        ai: {
+          ...base.ai,
+          rewrite: { ...base.ai.rewrite, enabled: true },
+          chat: { ...base.ai.chat, enabled: true },
+        },
+      });
+      const { container } = render(() => <SettingsModal />);
+      openSettings("apps");
+      await waitFor(() => expect(container.querySelector(".settings-app-cards")).not.toBeNull());
+      fireEvent.click(container.querySelector("[data-action='open-app-page-rewrite']")!);
+      await waitFor(() =>
+        expect(container.querySelector("[data-setting-id='ai.provider']")).not.toBeNull(),
+      );
+      expect(container.querySelector("[data-setting-id='ai.chat.model']")).toBeNull();
+      fireEvent.click(container.querySelector("[data-action='apps-back']")!);
+      await waitFor(() => expect(container.querySelector(".settings-app-cards")).not.toBeNull());
+      fireEvent.click(container.querySelector("[data-action='open-app-page-chat']")!);
+      await waitFor(() =>
+        expect(container.querySelector("[data-setting-id='ai.chat.model']")).not.toBeNull(),
+      );
+    });
+  });
+
+  describe("Integrations — the file-types row", () => {
     async function openFilesNav(container: Element) {
-      // Another section first: Files is the panel's default, and mounting it
-      // with the panel would settle the status probe before the click.
+      // Another section first, so the status probe has not settled before the click.
       openSettings("editor");
       await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
       const navItems = container.querySelectorAll<HTMLButtonElement>(".settings-nav-item");
-      const filesNav = Array.from(navItems).find((n) => n.textContent?.toLowerCase().includes("files"));
+      const filesNav = Array.from(navItems).find((n) => n.textContent === "Integrations");
       fireEvent.click(filesNav!);
     }
 
     async function openFilesSection(container: Element) {
       await openFilesNav(container);
-      await waitFor(() => expect(container.querySelector("[data-section='files']")).not.toBeNull());
+      await waitFor(() => expect(container.querySelector("[data-section='integrations']")).not.toBeNull());
     }
 
     function filesHeading(container: Element): Element | undefined {
       return Array.from(container.querySelectorAll(".settings-section-label")).find(
-        (el) => el.textContent === "Files",
+        (el) => el.textContent === "Integrations",
       );
     }
 
     // The macOS path: the startup probe answers before Settings can open, so
     // heading and row are there to read the moment the nav switches.
-    it("shows the Files heading on first render once support is known", async () => {
+    it("shows the Integrations heading on first render once support is known", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
       await probeDefaultAppSupport();
       mocks.fetchDefaultAppTypes.mockReturnValue(new Promise(() => {}));
@@ -780,13 +1056,13 @@ describe("SettingsModal", () => {
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
       expect(filesHeading(container)).toBeDefined();
-      expect(container.querySelector("[data-section='files']")).not.toBeNull();
+      expect(container.querySelector("[data-section='integrations']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).not.toBeNull();
     });
 
     // Support can be withdrawn: a type the startup probe counted answers
     // unsupported here, which empties the registry and takes the row with it.
-    // The heading stays, because the format row under it is every platform's.
+    // The heading stays, because the rows beside it are every platform's.
     it("drops the file-types row when a known type turns out unclaimable", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "no_handler" });
       await probeDefaultAppSupport();
@@ -799,17 +1075,17 @@ describe("SettingsModal", () => {
         expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull(),
       );
       expect(filesHeading(container)).toBeDefined();
-      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
+      expect(container.querySelector("[data-setting-id='files.inbox_folder']")).not.toBeNull();
       expect(container.querySelector("[data-default-app-type]")).toBeNull();
     });
 
-    it("shows the format row alone when every type answers unsupported", async () => {
+    it("keeps the other rows when every type answers unsupported", async () => {
       mocks.fetchDefaultAppStatus.mockResolvedValue({ status: "unsupported" });
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
       await waitFor(() => expect(mocks.fetchDefaultAppStatus).toHaveBeenCalled());
       expect(filesHeading(container)).toBeDefined();
-      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
+      expect(container.querySelector("[data-setting-id='files.inbox_folder']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
@@ -820,7 +1096,7 @@ describe("SettingsModal", () => {
       const { container } = render(() => <SettingsModal />);
       await openFilesNav(container);
       expect(filesHeading(container)).toBeDefined();
-      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
+      expect(container.querySelector("[data-setting-id='files.inbox_folder']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
@@ -830,7 +1106,7 @@ describe("SettingsModal", () => {
       await openFilesNav(container);
       await waitFor(() => expect(mocks.fetchDefaultAppTypes).toHaveBeenCalled());
       expect(filesHeading(container)).toBeDefined();
-      expect(container.querySelector("[data-setting-id='files.default_extension']")).not.toBeNull();
+      expect(container.querySelector("[data-setting-id='files.inbox_folder']")).not.toBeNull();
       expect(container.querySelector("[data-setting-id='files.default_app']")).toBeNull();
     });
 
@@ -944,6 +1220,13 @@ describe("SettingsModal", () => {
   });
 
   describe("Advanced section", () => {
+    async function openIntegrationsSection(container: Element) {
+      openSettings("integrations");
+      await waitFor(() =>
+        expect(container.querySelector("[data-section='integrations']")).not.toBeNull(),
+      );
+    }
+
     async function openAdvancedSection(container: Element) {
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-nav")).not.toBeNull());
@@ -986,18 +1269,19 @@ describe("SettingsModal", () => {
       await waitFor(() => expect(mocks.revealStoragePath).toHaveBeenCalledTimes(1));
     });
 
-    it("holds the rows a writer never needs", async () => {
+    it("holds the rows a writer never needs, and none of the headline features", async () => {
       const { container } = render(() => <SettingsModal />);
       await openAdvancedSection(container);
-      for (const id of [
-        "files.inbox_folder",
-        "files.inbox_focus",
+      const ids = Array.from(container.querySelectorAll("[data-setting-id]")).map((el) =>
+        el.getAttribute("data-setting-id"),
+      );
+      expect(ids).toEqual([
+        "preview.layout_html",
         "preview.live_threshold",
         "preview.refuse_threshold",
         "storage.location",
-      ]) {
-        expect(container.querySelector(`[data-setting-id='${id}']`)).not.toBeNull();
-      }
+        "notes.versions",
+      ]);
     });
 
     it("shows where the installed writ command is, with two commands to copy", async () => {
@@ -1008,7 +1292,7 @@ describe("SettingsModal", () => {
         needs_move: false,
       });
       const { container } = render(() => <SettingsModal />);
-      await openAdvancedSection(container);
+      await openIntegrationsSection(container);
       await waitFor(() =>
         expect(container.querySelector("[data-cli-path]")?.textContent).toBe("/usr/local/bin/writ"),
       );
@@ -1033,7 +1317,7 @@ describe("SettingsModal", () => {
         needs_move: false,
       });
       const { container } = render(() => <SettingsModal />);
-      await openAdvancedSection(container);
+      await openIntegrationsSection(container);
       await waitFor(() => expect(container.querySelector("[data-cli-missing]")).not.toBeNull());
       expect(container.querySelector("[data-action='install-cli']")).toBeNull();
     });
@@ -1046,7 +1330,7 @@ describe("SettingsModal", () => {
         needs_move: true,
       });
       const { container } = render(() => <SettingsModal />);
-      await openAdvancedSection(container);
+      await openIntegrationsSection(container);
       await waitFor(() => {
         const row = container.querySelector("[data-setting-id='files.cli']");
         expect(row?.textContent).toContain("Move Writ to your Applications folder");
@@ -1071,7 +1355,7 @@ describe("SettingsModal", () => {
           needs_move: false,
         });
       const { container } = render(() => <SettingsModal />);
-      await openAdvancedSection(container);
+      await openIntegrationsSection(container);
       await waitFor(() =>
         expect(container.querySelector("[data-action='install-cli']")).not.toBeNull(),
       );
@@ -1091,14 +1375,66 @@ describe("SettingsModal", () => {
       });
     });
 
-    it("keeps the licences off the settings panel", async () => {
+  });
+
+  describe("About section", () => {
+    it("names the running version and opens its changelog", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("about");
+      await waitFor(() => expect(container.querySelector("[data-section='about']")).not.toBeNull());
+      expect(container.querySelector("[data-app-version]")!.textContent).toBe(APP_VERSION);
+      fireEvent.click(container.querySelector("[data-action='whats-new']")!);
+      await waitFor(() =>
+        expect(mocks.openExternalUrl).toHaveBeenCalledWith(
+          expect.stringContaining(`/changelog/#v${APP_VERSION}`),
+        ),
+      );
+    });
+
+    it("says what Check now found in the row, not only in the banner", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("about");
+      await waitFor(() => expect(container.querySelector("[data-section='about']")).not.toBeNull());
+      fireEvent.click(container.querySelector("[data-action='check-updates-now']")!);
+      await waitFor(() => expect(mocks.checkForUpdate).toHaveBeenCalledTimes(1));
+      expect(container.querySelector("[data-update-status]")!.textContent).toBe(
+        "Checking for updates…",
+      );
+      updateStore.applyPhase({ status: "up_to_date" });
+      await waitFor(() =>
+        expect(container.querySelector("[data-update-status]")!.textContent).toBe(
+          "Writ is up to date.",
+        ),
+      );
+      updateStore.applyPhase({ status: "available", version: "9.9.9" });
+      await waitFor(() =>
+        expect(container.querySelector("[data-update-status]")!.textContent).toBe(
+          "Version 9.9.9 is available.",
+        ),
+      );
+      updateStore.applyPhase({ status: "idle" });
+    });
+
+    it("opens the guide and the licences", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("about");
+      await waitFor(() => expect(container.querySelector("[data-section='about']")).not.toBeNull());
+      fireEvent.click(container.querySelector("[data-action='open-docs']")!);
+      expect(mocks.executeCommand).toHaveBeenCalledWith("help.docs");
+      fireEvent.click(container.querySelector("[data-action='third-party-notices']")!);
+      await waitFor(() => expect(mocks.executeCommand).toHaveBeenCalledWith("app.thirdPartyNotices"));
+      expect(container.querySelector("[role='dialog']")).toBeNull();
+    });
+
+    it("finds the licences by name", async () => {
       const { container } = render(() => <SettingsModal />);
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
       const input = container.querySelector<HTMLInputElement>(".settings-search-input")!;
-      fireEvent.input(input, { target: { value: "copyright" } });
-      await waitFor(() => expect(container.querySelector(".settings-empty")).not.toBeNull());
-      expect(container.querySelector("[data-action='third-party-notices']")).toBeNull();
+      fireEvent.input(input, { target: { value: "licences" } });
+      await waitFor(() =>
+        expect(container.querySelector("[data-setting-id='about.licences']")).not.toBeNull(),
+      );
     });
   });
 
@@ -1110,6 +1446,21 @@ describe("SettingsModal", () => {
       fireEvent.input(input, { target: { value: term } });
       return input;
     }
+
+    it("offers to search everywhere for words no setting holds", async () => {
+      mocks.openSearchPalette.mockReset();
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "  zebra crossing ");
+      const button = await waitFor(() => {
+        const el = container.querySelector<HTMLButtonElement>("[data-action='search-everywhere']");
+        expect(el).not.toBeNull();
+        return el!;
+      });
+      expect(button.textContent).toBe("Search everywhere for “zebra crossing”");
+      fireEvent.click(button);
+      await waitFor(() => expect(mocks.openSearchPalette).toHaveBeenCalledWith("zebra crossing"));
+      expect(container.querySelector(".settings-search-input")).toBeNull();
+    });
 
     // The rail stays in the tree: unmounting it moved the content column by
     // its own width, mid-keystroke, and back again on clear.
@@ -1193,6 +1544,41 @@ describe("SettingsModal", () => {
       await waitFor(() => expect(container.querySelector(".settings-empty")).not.toBeNull());
     });
 
+    it("finds the terminal command under Integrations", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "terminal");
+      await waitFor(() =>
+        expect(
+          container.querySelector("[data-section='integrations'] [data-setting-id='files.cli']"),
+        ).not.toBeNull(),
+      );
+    });
+
+    it("offers a section whose name matches, and opens it whole", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "appear");
+      await waitFor(() =>
+        expect(container.querySelector("[data-section-result='appearance']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector("[data-section-result='appearance']")!);
+      await waitFor(() =>
+        expect(container.querySelector<HTMLInputElement>(".settings-search-input")!.value).toBe(""),
+      );
+      expect(container.querySelector("[data-section='appearance']")).not.toBeNull();
+      expect(container.querySelector("[data-setting-id='appearance.custom_colors']")).not.toBeNull();
+    });
+
+    it("offers the shortcut list by name and opens it", async () => {
+      const { container } = render(() => <SettingsModal />);
+      await openAndSearch(container, "keyboard");
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='show-shortcuts']")).not.toBeNull(),
+      );
+      expect(container.querySelector("[data-shortcut-editor]")).toBeNull();
+      fireEvent.click(container.querySelector("[data-action='show-shortcuts']")!);
+      await waitFor(() => expect(container.querySelector("[data-shortcut-editor]")).not.toBeNull());
+    });
+
     it("wakes the rail when the query is cleared", async () => {
       const { container } = render(() => <SettingsModal />);
       const input = await openAndSearch(container, "font");
@@ -1215,6 +1601,36 @@ describe("SettingsModal", () => {
   });
 
   describe("deep link", () => {
+    it("lands on the row a link names, whatever section it passes", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("advanced", "files.cli");
+      await waitFor(() =>
+        expect(container.querySelector("[data-section='integrations']")).not.toBeNull(),
+      );
+      expect(container.querySelector("[data-setting-id='files.cli']")).not.toBeNull();
+    });
+
+    it("opens the page of the app that holds the row, the first one that is on", async () => {
+      const base = baseConfig();
+      mocks.config.mockReturnValue({
+        ...base,
+        ai: { ...base.ai, rewrite: { ...base.ai.rewrite, enabled: true } },
+      });
+      const { container } = render(() => <SettingsModal />);
+      openSettings("apps", "ai.model");
+      await waitFor(() =>
+        expect(container.querySelector("[data-app-page='rewrite']")).not.toBeNull(),
+      );
+      expect(container.querySelector("[data-setting-id='ai.model']")).not.toBeNull();
+      closeSettings();
+      mocks.config.mockReturnValue({
+        ...base,
+        ai: { ...base.ai, chat: { ...base.ai.chat, enabled: true } },
+      });
+      openSettings("apps", "ai.model");
+      await waitFor(() => expect(container.querySelector("[data-app-page='chat']")).not.toBeNull());
+    });
+
     it("opens the target section and highlights the row", async () => {
       const { container } = render(() => <SettingsModal />);
       openSettings("advanced", "preview.layout_html");
@@ -1224,6 +1640,94 @@ describe("SettingsModal", () => {
         expect(row!.classList.contains("settings-row-highlight")).toBe(true);
       });
       expect(container.querySelector("[data-section='editor']")).toBeNull();
+    });
+  });
+
+  describe("rows that show what they change", () => {
+    async function show(section: "general" | "editor" | "appearance") {
+      const view = render(() => <SettingsModal />);
+      openSettings(section);
+      await waitFor(() =>
+        expect(view.container.querySelector(`[data-section='${section}']`)).not.toBeNull(),
+      );
+      return view.container;
+    }
+
+    afterEach(() => setKeybindingOverrides({}));
+
+    it("draws a line in the editor's face at the editor's size", async () => {
+      const base = baseConfig();
+      mocks.config.mockReturnValue({
+        ...base,
+        editor: { ...base.editor, font_size: 19 },
+        appearance: { ...base.appearance, prose_face: "quattro" },
+      });
+      const editor = await show("editor");
+      const sample = editor.querySelector<HTMLElement>(
+        "[data-setting-id='editor.font_size'] [data-prose-sample]",
+      )!;
+      expect(sample.style.fontSize).toBe("19px");
+      expect(sample.dataset.face).toBe("quattro");
+      cleanup();
+      mocks.config.mockReturnValue({ ...base, editor: { ...base.editor, font_size: 13 } });
+      const appearance = await show("appearance");
+      const face = appearance.querySelector<HTMLElement>(
+        "[data-setting-id='appearance.prose_face'] [data-prose-sample]",
+      )!;
+      expect(face.style.fontSize).toBe("13px");
+      expect(face.dataset.face).toBe(base.appearance.prose_face);
+    });
+
+    it("paints the theme in front, with the accent the theme answers to", async () => {
+      mocks.activePresetId.mockReturnValue("dracula");
+      let container = await show("appearance");
+      let sample = container.querySelector<HTMLElement>("[data-theme-sample]")!;
+      expect(sample.dataset.themeSample).toBe("dracula");
+      expect(sample.style.background).toBe(hexToRgb(getPreset("dracula")!.bg.canvas));
+      expect(sample.querySelector<HTMLElement>("[data-accent-swatch]")!.style.background).toBe(
+        hexToRgb(getPreset("dracula")!.accent.default),
+      );
+      cleanup();
+      mocks.activePresetId.mockReturnValue("writ-light");
+      const base = baseConfig();
+      mocks.config.mockReturnValue({ ...base, appearance: { ...base.appearance, accent: "plum" } });
+      container = await show("appearance");
+      sample = container.querySelector<HTMLElement>("[data-theme-sample]")!;
+      expect(sample.style.background).toBe(hexToRgb(getPreset("writ-light")!.bg.canvas));
+      expect(sample.querySelector<HTMLElement>("[data-accent-swatch]")!.style.background).toBe(
+        hexToRgb(ACCENTS.plum.light.base),
+      );
+    });
+
+    it("draws a new file's line raw for .txt and formatted for .md", async () => {
+      const base = baseConfig();
+      mocks.config.mockReturnValue({ ...base, files: { ...base.files, default_extension: "txt" } });
+      let container = await show("general");
+      let sample = container.querySelector<HTMLElement>("[data-format-sample]")!;
+      expect(sample.dataset.formatSample).toBe("txt");
+      expect(sample.textContent).toContain("**Milk** and eggs");
+      expect(sample.querySelector("strong")).toBeNull();
+      cleanup();
+      mocks.config.mockReturnValue({ ...base, files: { ...base.files, default_extension: "md" } });
+      container = await show("general");
+      sample = container.querySelector<HTMLElement>("[data-format-sample]")!;
+      expect(sample.dataset.formatSample).toBe("md");
+      expect(sample.querySelector("strong")!.textContent).toBe("Milk");
+      expect(sample.textContent).not.toContain("**");
+    });
+
+    it("names the Markdown and zoom chords as they are bound now", async () => {
+      setKeybindingOverrides({ "editor.toggleBold": "CmdOrCtrl+Alt+B", "editor.toggleItalic": "" });
+      const container = await show("editor");
+      const markdown = container.querySelector("[data-setting-id='editor.markdown_editing']")!;
+      const bold = markdown.querySelector("[data-chord-hint='editor.toggleBold'] .kbd-chord")!;
+      expect(bold.getAttribute("aria-label")).toBe(spokenKeybinding("CmdOrCtrl+Alt+B"));
+      expect(markdown.querySelector("[data-chord-hint='editor.toggleItalic']")).toBeNull();
+      expect(markdown.querySelector("[data-chord-hint='editor.insertLink']")).not.toBeNull();
+      const zoom = container.querySelector("[data-setting-id='editor.font_size']")!;
+      for (const id of ["editor.zoomIn", "editor.zoomOut", "editor.zoomReset"]) {
+        expect(zoom.querySelector(`[data-chord-hint='${id}']`), id).not.toBeNull();
+      }
     });
   });
 
@@ -1260,27 +1764,86 @@ describe("SettingsModal", () => {
       openSettings();
       await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
       // A query that matches every section label is impossible; instead drive
-      // each section through the nav and collect the rows it renders.
-      const rendered = new Set<string>();
+      // each section through the nav, and each app page through its card, and
+      // collect the rows each draws.
+      const rendered = new Map<string, number>();
+      const labels = new Map<string, string>();
+      const descriptions = new Map<string, string>();
+      function collect() {
+        for (const row of container.querySelectorAll("[data-setting-id]")) {
+          const id = row.getAttribute("data-setting-id")!;
+          rendered.set(id, (rendered.get(id) ?? 0) + 1);
+          labels.set(id, collapse(row.querySelector(".settings-row-label-text")!.textContent));
+          descriptions.set(id, collapse(row.querySelector(".settings-row-description")?.textContent ?? ""));
+        }
+      }
+      function drawn(): string[] {
+        return Array.from(container.querySelectorAll("[data-setting-id]")).map(
+          (row) => row.getAttribute("data-setting-id")!,
+        );
+      }
       const navItems = Array.from(
         container.querySelectorAll<HTMLButtonElement>(".settings-nav-item"),
       );
+      expect(navItems.map((item) => item.dataset.sectionTab)).toEqual(SECTION_ORDER);
       for (let i = 0; i < navItems.length; i++) {
         const sectionId = SECTION_ORDER[i];
-        const expected = SETTINGS_INDEX.filter((e) => e.section === sectionId).length;
+        const expected = SETTINGS_INDEX.filter((e) => e.section === sectionId && !e.pages).map(
+          (e) => e.id,
+        );
         fireEvent.click(navItems[i]);
         // Default-app rows load asynchronously; wait until every row this
         // section indexes has rendered before collecting.
-        await waitFor(() =>
-          expect(container.querySelectorAll("[data-setting-id]").length).toBe(expected),
-        );
-        for (const row of container.querySelectorAll("[data-setting-id]")) {
-          const id = row.getAttribute("data-setting-id");
-          if (id) rendered.add(id);
+        await waitFor(() => expect(drawn()).toEqual(expected));
+        collect();
+        if (sectionId !== "apps") continue;
+        for (const app of APPS) {
+          fireEvent.click(container.querySelector(`[data-action='open-app-page-${app.id}']`)!);
+          const onPage = SETTINGS_INDEX.filter((e) => e.pages?.includes(app.id)).map((e) => e.id);
+          await waitFor(() =>
+            expect(container.querySelector(`[data-app-page='${app.id}']`)).not.toBeNull(),
+          );
+          await waitFor(() => expect(drawn()).toEqual(onPage));
+          collect();
+          fireEvent.click(container.querySelector("[data-action='apps-back']")!);
+          await waitFor(() => expect(drawn()).toEqual(expected));
         }
       }
       const indexed = new Set(SETTINGS_INDEX.map((e) => e.id));
-      expect([...rendered].sort()).toEqual([...indexed].sort());
+      expect([...rendered.keys()].sort()).toEqual([...indexed].sort());
+      for (const [id, label] of labels) {
+        expect(label, id).toBe(settingTitle(id));
+      }
+      // Every row carries one sentence under its label, the index's own (ST-02).
+      for (const [id, description] of descriptions) {
+        expect(description, id).toBe(settingDescription(id));
+      }
+    });
+
+    it("draws each row once while a search reads every section", async () => {
+      const base = baseConfig();
+      mocks.config.mockReturnValue({
+        ...base,
+        ai: {
+          ...base.ai,
+          provider: "custom",
+          rewrite: { ...base.ai.rewrite, enabled: true },
+          chat: { ...base.ai.chat, enabled: true },
+        },
+        mcp: { ...base.mcp, enabled: true },
+      });
+      const { container } = render(() => <SettingsModal />);
+      openSettings();
+      await waitFor(() => expect(container.querySelector(".settings-search-input")).not.toBeNull());
+      fireEvent.input(container.querySelector(".settings-search-input")!, { target: { value: "ai" } });
+      await waitFor(() =>
+        expect(container.querySelector("[data-setting-id='ai.provider']")).not.toBeNull(),
+      );
+      const ids = Array.from(container.querySelectorAll("[data-setting-id]")).map((row) =>
+        row.getAttribute("data-setting-id"),
+      );
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids).toEqual(expect.arrayContaining(["ai.provider", "ai.model", "ai.chat.model"]));
     });
   });
 });
@@ -1302,7 +1865,7 @@ describe("AI section", () => {
   async function openAiSection(overrides: Record<string, unknown> = {}) {
     mocks.config.mockReturnValue({ ...baseConfig(), ai: aiConfig(overrides) });
     const result = render(() => <SettingsModal />);
-    openSettings("apps");
+    openSettings("apps", "ai.provider");
     await waitFor(() =>
       expect(result.container.querySelector('[data-setting-id="ai.provider"]')).not.toBeNull(),
     );
@@ -1746,7 +2309,7 @@ describe("Files section — the folder row", () => {
 
   async function openNotes() {
     const result = render(() => <SettingsModal />);
-    openSettings("files");
+    openSettings("general");
     await waitFor(() =>
       expect(result.container.querySelector("[data-setting-id='notes.folder']")).not.toBeNull(),
     );
@@ -1756,13 +2319,33 @@ describe("Files section — the folder row", () => {
   it("leads the nav rail", async () => {
     const { container } = await openNotes();
     const first = container.querySelector(".settings-nav-item");
-    expect(first?.textContent).toBe("Files");
+    expect(first?.textContent).toBe("General");
   });
 
   it("shows the folder path with the home folder collapsed", async () => {
     const { container } = await openNotes();
     const path = container.querySelector("[data-notes-path]");
     expect(path?.textContent).toBe("~/Writ");
+  });
+
+  // The box runs right to left so a long path loses its start; the path itself
+  // is isolated left to right, so `~/Writ` never draws as `Writ/~`.
+  it("isolates the path left to right inside the box that cuts its start", async () => {
+    const { container } = await openNotes();
+    const isolated = container.querySelector("[data-notes-path] > bdi[dir='ltr']");
+    expect(isolated?.textContent).toBe("~/Writ");
+  });
+
+  it("isolates an Arabic folder name inside the path, in its own order", async () => {
+    mocks.notesFolder.mockReturnValue({
+      path: "/home/user/ملاحظات",
+      display_path: "~/ملاحظات",
+      fallback: null,
+      sync_provider: null,
+    });
+    const { container } = await openNotes();
+    const isolated = container.querySelector("[data-notes-path] > bdi[dir='ltr']");
+    expect(isolated?.textContent).toBe("~/ملاحظات");
   });
 
   it("fires the folder actions", async () => {
@@ -1892,7 +2475,7 @@ async function openPrograms() {
   const base = mocks.config();
   mocks.config.mockReturnValue({ ...base, mcp: { ...base.mcp, enabled: true } });
   const result = render(() => <SettingsModal />);
-  openSettings("apps");
+  openSettings("apps", "mcp.tools");
   await waitFor(() =>
     expect(result.container.querySelector("[data-setting-id='mcp.tools']")).not.toBeNull(),
   );
@@ -1921,13 +2504,31 @@ describe("Connected programs section — the tool row", () => {
     cleanup();
   });
 
-  it("names MCP and two programs on the Connected programs row", async () => {
+  it("names MCP and two programs on the Connected programs card and page", async () => {
     const { container } = await openPrograms();
 
-    const row = container.querySelector("[data-setting-id='mcp.enabled']")!.textContent ?? "";
+    const page = container.querySelector("[data-app-page='programs']")!.textContent ?? "";
     for (const name of ["Connected programs", "MCP", "Claude Code", "Cursor"]) {
-      expect(row).toContain(name);
+      expect(page).toContain(name);
     }
+    fireEvent.click(container.querySelector("[data-action='apps-back']")!);
+    await waitFor(() =>
+      expect(container.querySelector("[data-setting-id='mcp.enabled']")).not.toBeNull(),
+    );
+    const card = container.querySelector("[data-setting-id='mcp.enabled']")!.textContent ?? "";
+    for (const name of ["Connected programs", "MCP", "Claude Code", "Cursor"]) {
+      expect(card).toContain(name);
+    }
+  });
+
+  it("isolates the command left to right inside the box that cuts its start", async () => {
+    const { container } = await openPrograms();
+    await waitFor(() =>
+      expect(container.querySelector("[data-mcp-command] > bdi[dir='ltr']")?.textContent).toBe(
+        activityStore.serverCommand()?.command,
+      ),
+    );
+    expect(activityStore.serverCommand()?.command).toBeTruthy();
   });
 
   it("says in plain words what each grant lets a program do", async () => {
@@ -2204,6 +2805,9 @@ describe("Connected programs section, waiting for you", () => {
         container.querySelector("[data-setting-id='mcp.waiting'] .settings-programs-none")?.textContent?.trim(),
       ).toBe("A program appears here when it first asks for your files."),
     );
+    expect(
+      container.querySelector("[data-setting-id='mcp.clients'] .settings-programs-none")?.textContent?.trim(),
+    ).toBe("A program appears here after you approve its first call.");
   });
 
   it("sits above the command and the approved programs", async () => {
@@ -2305,6 +2909,11 @@ describe("Settings as a keyboard and a screen reader take it", () => {
         expect(row.querySelector(".settings-row-label-text")!.textContent, text).not.toContain(
           text,
         );
+        // A row that only states a fact has no control to describe.
+        const controls = Array.from(
+          row.querySelectorAll("button, input, select, textarea, [role='switch'], [role='radiogroup']"),
+        ).filter((el) => !el.closest(".settings-row-label"));
+        if (controls.length === 0) continue;
 
         const control = row.querySelector<HTMLElement>("[aria-describedby]");
         expect(control, text).not.toBeNull();
@@ -2322,7 +2931,7 @@ describe("Settings as a keyboard and a screen reader take it", () => {
   // link), and that one comes first in document order.
   it("never hangs a row's description on a control in the label column", async () => {
     const container = await openPanel();
-    for (const section of ["editor", "advanced", "files"]) {
+    for (const section of ["editor", "advanced", "general", "integrations", "apps"]) {
       await openSection(container, section);
       const described = container.querySelectorAll<HTMLElement>("[aria-describedby]");
       for (const control of described) {
@@ -2338,10 +2947,14 @@ describe("Settings as a keyboard and a screen reader take it", () => {
     const row = container.querySelector<HTMLElement>("[data-setting-id='editor.spelling_dialect']")!;
     const select = row.querySelector<HTMLSelectElement>("#setting-spelling-dialect")!;
     expect(select.disabled).toBe(true);
-    const described = select.getAttribute("aria-describedby")!;
-    expect(container.querySelector(`#${described.split(" ")[0]}`)!.textContent).toBe(
+    const described = select
+      .getAttribute("aria-describedby")!
+      .split(" ")
+      .map((id) => container.querySelector(`#${id}`)!.textContent);
+    expect(described).toEqual([
+      settingDescription("editor.spelling_dialect"),
       "Turn on Spell check to pick a dictionary.",
-    );
+    ]);
   });
 });
 

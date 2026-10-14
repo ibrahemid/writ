@@ -10,7 +10,7 @@ const NOTICES_FILE: &str = "THIRD-PARTY-NOTICES.md";
 
 /// Title of the generated document the licence listing opens as. Also the
 /// buffer title, so it is what the tab and the sidebar show.
-pub const THIRD_PARTY_NOTICES_TITLE: &str = "Third-party licences";
+pub const THIRD_PARTY_NOTICES_TITLE: &str = "Third-party licenses";
 
 /// First readable candidate, in the order given.
 ///
@@ -53,7 +53,7 @@ fn bundled_third_party_notices(app: &AppHandle) -> Result<String, String> {
     let candidates = notices_candidates(app);
     let path = pick_notices_path(&candidates).ok_or_else(|| {
         tracing::warn!(?candidates, "third-party notices not found");
-        "Third-party licences are missing from this build.".to_string()
+        "Third-party licenses are missing from this build.".to_string()
     })?;
     std::fs::read_to_string(path).map_err(|e| {
         tracing::warn!(
@@ -61,7 +61,7 @@ fn bundled_third_party_notices(app: &AppHandle) -> Result<String, String> {
             path = %file_name_only(&path.to_string_lossy()),
             "reading third-party notices failed"
         );
-        "Could not read the third-party licences.".to_string()
+        "Could not read the third-party licenses.".to_string()
     })
 }
 

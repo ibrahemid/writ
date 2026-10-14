@@ -1,12 +1,16 @@
 import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 
 import Button from "../../Button/Button";
-import Tooltip from "../../Tooltip/Tooltip";
 import { showToast } from "../../../stores/global/notifications";
 import { WaitingList } from "../../Activity/WaitingProgram";
 import { activityStore, type ClientApproval } from "../../../stores/global/activity";
 import { describeReadTools, describeWriteTools } from "../../../lib/tool-phrases";
+import { PathText } from "../controls";
 import { SettingsRow, ToggleSwitch } from "../SettingsRow";
+
+/** The row id the client cards take, between the waiting list and the
+ * command, once their settings entry and row exist. */
+export const CLIENT_CARDS_SETTING_ID = "mcp.connect";
 
 /**
  * Which programs may reach the notes folder, and how one is pointed at it.
@@ -75,7 +79,7 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
 
   return (
     <div class="settings-app-detail" data-app-detail="programs">
-      <SettingsRow id="mcp.waiting" label="Waiting for you" align="start">
+      <SettingsRow id="mcp.waiting" align="start">
         <WaitingList
           empty={
             <span class="settings-programs-none">
@@ -87,15 +91,15 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
 
       <SettingsRow
         id="mcp.command"
-        label="Command to give a program"
         caution={activityStore.commandCaution()}
       >
         <span class="settings-inbox-controls">
-          <Tooltip label={activityStore.serverCommand()?.command ?? ""}>
-            <span class="settings-inbox-path" data-mcp-command>
-              {activityStore.serverCommand()?.command ?? "…"}
-            </span>
-          </Tooltip>
+          <PathText
+            class="settings-inbox-path"
+            data-mcp-command
+            full={activityStore.serverCommand()?.command ?? ""}
+            text={activityStore.serverCommand()?.command ?? "…"}
+          />
           <Button data-action="mcp-copy-command" onClick={() => void onCopyCommand()}>
             Copy command
           </Button>
@@ -104,7 +108,6 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
 
       <SettingsRow
         id="mcp.tools"
-        label="What a program can do"
         align="start"
         caution="Nothing deletes a file, and a rename leaves other files pointing at the old name."
       >
@@ -127,10 +130,14 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
         </Show>
       </SettingsRow>
 
-      <SettingsRow id="mcp.clients" label="Programs" align="start">
+      <SettingsRow id="mcp.clients" align="start">
         <Show
           when={activityStore.clients().length > 0 || forgotten().length > 0}
-          fallback={<span class="settings-programs-none">None yet.</span>}
+          fallback={
+            <span class="settings-programs-none">
+              A program appears here after you approve its first call.
+            </span>
+          }
         >
           <ul class="settings-programs">
             <For each={activityStore.clients()}>
@@ -190,7 +197,7 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
         </Show>
       </SettingsRow>
 
-      <SettingsRow id="mcp.activity" label="Program activity">
+      <SettingsRow id="mcp.activity">
         <Button data-action="mcp-open-activity" onClick={() => props.onOpenActivity()}>
           Open
         </Button>

@@ -42,7 +42,7 @@ export default function StatusBar() {
       case "saved":
         return `Saved ${status.fileName}`;
       case "failed":
-        return `Couldn't save ${status.fileName}`;
+        return `Could not save ${status.fileName}`;
       case "clean":
         return null;
     }

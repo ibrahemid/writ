@@ -126,7 +126,7 @@ describe("EncodingPicker", () => {
 
     await waitFor(() => expect(h.toast).toHaveBeenCalled());
     expect(h.toast.mock.calls[0][0]).toBe(
-      "Couldn't reopen prices.csv as UTF-8: it is not UTF-8 text. Choose another encoding in the status bar.",
+      "Could not reopen prices.csv as UTF-8: it is not UTF-8 text. Choose another encoding in the status bar.",
     );
     expect(h.requestExternalReload).not.toHaveBeenCalled();
   });

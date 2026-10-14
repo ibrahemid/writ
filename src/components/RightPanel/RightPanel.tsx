@@ -61,7 +61,7 @@ function ConnectionsPanel() {
           ? "No file open."
           : readFailed()
             ? "Could not read this file's connections."
-            : "Nothing links to this file yet."}
+            : "Nothing links to this file yet. Type [[ in another file to link here."}
       </p>
     );
   }

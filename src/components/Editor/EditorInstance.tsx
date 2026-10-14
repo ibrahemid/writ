@@ -17,6 +17,7 @@ import { isMarkdownBuffer } from "../../lib/content-type";
 import { markdownInlineExtension } from "../../editor/markdown-typography";
 import type { InlineImageDeps } from "../../editor/markdown-images";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
+import { MARKDOWN_FORMAT_KEYS } from "../../editor/editor-command-keys";
 import {
   recheckSpelling,
   sameSpellingRules,
@@ -1297,15 +1298,16 @@ export default function EditorInstance(props: Props) {
   // The formatting commands exist in the palette and key map only while a
   // markdown buffer is active with editing helpers enabled, so Cmd+B in a
   // rust file stays a plain keystroke and the palette never offers a no-op.
-  const formatCommands = [
-    { id: "editor.toggleBold", label: "Bold", keybinding: "CmdOrCtrl+B", run: toggleBold },
-    { id: "editor.toggleItalic", label: "Italic", keybinding: "CmdOrCtrl+I", run: toggleItalic },
-    { id: "editor.toggleStrikethrough", label: "Strikethrough", keybinding: "CmdOrCtrl+Shift+X", run: toggleStrikethrough },
-    { id: "editor.toggleInlineCode", label: "Inline code", keybinding: "CmdOrCtrl+Shift+E", run: toggleInlineCode },
-    { id: "editor.insertLink", label: "Insert link", keybinding: "CmdOrCtrl+K", run: insertLink },
-    { id: "editor.toggleBulletList", label: "Bulleted list", keybinding: undefined, run: toggleBulletList },
-    { id: "editor.toggleTaskList", label: "Task list", keybinding: undefined, run: toggleTaskList },
-  ] as const;
+  const formatRuns = {
+    "editor.toggleBold": toggleBold,
+    "editor.toggleItalic": toggleItalic,
+    "editor.toggleStrikethrough": toggleStrikethrough,
+    "editor.toggleInlineCode": toggleInlineCode,
+    "editor.insertLink": insertLink,
+    "editor.toggleBulletList": toggleBulletList,
+    "editor.toggleTaskList": toggleTaskList,
+  } as const;
+  const formatCommands = MARKDOWN_FORMAT_KEYS.map((key) => ({ ...key, run: formatRuns[key.id] }));
 
   createEffect(() => {
     const active =

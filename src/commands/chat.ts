@@ -83,7 +83,7 @@ export async function clearBlockersBeforeSending(
   try {
     endpoint = await chatStore.endpointState();
   } catch {
-    showToast("Could not read the AI settings.", "error");
+    showToast("Could not read the connection settings.", "error");
     return false;
   }
 

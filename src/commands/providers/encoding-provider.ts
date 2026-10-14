@@ -45,7 +45,7 @@ async function reopen(doc: BufferDocument, row: EncodingChoice): Promise<void> {
     logFailure("a file could not be reopened in another encoding");
     const code = readFailureCodeOf(error) ?? ERR_READ_FAILED;
     showToast(
-      `Couldn't reopen ${fileName(doc)} as ${row.short}: ${readFailureReason(code)}`,
+      `Could not reopen ${fileName(doc)} as ${row.short}: ${readFailureReason(code)}`,
       "error",
     );
     return;

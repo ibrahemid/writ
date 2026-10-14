@@ -15,7 +15,7 @@ import "./InboxSection.css";
 function stopWatching() {
   inboxStore.stopWatching().catch(() => {
     logFailure("the watched folder could not be released");
-    showToast("Couldn't stop watching the folder.", "error");
+    showToast("Could not stop watching the folder.", "error");
   });
 }
 

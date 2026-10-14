@@ -19,10 +19,10 @@ export function reportOpenOutcomes(outcomes: readonly OpenOutcome[]): void {
   logFailure(refused.length === 1 ? "a file could not be opened" : "files could not be opened");
   if (refused.length === 1) {
     const [only] = refused;
-    showToast(`Couldn't open ${basename(only.path)}: ${only.reason}`, "error");
+    showToast(`Could not open ${basename(only.path)}: ${only.reason}`, "error");
     return;
   }
-  showToast(`Couldn't open ${refused.length} files`, "error");
+  showToast(`Could not open ${refused.length} files`, "error");
 }
 
 /** [`reportOpenOutcomes`] for one open. */

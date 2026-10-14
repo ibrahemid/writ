@@ -126,7 +126,9 @@ describe("activityStore", () => {
       needs_move: false,
     });
     await activityStore.loadCommand();
-    expect(activityStore.commandCaution()).toContain("Install the writ command");
+    expect(activityStore.commandCaution()).toBe(
+      "Install the writ command first, under Settings, Integrations, Terminal command.",
+    );
 
     h.mcpServerCommand.mockResolvedValueOnce({
       path,

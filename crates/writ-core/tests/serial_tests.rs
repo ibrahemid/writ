@@ -122,13 +122,14 @@ fn a_turn_that_panics_lets_the_next_one_run() {
     assert!(result.is_err());
     let (done, finished) = mpsc::channel();
     let next = queue.clone();
-    thread::spawn(move || {
+    let ran = thread::spawn(move || {
         let _turn = next.turn("note");
         done.send(()).unwrap();
     });
     finished
         .recv_timeout(Duration::from_secs(5))
         .expect("the key was released by the unwinding turn");
+    ran.join().expect("the next turn finished");
     assert_eq!(queue.outstanding("note"), 0);
 }
 

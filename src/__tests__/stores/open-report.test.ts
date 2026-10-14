@@ -72,7 +72,7 @@ describe("reportOpenOutcomes", () => {
     reportOpenOutcomes([{ kind: "refused", path: "/logs/dump.log", reason: TOO_LARGE }]);
 
     expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast).toHaveBeenCalledWith(`Couldn't open dump.log: ${TOO_LARGE}`, "error");
+    expect(toast).toHaveBeenCalledWith(`Could not open dump.log: ${TOO_LARGE}`, "error");
   });
 
   it("names a Windows file by its own name", () => {
@@ -80,7 +80,7 @@ describe("reportOpenOutcomes", () => {
       { kind: "refused", path: "C:\\Users\\me\\logs\\dump.log", reason: TOO_LARGE },
     ]);
 
-    expect(toast).toHaveBeenCalledWith(`Couldn't open dump.log: ${TOO_LARGE}`, "error");
+    expect(toast).toHaveBeenCalledWith(`Could not open dump.log: ${TOO_LARGE}`, "error");
   });
 
   it("says nothing about Cancel, an open, or a file still downloading", () => {
@@ -101,7 +101,7 @@ describe("reportOpenOutcomes", () => {
     ]);
 
     expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast).toHaveBeenCalledWith("Couldn't open 2 files", "error");
+    expect(toast).toHaveBeenCalledWith("Could not open 2 files", "error");
   });
 });
 
@@ -122,7 +122,7 @@ describe("the tab store's open", () => {
 
     expect(tabs.activeTabId()).toBeNull();
     expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast).toHaveBeenCalledWith(`Couldn't open dump.log: ${TOO_LARGE}`, "error");
+    expect(toast).toHaveBeenCalledWith(`Could not open dump.log: ${TOO_LARGE}`, "error");
   });
 
   it("treats Cancel as an answer: no tab, no message, no write of the tab in front", async () => {

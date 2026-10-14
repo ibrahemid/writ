@@ -283,5 +283,10 @@ describe("NoteHistoryPanel", () => {
     ]) {
       expect(rendered.toLowerCase()).not.toContain(word);
     }
+    // One name for the feature, the one Settings and the menu's Revert To… lead to.
+    expect(screen.container.querySelector(".note-versions-title")!.textContent!.trim()).toBe(
+      "Versions",
+    );
+    expect(screen.getByRole("listbox").getAttribute("aria-label")).toBe("Versions");
   });
 });

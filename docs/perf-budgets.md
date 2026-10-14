@@ -390,7 +390,7 @@ not drive. Once per release, on the installed build from the draft release:
    question, with a 60 fps screen recording running.
 3. In each: Cmd+End, type a line at the end, Cmd+F and type `zebrafish`, then
    type at the end of the file with Find open.
-4. With Settings, Word, character and token counts on, open
+4. With Settings, Editor, Word, character and token counts on, open
    `prose-4.9MiB.txt` and type a line at the end, then `server-300MiB.log`
    (written with `--large`) through Open in the size question, and watch the
    counts in the status bar go from `≈` to exact.

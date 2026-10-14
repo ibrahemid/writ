@@ -24,7 +24,7 @@ import { unreadTabs } from "./unread-tabs";
  * - `declined`: the file is over the size Writ opens without asking and the
  *   person said Cancel. Nothing was read, and nothing is said about it.
  * - `refused`: the file was not opened; `reason` is the second half of
- *   "Couldn't open <name>: ".
+ *   "Could not open <name>: ".
  * - `not-downloaded`: a sync provider has not put the bytes on this machine.
  *   The file is downloaded first and opened again once the bytes are here.
  */

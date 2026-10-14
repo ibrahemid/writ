@@ -5,8 +5,8 @@ What Writ does, at the level of detail that answers "does it do X".
 ## Files
 
 - Writ opens any text file from Finder, the Dock, the Open dialog (`Cmd+O`) or the `writ` command, and saves it back to its own path.
-- New files go in one folder, `~/Writ` unless you pick another under Settings, Files, Folder. The file on disk is the only copy of its text.
-- A new file (`Cmd+N`) is `.txt` or `.md`, set under Settings, Files, Default format. A file nobody named is called `writ-<yymmdd>-<hhmm>`, and a second one in the same minute gets `-2`.
+- New files go in one folder, `~/Writ` unless you pick another under Settings, General, Folder. The file on disk is the only copy of its text.
+- A new file (`Cmd+N`) is `.txt` or `.md`, set under Settings, General, Default format. A file nobody named is called `writ-<yymmdd>-<hhmm>`, and a second one in the same minute gets `-2`.
 - File > Today's File opens a file named for today's date, in the same format.
 - Renaming a file to a name ending in `.md`, `.markdown`, `.txt` or `.text` changes its format. Any other name keeps the file's own extension.
 - Tabs, the file list and the palette show a name without its `.md` or `.txt`. Other extensions stay visible.
@@ -16,12 +16,12 @@ What Writ does, at the level of detail that answers "does it do X".
 - Open tabs and unsaved text come back after a restart or a crash.
 - Binary files open as hex. Large files open with syntax colouring off.
 - A file over 50 MiB asks before it opens and says how large it is. A file over 500 MiB (524 MB) doesn't open, and Writ says why. Writ measures the tabs it restores at launch as it starts: one over 50 MiB asks when it is shown, and one over 500 MiB says why.
-- On macOS, Writ can register as the app that opens text, config, data and source files (Settings, Files).
+- On macOS, Writ can register as the app that opens text, config, data and source files (Settings, Integrations).
 
 ## Markdown
 
 - A Markdown file opens in Inline mode: headings at heading sizes, bold, italic, strikethrough and inline code styled, links with the address hidden, images shown under their line, task lists as checkboxes, and fenced code highlighted in its language. The line you are editing shows its markup.
-- The Inline | Source switch in the status bar shows the raw Markdown instead. Settings, Preview sets which one a Markdown file opens in.
+- The Inline | Source switch in the status bar shows the raw Markdown instead. Settings, Editor, Markdown opens in sets which one a Markdown file opens in.
 - `[[Name]]` links another file by name, completes from the files in the folder, and opens on `Cmd+click` or `Enter`. `[[Name#Heading]]` opens at the heading. A name two files share asks which one is meant.
 - `Cmd+B`, `Cmd+I`, `Cmd+Shift+X`, `Cmd+Shift+E` and `Cmd+K` format a selection. Settings, Editor, Markdown shortcuts turns them off.
 - A `.txt` file gets the plain editor, with no link completion.
@@ -62,7 +62,7 @@ What Writ does, at the level of detail that answers "does it do X".
 
 ## Window
 
-- `Cmd+Shift+Space` (`Ctrl+Shift+Space` on Windows and Linux) shows and hides the window from any app. It and every other shortcut can be changed under Settings, Shortcuts.
+- `Cmd+Shift+Space` (`Ctrl+Shift+Space` on Windows and Linux) shows and hides the window from any app. Settings, General records a new one, and Settings, Shortcuts lists it first with every other shortcut.
 - Tabs switch with `Cmd+[` and `Cmd+]`, and `Cmd+Shift+T` reopens the last closed one.
 - Light and dark follow the system, with six accent colours, preset themes and custom colours.
 - The editor font size (`Cmd+=`, `Cmd+-`, `Cmd+0`) and the interface text size (Settings, Appearance) change separately.
@@ -83,8 +83,8 @@ Chat and Rewrite share one AI connection: Ollama or LM Studio on this machine, A
 ## More
 
 - Spell check runs on this machine and is off until you turn it on. Code, URLs and identifiers stay unflagged.
-- A watched folder (Settings, Advanced) opens new files as they arrive. See [adr/018-watch-inbox.md](adr/018-watch-inbox.md).
+- A watched folder (Settings, Integrations) opens new files as they arrive. See [adr/018-watch-inbox.md](adr/018-watch-inbox.md).
 - The `writ` command opens files, folders and piped text from a terminal, and answers questions about the folder. See [cli-verbs.md](cli-verbs.md).
 - A folder written in Obsidian opens as it is: [what carries over](./importing-from-obsidian.md).
 - No account and no telemetry.
-- Updates verify a signed manifest, and the automatic check can be turned off under Settings, Updates. See [adr/007-in-app-updater.md](adr/007-in-app-updater.md).
+- Updates verify a signed manifest, and the automatic check can be turned off under Settings, About. See [adr/007-in-app-updater.md](adr/007-in-app-updater.md).

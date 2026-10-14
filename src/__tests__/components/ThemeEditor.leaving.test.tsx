@@ -141,3 +141,27 @@ describe("the editor's own words", () => {
     expect(h.showToast).toHaveBeenCalledWith("Could not save the theme", "error");
   });
 });
+
+describe("where the theme editor hands back to", () => {
+  it("returns to the surface that opened it, once, when it closes", async () => {
+    const back = vi.fn();
+    const screen = render(both);
+    openThemeEditor(back);
+    fireEvent.click(screen.container.querySelector(".theme-editor-overlay")!);
+    await waitFor(() => expect(screen.container.querySelector(".theme-editor")).toBeNull());
+    expect(back).toHaveBeenCalledTimes(1);
+    closeThemeEditor();
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns nowhere when opened from the palette", async () => {
+    const back = vi.fn();
+    openThemeEditor(back);
+    closeThemeEditor();
+    const screen = render(both);
+    openThemeEditor();
+    fireEvent.click(screen.container.querySelector(".theme-editor-overlay")!);
+    await waitFor(() => expect(screen.container.querySelector(".theme-editor")).toBeNull());
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+});

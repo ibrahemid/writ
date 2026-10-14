@@ -384,6 +384,12 @@ machine:
   autosave work.
 - Linux: install the `.deb` with `sudo dpkg -i`, or run the `.AppImage`
   directly, and confirm hotkey and autosave work.
+- On the macOS install, check that Settings draws paths in their own order.
+  Settings, General: the folder reads `~/Writ`, with the tilde first. Move
+  the folder to one named in Arabic, such as `~/ملاحظات`: the row reads
+  `~/ملاحظات` with the tilde and slash on the left. Settings, Apps, Connected
+  programs, with the app on: the command starts with `/` on the left and ends
+  in `mcp`. Move the folder back.
 
 Verify `SHA256SUMS.txt`, then its signature against the key installed copies
 hold, the one in the latest published release (during a key move that is the

@@ -110,9 +110,9 @@ export default function LinkAmbiguityPicker() {
             <p class="link-picker-title">
               <Show
                 when={state().candidates.length > 0}
-                fallback={<>No note is called “{state().target}”.</>}
+                fallback={<>No file is called “{state().target}”.</>}
               >
-                More than one note is called “{state().target}”.
+                More than one file is called “{state().target}”.
               </Show>
             </p>
             <div class="link-picker-rows" ref={rowsRef} onKeyDown={onRowsKeyDown}>

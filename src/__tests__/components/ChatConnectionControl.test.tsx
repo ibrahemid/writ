@@ -326,7 +326,7 @@ describe("the connection control", () => {
 
   it("opens the settings section from the last row", async () => {
     const { getByText } = await openMenu();
-    fireEvent.click(getByText("AI settings"));
+    fireEvent.click(getByText("Connection settings"));
     expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.provider");
   });
 

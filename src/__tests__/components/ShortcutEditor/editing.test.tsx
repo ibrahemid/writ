@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 
-// What the editor tells the user about a chord more than one command wants, and what it
-// does with recorded work on the way out.
+// What the shortcut list tells the user about a chord more than one command wants, and
+// what it keeps of recorded work while it is off screen.
 
 const h = vi.hoisted(() => ({
   focusEditor: vi.fn(),
@@ -32,10 +32,11 @@ vi.mock("../../../stores/global/notifications", () => ({
 }));
 
 import ShortcutEditor, {
-  openShortcutEditor,
-  closeShortcutEditor,
+  discardShortcutDrafts,
+  hasUnsavedShortcuts,
 } from "../../../components/ShortcutEditor/ShortcutEditor";
 import ConfirmDialog from "../../../components/ConfirmDialog/ConfirmDialog";
+import { spokenKeybinding } from "../../../lib/keybinding-format";
 import { registerCommand, getAllCommands, unregisterCommand } from "../../../commands/registry";
 
 function both() {
@@ -55,7 +56,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  closeShortcutEditor();
+  discardShortcutDrafts();
   cleanup();
 });
 
@@ -83,11 +84,29 @@ function manyOnOneChord() {
   });
 }
 
+describe("a command's second chord", () => {
+  it("is drawn as a muted keycap, not counted in words", () => {
+    registerCommand({
+      id: "sidebar.toggle",
+      label: "Toggle sidebar",
+      keybinding: "CmdOrCtrl+\\",
+      keybindingAliases: ["CmdOrCtrl+Alt+S"],
+      scope: "app",
+      execute: vi.fn(),
+    });
+    const screen = render(both);
+    const aliases = screen.container.querySelector(".shortcut-row-aliases")!;
+    expect(aliases.textContent).not.toMatch(/alias|read-only/);
+    const caps = aliases.querySelectorAll(".kbd-chord.kbd-chord-muted");
+    expect(caps).toHaveLength(1);
+    expect(caps[0].getAttribute("aria-label")).toBe(spokenKeybinding("CmdOrCtrl+Alt+S"));
+  });
+});
+
 describe("a chord more than one command wants", () => {
   it("names the commands the way the user knows them", () => {
     manyOnOneChord();
     const screen = render(both);
-    openShortcutEditor();
 
     const lines = Array.from(screen.container.querySelectorAll(".shortcut-row-conflict")).map(
       (el) => el.textContent ?? "",
@@ -104,7 +123,6 @@ describe("a chord more than one command wants", () => {
   it("holds Save back until the chord belongs to one command", () => {
     manyOnOneChord();
     const screen = render(both);
-    openShortcutEditor();
 
     const save = screen.container.querySelector<HTMLButtonElement>("[data-action='save-shortcuts']")!;
     expect(save.disabled).toBe(true);
@@ -114,8 +132,8 @@ describe("a chord more than one command wants", () => {
   });
 });
 
-describe("leaving the editor with recorded work", () => {
-  it("asks before it throws the changes away", async () => {
+describe("recorded work while the list is off screen", () => {
+  function newNote() {
     registerCommand({
       id: "note.new",
       label: "New note",
@@ -123,38 +141,47 @@ describe("leaving the editor with recorded work", () => {
       scope: "app",
       execute: vi.fn(),
     });
+  }
+
+  it("keeps a reset row through another section until Settings drops it", () => {
+    newNote();
     h.keybindings = { "note.new": "CmdOrCtrl+Shift+N" };
 
-    const screen = render(both);
-    openShortcutEditor();
-    fireEvent.click(screen.container.querySelector("[data-action='reset-all-shortcuts']")!);
+    const first = render(both);
+    fireEvent.click(first.container.querySelector("[data-action='reset-all-shortcuts']")!);
+    expect(hasUnsavedShortcuts()).toBe(true);
+    first.unmount();
 
-    fireEvent.click(screen.container.querySelector(".shortcut-editor-overlay")!);
+    expect(hasUnsavedShortcuts()).toBe(true);
+    const again = render(both);
+    const row = Array.from(again.container.querySelectorAll(".shortcut-row")).find((el) =>
+      el.querySelector(".shortcut-row-label")?.textContent?.includes("New note"),
+    )!;
+    expect(row.querySelector(".kbd-chord")!.getAttribute("aria-label")).toBe("Control N");
+    again.unmount();
 
-    await waitFor(() => expect(screen.container.querySelector(".confirm-dialog")).toBeTruthy());
-    expect(screen.container.querySelector(".shortcut-editor")).toBeTruthy();
-    expect(screen.getByText("Discard your changes?")).toBeTruthy();
-
-    fireEvent.click(screen.container.querySelector(".confirm-cancel")!);
-    await waitFor(() => expect(screen.container.querySelector(".confirm-dialog")).toBeNull());
-    expect(screen.container.querySelector(".shortcut-editor")).toBeTruthy();
+    discardShortcutDrafts();
+    expect(hasUnsavedShortcuts()).toBe(false);
   });
 
-  it("closes without asking when nothing was recorded", async () => {
-    registerCommand({
-      id: "note.new",
-      label: "New note",
-      keybinding: "CmdOrCtrl+N",
-      scope: "app",
-      execute: vi.fn(),
+  it("holds nothing unsaved when nothing was recorded", () => {
+    newNote();
+    render(both);
+    expect(hasUnsavedShortcuts()).toBe(false);
+  });
+
+  it("holds nothing unsaved once the rows are saved", async () => {
+    newNote();
+    h.keybindings = { "note.new": "CmdOrCtrl+Shift+N" };
+    h.saveConfig.mockImplementation(async (next: { keybindings: Record<string, string> }) => {
+      h.keybindings = next.keybindings;
     });
-
     const screen = render(both);
-    openShortcutEditor();
-    fireEvent.click(screen.container.querySelector(".shortcut-editor-overlay")!);
-
-    await waitFor(() => expect(screen.container.querySelector(".shortcut-editor")).toBeNull());
-    expect(screen.container.querySelector(".confirm-dialog")).toBeNull();
+    fireEvent.click(screen.container.querySelector("[data-action='reset-all-shortcuts']")!);
+    expect(hasUnsavedShortcuts()).toBe(true);
+    fireEvent.click(screen.container.querySelector("[data-action='save-shortcuts']")!);
+    await waitFor(() => expect(h.saveConfig).toHaveBeenCalled());
+    await waitFor(() => expect(hasUnsavedShortcuts()).toBe(false));
   });
 });
 
@@ -168,19 +195,8 @@ describe("the editor's own words", () => {
     });
 
     const screen = render(both);
-    openShortcutEditor();
 
     expect(screen.container.querySelector(".shortcut-row-empty")!.textContent).toBe("Not set");
-  });
-
-  it("takes its name from the title on screen", () => {
-    const screen = render(both);
-    openShortcutEditor();
-
-    const dialog = screen.container.querySelector<HTMLElement>(".shortcut-editor")!;
-    expect(dialog.getAttribute("aria-label")).toBeNull();
-    const titleId = dialog.getAttribute("aria-labelledby")!;
-    expect(screen.container.querySelector(`#${titleId}`)!.textContent).toBe("Customize shortcuts");
   });
 
   it("says it could not save the shortcuts", async () => {
@@ -194,7 +210,6 @@ describe("the editor's own words", () => {
     h.saveConfig.mockRejectedValueOnce(new Error("disk"));
 
     const screen = render(both);
-    openShortcutEditor();
     fireEvent.click(screen.container.querySelector("[data-action='save-shortcuts']")!);
 
     await waitFor(() => expect(h.showToast).toHaveBeenCalled());
@@ -222,20 +237,16 @@ describe("a command whose app is off", () => {
     h.keybindings = { "chat.toggle": "CmdOrCtrl+Alt+C" };
   }
 
-  it("is not listed, and leaving with nothing edited asks nothing", async () => {
+  it("is not listed, and counts as nothing unsaved", () => {
     chatAndNew();
     const screen = render(both);
-    openShortcutEditor();
     expect(screen.queryByText("Toggle chat")).toBeNull();
-    fireEvent.click(screen.container.querySelector(".shortcut-editor-overlay")!);
-    await waitFor(() => expect(screen.container.querySelector(".shortcut-editor")).toBeNull());
-    expect(screen.container.querySelector(".confirm-dialog")).toBeNull();
+    expect(hasUnsavedShortcuts()).toBe(false);
   });
 
   it("keeps its saved chord when the editor saves", async () => {
     chatAndNew();
     const screen = render(both);
-    openShortcutEditor();
     fireEvent.click(screen.container.querySelector("[data-action='save-shortcuts']")!);
     await waitFor(() => expect(h.saveConfig).toHaveBeenCalled());
     expect(h.saveConfig.mock.calls[0][0].keybindings).toEqual({ "chat.toggle": "CmdOrCtrl+Alt+C" });
@@ -259,7 +270,6 @@ describe("chords the macOS menu bar holds", () => {
     h.keybindings = { "note.new": "CmdOrCtrl+Q" };
 
     const screen = render(both);
-    openShortcutEditor();
 
     expect(screen.container.querySelector(".shortcut-row-conflict")!.textContent).toBe(
       "Conflicts with Quit Writ",
@@ -283,7 +293,6 @@ describe("chords the macOS menu bar holds", () => {
     h.keybindings = { "note.new": "CmdOrCtrl+Q" };
 
     const screen = render(both);
-    openShortcutEditor();
 
     expect(screen.container.querySelector(".shortcut-row-conflict")).toBeNull();
   });
@@ -313,7 +322,6 @@ describe("finding and reading rows", () => {
   it("narrows the rows to the ones whose name matches the filter", () => {
     twoCommands();
     const screen = render(both);
-    openShortcutEditor();
 
     const filter = screen.getByLabelText("Filter shortcuts") as HTMLInputElement;
     fireEvent.input(filter, { target: { value: "sidebar" } });
@@ -328,7 +336,6 @@ describe("finding and reading rows", () => {
     twoCommands();
     h.keybindings = { "note.new": "CmdOrCtrl+Shift+N" };
     const screen = render(both);
-    openShortcutEditor();
 
     const marked = Array.from(screen.container.querySelectorAll(".shortcut-row"))
       .filter((row) => row.querySelector(".shortcut-row-changed"))
@@ -339,7 +346,6 @@ describe("finding and reading rows", () => {
   it("shows each chord as keycaps with a spoken name", () => {
     twoCommands();
     const screen = render(both);
-    openShortcutEditor();
 
     const names = Array.from(
       screen.container.querySelectorAll(".shortcut-row-chip .kbd-chord"),

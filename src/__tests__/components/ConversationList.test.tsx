@@ -87,6 +87,17 @@ describe("the chat list", () => {
     expect(tipped).toEqual(["Stop Launch", "Rename Launch", "Delete Launch"]);
   });
 
+  it("names the conversation in the delete question", () => {
+    const { getByLabelText } = render(() => <ConversationList onPick={() => {}} />);
+    fireEvent.click(getByLabelText("Delete Launch"));
+    expect(mocks.requestConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Delete Launch?",
+        message: "The conversation is deleted. Your files are not changed.",
+      }),
+    );
+  });
+
   it("marks a chat that is still answering and stops it from its row", () => {
     const { container, getByRole } = render(() => <ConversationList onPick={() => undefined} />);
 

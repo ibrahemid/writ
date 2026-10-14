@@ -113,3 +113,7 @@ export function canonicalChord(binding: string, platform: Platform): string {
   const merged = [...new Set(modifiers.map((part) => (part === "Ctrl" ? "CmdOrCtrl" : part)))];
   return [...merged, key].join("+");
 }
+
+/** Why the window's chord was not taken: Rust registers only these keys. */
+export const UNUSABLE_GLOBAL_KEY =
+  "Writ can't use that key. Pick a letter, number, punctuation, arrow, Space or F1–F12 key.";

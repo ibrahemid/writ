@@ -60,7 +60,6 @@ describe("the settings area follows the interface text size", () => {
 
   it("clamps every modal in the area to the viewport", () => {
     for (const [rel, selector] of [
-      ["src/components/ShortcutEditor/ShortcutEditor.css", ".shortcut-editor"],
       ["src/components/ThemeEditor/ThemeEditor.css", ".theme-editor"],
     ] as const) {
       const css = readFileSync(resolve(process.cwd(), rel), "utf8");

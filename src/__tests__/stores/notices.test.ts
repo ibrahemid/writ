@@ -9,7 +9,7 @@ function mockBuffer(title: string, id = "notices-buffer"): BufferDocument {
     filename: "notices.md",
     status: "active",
     language: null,
-    source_path: "/writ/generated/Third-party licences.md",
+    source_path: "/writ/generated/Third-party licenses.md",
     cursor_pos: 0,
     scroll_pos: 0,
     tab_order: 1,
@@ -80,7 +80,7 @@ describe("openThirdPartyNoticesBuffer", () => {
   it("identifies the buffer by the file it opened from, under the data directory", async () => {
     const { doc } = await openThirdPartyNoticesBuffer();
 
-    expect(doc.source_path).toBe("/writ/generated/Third-party licences.md");
+    expect(doc.source_path).toBe("/writ/generated/Third-party licenses.md");
     expect(doc.read_only).toBe(true);
   });
 

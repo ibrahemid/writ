@@ -4,6 +4,7 @@ import { join, relative, resolve } from "node:path";
 
 import allowlistJson from "./banned-words.allowlist.json";
 import { MENU_COMMANDS } from "../../commands/menu-commands";
+import { SETTINGS_INDEX } from "../../settings";
 
 // Known limits. A prop whose value is a const identifier rather than a literal
 // escapes the scan: only literals carry the word. The Rust half stops reading a
@@ -290,11 +291,11 @@ function isProse(value: string): boolean {
 }
 
 /**
- * A literal that reads as a whole sentence: it opens with a capital or an `@`,
- * holds a space, and ends the way a sentence does.
+ * A literal that reads as a whole sentence: it opens with a capital, an `@`, a
+ * digit or an interpolation, holds a space, and ends the way a sentence does.
  */
 function isSentence(value: string): boolean {
-  return /^[A-Z@]/.test(value) && /\s/.test(value) && /[.?…]$/.test(value);
+  return /^[A-Z@0-9\u0000]/.test(value) && /\s/.test(value) && /[.?…]$/.test(value);
 }
 
 /**
@@ -326,6 +327,32 @@ function keyBefore(masked: string, byEnd: Map<number, Literal>, start: number): 
   return key === "" ? null : key;
 }
 
+/**
+ * A JSX text run with each balanced `{…}` child expression blanked, so the
+ * words around an interpolation are read ("No file is called “{name}”.").
+ * An unbalanced brace stays, and the reject set then drops the run as code.
+ */
+function withoutExpressions(run: string): string {
+  let out = "";
+  let depth = 0;
+  let start = -1;
+  for (let k = 0; k < run.length; k++) {
+    const ch = run[k];
+    if (ch === "{") {
+      if (depth === 0) start = k;
+      depth++;
+      continue;
+    }
+    if (ch === "}" && depth > 0) {
+      depth--;
+      if (depth === 0) out += " ";
+      continue;
+    }
+    if (depth === 0) out += ch;
+  }
+  return depth > 0 ? out + run.slice(start) : out;
+}
+
 interface Candidate {
   index: number;
   text: string;
@@ -352,7 +379,7 @@ function domStrings(file: string, text: string): Candidate[] {
       if (open === -1 || !/[A-Za-z/>]/.test(masked[open + 1] ?? "")) continue;
       const close = masked.indexOf("<", i + 1);
       if (close === -1) continue;
-      const run = masked.slice(i + 1, close);
+      const run = withoutExpressions(masked.slice(i + 1, close));
       if (!/[A-Za-z]/.test(run)) continue;
       if ([...run].some((ch) => JSX_TEXT_REJECT.includes(ch))) continue;
       candidates.push({ index: i + 1, text: run });
@@ -457,8 +484,82 @@ describe("the strings the guard reads", () => {
     expect(read('const FAILED = "The file could not be renamed.";')).toContain("The file could not be renamed.");
   });
 
+  it("reads the words around an expression inside JSX text", () => {
+    expect(read("<p>No file is called “{state().target}”.</p>").join("|")).toContain("No file is called");
+  });
+
+  it("reads a sentence that opens with a count", () => {
+    expect(read("const line = `${n} notes are now in ${where}.`;")).toContain(
+      "\u0000 notes are now in \u0000.",
+    );
+  });
+
   it("leaves log lines, ids and class names alone", () => {
     expect(read('logFailure("the file could not be renamed"); const id = "note.versions"; <p class="right-panel-empty" />')).toEqual([]);
+  });
+});
+
+// Decision OD-14: one locale (US, which "color" and "Customize" already set)
+// and one way of saying a failure ("Could not") across every string.
+const OTHER_LOCALE_AND_VOICE = [
+  "licence",
+  "colour",
+  "behaviour",
+  "organise",
+  "recognise",
+  "customise",
+  "favourite",
+  "centre",
+  "cancelled",
+  "grey",
+  "dialogue",
+  "catalogue",
+  "analyse",
+  "labelled",
+  "normalise",
+  "initialise",
+  "summarise",
+  "minimise",
+  "maximise",
+  "optimise",
+  "synchronise",
+  "authorise",
+  "whilst",
+  "amongst",
+  "couldn't",
+] as const;
+
+describe("one locale and one voice", () => {
+  const patterns = OTHER_LOCALE_AND_VOICE.map((word) => [word, patternFor(word)] as const);
+
+  // A search term is not shown: "licences" finds the licenses row for a
+  // reader who spells it that way.
+  const searchTerms = new Set(SETTINGS_INDEX.flatMap((entry) => entry.keywords));
+
+  it("spells every string in US English and says Could not", () => {
+    const found: string[] = [];
+    for (const file of walk(SRC)) {
+      const text = readFileSync(file, "utf8");
+      const relPath = relative(REPO_ROOT, file).split("\\").join("/");
+      for (const candidate of domStrings(file, text)) {
+        if (resolve(file) === SETTINGS_INDEX_FILE && searchTerms.has(candidate.text)) continue;
+        for (const [word, re] of patterns) {
+          if (re.test(candidate.text)) found.push(`${relPath}:${lineOf(text, candidate.index)}:${word}`);
+        }
+      }
+    }
+    for (const entry of MENU_COMMANDS) {
+      for (const [word, re] of patterns) {
+        if (re.test(entry.label)) found.push(`${entry.id}:${word}`);
+      }
+    }
+    expect(found).toEqual([]);
+  });
+
+  it("reads a contraction and a British spelling inside JSX text", () => {
+    const strings = domStrings("probe.tsx", "<p>Couldn't open the licence for “{name}”.</p>");
+    const hits = patterns.filter(([, re]) => strings.some((c) => re.test(c.text))).map(([w]) => w);
+    expect(hits).toEqual(["licence", "couldn't"]);
   });
 });
 

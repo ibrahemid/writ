@@ -70,7 +70,7 @@ export default function SaveFailureBar(props: { noteId: string | null }) {
       {(current) => (
         <div class="editor-bar save-failure-bar" role="alert">
           <p class="editor-bar-text">
-            Couldn't save {current().fileName}: {current().reason?.message}
+            Could not save {current().fileName}: {current().reason?.message}
             <Show when={stillWaiting()}>
               {" "}
               <span class="editor-bar-note">Still downloading.</span>

@@ -42,7 +42,7 @@ export function tooLargeReason(sizeBytes: number): string {
 
 /**
  * The reason a refusal names, from the reason the open answered with and the
- * file's size. Each reads as the second half of "Couldn't open <name>: ".
+ * file's size. Each reads as the second half of "Could not open <name>: ".
  */
 export function refusalReason(reason: string, sizeBytes: number): string {
   if (reason === ERR_OPEN_TOO_LARGE || reason.startsWith(`${ERR_OPEN_TOO_LARGE}:`)) {
