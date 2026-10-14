@@ -91,9 +91,30 @@ export default function ChatPane() {
   // `inert` is presence-based, so it is set as an attribute rather than left
   // to the property: a closed column keeps its controls out of the tab order
   // at zero width, and an open one carries no attribute at all.
+  //
+  // Focus moves with the column (CH-04). An open by the chord, a menu or the
+  // toolbar puts the caret in the composer, so the next keystrokes are the
+  // question rather than an edit to the file. A close that takes the focused
+  // control with it hands focus back to the editor, the way the sidebar does.
+  // Whether focus was inside is read before `inert` blurs it. The open state
+  // the stored settings arrive with at launch is not a request, so it moves
+  // nothing.
   let column: HTMLElement | undefined;
+  let composerInput: HTMLTextAreaElement | undefined;
+  let wasOpen = false;
+  let answered = untrack(() => win.chatPanel.focusRequests());
   createEffect(() => {
-    column?.toggleAttribute("inert", !isOpen());
+    const open = isOpen();
+    const asked = win.chatPanel.focusRequests();
+    untrack(() => {
+      const active = document.activeElement;
+      const focusInside = !!column && !!active && active !== document.body && column.contains(active);
+      column?.toggleAttribute("inert", !open);
+      if (wasOpen && !open && focusInside) win.editor.focusEditor();
+      if (open && asked !== answered) composerInput?.focus();
+      answered = asked;
+      wasOpen = open;
+    });
   });
 
   const title = () => chatStore.current()?.title ?? "Chat";
@@ -136,15 +157,31 @@ export default function ChatPane() {
             <Show
               when={renamingTitle()}
               fallback={
-                <h2
-                  class="chat-pane-title"
-                  id="chat-pane-title"
-                  onDblClick={() => {
-                    if (chatStore.current()) setRenamingTitle(true);
-                  }}
-                >
-                  {title()}
-                </h2>
+                <div class="chat-pane-title-row">
+                  <h2
+                    class="chat-pane-title"
+                    id="chat-pane-title"
+                    onDblClick={() => {
+                      if (chatStore.current()) setRenamingTitle(true);
+                    }}
+                  >
+                    {title()}
+                  </h2>
+                  {/* Rename was a double-click nobody could see; the pencil
+                      shows on hover and focus (CH-18). */}
+                  <Show when={chatStore.current()}>
+                    <Tooltip label="Rename chat">
+                      <Button
+                        variant="ghost"
+                        class="chat-pane-title-rename"
+                        icon="pencil-simple"
+                        iconSize={12}
+                        aria-label="Rename chat"
+                        onClick={() => setRenamingTitle(true)}
+                      />
+                    </Tooltip>
+                  </Show>
+                </div>
               }
             >
               <input
@@ -209,7 +246,11 @@ export default function ChatPane() {
 
           <ChatTranscript />
           <ChatReadiness />
-          <ChatComposer openNote={openNote} onClose={() => win.chatPanel.hide()} />
+          <ChatComposer
+            openNote={openNote}
+            onClose={() => win.chatPanel.hide()}
+            inputRef={(el) => (composerInput = el)}
+          />
         </div>
       </aside>
     </Show>

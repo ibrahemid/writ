@@ -318,7 +318,9 @@ pub enum ChatError {
     #[error("The chat base URL is not a valid URL.")]
     InvalidBaseUrl,
     /// The scheme/host pair failed the outbound guard.
-    #[error("This base URL is not allowed. Use https, or http for localhost.")]
+    #[error(
+        "This base URL is not allowed. Use https, or http for this machine or an IP address on your local network."
+    )]
     EndpointNotAllowed,
     /// No model id is configured.
     #[error("Choose a chat model in Settings, Apps, Chat.")]
@@ -338,6 +340,9 @@ pub enum ChatError {
     /// The message had no text in it.
     #[error("there is nothing to send")]
     EmptyMessage,
+    /// The connection is Apple's on-device model, which serves Rewrite only.
+    #[error("Apple's on-device model works with Rewrite only. Choose another provider for chat.")]
+    RewriteOnly,
     /// The local runtime the connection points at is not answering.
     #[error("{} is not running at {host_port}.", provider_label(runtime))]
     LocalServerOffline {
@@ -386,6 +391,7 @@ impl ChatError {
             Self::ConsentRequired { .. } => "consent_required",
             Self::ApiKeyRequired { .. } => "api_key_required",
             Self::EmptyMessage => "empty_message",
+            Self::RewriteOnly => "rewrite_only",
             Self::LocalServerOffline { .. } => "local_server_offline",
             Self::EmptyModelList { .. } => "empty_model_list",
             Self::ModelUnavailable { .. } => "model_unavailable",

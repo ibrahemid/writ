@@ -3,15 +3,23 @@ import { aiProviders, type AiProviderGroup, type AiProviderInfo } from "../../se
 
 export type { AiProviderGroup, AiProviderInfo };
 
+/** The provider id of Apple's on-device model, which serves Rewrite only. */
+export const ON_DEVICE_PROVIDER = "apple";
+
+/** What chat says while the connection is the on-device model. */
+export const REWRITE_ONLY_MESSAGE =
+  "Apple's on-device model works with Rewrite only. Choose another provider for chat.";
+
 /** The heading each group carries in the picker, in the order they are shown:
  * what already runs on the machine first. */
 export const PROVIDER_GROUP_LABELS: Record<AiProviderGroup, string> = {
+  on_device: "Built into macOS",
   local: "Running on this machine",
   hosted: "Hosted",
   custom: "Custom (OpenAI-compatible)",
 };
 
-export const PROVIDER_GROUP_ORDER: AiProviderGroup[] = ["local", "hosted", "custom"];
+export const PROVIDER_GROUP_ORDER: AiProviderGroup[] = ["on_device", "local", "hosted", "custom"];
 
 export interface ProviderGroupedOptions {
   group: AiProviderGroup;

@@ -24,6 +24,8 @@ import type { AiConfig } from "../../src/types/config";
 export const PROVIDERS: readonly AiProviderInfo[] = [
   { id: "ollama", label: "Ollama", group: "local", wire: "openai", base_url: "http://localhost:11434/v1", models_url: "http://localhost:11434/api/tags", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: 11434, curated_models: ["qwen3:4b", "qwen3:8b", "gemma3:4b", "llama3.2:3b"] },
   { id: "lmstudio", label: "LM Studio", group: "local", wire: "openai", base_url: "http://localhost:1234/v1", models_url: "http://localhost:1234/v1/models", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: 1234, curated_models: [] },
+  { id: "llamacpp", label: "llama.cpp", group: "local", wire: "openai", base_url: "http://localhost:8080/v1", models_url: "http://localhost:8080/v1/models", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: 8080, curated_models: [] },
+  { id: "jan", label: "Jan", group: "local", wire: "openai", base_url: "http://localhost:1337/v1", models_url: "http://localhost:1337/v1/models", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: 1337, curated_models: [] },
   { id: "anthropic", label: "Anthropic", group: "hosted", wire: "anthropic", base_url: "https://api.anthropic.com", models_url: "https://api.anthropic.com/v1/models", key_page_url: "https://console.anthropic.com/settings/keys", default_model: "claude-sonnet-5-5", needs_key: true, supports_connect: false, probe_port: null, curated_models: ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"] },
   { id: "openai", label: "OpenAI", group: "hosted", wire: "openai", base_url: "https://api.openai.com/v1", models_url: "https://api.openai.com/v1/models", key_page_url: "https://platform.openai.com/api-keys", default_model: "gpt-6-luna", needs_key: true, supports_connect: false, probe_port: null, curated_models: ["gpt-6-luna", "gpt-6.1-sol", "gpt-6-astra"] },
   { id: "gemini", label: "Google Gemini", group: "hosted", wire: "openai", base_url: "https://generativelanguage.googleapis.com/v1beta/openai", models_url: "https://generativelanguage.googleapis.com/v1beta/models", key_page_url: "https://aistudio.google.com/apikey", default_model: "gemini-3.8-flash", needs_key: true, supports_connect: false, probe_port: null, curated_models: ["gemini-3.8-flash", "gemini-3.5-flash-lite"] },
@@ -35,6 +37,7 @@ export const PROVIDERS: readonly AiProviderInfo[] = [
   { id: "together", label: "Together", group: "hosted", wire: "openai", base_url: "https://api.together.ai/v1", models_url: "https://api.together.ai/v1/models", key_page_url: "https://api.together.ai/settings/projects/~current/api-keys", default_model: "openai/gpt-oss-120b", needs_key: true, supports_connect: false, probe_port: null, curated_models: ["openai/gpt-oss-120b", "Qwen/Qwen3.8-Flash", "deepseek-ai/DeepSeek-V4.1-Flash"] },
   { id: "fireworks", label: "Fireworks", group: "hosted", wire: "openai", base_url: "https://api.fireworks.ai/inference/v1", models_url: "https://api.fireworks.ai/inference/v1/models", key_page_url: "https://app.fireworks.ai/settings/users/api-keys", default_model: "accounts/fireworks/models/glm-5p3-flash", needs_key: true, supports_connect: false, probe_port: null, curated_models: ["accounts/fireworks/models/glm-5p3-flash", "accounts/fireworks/models/gpt-oss-120b"] },
   { id: "custom", label: "Custom (OpenAI-compatible)", group: "custom", wire: "openai", base_url: "", models_url: "", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: null, curated_models: [] },
+  { id: "apple", label: "Apple Intelligence", group: "on_device", wire: "openai", base_url: "", models_url: "", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: null, curated_models: [] },
 ];
 
 /** writ_core::tools::{READ_TOOLS, WRITE_TOOLS}. */
@@ -109,16 +112,18 @@ const NO_KEY: AiKeyState = { is_set: false, memory_only: false };
 export function getEndpointState(ai: AiConfig, key: AiKeyState): AiEndpointState {
   const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   if (!target) {
-    return { host: null, host_port: null, is_hosted: false, is_allowed: false, is_consented: false, provider: ai.provider, key_state: key };
+    return { host: null, host_port: null, is_hosted: false, is_private_network: false, is_allowed: false, is_consented: false, provider: ai.provider, key_state: key, is_on_device: false };
   }
   return {
     host: target.host,
     host_port: target.host_port,
     is_hosted: target.is_hosted,
+    is_private_network: false,
     is_allowed: target.is_allowed,
     is_consented: !target.is_hosted || isConsented(ai, target.host),
     provider: ai.provider,
     key_state: target.is_hosted ? key : NO_KEY,
+    is_on_device: false,
   };
 }
 
@@ -132,9 +137,11 @@ export function getChatState(ai: AiConfig, key: AiKeyState): ChatEndpointState {
     host: state.host,
     host_port: state.host_port,
     is_hosted: state.is_hosted,
+    is_private_network: state.is_private_network,
     is_allowed: state.is_allowed,
     is_consented: state.is_consented,
     key_state: state.key_state,
+    is_on_device: state.is_on_device,
   };
 }
 

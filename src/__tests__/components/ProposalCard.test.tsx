@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   chatApplyProposal: vi.fn(),
   chatDiscardProposal: vi.fn(),
   chatAttachedSizes: vi.fn(),
+  chatUndoProposal: vi.fn(),
+  openFile: vi.fn(),
 }));
 
 vi.mock("../../services/tauri", () => ({
@@ -28,11 +30,23 @@ vi.mock("../../services/tauri", () => ({
   chatStop: vi.fn(),
   chatApplyProposal: mocks.chatApplyProposal,
   chatDiscardProposal: mocks.chatDiscardProposal,
+  chatUndoProposal: mocks.chatUndoProposal,
+}));
+
+vi.mock("../../stores/global/window-registry", () => ({
+  windowRegistry: {
+    getActive: () => ({ tabs: { openFile: mocks.openFile }, chatPanel: { show: vi.fn() } }),
+  },
+}));
+
+vi.mock("../../stores/global/notes", () => ({
+  notesStore: { root: () => "/notes", contains: () => true },
 }));
 
 
 import ProposalCard from "../../components/Chat/ProposalCard";
 import { chatStore } from "../../stores/global/chat";
+import { toasts, runToastAction, dismissToast } from "../../stores/global/notifications";
 
 const PROPOSAL = {
   path: "Launch.md",
@@ -79,9 +93,19 @@ beforeEach(() => {
     hash: "def",
     bytes: 40,
     changed: true,
+    undoable: true,
   });
   mocks.chatDiscardProposal.mockResolvedValue(undefined);
+  mocks.chatUndoProposal.mockResolvedValue({
+    path: "Launch.md",
+    hash: "abc",
+    bytes: 12,
+    changed: true,
+    undoable: false,
+  });
+  for (const toast of toasts()) dismissToast(toast.id);
   chatStore.reset();
+  chatStore.setDraft("");
 });
 
 afterEach(() => {
@@ -106,7 +130,7 @@ describe("a proposal card", () => {
     fireEvent.click(apply());
     expect(mocks.chatApplyProposal).toHaveBeenCalledTimes(1);
 
-    land({ path: "Launch.md", hash: "def", bytes: 40, changed: true });
+    land({ path: "Launch.md", hash: "def", bytes: 40, changed: true, undoable: true });
     await waitFor(() => expect(container.textContent).toContain("Applied to Launch.md."));
   });
 
@@ -156,6 +180,89 @@ describe("a proposal card", () => {
 
     await waitFor(() => expect(container.textContent).toContain("The file already held this text."));
     expect(mocks.chatAttachedSizes).not.toHaveBeenCalled();
+  });
+
+  it("an applied card offers Open and Undo, and Undo puts the file back", async () => {
+    const { apply, container, getByRole, queryByRole } = await openCard();
+
+    fireEvent.click(apply());
+    await waitFor(() => expect(container.textContent).toContain("Applied to Launch.md."));
+
+    fireEvent.click(getByRole("button", { name: "Open" }));
+    await waitFor(() => expect(mocks.openFile).toHaveBeenCalledWith("/notes/Launch.md"));
+
+    fireEvent.click(getByRole("button", { name: "Undo" }));
+    await waitFor(() =>
+      expect(mocks.chatUndoProposal).toHaveBeenCalledWith("Launch.md", "abc", "def"),
+    );
+    await waitFor(() => expect(container.textContent).toContain("Launch.md is back as it was."));
+    expect(queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("the toast after Apply undoes the same write", async () => {
+    const { apply, container } = await openCard();
+    fireEvent.click(apply());
+    await waitFor(() => expect(toasts().length).toBe(1));
+    const toast = toasts()[0];
+    expect(toast.text).toBe("Applied to Launch.md.");
+    expect(toast.action?.label).toBe("Undo");
+
+    runToastAction(toast.id);
+    await waitFor(() => expect(mocks.chatUndoProposal).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(container.textContent).toContain("Launch.md is back as it was."));
+  });
+
+  it("a refused Undo says why under the write", async () => {
+    mocks.chatUndoProposal.mockRejectedValue(
+      "Launch.md changed since the change was applied. The earlier text is beside it in Launch (conflict).md.",
+    );
+    const { apply, container, getByRole } = await openCard();
+    fireEvent.click(apply());
+    await waitFor(() => expect(container.textContent).toContain("Applied to Launch.md."));
+
+    fireEvent.click(getByRole("button", { name: "Undo" }));
+    await waitFor(() =>
+      expect(container.textContent).toContain("changed since the change was applied"),
+    );
+  });
+
+  it("offers no Undo for a write that kept no earlier text", async () => {
+    mocks.chatApplyProposal.mockResolvedValue({
+      path: "Launch.md",
+      hash: "def",
+      bytes: 40,
+      changed: true,
+      undoable: false,
+    });
+    const { apply, container, queryByRole } = await openCard();
+    fireEvent.click(apply());
+    await waitFor(() => expect(container.textContent).toContain("Applied to Launch.md."));
+    expect(queryByRole("button", { name: "Undo" })).toBeNull();
+    expect(toasts()[0]?.action).toBeNull();
+  });
+
+  it("a stale card holds Apply back and offers Ask again", async () => {
+    const held = JSON.parse(JSON.stringify(CONVERSATION)) as typeof CONVERSATION;
+    (held.turns[1].proposals[0] as { stale?: boolean }).stale = true;
+    mocks.chatOpen.mockResolvedValue(held);
+    await chatStore.open("c1");
+    const view = render(() => (
+      <ProposalCard turn={1} proposal={chatStore.messages()[1].proposals[0]} />
+    ));
+
+    const apply = view.getByRole("button", { name: "Apply" }) as HTMLButtonElement;
+    expect(apply.disabled).toBe(true);
+    fireEvent.click(apply);
+    expect(mocks.chatApplyProposal).not.toHaveBeenCalled();
+    expect(view.container.textContent).toContain("The file changed since this was offered.");
+
+    mocks.chatAttachedSizes.mockResolvedValue([
+      { path: "Launch.md", key: "Launch.md", bytes: 30 },
+    ]);
+    fireEvent.click(view.getByRole("button", { name: "Ask again" }));
+    await waitFor(() => expect(chatStore.isAttached("Launch.md")).toBe(true));
+    expect(chatStore.draft()).toContain("Launch.md changed since your last proposal.");
+    expect(mocks.chatApplyProposal).not.toHaveBeenCalled();
   });
 
   it("a note in the folder gets no tip repeating the line it sits on", async () => {

@@ -33,6 +33,7 @@ use writ_core::ai::models::{
     filter_openai_ids, parse_anthropic_page, parse_model_list, sort_ids, CatalogSource, ListFamily,
     ModelCatalog, ModelListError,
 };
+use writ_core::ai::on_device::{self, OnDeviceAvailability, OnDeviceFailure};
 use writ_core::ai::providers;
 use writ_core::chat::{self, Provider, RejectCode};
 use writ_core::config::AiConfig;
@@ -255,8 +256,11 @@ pub struct AiEndpointState {
     pub host: Option<String>,
     /// Host with `:port` when the URL carries one; for display.
     pub host_port: Option<String>,
-    /// The endpoint leaves this machine, so consent and a key are required.
+    /// The endpoint leaves this machine, so consent is required.
     pub is_hosted: bool,
+    /// The host is an address on a private network: consent is required and a
+    /// key is optional.
+    pub is_private_network: bool,
     /// The scheme/host pair passes the outbound guard.
     pub is_allowed: bool,
     /// The send notice has been accepted for this exact host.
@@ -265,6 +269,10 @@ pub struct AiEndpointState {
     pub key_state: AiKeyState,
     /// The connection's provider id, so the UI names the row it is reporting.
     pub provider: String,
+    /// The connection is Apple's on-device model: no address, no key, no
+    /// consent. `host` is `None` and `is_allowed` false for it, because no
+    /// request goes over the network.
+    pub is_on_device: bool,
 }
 
 /// Whether answering "is a key set?" for this config needs the OS keychain at
@@ -272,32 +280,53 @@ pub struct AiEndpointState {
 /// password prompt to compute a value nothing reads.
 pub fn needs_key_lookup(cfg: &AiConfig) -> bool {
     polish::resolve_endpoint(&cfg.effective_base_url())
-        .map(|t| t.is_hosted)
+        .map(|t| t.takes_key())
         .unwrap_or(false)
+}
+
+/// The key a request to `target` carries: the one stored for `provider`, read
+/// only when the target takes one ([`polish::EndpointTarget::takes_key`]). A
+/// key stored for a provider is never sent over plain http to an address on a
+/// private network, whichever host it was saved for.
+pub(crate) fn stored_key_for(
+    target: &polish::EndpointTarget,
+    provider: &str,
+    read_key: impl FnOnce(&str) -> Option<String>,
+) -> Option<String> {
+    if target.takes_key() {
+        read_key(provider)
+    } else {
+        None
+    }
 }
 
 /// Builds the endpoint state for `cfg`. Pure over its key lookup so the
 /// consent/key matrix is testable without a keychain.
 pub fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> AiEndpointState {
     let provider = cfg.provider.clone();
+    let is_on_device = on_device::is_on_device(&provider);
     match polish::resolve_endpoint(&cfg.effective_base_url()) {
         Ok(target) => AiEndpointState {
             is_consented: !target.is_hosted || is_consented(cfg, &target.host),
             host: Some(target.host),
             host_port: Some(target.host_port),
             is_hosted: target.is_hosted,
+            is_private_network: target.is_private_network,
             is_allowed: target.is_allowed,
             key_state,
             provider,
+            is_on_device,
         },
         Err(_) => AiEndpointState {
             host: None,
             host_port: None,
             is_hosted: false,
+            is_private_network: false,
             is_allowed: false,
             is_consented: false,
             key_state,
             provider,
+            is_on_device,
         },
     }
 }
@@ -315,11 +344,23 @@ pub struct PreparedRequest {
     body: serde_json::Value,
     api_key: Option<String>,
     is_localhost: bool,
+    /// The host is an address on a private network, reached without a proxy.
+    is_private_network: bool,
+}
+
+impl PreparedRequest {
+    /// Whether the request goes to an address on a private network, which
+    /// [`build_client_for`] reaches without a proxy.
+    pub fn is_private_network(&self) -> bool {
+        self.is_private_network
+    }
 }
 
 /// Validates config + inputs and resolves the request. `lookup_key` maps a
 /// provider id to its key (keychain or memory); it is only consulted for
-/// hosted endpoints. Errors carry a plain, secret-free message for the UI.
+/// hosted endpoints, after consent. A private-network host takes a key when
+/// one is stored and goes without one otherwise. Errors carry a plain,
+/// secret-free message for the UI.
 pub fn prepare_request(
     cfg: &AiConfig,
     action_id: &str,
@@ -329,6 +370,9 @@ pub fn prepare_request(
 ) -> Result<PreparedRequest, PolishError> {
     if !cfg.rewrite.enabled {
         return Err(PolishError::Disabled);
+    }
+    if on_device::is_on_device(&cfg.provider) {
+        return Err(PolishError::OnDeviceProvider);
     }
 
     let action = PolishAction::parse(action_id, custom_instruction)?;
@@ -353,13 +397,14 @@ pub fn prepare_request(
                 host: target.host.clone(),
             });
         }
-        match lookup_key(&cfg.provider) {
+        match stored_key_for(&target, &cfg.provider, lookup_key) {
             Some(k) => Some(k),
-            None => {
+            None if target.needs_key() => {
                 return Err(PolishError::ApiKeyRequired {
                     host: target.host.clone(),
                 })
             }
+            None => None,
         }
     } else {
         None
@@ -379,7 +424,107 @@ pub fn prepare_request(
         ),
         api_key,
         is_localhost: !target.is_hosted,
+        is_private_network: target.is_private_network,
     })
+}
+
+/// A rewrite for Apple's on-device model: the same instruction and text an
+/// HTTP request carries, handed to the system framework instead.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OnDeviceRequest {
+    /// The instruction the action produces ([`polish::build_messages`]).
+    pub instructions: String,
+    /// The text to rewrite.
+    pub prompt: String,
+    /// The sampling temperature every rewrite uses.
+    pub temperature: f64,
+}
+
+/// Validates config and inputs for an on-device rewrite. Nothing leaves the
+/// machine, so there is no endpoint, consent or key to check; the bridge
+/// reports whether the model can answer when the request starts.
+pub fn prepare_on_device(
+    cfg: &AiConfig,
+    action_id: &str,
+    text: &str,
+    custom_instruction: Option<String>,
+) -> Result<OnDeviceRequest, PolishError> {
+    if !cfg.rewrite.enabled {
+        return Err(PolishError::Disabled);
+    }
+    let action = PolishAction::parse(action_id, custom_instruction)?;
+    let mut messages = polish::build_messages(&action, text)?.into_iter();
+    let (Some(system), Some(user)) = (messages.next(), messages.next()) else {
+        return Err(PolishError::EmptyText);
+    };
+    Ok(OnDeviceRequest {
+        instructions: system.content,
+        prompt: user.content,
+        temperature: f64::from(polish::POLISH_TEMPERATURE),
+    })
+}
+
+/// One thing the on-device bridge reported for a request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OnDeviceEvent {
+    /// The whole reply so far.
+    Snapshot(String),
+    /// The reply is complete.
+    Done,
+    /// The request ended with the failure the code names
+    /// ([`OnDeviceFailure::from_code`]).
+    Failed(i32),
+}
+
+/// Turns the bridge's events into the rewrite stream's events.
+///
+/// The framework sends the whole reply each time; the rewrite surface appends
+/// pieces, so each snapshot is cut to what it adds
+/// ([`on_device::snapshot_delta`]).
+#[derive(Debug, Default)]
+pub struct OnDeviceReply {
+    sent: String,
+}
+
+impl OnDeviceReply {
+    /// The stream event for one bridge event, or `None` when a snapshot adds
+    /// nothing.
+    pub fn event(&mut self, event: OnDeviceEvent) -> Option<StreamEvent> {
+        match event {
+            OnDeviceEvent::Snapshot(snapshot) => {
+                let Some(added) = on_device::snapshot_delta(&self.sent, &snapshot) else {
+                    tracing::warn!("the on-device reply changed text it had already sent");
+                    return Some(StreamEvent::Error(OnDeviceFailure::Failed.to_string()));
+                };
+                if added.is_empty() {
+                    return None;
+                }
+                let added = added.to_string();
+                self.sent = snapshot;
+                Some(StreamEvent::Chunk(added))
+            }
+            OnDeviceEvent::Done => Some(StreamEvent::Done),
+            OnDeviceEvent::Failed(code) => {
+                let failure = OnDeviceFailure::from_code(code);
+                tracing::warn!(reason = failure.as_str(), "on-device rewrite failed");
+                Some(StreamEvent::Error(failure.to_string()))
+            }
+        }
+    }
+}
+
+/// The connection status of the on-device row, from what the system reports.
+/// Nothing is sent to find out.
+pub fn on_device_status(availability: OnDeviceAvailability) -> AiConnectionStatus {
+    match availability {
+        OnDeviceAvailability::Available => AiConnectionStatus::new(true, None, "ok", String::new()),
+        other => AiConnectionStatus::new(
+            false,
+            None,
+            "on_device_unavailable",
+            other.as_str().to_string(),
+        ),
+    }
 }
 
 /// Whether the send notice was accepted for `host`. Membership is exact: a
@@ -389,6 +534,7 @@ pub fn is_consented(cfg: &AiConfig, host: &str) -> bool {
 }
 
 /// One thing that happens during a stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StreamEvent {
     Chunk(String),
     Done,
@@ -514,6 +660,7 @@ pub async fn run_rewrite_stream(
             on_event(StreamEvent::Error(connection_error_message(
                 &err,
                 prepared.is_localhost,
+                prepared.is_private_network,
             )));
             return;
         }
@@ -615,14 +762,26 @@ pub(crate) async fn reject_code_of(response: reqwest::Response) -> Option<Reject
     chat::parse_reject_code(&String::from_utf8_lossy(&body))
 }
 
-/// Turns a connection failure into a plain message, hinting at a stopped local
-/// server when the target was loopback.
-pub(crate) fn connection_error_message(err: &reqwest::Error, is_localhost: bool) -> String {
+/// Turns a connection failure into a plain message, hinting at a stopped
+/// server when the target was loopback or an address on a private network.
+pub(crate) fn connection_error_message(
+    err: &reqwest::Error,
+    is_localhost: bool,
+    is_private_network: bool,
+) -> String {
     if err.is_connect() && is_localhost {
         return "Could not reach the local model server. Is Ollama running?".to_string();
     }
+    if err.is_connect() && is_private_network {
+        return PRIVATE_SERVER_UNREACHABLE.to_string();
+    }
     sanitize_ai_error(&err.to_string())
 }
+
+/// What a request to an address on a private network says when nothing
+/// answered there.
+pub(crate) const PRIVATE_SERVER_UNREACHABLE: &str =
+    "Could not reach the model server on your network. Is it running?";
 
 /// Redacts any URL from an error string so a configured endpoint (which may
 /// carry a token in a query) never reaches logs or the UI. Mirrors the update
@@ -679,13 +838,35 @@ pub fn build_client() -> Result<reqwest::Client, String> {
 /// There is no whole-request timeout: `read` is the longest the stream may
 /// go quiet, and each byte that arrives starts it again.
 pub fn build_client_with(connect: Duration, read: Duration) -> Result<reqwest::Client, String> {
-    ensure_crypto_provider();
-    reqwest::Client::builder()
+    client_builder(false)
         .connect_timeout(connect)
         .read_timeout(read)
-        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| sanitize_ai_error(&e.to_string()))
+}
+
+/// [`build_client`] for a request whose host is or is not on a private
+/// network. A private-network request goes without a proxy: over http its text
+/// is unencrypted, and a system proxy would carry it to a host other than the
+/// one the person allowed.
+pub fn build_client_for(is_private_network: bool) -> Result<reqwest::Client, String> {
+    client_builder(is_private_network)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .build()
+        .map_err(|e| sanitize_ai_error(&e.to_string()))
+}
+
+/// The settings every request client shares: the crypto provider installed,
+/// redirects refused, and no proxy when `direct`.
+fn client_builder(direct: bool) -> reqwest::ClientBuilder {
+    ensure_crypto_provider();
+    let builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
+    if direct {
+        builder.no_proxy()
+    } else {
+        builder
+    }
 }
 
 /// Budget for the connection probe: each request's connect and overall time,
@@ -752,19 +933,18 @@ fn model_listed_among(ids: &[String], model: &str) -> Option<bool> {
 /// Builds a client on one time budget. Redirects are refused everywhere for
 /// the reason [`build_client`] gives: a 3xx would re-send to the `Location`
 /// host, escaping the endpoint guard.
-fn build_http_client(budget: Duration) -> Result<reqwest::Client, String> {
-    ensure_crypto_provider();
-    reqwest::Client::builder()
+fn build_http_client(budget: Duration, direct: bool) -> Result<reqwest::Client, String> {
+    client_builder(direct)
         .connect_timeout(budget)
         .timeout(budget)
-        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| sanitize_ai_error(&e.to_string()))
 }
 
-/// Builds the connection-check client (3s connect + overall).
-fn build_probe_client() -> Result<reqwest::Client, String> {
-    build_http_client(PROBE_TIMEOUT)
+/// Builds the connection-check client (3s connect + overall). `direct` skips
+/// the proxy for a host on a private network ([`build_client_for`]).
+fn build_probe_client(direct: bool) -> Result<reqwest::Client, String> {
+    build_http_client(PROBE_TIMEOUT, direct)
 }
 
 /// A transport failure, free of the HTTP client's types so what it means for a
@@ -1027,11 +1207,7 @@ where
     F: FnOnce(&str) -> Option<String>,
 {
     let targets = list_gate(cfg)?;
-    let api_key = if targets.list.is_hosted {
-        read_key(&cfg.provider)
-    } else {
-        None
-    };
+    let api_key = stored_key_for(&targets.list, &cfg.provider, read_key);
     Ok((targets, api_key))
 }
 
@@ -1055,19 +1231,42 @@ fn allowed_target(url: &str) -> Result<polish::EndpointTarget, ModelListError> {
     }
 }
 
-/// Whether each local runtime answered.
+/// Whether each local runtime answered. The fields are the provider ids of
+/// the local rows, so the frontend reads a row's answer by its id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct LocalProbe {
     /// Ollama answered on its own port.
     pub ollama: bool,
     /// LM Studio answered on its own port.
     pub lmstudio: bool,
+    /// llama.cpp's server answered on its own port.
+    pub llamacpp: bool,
+    /// Jan's local API server answered on its own port.
+    pub jan: bool,
 }
 
-/// Ollama's native tag list: it names what is installed without a key.
-const OLLAMA_PROBE_URL: &str = "http://127.0.0.1:11434/api/tags";
-/// LM Studio's OpenAI-compatible model list, which also needs no key.
-const LMSTUDIO_PROBE_URL: &str = "http://127.0.0.1:1234/v1/models";
+/// Where the probe knocks for each local runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalProbeUrls<'a> {
+    /// Ollama's native tag list: it names what is installed without a key.
+    pub ollama: &'a str,
+    /// LM Studio's OpenAI-compatible model list, which also needs no key.
+    pub lmstudio: &'a str,
+    /// llama.cpp's `llama-server` model list.
+    pub llamacpp: &'a str,
+    /// Jan's local API server model list.
+    pub jan: &'a str,
+}
+
+impl LocalProbeUrls<'static> {
+    /// Each runtime's own port on this machine.
+    pub const DEFAULT: Self = Self {
+        ollama: "http://127.0.0.1:11434/api/tags",
+        lmstudio: "http://127.0.0.1:1234/v1/models",
+        llamacpp: "http://127.0.0.1:8080/v1/models",
+        jan: "http://127.0.0.1:1337/v1/models",
+    };
+}
 
 /// Builds the client the loopback knock uses: no proxy, no key, and no header
 /// beyond what the client insists on sending. A loopback request carrying
@@ -1093,18 +1292,30 @@ async fn knock(client: &reqwest::Client, url: &str) -> bool {
     }
 }
 
-/// Knocks on both addresses at once. Taken as arguments so the knock is driven
-/// against a socket a test owns.
-pub async fn probe_local_at(ollama_url: &str, lmstudio_url: &str) -> LocalProbe {
+/// Knocks on every address at once. Taken as an argument so the knock is
+/// driven against sockets a test owns.
+pub async fn probe_local_at(urls: LocalProbeUrls<'_>) -> LocalProbe {
     let Ok(client) = build_local_probe_client() else {
         return LocalProbe {
             ollama: false,
             lmstudio: false,
+            llamacpp: false,
+            jan: false,
         };
     };
-    let (ollama, lmstudio) =
-        futures_util::future::join(knock(&client, ollama_url), knock(&client, lmstudio_url)).await;
-    LocalProbe { ollama, lmstudio }
+    let (ollama, lmstudio, llamacpp, jan) = futures_util::future::join4(
+        knock(&client, urls.ollama),
+        knock(&client, urls.lmstudio),
+        knock(&client, urls.llamacpp),
+        knock(&client, urls.jan),
+    )
+    .await;
+    LocalProbe {
+        ollama,
+        lmstudio,
+        llamacpp,
+        jan,
+    }
 }
 
 /// What a failed list is as a connection status. The provider's own words are
@@ -1206,12 +1417,16 @@ pub async fn read_catalog(
     cfg: &AiConfig,
     read_key: impl FnOnce(&str) -> Option<String>,
 ) -> ModelCatalog {
+    // The on-device model has one model and no list to read.
+    if on_device::is_on_device(&cfg.provider) {
+        return ModelCatalog::live(&cfg.provider, Vec::new());
+    }
     let (targets, api_key) = match gated_list_key(cfg, read_key) {
         Ok(pair) => pair,
         Err(error) => return catalog_for(&cfg.provider, Err(error)),
     };
 
-    let client = match build_http_client(MODEL_LIST_TIMEOUT) {
+    let client = match build_http_client(MODEL_LIST_TIMEOUT, targets.list.is_private_network) {
         Ok(client) => client,
         Err(_) => return catalog_for(&cfg.provider, Err(ModelListError::Unreachable)),
     };
@@ -1243,7 +1458,7 @@ pub async fn read_catalog(
 /// Which local runtimes are running, so the provider rows can say so before
 /// one is chosen.
 pub async fn probe_local() -> LocalProbe {
-    probe_local_at(OLLAMA_PROBE_URL, LMSTUDIO_PROBE_URL).await
+    probe_local_at(LocalProbeUrls::DEFAULT).await
 }
 
 /// Probes the configured endpoint's model list so the UI can show connection
@@ -1254,6 +1469,11 @@ pub async fn check_connection(
     cfg: &AiConfig,
     read_key: impl FnOnce(&str) -> Option<String>,
 ) -> AiConnectionStatus {
+    // The on-device row is checked by asking the system
+    // ([`on_device_status`]); there is no address to probe.
+    if on_device::is_on_device(&cfg.provider) {
+        return on_device_status(OnDeviceAvailability::Unsupported);
+    }
     // Same resolver as the rewrite guard and the consent recorder — the probe
     // must never disagree with them about where the endpoint points.
     let base_url = cfg.effective_base_url();
@@ -1269,14 +1489,11 @@ pub async fn check_connection(
     }
 
     let host_port = target.host_port.clone();
-    let api_key = if target.is_hosted {
-        read_key(&cfg.provider)
-    } else {
-        None
-    };
+    let api_key = stored_key_for(&target, &cfg.provider, read_key);
     // A hosted provider with no key would answer 401 and read as a broken
-    // endpoint; the row is a missing key and says so.
-    if target.is_hosted && api_key.is_none() {
+    // endpoint; the row is a missing key and says so. A server on a private
+    // network may run without one.
+    if target.needs_key() && api_key.is_none() {
         return AiConnectionStatus::new(false, None, "key_required", target.host.clone());
     }
 
@@ -1289,7 +1506,7 @@ pub async fn check_connection(
         return AiConnectionStatus::new(false, None, "invalid_url", String::new());
     }
 
-    let client = match build_probe_client() {
+    let client = match build_probe_client(target.is_private_network) {
         Ok(c) => c,
         Err(detail) => return AiConnectionStatus::new(false, None, "error", detail),
     };
@@ -1475,6 +1692,245 @@ mod tests {
         assert!(prepared.is_localhost);
     }
 
+    fn on_device_cfg() -> AiConfig {
+        AiConfig {
+            provider: "apple".to_string(),
+            // A typed URL left behind by an earlier custom row.
+            base_url: "https://llm.example/v1".to_string(),
+            model: String::new(),
+            ..base_cfg()
+        }
+    }
+
+    #[test]
+    fn the_on_device_row_is_never_sent_over_http() {
+        let cfg = on_device_cfg();
+        let err = prepare_request(&cfg, "proofread", "x", None, |_| {
+            panic!("no key is read for the on-device row")
+        })
+        .unwrap_err();
+        assert_eq!(err, PolishError::OnDeviceProvider);
+        assert!(list_gate(&cfg).is_err());
+        assert!(!needs_key_lookup(&cfg));
+    }
+
+    #[test]
+    fn an_on_device_rewrite_carries_the_action_s_instruction_and_the_text() {
+        let cfg = on_device_cfg();
+        let request = prepare_on_device(&cfg, "proofread", "teh text", None).unwrap();
+        let messages =
+            polish::build_messages(&PolishAction::Proofread, "teh text").expect("messages");
+        assert_eq!(request.instructions, messages[0].content);
+        assert_eq!(request.prompt, "teh text");
+        assert!((request.temperature - f64::from(polish::POLISH_TEMPERATURE)).abs() < 1e-9);
+
+        let mut off = on_device_cfg();
+        off.rewrite.enabled = false;
+        assert_eq!(
+            prepare_on_device(&off, "proofread", "x", None).unwrap_err(),
+            PolishError::Disabled
+        );
+        assert_eq!(
+            prepare_on_device(&cfg, "proofread", "   ", None).unwrap_err(),
+            PolishError::EmptyText
+        );
+        assert_eq!(
+            prepare_on_device(&cfg, "custom", "x", None).unwrap_err(),
+            PolishError::EmptyInstruction
+        );
+    }
+
+    #[test]
+    fn on_device_snapshots_become_the_pieces_they_add() {
+        let mut reply = OnDeviceReply::default();
+        assert_eq!(
+            reply.event(OnDeviceEvent::Snapshot("Hel".to_string())),
+            Some(StreamEvent::Chunk("Hel".to_string()))
+        );
+        assert_eq!(
+            reply.event(OnDeviceEvent::Snapshot("Hel".to_string())),
+            None
+        );
+        assert_eq!(
+            reply.event(OnDeviceEvent::Snapshot("Hello, wörld".to_string())),
+            Some(StreamEvent::Chunk("lo, wörld".to_string()))
+        );
+        assert_eq!(reply.event(OnDeviceEvent::Done), Some(StreamEvent::Done));
+
+        let mut changed = OnDeviceReply::default();
+        changed.event(OnDeviceEvent::Snapshot("Hello".to_string()));
+        assert_eq!(
+            changed.event(OnDeviceEvent::Snapshot("Help".to_string())),
+            Some(StreamEvent::Error(OnDeviceFailure::Failed.to_string()))
+        );
+    }
+
+    #[test]
+    fn an_on_device_failure_reads_as_its_sentence() {
+        let mut reply = OnDeviceReply::default();
+        assert_eq!(
+            reply.event(OnDeviceEvent::Failed(10)),
+            Some(StreamEvent::Error(OnDeviceFailure::TooLong.to_string()))
+        );
+        assert_eq!(
+            reply.event(OnDeviceEvent::Failed(3)),
+            Some(StreamEvent::Error(
+                OnDeviceFailure::AppleIntelligenceOff.to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn the_on_device_status_is_what_the_system_reports() {
+        let ok = on_device_status(OnDeviceAvailability::Available);
+        assert_eq!(ok.kind, "ok");
+        let off = on_device_status(OnDeviceAvailability::AppleIntelligenceOff);
+        assert_eq!(off.kind, "on_device_unavailable");
+        assert_eq!(off.detail, "apple_intelligence_off");
+        let downloading = on_device_status(OnDeviceAvailability::ModelNotReady);
+        assert_eq!(downloading.detail, "model_not_ready");
+    }
+
+    #[tokio::test]
+    async fn the_on_device_row_lists_and_checks_without_a_request() {
+        let cfg = on_device_cfg();
+        let catalog = read_catalog(&cfg, |_| panic!("no key is read")).await;
+        assert_eq!(catalog.provider, "apple");
+        assert!(catalog.models.is_empty() && catalog.error.is_none());
+        let status = check_connection(&cfg, |_| panic!("no key is read")).await;
+        assert_eq!(status.kind, "on_device_unavailable");
+    }
+
+    #[test]
+    fn endpoint_state_marks_the_on_device_row() {
+        let state = endpoint_state_from(
+            &on_device_cfg(),
+            AiKeyState {
+                is_set: false,
+                memory_only: false,
+            },
+        );
+        assert!(state.is_on_device);
+        assert!(state.host.is_none());
+        assert!(!state.is_hosted);
+        assert!(!endpoint_state_from(&base_cfg(), state.key_state).is_on_device);
+    }
+
+    #[test]
+    fn a_private_network_server_waits_for_consent_to_its_host_once() {
+        let mut cfg = custom_cfg("http://192.168.1.20:11434/v1");
+        let asked = std::cell::Cell::new(false);
+        let before = prepare_request(&cfg, "proofread", "x", None, |_| {
+            asked.set(true);
+            None
+        });
+        assert_eq!(
+            before.unwrap_err(),
+            PolishError::ConsentRequired {
+                host: "192.168.1.20".to_string()
+            }
+        );
+        assert!(!asked.get(), "no key is read before consent");
+
+        // Consent is per host: another address on the same network asks again.
+        cfg.consented_hosts = vec!["192.168.1.21".to_string()];
+        let other = prepare_request(&cfg, "proofread", "x", None, |_| None);
+        assert_eq!(
+            other.unwrap_err(),
+            PolishError::ConsentRequired {
+                host: "192.168.1.20".to_string()
+            }
+        );
+
+        // Once allowed, the same host on another port needs no second consent,
+        // and no key is required.
+        cfg.consented_hosts = vec!["192.168.1.20".to_string()];
+        cfg.base_url = "http://192.168.1.20:8080/v1".to_string();
+        let prepared = prepare_request(&cfg, "proofread", "x", None, |_| None).unwrap();
+        assert_eq!(
+            prepared.endpoint,
+            "http://192.168.1.20:8080/v1/chat/completions"
+        );
+        assert!(prepared.api_key.is_none());
+        assert!(!prepared.is_localhost);
+        assert!(prepared.is_private_network());
+    }
+
+    #[test]
+    fn a_stored_key_never_goes_over_plain_http_to_a_private_address() {
+        // A key saved under `custom` for an earlier https endpoint.
+        let mut cfg = custom_cfg("http://192.168.1.20:11434/v1");
+        cfg.consented_hosts = vec!["192.168.1.20".to_string()];
+        let never = |_: &str| -> Option<String> { panic!("the key was read for plain http") };
+
+        let prepared = prepare_request(&cfg, "proofread", "x", None, never).unwrap();
+        assert!(prepared.api_key.is_none());
+        let (_, listed) = gated_list_key(&cfg, never).unwrap();
+        assert!(listed.is_none());
+        let target = polish::resolve_endpoint(&cfg.effective_base_url()).unwrap();
+        assert!(stored_key_for(&target, &cfg.provider, never).is_none());
+        assert!(!needs_key_lookup(&cfg));
+    }
+
+    #[test]
+    fn a_private_network_server_takes_a_stored_key() {
+        let mut cfg = custom_cfg("https://10.0.0.5/v1");
+        cfg.consented_hosts = vec!["10.0.0.5".to_string()];
+        let prepared =
+            prepare_request(&cfg, "proofread", "x", None, |_| Some("k".to_string())).unwrap();
+        assert_eq!(prepared.api_key.as_deref(), Some("k"));
+    }
+
+    #[test]
+    fn endpoint_state_marks_a_private_network_host() {
+        let mut cfg = custom_cfg("http://100.101.102.103:11434/v1");
+        let no_key = AiKeyState {
+            is_set: false,
+            memory_only: false,
+        };
+        let state = endpoint_state_from(&cfg, no_key);
+        assert!(state.is_allowed);
+        assert!(state.is_hosted);
+        assert!(state.is_private_network);
+        assert!(!state.is_consented);
+        cfg.consented_hosts = vec!["100.101.102.103".to_string()];
+        assert!(endpoint_state_from(&cfg, no_key).is_consented);
+
+        let public = endpoint_state_from(&custom_cfg("http://8.8.8.8/v1"), no_key);
+        assert!(!public.is_allowed);
+        assert!(!public.is_private_network);
+    }
+
+    #[test]
+    fn a_private_network_list_and_check_wait_for_consent() {
+        let cfg = custom_cfg("http://192.168.1.20:11434/v1");
+        assert_eq!(
+            list_gate(&cfg).unwrap_err(),
+            ModelListError::ConsentRequired
+        );
+        let target = polish::resolve_endpoint(&cfg.effective_base_url()).unwrap();
+        assert_eq!(
+            probe_gate(&cfg, &target).unwrap_err(),
+            PolishError::ConsentRequired {
+                host: "192.168.1.20".to_string()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_private_network_server_that_is_down_says_so() {
+        let client = build_client_for(true).expect("client");
+        let err = client
+            .get("http://127.0.0.1:9/v1/models")
+            .send()
+            .await
+            .expect_err("nothing listens on the discard port");
+        assert_eq!(
+            connection_error_message(&err, false, true),
+            PRIVATE_SERVER_UNREACHABLE
+        );
+    }
+
     #[test]
     fn prepare_hosted_requires_consent_then_key() {
         let mut cfg = base_cfg();
@@ -1549,6 +2005,7 @@ mod tests {
             body: serde_json::json!({ "model": "claude-sonnet-5" }),
             api_key: Some(SECRET_KEY.to_string()),
             is_localhost: true,
+            is_private_network: false,
         };
         drain_stream(&prepared, CancellationToken::new());
 
@@ -1581,6 +2038,7 @@ mod tests {
             body: serde_json::json!({ "model": cfg.model }),
             api_key: Some(SECRET_KEY.to_string()),
             is_localhost: true,
+            is_private_network: false,
         };
         drain_stream(&prepared, CancellationToken::new());
 
@@ -1608,6 +2066,7 @@ mod tests {
             body: serde_json::json!({ "model": "claude-sonnet-5" }),
             api_key: None,
             is_localhost: true,
+            is_private_network: false,
         };
         let events = drain_stream(&prepared, CancellationToken::new());
 
@@ -2102,7 +2561,7 @@ mod tests {
         let list_url = format!("{}/models", base_url.trim_end_matches('/'));
         let (model, chat_model) = (model.to_string(), chat_model.to_string());
         block_on(async move {
-            let client = build_probe_client().unwrap();
+            let client = build_probe_client(false).unwrap();
             run_connection_check(
                 &client,
                 "custom",
@@ -2651,9 +3110,16 @@ mod tests {
     #[test]
     fn a_runtime_that_answers_is_running_and_one_that_does_not_is_not() {
         let (alive, seen) = spawn_knock_target("HTTP/1.1 200 OK");
-        let probe = block_on(probe_local_at(&alive, &dead_url()));
+        let dead = dead_url();
+        let probe = block_on(probe_local_at(LocalProbeUrls {
+            ollama: &alive,
+            lmstudio: &dead,
+            llamacpp: &dead,
+            jan: &dead,
+        }));
         assert!(probe.ollama, "a 200 on the port is a running runtime");
         assert!(!probe.lmstudio, "nothing listens on that port");
+        assert!(!probe.llamacpp && !probe.jan);
 
         // The knock carries the request line and no credential of any kind.
         let request = seen.lock().expect("seen").clone();
@@ -2679,8 +3145,60 @@ mod tests {
     #[test]
     fn a_runtime_that_answers_an_error_is_not_running() {
         let (refusing, _seen) = spawn_knock_target("HTTP/1.1 500 Internal Server Error");
-        let probe = block_on(probe_local_at(&refusing, &dead_url()));
+        let dead = dead_url();
+        let probe = block_on(probe_local_at(LocalProbeUrls {
+            ollama: &refusing,
+            lmstudio: &dead,
+            llamacpp: &dead,
+            jan: &dead,
+        }));
         assert!(!probe.ollama);
+    }
+
+    #[test]
+    fn llama_cpp_and_jan_are_knocked_on_their_own_ports() {
+        let (llamacpp, seen_llamacpp) = spawn_knock_target("HTTP/1.1 200 OK");
+        let (jan, seen_jan) = spawn_knock_target("HTTP/1.1 200 OK");
+        let dead = dead_url();
+        let probe = block_on(probe_local_at(LocalProbeUrls {
+            ollama: &dead,
+            lmstudio: &dead,
+            llamacpp: &llamacpp,
+            jan: &jan,
+        }));
+        assert!(probe.llamacpp && probe.jan);
+        assert!(!probe.ollama && !probe.lmstudio);
+        for seen in [seen_llamacpp, seen_jan] {
+            let request = seen.lock().expect("seen").clone();
+            assert!(
+                !request.to_lowercase().contains("authorization"),
+                "{request}"
+            );
+        }
+
+        let urls = LocalProbeUrls::DEFAULT;
+        assert_eq!(urls.llamacpp, "http://127.0.0.1:8080/v1/models");
+        assert_eq!(urls.jan, "http://127.0.0.1:1337/v1/models");
+        for (id, url) in [
+            ("ollama", urls.ollama),
+            ("lmstudio", urls.lmstudio),
+            ("llamacpp", urls.llamacpp),
+            ("jan", urls.jan),
+        ] {
+            let port = providers::provider(id).and_then(|row| row.probe_port);
+            assert_eq!(port, Some(polish_port(url)), "{id}");
+        }
+        let json = serde_json::to_value(probe).expect("serialised");
+        for row in providers::PROVIDERS
+            .iter()
+            .filter(|row| row.group == providers::ProviderGroup::Local)
+        {
+            assert!(json.get(row.id).is_some(), "the probe answers {}", row.id);
+        }
+    }
+
+    fn polish_port(url: &str) -> u16 {
+        url::Url::parse(url).expect("url").port().expect("port")
     }
 
     #[test]
@@ -2866,7 +3384,7 @@ mod tests {
         let budget = Duration::from_secs(1);
         let started = std::time::Instant::now();
         let listed = block_on(async {
-            let client = build_http_client(MODEL_LIST_TIMEOUT).expect("client");
+            let client = build_http_client(MODEL_LIST_TIMEOUT, false).expect("client");
             fetch_model_ids(&client, "gemini", &url, Some("k"), budget).await
         });
         assert_eq!(listed, Err(ModelListError::Timeout));

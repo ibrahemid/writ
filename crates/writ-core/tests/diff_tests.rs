@@ -1,6 +1,8 @@
 //! The line diff a proposal card is drawn from.
 
-use writ_core::diff::{line_diff, line_diff_exact, DiffError, Hunk, LineKind, MAX_DIFF_BYTES};
+use writ_core::diff::{
+    line_diff, line_diff_exact, word_diff, DiffError, Hunk, LineKind, WordSpan, MAX_DIFF_BYTES,
+};
 
 /// Ten numbered lines, as a document whose middle is far from both edges.
 fn ten_lines() -> String {
@@ -268,6 +270,70 @@ fn an_exact_diff_refuses_a_side_over_the_limit() {
     let big = "x".repeat(MAX_DIFF_BYTES + 1);
     assert!(matches!(
         line_diff_exact(&big, ""),
+        Err(DiffError::TooLarge { .. })
+    ));
+}
+
+/// The text one side of a word diff reads as.
+fn side(spans: &[WordSpan], skip: LineKind) -> String {
+    spans
+        .iter()
+        .filter(|span| span.kind != skip)
+        .map(|span| span.text.as_str())
+        .collect()
+}
+
+#[test]
+fn a_word_diff_marks_the_words_a_rewrite_changed_and_nothing_else() {
+    let before = "The launch slips to March because the build is late.";
+    let after = "The launch moves to April because the build is late.";
+    let spans = word_diff(before, after).expect("small");
+
+    let changed: Vec<(LineKind, &str)> = spans
+        .iter()
+        .filter(|span| span.kind != LineKind::Context)
+        .map(|span| (span.kind, span.text.as_str()))
+        .collect();
+    assert_eq!(
+        changed,
+        [
+            (LineKind::Removed, "slips"),
+            (LineKind::Added, "moves"),
+            (LineKind::Removed, "March"),
+            (LineKind::Added, "April"),
+        ]
+    );
+    assert_eq!(side(&spans, LineKind::Added), before);
+    assert_eq!(side(&spans, LineKind::Removed), after);
+}
+
+#[test]
+fn a_word_diff_of_one_text_is_one_shared_run() {
+    let spans = word_diff("same words\nhere ", "same words\nhere ").expect("small");
+    assert_eq!(
+        spans,
+        [WordSpan {
+            kind: LineKind::Context,
+            text: "same words\nhere ".to_string(),
+        }]
+    );
+    assert!(word_diff("", "").expect("small").is_empty());
+}
+
+#[test]
+fn a_word_diff_keeps_whitespace_and_text_in_dense_scripts() {
+    let before = "الخطة  جاهزة";
+    let after = "الخطة جاهزة الآن";
+    let spans = word_diff(before, after).expect("small");
+    assert_eq!(side(&spans, LineKind::Added), before);
+    assert_eq!(side(&spans, LineKind::Removed), after);
+}
+
+#[test]
+fn a_word_diff_refuses_a_side_over_the_limit() {
+    let big = "a ".repeat(MAX_DIFF_BYTES / 2 + 1);
+    assert!(matches!(
+        word_diff(&big, "a"),
         Err(DiffError::TooLarge { .. })
     ));
 }

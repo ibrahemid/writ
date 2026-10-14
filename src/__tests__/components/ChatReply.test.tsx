@@ -201,6 +201,16 @@ describe("a rendered reply", () => {
     const { container } = render(() => <ChatTurn message={reply("")} thinking={true} />);
     expect(container.querySelector(".chat-thinking")?.textContent).toContain("Thinking");
   });
+
+  it("names the file a withheld change is for while it is written", () => {
+    const { container } = render(() => (
+      <ChatTurn message={{ ...reply(""), writing: "Ideas/Launch.md" }} thinking={false} />
+    ));
+    expect(container.querySelector(".chat-thinking")?.textContent).toContain(
+      "Writing a change to Ideas/Launch.md",
+    );
+    expect(container.textContent).not.toContain("Thinking");
+  });
 });
 
 describe("a proposal card", () => {

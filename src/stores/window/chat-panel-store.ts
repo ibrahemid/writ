@@ -1,3 +1,4 @@
+import { createSignal } from "solid-js";
 import { configStore, clampChatWidth } from "../global/config";
 
 export type ChatPanelStore = ReturnType<typeof createChatPanelStore>;
@@ -11,6 +12,11 @@ export type ChatPanelStore = ReturnType<typeof createChatPanelStore>;
  * where the column was left.
  */
 export function createChatPanelStore() {
+  // Counts the times a person opened the column, by the chord, a menu or the
+  // toolbar. The pane focuses its composer on each one, and not on the open
+  // state the stored settings arrive with at launch.
+  const [focusRequests, setFocusRequests] = createSignal(0);
+
   /** Closed until the stored settings have loaded. */
   const isOpen = (): boolean => configStore.loaded() && configStore.config().chat_panel.open;
 
@@ -25,6 +31,7 @@ export function createChatPanelStore() {
 
   function show() {
     configStore.setChatPanelOpen(true);
+    setFocusRequests((count) => count + 1);
   }
 
   function hide() {
@@ -32,8 +39,10 @@ export function createChatPanelStore() {
   }
 
   function toggle() {
-    configStore.setChatPanelOpen(!isOpen());
+    const opening = !isOpen();
+    configStore.setChatPanelOpen(opening);
+    if (opening) setFocusRequests((count) => count + 1);
   }
 
-  return { isOpen, show, hide, toggle, width, setWidth };
+  return { isOpen, show, hide, toggle, width, setWidth, focusRequests };
 }

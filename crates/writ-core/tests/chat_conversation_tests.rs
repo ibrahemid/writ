@@ -149,7 +149,97 @@ fn the_request_carries_roles_and_text_and_nothing_else() {
     assert_eq!(turns[0].role, Role::User);
     assert_eq!(turns[0].content, "question");
     assert_eq!(turns[1].role, Role::Assistant);
-    assert_eq!(turns[1].content, "answer");
+    assert_eq!(
+        turns[1].content, "answer\n\n[Proposed a change to A.md; not decided.]",
+        "the stored reply has its proposal removed, so the request names it in a line"
+    );
+    assert!(
+        !turns[1].content.contains("new\n"),
+        "no proposed text goes back"
+    );
+}
+
+/// One assistant turn offering a change to `path`, decided as `status`.
+fn offered(path: &str, summary: &str, status: ProposalStatus) -> Conversation {
+    let mut conversation = fresh();
+    conversation.push_user("q".to_string(), Vec::new(), "t".to_string());
+    conversation.push_assistant(
+        "a".to_string(),
+        AssistantReply {
+            proposals: vec![StoredProposal {
+                path: path.to_string(),
+                summary: summary.to_string(),
+                before_hash: "abc".to_string(),
+                new_content: "new\n".to_string(),
+                status,
+            }],
+            ..AssistantReply::default()
+        },
+        None,
+        "t".to_string(),
+    );
+    conversation
+}
+
+#[test]
+fn an_earlier_proposal_reaches_the_request_as_its_summary_and_outcome() {
+    let turns = offered(
+        "Ideas/Launch.md",
+        "Fold the intros",
+        ProposalStatus::Applied,
+    )
+    .request_turns();
+    assert_eq!(
+        turns[1].content,
+        "a\n\n[Proposed a change to Ideas/Launch.md: Fold the intros; applied.]"
+    );
+    let refused = offered("A.md", "", ProposalStatus::Refused).request_turns();
+    assert_eq!(
+        refused[1].content,
+        "a\n\n[Proposed a change to A.md; not applied.]"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_earlier_proposal_for_a_file_outside_the_folder_names_only_its_folder_and_file() {
+    let turns = offered(
+        "/Users/someone/work/repo/README.md",
+        "tidy",
+        ProposalStatus::Discarded,
+    )
+    .request_turns();
+    assert_eq!(
+        turns[1].content,
+        "a\n\n[Proposed a change to repo/README.md: tidy; discarded.]"
+    );
+    assert!(!turns[1].content.contains("/Users/someone"));
+}
+
+#[test]
+fn a_decided_proposal_drops_its_text_and_keeps_its_digest_and_summary() {
+    for status in [ProposalStatus::Applied, ProposalStatus::Discarded] {
+        let mut conversation = offered("A.md", "tidy", ProposalStatus::Pending);
+        assert!(conversation.set_proposal_status(1, "A.md", status, "later".to_string()));
+        let kept = &conversation.turns[1].proposals[0];
+        assert_eq!(kept.new_content, "", "{status:?} keeps no proposed text");
+        assert_eq!(kept.before_hash, "abc");
+        assert_eq!(kept.summary, "tidy");
+        let json = serde_json::to_string(&conversation).expect("serialises");
+        assert!(!json.contains("new\\n"), "{json}");
+    }
+}
+
+#[test]
+fn a_refused_proposal_keeps_its_text_because_apply_is_still_offered() {
+    let mut conversation = offered("A.md", "tidy", ProposalStatus::Pending);
+    assert!(conversation.set_proposal_status(
+        1,
+        "A.md",
+        ProposalStatus::Refused,
+        "later".to_string()
+    ));
+    assert_eq!(conversation.turns[1].proposals[0].new_content, "new\n");
 }
 
 #[test]

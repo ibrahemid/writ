@@ -92,6 +92,12 @@ const CALL_PHRASES: Readonly<Record<string, CallPhrase>> = {
     alone: "an earlier version",
   },
   apply_proposal: { done: "changed", asked: "change", beforePath: "", alone: "a file" },
+  undo_proposal: {
+    done: "put back",
+    asked: "put back",
+    beforePath: "an earlier version of",
+    alone: "an earlier version",
+  },
   discard_proposal: { done: "changed", asked: "change", beforePath: "", alone: "a file" },
 };
 

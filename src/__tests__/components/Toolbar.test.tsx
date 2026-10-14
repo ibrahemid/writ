@@ -44,6 +44,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       restoreFromHistory: vi.fn(),
     },
     rightPanel: { isOpen: () => h.panelOpen },
+    chatPanel: { isOpen: () => false },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({
@@ -64,6 +65,7 @@ import Toolbar from "../../components/Toolbar/Toolbar";
 import Sidebar, { focusIsOutsideSidebar } from "../../components/Sidebar/Sidebar";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
 import { configStore } from "../../stores/global/config";
+import { formatKeybinding } from "../../lib/keybinding-format";
 
 // The connections control is the Connections app's, drawn while it is on
 // (ADR-042 section 3).
@@ -224,6 +226,37 @@ describe("Toolbar commands", () => {
     const open = render(() => <Toolbar />);
     expect(control(open.container, "Connections").getAttribute("aria-pressed")).toBe("true");
     h.panelOpen = false;
+  });
+
+  it("draws the chat button only while chat is on, and names its chord", () => {
+    vi.useFakeTimers();
+    const off = render(() => <Toolbar />);
+    expect(control(off.container, "Chat")).toBeNull();
+    cleanup();
+
+    configStore.noteAppsOn(["connections", "chat"]);
+    const run = vi.fn();
+    registerCommand({
+      id: "chat.toggle",
+      label: "Chat",
+      scope: "app",
+      keybinding: "CmdOrCtrl+Shift+A",
+      execute: run,
+    });
+    registered.push("chat.toggle");
+    const { container } = render(() => <Toolbar />);
+    const button = control(container, "Chat");
+    expect(button).not.toBeNull();
+
+    fireEvent.pointerEnter(button.closest(".writ-tooltip-anchor") as Element);
+    vi.advanceTimersByTime(500);
+    expect(document.querySelector(".writ-tooltip-kbd")?.textContent).toBe(
+      formatKeybinding("CmdOrCtrl+Shift+A"),
+    );
+
+    fireEvent.click(button);
+    expect(run).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 
   it("runs note.new from New note", () => {

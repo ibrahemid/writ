@@ -1558,10 +1558,14 @@ export interface AiEndpointState {
   host: string | null;
   host_port: string | null;
   is_hosted: boolean;
+  /** An IP address on a private network: consent applies, a key is optional. */
+  is_private_network: boolean;
   is_allowed: boolean;
   is_consented: boolean;
   provider: string;
   key_state: AiKeyState;
+  /** Apple's on-device model: no address, key or consent, Rewrite only. */
+  is_on_device: boolean;
 }
 
 export async function aiEndpointState(): Promise<AiEndpointState> {
@@ -1576,7 +1580,7 @@ export async function aiConsentHost(): Promise<AiEndpointState> {
 
 /** Where a provider runs: on this machine, on someone's server, or wherever
  * the user typed. */
-export type AiProviderGroup = "local" | "hosted" | "custom";
+export type AiProviderGroup = "on_device" | "local" | "hosted" | "custom";
 
 /** One row of the provider table `writ-core` owns (ADR-040 section 2). The
  * dropdown, the probe, the model fetch and the endpoint guard read this one
@@ -1668,9 +1672,12 @@ export async function aiSetProvider(provider: string): Promise<AiConfig> {
 
 /** Which local runtime answered its port. Keyless, and carries no note text
  * (ADR-040 section 4). */
+/** Whether each local runtime answered, keyed by its provider id. */
 export interface LocalProbe {
   ollama: boolean;
   lmstudio: boolean;
+  llamacpp: boolean;
+  jan: boolean;
 }
 
 export async function aiProbeLocal(): Promise<LocalProbe> {
@@ -1716,9 +1723,13 @@ export interface ChatEndpointState {
   host: string | null;
   host_port: string | null;
   is_hosted: boolean;
+  /** An IP address on a private network: consent applies, a key is optional. */
+  is_private_network: boolean;
   is_allowed: boolean;
   is_consented: boolean;
   key_state: AiKeyState;
+  /** Apple's on-device model, which serves Rewrite only. */
+  is_on_device: boolean;
 }
 
 /** A note the request carried, as the model read it. */
@@ -1880,6 +1891,9 @@ export interface ChatProposalOutcome {
   /** The write moved bytes. False when the note already held the proposed
    * text, which is what a model asked for a whole note often writes back. */
   changed: boolean;
+  /** The text the note held before is kept as a version, so the write can be
+   * undone. False for a file outside the notes folder, which keeps none. */
+  undoable: boolean;
 }
 
 export async function chatState(): Promise<ChatEndpointState> {
@@ -1960,6 +1974,17 @@ export async function chatApplyProposal(
   });
 }
 
+/** Puts back the text a note held before a proposal was applied to it, by
+ * the version that write kept. `appliedHash` is what the apply left the note
+ * holding: a note that moved on since is refused rather than overwritten. */
+export async function chatUndoProposal(
+  path: string,
+  beforeHash: string,
+  appliedHash: string,
+): Promise<ChatProposalOutcome> {
+  return invoke("chat_undo_proposal", { path, beforeHash, appliedHash });
+}
+
 export async function chatDiscardProposal(
   conversationId: string,
   turn: number,
@@ -1974,6 +1999,17 @@ export interface AiConnectionStatus {
   kind: string;
   detail: string;
   models: string[];
+}
+
+/** One run of a word diff: shared text, or text one side alone holds. */
+export interface WordSpan {
+  kind: DiffLine["kind"];
+  text: string;
+}
+
+/** The words `after` changed in `before`, compared in Rust. */
+export async function aiWordDiff(before: string, after: string): Promise<WordSpan[]> {
+  return invoke("ai_word_diff", { before, after });
 }
 
 export async function aiCheckConnection(): Promise<AiConnectionStatus> {

@@ -67,6 +67,9 @@ enum FilterState {
 /// before it and the card carries the rest.
 pub struct ProposalFilter {
     state: FilterState,
+    /// The path the block whose opening line was just read names, empty when
+    /// it names none, until [`Self::take_opened`] hands it over.
+    opened: Option<String>,
 }
 
 impl ProposalFilter {
@@ -76,7 +79,16 @@ impl ProposalFilter {
             state: FilterState::Text {
                 at_line_start: true,
             },
+            opened: None,
         }
+    }
+
+    /// The path a proposal names, once, after the line that opens it has been
+    /// read: what the pane says the reply is writing while the block itself is
+    /// withheld. Empty for a block that names no path. Only the path the model
+    /// wrote is handed over, never a line of the body.
+    pub fn take_opened(&mut self) -> Option<String> {
+        self.opened.take()
     }
 
     /// Reads one delta and returns what may be shown now.
@@ -228,7 +240,9 @@ impl ProposalFilter {
             } => {
                 if *opening {
                     *opening = false;
+                    let named = opening_path(line).unwrap_or_default();
                     line.clear();
+                    self.opened = Some(named);
                     return;
                 }
                 match line_in_block(line, *fence, *inner) {

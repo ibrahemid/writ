@@ -53,7 +53,9 @@ export function createAiChatCommands(state: DemoState): CommandTable {
 
   return {
     // Connection: rewriting and chat share it. Nothing a page sends reaches a model.
-    ai_providers: (): Answer<"aiProviders"> => ai.PROVIDERS.map((row) => ({ ...row })),
+    // The on-device row is offered only on a Mac that has the model.
+    ai_providers: (): Answer<"aiProviders"> =>
+      ai.PROVIDERS.filter((row) => row.group !== "on_device").map((row) => ({ ...row })),
     ai_endpoint_state: (): Answer<"aiEndpointState"> =>
       ai.getEndpointState(state.config.ai, getKeyState(state.config.ai.provider)),
     ai_consent_host: (): Answer<"aiConsentHost"> | Promise<never> =>
@@ -71,7 +73,7 @@ export function createAiChatCommands(state: DemoState): CommandTable {
         return structuredClone(state.config.ai);
       }, describeAiRefusal),
     ai_list_models: (): Answer<"aiListModels"> => ai.listModels(state.config.ai),
-    ai_probe_local: (): Answer<"aiProbeLocal"> => ({ ollama: false, lmstudio: false }),
+    ai_probe_local: (): Answer<"aiProbeLocal"> => ({ ollama: false, lmstudio: false, llamacpp: false, jan: false }),
     ai_check_connection: (): Answer<"aiCheckConnection"> =>
       ai.checkConnection(state.config.ai, keyed.has(state.config.ai.provider)),
     ai_has_api_key: (args): Answer<"aiHasApiKey"> => getKeyState(String(args.provider)),

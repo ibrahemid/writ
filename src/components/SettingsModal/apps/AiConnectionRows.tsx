@@ -14,6 +14,7 @@ import {
   type LocalProbe,
   type ModelListError,
 } from "../../../stores/global/ai-connection";
+import { runtimeRunning } from "../../../lib/local-runtimes";
 import { aiProvidersStore } from "../../../stores/global/ai-providers";
 import { modelOptions, resolveAutoModel } from "../../../stores/global/ai-models";
 import { linkStore } from "../../../stores/global/link";
@@ -30,6 +31,8 @@ const OLLAMA_DOWNLOAD_URL = "https://ollama.com/download";
 const LOCAL_HELP: Record<string, string> = {
   ollama: "Writ could not reach Ollama on port 11434.",
   lmstudio: "Writ could not reach LM Studio on port 1234. Start its server in the Developer tab.",
+  llamacpp: "Writ could not reach llama.cpp on port 8080. Start llama-server.",
+  jan: "Writ could not reach Jan on port 1337. Start its Local API Server in Jan's settings.",
 };
 
 /** The one connection Chat and Rewrite share (ADR-040 section 1), drawn on the
@@ -63,6 +66,7 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
 
   const provider = () => aiProvidersStore.byId(cfg().provider);
   const isLocal = () => provider()?.group === "local";
+  const isOnDevice = () => provider()?.group === "on_device";
   const isCustom = () => cfg().provider === "custom";
   const needsKey = () => provider()?.needs_key === true || (isCustom() && !isLocal());
   const keyPageUrl = () => provider()?.key_page_url ?? null;
@@ -72,9 +76,8 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
   /** Whether the selected local runtime answered. Unknown until the probe
    * lands, which is what keeps the pill off a row that was never probed. */
   const localRunning = (): boolean | null => {
-    const p = probe();
-    if (!p || !isLocal()) return null;
-    return cfg().provider === "ollama" ? p.ollama : p.lmstudio;
+    if (!isLocal()) return null;
+    return runtimeRunning(probe(), cfg().provider);
   };
 
   async function refreshProbe(): Promise<void> {
@@ -178,7 +181,8 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
     return e?.host_port ?? e?.host ?? "";
   };
 
-  // Hosted (non-local) and not yet consented to — shown for a provider switch
+  // Hosted (non-local, a private-network address included) and not yet
+  // consented to — shown for a provider switch
   // or a hand-edited base URL alike.
   const hostedUnconsented = () => {
     const e = endpoint();
@@ -369,11 +373,21 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
 
       <Show when={hostedUnconsented()}>
         <div class="settings-ai-consent" role="note">
-          <p class="settings-ai-consent-text">
-            The files you attach and the text you rewrite are sent to {endpointHost()} with your API
-            key. Writ also sends the key on its own to check the host is reachable. The check sends
-            no text.
-          </p>
+          <Show
+            when={endpoint()?.is_private_network}
+            fallback={
+              <p class="settings-ai-consent-text">
+                The files you attach and the text you rewrite are sent to {endpointHost()} with your
+                API key. Writ also sends the key on its own to check the host is reachable. The check
+                sends no text.
+              </p>
+            }
+          >
+            <p class="settings-ai-consent-text">
+              The files you attach and the text you rewrite are sent to {endpointHost()} on your
+              local network. Writ also checks the address is reachable. The check sends no text.
+            </p>
+          </Show>
           <Button data-action="ai-consent" onClick={() => void onConsent()}>
             Allow
           </Button>
@@ -383,6 +397,12 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
       <Show when={showLocalLine()}>
         <div class="settings-ai-note" data-note="local-endpoint">
           Requests go to {endpointHost()} on this machine. Nothing leaves it.
+        </div>
+      </Show>
+
+      <Show when={isOnDevice()}>
+        <div class="settings-ai-note" data-note="on-device">
+          Rewrite runs on this Mac. Nothing leaves it. Chat needs another provider.
         </div>
       </Show>
 
@@ -443,6 +463,7 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
         </div>
       </Show>
 
+      <Show when={!isOnDevice()}>
       <SettingsRow
         id="ai.model"
         labelFor="setting-ai-model"
@@ -484,9 +505,11 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
           {CHOOSE_A_MODEL}
         </div>
       </Show>
+      </Show>
 
       <SettingsRow
         id="ai.connection"
+        description={isOnDevice() ? "Asks macOS whether the model is ready." : undefined}
       >
         <span class="settings-ai-connection">
           <span
@@ -506,7 +529,7 @@ export default function AiConnectionRows(props: { withChatModel: boolean }) {
         </span>
       </SettingsRow>
 
-      <Show when={props.withChatModel && configStore.isAppOn("chat")}>
+      <Show when={props.withChatModel && configStore.isAppOn("chat") && !isOnDevice()}>
         <SettingsRow
           id="ai.chat.model"
         >

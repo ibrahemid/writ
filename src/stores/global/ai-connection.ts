@@ -15,7 +15,7 @@ import {
   type ModelListError,
 } from "../../services/tauri";
 import { configStore } from "./config";
-import { aiProvidersStore } from "./ai-providers";
+import { aiProvidersStore, ON_DEVICE_PROVIDER } from "./ai-providers";
 
 export type { AiConnectionStatus, LocalProbe, ModelCatalog, ModelListError };
 
@@ -36,6 +36,23 @@ function providerIsLocal(): boolean {
   return aiProvidersStore.groupOf(configStore.config().ai.provider) === "local";
 }
 
+/** The name of the local runtime the connection points at. */
+function localLabel(): string {
+  const id = configStore.config().ai.provider;
+  return aiProvidersStore.byId(id)?.label ?? id;
+}
+
+/** Why Apple's on-device model cannot answer, by the word the check carries. */
+const ON_DEVICE_UNAVAILABLE: Record<string, ConnectionDisplay> = {
+  apple_intelligence_off: {
+    text: "Turn on Apple Intelligence in System Settings.",
+    tone: "warn",
+  },
+  model_not_ready: { text: "Apple's model is still downloading.", tone: "warn" },
+  device_not_eligible: { text: "This Mac cannot run Apple's on-device model.", tone: "error" },
+  unsupported: { text: "Apple's on-device model needs macOS 26 or later.", tone: "error" },
+};
+
 /** Maps a probe result to a display line and tone. Single source of the copy. */
 export function connectionDisplay(
   status: AiConnectionStatus | null,
@@ -44,7 +61,11 @@ export function connectionDisplay(
   if (!status) return { text: "Not checked", tone: "idle" };
   switch (status.kind) {
     case "ok":
-      return { text: "Connected", tone: "ok" };
+      return configStore.config().ai.provider === ON_DEVICE_PROVIDER
+        ? { text: "Ready", tone: "ok" }
+        : { text: "Connected", tone: "ok" };
+    case "on_device_unavailable":
+      return ON_DEVICE_UNAVAILABLE[status.detail] ?? ON_DEVICE_UNAVAILABLE.unsupported;
     case "consent_required":
       return { text: `Not checked until you allow ${status.detail}`, tone: "warn" };
     case "key_required":
@@ -57,7 +78,7 @@ export function connectionDisplay(
       return { text: `The server returned status ${status.detail}`, tone: "error" };
     case "refused":
       return providerIsLocal()
-        ? { text: `Ollama or LM Studio is not running at ${status.detail}`, tone: "error" }
+        ? { text: `${localLabel()} is not running at ${status.detail}`, tone: "error" }
         : { text: `Could not reach ${status.detail}`, tone: "error" };
     case "timeout":
       return { text: `No response from ${status.detail} within 3 seconds`, tone: "error" };

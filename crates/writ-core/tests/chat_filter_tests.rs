@@ -494,3 +494,65 @@ fn a_bare_fence_proposal_written_with_carriage_returns_is_withheld() {
         "the header reached the pane: {visible:?}"
     );
 }
+
+/// Feeds `reply` one character at a time and answers each path the filter
+/// handed over, with the text shown before it was handed over.
+fn opened_while_streaming(reply: &str) -> Vec<(String, String)> {
+    let mut filter = ProposalFilter::new();
+    let mut shown = String::new();
+    let mut opened = Vec::new();
+    for character in reply.chars() {
+        shown.push_str(&filter.push(&character.to_string()));
+        if let Some(path) = filter.take_opened() {
+            opened.push((path, shown.clone()));
+        }
+    }
+    shown.push_str(&filter.finish());
+    assert!(filter.take_opened().is_none());
+    opened
+}
+
+#[test]
+fn a_proposal_names_its_file_once_its_opening_line_is_read() {
+    let opened = opened_while_streaming(REPLY);
+    assert_eq!(opened.len(), 1, "one block, one hand-over");
+    assert_eq!(opened[0].0, "Ideas/Launch.md");
+    for line in PROPOSED {
+        assert!(!opened[0].1.contains(line), "no body line before the name");
+    }
+}
+
+#[test]
+fn a_header_line_under_a_bare_fence_names_its_file_too() {
+    let reply = "Sure.\n```\nwrit-proposal path=\"Plan.md\"\nnew text\n```\nDone.\n";
+    let opened = opened_while_streaming(reply);
+    assert_eq!(
+        opened
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<Vec<_>>(),
+        ["Plan.md"]
+    );
+}
+
+#[test]
+fn each_proposal_is_handed_over_and_one_without_a_path_is_named_empty() {
+    let reply = "```writ-proposal path=\"A.md\"\na\n```\n```writ-proposal path=\"B.md\"\nb\n```\n";
+    let opened = opened_while_streaming(reply);
+    let paths: Vec<&str> = opened.iter().map(|(path, _)| path.as_str()).collect();
+    assert_eq!(paths, ["A.md", "B.md"]);
+
+    let unnamed = opened_while_streaming("```writ-proposal\nbody\n```\n");
+    assert_eq!(
+        unnamed
+            .iter()
+            .map(|(path, _)| path.as_str())
+            .collect::<Vec<_>>(),
+        [""]
+    );
+}
+
+#[test]
+fn an_ordinary_code_block_hands_over_nothing() {
+    assert!(opened_while_streaming("```rust\nfn main() {}\n```\n").is_empty());
+}

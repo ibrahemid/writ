@@ -13,6 +13,10 @@ separately in ADR-032.
 Amended by [ADR-040](./040-one-ai-connection-and-a-chat-that-persists.md) in rules 2.1, 2.4, 2.7,
 5.2 and 7.1.
 
+Rules 2.6 and 2.7 amended 2026-10-15 (ADR-040 section 15): `http` is also allowed to an IP address
+on a private network, after consent to that host, and the local runtime probes are four. Until then
+`http` reached loopback only and the probes were two.
+
 Rules 1.3 and 1.4 amended 2026-10-05: the MCP process writes `history.db`, so a write it makes
 keeps the text it replaced, and the two processes share SQLite's lock on that file. Until then the
 MCP process wrote no database and its writes kept no version.
@@ -174,12 +178,20 @@ of one name can be told apart in a reply. A proposal resolves against the name i
 and a name two attachments were shown under resolves to neither, so a reply can never land on a file
 it was not naming. The path is held here: the conversation file, the pane and the activity record.
 
-2.6. An endpoint that is not local and not `https` is refused before any bytes leave, by
+2.5, amended 2026-10-15: the tab in front attaches itself. While the pane is open, the file the
+editor shows is one chip that follows the editor: another tab coming forward replaces it, a tab with
+no file has none, and removing it keeps it away until another tab is focused. It is not a person's
+pick, so it is drawn as one that is not (a dashed edge, quieter text) and its tip says it comes from
+the tab in front. What leaves the machine is still exactly the chip row, this chip included, and a
+host is asked before its first send (rule 2.1).
+
+2.6. An endpoint that is not local, not an IP address on a private network and not `https` is
+refused before any bytes leave, by
 `polish::is_endpoint_allowed:223` against the parsed host, including for a hand-edited
 `config.toml`. The chat pane reuses that guard rather than adding a second one (U7).
 
 2.7. A request to a loopback address that carries no credential and no note text is not a
-destination under rule 2.1, because nothing leaves the machine. The two local runtime probes of
+destination under rule 2.1, because nothing leaves the machine. The local runtime probes of
 ADR-040 section 4 are the only such requests: they carry no credential, no note text and no header
 beyond what the HTTP client adds to every request (host, accept, an empty user agent), and a probe
 that carried a key would be a send under rule 2.2.

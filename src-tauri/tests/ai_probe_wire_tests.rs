@@ -11,7 +11,7 @@ use std::net::TcpListener;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use writ_tauri_lib::commands::ai::probe_local_at;
+use writ_tauri_lib::commands::ai::{probe_local_at, LocalProbeUrls};
 
 /// Reads one request off a connection and answers 200, returning the bytes.
 fn record_one(listener: TcpListener) -> String {
@@ -42,7 +42,15 @@ fn the_local_probe_sends_no_credential_and_no_header_of_its_own() {
     }
     drop(tx);
 
-    let probe = tauri::async_runtime::block_on(probe_local_at(&ollama_url, &lmstudio_url));
+    let nothing = TcpListener::bind("127.0.0.1:0").expect("a loopback socket");
+    let dead_url = format!("http://{}/v1/models", nothing.local_addr().unwrap());
+    drop(nothing);
+    let probe = tauri::async_runtime::block_on(probe_local_at(LocalProbeUrls {
+        ollama: &ollama_url,
+        lmstudio: &lmstudio_url,
+        llamacpp: &dead_url,
+        jan: &dead_url,
+    }));
     assert!(
         probe.ollama,
         "the probe should see the ollama socket answer"

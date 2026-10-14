@@ -313,6 +313,17 @@ describe("the connection control", () => {
     expect(container.textContent).toContain("No key");
   });
 
+  it("leaves out the on-device row, which serves Rewrite only", async () => {
+    mocks.rows.mockReturnValue([
+      ...PROVIDERS,
+      { ...PROVIDERS[0], id: "apple", label: "Apple Intelligence", group: "on_device" },
+    ]);
+    const { container } = await openMenu();
+    const labels = [...container.querySelectorAll(".chat-menu-row")].map((row) => row.textContent);
+    expect(labels.some((label) => label?.includes("Apple Intelligence"))).toBe(false);
+    expect(labels.some((label) => label?.includes("Ollama"))).toBe(true);
+  });
+
   it("opens the settings section from the last row", async () => {
     const { getByText } = await openMenu();
     fireEvent.click(getByText("Connection settings"));

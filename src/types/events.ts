@@ -47,7 +47,9 @@ export type WritEvent =
         /** Which send of that conversation the frame belongs to. A frame whose
          * id is not the one in flight is a leftover and is dropped. */
         request_id: string;
-        kind: "chunk" | "done" | "stopped" | "error";
+        /** `progress` says the reply is writing a change to the file `text`
+         * names, which the text itself withholds until `done`. */
+        kind: "chunk" | "progress" | "done" | "stopped" | "error";
         text?: string;
         /** Whole-note text a reply asked for, carried by the `done` frame and
          * applied by nobody until a person says so (ADR-031 rule 4.3). */

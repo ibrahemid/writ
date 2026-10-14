@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   openTabCandidates: vi.fn<(query: string, limit: number) => { path: string; name: string }[]>(
     () => [],
   ),
+  attachRefusal: null as string | null,
 }));
 
 vi.mock("../../stores/global/chat", async () => {
@@ -48,6 +49,7 @@ vi.mock("../../stores/global/chat", async () => {
       addOpenNote: mocks.addOpenNote,
       cancelEdit: mocks.cancelEdit,
       stop: mocks.stop,
+      attachRefusal: () => mocks.attachRefusal,
     },
   };
 });
@@ -115,6 +117,7 @@ beforeEach(() => {
   mocks.candidates.mockReset().mockResolvedValue([]);
   mocks.folders.mockReset().mockResolvedValue([]);
   mocks.openTabCandidates.mockReset().mockReturnValue([]);
+  mocks.attachRefusal = null;
 });
 
 afterEach(() => {
@@ -473,6 +476,25 @@ describe("the mention list", () => {
     expect(mocks.attachFolder).not.toHaveBeenCalled();
   });
 
+  it("says no file matches only once a lookup has answered", async () => {
+    vi.useFakeTimers();
+    let answer: (rows: unknown[]) => void = () => undefined;
+    mocks.candidates.mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    const { container } = mount();
+    const el = field(container);
+    el.value = "@";
+    fireEvent.input(el);
+
+    expect(container.querySelector(".chat-mention")).not.toBeNull();
+    expect(container.textContent).not.toContain("No file by that name.");
+    vi.advanceTimersByTime(200);
+    expect(container.textContent).not.toContain("No file by that name.");
+
+    answer([]);
+    vi.useRealTimers();
+    await waitFor(() => expect(container.textContent).toContain("No file by that name."));
+  });
+
   it("keeps the empty answer out of the list", async () => {
     mocks.candidates.mockResolvedValue([]);
     const { container } = mount();
@@ -483,6 +505,52 @@ describe("the mention list", () => {
     await waitFor(() => expect(container.textContent).toContain("No file by that name."));
     const list = container.querySelector(".chat-mention-list") as HTMLElement;
     expect(list.textContent).not.toContain("No file by that name.");
+  });
+});
+
+describe("what the composer teaches", () => {
+  it("says how Enter sends under an empty field, and not once something is typed", () => {
+    const empty = mount();
+    expect(empty.container.querySelector(".chat-composer-hint")?.textContent).toBe(
+      "Enter sends. Shift+Enter starts a new line.",
+    );
+    cleanup();
+    mocks.draft = "a question";
+    const typed = mount();
+    expect(typed.container.querySelector(".chat-composer-hint")).toBeNull();
+  });
+
+  it("names Send and Stop with their keys under the pointer", () => {
+    vi.useFakeTimers();
+    mocks.draft = "a question";
+    const idle = mount();
+    const send = idle.getByRole("button", { name: "Send" });
+    fireEvent.pointerEnter(send.closest(".writ-tooltip-anchor") as Element);
+    vi.advanceTimersByTime(500);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Send");
+    expect(document.querySelector(".writ-tooltip-kbd")?.textContent).not.toBe("");
+    cleanup();
+
+    mocks.status = "streaming";
+    const live = mount();
+    const stop = live.getByRole("button", { name: "Stop" });
+    fireEvent.pointerEnter(stop.closest(".writ-tooltip-anchor") as Element);
+    vi.advanceTimersByTime(500);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("Stop");
+  });
+
+  it("marks the chip the tab in front added and says where it came from", () => {
+    vi.useFakeTimers();
+    mocks.attachments = [chip("Launch.md", { auto: true })];
+    const { container } = mount();
+    expect(container.querySelector(".chat-chip")?.classList.contains("is-auto")).toBe(true);
+    expect(tipOver(container)).toBe("From the tab in front: Launch.md");
+  });
+
+  it("says why the set cannot go when no one file is the reason", () => {
+    mocks.attachRefusal = "Attached files can hold at most 4 MB between them.";
+    const { container } = mount();
+    expect(container.textContent).toContain("Attached files can hold at most 4 MB between them.");
   });
 });
 

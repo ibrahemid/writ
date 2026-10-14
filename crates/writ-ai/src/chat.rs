@@ -62,6 +62,19 @@ use crate::poison::recover_poison;
 /// an unbounded body.
 const MAX_ATTACHED_NOTES: usize = 20;
 
+/// How many bytes the notes one request carries may hold between them: twice
+/// the per-note ceiling, so twenty notes cannot make a body of forty
+/// megabytes.
+pub const MAX_ATTACHED_BYTES: u64 = 2 * writ_core::notes::host::MAX_NOTE_BYTES;
+
+/// What a set of notes over [`MAX_ATTACHED_BYTES`] is refused in.
+fn over_total() -> String {
+    format!(
+        "Attached files can hold at most {} MB between them.",
+        MAX_ATTACHED_BYTES / (1024 * 1024)
+    )
+}
+
 /// What a send says when the id it names has no file.
 ///
 /// The pane keeps its conversation in a file the store owns, so an id nothing
@@ -289,14 +302,19 @@ pub struct ChatEndpointState {
     pub host: Option<String>,
     /// Host with `:port` when the URL carries one; for display.
     pub host_port: Option<String>,
-    /// The endpoint leaves this machine, so consent and a key are required.
+    /// The endpoint leaves this machine, so consent is required.
     pub is_hosted: bool,
+    /// The host is an address on a private network: consent is required and a
+    /// key is optional.
+    pub is_private_network: bool,
     /// The scheme/host pair passes the outbound guard.
     pub is_allowed: bool,
     /// The send notice has been accepted for this exact host.
     pub is_consented: bool,
     /// Whether a key is stored for this provider, and where it lives.
     pub key_state: AiKeyState,
+    /// The connection is Apple's on-device model, which serves Rewrite only.
+    pub is_on_device: bool,
 }
 
 /// One conversation as the pane reads it.
@@ -376,7 +394,7 @@ pub struct ChatSendAccepted {
     pub identity: RequestIdentity,
 }
 
-/// What a proposal the user applied did to the note.
+/// What a proposal the user applied, or undid, did to the note.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProposalOutcome {
     /// The note, folder-relative, as the proposal named it.
@@ -391,6 +409,11 @@ pub struct ProposalOutcome {
     /// model asked for a whole note often writes back. The card says so rather
     /// than reporting a change nobody made.
     pub changed: bool,
+    /// The text the note held before this write is kept as a version, so the
+    /// card can offer Undo ([`undo_proposal_inner`]). False for a write that
+    /// moved nothing and for a file outside the notes folder, which keeps no
+    /// versions.
+    pub undoable: bool,
 }
 
 /// Builds the endpoint state for `cfg`. Pure over its key lookup, so the
@@ -403,9 +426,11 @@ pub fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> ChatEndpoin
         host: None,
         host_port: None,
         is_hosted: false,
+        is_private_network: false,
         is_allowed: false,
         is_consented: false,
         key_state,
+        is_on_device: writ_core::ai::on_device::is_on_device(&cfg.provider),
     };
     match polish::resolve_endpoint(&cfg.effective_base_url()) {
         Ok(target) => ChatEndpointState {
@@ -413,6 +438,7 @@ pub fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> ChatEndpoin
             host: Some(target.host),
             host_port: Some(target.host_port),
             is_hosted: target.is_hosted,
+            is_private_network: target.is_private_network,
             is_allowed: target.is_allowed,
             ..base
         },
@@ -426,7 +452,7 @@ pub fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> ChatEndpoin
 /// system password prompt, so the question is not asked for a local one.
 pub fn needs_key_lookup(cfg: &AiConfig) -> bool {
     match polish::resolve_endpoint(&cfg.effective_base_url()) {
-        Ok(target) => target.is_hosted,
+        Ok(target) => target.takes_key(),
         Err(_) => false,
     }
 }
@@ -458,9 +484,11 @@ pub fn missing_or(error: ChatStoreError) -> String {
 /// against what the model was shown: the send-time text is deliberately not
 /// persisted (ADR-040 section 8), so the note on disk is the only baseline
 /// there is. `stale` is what says the note moved, and it is also what the
-/// guard will refuse the apply for. A proposal nobody can apply any more — one
-/// already applied, discarded or refused — carries no hunks, and the card
-/// shows its summary and its status.
+/// guard will refuse the apply for, so the card holds Apply back on it. A
+/// proposal nobody can apply any more — one already applied or discarded —
+/// carries no hunks, and the card shows its summary and its status. A refused
+/// one is read like a pending one: Apply is still offered on it, and a refusal
+/// for a note that moved is one a second Apply would only repeat.
 pub fn conversation_dto(
     notes_root: &Path,
     open_tabs: &dyn TabLookup,
@@ -503,7 +531,10 @@ fn proposal_dto(
     open_tabs: &dyn TabLookup,
     proposal: StoredProposal,
 ) -> ProposalDto {
-    if proposal.status != ProposalStatus::Pending {
+    if matches!(
+        proposal.status,
+        ProposalStatus::Applied | ProposalStatus::Discarded
+    ) {
         return ProposalDto {
             path: proposal.path,
             summary: proposal.summary,
@@ -578,6 +609,9 @@ pub struct PreparedChat {
     pub host_port: String,
     /// The endpoint is on this machine.
     pub is_localhost: bool,
+    /// The endpoint is an address on a private network, reached without a
+    /// proxy ([`crate::connection::build_client_for`]).
+    pub is_private_network: bool,
     /// The notes the request carries, and nothing else.
     pub context: Vec<AttachedNote>,
     /// The connection this request was frozen against, carried on every frame
@@ -598,6 +632,9 @@ pub fn prepare_chat(
 ) -> Result<PreparedChat, ChatError> {
     if !cfg.chat.enabled {
         return Err(ChatError::Disabled);
+    }
+    if writ_core::ai::on_device::is_on_device(&cfg.provider) {
+        return Err(ChatError::RewriteOnly);
     }
     let provider = Provider::from_wire(cfg.wire());
     if turns
@@ -626,24 +663,32 @@ pub fn prepare_chat(
                 host: target.host.clone(),
             });
         }
-        match lookup_key(&cfg.provider) {
+        match crate::connection::stored_key_for(&target, &cfg.provider, lookup_key) {
             Some(key) => Some(key),
-            None => {
+            None if target.needs_key() => {
                 return Err(ChatError::ApiKeyRequired {
                     host: target.host.clone(),
                 })
             }
+            None => None,
         }
     } else {
         None
     };
 
+    // The turns are fitted to what the endpoint's context leaves after the
+    // prompt and the notes, oldest first (ADR-040 section 8, amended).
+    let system = chat::system_prompt(&context);
+    let fitted = chat::fit_turns(
+        turns,
+        chat::turn_budget(!target.needs_key(), &system, &context),
+    );
     let body = chat::build_request_body(
         provider,
         providers::body_rules(&target.host),
         cfg.chat_model(),
-        &chat::system_prompt(&context),
-        turns,
+        &system,
+        &fitted,
         &context,
     );
     Ok(PreparedChat {
@@ -652,6 +697,7 @@ pub fn prepare_chat(
         body,
         api_key,
         is_localhost: !target.is_hosted,
+        is_private_network: target.is_private_network,
         identity: RequestIdentity {
             provider: cfg.provider.clone(),
             model: cfg.chat_model().to_string(),
@@ -1011,18 +1057,23 @@ fn read_context(
 /// What one context file weighs, which is what the send dialog states.
 ///
 /// Metadata on both sides, so asking costs no file text. A file over the
-/// ceiling still reports its size here and is refused at the read, which is
-/// what a note has always done: `note_summary` carries no size limit either.
+/// host's ceiling ([`writ_core::notes::host::MAX_NOTE_BYTES`]) is refused here,
+/// in the words the read would refuse it in, so the refusal arrives when the
+/// note is attached rather than after the send dialog.
 fn context_bytes(notes_root: &Path, context: &ContextFile, given: &str) -> Result<u64, String> {
-    match &context.scope {
+    let bytes = match &context.scope {
         ContextScope::Notes => context_host(notes_root, &context.key)?
             .note_summary(given)
             .map(|summary| summary.bytes)
-            .map_err(|error| unattachable(&context.key, &error)),
+            .map_err(|error| unattachable(&context.key, &error))?,
         ContextScope::OpenTab { .. } => std::fs::metadata(&context.file)
             .map(|meta| meta.len())
-            .map_err(|_| format!("{} could not be read.", context_name(context))),
+            .map_err(|_| format!("{} could not be read.", context_name(context)))?,
+    };
+    if bytes > writ_core::notes::host::MAX_NOTE_BYTES {
+        return Err(format!("{} is too large to attach.", context_name(context)));
     }
+    Ok(bytes)
 }
 
 /// The sizes of the notes the call named.
@@ -1030,7 +1081,9 @@ fn context_bytes(notes_root: &Path, context: &ContextFile, given: &str) -> Resul
 /// The dialog asking to send them must state the bytes the send will read, not
 /// what a tab last recorded: a note another program rewrote since the tab
 /// synced would otherwise be consented to under the wrong number. Metadata
-/// only, so asking costs no note text.
+/// only, so asking costs no note text. The limits a send would meet are met
+/// here first: a note over the ceiling, more notes than one request carries,
+/// and more bytes between them than [`MAX_ATTACHED_BYTES`].
 pub fn attached_sizes_in(
     notes_root: &Path,
     open_tabs: &dyn TabLookup,
@@ -1055,6 +1108,9 @@ pub fn attached_sizes_in(
             key: context.key,
             bytes,
         });
+    }
+    if sizes.iter().map(|note| note.bytes).sum::<u64>() > MAX_ATTACHED_BYTES {
+        return Err(over_total());
     }
     Ok(sizes)
 }
@@ -1095,6 +1151,10 @@ pub fn read_attached_in(
             prompt_path,
             text: content.text,
         });
+        let total: u64 = notes.iter().map(|note| note.text.len() as u64).sum();
+        if total > MAX_ATTACHED_BYTES {
+            return Err(over_total());
+        }
     }
     Ok(notes)
 }
@@ -1157,8 +1217,133 @@ pub fn apply_proposal_inner(
             write_tab,
         );
     }
-    let note_key = context.key;
-    let Some(digest) = digest_from_hex(before_hash) else {
+    let written = write_through_host(
+        notes_root,
+        writ_dir,
+        host,
+        path,
+        &context.key,
+        new_content,
+        before_hash,
+        history,
+        CardWrite::Apply,
+    )?;
+    // Undo puts back the version the write kept of what the note held, which
+    // is the text the proposal was made against.
+    let undoable = written.changed
+        && history.is_some_and(|history| {
+            kept_version(history, notes_root, &context, before_hash).is_some()
+        });
+    Ok(ProposalOutcome {
+        undoable,
+        ..written
+    })
+}
+
+/// Puts back what a note held before a proposal was applied to it.
+///
+/// The text is the version the apply kept of the note as the proposal was
+/// made against it, found by `before_hash`. It goes back through the same
+/// guarded facade, with `applied_hash`, what the apply left the note holding,
+/// as the last known state: a note that changed since the apply is refused,
+/// and the earlier text is written beside it rather than over the change
+/// (ADR-031 rule 4.3). A file outside the notes folder keeps no versions, so
+/// it has nothing to put back.
+#[allow(clippy::too_many_arguments)]
+pub fn undo_proposal_inner(
+    notes_root: &Path,
+    open_tabs: &dyn TabLookup,
+    writ_dir: &Path,
+    host: &str,
+    path: &str,
+    before_hash: &str,
+    applied_hash: &str,
+    history: Option<&writ_storage::note_history::NoteHistoryStore>,
+) -> Result<ProposalOutcome, String> {
+    let context = resolve_context_file(notes_root, open_tabs, path)?;
+    let not_kept = || {
+        format!(
+            "The earlier text of {} is not kept.",
+            context_name(&context)
+        )
+    };
+    if !matches!(context.scope, ContextScope::Notes) {
+        return Err(not_kept());
+    }
+    let history = history.ok_or_else(not_kept)?;
+    let version = kept_version(history, notes_root, &context, before_hash).ok_or_else(not_kept)?;
+    let earlier = history
+        .content(version)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .ok_or_else(not_kept)?;
+    write_through_host(
+        notes_root,
+        writ_dir,
+        host,
+        path,
+        &context.key,
+        &earlier,
+        applied_hash,
+        Some(history),
+        CardWrite::Undo,
+    )
+}
+
+/// Which write a proposal's card asked for: what the log line names it, and
+/// what a refusal says went beside the note.
+#[derive(Clone, Copy)]
+enum CardWrite {
+    Apply,
+    Undo,
+}
+
+impl CardWrite {
+    fn action(self) -> &'static str {
+        match self {
+            Self::Apply => "apply_proposal",
+            Self::Undo => "undo_proposal",
+        }
+    }
+}
+
+/// The version history keeps of the text `hash` names, for one note.
+///
+/// The store keys a note by its path under the folder it was told of, which
+/// may be the folder's own spelling rather than the resolved one `context`
+/// holds, so both are asked.
+fn kept_version(
+    history: &writ_storage::note_history::NoteHistoryStore,
+    notes_root: &Path,
+    context: &ContextFile,
+    hash: &str,
+) -> Option<i64> {
+    let key = history
+        .key_for(&context.file)
+        .or_else(|| history.key_for(&notes_root.join(&context.key)))?;
+    history
+        .versions(&key)
+        .ok()?
+        .into_iter()
+        .find(|entry| entry.hash.eq_ignore_ascii_case(hash))
+        .map(|entry| entry.id)
+}
+
+/// Writes `content` to a note in the folder through the host holding
+/// [`apply_permissions`], judged against `expected_hash`, and logs the write.
+#[allow(clippy::too_many_arguments)]
+fn write_through_host(
+    notes_root: &Path,
+    writ_dir: &Path,
+    host: &str,
+    path: &str,
+    note_key: &str,
+    content: &str,
+    expected_hash: &str,
+    history: Option<&writ_storage::note_history::NoteHistoryStore>,
+    write: CardWrite,
+) -> Result<ProposalOutcome, String> {
+    let Some(digest) = digest_from_hex(expected_hash) else {
         return Err(format!("The recorded state of {note_key} is not readable."));
     };
 
@@ -1173,12 +1358,7 @@ pub fn apply_proposal_inner(
     )
     .map_err(|_| format!("{note_key} was not written."))?
     .with_history(history);
-    let outcome = applier.write_note(
-        path,
-        new_content,
-        LastKnown::Hash(digest),
-        WriteOrigin::Chat,
-    );
+    let outcome = applier.write_note(path, content, LastKnown::Hash(digest), WriteOrigin::Chat);
 
     match outcome {
         Ok(written) => {
@@ -1187,28 +1367,29 @@ pub fn apply_proposal_inner(
             record_proposal(
                 writ_dir,
                 host,
-                "apply_proposal",
-                &note_key,
+                write.action(),
+                note_key,
                 Decision::Allow,
                 written.changed.then_some(written.bytes),
             );
             Ok(ProposalOutcome {
-                path: note_key,
+                path: note_key.to_string(),
                 hash: written.hash,
                 bytes: written.bytes,
                 changed: written.changed,
+                undoable: false,
             })
         }
         Err(error) => {
             record_proposal(
                 writ_dir,
                 host,
-                "apply_proposal",
-                &note_key,
+                write.action(),
+                note_key,
                 Decision::Refuse,
                 None,
             );
-            Err(refusal(&note_key, &error))
+            Err(refusal(note_key, &error, write))
         }
     }
 }
@@ -1287,6 +1468,7 @@ fn apply_to_open_tab(
         hash: writ_core::hash::sha256_hex(new_content.as_bytes()),
         bytes: new_content.len() as u64,
         changed,
+        undoable: false,
     })
 }
 
@@ -1295,7 +1477,11 @@ fn apply_to_open_tab(
 /// The pane names notes by their folder-relative key everywhere else, and the
 /// one thing a person needs from a refusal is where the text they were about to
 /// apply went instead.
-fn refusal(note_key: &str, error: &HostError) -> String {
+fn refusal(note_key: &str, error: &HostError, write: CardWrite) -> String {
+    let (since, text) = match write {
+        CardWrite::Apply => ("the offer was made", "proposed text"),
+        CardWrite::Undo => ("the change was applied", "earlier text"),
+    };
     match error {
         HostError::Conflict { conflict_copy, .. } => match conflict_copy {
             Some(copy) => {
@@ -1303,10 +1489,10 @@ fn refusal(note_key: &str, error: &HostError) -> String {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_else(|| copy.clone());
-                format!("{note_key} changed since the offer was made. The proposed text is beside it in {copy_name}.")
+                format!("{note_key} changed since {since}. The {text} is beside it in {copy_name}.")
             }
             None => format!(
-                "{note_key} changed since the offer was made, and the proposed text could not be written beside it."
+                "{note_key} changed since {since}, and the {text} could not be written beside it."
             ),
         },
         _ => format!("{note_key} was not written."),
@@ -1367,17 +1553,18 @@ fn record_proposal(
 }
 
 /// One frame of a reply, as the pane receives it on `writ://ai-chat`: a
-/// `chunk` of visible text, `done` with what the reply proposed, `error`, or
-/// `stopped`.
+/// `chunk` of visible text, `progress` naming the file a withheld proposal is
+/// for, `done` with what the reply proposed, `error`, or `stopped`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneFrame {
     /// The conversation the frame is keyed by.
     pub conversation_id: String,
     /// The send the frame belongs to.
     pub request_id: String,
-    /// `chunk`, `done`, `error` or `stopped`.
+    /// `chunk`, `progress`, `done`, `error` or `stopped`.
     pub kind: String,
-    /// The text a `chunk` adds, or the sentence an `error` ends on.
+    /// The text a `chunk` adds, the path a `progress` names, or the sentence
+    /// an `error` ends on.
     pub text: Option<String>,
     /// What a `done` reply proposed.
     pub proposals: Vec<writ_core::chat::Proposal>,
@@ -1527,7 +1714,7 @@ fn transport_frame(prepared: &PreparedChat, error: &reqwest::Error) -> ChatError
     }
     ChatErrorFrame::untyped(
         "unreachable",
-        connection_error_message(error, prepared.is_localhost),
+        connection_error_message(error, prepared.is_localhost, prepared.is_private_network),
         &prepared.identity,
     )
 }
@@ -1780,6 +1967,13 @@ async fn stream_reply(
             let visible = buffer.push(&text);
             if !visible.is_empty() {
                 emit(text_frame(ids, "chunk", Some(visible)));
+            }
+            // A proposal is withheld until the reply ends, which on a long
+            // note is most of the reply. The pane is told which file it is
+            // for, once per block and with nothing of its body, so it says
+            // what is being written rather than "Thinking" throughout.
+            if let Some(path) = buffer.filter.take_opened() {
+                emit(text_frame(ids, "progress", Some(path)));
             }
         }
         ChatEvent::Done { truncated } => {
@@ -2425,6 +2619,102 @@ mod tests {
     }
 
     #[test]
+    fn chat_on_the_on_device_row_says_it_serves_rewrite_only() {
+        let mut cfg = config(true, "https://llm.example/v1", "m");
+        cfg.provider = "apple".to_string();
+        assert_eq!(
+            prepare_chat(&cfg, &turns(), Vec::new(), None, |_| panic!(
+                "no key is read for the on-device row"
+            )),
+            Err(ChatError::RewriteOnly)
+        );
+        let state = endpoint_state_from(
+            &cfg,
+            AiKeyState {
+                is_set: false,
+                memory_only: false,
+            },
+        );
+        assert!(state.is_on_device);
+        assert!(!state.is_allowed);
+    }
+
+    #[test]
+    fn a_private_network_server_waits_for_consent_and_needs_no_key() {
+        let mut cfg = config(true, "http://192.168.1.20:11434/v1", "llama3");
+        assert_eq!(
+            prepare_chat(&cfg, &turns(), Vec::new(), None, |_| panic!(
+                "the key was read for a host with no consent"
+            )),
+            Err(ChatError::ConsentRequired {
+                host: "192.168.1.20".to_string()
+            })
+        );
+        cfg.consented_hosts = vec!["192.168.1.20".to_string()];
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, no_key).expect("prepared");
+        assert!(prepared.api_key.is_none());
+        assert!(!prepared.is_localhost);
+        assert!(prepared.is_private_network);
+
+        let state = endpoint_state_from(
+            &cfg,
+            AiKeyState {
+                is_set: false,
+                memory_only: false,
+            },
+        );
+        assert!(state.is_private_network && state.is_hosted && state.is_consented);
+    }
+
+    #[test]
+    fn a_stored_key_never_goes_over_plain_http_to_a_private_address() {
+        let mut cfg = config(true, "http://192.168.1.20:11434/v1", "llama3");
+        cfg.consented_hosts = vec!["192.168.1.20".to_string()];
+        let prepared = prepare_chat(&cfg, &turns(), Vec::new(), None, |_| {
+            panic!("the key was read for plain http")
+        })
+        .expect("prepared");
+        assert!(prepared.api_key.is_none());
+        assert!(!needs_key_lookup(&cfg));
+    }
+
+    #[test]
+    fn a_private_network_server_gets_the_local_turn_budget() {
+        // Enough earlier turns to overflow a local window and fit a hosted one.
+        let long = "word ".repeat(2_000);
+        let mut history: Vec<ChatTurn> = (0..12)
+            .map(|i| ChatTurn {
+                role: if i % 2 == 0 {
+                    writ_core::chat::Role::User
+                } else {
+                    writ_core::chat::Role::Assistant
+                },
+                content: long.clone(),
+            })
+            .collect();
+        history.push(ChatTurn {
+            role: writ_core::chat::Role::User,
+            content: "And now?".to_string(),
+        });
+        let sent = |base: &str, host: &str| {
+            let mut cfg = config(true, base, "m");
+            cfg.consented_hosts = vec![host.to_string()];
+            let prepared =
+                prepare_chat(&cfg, &history, Vec::new(), None, |_| Some("k".to_string()))
+                    .expect("prepared");
+            prepared.body["messages"]
+                .as_array()
+                .expect("messages")
+                .len()
+        };
+        let private = sent("http://192.168.1.20:11434/v1", "192.168.1.20");
+        let local = sent("http://localhost:11434/v1", "localhost");
+        let hosted = sent("https://api.example.com/v1", "api.example.com");
+        assert_eq!(private, local);
+        assert!(private < hosted, "{private} < {hosted}");
+    }
+
+    #[test]
     fn a_model_nobody_chose_is_refused() {
         let cfg = config(true, "http://localhost:11434/v1", "  ");
         assert_eq!(
@@ -3006,6 +3296,39 @@ Tell me if that reads better.\n";
     }
 
     #[test]
+    fn a_refused_proposal_over_a_note_that_moved_reads_stale() {
+        let (notes, attached) = notes_with("one intro\n");
+        let mut conversation = Conversation::new(
+            ID.to_string(),
+            ChatStore::now(),
+            "custom".to_string(),
+            "a-model".to_string(),
+        );
+        conversation.push_assistant(
+            "Done.".to_string(),
+            AssistantReply {
+                proposals: vec![StoredProposal {
+                    path: "Launch.md".to_string(),
+                    summary: "Fold the intros".to_string(),
+                    before_hash: attached[0].before_hash.clone(),
+                    new_content: "one intro, folded\n".to_string(),
+                    status: ProposalStatus::Refused,
+                }],
+                ..AssistantReply::default()
+            },
+            None,
+            ChatStore::now(),
+        );
+        std::fs::write(notes.path().join("Launch.md"), "somebody else's opening\n")
+            .expect("rewrite the note");
+
+        let card = &conversation_dto(notes.path(), &NoTabs, conversation).turns[0].proposals[0];
+        assert_eq!(card.status, ProposalStatus::Refused);
+        assert!(card.stale, "a second Apply would only be refused again");
+        assert!(!card.hunks.is_empty());
+    }
+
+    #[test]
     fn a_conversation_reads_as_the_pane_expects_it() {
         let (notes, _attached) = notes_with("one intro\n");
         let mut conversation = Conversation::new(
@@ -3264,6 +3587,56 @@ mod stream_tests {
             }
         });
         format!("http://127.0.0.1:{port}")
+    }
+
+    /// A reply that writes a sentence, then a proposal for the attached note
+    /// in pieces, then nothing.
+    const PROPOSING_STREAM: &str = "data: {\"choices\":[{\"delta\":{\"content\":\"Here it is.\\n\"}}]}\n\n\
+data: {\"choices\":[{\"delta\":{\"content\":\"```writ-proposal path=\\\"Ideas/Launch.md\\\"\"}}]}\n\n\
+data: {\"choices\":[{\"delta\":{\"content\":\" summary=\\\"tidy\\\"\\nthe new\"}}]}\n\n\
+data: {\"choices\":[{\"delta\":{\"content\":\" body line\\n```\\n\"}}]}\n\n\
+data: [DONE]\n\n";
+
+    #[test]
+    fn a_withheld_proposal_is_announced_once_by_the_file_it_names() {
+        let (base, _seen) = spawn_mock(
+            "HTTP/1.1 200 OK",
+            "Content-Type: text/event-stream\r\nConnection: close\r\n",
+            PROPOSING_STREAM,
+        );
+        let prepared = prepared_for(&base, Provider::OpenAiCompatible, None);
+        let frames = Arc::new(Mutex::new(Vec::new()));
+        let sink = frames.clone();
+        block_on(async {
+            let client = crate::connection::build_client().expect("client");
+            stream_reply(
+                &client,
+                &prepared,
+                &token(false),
+                FrameIds {
+                    conversation_id: "0b7d6b7a-1111-4b6a-9d5e-000000000001",
+                    request_id: "r-1",
+                },
+                |_, _, _| {},
+                |frame| {
+                    sink.lock()
+                        .expect("frames")
+                        .push((frame.kind, frame.text.unwrap_or_default()));
+                },
+            )
+            .await;
+        });
+        let frames = frames.lock().expect("frames").clone();
+        let kinds: Vec<&str> = frames.iter().map(|(kind, _)| kind.as_str()).collect();
+        assert_eq!(kinds, ["chunk", "progress", "done"], "{frames:?}");
+        assert_eq!(frames[0].1, "Here it is.\n");
+        assert_eq!(frames[1].1, "Ideas/Launch.md");
+        assert!(
+            frames
+                .iter()
+                .all(|(_, text)| !text.contains("the new body")),
+            "no body text leaves in a frame: {frames:?}"
+        );
     }
 
     #[test]
@@ -3980,6 +4353,7 @@ mod tests_support {
             host: "127.0.0.1".to_string(),
             host_port: "127.0.0.1:0".to_string(),
             is_localhost: true,
+            is_private_network: false,
             context,
             identity: RequestIdentity {
                 provider: "custom".to_string(),

@@ -25,14 +25,17 @@
 //! Split by what each part answers: [`wire`] is the request body and the
 //! stream grammar, [`prompt`] what the model is told, [`proposals`] what a
 //! finished reply asks for, [`filter`] what the pane may show while a reply
-//! arrives, and [`conversation`] the document a conversation is saved as.
+//! arrives, [`conversation`] the document a conversation is saved as, and
+//! [`budget`] how much of it one request carries.
 
+pub mod budget;
 pub mod conversation;
 pub mod filter;
 pub mod prompt;
 pub mod proposals;
 pub mod wire;
 
+pub use budget::*;
 pub use conversation::*;
 pub use filter::*;
 pub use prompt::*;

@@ -9,7 +9,9 @@ import {
   aiSetApiKey,
   aiClearApiKey,
   aiEndpointState,
+  aiWordDiff,
   type AiAction,
+  type WordSpan,
   type AiKeyState,
   type AiEndpointState,
 } from "../../services/tauri";
@@ -17,7 +19,7 @@ import { rewriteActionLabel } from "../../commands/rewrite-actions";
 import { aiConnectionStore } from "./ai-connection";
 import type { WritEvent } from "../../types/events";
 
-export type { AiKeyState, AiEndpointState };
+export type { AiKeyState, AiEndpointState, WordSpan };
 
 type AiRewritePayload = Extract<WritEvent, { kind: "ai:rewrite" }>["payload"];
 
@@ -50,6 +52,9 @@ function createAiRewriteStore() {
   const [status, setStatus] = createSignal<AiStatus>("idle");
   const [errorMessage, setErrorMessage] = createSignal("");
   const [instruction, setInstruction] = createSignal("");
+  // The words the finished result changed, marked in place, or null while it
+  // streams and when the comparison was refused (CH-09).
+  const [changes, setChanges] = createSignal<WordSpan[] | null>(null);
 
   // Switching or closing the anchored tab discards the preview: the offsets no
   // longer refer to the buffer the user is looking at.
@@ -64,6 +69,7 @@ function createAiRewriteStore() {
 
   function reset() {
     setSession(null);
+    setChanges(null);
     setResult("");
     setStatus("idle");
     setErrorMessage("");
@@ -74,6 +80,7 @@ function createAiRewriteStore() {
     const s = session();
     if (!s) return;
     setResult("");
+    setChanges(null);
     setErrorMessage("");
     setStatus("streaming");
     // The request id is already on the session (set synchronously in start), so
@@ -144,11 +151,26 @@ function createAiRewriteStore() {
     if (payload.kind === "chunk") {
       if (status() === "streaming") setResult((r) => r + (payload.text ?? ""));
     } else if (payload.kind === "done") {
-      if (status() === "streaming") setStatus("done");
+      if (status() === "streaming") {
+        setStatus("done");
+        compare(s);
+      }
     } else if (payload.kind === "error") {
       setStatus("error");
       setErrorMessage(payload.text ?? "Rewrite failed.");
     }
+  }
+
+  /** Reads the finished result against the original, word by word. A
+   * comparison that is refused, or that answers after the session moved on,
+   * leaves the two texts shown side by side. */
+  function compare(s: Session) {
+    const finished = result();
+    void aiWordDiff(s.original, finished)
+      .then((spans) => {
+        if (session()?.requestId === s.requestId && status() === "done") setChanges(spans);
+      })
+      .catch(() => undefined);
   }
 
   // Anchored-range bookkeeping: an edit that touches the range invalidates the
@@ -198,6 +220,7 @@ function createAiRewriteStore() {
     isOpen: () => session() !== null,
     status,
     result,
+    changes,
     errorMessage,
     instruction,
     setInstruction,

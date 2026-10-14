@@ -21,7 +21,9 @@ const DEFAULT_TITLE: &str = "New chat";
 /// It carries the turns, the proposals with their status, and attachments by
 /// path, size and digest. It carries no API key and no attached note's text:
 /// the note is on disk, and a second copy here would be a copy ADR-028 forbids
-/// (ADR-031 rule 5.2, as amended by ADR-040).
+/// (ADR-031 rule 5.2, as amended by ADR-040). A proposal's text is the one
+/// exception, and only while nobody has decided on it
+/// ([`Conversation::set_proposal_status`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Conversation {
     /// [`CONVERSATION_SCHEMA_VERSION`] at the time it was written.
@@ -110,7 +112,9 @@ pub struct StoredProposal {
     pub summary: String,
     /// What the note held when the request was built.
     pub before_hash: String,
-    /// The whole text the note would hold.
+    /// The whole text the note would hold, until the proposal is applied or
+    /// discarded. Empty after that: the note holds the text or the person
+    /// turned it down, and a copy kept here would outlive the note.
     pub new_content: String,
     /// What became of it.
     pub status: ProposalStatus,
@@ -208,21 +212,38 @@ impl Conversation {
 
     /// The turns as a request carries them: who spoke and what they said.
     ///
-    /// Attachments and proposals stay here. A note reaches the model through
-    /// the context the request is built with, read at send time, never from
-    /// what a file remembers.
+    /// Attachments stay here. A note reaches the model through the context the
+    /// request is built with, read at send time, never from what a file
+    /// remembers. A reply that offered changes carries one line per change,
+    /// naming the file, the summary and what became of it, because the text
+    /// it was stored with has the change removed and "do the same to the next
+    /// one" needs the model to know what it did.
     pub fn request_turns(&self) -> Vec<ChatTurn> {
         self.turns
             .iter()
-            .map(|turn| ChatTurn {
-                role: turn.role,
-                content: turn.content.clone(),
+            .map(|turn| {
+                let mut content = turn.content.clone();
+                for proposal in &turn.proposals {
+                    if !content.is_empty() {
+                        content.push_str("\n\n");
+                    }
+                    content.push_str(&proposal_line(proposal));
+                }
+                ChatTurn {
+                    role: turn.role,
+                    content,
+                }
             })
             .collect()
     }
 
     /// Records what became of one proposal, returning false when the turn or
     /// the path names nothing.
+    ///
+    /// An applied or discarded proposal drops its text and keeps its digest
+    /// and summary (ADR-040 section 8, amended): the decision is made, and the
+    /// whole proposed note left here would outlive a note the person later
+    /// deletes. A refused one keeps it, because Apply is still offered.
     pub fn set_proposal_status(
         &mut self,
         turn: usize,
@@ -237,8 +258,48 @@ impl Conversation {
             return false;
         };
         proposal.status = status;
+        if matches!(status, ProposalStatus::Applied | ProposalStatus::Discarded) {
+            proposal.new_content = String::new();
+        }
         self.updated_at = now;
         true
+    }
+}
+
+/// The line an earlier proposal adds to its turn in a request.
+///
+/// A file outside the notes folder is named by its folder and its own name,
+/// as its attachment was (ADR-031 rule 2.5, amended 2026-09-19), never by the
+/// absolute path its key holds.
+fn proposal_line(proposal: &StoredProposal) -> String {
+    let name = prompt_name(&proposal.path);
+    let outcome = match proposal.status {
+        ProposalStatus::Pending => "not decided",
+        ProposalStatus::Applied => "applied",
+        ProposalStatus::Discarded => "discarded",
+        ProposalStatus::Refused => "not applied",
+    };
+    let summary = proposal.summary.trim();
+    if summary.is_empty() {
+        format!("[Proposed a change to {name}; {outcome}.]")
+    } else {
+        format!("[Proposed a change to {name}: {summary}; {outcome}.]")
+    }
+}
+
+/// What the model is told a stored key is called.
+fn prompt_name(path: &str) -> String {
+    let file = std::path::Path::new(path);
+    if !file.is_absolute() {
+        return path.to_string();
+    }
+    let name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    match file.parent().and_then(std::path::Path::file_name) {
+        Some(folder) => format!("{}/{name}", folder.to_string_lossy()),
+        None => name,
     }
 }
 

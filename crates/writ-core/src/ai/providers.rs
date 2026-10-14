@@ -18,6 +18,10 @@ pub enum ProviderGroup {
     Hosted,
     /// An OpenAI-compatible endpoint the person typed themselves.
     Custom,
+    /// A model built into the operating system, reached without a network
+    /// address ([`crate::ai::on_device`]). Offered only where the system has
+    /// one ([`offered_providers`]).
+    OnDevice,
 }
 
 /// Which request and stream format an endpoint speaks.
@@ -106,6 +110,34 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         needs_key: false,
         supports_connect: false,
         probe_port: Some(1234),
+        curated_models: &[],
+    },
+    ProviderInfo {
+        id: "llamacpp",
+        label: "llama.cpp",
+        group: ProviderGroup::Local,
+        wire: Wire::OpenAi,
+        base_url: "http://localhost:8080/v1",
+        models_url: "http://localhost:8080/v1/models",
+        key_page_url: None,
+        default_model: "",
+        needs_key: false,
+        supports_connect: false,
+        probe_port: Some(8080),
+        curated_models: &[],
+    },
+    ProviderInfo {
+        id: "jan",
+        label: "Jan",
+        group: ProviderGroup::Local,
+        wire: Wire::OpenAi,
+        base_url: "http://localhost:1337/v1",
+        models_url: "http://localhost:1337/v1/models",
+        key_page_url: None,
+        default_model: "",
+        needs_key: false,
+        supports_connect: false,
+        probe_port: Some(1337),
         curated_models: &[],
     },
     ProviderInfo {
@@ -302,11 +334,39 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         probe_port: None,
         curated_models: &[],
     },
+    // No URL, no model list and no wire: requests go through the system
+    // framework, and every HTTP path refuses this row before it resolves an
+    // endpoint (`AiConfig::effective_base_url` answers nothing for it).
+    ProviderInfo {
+        id: "apple",
+        label: "Apple Intelligence",
+        group: ProviderGroup::OnDevice,
+        wire: Wire::OpenAi,
+        base_url: "",
+        models_url: "",
+        key_page_url: None,
+        default_model: "",
+        needs_key: false,
+        supports_connect: false,
+        probe_port: None,
+        curated_models: &[],
+    },
 ];
 
 /// The row for an id, or `None` when the id is not one of ours.
 pub fn provider(id: &str) -> Option<&'static ProviderInfo> {
     PROVIDERS.iter().find(|p| p.id == id)
+}
+
+/// The rows this machine shows: every row, less the on-device one where the
+/// system has no on-device model to offer
+/// ([`super::on_device::offers_on_device`]).
+pub fn offered_providers(on_device: bool) -> Vec<ProviderInfo> {
+    PROVIDERS
+        .iter()
+        .filter(|row| on_device || row.group != ProviderGroup::OnDevice)
+        .copied()
+        .collect()
 }
 
 /// The field a request's output ceiling is sent under.
@@ -411,6 +471,9 @@ fn is_subdomain_of(host: &str, parent: &str) -> bool {
 /// own, where the list is `{base_url}/models`. An unknown id answers `None`.
 pub fn models_url_for(cfg_provider: &str, custom_base_url: &str) -> Option<String> {
     let row = provider(cfg_provider)?;
+    if row.group == ProviderGroup::OnDevice {
+        return None;
+    }
     if row.models_url.is_empty() {
         Some(format!("{}/models", custom_base_url.trim_end_matches('/')))
     } else {
@@ -451,7 +514,7 @@ mod tests {
             .iter()
             .filter(|p| p.group == ProviderGroup::Local)
             .collect();
-        assert_eq!(local.len(), 2);
+        assert_eq!(local.len(), 4);
         for p in local {
             assert!(!p.needs_key, "{} should not need a key", p.id);
             assert!(p.key_page_url.is_none(), "{} has a key page", p.id);
@@ -459,6 +522,42 @@ mod tests {
         }
         assert_eq!(provider("ollama").unwrap().probe_port, Some(11434));
         assert_eq!(provider("lmstudio").unwrap().probe_port, Some(1234));
+        assert_eq!(provider("llamacpp").unwrap().probe_port, Some(8080));
+        assert_eq!(provider("jan").unwrap().probe_port, Some(1337));
+    }
+
+    #[test]
+    fn the_on_device_row_is_offered_only_where_the_system_has_the_model() {
+        let row = provider(super::super::on_device::ON_DEVICE_PROVIDER).expect("the on-device row");
+        assert_eq!(row.group, ProviderGroup::OnDevice);
+        assert!(!row.needs_key);
+        assert!(row.base_url.is_empty() && row.models_url.is_empty());
+        assert_eq!(models_url_for("apple", "https://typed.example/v1"), None);
+
+        let without = offered_providers(false);
+        assert!(without.iter().all(|row| row.id != "apple"));
+        assert_eq!(without.len(), PROVIDERS.len() - 1);
+        let with = offered_providers(true);
+        assert_eq!(with.len(), PROVIDERS.len());
+        assert_eq!(with[0].id, "ollama");
+        assert_eq!(
+            serde_json::to_string(&ProviderGroup::OnDevice).unwrap(),
+            "\"on_device\""
+        );
+    }
+
+    #[test]
+    fn llama_cpp_and_jan_speak_the_openai_path_on_their_own_ports() {
+        let llamacpp = provider("llamacpp").unwrap();
+        assert_eq!(llamacpp.base_url, "http://localhost:8080/v1");
+        assert_eq!(llamacpp.models_url, "http://localhost:8080/v1/models");
+        let jan = provider("jan").unwrap();
+        assert_eq!(jan.base_url, "http://localhost:1337/v1");
+        assert_eq!(jan.models_url, "http://localhost:1337/v1/models");
+        for row in [llamacpp, jan] {
+            assert_eq!(row.wire, Wire::OpenAi);
+            assert!(row.curated_models.is_empty(), "{}", row.id);
+        }
     }
 
     #[test]

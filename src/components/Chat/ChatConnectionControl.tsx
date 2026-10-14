@@ -1,7 +1,12 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import Icon from "../Icon/Icon";
 import { configStore } from "../../stores/global/config";
-import { aiConnectionStore, modelListDisplay } from "../../stores/global/ai-connection";
+import {
+  aiConnectionStore,
+  modelListDisplay,
+  type LocalProbe,
+} from "../../stores/global/ai-connection";
+import { runtimeRunning } from "../../lib/local-runtimes";
 import { aiProvidersStore } from "../../stores/global/ai-providers";
 import { aiRewriteStore } from "../../stores/global/ai-rewrite";
 import { modelOptions, seedModel } from "../../stores/global/ai-models";
@@ -26,7 +31,7 @@ export function openConnectionControl(): void {
  */
 export default function ChatConnectionControl() {
   const [open, setOpen] = createSignal(false);
-  const [probe, setProbe] = createSignal<{ ollama: boolean; lmstudio: boolean } | null>(null);
+  const [probe, setProbe] = createSignal<LocalProbe | null>(null);
   const [keys, setKeys] = createSignal<Record<string, boolean>>({});
   let button: HTMLButtonElement | undefined;
   let menu: HTMLDivElement | undefined;
@@ -37,6 +42,8 @@ export default function ChatConnectionControl() {
 
   const ai = () => configStore.config().ai;
   const provider = () => aiProvidersStore.byId(ai().provider);
+  // The on-device model serves Rewrite only, so chat does not offer it.
+  const chatProviders = () => aiProvidersStore.rows().filter((row) => row.group !== "on_device");
   const providerLabel = () => provider()?.label ?? ai().provider;
 
   /** The model this chat sends: its own choice while that choice belongs to
@@ -76,9 +83,8 @@ export default function ChatConnectionControl() {
   /** What a provider row still needs, in its own words. */
   function providerNote(row: { id: string; group: string; needs_key: boolean }): string {
     if (row.group === "local") {
-      const answered = probe();
-      if (!answered) return "";
-      const running = row.id === "lmstudio" ? answered.lmstudio : answered.ollama;
+      const running = runtimeRunning(probe(), row.id);
+      if (running === null) return "";
       return running ? "Running" : "Not running";
     }
     if (!row.needs_key) return "";
@@ -243,7 +249,7 @@ export default function ChatConnectionControl() {
             <p class="chat-menu-label" aria-hidden="true">
               Provider
             </p>
-            <For each={aiProvidersStore.rows()}>
+            <For each={chatProviders()}>
               {(row) => (
                 <button
                   type="button"

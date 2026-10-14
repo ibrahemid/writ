@@ -163,7 +163,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-core/src/polish.rs",
-        line: 218,
+        line: 247,
         word: "note",
         note: "model-facing rewrite prompt: \"notes\" means asides in the answer",
     },
@@ -175,7 +175,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-ai/src/chat.rs",
-        line: 922,
+        line: 968,
         word: "note",
         note: "debug_assert text, never rendered",
     },

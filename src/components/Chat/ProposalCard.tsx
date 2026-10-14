@@ -6,8 +6,9 @@ import {
   chatStore,
   proposalLabel,
   type ChatProposal,
-  type ChatProposalOutcome,
+  type ProposalVerdict,
 } from "../../stores/global/chat";
+import { askAgain } from "../../commands/chat";
 import { hunkRows } from "../../lib/diff-rows";
 
 /**
@@ -15,32 +16,30 @@ import { hunkRows } from "../../lib/diff-rows";
  *
  * The hunks are computed in Rust, where both texts already are, so the card
  * shows what would change rather than two full texts. Nothing here writes a
- * note: applying is a person's click that goes through the guarded write like
- * every other (ADR-031 rule 4.3).
+ * note: applying and undoing are a person's click that goes through the
+ * guarded write like every other (ADR-031 rule 4.3).
  */
 export default function ProposalCard(props: { turn: number; proposal: ChatProposal }) {
   const status = () => props.proposal.status ?? "pending";
   const refusal = () => chatStore.refusalFor(props.turn, props.proposal.path);
   const rows = createMemo(() => (props.proposal.hunks ?? []).map(hunkRows));
-  // What the write did to the note, which only this card saw: the stored turn
-  // records that it was applied, not how many bytes the file ended up holding.
-  const [outcome, setOutcome] = createSignal<ChatProposalOutcome | null>(null);
+  // What this session's write did to the note, which the stored turn does not
+  // record: it says the proposal was applied, not what the file now holds.
+  const written = () => chatStore.verdictFor(props.turn, props.proposal.path);
   const [discarding, setDiscarding] = createSignal(false);
 
-  const applying = () => chatStore.isApplying(props.turn, props.proposal.path);
+  const busy = () => chatStore.isApplying(props.turn, props.proposal.path);
   /** A refused offer stays on the card: the note it names is still the one the
    * reply meant, and the reason is usually something a person can answer. */
   const settled = () =>
-    status() === "applied" || status() === "discarded" || outcome() !== null;
+    status() === "applied" || status() === "discarded" || written() !== undefined;
+  /** The note moved on since the offer was made, so Apply would be refused
+   * and would leave a dated copy beside it. */
+  const stale = () => props.proposal.stale === true && !settled();
 
   /** A note by the key its folder gives it, a file outside the folder by its
    * own name: the whole path is in the title, which is where it fits. */
   const label = () => proposalLabel(props.proposal.path);
-
-  async function applyIt() {
-    const done = await chatStore.apply(props.turn, props.proposal);
-    if (done) setOutcome(done);
-  }
 
   async function discardIt() {
     setDiscarding(true);
@@ -71,7 +70,7 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
         <p class="chat-proposal-summary">{props.proposal.summary}</p>
       </Show>
 
-      <Show when={props.proposal.stale}>
+      <Show when={stale()}>
         <p class="chat-proposal-stale">The file changed since this was offered.</p>
       </Show>
 
@@ -100,20 +99,46 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
 
       <Show when={settled() || status() === "refused"}>
         <p class="chat-proposal-verdict" role="status">
-          {verdict(status(), refusal(), outcome(), props.proposal.stale === true, label())}
+          {verdict(status(), refusal(), written(), stale(), label())}
         </p>
       </Show>
 
-      <Show when={!settled()}>
+      <Show
+        when={!settled()}
+        fallback={
+          <Show when={status() === "applied" || written() !== undefined}>
+            <div class="chat-proposal-actions">
+              <Button onClick={() => void chatStore.openTarget(props.proposal)}>Open</Button>
+              <Show
+                when={(() => {
+                  const held = written();
+                  return held?.kind === "applied" && held.outcome.undoable;
+                })()}
+              >
+                <Button
+                  disabled={busy()}
+                  aria-busy={busy() ? true : undefined}
+                  onClick={() => void chatStore.undo(props.turn, props.proposal)}
+                >
+                  Undo
+                </Button>
+              </Show>
+            </div>
+          </Show>
+        }
+      >
         <div class="chat-proposal-actions">
-          <Button disabled={discarding() || applying()} onClick={() => void discardIt()}>
+          <Button disabled={discarding() || busy()} onClick={() => void discardIt()}>
             Discard
           </Button>
+          <Show when={stale()}>
+            <Button onClick={() => void askAgain(props.proposal)}>Ask again</Button>
+          </Show>
           <Button
             variant="primary"
-            disabled={applying() || discarding()}
-            aria-busy={applying() ? true : undefined}
-            onClick={() => void applyIt()}
+            disabled={busy() || discarding() || stale()}
+            aria-busy={busy() ? true : undefined}
+            onClick={() => void chatStore.apply(props.turn, props.proposal)}
           >
             Apply
           </Button>
@@ -126,12 +151,15 @@ export default function ProposalCard(props: { turn: number; proposal: ChatPropos
 function verdict(
   status: string,
   refusal: string | undefined,
-  outcome: ChatProposalOutcome | null,
+  written: ProposalVerdict | undefined,
   stale: boolean,
-  name: string,
+  label: string,
 ): string {
-  if (outcome && !outcome.changed) return "The file already held this text.";
-  if (outcome) return `Applied to ${name}.`;
+  if (written?.kind === "undone") return `${label} is back as it was.`;
+  // An Undo that was refused says why, under the write it could not undo.
+  if (written && refusal) return refusal;
+  if (written && !written.outcome.changed) return "The file already held this text.";
+  if (written) return `Applied to ${label}.`;
   if (status === "applied") return "Applied.";
   if (status === "discarded") return "Discarded.";
   if (refusal) return refusal;
