@@ -33,9 +33,6 @@ pub enum NoteDownloadState {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "payload")]
 pub enum WritFrontendEvent {
-    #[serde(rename = "buffer:opened")]
-    BufferOpened { id: String, title: String },
-
     #[serde(rename = "pending:opens")]
     PendingOpens { paths: Vec<String> },
 
@@ -66,6 +63,9 @@ pub enum WritFrontendEvent {
 
     #[serde(rename = "workspace:changed")]
     WorkspaceChanged { path: String, removed: bool },
+
+    #[serde(rename = "workspace:swept")]
+    WorkspaceSwept { root: String },
 
     #[serde(rename = "notes:changed")]
     NotesChanged { path: String, removed: bool },
@@ -132,29 +132,6 @@ pub enum WritFrontendEvent {
         message: Option<String>,
     },
 
-    #[serde(rename = "preview:rendered")]
-    PreviewRendered {
-        buffer_id: String,
-        window_id: u64,
-        used_fallback_stylesheet: bool,
-        parser_warnings: Vec<String>,
-    },
-
-    #[serde(rename = "preview:error")]
-    PreviewError {
-        buffer_id: String,
-        window_id: u64,
-        message: String,
-    },
-
-    #[serde(rename = "preview:layout_changed")]
-    LayoutChanged {
-        buffer_id: String,
-        window_id: u64,
-        layout: String,
-        ratio: Option<f32>,
-    },
-
     /// Empty struct rather than a unit variant: under `tag`/`content` a unit
     /// variant serialises without the `payload` key the frontend unwraps.
     #[serde(rename = "quit:flush")]
@@ -186,7 +163,6 @@ pub enum WritFrontendEvent {
 
 fn event_name(event: &WritFrontendEvent) -> &'static str {
     match event {
-        WritFrontendEvent::BufferOpened { .. } => "writ://buffer-opened",
         WritFrontendEvent::PendingOpens { .. } => "writ://pending-opens",
         WritFrontendEvent::FilesDropped { .. } => "writ://files-dropped",
         WritFrontendEvent::WindowShown { .. } => "writ://window-shown",
@@ -195,6 +171,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::MenuAction { .. } => "writ://menu-action",
         WritFrontendEvent::InboxFileArrived { .. } => "writ://inbox-file-arrived",
         WritFrontendEvent::WorkspaceChanged { .. } => "writ://workspace-changed",
+        WritFrontendEvent::WorkspaceSwept { .. } => "writ://workspace-swept",
         WritFrontendEvent::NotesChanged { .. } => "writ://notes-changed",
         WritFrontendEvent::NotesSwept { .. } => "writ://notes-swept",
         WritFrontendEvent::NotesIndexed { .. } => "writ://notes-indexed",
@@ -202,9 +179,6 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::AiRewrite { .. } => "writ://ai-rewrite",
         WritFrontendEvent::AiChat { .. } => "writ://ai-chat",
         WritFrontendEvent::NoteDownload { .. } => "writ://note-download",
-        WritFrontendEvent::PreviewRendered { .. } => "writ://preview-rendered",
-        WritFrontendEvent::PreviewError { .. } => "writ://preview-error",
-        WritFrontendEvent::LayoutChanged { .. } => "writ://preview-layout-changed",
         WritFrontendEvent::FlushBeforeQuit { .. } => "writ://flush-before-quit",
         WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
         WritFrontendEvent::ActivityChanged { .. } => "writ://activity",

@@ -5,10 +5,10 @@ import {
   handleKeyDown,
   setKeybindingOverrides,
   effectiveBinding,
-  findKeybindingConflicts,
   pruneLegacyDefaultOverrides,
   normalizeKey,
 } from "../../commands/keybindings";
+import { findKeybindingConflicts } from "./keybinding-conflicts";
 import type { Command } from "../../types/commands";
 import { firstRunStore } from "../../stores/global/first-run";
 

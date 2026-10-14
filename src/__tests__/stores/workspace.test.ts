@@ -112,4 +112,23 @@ describe("workspaceStore", () => {
     workspaceStore.handleChanged("/ws/sub", true);
     expect(workspaceStore.entriesFor("/ws/sub")).toBeUndefined();
   });
+
+  it("handleSwept reads every loaded folder again, once", async () => {
+    mockedPick.mockResolvedValue("/ws");
+    await workspaceStore.openFolder();
+    mockedList.mockResolvedValue([entry("a.md", "/ws")]);
+    await workspaceStore.loadDir("/ws");
+    await workspaceStore.loadDir("/ws/sub");
+    mockedList.mockClear();
+
+    workspaceStore.handleSwept();
+
+    await vi.waitFor(() => expect(mockedList).toHaveBeenCalledTimes(2));
+    expect(mockedList.mock.calls.map(([dir]) => dir).sort()).toEqual(["/ws", "/ws/sub"]);
+  });
+
+  it("handleSwept reads nothing with no folder open", () => {
+    workspaceStore.handleSwept();
+    expect(mockedList).not.toHaveBeenCalled();
+  });
 });

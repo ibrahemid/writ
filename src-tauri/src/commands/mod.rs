@@ -4,6 +4,7 @@ pub mod ai_connect;
 pub mod buffer;
 pub mod chat;
 pub mod cli;
+pub mod command_usage;
 pub mod config;
 pub mod default_app;
 pub mod file;

@@ -8,11 +8,10 @@
 //! the default is a local Ollama server. API keys are never stored here — they
 //! live in the OS keychain under the provider id.
 //!
-//! Files written by earlier versions carried a `preset`, a base URL for every
-//! provider and a second endpoint under `[ai.chat]`. They are read through
-//! [`AiConfigOnDisk`] and converted by one pure function,
-//! `AiConfig::from(AiConfigOnDisk)`. Serialisation writes the new shape only,
-//! so a file upgrades on its next save.
+//! Files written by 0.4 and earlier carried a `preset` and a base URL for
+//! every provider. They are read through [`AiConfigOnDisk`] and converted by
+//! one pure function, `AiConfig::from(AiConfigOnDisk)`. Serialisation writes
+//! the new shape only, so a file upgrades on its next save.
 
 use serde::{Deserialize, Serialize};
 
@@ -20,11 +19,6 @@ use crate::ai::providers::{self, Wire};
 
 /// The provider a fresh install talks to: Ollama on this machine.
 pub const DEFAULT_PROVIDER: &str = "ollama";
-
-/// The base URL the pre-1.0 DeepSeek preset carried. The table dropped the
-/// `/v1` the server accepts either way, so a config that still names it is
-/// recognised as DeepSeek rather than a hand-typed endpoint.
-const LEGACY_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
 
 fn default_provider() -> String {
     DEFAULT_PROVIDER.to_string()
@@ -197,18 +191,12 @@ pub struct AiRewriteConfigOnDisk {
     pub enabled: bool,
 }
 
-/// The `[ai.chat]` table as it may appear on disk, old fields included.
+/// The `[ai.chat]` table as it may appear on disk.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct AiChatConfigOnDisk {
     /// Whether the chat pane is on.
     #[serde(default)]
     pub enabled: bool,
-    /// The wire id the chat used to carry: `anthropic` or `openai_compatible`.
-    #[serde(default)]
-    pub provider: Option<String>,
-    /// The second endpoint the chat used to carry.
-    #[serde(default)]
-    pub base_url: Option<String>,
     /// Model id for chat requests.
     #[serde(default)]
     pub model: String,
@@ -247,33 +235,9 @@ pub struct AiConfigOnDisk {
     /// The rewrite switch in the current shape.
     #[serde(default)]
     pub rewrite: AiRewriteConfigOnDisk,
-    /// The chat table, old fields included.
+    /// The chat table.
     #[serde(default)]
     pub chat: AiChatConfigOnDisk,
-}
-
-/// The provider id and typed base URL an old `[ai.chat]` table resolves to.
-///
-/// An `anthropic` chat is the Anthropic row. An OpenAI-compatible one is
-/// whichever row carries that base URL, ignoring a trailing slash and
-/// accepting the DeepSeek preset's old `/v1`; anything else is `custom`, whose
-/// URL is kept as typed.
-fn connection_from_chat(chat: &AiChatConfigOnDisk) -> (String, String) {
-    if chat.provider.as_deref() == Some("anthropic") {
-        return ("anthropic".to_string(), String::new());
-    }
-    let typed = chat.base_url.clone().unwrap_or_default();
-    let trimmed = typed.trim_end_matches('/');
-    if trimmed == LEGACY_DEEPSEEK_BASE_URL {
-        return ("deepseek".to_string(), String::new());
-    }
-    let matched = providers::PROVIDERS
-        .iter()
-        .find(|row| !row.base_url.is_empty() && row.base_url.trim_end_matches('/') == trimmed);
-    match matched {
-        Some(row) => (row.id.to_string(), String::new()),
-        None => ("custom".to_string(), typed),
-    }
 }
 
 impl From<AiConfigOnDisk> for AiConfig {
@@ -305,28 +269,9 @@ impl From<AiConfigOnDisk> for AiConfig {
             };
         }
 
+        // A 0.4 file: the rewrite preset is the connection. That version had
+        // no chat, so a chat table beside a preset carries only its switch.
         let typed_base_url = disk.base_url.unwrap_or_default();
-        let chat_on = disk.chat.enabled;
-
-        // The chat alone: the connection is the endpoint it was pointed at.
-        if chat_on && !disk.enabled {
-            let (provider, base_url) = connection_from_chat(&disk.chat);
-            return Self {
-                provider,
-                base_url,
-                model: disk.chat.model,
-                consented_hosts,
-                rewrite: AiRewriteConfig { enabled: false },
-                chat: AiChatConfig {
-                    enabled: true,
-                    model: String::new(),
-                    model_provider: String::new(),
-                },
-            };
-        }
-
-        // Otherwise the rewrite side is the connection, and a chat that was
-        // pointed elsewhere gives up its endpoint but keeps its switch.
         let provider = match disk.preset {
             Some(preset) if !preset.trim().is_empty() => preset,
             _ => default_provider(),
@@ -336,19 +281,6 @@ impl From<AiConfigOnDisk> for AiConfig {
         } else {
             String::new()
         };
-        let chat_model = if chat_on {
-            let (chat_provider, chat_base_url) = connection_from_chat(&disk.chat);
-            let same_connection = chat_provider == provider && chat_base_url == base_url;
-            if same_connection && disk.chat.model != disk.model {
-                disk.chat.model
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        let chat_model_provider = qualify(&chat_model, "", &provider);
         Self {
             provider,
             base_url,
@@ -358,9 +290,9 @@ impl From<AiConfigOnDisk> for AiConfig {
                 enabled: disk.enabled,
             },
             chat: AiChatConfig {
-                enabled: chat_on,
-                model: chat_model,
-                model_provider: chat_model_provider,
+                enabled: disk.chat.enabled,
+                model: String::new(),
+                model_provider: String::new(),
             },
         }
     }
@@ -443,76 +375,26 @@ mod tests {
     }
 
     #[test]
-    fn row_3_the_chat_alone_on_anthropic() {
-        let c = parse(
-            "enabled = false\npreset = \"ollama\"\n\n[chat]\nenabled = true\nprovider = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nmodel = \"claude-opus-5\"\n",
+    fn a_chat_endpoint_from_a_development_build_moves_nothing() {
+        // `[ai.chat]` carried a provider and a base URL of its own only between
+        // two unreleased commits. Those keys are now unknown and ignored: the
+        // preset (or the default) is the connection, and the chat keeps only
+        // its switch.
+        let alone = parse(
+            "enabled = false\n\n[chat]\nenabled = true\nprovider = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nmodel = \"claude-opus-5\"\n",
         );
-        assert_eq!(c.provider, "anthropic");
-        assert_eq!(c.model, "claude-opus-5");
-        assert!(c.chat.enabled);
-        assert!(!c.rewrite.enabled);
-        assert!(c.chat.model.is_empty());
-        assert_eq!(c.chat_model(), "claude-opus-5");
-        assert_eq!(c.wire(), Wire::Anthropic);
-        assert_eq!(c.effective_base_url(), "https://api.anthropic.com");
-    }
+        assert_eq!(alone.provider, "ollama");
+        assert!(alone.chat.enabled);
+        assert!(alone.chat.model.is_empty());
+        assert!(alone.model.is_empty());
 
-    #[test]
-    fn row_4_the_chat_alone_at_a_base_url_the_table_knows() {
-        let c = parse(
-            "enabled = false\n\n[chat]\nenabled = true\nprovider = \"openai_compatible\"\nbase_url = \"https://api.groq.com/openai/v1/\"\nmodel = \"llama-3.3-70b-versatile\"\n",
-        );
-        assert_eq!(c.provider, "groq");
-        assert!(c.base_url.is_empty());
-        assert_eq!(c.model, "llama-3.3-70b-versatile");
-
-        let deepseek = parse(
-            "[chat]\nenabled = true\nprovider = \"openai_compatible\"\nbase_url = \"https://api.deepseek.com/v1\"\nmodel = \"deepseek-chat\"\n",
-        );
-        assert_eq!(deepseek.provider, "deepseek");
-        assert_eq!(deepseek.effective_base_url(), "https://api.deepseek.com");
-    }
-
-    #[test]
-    fn row_5_the_chat_alone_at_a_base_url_the_table_does_not_know() {
-        let c = parse(
-            "[chat]\nenabled = true\nprovider = \"openai_compatible\"\nbase_url = \"https://llm.example/v1\"\nmodel = \"house-model\"\n",
-        );
-        assert_eq!(c.provider, "custom");
-        assert_eq!(c.base_url, "https://llm.example/v1");
-        assert_eq!(c.model, "house-model");
-        assert_eq!(c.effective_base_url(), "https://llm.example/v1");
-    }
-
-    #[test]
-    fn row_6_both_on_against_the_same_provider() {
-        let same_model = parse(
-            "enabled = true\npreset = \"groq\"\nmodel = \"llama-3.3-70b-versatile\"\n\n[chat]\nenabled = true\nprovider = \"openai_compatible\"\nbase_url = \"https://api.groq.com/openai/v1\"\nmodel = \"llama-3.3-70b-versatile\"\n",
-        );
-        assert_eq!(same_model.provider, "groq");
-        assert!(same_model.rewrite.enabled && same_model.chat.enabled);
-        assert!(same_model.chat.model.is_empty());
-        assert_eq!(same_model.chat_model(), "llama-3.3-70b-versatile");
-
-        let other_model = parse(
+        let beside_a_preset = parse(
             "enabled = true\npreset = \"groq\"\nmodel = \"llama-3.1-8b-instant\"\n\n[chat]\nenabled = true\nprovider = \"openai_compatible\"\nbase_url = \"https://api.groq.com/openai/v1\"\nmodel = \"llama-3.3-70b-versatile\"\n",
         );
-        assert_eq!(other_model.model, "llama-3.1-8b-instant");
-        assert_eq!(other_model.chat.model, "llama-3.3-70b-versatile");
-        assert_eq!(other_model.chat_model(), "llama-3.3-70b-versatile");
-    }
-
-    #[test]
-    fn row_7_both_on_against_different_providers() {
-        let c = parse(
-            "enabled = true\npreset = \"groq\"\nmodel = \"llama-3.3-70b-versatile\"\n\n[chat]\nenabled = true\nprovider = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nmodel = \"claude-opus-5\"\n",
-        );
-        assert_eq!(c.provider, "groq");
-        assert_eq!(c.model, "llama-3.3-70b-versatile");
-        assert!(c.chat.enabled);
-        assert!(c.chat.model.is_empty());
-        assert_eq!(c.chat_model(), "llama-3.3-70b-versatile");
-        assert_eq!(c.wire(), Wire::OpenAi);
+        assert_eq!(beside_a_preset.provider, "groq");
+        assert!(beside_a_preset.chat.enabled);
+        assert!(beside_a_preset.chat.model.is_empty());
+        assert_eq!(beside_a_preset.chat_model(), "llama-3.1-8b-instant");
     }
 
     #[test]
@@ -530,11 +412,7 @@ mod tests {
         let rows = [
             format!("enabled = true\npreset = \"groq\"\n{hosts}"),
             format!("enabled = true\npreset = \"custom\"\nbase_url = \"https://llm.example/v1\"\n{hosts}"),
-            format!("{hosts}\n[chat]\nenabled = true\nprovider = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\n"),
-            format!("{hosts}\n[chat]\nenabled = true\nprovider = \"openai_compatible\"\nbase_url = \"https://api.groq.com/openai/v1\"\n"),
-            format!("{hosts}\n[chat]\nenabled = true\nprovider = \"openai_compatible\"\nbase_url = \"https://llm.example/v1\"\n"),
-            format!("enabled = true\npreset = \"groq\"\n{hosts}\n[chat]\nenabled = true\nprovider = \"openai_compatible\"\nbase_url = \"https://api.groq.com/openai/v1\"\n"),
-            format!("enabled = true\npreset = \"groq\"\n{hosts}\n[chat]\nenabled = true\nprovider = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\n"),
+            format!("enabled = true\npreset = \"groq\"\n{hosts}\n[chat]\nenabled = true\n"),
             format!("provider = \"openai\"\n{hosts}\n[rewrite]\nenabled = true\n"),
         ];
         for row in rows {

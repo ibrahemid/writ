@@ -7,6 +7,7 @@ pub mod fts_scheduler;
 pub mod generated;
 pub mod heartbeat;
 pub mod hotkey;
+pub mod instance;
 pub mod logging;
 pub mod menu;
 pub mod navigation;
@@ -381,13 +382,25 @@ pub fn run() {
         );
     }
 
+    // Before the logs, the database or anything else in the folder is
+    // touched: a launch that finds another Writ on this folder hands its
+    // paths over and ends here, so two processes never write the same notes.
+    let instance_lock = instance::claim_or_hand_over(&writ_dir);
+
     let logs_dir = writ_dir.join("logs");
     // Installed first: setting the hook touches nothing, while opening the
     // log file can fail on the same unwritable directory.
     logging::panic_handler::install_panic_handler(&logs_dir);
-    logging::init_logging(&logs_dir);
+    let mut log_guard = logging::init_logging(&logs_dir);
 
     info!("writ starting");
+    let instance_lock = match instance_lock {
+        Ok(lock) => Some(lock),
+        Err(error) => {
+            tracing::warn!(%error, "running without the data folder lock");
+            None
+        }
+    };
 
     let app_state = match AppState::initialize() {
         Ok(app_state) => app_state,
@@ -405,6 +418,7 @@ pub fn run() {
             } else {
                 (StartupStage::AppState, Some(logs_dir.as_path()))
             };
+            log_guard.flush();
             startup_failure::abort_with_report(
                 &StartupFailure::new(
                     stage,
@@ -423,53 +437,14 @@ pub fn run() {
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     let builder =
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let args: Vec<std::ffi::OsString> = argv
-                .into_iter()
-                .skip(1)
-                .map(std::ffi::OsString::from)
-                .collect();
-
-            let raw_paths = writ_core::file_ops::arg_paths_from_iter(args)
-                .into_iter()
-                .filter_map(|p| p.to_str().map(String::from))
-                .collect::<Vec<String>>();
-
-            if !raw_paths.is_empty() {
-                let state = app.state::<AppState>();
-                let paths =
-                    startup::authorize_and_canonicalize(&state.authorized_paths, &raw_paths);
-                if !paths.is_empty() {
-                    info!(
-                        count = paths.len(),
-                        "files forwarded from secondary instance"
-                    );
-                    let ready = state
-                        .frontend_ready
-                        .load(std::sync::atomic::Ordering::SeqCst);
-
-                    if ready {
-                        let _ = emit_event(app, WritFrontendEvent::PendingOpens { paths });
-                    } else {
-                        let mut pending = recover_poison(
-                            state.pending_opens.lock(),
-                            "lib::single_instance:forward",
-                        );
-                        pending.extend(paths);
-                    }
-                }
-            }
-
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            let args = argv.into_iter().skip(1).map(std::ffi::OsString::from);
+            instance::deliver_forwarded(app, &instance::launch_paths(args));
         }));
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     let builder = tauri::Builder::default();
 
-    let app = builder
+    let builder = builder
         // Refuse any navigation that is not the app origin, the preview scheme,
         // or an inert about: page, so a script cannot set top.location to an
         // external URL and carry note text out in the query string (TS-02).
@@ -501,7 +476,6 @@ pub fn run() {
             commands::buffer::create_buffer,
             commands::buffer::get_buffer,
             commands::buffer::save_buffer_content,
-            commands::buffer::save_buffer_content_unindexed,
             commands::buffer::restore_note_file,
             commands::buffer::save_note_to,
             commands::buffer::read_buffer_content,
@@ -513,7 +487,6 @@ pub fn run() {
             commands::buffer::close_buffer,
             commands::buffer::close_buffers,
             commands::buffer::delete_buffer,
-            commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
             commands::buffer::set_buffer_language,
             commands::buffer::reopen_with_encoding,
@@ -568,9 +541,13 @@ pub fn run() {
             commands::history::search_notes_by_name,
             commands::config::get_config,
             commands::config::update_config,
+            commands::config::get_config_diagnostics,
+            commands::command_usage::get_command_usage,
+            commands::command_usage::record_command_uses,
+            commands::command_usage::clear_command_usage,
+            commands::command_usage::prune_command_usage,
             commands::window::confirm_quit_flush,
             commands::window::reveal_window,
-            commands::window::toggle_window,
             commands::window::compute_window_placement,
             commands::window::set_caption_button_metrics,
             commands::transforms::list_transforms,
@@ -747,6 +724,18 @@ pub fn run() {
                 tracing::warn!(error = %e, "failed to register global hotkey");
             }
 
+            {
+                let writ_dir = app.state::<AppState>().writ_dir.clone();
+                match instance::start_open_request_watcher(handle.clone(), writ_dir) {
+                    Ok(watcher) => {
+                        app.manage(watcher);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to watch for a second launch's files");
+                    }
+                }
+            }
+
             let watcher_bus = app.state::<AppState>().event_bus.clone();
             match watcher::handler::start_file_watcher(
                 watcher_bus,
@@ -903,45 +892,29 @@ pub fn run() {
                 heartbeat::beat(&heartbeat_handle.state::<AppState>());
             });
 
-            let updater_auto_check = {
-                let state = app.state::<AppState>();
-                let cfg = recover_poison(state.config.lock(), "lib::setup:updater_auto_check");
-                cfg.updater.auto_check
-            };
-            let update_writ_dir = app.state::<AppState>().writ_dir.clone();
-            tauri::async_runtime::spawn(async move {
-                tauri::async_runtime::spawn_blocking(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                })
-                .await
-                .ok();
-                // Gate the silent check: only when the user has auto-check on
-                // and the last silent check is older than the interval, so a
-                // quick launch-and-quit no longer phones the release endpoint.
-                let now_ms = commands::update::now_epoch_ms();
-                let last_ms = commands::update::read_last_check_ms(&update_writ_dir);
-                if writ_core::update::auto_check::should_auto_check(
-                    updater_auto_check,
-                    last_ms,
-                    now_ms,
-                    writ_core::update::auto_check::MIN_CHECK_INTERVAL_MS,
-                ) {
-                    commands::update::write_last_check_ms(&update_writ_dir, now_ms);
-                    commands::update::run_update_check(handle, false).await;
-                } else {
-                    tracing::debug!(
-                        "silent update check skipped (auto_check off or within interval)"
-                    );
-                }
-            });
+            if let Err(e) = std::thread::Builder::new()
+                .name("writ-update-check".into())
+                .spawn(move || commands::update::run_silent_checks(handle))
+            {
+                tracing::warn!(error = %e, "could not start the update check thread");
+            }
 
             info!("writ ready");
             Ok(())
-        })
-        .build(tauri::generate_context!())
-        .expect("failed to build writ");
+        });
+
+    // A missing or broken system web view fails here, before any window exists
+    // to show it in.
+    let app = startup_failure::build_window(|| builder.build(tauri::generate_context!()))
+        .unwrap_or_else(|failure| {
+            log_guard.flush();
+            startup_failure::abort_with_report(&failure, Some(logs_dir.as_path()))
+        });
 
     app.run(move |app_handle, event| {
+        // Held by the loop for the life of the process: the event loop ends it
+        // with `exit`, which is when the kernel lets the folder go.
+        let _ = &instance_lock;
         if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
             // A restart is not a quit the handshake can hold: `prevent_exit`
             // is a documented no-op for it, so asking the frontend to flush
@@ -1024,6 +997,9 @@ pub fn run() {
                 finish_shutdown(app_handle);
                 state.quit.finish();
             }
+            // The event loop ends the process with `exit`, which drops
+            // nothing: the log lines still queued are written here or lost.
+            log_guard.flush();
         }
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -1051,7 +1027,10 @@ pub fn run() {
                         .partition(|p| std::path::Path::new(p).is_dir());
 
                     if let Some(dir_path) = dirs.last() {
-                        info!(path = %dir_path, "workspace folder opened from OS");
+                        info!(
+                            folder = %writ_storage::paths::file_name_only(dir_path),
+                            "workspace folder opened from OS"
+                        );
                         if let Err(e) = commands::workspace::set_workspace_root_from_path(
                             &state,
                             std::path::Path::new(dir_path),
@@ -1161,7 +1140,7 @@ mod tests {
         // permission; a missing action permission makes the IPC reject and the
         // try/catch swallows it, so the button silently does nothing. The build
         // gates do not catch this, so pin the action permissions the chrome
-        // depends on. core:default already covers the read permissions
+        // depends on. core:window:default covers the read permissions
         // (is-maximized, is-fullscreen, scale-factor, sizes/positions).
         let caps = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1180,6 +1159,110 @@ mod tests {
             assert!(
                 caps.contains(permission),
                 "capabilities/default.json must grant {permission} or the matching window control is a silent no-op"
+            );
+        }
+    }
+
+    /// Every permission the main webview holds is one a frontend call needs.
+    ///
+    /// The only files that reach Tauri from the frontend are
+    /// `src/services/tauri.ts` and, for events, `src/services/events.ts`, so a
+    /// permission none of their calls needs is one only an injected script
+    /// would use. Each grant names the calls that need it; a grant this table
+    /// does not know fails, and so does one whose calls are gone.
+    #[test]
+    fn every_granted_permission_has_a_caller() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let read = |path: std::path::PathBuf| -> String {
+            std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+        };
+        let caps: serde_json::Value =
+            serde_json::from_str(&read(root.join("capabilities").join("default.json")))
+                .expect("capabilities/default.json parses");
+        let services = root.join("..").join("src").join("services");
+        let tauri_ts = read(services.join("tauri.ts"));
+        let events_ts = read(services.join("events.ts"));
+
+        let callers: &[(&str, &str, &[&str])] = &[
+            ("core:event:default", "events.ts", &["listen(", "emit("]),
+            (
+                "core:window:default",
+                "tauri.ts",
+                &[
+                    ".isMaximized(",
+                    ".isFullscreen(",
+                    ".scaleFactor(",
+                    ".innerSize(",
+                ],
+            ),
+            ("core:window:allow-hide", "tauri.ts", &[".hide()"]),
+            ("core:window:allow-destroy", "tauri.ts", &[".destroy()"]),
+            ("core:window:allow-minimize", "tauri.ts", &[".minimize()"]),
+            (
+                "core:window:allow-unminimize",
+                "tauri.ts",
+                &[".unminimize()"],
+            ),
+            ("core:window:allow-maximize", "tauri.ts", &[".maximize()"]),
+            (
+                "core:window:allow-unmaximize",
+                "tauri.ts",
+                &[".unmaximize()"],
+            ),
+            (
+                "core:window:allow-set-fullscreen",
+                "tauri.ts",
+                &[".setFullscreen("],
+            ),
+            ("core:window:allow-set-size", "tauri.ts", &[".setSize("]),
+            (
+                "core:window:allow-set-position",
+                "tauri.ts",
+                &[".setPosition("],
+            ),
+            ("core:window:allow-center", "tauri.ts", &[".center()"]),
+            ("core:window:allow-show", "tauri.ts", &[".show()"]),
+            ("core:window:allow-set-focus", "tauri.ts", &[".setFocus()"]),
+            (
+                "core:window:allow-start-dragging",
+                "tauri.ts",
+                &[".startDragging()"],
+            ),
+            (
+                "clipboard-manager:allow-read-text",
+                "tauri.ts",
+                &["readText("],
+            ),
+            (
+                "clipboard-manager:allow-write-text",
+                "tauri.ts",
+                &["writeText("],
+            ),
+        ];
+
+        let granted: Vec<&str> = caps["permissions"]
+            .as_array()
+            .expect("permissions is a list")
+            .iter()
+            .map(|p| p.as_str().expect("a permission is a string"))
+            .collect();
+        assert!(!granted.is_empty());
+        for permission in granted {
+            let Some((_, file, calls)) = callers.iter().find(|(name, _, _)| *name == permission)
+            else {
+                panic!(
+                    "{permission} is granted but no frontend call is recorded as needing it: \
+                     drop it, or name the call in services/tauri.ts that needs it here"
+                );
+            };
+            let source = match *file {
+                "events.ts" => &events_ts,
+                _ => &tauri_ts,
+            };
+            assert!(
+                calls.iter().any(|call| source.contains(call)),
+                "{permission} is granted but services/{file} makes none of {calls:?}"
             );
         }
     }

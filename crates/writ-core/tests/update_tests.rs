@@ -11,6 +11,7 @@ fn checking_found_update_carries_version() {
     let next = UpdatePhase::Checking
         .apply(UpdateEvent::UpdateFound {
             version: "0.9.0".to_string(),
+            managed: false,
         })
         .unwrap();
     assert_eq!(
@@ -207,4 +208,56 @@ fn downloading_phase_serializes_progress_fields() {
 fn idle_phase_serializes_as_bare_status() {
     let json = serde_json::to_value(UpdatePhase::Idle).unwrap();
     assert_eq!(json["status"], "idle");
+}
+
+#[test]
+fn an_update_found_on_a_managed_install_is_managed_not_available() {
+    let next = UpdatePhase::Checking
+        .apply(UpdateEvent::UpdateFound {
+            version: "0.9.0".to_string(),
+            managed: true,
+        })
+        .unwrap();
+    assert_eq!(
+        next,
+        UpdatePhase::Managed {
+            version: "0.9.0".to_string()
+        }
+    );
+}
+
+#[test]
+fn a_managed_update_never_starts_a_download() {
+    let err = UpdatePhase::Managed {
+        version: "0.9.0".to_string(),
+    }
+    .apply(UpdateEvent::DownloadStarted { total: None })
+    .unwrap_err();
+    assert_eq!(err.from, "managed");
+    assert_eq!(err.event, "download_started");
+}
+
+#[test]
+fn a_managed_update_can_be_dismissed_and_checked_again() {
+    let managed = UpdatePhase::Managed {
+        version: "0.9.0".to_string(),
+    };
+    assert_eq!(
+        managed.apply(UpdateEvent::Dismissed).unwrap(),
+        UpdatePhase::Idle
+    );
+    assert_eq!(
+        managed.apply(UpdateEvent::CheckStarted).unwrap(),
+        UpdatePhase::Checking
+    );
+}
+
+#[test]
+fn managed_phase_serializes_with_its_own_status() {
+    let json = serde_json::to_value(UpdatePhase::Managed {
+        version: "0.9.0".to_string(),
+    })
+    .unwrap();
+    assert_eq!(json["status"], "managed");
+    assert_eq!(json["version"], "0.9.0");
 }

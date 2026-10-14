@@ -17,6 +17,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+writ-ai = { path = "../crates/writ-ai" }
 writ-core = { path = "../crates/writ-core" }
 writ-lint = { path = "../crates/writ-lint" }
 writ-render = { path = "../crates/writ-render" }
@@ -29,6 +30,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 notify = "8"
 notify-debouncer-mini = "0.7"
+hashbrown = { version = "0.16", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
@@ -39,26 +41,12 @@ chrono = "0.4"
 thiserror = "2"
 url = "2"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-# Reuse the reqwest already resolved via tauri-plugin-updater (rustls, no
-# native-tls). Only `stream` (SSE byte stream) and `json` (request body) are
-# added; the TLS provider stays `rustls-no-provider` from the updater so the
-# rustls `ring` provider is used and aws-lc-rs / quinn stay out of the tree.
+# The client type the OpenRouter connect flow and the chat wrappers name; the
+# client itself is built by writ-ai, which also installs the rustls provider.
 reqwest = { version = "0.13", default-features = false, features = [
     "stream",
     "json",
 ] }
-# The `ring` crypto provider is installed at request time (mirroring the
-# updater's guard) so a `rustls-no-provider` client never panics.
-rustls = { version = "0.23", default-features = false, features = [
-    "ring",
-    "std",
-    "tls12",
-    "logging",
-] }
-futures-util = "0.3"
-# Already in the tree under tauri and reqwest. Taken directly to race a request
-# against Stop and to hold a model list to one deadline.
-tokio = { version = "1", default-features = false, features = ["macros", "time"] }
 tokio-util = { version = "0.7", default-features = false }
 tauri-plugin-clipboard-manager = "2"
 # The OS entropy source, already in the tree under rustls/ring. Taken directly
@@ -79,9 +67,14 @@ tauri-plugin-single-instance = "2"
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
 rfd = { version = "0.16", default-features = false }
 
+# access(2) for the updater's check that the directory it writes into is
+# writable. The rustix tempfile already resolves on every unix target.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", default-features = false, features = ["std", "fs"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
-keyring = { version = "3", features = ["apple-native"] }
+fsevent-sys = "4"
 # The same objc2 line tauri, tao and wry already resolve, so this unifies
 # rather than adding a second copy of the AppKit bindings. Needed to install
 # `applicationShouldTerminate:`, which nothing above this crate exposes.
@@ -90,7 +83,6 @@ objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder"] }
 dispatch2 = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-keyring = { version = "3", features = ["windows-native"] }
 # Same 0.62 line tao/wry already resolve, so this unifies rather than adding a
 # second copy of the Win32 bindings.
 windows = { version = "0.62", features = [

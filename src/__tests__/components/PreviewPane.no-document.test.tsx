@@ -60,7 +60,7 @@ function iframeSrc(container: HTMLElement): string | null {
 
 /** What each render was asked for: the buffer, the content type and the text. */
 function rendered(): unknown[][] {
-  return mocks.render.mock.calls.map((call) => call.slice(1, 4));
+  return mocks.render.mock.calls.map((call) => call.slice(0, 3));
 }
 
 describe("PreviewPane when the editor holds no document", () => {

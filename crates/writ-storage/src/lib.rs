@@ -48,6 +48,8 @@ pub mod atomic;
 pub mod buffer_store;
 /// Conversation files under the data directory (ADR-040 section 8).
 pub mod chat_store;
+/// How often each palette command ran (ADR-048).
+pub mod command_usage;
 /// TOML configuration load and save.
 pub mod config_store;
 /// Startup consistency checker reconciling the database with the files.
@@ -62,6 +64,8 @@ pub mod guarded;
 pub mod identity;
 /// Watched-inbox file listing.
 pub mod inbox_store;
+/// The data-folder lock and the requests a second launch leaves.
+pub mod instance;
 /// Per-buffer preview layout persistence (ADR-009).
 pub mod layout_state;
 /// WAL checkpointing and freelist reclamation.

@@ -24,6 +24,7 @@ use crate::guarded::{
 use crate::maintenance::{self, DatabaseStats, MaintenanceOutcome};
 use crate::note_history::NoteHistoryStore;
 use crate::notes_index;
+use crate::paths::file_name_only;
 use crate::recovery::dirty_shutdown::check_dirty_shutdown;
 use crate::recovery::journal::{text_hash, JournalRead, UnsavedJournal};
 use crate::recovery::legacy::{carry_over_legacy_snapshots, LegacyCarryOver};
@@ -919,8 +920,8 @@ impl BufferStore {
         if is_not_downloaded(flags) {
             let copy = write_recovered_copy(path, &encoded, chrono::Utc::now(), before_write)?;
             warn!(
-                note = %path.display(),
-                recovered = %copy.display(),
+                note = %file_name_only(&path.to_string_lossy()),
+                recovered = %file_name_only(&copy.to_string_lossy()),
                 "the file has not finished downloading; the recovered text was written beside it"
             );
             return Ok(RecoveredText::SetAside {
@@ -936,8 +937,8 @@ impl BufferStore {
         if measured.is_some_and(|size| !writ_core::recovery::reads_file_to_restore(size)) {
             let copy = write_recovered_copy(path, &encoded, chrono::Utc::now(), before_write)?;
             warn!(
-                note = %path.display(),
-                recovered = %copy.display(),
+                note = %file_name_only(&path.to_string_lossy()),
+                recovered = %file_name_only(&copy.to_string_lossy()),
                 "the file is over the size Writ opens without asking; the recovered text was written beside it"
             );
             return Ok(RecoveredText::SetAside {
@@ -975,8 +976,8 @@ impl BufferStore {
             if state.hash != incoming && state.hash != as_kept {
                 let copy = write_recovered_copy(path, &encoded, chrono::Utc::now(), before_write)?;
                 warn!(
-                    note = %path.display(),
-                    recovered = %copy.display(),
+                    note = %file_name_only(&path.to_string_lossy()),
+                    recovered = %file_name_only(&copy.to_string_lossy()),
                     "the file moved on while Writ was down; the recovered text was written beside it"
                 );
                 return Ok(RecoveredText::SetAside {

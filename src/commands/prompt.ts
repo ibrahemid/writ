@@ -3,7 +3,7 @@ import {
   promptScanPlaceholders,
   promptFillPlaceholders,
 } from "../services/tauri";
-import { writeClipboardText } from "../services/clipboard";
+import { writeClipboardText } from "../services/tauri";
 import { windowRegistry } from "../stores/global/window-registry";
 import { showToast } from "../components/Notifications/Toast";
 import { requestPlaceholderFill } from "../components/PromptFill/PromptFillModal";

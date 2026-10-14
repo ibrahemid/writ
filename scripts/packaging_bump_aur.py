@@ -25,7 +25,7 @@ class PkgbuildFormatError(ValueError):
     """The PKGBUILD does not contain every field the release must replace."""
 
 
-def rewrite_pkgbuild(text: str, version: str, sha_appimage: str) -> str:
+def rewrite_pkgbuild(text: str, version: str, sha_appimage: str, sha_license: str) -> str:
     text, n_ver = re.subn(r"^pkgver=.*$", f"pkgver={version}", text, flags=re.MULTILINE, count=1)
     text, n_rel = re.subn(r"^pkgrel=.*$", "pkgrel=1", text, flags=re.MULTILINE, count=1)
     text, n_desc = re.subn(
@@ -35,8 +35,8 @@ def rewrite_pkgbuild(text: str, version: str, sha_appimage: str) -> str:
         flags=re.MULTILINE,
         count=1,
     )
-    new_sums = f"sha256sums=('{sha_appimage}'\n            'SKIP')"
-    text, n_sums = re.subn(r"sha256sums=\('[^']+'\s*'SKIP'\)", new_sums, text, count=1)
+    new_sums = f"sha256sums=('{sha_appimage}'\n            'SKIP'\n            '{sha_license}')"
+    text, n_sums = re.subn(r"sha256sums=\([^)]*\)", new_sums, text, count=1)
     missing = [
         name
         for name, count in (("pkgver", n_ver), ("pkgrel", n_rel), ("pkgdesc", n_desc), ("sha256sums", n_sums))
@@ -47,12 +47,12 @@ def rewrite_pkgbuild(text: str, version: str, sha_appimage: str) -> str:
     return text
 
 
-def bump_pkgbuild(version: str, sha_appimage: str) -> None:
+def bump_pkgbuild(version: str, sha_appimage: str, sha_license: str) -> None:
     if not PKGBUILD_PATH.is_file():
         print(f"PKGBUILD missing: {PKGBUILD_PATH}", file=sys.stderr)
         sys.exit(1)
     try:
-        text = rewrite_pkgbuild(PKGBUILD_PATH.read_text(), version, sha_appimage)
+        text = rewrite_pkgbuild(PKGBUILD_PATH.read_text(), version, sha_appimage, sha_license)
     except PkgbuildFormatError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -60,8 +60,8 @@ def bump_pkgbuild(version: str, sha_appimage: str) -> None:
     print(f"Bumped {PKGBUILD_PATH} to {version}")
 
 
-def write_srcinfo(version: str, sha_appimage: str) -> None:
-    content = (
+def srcinfo_text(version: str, sha_appimage: str, sha_license: str) -> str:
+    return (
         "pkgbase = writ-bin\n"
         f"\tpkgdesc = {PACKAGE_DESCRIPTION}\n"
         f"\tpkgver = {version}\n"
@@ -69,6 +69,7 @@ def write_srcinfo(version: str, sha_appimage: str) -> None:
         "\turl = https://github.com/ibrahemid/writ\n"
         "\tarch = x86_64\n"
         "\tlicense = MIT\n"
+        "\tmakedepends = minisign\n"
         "\tdepends = glibc\n"
         "\tdepends = fuse2\n"
         "\tdepends = gtk3\n"
@@ -80,23 +81,31 @@ def write_srcinfo(version: str, sha_appimage: str) -> None:
         f"\tsource = writ-{version}.AppImage::"
         f"https://github.com/ibrahemid/writ/releases/download/v{version}/"
         f"Writ_{version}_amd64.AppImage\n"
+        f"\tsource = writ-{version}.AppImage.minisign::"
+        f"https://github.com/ibrahemid/writ/releases/download/v{version}/"
+        f"Writ_{version}_amd64.AppImage.sig\n"
         f"\tsource = LICENSE-{version}::"
         f"https://github.com/ibrahemid/writ/raw/v{version}/LICENSE\n"
         f"\tnoextract = writ-{version}.AppImage\n"
         f"\tsha256sums = {sha_appimage}\n"
         "\tsha256sums = SKIP\n"
+        f"\tsha256sums = {sha_license}\n"
         "\n"
         "pkgname = writ-bin\n"
     )
-    SRCINFO_PATH.write_text(content)
+
+
+def write_srcinfo(version: str, sha_appimage: str, sha_license: str) -> None:
+    SRCINFO_PATH.write_text(srcinfo_text(version, sha_appimage, sha_license))
     print(f"Wrote {SRCINFO_PATH}")
 
 
 def main() -> None:
     version = get_env("VERSION")
     sha_appimage = get_env("SHA_APPIMAGE")
-    bump_pkgbuild(version, sha_appimage)
-    write_srcinfo(version, sha_appimage)
+    sha_license = get_env("SHA_LICENSE")
+    bump_pkgbuild(version, sha_appimage, sha_license)
+    write_srcinfo(version, sha_appimage, sha_license)
 
 
 if __name__ == "__main__":

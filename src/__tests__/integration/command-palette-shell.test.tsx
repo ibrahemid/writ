@@ -16,10 +16,16 @@ const h = vi.hoisted(() => ({
   execute: vi.fn(),
 }));
 
+vi.mock("../../stores/global/command-usage", () => ({
+  commandUsageStore: {
+    usage: () => h.usage,
+    record: h.recordCommandUse,
+  },
+}));
+
 vi.mock("../../stores/global/config", () => ({
   configStore: {
-    config: () => ({ commands: { usage: h.usage } }),
-    recordCommandUse: h.recordCommandUse,
+    config: () => ({}),
   },
 }));
 

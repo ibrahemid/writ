@@ -7,18 +7,31 @@ pkgdesc="Light text editor for any text file, with full-text search and inline M
 arch=('x86_64')
 url="https://github.com/ibrahemid/writ"
 license=('MIT')
+makedepends=('minisign')
 depends=('glibc' 'fuse2' 'gtk3' 'webkit2gtk-4.1')
 optdepends=('appimagelauncher: desktop integration for AppImages')
 provides=("${_pkgname}")
 conflicts=("${_pkgname}")
 options=('!strip')
+# The signature is saved without a .sig suffix, which makepkg would read as a
+# PGP signature; prepare() checks it with minisign instead.
 source=("${_pkgname}-${pkgver}.AppImage::${url}/releases/download/v${pkgver}/Writ_${pkgver}_amd64.AppImage"
+        "${_pkgname}-${pkgver}.AppImage.minisign::${url}/releases/download/v${pkgver}/Writ_${pkgver}_amd64.AppImage.sig"
         "LICENSE-${pkgver}::${url}/raw/v${pkgver}/LICENSE")
 noextract=("${_pkgname}-${pkgver}.AppImage")
 sha256sums=('5ec54922f94e815e77227e65afb475121b17a638df474753d15e61f5419490b7'
-            'SKIP')
+            'SKIP'
+            'e851ba857f3adab0dea5d16a71684a9f046cd7e413f12334d3dd13cff1f4f10f')
+
+# Base64-decoded from the updater pubkey at src-tauri/tauri.conf.json ("plugins.updater.pubkey").
+_minisign_pubkey='RWT2Ic6WHdF65qf9kASdZd1XZWkUJbTZGCCEcnYK5DlCSDbKNEQX/OHk'
 
 prepare() {
+    base64 -d < "${srcdir}/${_pkgname}-${pkgver}.AppImage.minisign" \
+        > "${srcdir}/${_pkgname}-${pkgver}.AppImage.minisig"
+    minisign -V -P "${_minisign_pubkey}" \
+        -m "${srcdir}/${_pkgname}-${pkgver}.AppImage" \
+        -x "${srcdir}/${_pkgname}-${pkgver}.AppImage.minisig"
     chmod +x "${srcdir}/${_pkgname}-${pkgver}.AppImage"
     "${srcdir}/${_pkgname}-${pkgver}.AppImage" --appimage-extract >/dev/null
 }
@@ -28,6 +41,8 @@ package() {
 
     install -dm755 "${pkgdir}/opt/${_pkgname}/"
     cp -r "${root}/"* "${pkgdir}/opt/${_pkgname}/"
+    # Writ reads this marker and leaves updates to pacman.
+    printf 'pacman\n' > "${pkgdir}/opt/${_pkgname}/.package-manager"
     chmod -R u+rwX,go+rX,go-w "${pkgdir}/opt/${_pkgname}"
 
     # /usr/bin/writ is the CLI from the payload, not the GUI launcher, so

@@ -15,7 +15,9 @@ import { createEditorStore, type EditorStore } from "../../stores/window/editor-
 import { createSidebarStore } from "../../stores/window/sidebar-store";
 import { saveStatusStore } from "../../stores/global/save-status";
 import { debouncedSave } from "../../services/autosave";
-import { saveBufferContent } from "../../services/tauri";
+import { getConfig, saveBufferContent } from "../../services/tauri";
+import { configStore } from "../../stores/global/config";
+import type { WritConfig } from "../../types/config";
 
 const mockedSave = vi.mocked(saveBufferContent);
 
@@ -143,7 +145,10 @@ describe("Cmd+\\ toggles the sidebar", () => {
     rebuildKeyMap();
   });
 
-  it("flips the sidebar on the new chord", () => {
+  it("flips the sidebar on the new chord", async () => {
+    // The sidebar's open state is the config's.
+    vi.mocked(getConfig).mockResolvedValueOnce({ sidebar: { open: false } } as WritConfig);
+    await configStore.load();
     const sidebar = createSidebarStore();
     registerCommand({
       id: "sidebar.toggle",

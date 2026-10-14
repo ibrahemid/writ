@@ -1,9 +1,10 @@
-//! Policy for the silent startup update check.
+//! Policy for the silent update check.
 //!
 //! The check used to fire unconditionally a few seconds after every launch,
 //! so a quick open-and-quit still phoned the release endpoint. This module
 //! decides whether a silent check should run, given the user's opt-out and
-//! when the last silent check happened. The timestamp itself is persisted by
+//! when the last silent check happened, and when a Writ that stays running
+//! looks again. The timestamp itself is persisted by
 //! the `writ-tauri` adapter outside `config.toml`; this function is pure so
 //! the gating is unit-testable without I/O or a clock.
 
@@ -35,6 +36,49 @@ pub fn should_auto_check(
         None => true,
         Some(last) => now_ms.saturating_sub(last) >= min_interval_ms,
     }
+}
+
+/// Longest wait between two looks at the clock while Writ stays running.
+/// Wall-clock time decides when a check is due, and a sleeping machine does
+/// not advance the timer, so a laptop that slept past the interval checks
+/// within this long of waking.
+pub const RESIDENT_WAKE_INTERVAL_MS: u64 = 60 * 60 * 1000;
+
+/// The last silent check the resident checker knows of: the one recorded on
+/// disk, or the one it ran itself when that is later. A data directory that
+/// refuses the timestamp then cannot make the checker run again at once.
+pub fn last_known_check(recorded_ms: Option<u64>, ran_ms: Option<u64>) -> Option<u64> {
+    recorded_ms.max(ran_ms)
+}
+
+/// What the resident update checker does next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SilentCheckStep {
+    /// A silent check is due now.
+    CheckNow,
+    /// Look again after this many milliseconds.
+    Wait(u64),
+}
+
+/// The resident checker's next step: check when [`should_auto_check`] says so
+/// under [`MIN_CHECK_INTERVAL_MS`], otherwise wait until the check falls due,
+/// never longer than [`RESIDENT_WAKE_INTERVAL_MS`]. The preference is read on
+/// every step, so turning it on or off takes effect within one wake interval.
+pub fn next_silent_check_step(
+    auto_check: bool,
+    last_check_ms: Option<u64>,
+    now_ms: u64,
+) -> SilentCheckStep {
+    if should_auto_check(auto_check, last_check_ms, now_ms, MIN_CHECK_INTERVAL_MS) {
+        return SilentCheckStep::CheckNow;
+    }
+    let until_due = match (auto_check, last_check_ms) {
+        (true, Some(last)) => last
+            .saturating_add(MIN_CHECK_INTERVAL_MS)
+            .saturating_sub(now_ms),
+        _ => RESIDENT_WAKE_INTERVAL_MS,
+    };
+    SilentCheckStep::Wait(until_due.clamp(1, RESIDENT_WAKE_INTERVAL_MS))
 }
 
 #[cfg(test)]

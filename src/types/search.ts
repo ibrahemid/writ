@@ -43,6 +43,8 @@ export interface GrepOutcome {
   files_scanned: number;
   truncated: boolean;
   cancelled: boolean;
+  // Files left unsearched because their bytes are not on this machine.
+  skipped_not_downloaded: number;
 }
 
 export interface SearchBatch {

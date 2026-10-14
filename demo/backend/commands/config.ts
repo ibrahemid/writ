@@ -1,15 +1,39 @@
 import type { WritConfig } from "../../../src/types/config";
+import type { CommandUsage, CommandUse } from "../../../src/types/command-usage";
 import type { IndexStatus } from "../../../src/types/search";
 import type { Answer, CommandTable, DemoState } from "../state";
 import { HOME, NOTES_ROOT } from "../vfs";
 
 export function createConfigCommands(state: DemoState): CommandTable {
   const previewScriptsOn = new Set<string>();
+  // writ.db's command_usage table, for the length of the visit.
+  let usage: Record<string, CommandUsage> = {};
   return {
     // Config and first run
     get_config: () => structuredClone(state.config),
     update_config: (args) => {
       state.config = structuredClone(args.config as WritConfig);
+      return null;
+    },
+    get_config_diagnostics: () => [],
+    get_command_usage: () => structuredClone(usage),
+    record_command_uses: (args) => {
+      for (const use of args.uses as CommandUse[]) {
+        const held = usage[use.id];
+        usage[use.id] = {
+          count: (held?.count ?? 0) + use.count,
+          last_used_ms: Math.max(held?.last_used_ms ?? 0, use.last_used_ms),
+        };
+      }
+      return null;
+    },
+    clear_command_usage: () => {
+      usage = {};
+      return null;
+    },
+    prune_command_usage: (args) => {
+      const known = new Set(args.knownIds as string[]);
+      usage = Object.fromEntries(Object.entries(usage).filter(([id]) => known.has(id)));
       return null;
     },
     first_run_state: () => ({

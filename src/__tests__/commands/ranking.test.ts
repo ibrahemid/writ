@@ -8,7 +8,7 @@ import {
   usageBoost,
 } from "../../commands/ranking";
 import type { Command } from "../../types/commands";
-import type { CommandUsage } from "../../types/config";
+import type { CommandUsage } from "../../types/command-usage";
 
 const NOW = 1_715_000_000_000;
 

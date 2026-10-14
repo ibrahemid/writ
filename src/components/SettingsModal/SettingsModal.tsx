@@ -950,7 +950,7 @@ function AiConnectionRows() {
     void cfg().provider;
     void cfg().base_url;
     void cfg().model;
-    void cfg().consented_hosts;
+    void cfg().consented_hosts.join("\n");
     aiConnectionStore.scheduleCheck();
   });
 
@@ -999,7 +999,7 @@ function AiConnectionRows() {
     // Track the fields that change the answer.
     void cfg().base_url;
     void cfg().provider;
-    void cfg().consented_hosts;
+    void cfg().consented_hosts.join("\n");
     void aiRewriteStore
       .endpointState()
       .then(setEndpoint)

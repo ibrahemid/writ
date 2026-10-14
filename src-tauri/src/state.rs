@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 use tracing::{info, warn};
 use writ_core::buffer::document::BufferDocument;
-use writ_core::config::WritConfig;
+use writ_core::config::{ConfigDiagnostic, WritConfig};
 use writ_core::events::bus::EventBus;
 use writ_core::notes::identity::{identity_to_keep, observe_file, FileIdentity, SourceState};
 use writ_core::preview::ContentRendererRegistry;
@@ -15,6 +15,7 @@ use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::builtins::register_builtins;
 use writ_plugin::transform::TransformRegistry;
 use writ_storage::buffer_store::BufferStore;
+use writ_storage::command_usage::CommandUsageStore;
 use writ_storage::config_store::ConfigStore;
 use writ_storage::consistency::ConsistencyChecker;
 use writ_storage::database::connection::open_database;
@@ -24,12 +25,13 @@ use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_storage::write_lock::WriteLock;
+use writ_storage::paths::file_name_only;
 
 use crate::fts_scheduler::FtsScheduler;
 use crate::poison::recover_poison;
 use crate::preview::handler::RenderCache;
 use crate::quit::QuitState;
-use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
+use crate::security::{canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
 use crate::watcher::moves::FileTracking;
 use crate::watcher::open_files::{NoOpenNotes, OpenFileWatcher, OpenNotes};
@@ -92,6 +94,16 @@ pub struct AppState {
     pub store: Mutex<BufferStore>,
     pub config_store: ConfigStore,
     pub config: Mutex<WritConfig>,
+    /// The values in config.toml the launch's read could not use
+    /// ([`WritConfig::parse_lenient`], ADR-048). While any are held, nothing
+    /// writes config.toml ([`crate::commands::config::persist_config`]): the
+    /// running copy carries a default in place of each, and writing it would
+    /// put those defaults over the person's file. Cleared by a reload that
+    /// reads the file in full.
+    pub config_diagnostics: Mutex<Vec<ConfigDiagnostic>>,
+    /// How often each palette command ran, which ranks the palette (ADR-048).
+    /// Holds its own connection, so a command run never waits on a save.
+    pub command_usage: CommandUsageStore,
     pub writ_dir: PathBuf,
     pub buffers_dir: PathBuf,
     /// Canonical root of the notes folder. Always exists; created at startup.
@@ -267,7 +279,7 @@ impl AppState {
         let db_path = writ_dir.join("writ.db");
         let conn = open_database(&db_path)?;
         run_migrations(&conn)?;
-        info!(path = %db_path.display(), "database initialized");
+        info!(path = %file_name_only(&db_path.to_string_lossy()), "database initialized");
 
         // Second connection for layout-state persistence; migrations have
         // already created the table on the primary connection above.
@@ -281,8 +293,38 @@ impl AppState {
         // whole test (spec O1).
         let first_run = writ_core::startup::is_first_run(config_path.exists());
         let config_store = ConfigStore::new(config_path);
-        let config = config_store.read()?;
-        info!(first_run, "config loaded");
+        // One bad value no longer stops the launch: the rest of the file is
+        // used, the default stands in for it, and nothing is written until the
+        // file reads in full again (ADR-048).
+        let (read, config_text) = config_store.read_lenient()?;
+        let config = read.config;
+        for diagnostic in &read.diagnostics {
+            warn!(
+                key = %diagnostic.key,
+                line = diagnostic.line,
+                message = %diagnostic.message,
+                "config.toml value not used; running on its default"
+            );
+        }
+        info!(
+            first_run,
+            unread_values = read.diagnostics.len(),
+            "config loaded"
+        );
+
+        // Command usage moved out of config.toml (ADR-048). A file written
+        // before that carries it; it is moved once, and a failed move costs
+        // the palette its ordering, not the launch.
+        let command_usage = CommandUsageStore::new(open_database(&db_path)?);
+        let usage_in_config = writ_core::command::usage::usage_from_config_text(&config_text);
+        match command_usage.import_once(&usage_in_config) {
+            Ok(true) => info!(
+                commands = usage_in_config.len(),
+                "command usage moved out of config.toml"
+            ),
+            Ok(false) => {}
+            Err(error) => warn!(%error, "command usage could not be moved out of config.toml"),
+        }
 
         // The notes folder is where every note Writ mints lands, and the file
         // it lands in is the only copy of the text (ADR-028). It is resolved,
@@ -302,7 +344,7 @@ impl AppState {
             },
             &writ_dir,
         )?;
-        info!(path = %notes_root.display(), "notes folder ready");
+        info!(path = %file_name_only(&notes_root.to_string_lossy()), "notes folder ready");
 
         // The half of the data-folder guard that needs both paths. The sync
         // provider half already ran in `run()`, before the database was
@@ -472,7 +514,10 @@ impl AppState {
             .and_then(|p| canonicalize_root(&p).ok())
             .filter(|p| p.is_dir());
         if let Some(root) = &workspace_root {
-            info!(root = %root.display(), "workspace root restored from config");
+            info!(
+                root = %file_name_only(&root.to_string_lossy()),
+                "workspace root restored from config"
+            );
         }
 
         let inbox_root = config
@@ -483,7 +528,10 @@ impl AppState {
             .and_then(|p| canonicalize_root(&p).ok())
             .filter(|p| p.is_dir());
         if let Some(root) = &inbox_root {
-            info!(root = %root.display(), "inbox folder restored from config");
+            info!(
+                root = %file_name_only(&root.to_string_lossy()),
+                "inbox folder restored from config"
+            );
         }
 
         let workspace_index = Arc::new(RwLock::new(crate::workspace_index::WorkspaceIndex::new(
@@ -506,6 +554,8 @@ impl AppState {
             store: Mutex::new(store),
             config_store,
             config: Mutex::new(config),
+            config_diagnostics: Mutex::new(read.diagnostics),
+            command_usage,
             writ_dir,
             buffers_dir,
             notes_root: RwLock::new(notes_root),
@@ -574,13 +624,20 @@ impl AppState {
     ///
     /// A file that no longer parses leaves the running config alone: the
     /// person editing it gets the last good state, never the defaults, and
-    /// the reason is logged. Returns whether the copy was replaced.
+    /// the reason is logged. A file that reads in full ends the hold the
+    /// launch put on config writes ([`AppState::config_diagnostics`]).
+    /// Returns whether the copy was replaced.
     pub fn reload_config_from_disk(&self) -> bool {
         match self.config_store.read() {
             Ok(fresh) => {
                 let mut guard =
                     recover_poison(self.config.lock(), "state::reload_config_from_disk");
                 *guard = fresh;
+                recover_poison(
+                    self.config_diagnostics.lock(),
+                    "state::reload_config_from_disk:diagnostics",
+                )
+                .clear();
                 true
             }
             Err(error) => {
@@ -1129,7 +1186,10 @@ fn restore_orphaned_text(
     };
     let copy = writ_storage::guarded::write_recovered_copy(&beside, text, now, None)
         .map_err(|e| e.to_string())?;
-    info!(recovered = %copy.display(), "text of a note removed from history was written to a file of its own");
+    info!(
+        recovered = %file_name_only(&copy.to_string_lossy()),
+        "text of a note removed from history was written to a file of its own"
+    );
     Ok(RecoveryLanding::Written(None))
 }
 
@@ -1283,38 +1343,28 @@ impl OpenNotes for OpenTabs<'_> {
     }
 }
 
-/// Re-blesses the source paths of every persisted buffer, returning how many.
+/// Re-blesses the source paths of every open tab, returning how many.
 ///
 /// Blessing normally happens when a file is opened, in memory. Tabs outlive
 /// the process, though, and a save writes the file the buffer came from, so a
 /// restored tab has to carry its permission across the restart or the first
 /// keystroke after a relaunch fails as an unauthorized write.
 ///
-/// Both the stored path and its resolved form are recorded. The stored path is
-/// what a save presents; resolving can fail outright for a file deleted while
-/// Writ was closed, and refusing there would leave that tab permanently
-/// unsavable instead of recreating the file it came from.
+/// Closed tabs are not blessed: a file the person put away is not one the
+/// webview may write, and reopening it from the history list blesses it again
+/// ([`crate::commands::history::restore_buffer_inner`]).
 pub fn bless_persisted_sources(store: &BufferStore, authorized_paths: &AuthorizedPaths) -> usize {
+    let Ok(buffers) = store.list_by_status(writ_core::buffer::document::BufferStatus::Active)
+    else {
+        return 0;
+    };
     let mut hydrated = 0usize;
-    for status in [
-        writ_core::buffer::document::BufferStatus::Active,
-        writ_core::buffer::document::BufferStatus::History,
-    ] {
-        let Ok(buffers) = store.list_by_status(status) else {
+    for doc in buffers {
+        let Some(source_path) = doc.source_path else {
             continue;
         };
-        for doc in buffers {
-            let Some(source_path) = doc.source_path else {
-                continue;
-            };
-            if let Ok(canonical) =
-                canonicalize_for_authorization(std::path::Path::new(&source_path))
-            {
-                authorized_paths.record_blessed_source(canonical);
-            }
-            authorized_paths.record_blessed_source(source_path);
-            hydrated += 1;
-        }
+        authorized_paths.bless_source_path(&source_path);
+        hydrated += 1;
     }
     hydrated
 }

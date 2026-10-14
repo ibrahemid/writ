@@ -13,6 +13,8 @@ pub mod apps;
 pub mod files;
 /// Keybinding conflict reporting types.
 pub mod keybinding;
+/// The startup read that keeps every value it can and names the rest.
+pub mod lenient;
 /// MCP server configuration (`[mcp]`).
 pub mod mcp;
 /// Notes-folder configuration (`[notes]`).
@@ -25,8 +27,9 @@ pub mod spelling;
 pub use ai::{AiChatConfig, AiConfig, AiConfigOnDisk, AiRewriteConfig};
 pub use apps::{AppId, AppsConfig};
 pub use files::{FileExtension, FilesConfig};
+pub use lenient::{ConfigDiagnostic, LenientConfig};
 pub use mcp::{ClientApproval, McpConfig};
-pub use notes::NotesConfig;
+pub use notes::{NotesConfig, NotesRootEditError};
 pub use preview::{DefaultLayout, MarkdownLayout, PreviewConfig};
 pub use spelling::SpellingConfig;
 
@@ -108,10 +111,6 @@ fn default_window_height() -> u32 {
 
 fn default_max_entries() -> u32 {
     500
-}
-
-fn default_storage_path() -> String {
-    "~/.writ".to_string()
 }
 
 fn default_theme_preset() -> String {
@@ -549,44 +548,6 @@ impl Default for ThemeConfig {
     }
 }
 
-/// Per-command usage statistics used to rank command palette results.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct CommandUsage {
-    /// Total number of times the command has been executed.
-    #[serde(default)]
-    pub count: u32,
-    /// Unix epoch milliseconds at which the command was last executed.
-    /// `0` means the command has never been executed.
-    #[serde(default)]
-    pub last_used_ms: u64,
-}
-
-/// Command palette ranking configuration.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct CommandsConfig {
-    /// Usage stats keyed by Writ command id.
-    #[serde(default)]
-    pub usage: HashMap<String, CommandUsage>,
-}
-
-/// On-disk storage location configuration.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct StorageConfig {
-    /// Filesystem path for Writ's data directory.
-    ///
-    /// Tildes are expanded by the host before use.
-    #[serde(default = "default_storage_path")]
-    pub path: String,
-}
-
-impl Default for StorageConfig {
-    fn default() -> Self {
-        Self {
-            path: default_storage_path(),
-        }
-    }
-}
-
 fn default_workspace_root() -> Option<String> {
     None
 }
@@ -704,18 +665,12 @@ pub struct WritConfig {
     /// History retention configuration.
     #[serde(default)]
     pub history: HistoryConfig,
-    /// On-disk storage location configuration.
-    #[serde(default)]
-    pub storage: StorageConfig,
     /// UI theme configuration.
     #[serde(default)]
     pub theme: ThemeConfig,
     /// Polarity, accent and prose face.
     #[serde(default)]
     pub appearance: AppearanceConfig,
-    /// Command palette ranking state.
-    #[serde(default)]
-    pub commands: CommandsConfig,
     /// Preview surface configuration.
     #[serde(default)]
     pub preview: PreviewConfig,
@@ -759,10 +714,8 @@ impl Default for WritConfig {
             window: WindowConfig::default(),
             keybindings: default_keybindings(),
             history: HistoryConfig::default(),
-            storage: StorageConfig::default(),
             theme: ThemeConfig::default(),
             appearance: AppearanceConfig::default(),
-            commands: CommandsConfig::default(),
             preview: PreviewConfig::default(),
             workspace: WorkspaceConfig::default(),
             notes: NotesConfig::default(),

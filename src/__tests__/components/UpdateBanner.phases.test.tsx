@@ -75,6 +75,7 @@ describe("the banner's own controls", () => {
     const labels: string[] = [];
     for (const phase of [
       { status: "available", version: "0.3.5" },
+      { status: "managed", version: "0.3.5" },
       { status: "ready" },
       { status: "failed", message: "no" },
     ] as UpdatePhase[]) {
@@ -91,5 +92,16 @@ describe("the banner's own controls", () => {
     expect(container.querySelectorAll(".writ-btn")).toHaveLength(2);
     expect(container.textContent).toContain("Update available: v0.3.5");
     expect(container.textContent).not.toContain("—");
+  });
+});
+
+describe("an install a package manager owns", () => {
+  it("names the package manager and offers no install", () => {
+    const { container } = render(() => <UpdateBanner />);
+    fixtures.setPhase({ status: "managed", version: "0.7.0" });
+
+    expect(container.textContent).toContain("v0.7.0 is available. Update with your package manager.");
+    expect(container.querySelectorAll(".writ-btn")).toHaveLength(1);
+    expect(container.querySelector(".writ-btn-primary")).toBeNull();
   });
 });

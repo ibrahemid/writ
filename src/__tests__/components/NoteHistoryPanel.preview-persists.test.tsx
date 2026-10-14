@@ -113,7 +113,6 @@ function config(): WritConfig {
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
-    storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
     appearance: {
       polarity: "system",
@@ -121,7 +120,6 @@ function config(): WritConfig {
       prose_face: "system",
       interface_text_size: null,
     },
-    commands: { usage: {} },
     files: { default_extension: "txt" },
     workspace: { root: null },
     inbox: { path: null, focus: true },

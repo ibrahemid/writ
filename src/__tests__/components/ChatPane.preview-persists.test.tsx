@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, waitFor } from "@solidjs/testing-library";
+import { createRoot, createSignal } from "solid-js";
 import { configStore } from "../../stores/global/config";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
@@ -62,7 +63,15 @@ vi.mock("../../components/Editor/EditorInstance", async () => {
   };
 });
 
-vi.spyOn(configStore, "config").mockImplementation(() => mocks.config());
+// The column's open state is the config's (F17), so the fixture's copy of it
+// follows the column's own setter.
+const [chatColumnOpen, setChatColumnOpen] = createRoot(() => createSignal(false));
+vi.spyOn(configStore, "loaded").mockImplementation(() => true);
+vi.spyOn(configStore, "setChatPanelOpen").mockImplementation((open) => setChatColumnOpen(open));
+vi.spyOn(configStore, "config").mockImplementation(() => {
+  const config = mocks.config() as WritConfig;
+  return { ...config, chat_panel: { ...config.chat_panel, open: chatColumnOpen() } };
+});
 vi.spyOn(bufferRegistry, "activeTabs").mockImplementation(() => []);
 
 import WindowProvider from "../../components/WindowProvider/WindowProvider";
@@ -118,7 +127,6 @@ function chatConfig(): WritConfig {
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
-    storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
     appearance: {
       polarity: "system",
@@ -126,7 +134,6 @@ function chatConfig(): WritConfig {
       prose_face: "system",
       interface_text_size: null,
     },
-    commands: { usage: {} },
     files: { default_extension: "txt" },
     workspace: { root: null },
     inbox: { path: null, focus: true },

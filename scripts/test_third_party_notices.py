@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import tempfile
 import unittest
@@ -59,6 +60,91 @@ class ResolveCrateTextTests(unittest.TestCase):
     def test_a_crate_with_no_file_and_no_record_is_refused(self) -> None:
         with self.assertRaises(MODULE.GenerationError):
             self.resolve(MODULE.normalize_text(TEMPLATE))
+
+
+
+def write_package(directory: pathlib.Path, manifest: dict[str, object], licence_text: str | None = None) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "package.json").write_text(json.dumps(manifest))
+    if licence_text is not None:
+        (directory / "LICENSE").write_text(licence_text)
+
+
+class MermaidClosureTests(unittest.TestCase):
+    """A pnpm layout: each package under .pnpm/<id>/node_modules/<name>, its
+    dependencies linked beside it."""
+
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = pathlib.Path(tmp.name)
+        store = self.root / "node_modules" / ".pnpm"
+        self.mermaid = store / "mermaid@1.0.0" / "node_modules" / "mermaid"
+        write_package(
+            self.mermaid,
+            {
+                "name": "mermaid",
+                "version": "1.0.0",
+                "license": "MIT",
+                "dependencies": {"dompurify": "^3", "@types/d3": "^7", "khroma": "^2"},
+                "optionalDependencies": {"absent": "^1"},
+            },
+            QUALIFIED_MIT,
+        )
+        purify = store / "dompurify@3.4.0" / "node_modules" / "dompurify"
+        write_package(
+            purify,
+            {"name": "dompurify", "version": "3.4.0", "license": "(MPL-2.0 OR Apache-2.0)", "dependencies": {"khroma": "^2"}},
+            "Apache License\nVersion 2.0\n",
+        )
+        khroma = store / "khroma@2.1.0" / "node_modules" / "khroma"
+        write_package(khroma, {"name": "khroma", "version": "2.1.0"}, f"The MIT License (MIT)\n\n{MIT_BODY}\n")
+        for owner in (self.mermaid, purify):
+            for name, target in (("dompurify", purify), ("khroma", khroma)):
+                link = owner.parent / name
+                if not link.exists():
+                    link.symlink_to(target)
+
+    def test_follows_runtime_dependencies_through_the_pnpm_store(self) -> None:
+        closure = MODULE.runtime_closure(self.mermaid)
+        self.assertEqual(
+            [(name, version, licence) for name, version, _, licence in closure],
+            [("dompurify", "3.4.0", "(MPL-2.0 OR Apache-2.0)"), ("khroma", "2.1.0", "UNKNOWN")],
+        )
+
+    def test_a_missing_required_dependency_is_an_error(self) -> None:
+        manifest = json.loads((self.mermaid / "package.json").read_text())
+        manifest["dependencies"]["gone"] = "^1"
+        (self.mermaid / "package.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(MODULE.GenerationError, "needs gone"):
+            MODULE.runtime_closure(self.mermaid)
+
+    def test_groups_take_the_accepted_choice_and_name_an_undeclared_mit_file(self) -> None:
+        groups, declarations, without_text = MODULE.group_package_licences(
+            MODULE.runtime_closure(self.mermaid), ["MIT", "Apache-2.0", "MPL-2.0"]
+        )
+        self.assertEqual(
+            [(group["id"], group["packages"]) for group in groups],
+            [("Apache-2.0", [("dompurify", "3.4.0")]), ("MIT", [("khroma", "2.1.0")])],
+        )
+        self.assertEqual((declarations, without_text), ([], []))
+
+
+class RenderTests(unittest.TestCase):
+    def render(self, **mermaid: object) -> str:
+        mpl = {"id": "MPL-2.0", "name": "Mozilla Public License 2.0", "text": "MPL text", "crates": [("cssparser", "0.37.0")], "attribution": {}}
+        return MODULE.render([mpl], [], 1, [], [], 0, [], [], **mermaid)
+
+    def test_every_mpl_crate_names_where_its_source_is(self) -> None:
+        self.assertIn("- cssparser 0.37.0: https://crates.io/crates/cssparser/0.37.0", self.render())
+
+    def test_the_mermaid_bundle_gets_its_own_section(self) -> None:
+        group = {"id": "Apache-2.0", "text": "Apache text", "packages": [("dompurify", "3.4.0")]}
+        text = self.render(mermaid_groups=[group], mermaid_package_count=1)
+        self.assertIn("## Packages inside the Mermaid bundle", text)
+        self.assertIn("1 more npm packages ship inside the Mermaid bundle", text)
+        self.assertIn("dompurify 3.4.0", text.split("## Packages inside the Mermaid bundle")[1])
+        self.assertIn("| Apache-2.0 |  | 1 |  |", text)
 
 
 if __name__ == "__main__":

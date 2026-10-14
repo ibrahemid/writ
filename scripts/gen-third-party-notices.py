@@ -18,6 +18,10 @@ package leaves the licence file out. npm licences come from `pnpm licenses list
 Vite into the app; the site under site/ has its own tree and does not ship.
 Fonts, libraries, dictionaries and ported code shipped as files rather than as
 packages are declared in the same licences/notices.toml, under [[bundled]].
+The packages Mermaid's single-file
+build carries are read from node_modules, following the runtime dependencies of
+the `mermaid` devDependency. Every MPL-2.0 entry carries a line naming where its
+source is published.
 
 Usage:
     scripts/gen-third-party-notices.py            write THIRD-PARTY-NOTICES.md
@@ -45,6 +49,13 @@ OUTPUT_PATH = ROOT / "THIRD-PARTY-NOTICES.md"
 ABOUT_CONFIG = ROOT / "about.toml"
 NOTICES_DIR = ROOT / "licences"
 NOTICES_CONFIG = NOTICES_DIR / "notices.toml"
+
+MERMAID_PACKAGE = "mermaid"
+# A package.json with no licence field. A licence file that opens with the MIT
+# heading names it instead (khroma).
+UNDECLARED = "UNKNOWN"
+MIT_HEADING = re.compile(r"^(The )?MIT License\b")
+MERMAID_BUNDLE = "src-tauri/assets/mermaid/mermaid.min.js"
 
 CARGO_ABOUT_VERSION = "0.9.1"
 CARGO_ABOUT_INSTALL = (
@@ -487,6 +498,126 @@ def read_package_license(package_dir: str, licence: str) -> tuple[str, bool] | N
     return None
 
 
+def resolve_node_module(from_dir: pathlib.Path, name: str) -> pathlib.Path | None:
+    """The directory Node loads `name` from when required inside `from_dir`.
+
+    Node looks in `<dir>/node_modules` for `from_dir` and each directory above
+    it, skipping directories that are themselves named `node_modules`. pnpm
+    links a package's dependencies beside it inside `.pnpm`, which this finds.
+    """
+    for directory in (from_dir, *from_dir.parents):
+        if directory.name == "node_modules":
+            continue
+        candidate = directory / "node_modules" / name
+        if (candidate / "package.json").is_file():
+            return candidate
+    return None
+
+
+def declared_licence(manifest: dict[str, object]) -> str:
+    """The licence a package.json declares, in its old or current form."""
+    licence = manifest.get("license")
+    if isinstance(licence, dict):
+        licence = licence.get("type")
+    if isinstance(licence, str) and licence:
+        return licence
+    old = manifest.get("licenses")
+    if isinstance(old, list):
+        names = [str(entry.get("type")) for entry in old if isinstance(entry, dict) and entry.get("type")]
+        if names:
+            return " OR ".join(names)
+    return UNDECLARED
+
+
+def runtime_closure(package_dir: pathlib.Path) -> list[tuple[str, str, pathlib.Path, str]]:
+    """Every package `package_dir` needs at run time, directly or not.
+
+    Each is (name, version, directory, declared licence), sorted. Type
+    declarations (`@types/*`) are left out: a JavaScript bundle carries no
+    types. A missing optional dependency is skipped; any other is an error.
+    """
+    seen: set[pathlib.Path] = set()
+    found: dict[tuple[str, str], tuple[str, str, pathlib.Path, str]] = {}
+    stack = [package_dir.resolve()]
+    while stack:
+        directory = stack.pop()
+        manifest = json.loads((directory / "package.json").read_text())
+        required = manifest.get("dependencies") or {}
+        optional = manifest.get("optionalDependencies") or {}
+        for name in sorted({*required, *optional}):
+            if name.startswith("@types/"):
+                continue
+            location = resolve_node_module(directory, name)
+            if location is None:
+                if name in optional and name not in required:
+                    continue
+                raise GenerationError(
+                    f"{manifest.get('name')} needs {name}, which is not installed.\n"
+                    "Install it with: pnpm install --frozen-lockfile"
+                )
+            real = location.resolve()
+            if real in seen:
+                continue
+            seen.add(real)
+            dependency = json.loads((real / "package.json").read_text())
+            key = (str(dependency["name"]), str(dependency["version"]))
+            found[key] = (*key, real, declared_licence(dependency))
+            stack.append(real)
+    return [found[key] for key in sorted(found)]
+
+
+def group_package_licences(
+    packages: list[tuple[str, str, pathlib.Path, str]], accepted: list[str]
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[str]]:
+    """Packages grouped by licence text, declaration-only groups, and the ones
+    that ship no licence file."""
+    groups: dict[tuple[str, str], dict[str, object]] = {}
+    declarations: dict[tuple[str, str], dict[str, object]] = {}
+    without_text: list[str] = []
+    for name, version, directory, declared in packages:
+        licence = resolve_licence(declared, accepted)
+        result = read_package_license(str(directory), licence)
+        if licence == UNDECLARED and result is not None and MIT_HEADING.match(result[0]):
+            licence = "MIT"
+        if result is None:
+            without_text.append(f"{name} {version}")
+            continue
+        text, declaration_only = result
+        target = declarations if declaration_only else groups
+        key = (licence, hashlib.sha256(text.encode("utf-8")).hexdigest())
+        group = target.setdefault(key, {"id": licence, "text": text, "packages": set()})
+        group["packages"].add((name, version))  # type: ignore[union-attr]
+
+    def order(source: dict[tuple[str, str], dict[str, object]]) -> list[dict[str, object]]:
+        result = []
+        for group in source.values():
+            result.append({**group, "packages": sorted(group["packages"])})  # type: ignore[arg-type]
+        result.sort(key=lambda g: (g["id"], g["packages"][0], g["text"]))
+        return result
+
+    return order(groups), order(declarations), sorted(without_text)
+
+
+def collect_mermaid_libraries() -> tuple[list[dict[str, object]], list[dict[str, object]], list[str], int]:
+    """The packages inside Mermaid's single-file build, grouped like npm's."""
+    mermaid = ROOT / "node_modules" / MERMAID_PACKAGE
+    if not (mermaid / "package.json").is_file():
+        raise GenerationError(
+            f"node_modules/{MERMAID_PACKAGE} is missing.\n"
+            "Install it with: pnpm install --frozen-lockfile"
+        )
+    packages = runtime_closure(mermaid)
+    groups, declarations, without_text = group_package_licences(packages, accepted_licences())
+    return groups, declarations, without_text, len(packages)
+
+
+def mpl_source_line(name: str, version: str, members: str) -> str:
+    """Where the source of an MPL-2.0 entry is published (MPL-2.0 section 3.2)."""
+    if members == "crates":
+        return f"https://crates.io/crates/{name}/{version}"
+    return f"https://www.npmjs.com/package/{name}/v/{version}"
+
+
 def collect_npm_groups() -> tuple[list[dict[str, object]], list[dict[str, object]], int, list[str]]:
     """Deduplicated npm licence texts, declaration-only groups, count, and gaps."""
     if not (ROOT / "node_modules").is_dir():
@@ -543,9 +674,16 @@ def render(
     npm_package_count: int,
     npm_without_text: list[str],
     bundled_assets: list[dict[str, object]],
+    mermaid_groups: list[dict[str, object]] | None = None,
+    mermaid_declarations: list[dict[str, object]] | None = None,
+    mermaid_without_text: list[str] | None = None,
+    mermaid_package_count: int = 0,
 ) -> str:
     lines: list[str] = []
     add = lines.append
+    mermaid_groups = mermaid_groups or []
+    mermaid_declarations = mermaid_declarations or []
+    mermaid_without_text = mermaid_without_text or []
 
     def block(group: dict[str, object], members: str) -> None:
         text = str(group["text"])
@@ -553,6 +691,12 @@ def render(
         add("")
         add(", ".join(f"{name} {version}" for name, version in group[members]))  # type: ignore[union-attr]
         add("")
+        if "MPL" in str(group["id"]):
+            add("Source code:")
+            add("")
+            for name, version in group[members]:  # type: ignore[union-attr]
+                add(f"- {name} {version}: {mpl_source_line(name, version, members)}")
+            add("")
         fence = fence_for(text)
         add(fence)
         add(text)
@@ -583,6 +727,12 @@ def render(
         f"{npm_package_count} npm packages, resolved from the production "
         "dependencies of the frontend bundle. Test and benchmark dependencies are "
         "excluded: they are not shipped." + bundled_clause
+        + (
+            f" {mermaid_package_count} more npm packages ship inside the Mermaid "
+            "bundle and have their own section."
+            if mermaid_package_count
+            else ""
+        )
     )
     add("")
     add(
@@ -598,7 +748,7 @@ def render(
     counts: dict[str, list[int]] = {}
     for group in rust_groups + rust_unnamed:
         counts.setdefault(str(group["id"]), [0, 0, 0])[0] += len(group["crates"])  # type: ignore[arg-type]
-    for group in npm_groups + npm_declarations:
+    for group in npm_groups + npm_declarations + mermaid_groups + mermaid_declarations:
         counts.setdefault(str(group["id"]), [0, 0, 0])[1] += len(group["packages"])  # type: ignore[arg-type]
     for asset in bundled_assets:
         counts.setdefault(str(asset["id"]), [0, 0, 0])[2] += 1
@@ -702,6 +852,26 @@ def render(
             add(fence)
             add("")
 
+    if mermaid_groups or mermaid_declarations or mermaid_without_text:
+        add("## Packages inside the Mermaid bundle")
+        add("")
+        add(
+            f"`{MERMAID_BUNDLE}` is a single file that carries the packages Mermaid "
+            "depends on at run time. They are listed at the versions pnpm resolves for "
+            "the `mermaid` devDependency in package.json; the bundle was built against "
+            "releases within the same version ranges. Each block is one distinct "
+            "licence text and the packages it covers."
+        )
+        add("")
+        for group in mermaid_groups + mermaid_declarations:
+            block(group, "packages")
+        if mermaid_without_text:
+            add("These packages ship no licence file; the licence each declares is in the summary above.")
+            add("")
+            for package in mermaid_without_text:
+                add(f"- {package}")
+            add("")
+
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
@@ -711,6 +881,9 @@ def generate() -> str:
         collect_npm_groups()
     )
     bundled_assets = load_bundled_assets()
+    mermaid_groups, mermaid_declarations, mermaid_without_text, mermaid_count = (
+        collect_mermaid_libraries()
+    )
     document = render(
         rust_groups,
         rust_unnamed,
@@ -720,6 +893,10 @@ def generate() -> str:
         npm_package_count,
         npm_without_text,
         bundled_assets,
+        mermaid_groups,
+        mermaid_declarations,
+        mermaid_without_text,
+        mermaid_count,
     )
     found = sorted({blank for blank in TEMPLATE_BLANKS if blank in document})
     if found:

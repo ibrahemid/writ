@@ -1,0 +1,63 @@
+[package]
+name = "writ-ai"
+description = "The AI connection of the Writ editor: key store, HTTP client, model lists, probes, Rewrite and Chat."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+writ-core = { path = "../writ-core" }
+# `bundled` for the reason writ-cli and writ-mcp take it: a binary that links
+# this crate may be built where no system libsqlite3 is there to link against.
+writ-storage = { path = "../writ-storage", features = ["bundled"] }
+# The TLS feature is named here rather than arriving through
+# tauri-plugin-updater, so the crate builds on its own. `rustls-no-provider`
+# keeps aws-lc-rs out of the tree; the `ring` provider is installed at request
+# time (`ensure_crypto_provider`). `system-proxy` is what the app's client
+# already resolved with.
+reqwest = { version = "0.13", default-features = false, features = [
+    "stream",
+    "json",
+    "rustls-no-provider",
+    "system-proxy",
+] }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+    "logging",
+] }
+futures-util = "0.3"
+tokio = { version = "1", default-features = false, features = ["macros", "time"] }
+tokio-util = { version = "0.7", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+url = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+# The Secret Service over libdbus, through the `dbus` 0.9 crate tao already
+# links on Linux. keyring 3's zbus backend needs zbus 4, and the tree's zbus is
+# 5 (tauri-plugin-single-instance), so that backend would add a second copy.
+# `crypto-rust` encrypts the session the secret crosses the bus in, without
+# OpenSSL.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }

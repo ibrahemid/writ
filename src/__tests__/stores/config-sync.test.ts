@@ -3,10 +3,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../../services/tauri", () => ({
   getConfig: vi.fn(),
   updateConfig: vi.fn(),
+  getConfigDiagnostics: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("../../components/Notifications/Toast", () => ({
   showToast: vi.fn(),
+  dismissToast: vi.fn(),
 }));
 
 import { syncConfigFromDisk } from "../../stores/global/config-sync";

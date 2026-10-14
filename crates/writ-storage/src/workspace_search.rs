@@ -15,7 +15,7 @@
 //! no single-path query over the full nested stack); a full rebuild is the
 //! convergence backstop for that gap.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::WalkBuilder;
@@ -99,36 +99,84 @@ fn root_gitignore(root: &Path) -> Gitignore {
     builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
-/// Returns `true` when `path` belongs in the name index: it is under `root`, is
-/// not a Writ default-ignored component, and is not matched by the root
-/// gitignore or the global gitignore. Nested subdirectory `.gitignore`s are not
-/// consulted (see the module docs); a full rebuild reconciles that gap.
-pub fn is_path_indexed(root: &Path, path: &Path) -> bool {
-    let Ok(rel) = path.strip_prefix(root) else {
-        return false;
-    };
-    if rel.as_os_str().is_empty() {
-        return false;
-    }
-    if writ_core::workspace::path_has_ignored_component(root, path) {
-        return false;
+/// The single-path ignore policy for one workspace root, parsed once.
+///
+/// The watcher patch path asks it about every changed path, and parsing the
+/// root `.gitignore`, `.ignore` and the global excludes file per event is what
+/// a `pip install` into the workspace multiplied by tens of thousands (TS-12).
+/// It is built when the root is set and built again when one of the root's
+/// own rule files changes ([`WorkspaceIgnore::is_rules_file`]); the global
+/// excludes file is read when it is built.
+#[derive(Debug)]
+pub struct WorkspaceIgnore {
+    root: PathBuf,
+    root_rules: Gitignore,
+    global: Gitignore,
+}
+
+impl WorkspaceIgnore {
+    /// Reads the rules that apply under `root`.
+    pub fn new(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            root_rules: root_gitignore(root),
+            global: Gitignore::global().0,
+        }
     }
 
-    // Match on the workspace-relative path: an absolute path outside a matcher's
-    // own root makes `matched_path_or_any_parents` panic, and the global
-    // matcher's root is the home directory, not the workspace.
-    let is_dir = path.is_dir();
-    if root_gitignore(root)
-        .matched_path_or_any_parents(rel, is_dir)
-        .is_ignore()
-    {
-        return false;
+    /// The root this policy was read for.
+    pub fn root(&self) -> &Path {
+        &self.root
     }
-    let (global, _) = Gitignore::global();
-    if global.matched_path_or_any_parents(rel, is_dir).is_ignore() {
-        return false;
+
+    /// Whether `path` is one of the root's own rule files, a change to which
+    /// means the policy has to be read again.
+    pub fn is_rules_file(&self, path: &Path) -> bool {
+        path.parent() == Some(self.root.as_path())
+            && path
+                .file_name()
+                .is_some_and(|name| name == ".gitignore" || name == ".ignore")
     }
-    true
+
+    /// Returns `true` when `path` belongs in the name index: it is under the
+    /// root, is not a Writ default-ignored component, and is not matched by
+    /// the root gitignore or the global gitignore. Nested subdirectory
+    /// `.gitignore`s are not consulted (see the module docs); a full rebuild
+    /// reconciles that gap.
+    pub fn is_indexed(&self, path: &Path) -> bool {
+        let root = self.root.as_path();
+        let Ok(rel) = path.strip_prefix(root) else {
+            return false;
+        };
+        if rel.as_os_str().is_empty() {
+            return false;
+        }
+        if writ_core::workspace::path_has_ignored_component(root, path) {
+            return false;
+        }
+
+        // Match on the workspace-relative path: an absolute path outside a
+        // matcher's own root makes `matched_path_or_any_parents` panic, and the
+        // global matcher's root is the home directory, not the workspace.
+        let is_dir = path.is_dir();
+        if self
+            .root_rules
+            .matched_path_or_any_parents(rel, is_dir)
+            .is_ignore()
+        {
+            return false;
+        }
+        !self
+            .global
+            .matched_path_or_any_parents(rel, is_dir)
+            .is_ignore()
+    }
+}
+
+/// Returns `true` when `path` belongs in the name index under `root`, reading
+/// the rules for this one question ([`WorkspaceIgnore::is_indexed`]).
+pub fn is_path_indexed(root: &Path, path: &Path) -> bool {
+    WorkspaceIgnore::new(root).is_indexed(path)
 }
 
 #[cfg(test)]
@@ -226,5 +274,37 @@ mod tests {
         // A path outside the root is never indexed.
         let other = TempDir::new().unwrap();
         assert!(!is_path_indexed(root, &other.path().join("x.rs")));
+    }
+
+    #[test]
+    fn the_rules_are_read_once_and_again_only_when_rebuilt() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        write(root, ".gitignore", "a.log\n");
+        write(root, "a.log", "x");
+        write(root, "b.log", "x");
+        let policy = WorkspaceIgnore::new(root);
+        assert!(!policy.is_indexed(&root.join("a.log")));
+        assert!(policy.is_indexed(&root.join("b.log")));
+
+        write(root, ".gitignore", "b.log\n");
+        assert!(
+            policy.is_indexed(&root.join("b.log")),
+            "a built policy does not reread the file per question"
+        );
+        let rebuilt = WorkspaceIgnore::new(root);
+        assert!(rebuilt.is_indexed(&root.join("a.log")));
+        assert!(!rebuilt.is_indexed(&root.join("b.log")));
+    }
+
+    #[test]
+    fn only_the_roots_own_rule_files_ask_for_a_rebuild() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path();
+        let policy = WorkspaceIgnore::new(root);
+        assert!(policy.is_rules_file(&root.join(".gitignore")));
+        assert!(policy.is_rules_file(&root.join(".ignore")));
+        assert!(!policy.is_rules_file(&root.join("src/.gitignore")));
+        assert!(!policy.is_rules_file(&root.join("gitignore")));
     }
 }

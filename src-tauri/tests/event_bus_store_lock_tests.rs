@@ -100,6 +100,10 @@ fn make_state(dir: &TempDir) -> AppState {
         preview_registry: Arc::new(RwLock::new(ContentRendererRegistry::new())),
         preview_render_cache: Arc::new(RenderCache::new()),
         layout_state: LayoutStateStore::new(open_database(&db_path).expect("layout db")),
+        command_usage: writ_storage::command_usage::CommandUsageStore::new(
+            open_database(&db_path).expect("usage db"),
+        ),
+        config_diagnostics: std::sync::Mutex::new(Vec::new()),
         recovered_buffers: Mutex::new(Vec::new()),
         was_dirty_shutdown: false,
         workspace_root: Mutex::new(None),
@@ -266,6 +270,7 @@ fn every_event(state: &AppState, id: &str, path: &str) -> Vec<WritEvent> {
             path: path.to_string(),
             removed: true,
         },
+        WritEvent::WorkspaceSwept { root: root.clone() },
         WritEvent::NotesSwept { root },
         WritEvent::NotesIndexed {
             paths: vec![path.to_string()],
@@ -298,6 +303,7 @@ fn listed(event: &WritEvent) {
         | WritEvent::ConfigChanged { .. }
         | WritEvent::BufferExternal { .. }
         | WritEvent::WorkspaceChanged { .. }
+        | WritEvent::WorkspaceSwept { .. }
         | WritEvent::NotesChanged { .. }
         | WritEvent::NotesSwept { .. }
         | WritEvent::NotesIndexed { .. }

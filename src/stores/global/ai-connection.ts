@@ -1,4 +1,4 @@
-import { createSignal, createRoot, createEffect } from "solid-js";
+import { createSignal, createRoot, createEffect, createMemo, on } from "solid-js";
 import {
   aiCheckConnection,
   aiConsentHost,
@@ -129,19 +129,20 @@ function createAiConnectionStore() {
     }
   }
 
-  /** Follows the connection: the catalog is re-read whenever the provider or
-   * the typed base URL changes, rather than when a surface happens to open.
-   * Idempotent, and the root lives as long as the app does. */
+  /** Follows the connection: the catalog is re-read whenever the provider,
+   * the typed base URL or the hosts consented to change, rather than when a
+   * surface happens to open. A consent counts because a hosted list waits for
+   * it. Only those fields are followed (AM-09): a write to any other setting
+   * sends no request. Idempotent, and the root lives as long as the app does. */
   function watch(): void {
     if (watching) return;
     watching = true;
     createRoot(() => {
-      createEffect(() => {
+      const target = createMemo(() => {
         const ai = configStore.config().ai;
-        void ai.provider;
-        void ai.base_url;
-        void refreshCatalog();
+        return [ai.provider, ai.base_url, ...ai.consented_hosts].join("\n");
       });
+      createEffect(on(target, () => void refreshCatalog()));
     });
   }
 

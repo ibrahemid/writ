@@ -6,8 +6,29 @@
 //! future external renderer adapter implements the same trait.
 
 use std::collections::HashMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use super::types::{ContentRenderer, ContentTypeId, RendererCapabilities};
+use super::types::{ContentRenderer, ContentTypeId, RenderError, RendererCapabilities};
+
+/// The reason a render reports when its renderer panicked.
+///
+/// Fixed text: the panic's own message can quote the document.
+pub const RENDERER_PANICKED: &str = "the renderer stopped on an internal error";
+
+/// Runs `render`, turning a panic inside it into [`RenderError::Internal`]
+/// with [`RENDERER_PANICKED`] as the reason (ADR-045).
+///
+/// Renderers run third-party parsers over whatever a document holds, so a
+/// panic in one fails that request instead of taking the editor down with it.
+pub fn render_contained<T>(
+    render: impl FnOnce() -> Result<T, RenderError>,
+) -> Result<T, RenderError> {
+    catch_unwind(AssertUnwindSafe(render)).unwrap_or_else(|_| {
+        Err(RenderError::Internal {
+            reason: RENDERER_PANICKED.to_string(),
+        })
+    })
+}
 
 /// Error returned when registration cannot proceed.
 #[derive(Debug, Clone, PartialEq, Eq)]

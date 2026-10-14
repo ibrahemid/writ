@@ -906,7 +906,7 @@ export default function EditorInstance(props: Props) {
   ));
 
   // Word wrap and Tab size reach the open file when they change. Memos, so a
-  // config change elsewhere (a command's use count) reconfigures nothing.
+  // config change elsewhere reconfigures nothing.
   const wordWrap = createMemo(() => configStore.config().editor.word_wrap);
   const tabSize = createMemo(() => configStore.config().editor.tab_size);
   createEffect(on(
@@ -936,8 +936,9 @@ export default function EditorInstance(props: Props) {
 
   // Reapply the editing compartment whenever the config flag or the detected
   // language changes at runtime, so the open buffer responds instantly.
+  const markdownEditing = createMemo(() => configStore.config().editor.markdown_editing);
   createEffect(() => {
-    const editingEnabled = configStore.config().editor.markdown_editing;
+    const editingEnabled = markdownEditing();
     const lang = win.editor.language();
     const markdown = isMarkdown();
     const mode = win.editor.largeFileMode();
@@ -972,14 +973,14 @@ export default function EditorInstance(props: Props) {
   ));
 
   // Re-apply spell check when the master switch or what the checker reads
-  // changes, and only then: the config signal also moves on every zoom step
-  // and palette command. Buffer switches and file-mode changes are handled in
-  // loadBuffer.
+  // changes, and only then. The words are copied out so the comparison sees a
+  // list the store changed in place. Buffer switches and file-mode changes are
+  // handled in loadBuffer.
   const spellingEnabled = createMemo(() => configStore.config().spelling.enabled);
   const spellingRules = createMemo(
     (): SpellingRules => {
       const { dialect, ignored_words } = configStore.config().spelling;
-      return { dialect, ignored_words };
+      return { dialect, ignored_words: [...ignored_words] };
     },
     undefined,
     { equals: sameSpellingRules },

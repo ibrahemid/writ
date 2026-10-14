@@ -111,6 +111,7 @@ const RENAMED = {
   updated: 1,
   updated_paths: ["/notes/First.md"],
   skipped: [],
+  undo_token: "tok-1",
 };
 
 describe("a rename that carries the links", () => {
@@ -218,6 +219,7 @@ describe("a rename that carries the links", () => {
     chose.mockResolvedValueOnce("confirm");
     mockedApi.renameNoteWithLinks.mockResolvedValue({
       renamed_path: "/notes/New note.md",
+      undo_token: "tok-1",
       updated: 1,
       updated_paths: ["/notes/First.md"],
       skipped: [
@@ -247,6 +249,7 @@ describe("a rename that carries the links", () => {
     chose.mockResolvedValueOnce("confirm");
     mockedApi.renameNoteWithLinks.mockResolvedValue({
       renamed_path: "/notes/New note.md",
+      undo_token: "tok-1",
       updated: 0,
       updated_paths: [],
       skipped: [
@@ -279,6 +282,7 @@ describe("a rename that carries the links", () => {
     chose.mockResolvedValueOnce("confirm");
     mockedApi.renameNoteWithLinks.mockResolvedValue({
       renamed_path: "/notes/one/Renamed.md",
+      undo_token: "tok-1",
       updated: 0,
       updated_paths: [],
       skipped: [
@@ -314,6 +318,22 @@ describe("a rename that carries the links", () => {
     expect(reloaded).not.toHaveBeenCalled();
   });
 
+  it("renames a file from outside the folder by its tab, with no links to carry", async () => {
+    mockedApi.listActiveBuffers.mockResolvedValue([
+      doc({ id: "n-9", title: "todo.md", source_path: "/elsewhere/todo.md" }),
+    ]);
+    await bufferRegistry.load();
+    mockedApi.countLinksTo.mockResolvedValue(0);
+    mockedApi.renameNote.mockResolvedValue(
+      doc({ id: "n-9", title: "done.md", source_path: "/elsewhere/done.md" }),
+    );
+
+    await renameNoteAndLinks("n-9", "done");
+
+    expect(mockedApi.renameNote).toHaveBeenCalledWith("n-9", "done");
+    expect(mockedApi.renameNoteWithLinks).not.toHaveBeenCalled();
+  });
+
   it("puts the rename back over the files it rewrote and no others", async () => {
     mockedApi.countLinksTo.mockResolvedValue(1);
     chose.mockResolvedValueOnce("confirm");
@@ -326,15 +346,13 @@ describe("a rename that carries the links", () => {
       updated: 1,
       updated_paths: ["/notes/First.md"],
       skipped: [],
+      undo_token: null,
     });
 
     await renameLinksStore.undoRename();
 
-    expect(mockedApi.undoRenameWithLinks).toHaveBeenCalledWith(
-      "/notes/New note.md",
-      "Old note",
-      ["/notes/First.md"],
-    );
+    // The paths stay with the backend: the undo sends the token and nothing else.
+    expect(mockedApi.undoRenameWithLinks).toHaveBeenCalledWith("tok-1");
     expect(renameLinksStore.canUndo()).toBe(false);
   });
 });

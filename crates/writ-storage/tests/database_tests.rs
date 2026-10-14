@@ -34,6 +34,13 @@ fn roll_back_047(conn: &rusqlite::Connection) {
         .expect("failed to drop the column 047 added");
 }
 
+/// Takes back what migration 049 added: the command usage table. The stamp is
+/// the caller's to remove.
+fn roll_back_049(conn: &rusqlite::Connection) {
+    conn.execute("DROP TABLE command_usage", [])
+        .expect("failed to drop the table 049 added");
+}
+
 /// Takes back what migration 048 added: the digest of the bytes a
 /// preview-scripts opt-in covers. The stamp is the caller's to remove.
 fn roll_back_048(conn: &rusqlite::Connection) {
@@ -294,6 +301,7 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
     // The shape a release before 043 leaves behind: rows with no ending
     // recorded, which the column's default has to answer for.
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     roll_back_046(&conn);
@@ -365,7 +373,7 @@ fn a_fresh_database_runs_044_to_050_once_each() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
-    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 50]);
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49, 50]);
     assert_eq!(journal_columns(&conn), JOURNAL_COLUMNS);
     let name_key: i64 = conn
         .query_row(
@@ -377,7 +385,7 @@ fn a_fresh_database_runs_044_to_050_once_each() {
     assert_eq!(name_key, 1);
 
     run_migrations(&conn).expect("second run failed");
-    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 50]);
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49, 50]);
 }
 
 #[test]
@@ -389,6 +397,7 @@ fn a_database_at_043_runs_044_to_050_with_its_rows_intact() {
     // language column holds a guess from the file's name, `links` has no name
     // key and there is no journal.
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     roll_back_046(&conn);
@@ -419,7 +428,7 @@ fn a_database_at_043_runs_044_to_050_with_its_rows_intact() {
 
     run_migrations(&conn).expect("migration from 043 failed");
 
-    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 50]);
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49, 50]);
     let (title, language): (String, Option<String>) = conn
         .query_row(
             "SELECT title, language FROM buffers WHERE id = 'buf-old'",
@@ -450,6 +459,7 @@ fn migration_044_clears_every_language_guessed_from_a_name() {
     // The shape a release before 044 leaves behind: rows whose language the
     // open path filled in from the extension.
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     roll_back_046(&conn);
@@ -521,6 +531,7 @@ fn migration_047_defaults_an_existing_row_to_scripts_off() {
     // The shape a release before 047 leaves behind: a buffer row with no
     // preview-scripts choice. The column's default has to answer for it.
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 47", [])
@@ -553,6 +564,7 @@ fn migration_048_leaves_an_existing_opt_in_with_no_digest() {
     run_migrations(&conn).expect("migrations failed");
 
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 48", [])
         .expect("failed to roll the stamp back");
@@ -586,6 +598,7 @@ fn a_database_at_041_gains_the_column_with_its_rows_intact() {
     // Roll the database back to the shape the release that ships 040 and 041
     // leaves behind, then migrate it forward again.
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     roll_back_046(&conn);
@@ -794,6 +807,7 @@ fn a_database_at_043_gains_the_name_key_of_every_stored_link() {
     run_migrations(&conn).expect("migrations failed");
 
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     roll_back_046(&conn);
@@ -858,6 +872,7 @@ fn a_database_at_043_that_lost_its_links_table_still_migrates() {
     conn.execute("DROP TABLE links", [])
         .expect("failed to drop the table");
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     roll_back_046(&conn);
@@ -889,6 +904,7 @@ fn a_database_at_044_gains_the_name_key_of_every_stored_link() {
     run_migrations(&conn).expect("migrations failed");
 
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     roll_back_046(&conn);
@@ -938,6 +954,7 @@ fn a_database_whose_links_already_carry_the_name_key_still_migrates() {
     run_migrations(&conn).expect("migrations failed");
 
     roll_back_050(&conn);
+    roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
     roll_back_046(&conn);

@@ -18,6 +18,7 @@
 //! - [`chat`]: request shape and stream grammar for the chat pane (ADR-031).
 //! - [`command`]: command registry types for palette-driven actions.
 //! - [`config`]: typed user configuration with serde defaults.
+//! - [`crash`]: what a panic report may say (ADR-045).
 //! - [`errors`]: crate-wide [`errors::WritError`] / [`errors::WritResult`].
 //! - [`events`]: strongly-typed domain events and an in-process event bus.
 //! - [`file_ops`]: pure helpers for file validation and the open tiers.
@@ -58,6 +59,8 @@ pub mod chat;
 pub mod command;
 /// Typed configuration schema with serde defaults.
 pub mod config;
+/// What a panic report may say, and the file it goes to (ADR-045).
+pub mod crash;
 /// Default-app policy: UTI mapping and handler-status types.
 pub mod default_app;
 /// Line diff for what a proposal would change.
@@ -76,6 +79,8 @@ pub mod history;
 pub mod hotkey;
 /// Watch-inbox auto-open policy — ADR-018.
 pub mod inbox;
+/// One running Writ per data folder, and what a second launch hands it.
+pub mod instance;
 /// External-link allowlist policy — ADR-025.
 pub mod link;
 /// Database bloat policy driving the startup vacuum.

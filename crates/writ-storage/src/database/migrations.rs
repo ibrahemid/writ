@@ -45,6 +45,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
         48,
         include_str!("../../migrations/048_buffer_preview_scripts_hash.sql"),
     ),
+    (49, include_str!("../../migrations/049_command_usage.sql")),
     (50, include_str!("../../migrations/050_buffer_encoding.sql")),
 ];
 

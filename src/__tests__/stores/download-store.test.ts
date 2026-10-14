@@ -157,6 +157,29 @@ describe("download store", () => {
     expect(materialiseNote).toHaveBeenCalledTimes(2);
   });
 
+  it("asks again for a stopped note from Try again, on the same entry", async () => {
+    const downloads = createDownloadStore();
+    await downloads.start(NOTE);
+    await downloads.handle({ path: NOTE.path, state: "failed", message: "offline" });
+
+    await downloads.retry(NOTE.path);
+
+    expect(downloads.pending()).toEqual([
+      { ...NOTE, state: "downloading", reason: "download", message: null },
+    ]);
+    expect(materialiseNote).toHaveBeenCalledTimes(2);
+    expect(cancelMaterialiseNote).not.toHaveBeenCalled();
+  });
+
+  it("does nothing on Try again for a note still downloading or not pending", async () => {
+    const downloads = createDownloadStore();
+    await downloads.start(NOTE);
+    await downloads.retry(NOTE.path);
+    await downloads.retry("/elsewhere.md");
+
+    expect(materialiseNote).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a download that never started rather than waiting on it", async () => {
     materialiseNote.mockRejectedValueOnce(new Error("path not authorized"));
     const downloads = createDownloadStore();

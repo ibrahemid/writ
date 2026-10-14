@@ -42,7 +42,7 @@ impl IdentityProbe for Probe {
             path: path.to_string_lossy().into_owned(),
             size: metadata.len(),
             mtime_ms: None,
-            hash: writ_core::hash::sha256_bytes(&std::fs::read(path).unwrap_or_default()),
+            birth_ns: None,
         })
     }
 }
@@ -53,12 +53,12 @@ struct NoStableId;
 
 impl IdentityProbe for NoStableId {
     fn identity_of(&self, path: &Path) -> Option<FileIdentity> {
-        let bytes = std::fs::read(path).ok()?;
+        let metadata = std::fs::metadata(path).ok()?;
         Some(FileIdentity::Fallback {
             path: path.to_string_lossy().into_owned(),
-            size: bytes.len() as u64,
+            size: metadata.len(),
             mtime_ms: Some(1),
-            hash: writ_core::hash::sha256_bytes(&bytes),
+            birth_ns: None,
         })
     }
 }

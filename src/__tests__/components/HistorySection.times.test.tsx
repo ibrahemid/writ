@@ -20,6 +20,7 @@ vi.mock("../../services/tauri", () => ({
   listActiveBuffers: vi.fn(async () => []),
   listHistory: vi.fn(async () => h.history),
   updateConfig: vi.fn(async () => {}),
+  getConfig: vi.fn(async () => ({})),
 }));
 vi.mock("../../services/events", () => ({
   onEvent: vi.fn().mockResolvedValue(() => {}),
@@ -57,9 +58,11 @@ function shownTime(container: HTMLElement): string | null {
   return container.querySelector(".tab-item-trailing")?.textContent ?? null;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] });
   vi.setSystemTime(new Date("2026-10-13T09:00:00Z"));
+  // The sidebar's open state is the config's, read once it has loaded.
+  await configStore.load();
   configStore.setSidebarSectionHidden("recent", false);
 });
 

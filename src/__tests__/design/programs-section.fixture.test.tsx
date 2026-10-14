@@ -83,6 +83,7 @@ function hostedEndpoint(overrides: Record<string, unknown> = {}) {
 }
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: mocks.writeClipboardText,
   getConfig: vi.fn().mockResolvedValue(undefined),
   updateConfig: vi.fn().mockResolvedValue(undefined),
   listActiveBuffers: vi.fn().mockResolvedValue([]),
@@ -142,9 +143,6 @@ vi.mock("../../stores/global/storage", () => ({
   copyStoragePath: mocks.copyStoragePath,
 }));
 
-vi.mock("../../services/clipboard", () => ({
-  writeClipboardText: mocks.writeClipboardText,
-}));
 
 vi.mock("../../stores/global/notices", () => ({
   THIRD_PARTY_NOTICES_TITLE: "Third-party licences",
@@ -197,10 +195,8 @@ function baseConfig(): WritConfig {
     window: { width: 1100, height: 720, maximized: false },
     keybindings: {},
     history: { max_entries: 500 },
-    storage: { path: "~/.writ" },
     theme: { preset: "warp-dark", overrides: {} },
     appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
-    commands: { usage: {} },
     files: { default_extension: "txt" },
   workspace: { root: null },
   inbox: { path: null, focus: true },

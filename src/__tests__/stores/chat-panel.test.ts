@@ -20,6 +20,7 @@ vi.mock("../../stores/global/config", async () => {
     ...actual,
     configStore: {
       config: () => ({ chat_panel: h.chatPanel }),
+      loaded: () => true,
       setChatPanelOpen: (open: boolean) => {
         h.chatPanel = { ...h.chatPanel, open };
         h.setChatPanelOpen(open);
@@ -58,7 +59,6 @@ beforeEach(() => {
 describe("the chat column", () => {
   it("starts closed on a first launch", () => {
     withStore((store) => {
-      store.hydrateFromConfig();
       expect(store.isOpen()).toBe(false);
     });
   });
@@ -66,7 +66,6 @@ describe("the chat column", () => {
   it("opens where it was left", () => {
     h.chatPanel = { open: true, width: 460 };
     withStore((store) => {
-      store.hydrateFromConfig();
       expect(store.isOpen()).toBe(true);
       expect(store.width()).toBe(460);
     });
@@ -86,7 +85,6 @@ describe("the chat column", () => {
     withStore((store) => store.setWidth(505));
     expect(h.setChatPanelWidth).toHaveBeenCalledWith(505);
     withStore((store) => {
-      store.hydrateFromConfig();
       expect(store.width()).toBe(505);
     });
   });

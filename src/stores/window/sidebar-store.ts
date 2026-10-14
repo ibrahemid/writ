@@ -9,7 +9,10 @@ import { workspaceStore } from "../global/workspace";
 export type SidebarStore = ReturnType<typeof createSidebarStore>;
 
 export function createSidebarStore() {
-  const [isOpen, setIsOpen] = createSignal(false);
+  // Read from the config rather than copied out of it, so a hand edit of
+  // config.toml opens or closes the sidebar and a toggle never writes back a
+  // stale value. Closed until the stored settings have loaded.
+  const isOpen = (): boolean => configStore.loaded() && configStore.config().sidebar.open;
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchHits, setSearchHits] = createSignal<SearchHit[]>([]);
   const [searchTotal, setSearchTotal] = createSignal(0);
@@ -20,32 +23,16 @@ export function createSidebarStore() {
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let searchGeneration = 0;
 
-  function persist() {
-    const current = configStore.config();
-    const next = {
-      ...current,
-      sidebar: { ...current.sidebar, open: isOpen() },
-    };
-    configStore.save(next).catch(() => {});
-  }
-
-  function hydrateFromConfig() {
-    setIsOpen(configStore.config().sidebar.open);
-  }
-
   function show() {
-    setIsOpen(true);
-    persist();
+    configStore.setSidebarOpen(true);
   }
 
   function hide() {
-    setIsOpen(false);
-    persist();
+    configStore.setSidebarOpen(false);
   }
 
   function toggle() {
-    setIsOpen((prev) => !prev);
-    persist();
+    configStore.setSidebarOpen(!isOpen());
   }
 
   /**
@@ -144,7 +131,6 @@ export function createSidebarStore() {
     show,
     hide,
     toggle,
-    hydrateFromConfig,
     searchQuery,
     setSearchQuery: updateSearchQuery,
     searchHits,

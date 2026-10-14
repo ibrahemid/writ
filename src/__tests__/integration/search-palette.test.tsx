@@ -30,10 +30,16 @@ const h = vi.hoisted(() => ({
   restoreFromHistory: vi.fn(),
 }));
 
+vi.mock("../../stores/global/command-usage", () => ({
+  commandUsageStore: {
+    usage: () => h.usage,
+    record: h.recordCommandUse,
+  },
+}));
+
 vi.mock("../../stores/global/config", () => ({
   configStore: {
-    config: () => ({ commands: { usage: h.usage } }),
-    recordCommandUse: h.recordCommandUse,
+    config: () => ({}),
   },
 }));
 
@@ -429,11 +435,33 @@ describe("SearchPalette", () => {
   });
 
   it("states a capped content search", async () => {
-    h.outcome = { hit_count: 500, files_scanned: 900, truncated: true, cancelled: false };
+    h.outcome = {
+      hit_count: 500,
+      files_scanned: 900,
+      truncated: true,
+      cancelled: false,
+      skipped_not_downloaded: 0,
+    };
     await open();
     await waitFor(() =>
       expect(document.querySelector(".palette-notice")?.textContent).toBe(
         "Text search stopped at 500 matches",
+      ),
+    );
+  });
+
+  it("states how many files were not searched because they are not downloaded", async () => {
+    h.outcome = {
+      hit_count: 2,
+      files_scanned: 40,
+      truncated: false,
+      cancelled: false,
+      skipped_not_downloaded: 3,
+    };
+    await open();
+    await waitFor(() =>
+      expect(document.querySelector(".palette-notice")?.textContent).toBe(
+        "3 files not downloaded, not searched",
       ),
     );
   });

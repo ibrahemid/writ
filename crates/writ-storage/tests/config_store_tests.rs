@@ -677,3 +677,40 @@ fn a_config_with_a_second_name_is_refused_and_both_names_keep_their_bytes() {
         );
     }
 }
+
+#[test]
+fn the_startup_read_keeps_the_values_that_read_and_names_the_rest() {
+    let (_dir, store) = setup();
+    let text = "[editor]\nfont_size = \"16\"\ntab_size = 4\n";
+    std::fs::write(store.path(), text).unwrap();
+
+    let (read, raw) = store.read_lenient().expect("a bad value is not an error");
+    assert_eq!(raw, text);
+    assert_eq!(read.config.editor.tab_size, 4);
+    assert_eq!(read.diagnostics.len(), 1);
+    assert_eq!(read.diagnostics[0].key, "editor.font_size");
+    assert_eq!(read.diagnostics[0].line, 2);
+    // Reading writes nothing.
+    assert_eq!(std::fs::read_to_string(store.path()).unwrap(), text);
+}
+
+#[test]
+fn the_startup_read_of_no_file_is_the_defaults_with_nothing_to_say() {
+    let (_dir, store) = setup();
+    let (read, raw) = store.read_lenient().unwrap();
+    assert_eq!(read.config, WritConfig::default());
+    assert!(read.diagnostics.is_empty());
+    assert!(raw.is_empty());
+    assert!(!store.path().exists());
+}
+
+#[test]
+fn the_text_read_answers_the_file_as_written_and_empty_without_one() {
+    let (_dir, store) = setup();
+    assert_eq!(store.read_text().unwrap(), "");
+    assert!(!store.path().exists());
+
+    let text = "[editor]\nfont_size = \"16\"\n# kept\n";
+    std::fs::write(store.path(), text).unwrap();
+    assert_eq!(store.read_text().unwrap(), text);
+}

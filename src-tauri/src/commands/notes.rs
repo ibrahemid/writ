@@ -24,11 +24,12 @@ use writ_storage::note_ops::{self, LinkRewrite};
 use writ_storage::notes_index;
 use writ_storage::notes_migration::{self, MigrationReport};
 use writ_storage::notes_move;
+use writ_storage::paths::file_name_only;
 use writ_storage::workspace_store;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message};
 use crate::commands::note_index::{announce_indexed, announce_walk, holds_own_write, index_copy};
-use crate::security::{canonicalize_for_authorization, resolve_for_containment};
+use crate::security::{canonicalize_for_authorization, resolve_for_containment, RenameUndo};
 use crate::state::{AppState, NotesRootFallback};
 
 /// The name a note is known by: the file's own name, extension included, which
@@ -279,7 +280,10 @@ fn folder_inside_notes(root: &Path, folder: PathBuf) -> Result<PathBuf, String> 
     if inside {
         Ok(folder)
     } else {
-        warn!(folder = %folder.display(), "refused a note folder outside the notes folder");
+        warn!(
+            folder = %file_name_only(&folder.to_string_lossy()),
+            "refused a note folder outside the notes folder"
+        );
         Err(FOLDER_IS_OUTSIDE.to_string())
     }
 }
@@ -330,7 +334,11 @@ fn create_note_at_in(
     drop(store);
     if holds_own_write(state, &path) {
         if let Err(error) = state.notes_index.index_path(&path) {
-            warn!(path = %path.display(), %error, "a new note could not be indexed");
+            warn!(
+                path = %file_name_only(&path.to_string_lossy()),
+                %error,
+                "a new note could not be indexed"
+            );
         }
         announce_indexed(&state.event_bus, [notes_index::index_key(&path)]);
     }
@@ -424,6 +432,10 @@ pub fn rename_note_recording(
     let store = state.store.lock().map_err(|e| e.to_string())?;
     let doc = store.get(id).map_err(|e| e.to_string())?;
     let from = note_path(&doc)?;
+    // A rename rewrites where the file is, so it passes the gate a save does:
+    // a file in the notes folder, or one an open tab holds. The id comes from
+    // the webview, and a closed tab's file is not one it may move.
+    crate::commands::file::authorize_source_write(state, &from)?;
     let from = Path::new(&from);
 
     let stem = rename_stem(from, title).ok_or_else(|| NAME_IS_EMPTY.to_string())?;
@@ -476,7 +488,7 @@ fn undo_rename(
     match std::fs::rename(to, from) {
         Ok(()) => {
             tracing::warn!(
-                path = %to.display(),
+                path = %file_name_only(&to.to_string_lossy()),
                 error = %cause,
                 "the row could not follow the rename; the file was put back"
             );
@@ -484,7 +496,7 @@ fn undo_rename(
         }
         Err(undo) => {
             tracing::error!(
-                path = %to.display(),
+                path = %file_name_only(&to.to_string_lossy()),
                 error = %cause,
                 undo = %undo,
                 "the row could not follow the rename and the file could not be put back"
@@ -548,7 +560,20 @@ pub struct RenamePropagationDto {
     pub updated_paths: Vec<String>,
     /// The notes that were left as they were, each with its reason.
     pub skipped: Vec<SkippedFile>,
+    /// What `Undo rename` hands back to put this rename back, or `None` when
+    /// there is nothing to undo. The paths the undo touches stay in Rust
+    /// ([`crate::security::AuthorizedPaths::hold_rename_undo`]).
+    pub undo_token: Option<String>,
 }
+
+/// What a rename with links says about a file the notes folder does not hold.
+/// A file opened from elsewhere has no links to rewrite and is renamed by its
+/// tab instead.
+pub const NOT_IN_FOLDER_TO_RENAME: &str =
+    "Only files in your folder can be renamed with their links.";
+
+/// What an undo says when the token names no rename it can put back.
+pub const NO_RENAME_TO_UNDO: &str = "There is no rename to undo.";
 
 /// The notes that link to the note at `path`, each once, in path order.
 ///
@@ -610,6 +635,9 @@ pub fn rename_note_with_links_inner(
     new_name: &str,
     update_links: bool,
 ) -> Result<RenamePropagationDto, String> {
+    if !path_is_inside_notes(state, path) {
+        return Err(NOT_IN_FOLDER_TO_RENAME.to_string());
+    }
     let from = Path::new(path);
     let from_key = notes_index::index_key(from);
     let linking: Vec<PathBuf> = linking_notes(state, from)?
@@ -617,7 +645,31 @@ pub fn rename_note_with_links_inner(
         .filter(|link_from| update_links || notes_index::index_key(link_from) == from_key)
         .collect();
     let candidates = state.notes_index.note_paths().map_err(|e| e.to_string())?;
-    rename_and_propagate(state, from, new_name, linking, candidates)
+    let mut outcome = rename_and_propagate(state, from, new_name, linking, candidates)?;
+    outcome.undo_token = hold_undo(state, from, &outcome);
+    Ok(outcome)
+}
+
+/// Records what an undo of `outcome` may touch, and answers its token. A rename
+/// that moved nothing and rewrote nothing has nothing to undo, and clears any
+/// earlier one: the undo on offer is always the last rename's.
+fn hold_undo(state: &AppState, from: &Path, outcome: &RenamePropagationDto) -> Option<String> {
+    let previous_name = from
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
+    match previous_name {
+        Some(previous_name) if outcome.updated > 0 || outcome.renamed_path != path_text(from) => {
+            state.authorized_paths.hold_rename_undo(RenameUndo {
+                renamed: PathBuf::from(&outcome.renamed_path),
+                previous_name,
+                updated: outcome.updated_paths.clone(),
+            })
+        }
+        _ => {
+            state.authorized_paths.clear_rename_undo();
+            None
+        }
+    }
 }
 
 /// IPC: [`rename_note_with_links_inner`].
@@ -634,19 +686,33 @@ pub fn rename_note_with_links(
 /// Puts a propagated rename back: the note takes its previous name again and
 /// the notes the rename rewrote are rewritten in the opposite direction.
 ///
-/// `paths` is the `updated_paths` of the rename being undone, so the undo
-/// touches those files and no others. Each one goes through the same guarded
-/// write, so a file that changed since the rename is refused here exactly as
-/// it would have been refused there, and lands in `skipped` rather than losing
-/// the edit somebody made in between.
+/// `token` is the `undo_token` of the rename being undone. It stands for what
+/// Rust recorded when the rename ran, so the undo touches the files the rename
+/// rewrote and no others, whatever the webview asks; it is spent here, once.
+/// Each file goes through the same guarded write, so a file that changed since
+/// the rename is refused here exactly as it would have been refused there, and
+/// lands in `skipped` rather than losing the edit somebody made in between.
 pub fn undo_rename_with_links_inner(
     state: &AppState,
-    path: &str,
-    previous_name: &str,
-    paths: &[String],
+    token: &str,
 ) -> Result<RenamePropagationDto, String> {
-    let from = Path::new(path);
-    let linking: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    let undo = state
+        .authorized_paths
+        .take_rename_undo(token)
+        .ok_or_else(|| NO_RENAME_TO_UNDO.to_string())?;
+    // The folder can have moved since the rename; a path it no longer holds is
+    // not one this may write.
+    if !path_is_inside_notes(state, &path_text(&undo.renamed)) {
+        return Err(NOT_IN_FOLDER_TO_RENAME.to_string());
+    }
+    let from = undo.renamed.as_path();
+    let previous_name = undo.previous_name.as_str();
+    let linking: Vec<PathBuf> = undo
+        .updated
+        .iter()
+        .filter(|path| path_is_inside_notes(state, path))
+        .map(PathBuf::from)
+        .collect();
     // The undo already knows which files the rename rewrote and where the note
     // is, so it names them itself rather than asking the index again. An index
     // that lost the renamed note — a reindex that failed after the rename —
@@ -660,11 +726,9 @@ pub fn undo_rename_with_links_inner(
 #[tauri::command]
 pub fn undo_rename_with_links(
     state: State<'_, AppState>,
-    path: String,
-    previous_name: String,
-    paths: Vec<String>,
+    token: String,
 ) -> Result<RenamePropagationDto, String> {
-    undo_rename_with_links_inner(&state, &path, &previous_name, &paths)
+    undo_rename_with_links_inner(&state, &token)
 }
 
 /// The path a link has to write to reach `file`, spelled the way the index
@@ -777,7 +841,7 @@ fn rename_and_propagate(
             }),
             Err(error) => {
                 warn!(
-                    path = %file.display(),
+                    path = %file_name_only(&file.to_string_lossy()),
                     error = %error,
                     "a note linking to the renamed one was left as it was"
                 );
@@ -796,6 +860,7 @@ fn rename_and_propagate(
         updated: updated_paths.len() as u32,
         updated_paths,
         skipped,
+        undo_token: None,
     })
 }
 
@@ -857,7 +922,11 @@ fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[Str
     let from_key = notes_index::index_key(from);
     if from != to {
         if let Err(error) = index.forget_path(from) {
-            warn!(path = %from.display(), error = %error, "the notes index kept a renamed note's old path");
+            warn!(
+                path = %file_name_only(&from.to_string_lossy()),
+                error = %error,
+                "the notes index kept a renamed note's old path"
+            );
         }
     }
     for path in std::iter::once(path_text(to)).chain(updated.iter().cloned()) {
@@ -865,7 +934,11 @@ fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[Str
             continue;
         }
         if let Err(error) = index.index_path(Path::new(&path)) {
-            warn!(path = %path, error = %error, "the notes index was not updated after a rename");
+            warn!(
+                path = %file_name_only(&path),
+                error = %error,
+                "the notes index was not updated after a rename"
+            );
         }
     }
     announce_indexed(
@@ -917,7 +990,11 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
         // it, so the announcement below is never read against a row for a file
         // that is already in the Trash.
         if let Err(error) = state.notes_index.forget_path(path) {
-            warn!(path = %path.display(), %error, "the notes index kept a deleted note");
+            warn!(
+                path = %file_name_only(&path.to_string_lossy()),
+                %error,
+                "the notes index kept a deleted note"
+            );
         }
         trashed = Some(key);
     }
@@ -1218,6 +1295,9 @@ pub fn move_notes_folder_to(
         return Err(CANNOT_BE_CHECKED.to_string());
     };
     refuse_destination(state, &from, Path::new(&planned))?;
+    // The files move before the config learns where they went, so a config
+    // that could not take the path is found out while nothing has moved.
+    crate::commands::config::check_notes_root_writable(state, &planned)?;
 
     std::fs::create_dir_all(destination).map_err(|e| e.to_string())?;
     let to = crate::security::canonicalize_root(destination).map_err(|e| e.to_string())?;
@@ -1261,7 +1341,8 @@ pub fn move_notes_folder_to(
 ///
 /// The config is written first: a folder Writ forgets on the next launch is
 /// worse than one it has not started using yet, and every note is already in
-/// it by the time this runs.
+/// it by the time this runs. It is written while the launch holds values it
+/// could not read too, as the one value in the file that changes.
 fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), String> {
     let mut config = state.config.lock().map_err(|e| e.to_string())?;
     let next = writ_core::config::WritConfig {
@@ -1270,7 +1351,7 @@ fn adopt_notes_root(state: &AppState, root: &Path, text: &str) -> Result<(), Str
         },
         ..config.clone()
     };
-    crate::commands::config::persist_config(state, &next)?;
+    crate::commands::config::persist_notes_root(state, &next)?;
     *config = next;
     drop(config);
 

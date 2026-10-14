@@ -530,10 +530,11 @@ pub fn create_note_guarded(
 /// stands in for the incoming one and a refusal writes nothing beside the
 /// note.
 ///
-/// A caller holding no record proceeds: "has this changed since Writ last
-/// looked" has no answer for a file Writ has not looked at. A file whose bytes
-/// are not on this machine is stopped before the compare read, because that
-/// read is what would pull it down.
+/// A caller holding no record proceeds without reading anything: "has this
+/// changed since Writ last looked" has no answer for a file Writ has not
+/// looked at, and the read would download a file whose bytes are not on this
+/// machine (RC-21). With a record, such a file is stopped before the compare
+/// read, because that read is what would pull it down.
 ///
 /// # Errors
 ///
@@ -546,7 +547,10 @@ pub fn guard_rename(
     last_known: Option<DiskState>,
     origin: WriteOrigin,
 ) -> StorageResult<()> {
-    if last_known.is_some() && is_not_downloaded(dataless_flags(from)) {
+    let Some(last_known) = last_known else {
+        return Ok(());
+    };
+    if is_not_downloaded(dataless_flags(from)) {
         return Err(StorageError::SourceNotDownloaded {
             path: from.to_string_lossy().into_owned(),
         });
@@ -556,7 +560,7 @@ pub fn guard_rename(
     // Only one answer is read here — whether the guard refuses — so it does
     // not matter which of the two permissive answers a file Writ last saw
     // unchanged comes back with.
-    if let (Some(last_known), Some(state)) = (last_known, on_disk) {
+    if let Some(state) = on_disk {
         if decide_save(Some(&last_known), Some(&state), last_known.hash) == SaveDecision::Refuse {
             return Err(refuse(
                 from,
@@ -599,7 +603,7 @@ fn refuse(
                 Ok(written) => Some(written.to_string_lossy().into_owned()),
                 Err(e) => {
                     warn!(
-                        path = %target.display(),
+                        path = %file_name_only(&target.to_string_lossy()),
                         origin = %origin,
                         error = %e,
                         "the copy beside the note could not be written"

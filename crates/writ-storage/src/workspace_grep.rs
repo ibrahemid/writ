@@ -21,7 +21,7 @@
 //! (the batch sink runs on the collector thread).
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -95,6 +95,28 @@ pub struct GrepOutcome {
     pub truncated: bool,
     /// `true` when a newer query cancelled this one before it finished.
     pub cancelled: bool,
+    /// Files left unsearched because their bytes are not on this machine: a
+    /// read would make the sync provider download each one (RC-22).
+    pub skipped_not_downloaded: usize,
+}
+
+/// Whether a walked file's bytes are somewhere else, from the metadata the
+/// walk already read.
+type DatalessCheck = Arc<dyn Fn(&Path, &std::fs::Metadata) -> bool + Send + Sync>;
+
+/// macOS: `SF_DATALESS` in the stat flags, which an evicted iCloud file
+/// carries. An evicted file reports its full logical size, so the size cap
+/// does not skip it.
+#[cfg(target_os = "macos")]
+fn metadata_is_dataless(_path: &Path, metadata: &std::fs::Metadata) -> bool {
+    use std::os::macos::fs::MetadataExt;
+    writ_core::notes::guard::is_not_downloaded(Some(metadata.st_flags()))
+}
+
+/// Every other platform reports no such state.
+#[cfg(not(target_os = "macos"))]
+fn metadata_is_dataless(_path: &Path, _metadata: &std::fs::Metadata) -> bool {
+    false
 }
 
 /// Flush a batch after this many hits accumulate.
@@ -133,9 +155,11 @@ pub fn search_workspace_content(
         on_scanned,
         FLUSH_LEN,
         FLUSH_INTERVAL,
+        Arc::new(metadata_is_dataless),
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_search(
     req: GrepRequest,
     limits: GrepLimits,
@@ -144,6 +168,7 @@ fn run_search(
     on_scanned: Option<ScanObserver>,
     flush_len: usize,
     flush_interval: Duration,
+    dataless: DatalessCheck,
 ) -> StorageResult<GrepOutcome> {
     if req.query.trim().is_empty() {
         return Ok(GrepOutcome {
@@ -151,6 +176,7 @@ fn run_search(
             files_scanned: 0,
             truncated: false,
             cancelled: cancelled(),
+            skipped_not_downloaded: 0,
         });
     }
 
@@ -163,6 +189,7 @@ fn run_search(
     let (tx, rx) = mpsc::channel::<ContentHit>();
     let cap_reached = Arc::new(AtomicBool::new(false));
     let files_scanned = Arc::new(AtomicUsize::new(0));
+    let skipped_not_downloaded = Arc::new(AtomicUsize::new(0));
     let max_results = limits.max_results;
 
     let collector = {
@@ -192,6 +219,8 @@ fn run_search(
         let cancelled = cancelled.clone();
         let cap_reached = cap_reached.clone();
         let files_scanned = files_scanned.clone();
+        let skipped_not_downloaded = skipped_not_downloaded.clone();
+        let dataless = dataless.clone();
         let on_scanned = on_scanned.clone();
         let matcher = matcher.clone();
         let root = root.clone();
@@ -209,6 +238,10 @@ fn run_search(
                 _ => return WalkState::Continue,
             }
             if let Ok(md) = entry.metadata() {
+                if dataless(entry.path(), &md) {
+                    skipped_not_downloaded.fetch_add(1, Ordering::Relaxed);
+                    return WalkState::Continue;
+                }
                 if md.len() > max_file_bytes {
                     return WalkState::Continue;
                 }
@@ -247,6 +280,7 @@ fn run_search(
         files_scanned: files_scanned.load(Ordering::Relaxed),
         truncated,
         cancelled: cancelled(),
+        skipped_not_downloaded: skipped_not_downloaded.load(Ordering::Relaxed),
     })
 }
 
@@ -462,6 +496,31 @@ mod tests {
         let (hits, _) = run(dir.path(), "needle", GrepLimits::default());
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].path, "text.txt");
+    }
+
+    #[test]
+    fn a_file_whose_bytes_are_elsewhere_is_counted_and_never_read() {
+        let dir = TempDir::new().unwrap();
+        write(dir.path(), "evicted.md", "needle in the cloud");
+        write(dir.path(), "local.md", "needle here");
+        let outcome = run_search(
+            GrepRequest {
+                root: dir.path().to_path_buf(),
+                query: "needle".to_string(),
+                generation: 1,
+            },
+            GrepLimits::default(),
+            Arc::new(|| false),
+            Box::new(|_| {}),
+            None,
+            FLUSH_LEN,
+            FLUSH_INTERVAL,
+            Arc::new(|path: &Path, _: &std::fs::Metadata| path.ends_with("evicted.md")),
+        )
+        .unwrap();
+        assert_eq!(outcome.hit_count, 1, "the placeholder is not searched");
+        assert_eq!(outcome.files_scanned, 1);
+        assert_eq!(outcome.skipped_not_downloaded, 1);
     }
 
     #[test]

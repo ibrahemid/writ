@@ -842,28 +842,6 @@ pub fn save_note_to(
     Ok(disk_hash)
 }
 
-/// IPC: writes buffer content and leaves the search index alone.
-///
-/// The third-party notices listing used to be written through here after a
-/// plain [`create_buffer`], which minted it a file in the notes folder like
-/// any other note. It no longer is: a generated document opens read-only
-/// through [`crate::commands::file::open_generated_document`] instead, whose
-/// existing read-only refusal is what stops a save of one, so this command
-/// no longer has a caller that reaches it with no file yet to mint one for
-/// (ADR-028 §1). It is left in place as the unindexed counterpart of
-/// [`save_buffer_content`], for whichever caller needs it next.
-///
-/// Destination follows the same rule as every other save: the file the note
-/// lives in, minted in the notes folder when it has none.
-#[tauri::command]
-pub fn save_buffer_content_unindexed(
-    state: State<'_, AppState>,
-    id: String,
-    content: String,
-) -> Result<Option<String>, String> {
-    save_buffer_content_inner(&state, &id, &content)
-}
-
 /// Spawns the worker that reindexes a buffer once its edits settle. The worker
 /// waits one debounce window, and either reindexes (the buffer stopped
 /// changing) or waits again (a newer edit arrived), so an edit burst collapses
@@ -1598,14 +1576,42 @@ fn forget_ignore_stamp(state: &AppState, doc: &BufferDocument, context: &'static
     ignore.remove(&key);
 }
 
+/// The file a row that just stopped being an open tab named, when no other
+/// open tab shows it: the one whose write permission goes with the tab.
+///
+/// Asked under the store lock, after the row has moved; the blessing itself is
+/// taken away once the lock is let go, since resolving the path asks the disk.
+pub(crate) fn released_source(store: &BufferStore, source_path: Option<String>) -> Option<String> {
+    let path = source_path?;
+    match store.find_active_by_source_path(&path) {
+        Ok(None) => Some(path),
+        Ok(Some(_)) => None,
+        Err(error) => {
+            tracing::warn!(%error, "could not tell whether another tab shows a closed file");
+            Some(path)
+        }
+    }
+}
+
+/// Takes away the write permission of every file in `released`.
+///
+/// A closed tab's file is one the person has put away, and only an open tab
+/// may write a file from outside the notes folder; reopening it blesses it
+/// again.
+pub(crate) fn revoke_released(state: &AppState, released: &[String]) {
+    for path in released {
+        state.authorized_paths.revoke_blessed_source(path);
+    }
+}
+
 /// IPC: closes one tab.
 ///
 /// What the file held is forgotten with the tab. The record exists to answer
 /// "did this change since Writ last looked", and after a close Writ has not
 /// looked; keeping it would let a note edited elsewhere while its tab was
-/// closed reopen without a word.
+/// closed reopen without a word. So is the permission to write the file.
 pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
-    {
+    let released = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;
         forget_ignore_stamp(state, &doc, "commands::buffer::close_buffer");
@@ -1615,7 +1621,9 @@ pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
             state.retitle_watch.closed(std::path::Path::new(path));
         }
         store.close(id).map_err(|e| e.to_string())?;
-    }
+        released_source(&store, doc.source_path)
+    };
+    revoke_released(state, released.as_slice());
     state.forget_disk_state(id);
     state.forget_source_record(id);
     state.stop_following_note(id);
@@ -1628,17 +1636,24 @@ pub fn close_buffer(state: State<'_, AppState>, id: String) -> Result<(), String
 }
 
 pub fn close_buffers_inner(state: &AppState, ids: &[String]) -> Result<(), String> {
-    {
+    let released: Vec<String> = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
+        let mut sources = Vec::new();
         for id in ids {
             if let Ok(doc) = store.get(id) {
                 if let Some(path) = doc.source_path.as_deref() {
                     state.retitle_watch.closed(std::path::Path::new(path));
                 }
+                sources.push(doc.source_path);
             }
         }
         store.close_many(ids).map_err(|e| e.to_string())?;
-    }
+        sources
+            .into_iter()
+            .filter_map(|source| released_source(&store, source))
+            .collect()
+    };
+    revoke_released(state, &released);
     for id in ids {
         state.forget_disk_state(id);
         state.forget_source_record(id);
@@ -1653,14 +1668,16 @@ pub fn close_buffers(state: State<'_, AppState>, ids: Vec<String>) -> Result<(),
 }
 
 pub fn delete_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
-    {
+    let released = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).ok();
         if let Some(doc) = doc.as_ref() {
             forget_ignore_stamp(state, doc, "commands::buffer::delete_buffer");
         }
         store.delete(id).map_err(|e| e.to_string())?;
-    }
+        released_source(&store, doc.and_then(|doc| doc.source_path))
+    };
+    revoke_released(state, released.as_slice());
     state.forget_disk_state(id);
     state.forget_source_record(id);
     state.stop_following_note(id);
@@ -1670,14 +1687,6 @@ pub fn delete_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
 #[tauri::command]
 pub fn delete_buffer(state: State<'_, AppState>, id: String) -> Result<(), String> {
     delete_buffer_inner(&state, &id)
-}
-
-#[tauri::command]
-pub fn update_tab_order(state: State<'_, AppState>, id: String, order: u32) -> Result<(), String> {
-    let store = state.store.lock().map_err(|e| e.to_string())?;
-    store
-        .update_tab_order(&id, order)
-        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

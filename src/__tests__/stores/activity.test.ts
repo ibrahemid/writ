@@ -25,6 +25,7 @@ const h = vi.hoisted(() => {
 });
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: h.writeClipboardText,
   activityRecent: h.activityRecent,
   activityClear: h.activityClear,
   mcpClients: h.mcpClients,
@@ -37,7 +38,6 @@ vi.mock("../../services/tauri", () => ({
   mcpTools: h.mcpTools,
 }));
 vi.mock("../../services/events", () => ({ onEvent: h.onEvent }));
-vi.mock("../../services/clipboard", () => ({ writeClipboardText: h.writeClipboardText }));
 
 import { activityStore, ACTIVITY_LIMIT } from "../../stores/global/activity";
 
@@ -264,10 +264,18 @@ describe("deciding on a program", () => {
     const entry = approval("Claude Code", true, true);
     h.mcpRestoreClient.mockResolvedValue(answer([entry]));
 
-    await activityStore.restore(entry);
+    expect(await activityStore.restore(entry)).toBe(true);
 
     expect(h.mcpRestoreClient).toHaveBeenCalledWith(entry);
     expect(activityStore.clients()).toEqual([entry]);
+  });
+
+  it("says so when the confirmation for writing was turned down", async () => {
+    const entry = approval("Claude Code", true, true);
+    h.mcpRestoreClient.mockResolvedValue(answer([]));
+
+    expect(await activityStore.restore(entry)).toBe(false);
+    expect(activityStore.clients()).toEqual([]);
   });
 
   it("knows which programs are decided on and which are not allowed", async () => {

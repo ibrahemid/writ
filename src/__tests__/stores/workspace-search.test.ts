@@ -25,6 +25,7 @@ function outcome(over: Partial<SearchBatch["outcome"]> = {}) {
     files_scanned: 1,
     truncated: false,
     cancelled: false,
+    skipped_not_downloaded: 0,
     ...over,
   };
 }

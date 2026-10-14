@@ -54,6 +54,7 @@ import { inboxStore } from "./stores/global/inbox";
 import { updateStore } from "./stores/global/update";
 import { hotkeyStore } from "./stores/global/hotkey";
 import { configStore } from "./stores/global/config";
+import { commandUsageStore } from "./stores/global/command-usage";
 import { syncConfigFromDisk } from "./stores/global/config-sync";
 import { themeStore } from "./stores/global/theme";
 import { osWindowStore } from "./stores/global/os-window";
@@ -239,6 +240,7 @@ function AppShell() {
     // so the iframe never requests a scheme the engine treats as external.
     await loadPreviewUrlPrefix(previewUrlPrefix);
     await configStore.load();
+    void configStore.noticeUnreadValues();
     // A config written before ADR-030 carries overrides in the old vocabulary.
     // They are translated on load; writing the result back means the next
     // launch reads a clean map.
@@ -260,9 +262,6 @@ function AppShell() {
     unlisteners.push(await osWindowStore.installGeometryPersistence());
     unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
     unlisteners.push(...(await startWindowLifecycle()));
-    win.sidebar.hydrateFromConfig();
-    win.rightPanel.hydrateFromConfig();
-    win.chatPanel.hydrateFromConfig();
     await bufferRegistry.loadSession();
     await workspaceStore.hydrate().catch(() => undefined);
     await inboxStore.hydrate().catch(() => undefined);
@@ -295,6 +294,11 @@ function AppShell() {
       workspaceStore.handleChanged(payload.path, payload.removed);
     });
     unlisteners.push(unlistenWorkspace);
+
+    const unlistenWorkspaceSwept = await onEvent("workspace:swept", () => {
+      workspaceStore.handleSwept();
+    });
+    unlisteners.push(unlistenWorkspaceSwept);
 
     const unlistenInbox = await onEvent("inbox:file-arrived", (payload) => {
       void inboxStore.handleFileArrived(payload.path);
@@ -778,7 +782,7 @@ function AppShell() {
           confirmLabel: "Clear",
         });
         if (!confirmed) return;
-        configStore.clearCommandUsage().then(
+        commandUsageStore.clear().then(
           () => showToast("Command usage cleared", "success"),
           () => showToast("Failed to clear command usage", "error"),
         );
@@ -864,8 +868,9 @@ function AppShell() {
 
     registerPreviewKeymap();
 
-    setExecuteListener((id) => configStore.recordCommandUse(id));
-    configStore.pruneCommandUsage(
+    await commandUsageStore.load();
+    setExecuteListener((id) => commandUsageStore.record(id));
+    commandUsageStore.prune(
       new Set([...getAllCommands().map((c) => c.id), ...definedAppCommandIds()]),
     );
 
@@ -909,10 +914,11 @@ function AppShell() {
     // file was named and every open note asks after its own.
     const unlistenSwept = await onEvent("notes:swept", () => {
       void recheckOpenNotes({
-        openNotes: () => bufferRegistry.buffers(),
+        tabs: bufferRegistry,
         diskStateOf: (id) => win.editor.readDiskState(id),
         lastKnownDiskHash: (id) => win.editor.lastKnownDiskHash(id),
         onChanged: (payload) => handleExternalEdit(payload, externalEditDeps),
+        onFailure: () => logFailure("an open note could not be checked after the folder changed"),
       });
     });
     unlisteners.push(unlistenSwept);

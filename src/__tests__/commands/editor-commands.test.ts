@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { EDITOR_COMMANDS } from "../../editor/editor-commands";
-import { findKeybindingConflicts, normalizeKey } from "../../commands/keybindings";
+import { normalizeKey } from "../../commands/keybindings";
+import { findKeybindingConflicts } from "./keybinding-conflicts";
 import type { Command } from "../../types/commands";
 
 function stub(id: string, keybinding: string, aliases?: string[]): Command {

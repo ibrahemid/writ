@@ -13,11 +13,21 @@
 //! prints as, so no caller can name a file outside the folder and no spelling
 //! of an id names a second file. Every write goes through
 //! [`crate::atomic::write_atomic`], so a conversation is never half a file.
+//!
+//! The list is drawn from `chats/index.json`, which holds each conversation's
+//! title, dates and turn count beside the size and modification time its file
+//! had when the row was written. Listing reads the folder's metadata and the
+//! index, and opens a conversation only when its file has no row or no longer
+//! matches it, so a list costs one small file however long the history is.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::UNIX_EPOCH;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use writ_core::chat::{Conversation, MAX_CONVERSATION_BYTES};
 
@@ -28,6 +38,23 @@ const CHATS_DIR: &str = "chats";
 
 /// The extension every conversation file carries.
 const CHAT_EXTENSION: &str = "json";
+
+/// The index of the folder. Its stem is not a UUID, so it is never read as a
+/// conversation.
+const INDEX_FILE: &str = "index.json";
+
+/// The schema the index is written at. An index at another version is read
+/// as no index, and rebuilt.
+const INDEX_VERSION: u32 = 1;
+
+/// Held across every write of a conversation and its index row, and across a
+/// list's read and rewrite of the index.
+///
+/// Every command builds its own [`ChatStore`], and a reply's task saves from
+/// its own thread, so a lock on the value would order nothing. Holding the
+/// conversation's write under the same lock is what makes the size and time a
+/// row records belong to the summary beside them.
+static INDEX_LOCK: Mutex<()> = Mutex::new(());
 
 /// Why a conversation was not read or written.
 ///
@@ -72,7 +99,7 @@ pub enum ChatStoreError {
 /// The turns themselves stay on disk: the list is shown before a conversation
 /// is opened, and reading every turn of every file to draw it would grow with
 /// the history rather than with the list.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConversationSummary {
     /// The conversation's id, which is also its file name.
     pub id: String,
@@ -96,6 +123,45 @@ impl From<&Conversation> for ConversationSummary {
             turns: conversation.turns.len(),
         }
     }
+}
+
+/// What a conversation's file looked like when its row was written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct FileStamp {
+    /// Its length in bytes.
+    bytes: u64,
+    /// Its modification time, in nanoseconds since the epoch.
+    modified: u64,
+}
+
+impl FileStamp {
+    fn of(meta: &fs::Metadata) -> Self {
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |since| {
+                u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+            });
+        Self {
+            bytes: meta.len(),
+            modified,
+        }
+    }
+}
+
+/// One row of the index: the summary, and the file it was read from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct IndexRow {
+    summary: ConversationSummary,
+    stamp: FileStamp,
+}
+
+/// `chats/index.json`, keyed by conversation id.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Index {
+    version: u32,
+    rows: BTreeMap<String, IndexRow>,
 }
 
 /// The conversation folder under one data directory.
@@ -138,8 +204,11 @@ impl ChatStore {
     ///
     /// A folder that does not exist yet is an empty list rather than an error:
     /// the pane asks for the list the first time it opens, before anything has
-    /// been written. A file that does not parse is skipped with a warning
-    /// naming the file, so one bad file does not hide the rest.
+    /// been written. Rows come from the index; a file the index has no row
+    /// for, or whose size or time moved since its row was written, is read
+    /// and its row rewritten, and a row whose file is gone is dropped. A file
+    /// that does not parse is skipped with a warning naming the file, so one
+    /// bad file does not hide the rest.
     pub fn list(&self) -> Result<Vec<ConversationSummary>, ChatStoreError> {
         let entries = match fs::read_dir(&self.dir) {
             Ok(entries) => entries,
@@ -147,27 +216,67 @@ impl ChatStore {
             Err(error) => return Err(error.into()),
         };
 
-        let mut summaries: Vec<ConversationSummary> = Vec::new();
+        let mut files: Vec<(String, PathBuf, FileStamp)> = Vec::new();
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().and_then(|ext| ext.to_str()) != Some(CHAT_EXTENSION) {
+            let Some(id) = conversation_id_of(&path) else {
+                continue;
+            };
+            let meta = entry.metadata()?;
+            if !meta.is_file() {
                 continue;
             }
-            match fs::read(&path)
+            files.push((id, path, FileStamp::of(&meta)));
+        }
+
+        let _held = INDEX_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut index = self.read_index();
+        let mut changed = false;
+        let mut summaries: Vec<ConversationSummary> = Vec::with_capacity(files.len());
+        for (id, path, stamp) in &files {
+            if let Some(row) = index.rows.get(id).filter(|row| row.stamp == *stamp) {
+                summaries.push(row.summary.clone());
+                continue;
+            }
+            changed = true;
+            match fs::read(path)
                 .map_err(ChatStoreError::from)
                 .and_then(|bytes| {
                     serde_json::from_slice::<Conversation>(&bytes).map_err(ChatStoreError::from)
                 }) {
-                Ok(conversation) => summaries.push(ConversationSummary::from(&conversation)),
+                Ok(conversation) => {
+                    let summary = ConversationSummary::from(&conversation);
+                    index.rows.insert(
+                        id.clone(),
+                        IndexRow {
+                            summary: summary.clone(),
+                            stamp: *stamp,
+                        },
+                    );
+                    summaries.push(summary);
+                }
                 // The file name, and nothing the file holds: what failed to
                 // parse is turn text.
-                Err(error) => tracing::warn!(
-                    file = %entry.file_name().to_string_lossy(),
-                    kind = error_kind(&error),
-                    "skipping a file that does not hold a conversation"
-                ),
+                Err(error) => {
+                    index.rows.remove(id);
+                    tracing::warn!(
+                        file = %file_name(path),
+                        kind = error_kind(&error),
+                        "skipping a file that does not hold a conversation"
+                    );
+                }
             }
+        }
+        let before = index.rows.len();
+        index
+            .rows
+            .retain(|id, _| files.iter().any(|(listed, _, _)| listed == id));
+        changed |= index.rows.len() != before;
+        if changed {
+            self.write_index(&index);
         }
 
         summaries.sort_by(|left, right| {
@@ -207,7 +316,29 @@ impl ChatStore {
             });
         }
         fs::create_dir_all(&self.dir)?;
+        let _held = INDEX_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         write_atomic(&file, &bytes)?;
+        // A row that cannot be written leaves the old one, which no longer
+        // matches the file, so the next list reads this conversation instead.
+        match fs::metadata(&file) {
+            Ok(meta) => {
+                let mut index = self.read_index();
+                index.rows.insert(
+                    conversation.id.clone(),
+                    IndexRow {
+                        summary: ConversationSummary::from(conversation),
+                        stamp: FileStamp::of(&meta),
+                    },
+                );
+                self.write_index(&index);
+            }
+            Err(error) => tracing::warn!(
+                kind = %error.kind(),
+                "the saved conversation could not be measured for the index"
+            ),
+        }
         Ok(())
     }
 
@@ -229,12 +360,56 @@ impl ChatStore {
     /// because it is not a note.
     pub fn delete(&self, id: &str) -> Result<(), ChatStoreError> {
         let file = self.file(id)?;
+        let _held = INDEX_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match fs::remove_file(&file) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                let mut index = self.read_index();
+                if let Some(name) = file.file_stem().and_then(|stem| stem.to_str()) {
+                    if index.rows.remove(name).is_some() {
+                        self.write_index(&index);
+                    }
+                }
+                Ok(())
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 Err(ChatStoreError::NotFound(id.to_string()))
             }
             Err(error) => Err(error.into()),
+        }
+    }
+
+    /// The index as it stands, or an empty one when it is missing, unreadable
+    /// or written at another version. Called with [`INDEX_LOCK`] held.
+    fn read_index(&self) -> Index {
+        let read = fs::read(self.dir.join(INDEX_FILE))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<Index>(&bytes).ok());
+        match read {
+            Some(index) if index.version == INDEX_VERSION => index,
+            _ => Index {
+                version: INDEX_VERSION,
+                rows: BTreeMap::new(),
+            },
+        }
+    }
+
+    /// Replaces the index. A failure is a warning: the conversations are
+    /// whole, and the next list rebuilds what the index lost. Called with
+    /// [`INDEX_LOCK`] held.
+    fn write_index(&self, index: &Index) {
+        let written = serde_json::to_vec(index)
+            .map_err(ChatStoreError::from)
+            .and_then(|bytes| {
+                fs::create_dir_all(&self.dir)?;
+                write_atomic(&self.dir.join(INDEX_FILE), &bytes).map_err(ChatStoreError::from)
+            });
+        if let Err(error) = written {
+            tracing::warn!(
+                kind = error_kind(&error),
+                "the conversation index was not written"
+            );
         }
     }
 
@@ -251,6 +426,24 @@ impl ChatStore {
             .to_string();
         Ok(self.dir.join(format!("{name}.{CHAT_EXTENSION}")))
     }
+}
+
+/// The id a conversation file is named by, or `None` for anything else in the
+/// folder: the index, a temporary file, a name that is not a UUID in the form
+/// [`ChatStore`] writes.
+fn conversation_id_of(path: &Path) -> Option<String> {
+    if path.extension().and_then(|ext| ext.to_str()) != Some(CHAT_EXTENSION) {
+        return None;
+    }
+    let stem = path.file_stem()?.to_str()?;
+    let parsed = uuid::Uuid::parse_str(stem).ok()?.to_string();
+    (parsed == stem).then_some(parsed)
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// The one word a skipped file's warning says about why, with nothing the file

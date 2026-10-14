@@ -20,6 +20,7 @@ use tauri::{AppHandle, Manager};
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
 use writ_core::watcher::pending::RemovalHolds;
+use writ_storage::paths::file_name_only;
 
 use crate::state::AppState;
 
@@ -69,6 +70,11 @@ pub trait NoteFiles: Send + Sync {
     /// to ask.
     fn encoding_of(&self, _note_id: &str) -> TextEncoding {
         TextEncoding::utf8()
+    /// Whether the note's file is marked as deleted, so a file at its path is
+    /// one that came back and has to be read rather than recognised by its
+    /// size and modification time.
+    fn is_marked_removed(&self, _note_id: &str) -> bool {
+        false
     }
 
     /// The notes folder as it is now, or `None` when there is no application
@@ -201,6 +207,8 @@ impl NoteFiles for AppNoteFiles {
 
     fn encoding_of(&self, note_id: &str) -> TextEncoding {
         encoding_of_note(&self.app.state::<AppState>(), note_id)
+    fn is_marked_removed(&self, note_id: &str) -> bool {
+        self.app.state::<AppState>().is_removed_on_disk(note_id)
     }
 
     fn notes_root(&self) -> Option<PathBuf> {
@@ -262,6 +270,10 @@ impl NoteFiles for SharedNoteFiles {
             .map_or_else(TextEncoding::utf8, |state| {
                 encoding_of_note(&state, note_id)
             })
+    fn is_marked_removed(&self, note_id: &str) -> bool {
+        self.state
+            .upgrade()
+            .is_some_and(|state| state.is_removed_on_disk(note_id))
     }
 
     fn notes_root(&self) -> Option<PathBuf> {
@@ -323,7 +335,10 @@ pub enum MoveOutcome {
 /// keeps one move seen by two watchers from telling the tab twice.
 fn apply_move(state: &AppState, note_id: &str, from: &Path, to: &Path) -> MoveOutcome {
     let Some(destination) = to.to_str() else {
-        tracing::warn!(path = %to.display(), "a file moved to a path that cannot be recorded");
+        tracing::warn!(
+            path = %file_name_only(&to.to_string_lossy()),
+            "a file moved to a path that cannot be recorded"
+        );
         return MoveOutcome::Failed;
     };
     {
@@ -353,8 +368,8 @@ fn apply_move(state: &AppState, note_id: &str, from: &Path, to: &Path) -> MoveOu
     state.observe_source_file(note_id, to);
     tracing::info!(
         note = %note_id,
-        from = %from.display(),
-        to = %to.display(),
+        from = %file_name_only(&from.to_string_lossy()),
+        to = %file_name_only(&to.to_string_lossy()),
         "a tab's file moved and the tab followed it"
     );
     MoveOutcome::Followed
@@ -367,7 +382,7 @@ fn apply_removal(state: &AppState, note_id: &str, path: &Path) -> bool {
     if news {
         tracing::info!(
             note = %note_id,
-            path = %path.display(),
+            path = %file_name_only(&path.to_string_lossy()),
             "a tab's file was deleted; the tab keeps its text and writes nothing"
         );
     }
@@ -391,7 +406,7 @@ fn apply_return(state: &AppState, note_id: &str, path: &Path) -> bool {
     if was_removed {
         tracing::info!(
             note = %note_id,
-            path = %path.display(),
+            path = %file_name_only(&path.to_string_lossy()),
             "a tab's file is back; the tab is writing to it again"
         );
     }

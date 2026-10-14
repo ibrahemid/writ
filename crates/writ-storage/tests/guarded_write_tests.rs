@@ -519,6 +519,28 @@ fn a_rename_of_a_file_changed_underneath_is_refused_with_nothing_set_aside() {
     assert!(siblings(&path).is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_rename_with_no_record_reads_nothing() {
+    // A file Writ has not opened may be a placeholder whose bytes are not on
+    // this machine, and reading it is the download the rename must not cause.
+    // An unreadable file stands in for it: any read fails, so passing the
+    // guard shows nothing was read (RC-21).
+    use std::os::unix::fs::PermissionsExt;
+    let (_root, path) = seeded("text nobody here has read\n");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    let readable = std::fs::read(&path).is_ok();
+
+    let outcome = guard_rename(&path, None, WriteOrigin::Editor);
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("restore");
+    if readable {
+        // Running as a user the mode does not stop: nothing to show here.
+        return;
+    }
+    outcome.expect("a rename with no record proceeds without reading the file");
+}
+
 /// Every file in the note's folder except the note itself.
 fn siblings(note: &Path) -> Vec<PathBuf> {
     std::fs::read_dir(note.parent().expect("a note sits in a folder"))
