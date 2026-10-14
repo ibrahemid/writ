@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import * as api from "../../services/tauri";
 import { onEvent, type UnlistenFn } from "../../services/events";
+import { userErrorText } from "../../lib/error-text";
 
 export type DownloadStore = ReturnType<typeof createDownloadStore>;
 
@@ -124,7 +125,7 @@ export function createDownloadStore() {
     } catch (error) {
       // The download never started, so no event will ever arrive for it. Say
       // so here or the entry waits for the rest of the session.
-      update(entry.path, { state: "failed", reason: "download", message: String(error) });
+      update(entry.path, { state: "failed", reason: "download", message: userErrorText(error) });
     }
   }
 

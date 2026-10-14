@@ -32,7 +32,6 @@ const mocks = vi.hoisted(() => ({
   config: vi.fn(),
   focusEditor: vi.fn(),
   openThemeEditor: vi.fn(),
-  openShortcutEditor: vi.fn(),
   fetchDefaultAppStatus: vi.fn().mockResolvedValue({ status: "unsupported" }),
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
@@ -148,7 +147,7 @@ vi.mock("../../stores/global/storage", () => ({
 
 
 vi.mock("../../stores/global/notices", () => ({
-  THIRD_PARTY_NOTICES_TITLE: "Third-party licences",
+  THIRD_PARTY_NOTICES_TITLE: "Third-party licenses",
   openThirdPartyNoticesBuffer: mocks.openThirdPartyNoticesBuffer,
 }));
 
@@ -166,7 +165,8 @@ vi.mock("../../components/ThemeEditor/ThemeEditor", () => ({
 }));
 
 vi.mock("../../components/ShortcutEditor/ShortcutEditor", () => ({
-  openShortcutEditor: mocks.openShortcutEditor,
+  hasUnsavedShortcuts: () => false,
+  discardShortcutDrafts: vi.fn(),
   default: () => null,
 }));
 
@@ -296,7 +296,7 @@ async function renderPrograms(): Promise<string> {
   });
 
   const { container } = render(() => <SettingsModal />);
-  openSettings("apps");
+  openSettings("apps", "mcp.clients");
   await waitFor(() =>
     expect(container.querySelector("[data-setting-id='mcp.clients'] .settings-program")).not.toBeNull(),
   );

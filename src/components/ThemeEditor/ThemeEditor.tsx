@@ -28,8 +28,11 @@ function snapshot(): { theme: ThemeConfig; appearance: AppearanceConfig } {
   return { theme: themeStore.toConfig(), appearance: themeStore.appearance() };
 }
 
-export function openThemeEditor() {
+let returnTo: (() => void) | null = null;
+
+export function openThemeEditor(onClose?: () => void) {
   openSnapshot = snapshot();
+  returnTo = onClose ?? null;
   setIsOpen(true);
 }
 
@@ -39,6 +42,9 @@ export function closeThemeEditor() {
   }
   openSnapshot = null;
   setIsOpen(false);
+  const back = returnTo;
+  returnTo = null;
+  back?.();
 }
 
 function tokensForGroup(theme: Theme, group: TokenGroup): Record<string, string> {
@@ -207,7 +213,7 @@ export default function ThemeEditor() {
                   </div>
                   <Show when={group === "accent" && themeStore.accentApplies()}>
                     <p class="theme-editor-note">
-                      The Accent color setting paints the accent tokens until one is set here.
+                      Accent colors follow Settings, Appearance, Accent color until you pick one here.
                     </p>
                   </Show>
                 </section>

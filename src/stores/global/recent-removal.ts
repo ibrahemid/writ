@@ -18,7 +18,7 @@ export function removeFromRecent(ids: readonly string[], text: string): void {
       if (undone) return;
       bufferRegistry.dropHiddenHistory(ids).catch(() => {
         logFailure("rows could not be removed from Recent");
-        showToast("Couldn't remove the files from Recent. They are listed again.", "error");
+        showToast("Could not remove the files from Recent. They are listed again.", "error");
       });
     },
   });

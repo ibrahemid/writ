@@ -228,7 +228,7 @@ export function findRewriteRefusal(
   const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   if (!target) return "The base URL is not a valid URL.";
   if (!target.is_allowed) return "This base URL is not allowed. Use https, or http for localhost.";
-  if (!ai.model.trim()) return "Choose a model in AI settings.";
+  if (!ai.model.trim()) return "Choose a model in Settings, Apps, Rewrite.";
   if (target.is_hosted && !isConsented(ai, target.host)) return `Confirm sending text to ${target.host} first.`;
   if (target.is_hosted && !hasKey) return `Add an API key for ${target.host} first.`;
   return null;
@@ -249,7 +249,7 @@ export function findChatRefusal(ai: AiConfig, text: string, hasKey: boolean): st
   const target = resolveEndpoint(getEffectiveBaseUrl(ai));
   if (!target) return "The chat base URL is not a valid URL.";
   if (!target.is_allowed) return "This base URL is not allowed. Use https, or http for localhost.";
-  if (!getChatModel(ai).trim()) return "Choose a chat model in AI settings.";
+  if (!getChatModel(ai).trim()) return "Choose a chat model in Settings, Apps, Chat.";
   if (target.is_hosted && !isConsented(ai, target.host)) return `Confirm sending your files to ${target.host} first.`;
   if (target.is_hosted && !hasKey) return `Add an API key for ${target.host} first.`;
   return null;

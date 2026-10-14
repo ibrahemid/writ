@@ -138,7 +138,7 @@ describe("reopening a closed file from History", () => {
 
     expect(showToast).toHaveBeenCalledTimes(1);
     expect(showToast).toHaveBeenCalledWith(
-      "Couldn't open big.log: it is 600 MB, and Writ opens files up to 524 MB.",
+      "Could not open big.log: it is 600 MB, and Writ opens files up to 524 MB.",
       "error",
     );
     expect(tabs.activeTabId()).toBeNull();

@@ -78,7 +78,7 @@ describe("what a page answers when nothing is reachable", () => {
     const on = { ...base(), rewrite: { enabled: true } };
     expect(findRewriteRefusal(on, "custom", "text", " ", false)).toBe("a custom rewrite needs an instruction");
     expect(findRewriteRefusal(on, "proofread", "  ", null, false)).toBe("there is no text to rewrite");
-    expect(findRewriteRefusal(on, "proofread", "text", null, false)).toBe("Choose a model in AI settings.");
+    expect(findRewriteRefusal(on, "proofread", "text", null, false)).toBe("Choose a model in Settings, Apps, Rewrite.");
     expect(findRewriteRefusal(hosted(false), "polish", "text", null, false)).toBe("Confirm sending text to api.anthropic.com first.");
     expect(findRewriteRefusal(hosted(true), "polish", "text", null, false)).toBe("Add an API key for api.anthropic.com first.");
     expect(findRewriteRefusal({ ...on, model: "qwen3:4b" }, "polish", "text", null, false)).toBeNull();
@@ -88,7 +88,7 @@ describe("what a page answers when nothing is reachable", () => {
   it("refuses or fails a chat send the way the chat command does", () => {
     const chat = { ...base(), chat: { enabled: true, model: "", model_provider: "" } };
     expect(findChatRefusal(base(), "hi", false)).toBe("Chat is turned off.");
-    expect(findChatRefusal(chat, "hi", false)).toBe("Choose a chat model in AI settings.");
+    expect(findChatRefusal(chat, "hi", false)).toBe("Choose a chat model in Settings, Apps, Chat.");
     expect(findChatRefusal(hosted(false), "hi", true)).toBe("Confirm sending your files to api.anthropic.com first.");
     expect(buildChatTransportFrame({ ...chat, model: "qwen3:4b" })).toEqual({
       kind: "local_server_offline",

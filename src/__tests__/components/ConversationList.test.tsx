@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
   rename: vi.fn(),
   listFailed: vi.fn(),
   refreshList: vi.fn(),
+  requestConfirm: vi.fn(),
 }));
+
+vi.mock("../../stores/global/dialogs", () => ({ requestConfirm: mocks.requestConfirm }));
 
 vi.mock("../../stores/global/chat", async () => {
   const actual = await vi.importActual<typeof import("../../stores/global/chat")>(
@@ -56,6 +59,7 @@ beforeEach(() => {
   mocks.rename.mockReset().mockResolvedValue(undefined);
   mocks.listFailed.mockReset().mockReturnValue(false);
   mocks.refreshList.mockReset().mockResolvedValue(undefined);
+  mocks.requestConfirm.mockReset().mockResolvedValue(false);
 });
 
 afterEach(() => {
@@ -63,6 +67,17 @@ afterEach(() => {
 });
 
 describe("the chat list", () => {
+  it("says a delete takes the conversation and leaves the files", () => {
+    const { getByLabelText } = render(() => <ConversationList onPick={() => {}} />);
+    fireEvent.click(getByLabelText("Delete Launch"));
+    expect(mocks.requestConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Delete Launch?",
+        message: "The conversation is deleted. Your files are not changed.",
+      }),
+    );
+  });
+
   it("marks a chat that is still answering and stops it from its row", () => {
     const { container, getByRole } = render(() => <ConversationList onPick={() => undefined} />);
 

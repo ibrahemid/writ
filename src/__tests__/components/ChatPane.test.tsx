@@ -550,7 +550,11 @@ describe("the chat column", () => {
 
     fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
 
-    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a file or a folder."));
+    await waitFor(() =>
+      expect(composer.placeholder).toBe(
+        "@ attaches a file or a folder. Enter sends; Shift+Enter starts a new line.",
+      ),
+    );
   });
 
   it("shows a proposal as the lines it would change", async () => {
@@ -588,7 +592,7 @@ describe("the chat column", () => {
     );
     await waitFor(() =>
       expect(container.querySelector(".chat-proposal-verdict")?.textContent).toBe(
-        "Applied. The file is now 16 bytes.",
+        "Applied to Launch.md.",
       ),
     );
   });

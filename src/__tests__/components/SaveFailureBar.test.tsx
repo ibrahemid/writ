@@ -81,7 +81,7 @@ describe("SaveFailureBar", () => {
 
     const bar = container.querySelector<HTMLElement>(".save-failure-bar")!;
     expect(bar.getAttribute("role")).toBe("alert");
-    expect(bar.textContent).toContain("Couldn't save Meeting notes.md");
+    expect(bar.textContent).toContain("Could not save Meeting notes.md");
     expect(bar.textContent).toContain("you do not have permission to change this file.");
     expect(bar.textContent).not.toMatch(/os error/i);
   });

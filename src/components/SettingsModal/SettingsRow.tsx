@@ -7,7 +7,7 @@ import {
   type JSX,
 } from "solid-js";
 
-import type { SettingsSection } from "../../settings";
+import { settingDescription, settingTitle, type SettingsSection } from "../../settings";
 
 export interface SearchContextValue {
   rowVisible: (id: string) => boolean;
@@ -24,6 +24,7 @@ export function useSearch(): SearchContextValue {
 }
 
 interface ToggleSwitchProps {
+  id?: string;
   setting: string;
   label: string;
   checked: boolean;
@@ -36,6 +37,7 @@ export function ToggleSwitch(props: ToggleSwitchProps) {
   return (
     <button
       type="button"
+      id={props.id}
       class="settings-switch"
       classList={{ "settings-switch-on": props.checked }}
       data-setting={props.setting}
@@ -52,16 +54,21 @@ export function ToggleSwitch(props: ToggleSwitchProps) {
 
 interface SettingsRowProps {
   id: string;
-  label: string;
   labelFor?: string;
-  /** What the row does, in the label's slot and a neutral tone. */
+  /** What the row does, in the label's slot and a neutral tone. The index
+   * holds every row's sentence; a row passes its own only when the sentence
+   * depends on state. */
   description?: string;
+  /** Drawn under the description: the chords a row names, or a sample of
+   * what the row changes. */
+  detail?: JSX.Element;
   /** What the row warns about, in the same slot. */
   caution?: string;
   /** A control that belongs with the label rather than with the row's own
    * control, such as the link to a provider's key page. */
   labelAside?: JSX.Element;
   align?: "start";
+  layout?: "full";
   children: JSX.Element;
 }
 
@@ -70,12 +77,14 @@ const ROW_CONTROL = '[role="switch"], [role="radiogroup"], input, select, textar
 
 export function SettingsRow(props: SettingsRowProps) {
   const search = useSearch();
+  const label = () => settingTitle(props.id);
+  const description = () => props.description ?? settingDescription(props.id);
   const descriptionId = createUniqueId();
   const cautionId = createUniqueId();
   let rowRef: HTMLDivElement | undefined;
 
   const describedBy = () =>
-    [props.description ? descriptionId : "", props.caution ? cautionId : ""]
+    [description() ? descriptionId : "", props.caution ? cautionId : ""]
       .filter(Boolean)
       .join(" ");
 
@@ -106,21 +115,25 @@ export function SettingsRow(props: SettingsRowProps) {
         classList={{ "settings-row-highlight": search.highlighted(props.id) }}
         data-setting-id={props.id}
         data-align={props.align}
+        data-layout={props.layout}
       >
         <span class="settings-row-label">
           <Show
             when={props.labelFor}
-            fallback={<span class="settings-row-label-text">{props.label}</span>}
+            fallback={<span class="settings-row-label-text">{label()}</span>}
           >
             <label class="settings-row-label-text" for={props.labelFor}>
-              {props.label}
+              {label()}
             </label>
           </Show>
           {props.labelAside}
-          <Show when={props.description}>
+          <Show when={description()}>
             <span id={descriptionId} class="settings-row-description">
-              {props.description}
+              {description()}
             </span>
+          </Show>
+          <Show when={props.detail}>
+            <span class="settings-row-detail">{props.detail}</span>
           </Show>
           <Show when={props.caution}>
             <span id={cautionId} class="settings-row-caution">
@@ -131,5 +144,49 @@ export function SettingsRow(props: SettingsRowProps) {
         {props.children}
       </div>
     </Show>
+  );
+}
+
+interface SwitchRowProps {
+  id: string;
+  setting: string;
+  checked: boolean;
+  disabled?: boolean;
+  description?: string;
+  caution?: string;
+  detail?: JSX.Element;
+  aside?: JSX.Element;
+  onChange: () => void;
+}
+
+export function SwitchRow(props: SwitchRowProps) {
+  const switchId = createUniqueId();
+  const toggle = () => (
+    <ToggleSwitch
+      id={switchId}
+      setting={props.setting}
+      label={settingTitle(props.id)}
+      checked={props.checked}
+      disabled={props.disabled}
+      onChange={props.onChange}
+    />
+  );
+  return (
+    <SettingsRow
+      id={props.id}
+      labelFor={switchId}
+      description={props.description}
+      caution={props.caution}
+      detail={props.detail}
+    >
+      {props.aside ? (
+        <span class="settings-switch-row-controls">
+          {toggle()}
+          {props.aside}
+        </span>
+      ) : (
+        toggle()
+      )}
+    </SettingsRow>
   );
 }

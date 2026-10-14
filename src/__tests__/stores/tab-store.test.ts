@@ -243,7 +243,7 @@ describe("tabStore (per-window factory)", () => {
 
       expect(confirmMock).toHaveBeenCalledOnce();
       expect(confirmMock.mock.calls[0][0]).toMatchObject({
-        title: `Couldn't save ${unsaved.title}`,
+        title: `Could not save ${unsaved.title}`,
         confirmLabel: "Close and lose changes",
         cancelLabel: "Keep open",
         defaultAction: "cancel",
@@ -400,7 +400,7 @@ describe("tabStore (per-window factory)", () => {
       expect(mockedApi.closeBuffers).toHaveBeenNthCalledWith(1, [clean.id]);
       expect(confirmMock).toHaveBeenCalledOnce();
       expect(confirmMock.mock.calls[0][0]).toMatchObject({
-        title: "Couldn't save 2 tabs",
+        title: "Could not save 2 tabs",
         confirmLabel: "Close and lose changes",
         cancelLabel: "Keep open",
       });

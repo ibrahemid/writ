@@ -300,7 +300,7 @@ fn link_with_privileges(sidecar: &Path, target: &Path) -> Result<(), String> {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     if stderr.contains("User canceled") || stderr.contains("-128") {
-        Err("Installation was cancelled.".to_string())
+        Err("Installation was canceled.".to_string())
     } else {
         Err("Could not install the writ command.".to_string())
     }
@@ -419,7 +419,7 @@ mod tests {
             MOVE_APP_FIRST,
             NO_HOME,
             another.as_str(),
-            "Installation was cancelled.",
+            "Installation was canceled.",
         ] {
             let lower = msg.to_ascii_lowercase();
             for token in ["cargo", "build", "tauri", "bundle", "sidecar", "symlink"] {

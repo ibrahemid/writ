@@ -202,7 +202,7 @@ export function buildEditorMenuItems(
 
   if (ctx.selectionText.trim().length > 0) {
     items.push({
-      label: `Search workspace for "${truncate(ctx.selectionText, SEARCH_LABEL_CHARS)}"`,
+      label: `Search the folder for “${truncate(ctx.selectionText, SEARCH_LABEL_CHARS)}”`,
       action: () => actions.searchWorkspace(ctx.selectionText),
       separator: true,
     });

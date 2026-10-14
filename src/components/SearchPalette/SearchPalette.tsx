@@ -12,7 +12,7 @@ import type { ResultProvider } from "../Palette/types";
 const [isOpen, setIsOpen] = createSignal(false);
 
 // Singleton state — Writ is single-window. Cleared on every close and on the
-// keyboard path, so a query seeded from the editor's "Search workspace for …"
+// keyboard path, so a query seeded from the editor's "Search the folder for …"
 // row can never reappear the next time the palette is opened by shortcut.
 const [seedQuery, setSeedQuery] = createSignal("");
 

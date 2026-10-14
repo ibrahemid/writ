@@ -336,7 +336,7 @@ export default function FileTree(props: FileTreeProps) {
       await clipboardStore.copyText(path);
       showToast("Path copied", "success");
     } catch {
-      showToast("Couldn't copy the path.", "error");
+      showToast("Could not copy the path.", "error");
     }
   }
 
@@ -356,7 +356,7 @@ export default function FileTree(props: FileTreeProps) {
       await win.tabs.newNoteInFolder(path);
     } catch {
       logFailure("a file could not be created in a tree folder");
-      showToast("Couldn't create a file in this folder.", "error");
+      showToast("Could not create a file in this folder.", "error");
     }
   }
 

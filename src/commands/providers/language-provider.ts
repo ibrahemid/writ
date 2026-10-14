@@ -67,7 +67,7 @@ async function choose(doc: BufferDocument, choice: string | null): Promise<void>
     await bufferRegistry.setLanguage(doc.id, choice);
   } catch {
     logFailure("a file's language could not be changed");
-    showToast(`Couldn't change the language of ${fileName(doc)}`, "error");
+    showToast(`Could not change the language of ${fileName(doc)}`, "error");
   }
 }
 

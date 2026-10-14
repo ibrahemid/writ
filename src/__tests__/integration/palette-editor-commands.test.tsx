@@ -53,8 +53,7 @@ import CommandPalette, {
   closeCommandPalette,
 } from "../../components/CommandPalette/CommandPalette";
 import ShortcutEditor, {
-  openShortcutEditor,
-  closeShortcutEditor,
+  discardShortcutDrafts,
 } from "../../components/ShortcutEditor/ShortcutEditor";
 import {
   registerCommand,
@@ -174,7 +173,7 @@ describe("editor commands in the shortcut editor", () => {
   });
 
   afterEach(() => {
-    closeShortcutEditor();
+    discardShortcutDrafts();
     cleanup();
     resetDom();
     document.body.focus();
@@ -188,7 +187,6 @@ describe("editor commands in the shortcut editor", () => {
     document.body.appendChild(container);
     const user = userEvent.setup({ document });
     render(() => <ShortcutEditor />, { container });
-    openShortcutEditor();
     await new Promise<void>((r) => setTimeout(r, 0));
     return user;
   }
@@ -230,9 +228,8 @@ describe("editor commands in the shortcut editor", () => {
     await user.click(saveBtn);
     await waitFor(() => expect(h.save).toHaveBeenCalled());
 
-    // Close the editor (the save is retained via its snapshot) so the modal
-    // guard no longer swallows the keystroke, as it would in the real app.
-    closeShortcutEditor();
+    // Leaving Settings keeps what was saved: the snapshot moved with the save.
+    discardShortcutDrafts();
     await new Promise<void>((r) => setTimeout(r, 0));
 
     editor.focus();

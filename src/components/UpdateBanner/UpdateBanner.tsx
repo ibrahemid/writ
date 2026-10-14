@@ -6,7 +6,7 @@ import { FOCUS_TRAP_EXEMPT } from "../../lib/focus-trap";
 import "./UpdateBanner.css";
 
 const UP_TO_DATE_VISIBLE_MS = 2500;
-const UNREACHABLE_COPY = "Couldn't reach the update server.";
+const UNREACHABLE_COPY = "Could not reach the update server.";
 
 export default function UpdateBanner() {
   const phase = updateStore.phase;

@@ -102,7 +102,7 @@ describe("RemovedOnDiskBar", () => {
     const bar = container.querySelector<HTMLElement>(".removed-on-disk-bar")!;
     expect(bar.getAttribute("role")).toBe("alert");
     expect(bar.querySelector(".editor-bar-text")!.textContent).toBe(
-      "Couldn't create 2026-10-13.txt in Writ.",
+      "Could not create 2026-10-13.txt in Writ.",
     );
     expect(bar.textContent).not.toContain("was deleted");
     expect(queryByText("Put the file back")).toBeNull();

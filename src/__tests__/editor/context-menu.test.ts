@@ -288,9 +288,10 @@ describe("prompt and search rows", () => {
       context({ hasSelection: true, selectionText: long }),
       actions(),
     );
-    const row = items.find((i) => i.label.startsWith("Search workspace"))!;
+    const row = items.find((i) => i.label.startsWith("Search the folder for “"))!;
     expect(row.label.length).toBeLessThan(60);
     expect(row.label).toContain("…");
+    expect(row.label.endsWith("”")).toBe(true);
   });
 });
 

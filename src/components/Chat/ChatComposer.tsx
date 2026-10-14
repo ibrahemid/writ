@@ -365,7 +365,7 @@ export default function ChatComposer(props: {
           placeholder={
             chatStore.attachments().length > 0
               ? "Ask about the attached files. @ attaches another."
-              : "@ attaches a file or a folder."
+              : "@ attaches a file or a folder. Enter sends; Shift+Enter starts a new line."
           }
           aria-label="Message"
           role="combobox"

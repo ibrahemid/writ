@@ -167,7 +167,7 @@ describe("a note with nothing to show", () => {
   it("says the note has nothing around it rather than opening blank", () => {
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Nothing links to this file yet.",
+      "Nothing links to this file yet. Type [[ in another file to link here.",
     );
   });
 
@@ -197,7 +197,7 @@ describe("a note with nothing to show", () => {
     h.tabs = [{ id: "buf-1", source_path: null }];
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Nothing links to this file yet.",
+      "Nothing links to this file yet. Type [[ in another file to link here.",
     );
   });
 

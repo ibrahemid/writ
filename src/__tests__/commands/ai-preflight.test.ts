@@ -153,6 +153,17 @@ describe("nothing is sent until every blocker is cleared", () => {
     expect(mocks.start).not.toHaveBeenCalled();
   });
 
+  it("names a model the server lacks and opens the model row from the toast", async () => {
+    mocks.connectionStatus.mockReturnValue({ kind: "model_missing", detail: "deepseek-chat" } as never);
+    await runRewriteAction("polish");
+    expect(mocks.endpointState).not.toHaveBeenCalled();
+    const toast = mocks.showToast.mock.calls[0][0];
+    expect(toast.text).toBe('"deepseek-chat" is not available on the server.');
+    expect(toast.action.label).toBe("Connection settings");
+    toast.action.run();
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.model");
+  });
+
   it("refuses an empty selection before asking anything", async () => {
     mocks.getSelectionRange.mockReturnValue({
       from: 0,

@@ -181,12 +181,21 @@ describe("download store", () => {
   });
 
   it("reports a download that never started rather than waiting on it", async () => {
-    materialiseNote.mockRejectedValueOnce(new Error("path not authorized"));
+    materialiseNote.mockRejectedValueOnce(new Error("The provider is signed out."));
     const downloads = createDownloadStore();
     await downloads.start(NOTE);
 
     expect(downloads.pending()[0].state).toBe("failed");
-    expect(downloads.pending()[0].message).toContain("path not authorized");
+    expect(downloads.pending()[0].message).toBe("The provider is signed out.");
+  });
+
+  it("keeps a refusal's log text off the entry", async () => {
+    materialiseNote.mockRejectedValueOnce("ERR_OPEN_NOT_AUTHORIZED: /Users/a/x.md");
+    const downloads = createDownloadStore();
+    await downloads.start(NOTE);
+
+    expect(downloads.pending()[0].state).toBe("failed");
+    expect(downloads.pending()[0].message).toBeNull();
   });
 
   it("keeps the note when the bytes arrive and it still will not open", async () => {

@@ -160,13 +160,13 @@ pub enum ToolError {
     #[error("Writ approves programs by name, and this program sent none.")]
     Unnamed,
     /// The path argument names something the notes folder does not hold.
-    #[error("{path} is not in the notes folder.")]
+    #[error("{path} is not in the folder set in Writ.")]
     OutsideNotesFolder {
         /// The path as the client wrote it.
         path: String,
     },
     /// The index is absent, unreadable, or at another version.
-    #[error("The note index is not readable. Open Writ once and it builds one.")]
+    #[error("Writ's file index is not readable. Open Writ once and it builds one.")]
     IndexUnavailable,
     /// The notes folder the settings name is not there, or cannot be told
     /// apart from anywhere else. Nothing is answered from the folder it was
@@ -174,7 +174,7 @@ pub enum ToolError {
     #[error("The folder set in Writ is not there.")]
     NotesFolderMissing,
     /// Nothing is at the path.
-    #[error("There is no note at {path}.")]
+    #[error("There is no file at {path}.")]
     NotFound {
         /// The path as the client wrote it.
         path: String,
@@ -1775,6 +1775,32 @@ mod tests {
             refusal.to_string(),
             "Writ approves programs by name, and this program sent none."
         );
+    }
+
+    #[test]
+    fn the_errors_a_client_relays_name_a_file_and_a_folder() {
+        let messages = [
+            ToolError::OutsideNotesFolder {
+                path: "../x.md".into(),
+            }
+            .to_string(),
+            ToolError::IndexUnavailable.to_string(),
+            ToolError::NotFound {
+                path: "Plan.md".into(),
+            }
+            .to_string(),
+        ];
+        assert_eq!(
+            messages,
+            [
+                "../x.md is not in the folder set in Writ.",
+                "Writ's file index is not readable. Open Writ once and it builds one.",
+                "There is no file at Plan.md.",
+            ]
+        );
+        for message in &messages {
+            assert!(!message.contains("note"), "{message}");
+        }
     }
 
     #[test]

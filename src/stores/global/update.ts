@@ -16,7 +16,7 @@ export const CHANGELOG_URL = "https://writ.ibrahemid.com/changelog/";
 // The Rust UpdatePhase is the source of truth; this store mirrors it from
 // writ://update-status events and exposes the user actions that drive transitions.
 
-const UNREACHABLE_MESSAGE = "Couldn't reach the update server.";
+const UNREACHABLE_MESSAGE = "Could not reach the update server.";
 const NOT_INSTALLED_MESSAGE = "The update could not be installed.";
 
 function createUpdateStore() {
