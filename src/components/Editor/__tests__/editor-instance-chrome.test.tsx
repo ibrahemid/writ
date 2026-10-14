@@ -34,6 +34,7 @@ function mockBuffer(id: string, filename: string, sizeBytes = 0): BufferDocument
     read_only: false,
     size_bytes: sizeBytes,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

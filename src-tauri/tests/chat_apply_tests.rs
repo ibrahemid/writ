@@ -280,6 +280,7 @@ fn open_row(state: &AppState, id: &str, file: &std::path::Path, content: &str) {
         read_only: false,
         size_bytes: content.len() as u64,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     };
     let store = state.store.lock().expect("store");
     store.open_from_path(&doc, content).expect("open the note");

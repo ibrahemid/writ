@@ -901,7 +901,7 @@ fn a_note_that_stops_being_indexable_loses_its_row() {
     notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless()).expect("first");
     assert_eq!(search(&conn, "searchable").len(), 2);
 
-    std::fs::write(&binary, [0xff, 0xfe, 0x00, 0x01]).expect("no longer text");
+    std::fs::write(&binary, [0x00, 0x01, 0x9f, 0x92]).expect("no longer text");
     let ceiling = writ_core::file_ops::THRESHOLD_NORMAL_BYTES as usize;
     std::fs::write(&grown, "x".repeat(ceiling + 1)).expect("past the ceiling");
 
@@ -1040,4 +1040,33 @@ fn a_folded_match_on_a_line_holding_control_characters_keeps_its_line() {
     assert_eq!(matched, ["café"]);
     let shown: String = hits[0].snippet.iter().map(|s| s.text.as_str()).collect();
     assert_eq!(shown, "second \u{2}line\u{3} with the café \u{4}here");
+}
+
+#[test]
+fn search_hits_from_continues_the_ranked_list_where_a_page_ended() {
+    let (dir, conn, notes) = fixture();
+    for idx in 0..5 {
+        write_note(&notes, &format!("doc-{idx}.md"), "shared keyword body");
+    }
+    notes_index::reconcile(&conn, &notes, &never_cancelled(), &never_dataless())
+        .expect("reconcile");
+    drop(conn);
+    let store = NotesIndexStore::open(&dir.path().join("writ.db")).expect("store");
+    let terms = ["keyword".to_string()];
+    let paths = |offset: usize, limit: usize| -> Vec<String> {
+        store
+            .search_hits_from("\"keyword\"*", &terms, offset, limit)
+            .expect("search_hits_from")
+            .into_iter()
+            .map(|hit| hit.path.expect("path"))
+            .collect()
+    };
+
+    let whole = paths(0, 10);
+    assert_eq!(whole.len(), 5);
+    let mut paged = paths(0, 2);
+    paged.extend(paths(2, 2));
+    paged.extend(paths(4, 2));
+    assert_eq!(paged, whole, "three pages are the ranked list, once each");
+    assert!(paths(5, 2).is_empty());
 }

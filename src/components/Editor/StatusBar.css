@@ -151,3 +151,20 @@
 .statusbar-field--words {
   font-variant-numeric: tabular-nums;
 }
+
+.statusbar-encoding {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--writ-space-2);
+  border: none;
+  border-radius: var(--writ-r-action);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  transition: color var(--writ-motion), background var(--writ-motion);
+}
+
+.statusbar-encoding:hover {
+  color: var(--writ-fg);
+  background: var(--writ-bg-hover);
+}

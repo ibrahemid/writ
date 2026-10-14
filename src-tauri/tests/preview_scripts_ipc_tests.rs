@@ -137,6 +137,7 @@ fn state_with(dir: &TempDir, id: &str, source_path: Option<&Path>) -> AppState {
             read_only: false,
             size_bytes: 0,
             line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+            encoding: None,
         })
         .expect("insert");
     state

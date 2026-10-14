@@ -1,5 +1,6 @@
 use thiserror::Error;
 use writ_core::recovery::SaveLanding;
+use writ_core::text_encoding::{EncodingLossy, NotInEncoding, TextEncoding};
 
 /// Crate-wide error type for `writ-storage` operations.
 ///
@@ -151,6 +152,30 @@ pub enum StorageError {
         size_bytes: u64,
     },
 
+    /// The note's text holds characters its file's encoding has no bytes
+    /// for, so nothing was written (ADR-049).
+    ///
+    /// The editor reads `ERR_ENCODING_LOSSY` and names the characters from
+    /// the code points the command puts after it.
+    #[error(
+        "{encoding} has no bytes for {}",
+        writ_core::text_encoding::code_points(characters)
+    )]
+    EncodingLossy {
+        /// The encoding the file is in.
+        encoding: TextEncoding,
+        /// The characters it cannot hold, in the order they first appear.
+        characters: Vec<char>,
+    },
+
+    /// The file's bytes are not text in the encoding the note reads it in, so
+    /// nothing was read (ADR-049).
+    #[error("the file is not {encoding} text")]
+    NotInEncoding {
+        /// The encoding the note reads its file in.
+        encoding: TextEncoding,
+    },
+
     /// A version was asked for that the store does not hold.
     ///
     /// The entry was pruned between the panel listing it and the person
@@ -290,3 +315,20 @@ impl StorageError {
 
 /// Shorthand for a result whose error arm is [`StorageError`].
 pub type StorageResult<T> = Result<T, StorageError>;
+
+impl From<EncodingLossy> for StorageError {
+    fn from(error: EncodingLossy) -> Self {
+        StorageError::EncodingLossy {
+            encoding: error.encoding,
+            characters: error.characters,
+        }
+    }
+}
+
+impl From<NotInEncoding> for StorageError {
+    fn from(error: NotInEncoding) -> Self {
+        StorageError::NotInEncoding {
+            encoding: error.encoding,
+        }
+    }
+}

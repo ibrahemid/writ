@@ -1,8 +1,10 @@
 import type { BufferDocument, FileOpenMode, FileOpenResult } from "../../src/types/buffer";
 import type { WritConfig } from "../../src/types/config";
+import { encodingName } from "../../src/lib/text-encoding";
 import type { IpcBridge } from "../ipc";
 import { classifyFile, classifySize, onceOpen, sniffsBinary } from "./classify";
 import { DEMO_CONFIG } from "./config";
+import { EncodingUnwritableError, UTF_8, decodeIn, encodeIn } from "./encoding";
 import { NoteHistory, countUtf8Bytes, type WriteKind } from "./history";
 import { dedupeStem } from "./naming";
 import { NotesIndex } from "./notes-index";
@@ -116,6 +118,7 @@ export class DemoState {
       read_only: readOnly,
       size_bytes: countUtf8Bytes(content),
       line_ending: "lf",
+      encoding: readOnly ? null : path ? this.folder.encodingOf(path) : UTF_8,
     };
     this.buffers.set(doc.id, doc);
     return doc;
@@ -126,8 +129,24 @@ export class DemoState {
   }
 
   /** The file's bytes, as the host reads them. */
+  readFileBytes(path: string): Uint8Array {
+    return encodeIn(this.folder.read(path), this.folder.encodingOf(path));
+  }
+
+  /** The bytes a size and a binary sniff are taken from: text the page cannot encode is measured as UTF-8. */
   readBytes(path: string): Uint8Array {
-    return new TextEncoder().encode(this.folder.read(path));
+    try {
+      return this.readFileBytes(path);
+    } catch (error) {
+      if (error instanceof EncodingUnwritableError) return new TextEncoder().encode(this.folder.read(path));
+      throw error;
+    }
+  }
+
+  /** BufferStore::read_text: the file's text read in `encoding`. */
+  readTextIn(path: string, encoding: string): string {
+    if (encodingName(this.folder.encodingOf(path)) === encodingName(encoding)) return this.folder.read(path);
+    return decodeIn(this.readFileBytes(path), encoding);
   }
 
   /**
@@ -226,9 +245,9 @@ export class DemoState {
   }
 
   /** Writes a note the way a guarded write does, keeping what it replaced. */
-  writeNote(path: string, content: string, kind: WriteKind): void {
+  writeNote(path: string, content: string, kind: WriteKind, encoding = UTF_8): void {
     const before = this.folder.has(path) ? this.folder.read(path) : null;
-    this.folder.write(path, content);
+    this.folder.write(path, content, encoding);
     this.history.captureWrite(path, before, content, kind);
   }
 }

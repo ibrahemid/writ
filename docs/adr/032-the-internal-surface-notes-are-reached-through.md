@@ -117,9 +117,9 @@ checks.
 
 | Consumer operation | `NoteHost` method | Capability |
 |---|---|---|
-| `list_notes(prefix, limit)` (U4) | `list_notes` | `ListNotes` |
+| `list_notes(prefix, cursor, limit)` (U4) | `list_notes` | `ListNotes` |
 | `read_note(path)` (U4) | `read_note` | `ReadNote` |
-| `search_notes(query, limit)` (U4) | `search_notes` | `SearchNotes` |
+| `search_notes(query, cursor, limit)` (U4) | `search_notes` | `SearchNotes` |
 | `note_links(path)` (U4) | `note_links` | `ReadIndex` |
 | `note_backlinks(path)` (U4) | `note_backlinks` | `ReadIndex` |
 | `note_properties(path)` (U4) | `note_facts` | `ReadIndex` |

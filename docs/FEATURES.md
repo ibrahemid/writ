@@ -42,7 +42,8 @@ What Writ does, at the level of detail that answers "does it do X".
 - Text transforms in the palette: trim leading or trailing spaces, collapse repeated spaces, straighten quotes, remove shared indentation, end with one newline, fix spacing before punctuation, prepare as prompt, and tidy whitespace, which runs several of them.
 - Fill placeholders asks for a value for each `{{placeholder}}` and copies the result, with a token estimate. Copy as Prompt strips frontmatter and comments and copies the rest.
 - Right-click opens Writ's own menu: spelling corrections, link actions, clipboard, rewrite actions on a selection when Rewrite is on, and a search seeded with the selection.
-- The status bar shows the cursor position, the encoding and the layout switch. Word, character and token counts are behind a switch in Settings, Editor.
+- A file in another text encoding (Windows-1252, Shift JIS, GBK, UTF-16 and others) opens as text and saves in that encoding. A save that would lose a character the encoding cannot hold is refused, and the character is named.
+- The status bar shows the cursor position, the file's encoding and the layout switch. The encoding reopens the file in another one. Word, character and token counts are behind a switch in Settings, Editor.
 
 ## Preview
 
@@ -68,7 +69,7 @@ Six features are apps, each switched on under Settings, Apps, and all off on a f
 
 - **Chat**: a pane beside the file (`Cmd+Shift+A`) with the open file attached; `@` attaches another. Only attached files are sent, and the send dialog names the host and the byte count first. A proposed edit shows as a line diff with Apply and Discard. Conversations are kept and can be renamed or deleted.
 - **Rewrite**: proofread, rephrase, polish, improve prompt (which keeps `{{placeholders}}` as written), or your own instruction, on a selection.
-- **Connected programs**: an MCP server, `writ mcp`, that another program starts over stdio. Eight read tools and three write tools (write, create, rename), with separate read and write switches per program and nothing that deletes. A program waits under Waiting for you, in Settings and in a notice, until you approve it or don't allow it, and Program activity lists every call.
+- **Connected programs**: an MCP server, `writ mcp`, that another program starts over stdio. Eleven tools: eight that read (list_notes, search_notes, read_note, note_links, note_backlinks, note_properties, note_tags, folder_tags) and three that write (write_note, create_note, rename_note), with separate read and write switches per program and nothing that deletes. Paths in answers are relative to the folder, and the folder follows a change in Settings without a restart. A program waits under Waiting for you, in Settings and in a notice, until you approve it or don't allow it, and Program activity lists every call.
 - **Connections**: a panel (`Cmd+Shift+\`) listing the files that link to the open one with the sentence each link sits in, its outline of headings, and its frontmatter properties.
 - **Graph**: the files around the open one, and a view of the whole folder with search and one colour per top-level folder.
 - **Tags**: `#tags` and frontmatter tags in the sidebar with counts. Nested tags group under their parent, and selecting one filters the tree of Writ's folder.

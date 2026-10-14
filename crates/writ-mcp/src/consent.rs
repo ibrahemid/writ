@@ -99,7 +99,7 @@ impl ConsentGate for EnabledReads {
 }
 
 /// The file the approvals are read from, inside the data folder.
-const CONFIG_FILE: &str = "config.toml";
+pub(crate) const CONFIG_FILE: &str = "config.toml";
 
 /// The `[mcp]` section, read on its own.
 ///
@@ -323,7 +323,7 @@ fn verdict(config: &McpConfig, client: &ClientId, tool: &str) -> Verdict {
 }
 
 /// Modified time and length, or `None` for a file that is not there.
-fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
+pub(crate) fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
     let meta = std::fs::metadata(path).ok()?;
     Some((meta.modified().ok()?, meta.len()))
 }

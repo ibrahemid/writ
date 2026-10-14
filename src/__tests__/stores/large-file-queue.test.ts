@@ -26,6 +26,7 @@ function row(path: string): BufferDocument {
     read_only: false,
     size_bytes: SIXTY_MB,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

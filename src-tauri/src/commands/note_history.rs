@@ -32,6 +32,7 @@ use writ_storage::guarded::{
 };
 use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::paths::file_name_only;
+use writ_storage::write_lock::WriteLock;
 
 use crate::state::AppState;
 
@@ -122,7 +123,12 @@ pub fn note_version_content_inner(
     version_id: i64,
 ) -> Result<String, String> {
     let bytes = store.content(version_id).map_err(|e| unreadable(&e))?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    // A version keeps the file's bytes as they were, in the file's encoding,
+    // and is read the way the file would be (ADR-049).
+    Ok(match writ_core::text_encoding::decode_file(&bytes) {
+        Some(decoded) => decoded.text.into_owned(),
+        None => String::from_utf8_lossy(&bytes).into_owned(),
+    })
 }
 
 /// Writes the text of one entry back to its note.
@@ -151,6 +157,7 @@ pub fn restore_note_version_inner(
     let (file, note) = note_file_of(notes_root, store, version_id)?;
     let bytes = store.content(version_id).map_err(|e| unreadable(&e))?;
     let keep = keep_versions(store);
+    let lock = WriteLock::in_data_folder(writ_dir);
     let written = write_note_guarded(
         GuardedWrite {
             target: &file,
@@ -164,6 +171,7 @@ pub fn restore_note_version_inner(
             origin: WriteOrigin::Restore,
             on_conflict: ConflictPolicy::RefuseWithCopy,
             history: Some(&keep as &dyn Fn(WriteCapture<'_>)),
+            lock: Some(&lock),
         },
         None,
     );
@@ -222,7 +230,9 @@ pub fn copy_note_version_inner(
     let (file, note) = note_file_of(notes_root, store, version_id)?;
     let bytes = store.content(version_id).map_err(|e| unreadable(&e))?;
     let length = bytes.len() as u64;
-    let text = String::from_utf8(bytes).map_err(|_| format!("{note} is not text."))?;
+    let text = writ_core::text_encoding::decode_file(&bytes)
+        .ok_or_else(|| format!("{note} is not text."))?
+        .text;
     match write_recovered_copy(&file, &text, now, stamp) {
         Ok(copy) => {
             record(
@@ -399,6 +409,7 @@ pub fn restore_note_version_for_tab(
                 &id,
                 &file,
                 Some(&restored.content),
+                crate::watcher::moves::encoding_of_note(state, &id),
             ));
     }
     Ok(restored)

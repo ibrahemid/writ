@@ -133,7 +133,7 @@ fn a_host_holding_nothing_refuses_every_method() {
         Capability::ReadNote,
     );
     refused(
-        host.search_notes("before", 10).expect_err("search"),
+        host.search_notes("before", 0, 10).expect_err("search"),
         Capability::SearchNotes,
     );
     refused(
@@ -223,7 +223,7 @@ fn a_refused_index_read_answers_before_it_asks_for_the_index() {
     );
     refused(host.folder_tags().expect_err("tags"), Capability::ReadIndex);
     refused(
-        host.search_notes("before", 10).expect_err("search"),
+        host.search_notes("before", 0, 10).expect_err("search"),
         Capability::SearchNotes,
     );
 }
@@ -309,10 +309,10 @@ fn read_note_answers_with_the_text_the_file_holds_and_its_hash() {
 }
 
 #[test]
-fn a_note_that_is_not_utf8_is_answered_as_text_and_not_as_unreadable() {
+fn a_note_that_is_binary_is_answered_as_not_text_and_not_as_unreadable() {
     let fixture = fixture();
     let note = fixture.notes.join("Bytes.md");
-    std::fs::write(&note, [0xff, 0xfe, 0x00]).expect("seed");
+    std::fs::write(&note, [0x00, 0x9f, 0x92, 0x96]).expect("seed");
     let host = host(&fixture, &[Capability::ReadNote]);
 
     assert_eq!(
@@ -321,6 +321,24 @@ fn a_note_that_is_not_utf8_is_answered_as_text_and_not_as_unreadable() {
             path: "Bytes.md".to_string()
         }
     );
+}
+
+#[test]
+fn a_note_in_another_encoding_reads_as_the_app_reads_it_and_its_hash_guards_a_write() {
+    let fixture = fixture();
+    let note = fixture.notes.join("Prices.md");
+    let cp1252: &[u8] = b"caf\xe9,3.50\r\nth\xe9,2.00\r\n";
+    std::fs::write(&note, cp1252).expect("seed");
+    let host = host(&fixture, &[Capability::ReadNote, Capability::WriteNote]);
+
+    let content = host.read_note("Prices.md").expect("read");
+    assert_eq!(content.text, "café,3.50\r\nthé,2.00\r\n");
+    assert_eq!(content.bytes, cp1252.len() as u64);
+    // The hash is of the file's bytes, which is what a write is compared with.
+    assert_eq!(content.hash, writ_core::hash::sha256_hex(cp1252));
+    let hash = writ_core::hash::digest_from_hex(&content.hash).expect("a digest");
+    host.write_note("Prices.md", "café,3.75\n", LastKnown::Hash(hash), origin())
+        .expect("the hash the read handed out lets the write land");
 }
 
 #[test]
@@ -672,7 +690,7 @@ fn the_index_backed_methods_answer_from_the_walk() {
         .expect("tags")
         .iter()
         .any(|tag| tag.tag == "idea"));
-    assert!(!host.search_notes("body", 10).expect("search").is_empty());
+    assert!(!host.search_notes("body", 0, 10).expect("search").is_empty());
 }
 
 #[test]
@@ -843,4 +861,80 @@ fn a_write_keeping_versions_keeps_the_ones_a_renamed_note_had_under_its_old_name
         texts,
         [b"v2\n".to_vec(), b"v1\n".to_vec(), b"v0\n".to_vec()]
     );
+}
+
+#[test]
+fn a_reopened_handle_follows_the_folder_and_index_it_is_given_and_remembers_what_was_read() {
+    let first = fixture();
+    let moved = fixture();
+    write_note(&first, "Launch.md", "# Launch\n");
+    let note = write_note(&moved, "Launch.md", "# Launch\n");
+    let everything = [
+        Capability::ReadNote,
+        Capability::WriteNote,
+        Capability::CreateNote,
+        Capability::SearchNotes,
+    ];
+    let host = host(&first, &everything);
+    // The first handle answers for its own folder and no other.
+    host.read_note(&moved.notes.join("Launch.md").to_string_lossy())
+        .expect_err("the other folder is outside this one");
+    build_index(&moved);
+
+    let reopened = host
+        .reopen(&moved.notes, Some(&moved.db), FileExtension::Txt)
+        .expect("reopen");
+    assert_eq!(
+        reopened.notes_root(),
+        resolve_for_containment(&moved.notes).expect("resolve")
+    );
+    assert!(reopened.has_index(), "the index that appeared is opened");
+    assert_eq!(reopened.default_extension(), FileExtension::Txt);
+
+    reopened
+        .read_note("Launch.md")
+        .expect("read in the new folder");
+    // What the reopened handle saw, the first one saw too: the two share it.
+    let receipt = host
+        .reopen(&moved.notes, None, FileExtension::Txt)
+        .expect("reopen again")
+        .write_note(
+            "Launch.md",
+            "# Launch, moved\n",
+            LastKnown::LastSeen,
+            origin(),
+        )
+        .expect("a note read through a reopened handle can be written without a hash");
+    assert!(receipt.changed);
+    assert_eq!(
+        std::fs::read_to_string(&note).expect("read back"),
+        "# Launch, moved\n"
+    );
+
+    let missing = first.notes.join("gone");
+    assert!(matches!(
+        host.reopen(&missing, None, FileExtension::Md),
+        Err(HostError::NotFound { .. })
+    ));
+}
+
+#[test]
+fn create_note_keeps_the_text_format_a_name_spells() {
+    let fixture = fixture();
+    let host = NoteHostImpl::open(
+        &fixture.notes,
+        None,
+        held(&[Capability::CreateNote]),
+        FileExtension::Txt,
+    )
+    .expect("open the host");
+
+    host.create_note("Plan.md", "text\n", origin())
+        .expect("Plan.md");
+    host.create_note("Plan.2026", "text\n", origin())
+        .expect("Plan.2026");
+
+    assert!(fixture.notes.join("Plan.md").is_file());
+    assert!(fixture.notes.join("Plan.2026.txt").is_file());
+    assert!(!fixture.notes.join("Plan.md.txt").exists());
 }

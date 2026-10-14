@@ -433,6 +433,19 @@ pub fn explicit_extension(name: &str) -> Option<(&str, &'static str)> {
     Some((stem, known))
 }
 
+/// The sanitised stem and the extension a note a program asked for by `name`
+/// is minted with.
+///
+/// The extension the name spells ([`explicit_extension`]) when it spells one,
+/// else `default`, the configured format (ADR-041 §2): `Plan.md` is minted
+/// `Plan.md` whatever the config holds, and `Plan.2026` is a stem the config
+/// decides the format of. `None` when nothing of the name survives
+/// [`sanitize_title`].
+pub fn requested_note_name(name: &str, default: &'static str) -> Option<(String, &'static str)> {
+    let (stem, extension) = explicit_extension(name).unwrap_or((name, default));
+    Some((sanitize_title(stem)?, extension))
+}
+
 /// Where the note a link offers to create belongs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NoteLocation {
@@ -649,6 +662,28 @@ mod tests {
         assert_eq!(explicit_extension("Notes.text"), Some(("Notes", "text")));
         assert_eq!(explicit_extension("Log.md.md"), Some(("Log.md", "md")));
         assert_eq!(explicit_extension("  Notes.md  "), Some(("Notes", "md")));
+    }
+
+    #[test]
+    fn a_requested_name_keeps_the_format_it_spells_and_takes_the_config_otherwise() {
+        assert_eq!(
+            requested_note_name("Plan.md", "txt"),
+            Some(("Plan".to_string(), "md"))
+        );
+        assert_eq!(
+            requested_note_name("Plan.txt", "md"),
+            Some(("Plan".to_string(), "txt"))
+        );
+        assert_eq!(
+            requested_note_name("Plan.2026", "md"),
+            Some(("Plan.2026".to_string(), "md"))
+        );
+        assert_eq!(
+            requested_note_name("Ship: it", "txt"),
+            Some(("Ship it".to_string(), "txt"))
+        );
+        assert_eq!(requested_note_name("/", "md"), None);
+        assert_eq!(requested_note_name("...md", "md"), None);
     }
 
     #[test]

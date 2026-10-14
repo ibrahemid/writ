@@ -376,11 +376,15 @@ pub(crate) fn walk<A: IndexAccess>(
         let content = if dataless {
             String::new()
         } else {
-            let Ok(content) = std::fs::read_to_string(path) else {
-                // Not text after all (or unreadable): leave it out rather than
-                // index bytes nobody can search, and let any row it already had
-                // be pruned. A row kept here would answer searches with text the
-                // file no longer holds. Same answer the size gate above gives.
+            // Not text after all (or unreadable): leave it out rather than
+            // index bytes nobody can search, and let any row it already had be
+            // pruned. A row kept here would answer searches with text the file
+            // no longer holds. Same answer the size gate above gives. Text in
+            // another encoding is read as the open reads it (ADR-049).
+            let Some(content) = std::fs::read(path).ok().and_then(|bytes| {
+                writ_core::text_encoding::decode_file(&bytes)
+                    .map(|decoded| decoded.text.into_owned())
+            }) else {
                 continue;
             };
             content

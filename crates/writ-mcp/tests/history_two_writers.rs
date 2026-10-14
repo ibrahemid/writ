@@ -197,6 +197,7 @@ fn the_app_and_the_server_keep_every_version_while_writing_at_once() {
                 origin: WriteOrigin::Chat,
                 on_conflict: ConflictPolicy::RefuseWithCopy,
                 history: Some(&keep as &dyn Fn(WriteCapture<'_>)),
+                lock: None,
             },
             None,
         )

@@ -118,6 +118,10 @@ A file's language is decided from its name. A fence's info string names the lang
 
 Grammars come from `@codemirror/language-data` through `LanguageDescription` (`src/editor/languages.ts`) and load the first time a file needs one, so the main chunk carries none. A name Writ's own map does not list is looked up in that table: a whole name it knows (`Dockerfile`, `PKGBUILD`) takes its language, and otherwise the extension does, in any case. A name that says plain text takes none, the table's `CMakeLists.txt` included, and neither does an extension the table gives to more than one language (`.m`) or reads as a language most such files are not in (`.cfg`, `.in`). Markdown (with the GitHub extensions and every fence highlighted in its language) and JavaScript (with JSX) are Writ's own descriptions over the same table entries. The restricted tiers ignore a chosen language: syntax stays off above 5 MiB.
 
+### Amended: UTF-16 is text (ADR-049)
+
+The binary sniff asks about a text encoding before it looks for a NUL. A byte order mark, or the first 8 KiB reading as UTF-16 without one (zeros on one side of nearly every two-byte unit, none on the other, and nothing but text once decoded), makes the file text, so a PowerShell `dir > out.txt` opens in the editor rather than as a hex view. A NUL in a file that declares no encoding still means Binary. The read decodes the file in the encoding ADR-049 records; `read_buffer_content` still hands the editor UTF-8.
+
 ### Status bar chip
 
 When the active buffer is in LargeFile or Binary mode, the status bar shows a chip: "Large file · syntax off" (LargeFile) or "Binary · read-only" (Binary). The chip is driven by a `largeFileMode` signal on the window-scoped editor store, set in `loadBuffer` and cleared on buffer close.

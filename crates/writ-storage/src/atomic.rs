@@ -575,6 +575,44 @@ pub fn temp_sibling(dir: &Path) -> io::Result<NamedTempFile> {
 /// budget reaches the caller as [`AtomicWriteError::Io`] carrying
 /// [`io::ErrorKind::ResourceBusy`].
 pub fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AtomicWriteError> {
+    prepare_replacement(target, bytes)?.place(target)?.finish();
+    Ok(())
+}
+
+/// A replacement for `target`, written and synced beside it and not yet moved
+/// onto it.
+///
+/// [`write_atomic`] in three steps, for the guarded write, which holds the
+/// data folder's write lock across the move alone ([`crate::write_lock`]):
+/// [`prepare_replacement`] does everything that takes time, [`Self::place`]
+/// is the rename, and [`PlacedReplacement::finish`] what can follow it. A
+/// replacement dropped without being placed deletes its temp file and leaves
+/// the destination as it was.
+pub(crate) struct PreparedReplacement {
+    tmp: NamedTempFile,
+    #[cfg(unix)]
+    dir: std::path::PathBuf,
+    #[cfg(target_os = "macos")]
+    birthtime: Option<libc::timespec>,
+}
+
+/// A replacement in place, with the destination's creation date still to put
+/// back and its folder still to sync.
+pub(crate) struct PlacedReplacement {
+    #[cfg(unix)]
+    dir: std::path::PathBuf,
+    #[cfg(target_os = "macos")]
+    target: std::path::PathBuf,
+    #[cfg(target_os = "macos")]
+    birthtime: Option<libc::timespec>,
+}
+
+/// Writes `bytes` to a temp file beside `target`, syncs it and carries the
+/// destination's metadata onto it, refusing as [`write_atomic`] refuses.
+pub(crate) fn prepare_replacement(
+    target: &Path,
+    bytes: &[u8],
+) -> Result<PreparedReplacement, AtomicWriteError> {
     let dir = target.parent().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -605,22 +643,42 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), AtomicWriteError>
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     inherit_xattrs(target, tmp.as_file());
 
-    #[cfg(target_os = "macos")]
-    let birthtime = birthtime_of(target);
+    Ok(PreparedReplacement {
+        tmp,
+        #[cfg(unix)]
+        dir: dir.to_path_buf(),
+        #[cfg(target_os = "macos")]
+        birthtime: birthtime_of(target),
+    })
+}
 
-    persist_replacement(tmp, target)?;
-
-    #[cfg(target_os = "macos")]
-    if let Some(birthtime) = birthtime {
-        restore_birthtime(target, birthtime);
+impl PreparedReplacement {
+    /// Renames the replacement over `target`, the one step a reader can see.
+    pub(crate) fn place(self, target: &Path) -> Result<PlacedReplacement, AtomicWriteError> {
+        persist_replacement(self.tmp, target)?;
+        Ok(PlacedReplacement {
+            #[cfg(unix)]
+            dir: self.dir,
+            #[cfg(target_os = "macos")]
+            target: target.to_path_buf(),
+            #[cfg(target_os = "macos")]
+            birthtime: self.birthtime,
+        })
     }
+}
 
-    #[cfg(unix)]
-    {
-        if let Ok(dir_handle) = std::fs::File::open(dir) {
+impl PlacedReplacement {
+    /// Puts the destination's creation date back and syncs its folder, so the
+    /// rename itself survives a crash.
+    pub(crate) fn finish(self) {
+        #[cfg(target_os = "macos")]
+        if let Some(birthtime) = self.birthtime {
+            restore_birthtime(&self.target, birthtime);
+        }
+
+        #[cfg(unix)]
+        if let Ok(dir_handle) = std::fs::File::open(&self.dir) {
             let _ = dir_handle.sync_all();
         }
     }
-
-    Ok(())
 }

@@ -24,6 +24,7 @@ import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/not
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import LinkAmbiguityPicker from "./components/Editor/LinkAmbiguityPicker";
 import LanguagePicker from "./components/Editor/LanguagePicker";
+import EncodingPicker from "./components/Editor/EncodingPicker";
 import IconSprite from "./components/Icon/IconSprite";
 import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
 import { IS_MAC, resolvePlatform } from "./lib/platform";
@@ -992,6 +993,7 @@ function AppShell() {
       <ContextMenu />
       <LinkAmbiguityPicker />
       <LanguagePicker />
+      <EncodingPicker />
       <ConfirmDialog />
       <LargeFileOpen />
       <PromptFillModal />

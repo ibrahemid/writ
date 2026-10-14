@@ -18,6 +18,7 @@ use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::ChangeChoice;
 use writ_core::preview::ContentRendererRegistry;
+use writ_core::text_encoding::TextEncoding;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
@@ -914,6 +915,7 @@ fn keeping_mine_whose_save_is_stopped_is_still_one_announcement() {
         &read_by_the_bar,
         None,
         LineEnding::Lf,
+        TextEncoding::utf8(),
         ChangeChoice::KeepMine,
         "# Mine\n\n## Kept\n",
     );

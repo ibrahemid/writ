@@ -53,6 +53,7 @@ fn saving<'a>(path: &'a Path, bytes: &'a [u8], last_known: Option<DiskState>) ->
         origin: WriteOrigin::Editor,
         on_conflict: ConflictPolicy::RefuseWithCopy,
         history: None,
+        lock: None,
     }
 }
 
@@ -278,6 +279,7 @@ fn a_new_note_whose_name_is_already_on_disk_is_refused_without_truncating_it() {
             origin: WriteOrigin::Editor,
             on_taken_name: TakenName::Dedupe,
             history: None,
+            lock: None,
         },
         None,
     );
@@ -312,6 +314,7 @@ fn a_mint_that_refuses_a_taken_name_names_the_one_that_was_asked_for() {
             origin: WriteOrigin::Cli,
             on_taken_name: TakenName::Refuse,
             history: None,
+            lock: None,
         },
         None,
     );
@@ -344,6 +347,7 @@ fn a_mint_that_dedupes_still_takes_the_name_beside_the_one_that_is_there() {
             origin: WriteOrigin::Editor,
             on_taken_name: TakenName::Dedupe,
             history: None,
+            lock: None,
         },
         None,
     )
@@ -367,6 +371,7 @@ fn a_new_note_is_minted_under_the_origin_that_asked_for_it() {
             origin: WriteOrigin::Cli,
             on_taken_name: TakenName::Dedupe,
             history: Some(&hook),
+            lock: None,
         },
         None,
     )

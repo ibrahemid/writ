@@ -86,8 +86,14 @@ pub trait NoteHost {
     /// and asking costs no note text.
     fn note_summary(&self, path: &str) -> Result<NoteSummary, HostError>;
 
-    /// Up to `limit` notes whose text matches `query`.
-    fn search_notes(&self, query: &str, limit: usize) -> Result<Vec<NoteHit>, HostError>;
+    /// Up to `limit` notes whose text matches `query`, best match first,
+    /// after the first `offset` of them.
+    fn search_notes(
+        &self,
+        query: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<NoteHit>, HostError>;
 
     /// Every link written in the note at `path`.
     fn note_links(&self, path: &str) -> Result<Vec<NoteLink>, HostError>;
@@ -125,8 +131,10 @@ pub trait NoteHost {
     /// Mints a note called `name` in the notes folder.
     ///
     /// The name is sanitised into a filename, so a name that spells a path is a
-    /// name and not a path. A note of that name already in the folder is
-    /// answered with [`HostError::NameTaken`] and left alone.
+    /// name and not a path. A name ending in a text extension keeps that
+    /// format, and any other name takes the configured one
+    /// ([`crate::notes::requested_note_name`]). A note of that name already in
+    /// the folder is answered with [`HostError::NameTaken`] and left alone.
     fn create_note(
         &self,
         name: &str,

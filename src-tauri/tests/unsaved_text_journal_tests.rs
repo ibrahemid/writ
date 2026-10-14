@@ -247,6 +247,7 @@ fn a_read_only_note_journals_nothing() {
         read_only: true,
         size_bytes: 20,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     };
     state.store.lock().unwrap().insert(&doc).expect("insert");
 
@@ -280,6 +281,7 @@ fn a_generated_document_the_last_0_5_snapshot_held_leaves_nothing_in_the_journal
         read_only: true,
         size_bytes: 10,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     };
     state.store.lock().unwrap().insert(&doc).expect("insert");
     let conn = open_database(&dir.path().join("writ.db")).expect("open db");
@@ -421,6 +423,7 @@ fn insert_new_note(state: &AppState, id: &str, title: &str) {
         read_only: false,
         size_bytes: 0,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     };
     state.store.lock().unwrap().insert(&doc).expect("insert");
 }

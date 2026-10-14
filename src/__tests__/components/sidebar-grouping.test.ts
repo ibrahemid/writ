@@ -19,6 +19,7 @@ function mk(over: Partial<BufferDocument>): BufferDocument {
     read_only: over.read_only ?? false,
     size_bytes: over.size_bytes ?? 0,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

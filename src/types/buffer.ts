@@ -18,6 +18,12 @@ export interface BufferDocument {
   // The line ending the file on disk uses. The editor works in LF whatever the
   // file holds; the backend re-applies this before it writes.
   line_ending: LineEnding;
+  // The text encoding the file is in, as Rust names it: the WHATWG name,
+  // followed by " BOM" when the file starts with a byte order mark ("UTF-8",
+  // "UTF-16LE BOM", "windows-1252"). The editor works in UTF-8; the backend
+  // decodes on read and encodes on save (ADR-049). Null for a binary file's
+  // hex view and a document Writ generated.
+  encoding: string | null;
 }
 
 export type FileOpenMode =

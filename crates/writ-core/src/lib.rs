@@ -35,6 +35,8 @@
 //!   placeholders (ADR-015).
 //! - [`recovery`]: crash-recovery policy types and resolution logic.
 //! - [`startup`]: startup-failure report formatting and location policy.
+//! - [`text_encoding`]: which text encoding a file is in, and reading and
+//!   writing it in that encoding (ADR-049).
 //! - [`tools`]: the tools a connected program can call (ADR-031, ADR-032).
 //! - [`update`]: update lifecycle phases and transition policy.
 //! - [`watcher`]: external-change representation and ignore stamps.
@@ -97,6 +99,8 @@ pub mod search;
 pub(crate) mod seeded;
 /// Startup-failure report formatting and report-location policy.
 pub mod startup;
+/// Which text encoding a file is in, and reading and writing it — ADR-049.
+pub mod text_encoding;
 /// The tools a connected program can call, named once.
 pub mod tools;
 /// Update lifecycle phases and transition policy.

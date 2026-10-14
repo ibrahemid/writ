@@ -14,6 +14,7 @@ use writ_core::notes::guard::is_not_downloaded;
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::{apply_choice, Action, ChangeChoice, Side};
 use writ_core::recovery::{journal_step, JournalStep, SaveLanding};
+use writ_core::text_encoding::TextEncoding;
 use writ_core::watcher::pending::HoldAnswer;
 use writ_storage::buffer_store::{dataless_flags, BufferStore, NoteFileState};
 use writ_storage::errors::StorageError;
@@ -117,6 +118,16 @@ pub const ERR_WRITE_TIMED_OUT: &str = "ERR_WRITE_TIMED_OUT";
 /// things a person must not be handed instead of an explanation.
 pub const ERR_WRITE_FAILED: &str = "ERR_WRITE_FAILED";
 
+/// Code a save carries when the note's text holds characters its file's
+/// encoding has no bytes for, so nothing was written (ADR-049).
+///
+/// Unlike the other codes, what follows it is read too: the encoding's name,
+/// ` has no bytes for `, and the characters as code points separated by
+/// spaces (`ERR_ENCODING_LOSSY: windows-1252 has no bytes for U+1F600
+/// U+4E2D`). The editor names the characters from them
+/// (`src/lib/save-error.ts`).
+pub const ERR_ENCODING_LOSSY: &str = "ERR_ENCODING_LOSSY";
+
 /// Renders a failed save for the frontend as a stable code the editor writes
 /// its own sentence from, followed by the message a log wants.
 ///
@@ -142,6 +153,7 @@ pub fn failure_code(error: &StorageError) -> &'static str {
         StorageError::HardLinkedDestination { .. } => ERR_HARD_LINKED,
         StorageError::DestinationReadOnly { .. } => ERR_READ_ONLY_DESTINATION,
         StorageError::DestinationFolderNotWritable { .. } => ERR_FOLDER_NOT_WRITABLE,
+        StorageError::EncodingLossy { .. } => ERR_ENCODING_LOSSY,
         StorageError::Io(io) => io_failure_code(io.kind()),
         _ => ERR_WRITE_FAILED,
     }
@@ -168,6 +180,10 @@ fn io_failure_code(kind: std::io::ErrorKind) -> &'static str {
 /// its own sentence from the code, and the message after it is for logs.
 pub const ERR_READ_NOT_UTF8: &str = "ERR_READ_NOT_UTF8";
 
+/// Code a read carries when the file's bytes are not text in the encoding
+/// other than UTF-8 that the note reads it in (ADR-049).
+pub const ERR_READ_NOT_IN_ENCODING: &str = "ERR_READ_NOT_IN_ENCODING";
+
 /// Code a read carries when the filesystem refused it.
 pub const ERR_READ_PERMISSION_DENIED: &str = "ERR_READ_PERMISSION_DENIED";
 
@@ -193,13 +209,17 @@ pub fn read_failure_message(error: &StorageError) -> String {
 
 /// The stable code for a failed read.
 ///
-/// `InvalidData` is what `read_to_string` reports for bytes that are not
-/// UTF-8, and nothing else on the read path raises it. A file past the size
+/// A file read in its encoding that is not text in it carries the code for
+/// that (ADR-049): UTF-8's own, or the one for every other encoding.
+/// `InvalidData` is what a reader that wanted UTF-8 reports for bytes that
+/// are not. A file past the size
 /// Writ opens carries the code an open of it answers with
 /// ([`writ_core::file_ops::ERR_OPEN_TOO_LARGE`]); the size the editor states
 /// is on the row, which [`read_buffer_content_inner`] records.
 pub fn read_failure_code(error: &StorageError) -> &'static str {
     match error {
+        StorageError::NotInEncoding { encoding } if encoding.name() == "UTF-8" => ERR_READ_NOT_UTF8,
+        StorageError::NotInEncoding { .. } => ERR_READ_NOT_IN_ENCODING,
         StorageError::Io(io) => io_read_failure_code(io.kind()),
         StorageError::FileTooLarge { .. } => writ_core::file_ops::ERR_OPEN_TOO_LARGE,
         _ => ERR_READ_FAILED,
@@ -938,8 +958,8 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
         .lock()
         .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?;
     let doc = store.get(id).map_err(|e| read_failure_message(&e))?;
-    let content = match store.read_content(id) {
-        Ok(content) => content,
+    let read = match store.read_text(id) {
+        Ok(read) => read,
         Err(error) => {
             if let StorageError::FileTooLarge { size_bytes } = error {
                 if let Err(e) = store.record_size(id, size_bytes) {
@@ -949,14 +969,17 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
             return Err(read_failure_message(&error));
         }
     };
-    if let Some(source_path) = doc.source_path.as_deref() {
+    let content = read.text.as_str();
+    if let (Some(source_path), Some(bytes)) = (doc.source_path.as_deref(), read.bytes()) {
         let path = Path::new(source_path);
         if doc.read_only {
-            if let Ok(bytes) = std::fs::read(path) {
-                state.record_disk_state_bytes(id, path, &bytes);
-            }
+            state.record_disk_state_bytes(id, path, bytes);
         } else {
-            let bytes = content.as_bytes();
+            // What is recorded and kept is the file's bytes, which for a file
+            // that is not UTF-8 are not the text handed to the tab: the next
+            // save is guarded against them, and the history keeps them as
+            // they were (ADR-049).
+            //
             // The reload of an externally changed note comes through here, so
             // this is where the tab learns what the file holds, and where the
             // row learns it too (`BufferStore::note_synced_from_disk`).
@@ -979,15 +1002,23 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
             keep_what_was_seen(state, path, bytes);
             // A file that gained or lost its carriage returns while Writ had
             // it open is followed rather than written back the old way.
-            let ending = writ_core::notes::line_ending::LineEnding::detect(&content);
+            let ending = writ_core::notes::line_ending::LineEnding::detect(content);
             if ending != doc.line_ending {
                 if let Err(e) = store.set_line_ending(id, ending) {
                     tracing::debug!(buffer_id = %id, error = %e, "the file's line ending could not be recorded");
                 }
             }
+            // So is a byte order mark another program added or took away.
+            let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
+            let found = encoding.with_bom_of(bytes);
+            if doc.encoding != Some(found) {
+                if let Err(e) = store.set_encoding(id, Some(found)) {
+                    tracing::debug!(buffer_id = %id, error = %e, "the file's encoding could not be recorded");
+                }
+            }
         }
     }
-    Ok(content.into_bytes())
+    Ok(read.text.into_bytes())
 }
 
 /// IPC: [`read_buffer_content_inner`] as the frontend sees it.
@@ -1063,16 +1094,22 @@ pub enum NoteDiskAnswer {
 /// being read: reading it makes the provider daemon fetch it over the network
 /// (ADR-028 §5), which is the one thing a re-check after a failed save must
 /// not set off.
-fn note_disk_state_of(path: &Path, st_flags: Option<u32>) -> Result<NoteDiskAnswer, String> {
+fn note_disk_state_of(
+    path: &Path,
+    st_flags: Option<u32>,
+    encoding: TextEncoding,
+) -> Result<NoteDiskAnswer, String> {
     if is_not_downloaded(st_flags) {
         return Ok(NoteDiskAnswer::Undescribed);
     }
-    Ok(writ_storage::buffer_store::read_note_file_state(path)
-        .map_err(|e| e.to_string())?
-        .map(|state| NoteDiskAnswer::Described {
-            disk: DiskStateDto::from(state),
-        })
-        .unwrap_or(NoteDiskAnswer::Undescribed))
+    Ok(
+        writ_storage::buffer_store::read_note_file_state(path, encoding)
+            .map_err(|e| e.to_string())?
+            .map(|state| NoteDiskAnswer::Described {
+                disk: DiskStateDto::from(state),
+            })
+            .unwrap_or(NoteDiskAnswer::Undescribed),
+    )
 }
 
 /// IPC: what the file behind note `id` holds now.
@@ -1092,16 +1129,24 @@ pub fn note_disk_state(state: State<'_, AppState>, id: String) -> Result<NoteDis
 
 /// [`note_disk_state`] as everything but the IPC boundary sees it.
 pub fn note_disk_state_inner(state: &AppState, id: &str) -> Result<NoteDiskAnswer, String> {
-    let (source_path, read_only) = {
+    let (source_path, read_only, encoding) = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
         let doc = store.get(id).map_err(|e| e.to_string())?;
         let Some(source_path) = doc.source_path else {
             return Ok(NoteDiskAnswer::NoFile);
         };
-        (source_path, doc.read_only)
+        (
+            source_path,
+            doc.read_only,
+            doc.encoding.unwrap_or_else(TextEncoding::utf8),
+        )
     };
     let path = Path::new(&source_path);
-    let answer = note_disk_state_of(path, writ_storage::buffer_store::dataless_flags(path))?;
+    let answer = note_disk_state_of(
+        path,
+        writ_storage::buffer_store::dataless_flags(path),
+        encoding,
+    )?;
     // This is what a tab asks after it is told its file changed, and the
     // answer decides whether it reloads at all. A tab that leaves the
     // question standing still leaves the text on disk in the store, so a
@@ -1189,7 +1234,7 @@ fn answer_external_change(
     // turned out to be gone is refused rather than written back. Before the
     // store lock, which answering a hold needs.
     wait_out_a_held_removal(state, id, RemovedFile::Refuse).map_err(SaveRefused::not_landed)?;
-    let (source_path, line_ending) = {
+    let (source_path, line_ending, encoding) = {
         let store = state
             .store
             .lock()
@@ -1205,10 +1250,11 @@ fn answer_external_change(
             });
         }
         let ending = doc.line_ending;
+        let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
         let path = doc.source_path.ok_or_else(|| {
             SaveRefused::not_landed(format!("{ERR_FILE_MISSING}: file {id} is on disk nowhere"))
         })?;
-        (path, ending)
+        (path, ending, encoding)
     };
     let path = Path::new(&source_path);
     answer_external_change_at(
@@ -1217,6 +1263,7 @@ fn answer_external_change(
         path,
         dataless_flags(path),
         line_ending,
+        encoding,
         choice,
         content,
     )
@@ -1227,18 +1274,30 @@ fn answer_external_change(
 /// The flags are a parameter for the same reason [`note_disk_state_of`]'s are:
 /// a file whose bytes are not on this machine must be refused without being
 /// read, and that refusal is only testable where the flags can be supplied.
-/// `line_ending` is the note's, read off the same row as the path.
+/// `line_ending` and `encoding` are the note's, read off the same row as the
+/// path.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_external_change_at(
     state: &AppState,
     id: &str,
     path: &Path,
     st_flags: Option<u32>,
     line_ending: LineEnding,
+    encoding: TextEncoding,
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, String> {
-    answer_external_change_at(state, id, path, st_flags, line_ending, choice, content)
-        .map_err(|refused| refused.message)
+    answer_external_change_at(
+        state,
+        id,
+        path,
+        st_flags,
+        line_ending,
+        encoding,
+        choice,
+        content,
+    )
+    .map_err(|refused| refused.message)
 }
 
 /// [`resolve_external_change_at`]'s answer, saying what became of the tab's
@@ -1248,12 +1307,14 @@ pub fn resolve_external_change_at(
 /// write's refusal comes back as it is: a write the guard stopped left the
 /// text in a copy beside the note, and journaling it again would put a second
 /// copy there at the next launch.
+#[allow(clippy::too_many_arguments)]
 fn answer_external_change_at(
     state: &AppState,
     id: &str,
     path: &Path,
     st_flags: Option<u32>,
     line_ending: LineEnding,
+    encoding: TextEncoding,
     choice: ChangeChoice,
     content: &str,
 ) -> Result<ResolveOutcome, SaveRefused> {
@@ -1276,14 +1337,18 @@ fn answer_external_change_at(
             path.display()
         ))
     })?;
-    let disk_text = String::from_utf8(disk_bytes.clone()).map_err(|_| {
-        SaveRefused::not_landed(format!(
-            "{ERR_WRITE_FAILED}: {} is not text",
-            path.display()
-        ))
-    })?;
+    // Read in the note's encoding (ADR-049), as the tab would read it.
+    let disk_text = encoding
+        .decode(&disk_bytes)
+        .map_err(|_| {
+            SaveRefused::not_landed(format!(
+                "{ERR_WRITE_FAILED}: {} is not text",
+                path.display()
+            ))
+        })?
+        .into_owned();
 
-    let disk_hash = writ_core::hash::comparison_digest_hex(&disk_bytes);
+    let disk_hash = encoding.comparison_digest_hex(&disk_bytes);
     let mine_hash = writ_core::hash::comparison_digest_hex(content.as_bytes());
 
     // The two texts are the same text. Writing a copy would put a duplicate
@@ -1303,7 +1368,10 @@ fn answer_external_change_at(
     // which of the two it is depends on an answer that has not run yet.
     keep_what_was_seen(state, path, &disk_bytes);
     let mine = line_ending.apply(content);
-    keep_what_was_seen(state, path, mine.as_bytes());
+    match encoding.encode(&mine) {
+        Ok(bytes) => keep_what_was_seen(state, path, &bytes),
+        Err(_) => keep_what_was_seen(state, path, mine.as_bytes()),
+    }
 
     let outcome = apply_choice(choice);
     let losing: Cow<'_, str> = match outcome.write_conflict_copy_of {
@@ -1642,6 +1710,82 @@ pub fn set_buffer_language(
     set_buffer_language_inner(&state, &id, language.as_deref())
 }
 
+/// Code a reopen carries when the encoding asked for is not one Writ reads.
+pub const ERR_UNKNOWN_ENCODING: &str = "ERR_UNKNOWN_ENCODING";
+
+/// Reads note `id`'s file in `encoding` and keeps that encoding for it: Reopen
+/// with Encoding (ADR-049).
+///
+/// Only the row changes here. The tab then reloads through
+/// [`read_buffer_content`], which reads the file in the encoding just
+/// recorded, so the text, the record of what the file holds and the version
+/// kept all come from that one read path. The byte order mark and the line
+/// ending are taken from the bytes, as an open takes them.
+///
+/// The file is read before anything is recorded and outside the store lock.
+/// An encoding the file is not text in is refused with the read code a tab
+/// gets for that ([`read_failure_code`]), and the note keeps the encoding it
+/// had.
+pub fn reopen_with_encoding_inner(
+    state: &AppState,
+    id: &str,
+    encoding: &str,
+) -> Result<BufferDocument, String> {
+    let chosen = TextEncoding::from_label(encoding)
+        .ok_or_else(|| format!("{ERR_UNKNOWN_ENCODING}: {encoding:?} is not an encoding"))?;
+    let source_path = {
+        let store = state
+            .store
+            .lock()
+            .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?;
+        let doc = store.get(id).map_err(|e| read_failure_message(&e))?;
+        if doc.read_only {
+            return Err(format!("{ERR_NOTE_READ_ONLY}: file {id} is read-only"));
+        }
+        doc.source_path
+            .ok_or_else(|| format!("{ERR_READ_FILE_MISSING}: file {id} is on disk nowhere"))?
+    };
+    let size_bytes = std::fs::metadata(&source_path)
+        .map_err(|e| format!("{}: {e}", io_read_failure_code(e.kind())))?
+        .len();
+    if let writ_core::file_ops::FileOpenMode::Refused { .. } =
+        writ_core::file_ops::classify_size(size_bytes, false)
+    {
+        return Err(read_failure_message(&StorageError::FileTooLarge {
+            size_bytes,
+        }));
+    }
+    let bytes = std::fs::read(&source_path)
+        .map_err(|e| format!("{}: {e}", io_read_failure_code(e.kind())))?;
+    let chosen = chosen.with_bom_of(&bytes);
+    let text = chosen
+        .decode(&bytes)
+        .map_err(|e| read_failure_message(&StorageError::from(e)))?;
+    let ending = LineEnding::detect(&text);
+
+    let store = state
+        .store
+        .lock()
+        .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?;
+    store
+        .set_encoding(id, Some(chosen))
+        .map_err(|e| read_failure_message(&e))?;
+    store
+        .set_line_ending(id, ending)
+        .map_err(|e| read_failure_message(&e))?;
+    store.get(id).map_err(|e| read_failure_message(&e))
+}
+
+/// IPC: [`reopen_with_encoding_inner`].
+#[tauri::command]
+pub fn reopen_with_encoding(
+    state: State<'_, AppState>,
+    buffer_id: String,
+    encoding: String,
+) -> Result<BufferDocument, String> {
+    reopen_with_encoding_inner(&state, &buffer_id, &encoding)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1712,7 +1856,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let missing = dir.path().join("gone.md");
         assert_eq!(
-            note_disk_state_of(&missing, None).unwrap(),
+            note_disk_state_of(&missing, None, TextEncoding::utf8()).unwrap(),
             NoteDiskAnswer::Undescribed
         );
     }
@@ -1723,7 +1867,7 @@ mod tests {
         let path = dir.path().join("note.md");
         std::fs::write(&path, b"one line\n").unwrap();
 
-        let state = described(note_disk_state_of(&path, None).unwrap());
+        let state = described(note_disk_state_of(&path, None, TextEncoding::utf8()).unwrap());
         assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one line\n"));
         assert_eq!(state.size, 9);
         assert!(state.mtime_ms.is_some());
@@ -1736,7 +1880,7 @@ mod tests {
         std::fs::write(&path, b"placeholder").unwrap();
 
         assert_eq!(
-            note_disk_state_of(&path, Some(SF_DATALESS)).unwrap(),
+            note_disk_state_of(&path, Some(SF_DATALESS), TextEncoding::utf8()).unwrap(),
             NoteDiskAnswer::Undescribed
         );
     }
@@ -1751,7 +1895,7 @@ mod tests {
         let path = dir.path().join("windows.md");
         std::fs::write(&path, b"one\r\ntwo\r\n").unwrap();
 
-        let state = described(note_disk_state_of(&path, None).unwrap());
+        let state = described(note_disk_state_of(&path, None, TextEncoding::utf8()).unwrap());
         assert_eq!(state.hash, writ_core::hash::sha256_hex(b"one\ntwo\n"));
         assert_ne!(state.hash, writ_core::hash::sha256_hex(b"one\r\ntwo\r\n"));
         // The length is the file's, not the normalised text's.

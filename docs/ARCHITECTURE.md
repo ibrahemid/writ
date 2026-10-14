@@ -149,10 +149,14 @@ depends on no workspace crate, so it stays callable outside the app; `crate-type
 renderers are the in-tree consumer.
 
 ### writ-lint
-Spell check and mechanical-writing rules, wrapping `harper-core` against its curated
-in-process dictionary. Depends on `writ-core`. Style and readability rules are off by design:
-Writ flags mistakes, not prose taste. Harper reports character offsets and CodeMirror measures
-UTF-16 code units, so the crate converts every span before returning.
+Spell check and mechanical-writing rules (ADR-050). Spelling runs on `spellbook` against the
+SCOWL Hunspell dictionaries bundled in the crate, one per English variant, with the words Harper's
+dictionary accepted added to them; repeated words, repeated spaces, a wrong apostrophe and a/an
+are the crate's own rules. `pulldown-cmark` finds the prose, so code, HTML, front matter and URLs
+are never checked. Depends on `writ-core`. Style and
+readability rules are left out by design: Writ flags mistakes, not prose taste. The rules work in
+byte offsets and CodeMirror measures UTF-16 code units, so the crate converts every range before
+returning.
 
 ### writ-cli
 The `writ` command line binary. Two surfaces. The open path parses argv and stdin into an

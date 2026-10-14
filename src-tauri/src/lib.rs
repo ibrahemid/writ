@@ -516,6 +516,7 @@ pub fn run() {
             commands::buffer::update_tab_order,
             commands::buffer::rename_buffer,
             commands::buffer::set_buffer_language,
+            commands::buffer::reopen_with_encoding,
             commands::notes::new_note,
             commands::notes::todays_note,
             commands::notes::new_note_from_link,

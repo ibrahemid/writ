@@ -50,6 +50,7 @@ function unreadRow(id: string, sizeBytes: number): BufferDocument {
     read_only: false,
     size_bytes: sizeBytes,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

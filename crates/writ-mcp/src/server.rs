@@ -5,12 +5,20 @@
 //! nothing else, which is why the tool surface next door carries no protocol
 //! type (ADR-032 section 8).
 //!
+//! Each tool body runs on the blocking pool: a walk of a large folder or an
+//! index query holds a pool thread, not the one thread the protocol runs on,
+//! so a cancellation or a ping is answered while it works. Every answer is a
+//! JSON object, sent as structured content and as the same compact JSON in a
+//! text block for a client that reads only text.
+//!
 //! The transport is stdio, to a process the user's client launched. Nothing
 //! here opens a socket or makes a request (ADR-031 rules 2.3 and 2.4).
 
+use std::sync::Arc;
+
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerConfig};
+use rmcp::model::{CallToolResult, Implementation, ServerCapabilities, ServerConfig};
 use rmcp::{schemars, tool, tool_handler, tool_router};
 use rmcp::{ErrorData, Peer, RoleServer, ServerHandler, ServiceExt};
 use serde::Deserialize;
@@ -22,18 +30,22 @@ use crate::tools::{ToolError, ToolHost, MAX_RESULTS};
 const DEFAULT_LIMIT: usize = 100;
 
 /// What the server tells a client about itself.
-const INSTRUCTIONS: &str = "Reads and writes the notes in the user's Writ folder. A path is \
-     one list_notes returns, or a path inside the folder. Reading and writing are approved \
-     separately, in Writ. Read a note before you write it: write_note compares the note with \
-     the text you read, and writes a note you have not read only when you pass overwrite. \
-     Writ keeps the text every write replaces. Nothing here deletes a note.";
+const INSTRUCTIONS: &str = "Reads and writes the notes in the user's Writ folder. Paths are \
+     relative to that folder, such as Ideas/Launch.md, in answers and in arguments. \
+     list_notes and search_notes answer a page at a time: pass the next_cursor an answer \
+     carries as cursor to get the next page. Reading and writing are approved separately, \
+     in Writ. Read a note before you write it: write_note compares the note with the text \
+     you read, and writes a note you have not read only when you pass overwrite. Writ \
+     keeps the text every write replaces. Nothing here deletes a note.";
 
 /// Arguments to `list_notes`.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 pub struct ListNotesArgs {
-    /// Only notes whose path starts with this, either the whole path
-    /// list_notes returns or the part of it inside the folder.
+    /// Only notes whose path starts with this, such as Projects/.
     pub prefix: Option<String>,
+    /// The next_cursor an earlier list_notes answer carried, for the page
+    /// after it.
+    pub cursor: Option<String>,
     /// Most notes to return. Up to 500.
     pub limit: Option<usize>,
 }
@@ -43,6 +55,9 @@ pub struct ListNotesArgs {
 pub struct SearchNotesArgs {
     /// The words to look for.
     pub query: String,
+    /// The next_cursor an earlier search_notes answer carried, for the page
+    /// after it.
+    pub cursor: Option<String>,
     /// Most hits to return. Up to 500.
     pub limit: Option<usize>,
 }
@@ -50,17 +65,17 @@ pub struct SearchNotesArgs {
 /// Arguments to every tool that names one note.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 pub struct NotePathArgs {
-    /// The note's path, as list_notes returns it, or a path inside the
-    /// notes folder such as Ideas/Launch.md.
+    /// The note's path inside the notes folder, as list_notes returns it,
+    /// such as Ideas/Launch.md.
     pub path: String,
 }
 
 /// Arguments to `write_note`.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 pub struct WriteNoteArgs {
-    /// The note's path, as list_notes returns it, or a path inside the
-    /// notes folder such as Ideas/Launch.md. The note has to be there
-    /// already; create_note is what makes a new one.
+    /// The note's path inside the notes folder, as list_notes returns it,
+    /// such as Ideas/Launch.md. The note has to be there already;
+    /// create_note is what makes a new one.
     pub path: String,
     /// The whole note, frontmatter included. It replaces what the file
     /// holds, byte for byte.
@@ -84,7 +99,9 @@ pub struct WriteNoteArgs {
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 pub struct CreateNoteArgs {
     /// What to call the note. It becomes the file name, in the notes
-    /// folder. A name already taken is not written over.
+    /// folder. A name ending in .md, .markdown, .txt or .text keeps that
+    /// format; any other name gets the format set in Writ. A name already
+    /// taken is not written over.
     pub name: String,
     /// The text the note starts with.
     pub content: String,
@@ -93,7 +110,7 @@ pub struct CreateNoteArgs {
 /// Arguments to `rename_note`.
 #[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 pub struct RenameNoteArgs {
-    /// The note's path, as list_notes returns it.
+    /// The note's path inside the notes folder, as list_notes returns it.
     pub path: String,
     /// What to call it instead. It stays in the folder it is in.
     pub new_name: String,
@@ -101,7 +118,7 @@ pub struct RenameNoteArgs {
 
 /// The MCP server over one notes folder.
 pub struct WritServer {
-    host: ToolHost,
+    host: Arc<ToolHost>,
     tool_router: ToolRouter<Self>,
 }
 
@@ -110,7 +127,7 @@ impl WritServer {
     /// A server answering from `host`.
     pub fn new(host: ToolHost) -> Self {
         Self {
-            host,
+            host: Arc::new(host),
             tool_router: Self::tool_router(),
         }
     }
@@ -124,93 +141,161 @@ impl WritServer {
             .collect()
     }
 
-    #[tool(name = "list_notes", description = "List the notes in the folder.")]
+    /// Runs `body` against the host on the blocking pool, as `peer`'s call.
+    async fn on_host<T, F>(
+        &self,
+        peer: &Peer<RoleServer>,
+        body: F,
+    ) -> Result<CallToolResult, ErrorData>
+    where
+        T: serde::Serialize + Send + 'static,
+        F: FnOnce(&ToolHost, &ClientId) -> Result<T, ToolError> + Send + 'static,
+    {
+        let host = Arc::clone(&self.host);
+        let client = client_of(peer);
+        let answered = tokio::task::spawn_blocking(move || body(&host, &client))
+            .await
+            .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+        answer(answered)
+    }
+
+    #[tool(
+        name = "list_notes",
+        description = "List the notes in the folder, ordered by path, a page at a time.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     async fn list_notes(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<ListNotesArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(
-            self.host
-                .list_notes(&client_of(&peer), args.prefix.as_deref(), limit(args.limit)),
-        )
+        self.on_host(&peer, move |host, client| {
+            host.list_notes(
+                client,
+                args.prefix.as_deref(),
+                args.cursor.as_deref(),
+                limit(args.limit),
+            )
+        })
+        .await
     }
 
     #[tool(
         name = "search_notes",
-        description = "Find notes whose text matches a query."
+        description = "Find notes whose text matches a query, best match first, a page at a time.",
+        annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn search_notes(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<SearchNotesArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(
-            self.host
-                .search_notes(&client_of(&peer), &args.query, limit(args.limit)),
-        )
+        self.on_host(&peer, move |host, client| {
+            host.search_notes(
+                client,
+                &args.query,
+                args.cursor.as_deref(),
+                limit(args.limit),
+            )
+        })
+        .await
     }
 
     #[tool(
         name = "read_note",
-        description = "Read one note, frontmatter included."
+        description = "Read one note, frontmatter included.",
+        annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn read_note(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<NotePathArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(self.host.read_note(&client_of(&peer), &args.path))
+        self.on_host(&peer, move |host, client| {
+            host.read_note(client, &args.path)
+        })
+        .await
     }
 
-    #[tool(name = "note_links", description = "The links written in one note.")]
+    #[tool(
+        name = "note_links",
+        description = "The links written in one note.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     async fn note_links(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<NotePathArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(self.host.note_links(&client_of(&peer), &args.path))
+        self.on_host(&peer, move |host, client| {
+            host.note_links(client, &args.path)
+                .map(|links| serde_json::json!({ "links": links }))
+        })
+        .await
     }
 
     #[tool(
         name = "note_backlinks",
-        description = "The links in other notes that point at one note."
+        description = "The links in other notes that point at one note.",
+        annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn note_backlinks(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<NotePathArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(self.host.note_backlinks(&client_of(&peer), &args.path))
+        self.on_host(&peer, move |host, client| {
+            host.note_backlinks(client, &args.path)
+                .map(|backlinks| serde_json::json!({ "backlinks": backlinks }))
+        })
+        .await
     }
 
     #[tool(
         name = "note_properties",
-        description = "The frontmatter properties of one note."
+        description = "The frontmatter properties of one note.",
+        annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn note_properties(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<NotePathArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(self.host.note_properties(&client_of(&peer), &args.path))
+        self.on_host(&peer, move |host, client| {
+            host.note_properties(client, &args.path)
+                .map(|properties| serde_json::json!({ "properties": properties }))
+        })
+        .await
     }
 
-    #[tool(name = "note_tags", description = "The tags written in one note.")]
+    #[tool(
+        name = "note_tags",
+        description = "The tags written in one note.",
+        annotations(read_only_hint = true, open_world_hint = false)
+    )]
     async fn note_tags(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<NotePathArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(self.host.note_tags(&client_of(&peer), &args.path))
+        self.on_host(&peer, move |host, client| {
+            host.note_tags(client, &args.path)
+                .map(|tags| serde_json::json!({ "tags": tags }))
+        })
+        .await
     }
 
     #[tool(
         name = "folder_tags",
-        description = "Every tag in the folder, with the number of notes carrying each."
+        description = "Every tag in the folder, with the number of notes carrying each.",
+        annotations(read_only_hint = true, open_world_hint = false)
     )]
     async fn folder_tags(&self, peer: Peer<RoleServer>) -> Result<CallToolResult, ErrorData> {
-        answer(self.host.folder_tags(&client_of(&peer)))
+        self.on_host(&peer, move |host, client| {
+            host.folder_tags(client)
+                .map(|tags| serde_json::json!({ "tags": tags }))
+        })
+        .await
     }
 
     #[tool(
@@ -218,52 +303,74 @@ impl WritServer {
         description = "Replace the text of a note that already exists. Read it first: a note \
             edited since you read it is left alone, with your text written beside it, and a \
             note you have not read is refused unless you pass overwrite. Writ keeps the text \
-            every write replaces."
+            every write replaces.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
     )]
     async fn write_note(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<WriteNoteArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(self.host.write_note(
-            &client_of(&peer),
-            &args.path,
-            &args.content,
-            args.expected_hash.as_deref(),
-            args.overwrite,
-        ))
+        self.on_host(&peer, move |host, client| {
+            host.write_note(
+                client,
+                &args.path,
+                &args.content,
+                args.expected_hash.as_deref(),
+                args.overwrite,
+            )
+        })
+        .await
     }
 
     #[tool(
         name = "create_note",
-        description = "Make a new note in the folder. A name the folder already holds is \
-            not written over."
+        description = "Make a new note in the folder. A name ending in .md, .markdown, .txt \
+            or .text is created in that format, and any other name in the format set in \
+            Writ. A name the folder already holds is not written over.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     async fn create_note(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<CreateNoteArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(
-            self.host
-                .create_note(&client_of(&peer), &args.name, &args.content),
-        )
+        self.on_host(&peer, move |host, client| {
+            host.create_note(client, &args.name, &args.content)
+        })
+        .await
     }
 
     #[tool(
         name = "rename_note",
         description = "Rename a note, inside the folder it is in. Links in other notes are \
-            not updated: they keep pointing at the old name."
+            not updated: they keep pointing at the old name.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
     )]
     async fn rename_note(
         &self,
         peer: Peer<RoleServer>,
         Parameters(args): Parameters<RenameNoteArgs>,
     ) -> Result<CallToolResult, ErrorData> {
-        answer(
-            self.host
-                .rename_note(&client_of(&peer), &args.path, &args.new_name),
-        )
+        self.on_host(&peer, move |host, client| {
+            host.rename_note(client, &args.path, &args.new_name)
+        })
+        .await
     }
 }
 
@@ -337,11 +444,14 @@ fn limit(asked: Option<usize>) -> usize {
 }
 
 /// One tool's answer as MCP content, or its refusal as an MCP error.
+///
+/// Structured content, with the same JSON compact in a text block beside it:
+/// no indentation and no second rendering for a model to read through.
 fn answer<T: serde::Serialize>(result: Result<T, ToolError>) -> Result<CallToolResult, ErrorData> {
     let value = result.map_err(mcp_error)?;
-    let text = serde_json::to_string_pretty(&value)
+    let value = serde_json::to_value(&value)
         .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
-    Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
+    Ok(CallToolResult::structured(value))
 }
 
 /// [`ToolError`] as the error code a client renders.
@@ -356,6 +466,7 @@ fn mcp_error(error: ToolError) -> ErrorData {
         | ToolError::TooLarge { .. }
         | ToolError::TooMuchText { .. }
         | ToolError::HashNotUnderstood { .. }
+        | ToolError::CursorNotUnderstood
         | ToolError::HashAndOverwrite { .. }
         | ToolError::NameEmpty
         | ToolError::NameTaken { .. } => ErrorData::invalid_params(message, None),
@@ -367,6 +478,7 @@ fn mcp_error(error: ToolError) -> ErrorData {
         // and the client has a read to make before it is answered.
         ToolError::HashRequired { .. } => ErrorData::invalid_request(message, None),
         ToolError::IndexUnavailable
+        | ToolError::NotesFolderMissing
         | ToolError::VersionsUnavailable { .. }
         | ToolError::Unreadable { .. }
         | ToolError::Unwritable { .. }
@@ -421,6 +533,29 @@ mod tests {
             names, expected,
             "the settings row is generated from writ_core::tools, so it has to be this set"
         );
+    }
+
+    #[test]
+    fn the_features_page_names_every_tool_and_counts_them_as_the_server_does() {
+        let features = include_str!("../../../docs/FEATURES.md");
+        let line = features
+            .lines()
+            .find(|line| line.starts_with("- **Connected programs**"))
+            .expect("the Connected programs line");
+        for name in READ_TOOLS.iter().chain(WRITE_TOOLS.iter()) {
+            assert!(line.contains(name), "FEATURES.md does not name {name}");
+        }
+        let words = [
+            "Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+            "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen",
+        ];
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let count = WritServer::new(host(dir.path(), true)).tool_names().len();
+        let reads = words[READ_TOOLS.len()].to_lowercase();
+        let writes = words[WRITE_TOOLS.len()].to_lowercase();
+        assert!(line.contains(&format!("{} tools", words[count])), "{line}");
+        assert!(line.contains(&format!("{reads} that read")), "{line}");
+        assert!(line.contains(&format!("{writes} that write")), "{line}");
     }
 
     #[test]

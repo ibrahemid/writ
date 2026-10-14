@@ -82,6 +82,7 @@ function rowFor(file: HarnessFile, mode: FileOpenMode): BufferDocument {
     read_only: mode.kind === "Binary",
     size_bytes: file.size,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
   file.doc = doc;
   filesById.set(id, file);

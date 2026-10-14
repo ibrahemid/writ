@@ -7,7 +7,7 @@ use clap::Parser;
 use writ_cli::mcp;
 use writ_cli::verbs;
 use writ_cli::{
-    is_empty_payload, no_path_action, piped_note_path, read_files_config,
+    is_empty_payload, no_path_action, piped_note_path, piped_text, read_files_config,
     read_notes_root_from_config, resolve_notes_dir, resolve_targets, NoPathAction, OpenTarget,
 };
 
@@ -88,11 +88,15 @@ fn main() {
                 process::exit(1);
             }
             NoPathAction::ReadStdin => {
-                let mut content = String::new();
-                if let Err(e) = io::stdin().read_to_string(&mut content) {
+                let mut piped = Vec::new();
+                if let Err(e) = io::stdin().read_to_end(&mut piped) {
                     eprintln!("writ: failed to read stdin: {e}");
                     process::exit(1);
                 }
+                let Some(content) = piped_text(&piped) else {
+                    eprintln!("writ: stdin is not text");
+                    process::exit(1);
+                };
 
                 if is_empty_payload(&content) {
                     return;
@@ -182,7 +186,8 @@ fn data_dir_override() -> Option<PathBuf> {
 ///
 /// The index is opened read-only and is never created here, so a folder the app
 /// has not indexed yet serves its notes and refuses the index-derived tools
-/// rather than writing a database a second process would then be sharing.
+/// until the app builds one, rather than writing a database a second process
+/// would then be sharing.
 fn run_mcp(parsed: Result<mcp::Command, mcp::UsageError>) -> ! {
     let command = match parsed {
         Ok(command) => command,
@@ -200,19 +205,21 @@ fn run_mcp(parsed: Result<mcp::Command, mcp::UsageError>) -> ! {
     let (writ_dir, notes_dir) = writ_paths();
     // The gate reads `[mcp]` itself, on every call: this process is long-lived
     // and an approval granted in the app has to reach it without a restart
-    // (ADR-031 rule 3.5).
-    let gate = writ_mcp::consent::ConfigGate::new(&writ_dir);
-    let host = match writ_mcp::tools::ToolHost::open(
-        &notes_dir,
-        &writ_dir.join("writ.db"),
-        &writ_dir,
-        Box::new(mcp::ConfiguredAppFolder {
-            writ_dir: writ_dir.clone(),
-            data_dir: data_dir_override(),
-            home: dirs::home_dir(),
-        }),
-        Box::new(gate),
-    ) {
+    // (ADR-031 rule 3.5). The folder is read again whenever the settings
+    // change, for the same reason, unless `WRIT_NOTES_DIR` pins it.
+    let gate = Box::new(writ_mcp::consent::ConfigGate::new(&writ_dir));
+    let app_folder = Box::new(mcp::ConfiguredAppFolder {
+        writ_dir: writ_dir.clone(),
+        data_dir: data_dir_override(),
+        home: dirs::home_dir(),
+    });
+    let db_path = writ_dir.join("writ.db");
+    let opened = if mcp::notes_dir_is_pinned(std::env::var("WRIT_NOTES_DIR").ok().as_deref()) {
+        writ_mcp::tools::ToolHost::open(&notes_dir, &db_path, &writ_dir, app_folder, gate)
+    } else {
+        writ_mcp::tools::ToolHost::open_following_app(&db_path, &writ_dir, app_folder, gate)
+    };
+    let host = match opened {
         Ok(host) => host,
         Err(error) => {
             eprintln!("writ: {error}");

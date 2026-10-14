@@ -1,6 +1,9 @@
 import { createMemo, Show } from "solid-js";
 import { saveStatusStore } from "../../stores/global/save-status";
 import { configStore } from "../../stores/global/config";
+import { useActiveBuffer } from "../../lib/use-active-buffer";
+import { encodingLabel } from "../../lib/text-encoding";
+import { openEncodingPicker } from "./EncodingPicker";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
 import PreviewScriptsField from "../Preview/PreviewScriptsField";
@@ -53,6 +56,13 @@ export default function StatusBar() {
 
   const countsOn = createMemo(() => configStore.config().editor.status_bar_counts);
 
+  // The encoding the file in front is read and saved in, or nothing for a
+  // file that has none: a hex view, or a document Writ generated (ADR-049).
+  // A note with no file yet shows the UTF-8 it will be written in, with
+  // nothing to reopen.
+  const activeBuffer = useActiveBuffer();
+  const encoding = createMemo(() => activeBuffer()?.encoding ?? null);
+
   const largeFileModeLabel = createMemo(() => {
     const mode = win.editor.largeFileMode();
     if (!mode) return null;
@@ -101,7 +111,24 @@ export default function StatusBar() {
           <WordCount class="statusbar-field statusbar-field--words" characters />
           <TokenEstimate />
         </Show>
-        <span class="statusbar-field">UTF-8</span>
+        <Show when={encoding()}>
+          {(name) => (
+            <Show
+              when={activeBuffer()?.source_path}
+              fallback={<span class="statusbar-field">{encodingLabel(name())}</span>}
+            >
+              <button
+                type="button"
+                class="statusbar-field statusbar-encoding"
+                title="Reopen with encoding"
+                aria-label={`Encoding: ${encodingLabel(name())}. Reopen with encoding`}
+                onClick={() => openEncodingPicker()}
+              >
+                {encodingLabel(name())}
+              </button>
+            </Show>
+          )}
+        </Show>
         <PreviewScriptsField />
         <PreviewLayoutToggle />
       </div>

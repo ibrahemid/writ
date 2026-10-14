@@ -72,6 +72,7 @@ function mockBuffer(id: string, sizeBytes = 17): BufferDocument {
     read_only: false,
     size_bytes: sizeBytes,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

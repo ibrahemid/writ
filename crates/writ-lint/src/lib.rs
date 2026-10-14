@@ -1,55 +1,68 @@
 //! Local spell-check and mechanical-writing engine for Writ.
 //!
-//! Wraps [Harper](https://writewithharper.com) to lint the user's document for
-//! spelling and a small set of mechanical rules (repeated words, repeated
-//! spaces, wrong apostrophe, a/an). Style and readability rules are off: Writ
-//! flags mistakes, not prose taste.
+//! Spelling runs on [spellbook](https://github.com/helix-editor/spellbook)
+//! against bundled SCOWL Hunspell dictionaries, one per [`Dialect`], with the
+//! words Harper's dictionary accepted added to them. Four
+//! mechanical rules run beside it: repeated words, repeated spaces, a wrong
+//! apostrophe, and a/an. Style and readability rules are not part of the
+//! engine: Writ flags mistakes, not prose taste. `docs/adr/050-the-spell-check-engine.md`
+//! records the design.
+//!
+//! # What is read
+//!
+//! The text is parsed as Markdown and only prose is checked: code, HTML, math,
+//! front matter, URLs, email addresses, paths and the target of an unpiped
+//! wikilink are skipped. Spelling judges only words written in ASCII letters,
+//! so Arabic, Cyrillic or CJK text is never flagged as misspelled.
 //!
 //! # Coordinate system
 //!
-//! Harper reports [`harper_core::Span`] positions as **character** indices into
-//! the source. CodeMirror 6 — the editor that consumes these results — measures
-//! positions in **UTF-16 code units**. [`check`] converts every span to UTF-16
-//! offsets before returning, so the frontend never has to know that the two
-//! systems differ. The conversion accumulates [`char::len_utf16`] over the
-//! source characters, which is correct for astral-plane emoji, Arabic, and CJK
-//! alike.
+//! The engine works in byte offsets. CodeMirror 6, the editor that consumes
+//! these results, measures positions in **UTF-16 code units**. [`check`]
+//! converts every range to UTF-16 offsets before returning, so the frontend
+//! never has to know that the two systems differ.
 //!
 //! # Crate boundary
 //!
-//! `writ-lint` depends on `writ-core` and `harper-core` only. It never imports
-//! Tauri; the IPC adapter lives in `writ-tauri`.
+//! `writ-lint` depends on `writ-core`, `spellbook` and `pulldown-cmark`. It
+//! never imports Tauri; the IPC adapter lives in `writ-tauri`.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use harper_core::linting::{LintGroup, Linter, Suggestion};
-use harper_core::spell::FstDictionary;
-use harper_core::Document;
+mod an_a;
+mod markdown;
+mod rules;
+mod spelling;
+mod tokens;
+
 use serde::{Deserialize, Serialize};
 
-pub use harper_core::Dialect;
+/// The English variant the spell checker validates against.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Dialect {
+    /// United States English (SCOWL `en_US`).
+    #[default]
+    American,
+    /// British English with -ise spellings (SCOWL `en_GB-ise`).
+    British,
+    /// Canadian English (SCOWL `en_CA`).
+    Canadian,
+    /// Australian English (SCOWL `en_AU`).
+    Australian,
+}
 
 /// Configuration for a single [`check`] call.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LintConfig {
-    /// English dialect the spell checker validates against.
+    /// English variant the spell checker validates against.
     pub dialect: Dialect,
     /// Words the user has chosen never to flag. Matched case-sensitively
     /// against the stored form first, then case-insensitively.
     pub ignored_words: Vec<String>,
 }
 
-impl Default for LintConfig {
-    fn default() -> Self {
-        Self {
-            dialect: Dialect::American,
-            ignored_words: Vec::new(),
-        }
-    }
-}
-
-/// Maps an accepted dialect identifier to Harper's [`Dialect`].
+/// Maps an accepted identifier to a [`Dialect`].
 ///
 /// Accepts `american`, `british`, `canadian`, `australian` (case-insensitive).
 /// Anything else falls back to [`Dialect::American`].
@@ -70,97 +83,63 @@ pub struct LintResult {
     pub from_utf16: usize,
     /// End of the flagged range (exclusive), in UTF-16 code units.
     pub to_utf16: usize,
-    /// Harper category key, e.g. `Spelling`, `Repetition`, `Formatting`.
+    /// Category key: `Spelling`, `Repetition`, `Formatting`, `Typo` or
+    /// `Miscellaneous` (a/an).
     pub kind: String,
     /// Human-readable description of the problem.
     pub message: String,
     /// Replacement candidates for the flagged range, most-preferred first.
     /// Each entry is the full text the range should become.
     pub suggestions: Vec<String>,
-    /// Whether Writ trusts this lint enough to auto-apply it in "Fix all".
+    /// Whether Writ trusts this lint enough to pre-select it in "Fix all":
+    /// always for the mechanical rules; for spelling, only when the dictionary
+    /// offers exactly one suggestion and it is one edit away.
+    pub confident: bool,
+}
+
+/// A lint in byte offsets, before conversion to UTF-16.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Finding {
+    pub start: usize,
+    pub end: usize,
+    pub kind: &'static str,
+    pub message: String,
+    pub suggestions: Vec<String>,
     pub confident: bool,
 }
 
 /// Runs the spell checker and mechanical rules over `text`.
 ///
 /// Returns the flagged ranges in UTF-16 coordinates, sorted by start offset.
-/// Only spelling lints that carry at least one suggestion, plus the enabled
-/// mechanical rules, are reported; everything without a suggestion is dropped.
-/// Spelling lints on ALLCAPS or mid-word-capitalized tokens (`API`, `SolidJS`,
-/// `useSignal`) and on ignored words are skipped.
+/// Every lint carries at least one suggestion: a misspelling the dictionary
+/// has no suggestion for is not reported. Spelling lints on ALLCAPS or
+/// mid-word-capitalized tokens (`API`, `SolidJS`, `useSignal`) and on ignored
+/// words are skipped.
 pub fn check(text: &str, config: &LintConfig) -> Vec<LintResult> {
     if text.is_empty() {
         return Vec::new();
     }
 
-    let chars: Vec<char> = text.chars().collect();
-    // utf16_prefix[i] is the UTF-16 offset of character i; the trailing entry
-    // is the document's total UTF-16 length. A char-index span [start, end)
-    // maps to [utf16_prefix[start], utf16_prefix[end]).
-    let mut utf16_prefix: Vec<usize> = Vec::with_capacity(chars.len() + 1);
-    let mut acc = 0usize;
-    utf16_prefix.push(0);
-    for c in &chars {
-        acc += c.len_utf16();
-        utf16_prefix.push(acc);
+    let runs = markdown::prose_runs(text);
+    let mut findings: Vec<Finding> = Vec::new();
+    let mut words: Vec<tokens::Token> = Vec::new();
+    for run in &runs {
+        let run_tokens = tokens::tokenize(text, run);
+        rules::repeated_words(text, &run_tokens, &mut findings);
+        rules::spaces(text, run, &mut findings);
+        rules::apostrophes(text, run, &mut findings);
+        an_a::lint(text, &run_tokens, config.dialect, &mut findings);
+        words.extend(run_tokens);
     }
 
-    let dictionary = FstDictionary::curated();
-    let mut group = LintGroup::new_curated(dictionary, config.dialect);
-    // Start from nothing, then turn on only spelling and the mechanical rules.
-    group.set_all_rules_to(Some(false));
-    group.config.set_rule_enabled("SpellCheck", true);
-    group.config.set_rule_enabled("RepeatedWords", true);
-    group.config.set_rule_enabled("Spaces", true);
-    group.config.set_rule_enabled("WrongApostrophe", true);
-    group.config.set_rule_enabled("AnA", true);
+    let typos: Vec<(usize, usize)> = findings
+        .iter()
+        .filter(|f| f.kind == rules::TYPO)
+        .map(|f| (f.start, f.end))
+        .collect();
+    spelling::lint(text, &words, config, &typos, &mut findings);
 
-    let document = Document::new_markdown_default_curated(text);
-    let lints = group.lint(&document);
-
-    let mut out: Vec<LintResult> = Vec::with_capacity(lints.len());
-    for lint in lints {
-        let start = lint.span.start;
-        let end = lint.span.end;
-        if start > end || end > chars.len() {
-            continue;
-        }
-
-        let original: String = chars[start..end].iter().collect();
-        let suggestions: Vec<String> = lint
-            .suggestions
-            .iter()
-            .map(|s| suggestion_to_string(s, &original))
-            .collect();
-        if suggestions.is_empty() {
-            continue;
-        }
-
-        let is_spelling = lint.lint_kind.is_spelling();
-        if is_spelling {
-            if has_internal_uppercase(&original) {
-                continue;
-            }
-            if is_ignored(&original, &config.ignored_words) {
-                continue;
-            }
-        }
-
-        // Every lint that reaches here carries a suggestion (empties were
-        // dropped above), so spelling-with-a-fix and mechanical rules are all
-        // confident.
-        let confident = true;
-
-        out.push(LintResult {
-            from_utf16: utf16_prefix[start],
-            to_utf16: utf16_prefix[end],
-            kind: lint.lint_kind.to_string_key(),
-            message: lint.message,
-            suggestions,
-            confident,
-        });
-    }
-
+    let mut out = to_utf16(text, findings);
     out.sort_by(|a, b| {
         a.from_utf16
             .cmp(&b.from_utf16)
@@ -169,36 +148,43 @@ pub fn check(text: &str, config: &LintConfig) -> Vec<LintResult> {
     out
 }
 
-/// Converts a Harper suggestion into the full text the flagged range should
-/// become. `Remove` yields an empty string; `InsertAfter` appends to the
-/// original span so the range replacement carries the same effect.
-fn suggestion_to_string(suggestion: &Suggestion, original: &str) -> String {
-    match suggestion {
-        Suggestion::ReplaceWith(chars) => chars.iter().collect(),
-        Suggestion::Remove => String::new(),
-        Suggestion::InsertAfter(chars) => {
-            let mut replacement = original.to_string();
-            replacement.extend(chars.iter());
-            replacement
+/// Converts byte ranges to UTF-16 ranges in one pass over the text.
+fn to_utf16(text: &str, findings: Vec<Finding>) -> Vec<LintResult> {
+    let mut offsets: Vec<usize> = findings.iter().flat_map(|f| [f.start, f.end]).collect();
+    offsets.sort_unstable();
+    offsets.dedup();
+
+    let mut table: Vec<(usize, usize)> = Vec::with_capacity(offsets.len());
+    let mut chars = text.char_indices();
+    let mut byte = 0usize;
+    let mut utf16 = 0usize;
+    for &target in &offsets {
+        while byte < target {
+            let Some((at, c)) = chars.next() else {
+                break;
+            };
+            utf16 += c.len_utf16();
+            byte = at + c.len_utf8();
         }
+        table.push((target, utf16));
     }
-}
+    let lookup = |byte: usize| -> usize {
+        table
+            .binary_search_by_key(&byte, |&(b, _)| b)
+            .map_or(0, |i| table[i].1)
+    };
 
-/// True when a token carries an uppercase letter anywhere but the first
-/// position — the shape of ALLCAPS acronyms (`API`) and camel/Pascal-case
-/// identifiers (`SolidJS`, `useSignal`) that spell check must not flag.
-fn has_internal_uppercase(word: &str) -> bool {
-    word.chars().skip(1).any(|c| c.is_uppercase())
-}
-
-/// True when `word` is on the ignore list, matching the stored form
-/// case-sensitively first, then case-insensitively.
-fn is_ignored(word: &str, ignored: &[String]) -> bool {
-    if ignored.iter().any(|w| w == word) {
-        return true;
-    }
-    let lower = word.to_lowercase();
-    ignored.iter().any(|w| w.to_lowercase() == lower)
+    findings
+        .into_iter()
+        .map(|f| LintResult {
+            from_utf16: lookup(f.start),
+            to_utf16: lookup(f.end),
+            kind: f.kind.to_owned(),
+            message: f.message,
+            suggestions: f.suggestions,
+            confident: f.confident,
+        })
+        .collect()
 }
 
 #[cfg(test)]

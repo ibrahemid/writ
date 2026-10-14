@@ -101,6 +101,7 @@ fn make_unwritten(id: &str, title: &str) -> BufferDocument {
         read_only: false,
         size_bytes: 0,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     }
 }
 
@@ -1249,4 +1250,37 @@ fn reconcile_resolves_two_rows_sharing_one_backing_file() {
         store.insert(&c).is_err(),
         "UNIQUE(filename) must hold after a collision reconcile"
     );
+}
+
+#[test]
+fn a_save_waits_for_the_write_lock_another_writer_holds_and_lands_after() {
+    use writ_storage::write_lock::WriteLock;
+
+    let (dir, mut store) = setup();
+    let lock = WriteLock::in_data_folder(dir.path());
+    store.set_write_lock(lock.clone());
+    let doc = make_doc("write-lock-save", "Locked");
+    store.insert(&doc).expect("insert failed");
+
+    let held = lock.hold().expect("the lock is free");
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        drop(held);
+    });
+    let started = std::time::Instant::now();
+    store
+        .save_to_source("write-lock-save", "saved after the lock\n", None, None)
+        .expect("the save lands once the lock is let go");
+    let waited = started.elapsed();
+    releaser.join().expect("the releasing thread");
+
+    assert!(
+        waited >= std::time::Duration::from_millis(250),
+        "the save waited for the other writer: {waited:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(note_path("write-lock-save")).expect("read"),
+        "saved after the lock\n"
+    );
+    assert!(dir.path().join("write.lock").is_file());
 }

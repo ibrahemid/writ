@@ -21,6 +21,7 @@ function doc(overrides: Partial<BufferDocument> = {}): BufferDocument {
     read_only: false,
     size_bytes: 0,
     line_ending: "lf",
+    encoding: "UTF-8",
     ...overrides,
   };
 }

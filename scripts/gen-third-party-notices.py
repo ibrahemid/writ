@@ -16,8 +16,8 @@ about.toml; licences/notices.toml carries the texts for crates whose published
 package leaves the licence file out. npm licences come from `pnpm licenses list
 --prod` against the root package.json, whose dependencies are the ones bundled by
 Vite into the app; the site under site/ has its own tree and does not ship.
-Fonts bundled as files rather than packages are declared in the same
-licences/notices.toml, under [[bundled]].
+Fonts, libraries, dictionaries and ported code shipped as files rather than as
+packages are declared in the same licences/notices.toml, under [[bundled]].
 
 Usage:
     scripts/gen-third-party-notices.py            write THIRD-PARTY-NOTICES.md
@@ -240,9 +240,9 @@ def load_vendored_notices() -> tuple[dict[tuple[str, str], str], set[tuple[str, 
 def load_bundled_assets() -> list[dict[str, object]]:
     """Files shipped inside the app that are neither a crate nor an npm package.
 
-    A font file or a vendored library has no package manager to declare its
-    licence, so the entry names the files it covers and the generator fails
-    when one of them is gone.
+    A font file, a vendored library, a dictionary or ported code has no package
+    manager to declare its licence, so the entry names the files it covers and
+    the generator fails when one of them is gone.
     """
     with NOTICES_CONFIG.open("rb") as handle:
         config = tomllib.load(handle)
@@ -570,11 +570,10 @@ def render(
     add("")
     bundled = len(bundled_assets)
     bundled_clause = (
-        " 1 font family or library is shipped as files rather than as a package "
-        "and is listed below."
+        " 1 other work ships as files rather than as a package and is listed below."
         if bundled == 1
-        else f" {bundled} font families and libraries are shipped as files rather "
-        "than as packages and are listed below."
+        else f" {bundled} other works ship as files rather than as packages and are "
+        "listed below: fonts, libraries, dictionaries and ported code."
         if bundled
         else ""
     )
@@ -685,8 +684,9 @@ def render(
         add("## Bundled files")
         add("")
         add(
-            "Font files and libraries that ship inside the app rather than being "
-            "installed by a package manager. Each block names the files it covers."
+            "Fonts, libraries, dictionaries and ported code that ship inside the app "
+            "rather than being installed by a package manager. Each block names the "
+            "files it covers."
         )
         add("")
         for asset in bundled_assets:

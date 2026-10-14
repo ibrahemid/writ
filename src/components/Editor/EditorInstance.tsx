@@ -72,6 +72,7 @@ import { rebuildKeyMap } from "../../commands/keybindings";
 import { loadGrammar, loadedGrammar, warmGrammar } from "../../editor/languages";
 import { contentMayNameLanguage, languageOfFile } from "../../editor/file-language";
 import { openLanguagePicker } from "./LanguagePicker";
+import { openEncodingPicker } from "./EncodingPicker";
 import { editorModeForContent, THRESHOLD_NORMAL_BYTES } from "../../editor/large-file";
 import { ExternalReloadTxn } from "../../editor/external-reload";
 import { autoTextDirection } from "../../editor/bidi";
@@ -801,6 +802,15 @@ export default function EditorInstance(props: Props) {
     });
 
     registerCommand({
+      id: "editor.reopenWithEncoding",
+      label: "Reopen with encoding…",
+      description: "Read this file again in another text encoding",
+      keywords: ["encoding", "charset", "utf-8", "utf-16", "windows-1252", "latin-1"],
+      scope: "editor",
+      execute: () => openEncodingPicker(),
+    });
+
+    registerCommand({
       id: "editor.addCursorUp",
       label: "Add Cursor Above",
       keybinding: "Alt+ArrowUp",
@@ -1045,6 +1055,7 @@ export default function EditorInstance(props: Props) {
     unregisterCommand("editor.addCursorUp");
     unregisterCommand("editor.addCursorDown");
     unregisterCommand("editor.changeLanguage");
+    unregisterCommand("editor.reopenWithEncoding");
     unregisterCommand("spelling.toggle");
     unregisterCommand("spelling.fixAll");
     unregisterCommand("spelling.preview");

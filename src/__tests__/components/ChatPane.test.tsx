@@ -100,6 +100,7 @@ function note(id: string, path: string): BufferDocument {
     read_only: false,
     size_bytes: 120,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

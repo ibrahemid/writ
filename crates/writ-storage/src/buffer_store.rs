@@ -13,6 +13,7 @@ use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::WriteOrigin;
 use writ_core::preview::scripts::{opt_in_carries_over_write, opt_in_standing, OptInStanding};
+use writ_core::text_encoding::TextEncoding;
 
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
@@ -27,6 +28,7 @@ use crate::recovery::dirty_shutdown::check_dirty_shutdown;
 use crate::recovery::journal::{text_hash, JournalRead, UnsavedJournal};
 use crate::recovery::legacy::{carry_over_legacy_snapshots, LegacyCarryOver};
 use crate::recovery::snapshot::SnapshotManager;
+use crate::write_lock::WriteLock;
 
 /// Called with a path and the bytes about to land on it, immediately before
 /// every write this module performs.
@@ -106,6 +108,12 @@ pub struct BufferStore {
     /// line and the MCP server write notes without writing any database of
     /// the app's (ADR-031, and §4's one-writer rule for each SQLite file).
     history: Option<Arc<NoteHistoryStore>>,
+    /// The data folder's write lock, which `writ mcp` holds across the same
+    /// compare and rename a save does ([`crate::write_lock`]).
+    ///
+    /// `None` until the adapter hands one over: a test, and a store no other
+    /// process writes beside.
+    write_lock: Option<WriteLock>,
     /// The notes index the app holds, which every write to the index goes
     /// through (ADR-036 section 7).
     ///
@@ -128,6 +136,7 @@ impl BufferStore {
             buffers_dir,
             notes_root: None,
             history: None,
+            write_lock: None,
             notes_index: None,
             session_marked_running: false,
             texts_written_beside: HashSet::new(),
@@ -150,6 +159,14 @@ impl BufferStore {
     /// it did before and keeps no versions.
     pub fn set_history(&mut self, history: Arc<NoteHistoryStore>) {
         self.history = Some(history);
+    }
+
+    /// Names the data folder's write lock, which every save and restore holds
+    /// across its last read of the file and its rename (AM-40).
+    ///
+    /// Set once, at startup, by the app.
+    pub fn set_write_lock(&mut self, lock: WriteLock) {
+        self.write_lock = Some(lock);
     }
 
     /// Names the notes index the app holds, so a save's index write goes
@@ -420,26 +437,40 @@ impl BufferStore {
         read_source_text(doc)
     }
 
-    /// Reads a note's text from its file.
+    /// Reads a note's text from its file ([`Self::read_text`] without the
+    /// bytes).
+    pub fn read_content(&self, id: &str) -> StorageResult<String> {
+        self.read_text(id).map(|read| read.text)
+    }
+
+    /// Reads a note's text from its file, with the bytes it was read from.
     ///
     /// A row with no `source_path` has not reached a file yet and reads as
     /// empty: there is nowhere else the text could be (ADR-028 §1). A
     /// read-only row is not always binary — a generated document (ADR-028
     /// §1's minted-nowhere case) is read-only text — so the hex view is only
     /// substituted when the bytes actually sniff as binary, regenerated from
-    /// the file on every read rather than stored anywhere. Bytes that sniff
-    /// as text but are not valid UTF-8 fall back to a lossy decode rather
-    /// than failing the read.
+    /// the file on every read rather than stored anywhere. A read-only row
+    /// that sniffs as text falls back to a lossy decode rather than failing
+    /// the read: nothing can write it back.
+    ///
+    /// Every other row is read in its encoding (ADR-049), a row from before
+    /// the column in UTF-8. Bytes that are not text in it answer
+    /// [`StorageError::NotInEncoding`] rather than text with a character
+    /// standing in for them, which a save would write back over them.
     ///
     /// The file is measured before anything reads it. A file can grow past
     /// the size Writ opens after its open measured it, while its tab waits to
     /// be shown or while it is open, and such a file answers
     /// [`StorageError::FileTooLarge`] with the size a stat found, none of it
     /// read (ADR-019).
-    pub fn read_content(&self, id: &str) -> StorageResult<String> {
+    pub fn read_text(&self, id: &str) -> StorageResult<ReadText> {
         let doc = queries::get_buffer(&self.conn, id)?;
         let Some(source_path) = doc.source_path.as_deref() else {
-            return Ok(String::new());
+            return Ok(ReadText {
+                text: String::new(),
+                bytes: ReadBytes::NoFile,
+            });
         };
         let size_bytes = std::fs::metadata(source_path)?.len();
         if let FileOpenMode::Refused { .. } =
@@ -447,17 +478,41 @@ impl BufferStore {
         {
             return Err(StorageError::FileTooLarge { size_bytes });
         }
+        let bytes = std::fs::read(source_path)?;
         if doc.read_only {
-            let bytes = std::fs::read(source_path)?;
-            if writ_core::file_ops::is_binary_bytes(&bytes) {
-                return Ok(writ_core::file_ops::generate_hex_dump(
-                    &bytes,
-                    doc.size_bytes as usize,
-                ));
-            }
-            return Ok(String::from_utf8_lossy(&bytes).into_owned());
+            // A NUL alone decides here, as it did when the row was made: a row
+            // opened as a hex view before UTF-16 was text (ADR-049) stays one
+            // until the file is opened again.
+            let prefix = &bytes[..bytes.len().min(writ_core::file_ops::BINARY_CHECK_BYTES)];
+            let text = if prefix.contains(&0) {
+                writ_core::file_ops::generate_hex_dump(&bytes, doc.size_bytes as usize)
+            } else {
+                String::from_utf8_lossy(&bytes).into_owned()
+            };
+            return Ok(ReadText {
+                text,
+                bytes: ReadBytes::Raw(bytes),
+            });
         }
-        Ok(std::fs::read_to_string(source_path)?)
+        let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
+        // Bytes that are already the text are handed over as the text rather
+        // than copied, so a file in the large tiers is held once.
+        let decoded = match encoding.decode(&bytes)? {
+            std::borrow::Cow::Borrowed(text) if text.len() == bytes.len() => None,
+            other => Some(other.into_owned()),
+        };
+        Ok(match decoded {
+            Some(text) => ReadText {
+                text,
+                bytes: ReadBytes::Raw(bytes),
+            },
+            None => ReadText {
+                text: String::from_utf8(bytes).map_err(|error| {
+                    StorageError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+                })?,
+                bytes: ReadBytes::Text,
+            },
+        })
     }
 
     /// Reads the bytes of a note's file.
@@ -752,23 +807,30 @@ impl BufferStore {
             .clone();
         let path = Path::new(&source_path);
 
-        // The file's own line ending goes back on before anything is hashed,
-        // so the digest compared against the disk is a digest of the bytes
-        // that will land there. Hashing the editor's LF text instead would
-        // make every save of an untouched Windows note look like a change.
+        // The file's own line ending and encoding go back on before anything
+        // is hashed, so the digest compared against the disk is a digest of
+        // the bytes that will land there. Hashing the editor's LF text instead
+        // would make every save of an untouched Windows note look like a
+        // change. Text the encoding cannot hold is refused here, before the
+        // guard reads anything (ADR-049).
         let content = doc.line_ending.apply(content);
+        let bytes = doc
+            .encoding
+            .unwrap_or_else(TextEncoding::utf8)
+            .encode(&content)?;
 
         let keep = self.history.as_deref().map(crate::guarded::keep_versions);
         let outcome = write_note_guarded(
             GuardedWrite {
                 target: path,
-                bytes: content.as_bytes(),
+                bytes: &bytes,
                 last_known,
                 on_disk: DiskRead::Fresh,
                 dataless: None,
                 origin: WriteOrigin::Editor,
                 on_conflict: ConflictPolicy::RefuseWithCopy,
                 history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
+                lock: self.write_lock.as_ref(),
             },
             before_write,
         )?;
@@ -884,7 +946,28 @@ impl BufferStore {
             });
         }
 
-        let incoming = writ_core::hash::sha256_bytes(encoded.as_bytes());
+        // The file's encoding cannot hold the text: it goes beside the note,
+        // as UTF-8 like every file Writ creates, and the note is left as it
+        // is (ADR-049).
+        let file_bytes = match doc
+            .encoding
+            .unwrap_or_else(TextEncoding::utf8)
+            .encode(&encoded)
+        {
+            Ok(file_bytes) => file_bytes,
+            Err(lossy) => {
+                let on_disk = read_disk_state(path)?;
+                let copy = write_recovered_copy(path, &encoded, chrono::Utc::now(), before_write)?;
+                warn!(
+                    note = %path.display(),
+                    recovered = %copy.display(),
+                    error = %lossy,
+                    "the file's encoding cannot hold the recovered text; it was written beside it"
+                );
+                return Ok(RecoveredText::SetAside { on_disk, copy });
+            }
+        };
+        let incoming = writ_core::hash::sha256_bytes(&file_bytes);
         let as_kept = writ_core::hash::sha256_bytes(content.as_bytes());
         let on_disk = read_disk_state(path)?;
 
@@ -913,7 +996,7 @@ impl BufferStore {
         let outcome = write_note_guarded(
             GuardedWrite {
                 target: path,
-                bytes: encoded.as_bytes(),
+                bytes: &file_bytes,
                 last_known: None,
                 // The read above found no file at the path, so there is
                 // nothing for the guard to weigh the write against.
@@ -922,6 +1005,7 @@ impl BufferStore {
                 origin: WriteOrigin::Restore,
                 on_conflict: ConflictPolicy::RefuseOnly,
                 history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
+                lock: self.write_lock.as_ref(),
             },
             before_write,
         )?;
@@ -937,6 +1021,22 @@ impl BufferStore {
     /// overruled, because the next save has to write what the file holds now.
     pub fn set_line_ending(&self, id: &str, ending: LineEnding) -> StorageResult<()> {
         queries::update_line_ending(&self.conn, id, ending)
+    }
+
+    /// Records the text encoding the note's file is read and written in: the
+    /// one the open detected, the one Reopen with Encoding chose, or the byte
+    /// order mark another program added or took away (ADR-049).
+    pub fn set_encoding(&self, id: &str, encoding: Option<TextEncoding>) -> StorageResult<()> {
+        queries::update_encoding(&self.conn, id, encoding)
+    }
+
+    /// Records whether the note's file may be written back.
+    ///
+    /// For the open of a file a row already holds: a file that opened as a hex
+    /// view before UTF-16 was text (ADR-049) is writable text when it is
+    /// opened again.
+    pub fn set_read_only(&self, id: &str, read_only: bool) -> StorageResult<()> {
+        queries::update_read_only(&self.conn, id, read_only)
     }
 
     /// The preview-scripts opt-in as recorded on the row, before it is checked
@@ -1314,17 +1414,22 @@ pub struct NoteFileState {
     /// What the write guard compares: the digest of the bytes as they are,
     /// line endings and all, plus the size and modification time.
     pub disk: DiskState,
-    /// What the editor compares its document against
-    /// ([`writ_core::hash::comparison_digest_hex`]).
+    /// What the editor compares its document against: the digest of the
+    /// file's text in its encoding
+    /// ([`TextEncoding::comparison_digest_hex`]).
     pub comparison_hash: String,
 }
 
-/// What `path` holds right now, or `None` when there is no file there.
+/// What `path` holds right now, or `None` when there is no file there, for a
+/// note that reads its file in `encoding`.
 ///
 /// One read answers both: a second read to compute the other digest could see
 /// a different version of a file being written while this runs, and the two
 /// answers would then describe two different files.
-pub fn read_note_file_state(path: &Path) -> StorageResult<Option<NoteFileState>> {
+pub fn read_note_file_state(
+    path: &Path,
+    encoding: TextEncoding,
+) -> StorageResult<Option<NoteFileState>> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -1332,7 +1437,7 @@ pub fn read_note_file_state(path: &Path) -> StorageResult<Option<NoteFileState>>
     };
     let metadata = std::fs::metadata(path).ok();
     Ok(Some(NoteFileState {
-        comparison_hash: writ_core::hash::comparison_digest_hex(&bytes),
+        comparison_hash: encoding.comparison_digest_hex(&bytes),
         disk: DiskState {
             hash: writ_core::hash::sha256_bytes(&bytes),
             size: metadata
@@ -1346,7 +1451,7 @@ pub fn read_note_file_state(path: &Path) -> StorageResult<Option<NoteFileState>>
 
 /// What `path` holds right now, for the write guard alone.
 pub fn read_disk_state(path: &Path) -> StorageResult<Option<DiskState>> {
-    Ok(read_note_file_state(path)?.map(|state| state.disk))
+    Ok(read_note_file_state(path, TextEncoding::utf8())?.map(|state| state.disk))
 }
 
 /// The names `dir` already holds, lowercased the way the dedupe compares them.
@@ -1360,9 +1465,44 @@ pub(crate) fn taken_names(dir: &Path) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// A note's text for the index, read in its encoding; empty for a note with
+/// no file and for bytes that are not text in it.
 fn read_source_text(doc: &BufferDocument) -> String {
+    let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
     doc.source_path
         .as_deref()
-        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| encoding.decode(&bytes).ok().map(|text| text.into_owned()))
         .unwrap_or_default()
+}
+
+/// A note's text and the bytes of its file, read once.
+///
+/// The two differ for a file that is not UTF-8, and each has its own reader:
+/// the editor takes the text, while the record of what the file holds, the
+/// write guard and the version history take the bytes ([`ReadText::bytes`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadText {
+    /// The text as the editor shows it.
+    pub text: String,
+    bytes: ReadBytes,
+}
+
+/// Where the file's bytes are: nowhere, in the text itself, or held apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReadBytes {
+    NoFile,
+    Text,
+    Raw(Vec<u8>),
+}
+
+impl ReadText {
+    /// The file's bytes as read, `None` for a note with no file yet.
+    pub fn bytes(&self) -> Option<&[u8]> {
+        match &self.bytes {
+            ReadBytes::NoFile => None,
+            ReadBytes::Text => Some(self.text.as_bytes()),
+            ReadBytes::Raw(bytes) => Some(bytes),
+        }
+    }
 }

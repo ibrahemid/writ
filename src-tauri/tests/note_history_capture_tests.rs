@@ -21,6 +21,7 @@ use writ_core::events::bus::EventBus;
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::ChangeChoice;
 use writ_core::preview::ContentRendererRegistry;
+use writ_core::text_encoding::TextEncoding;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::reconcile::ReconcileGate;
 use writ_plugin::transform::TransformRegistry;
@@ -270,6 +271,7 @@ fn a_conflict_resolution_puts_both_sides_in_the_store() {
         &path,
         None,
         LineEnding::Lf,
+        TextEncoding::utf8(),
         ChangeChoice::KeepMine,
         "what the person typed\n",
     )

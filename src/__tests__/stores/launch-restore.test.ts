@@ -29,6 +29,7 @@ function row(id: string, name: string, overrides: Partial<BufferDocument> = {}):
     read_only: false,
     size_bytes: 1_000,
     line_ending: "lf",
+    encoding: "UTF-8",
     ...overrides,
   };
 }

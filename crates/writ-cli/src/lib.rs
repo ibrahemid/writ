@@ -125,6 +125,16 @@ pub fn is_empty_payload(content: &str) -> bool {
     content.trim().is_empty()
 }
 
+/// The text piped to `writ`, read as the app reads a file
+/// (`writ_core::text_encoding::decode_file`, ADR-049), or `None` for bytes
+/// the app would show as binary.
+///
+/// The note it becomes is written in UTF-8, as every note Writ creates is: a
+/// pipe has no file whose encoding there is to keep.
+pub fn piped_text(bytes: &[u8]) -> Option<String> {
+    writ_core::text_encoding::decode_file(bytes).map(|decoded| decoded.text.into_owned())
+}
+
 /// Decide what to do when no paths were given.
 ///
 /// A pipe is read as stdin content. On a terminal, an explicit `-` is an error
@@ -930,5 +940,29 @@ mod tests {
         assert!(!is_empty_payload("x"));
         assert!(!is_empty_payload("\n# heading\n"));
         assert!(!is_empty_payload("0"));
+    }
+
+    #[test]
+    fn piped_text_in_another_encoding_is_read_as_the_app_reads_it() {
+        assert_eq!(piped_text("café\n".as_bytes()).as_deref(), Some("café\n"));
+        assert_eq!(
+            piped_text(b"caf\xe9 cr\xe8me\n").as_deref(),
+            Some("café crème\n")
+        );
+        // UTF-16LE with a byte order mark, as PowerShell writes it.
+        let utf16: Vec<u8> = b"\xff\xfe"
+            .iter()
+            .copied()
+            .chain("dir\r\n".encode_utf16().flat_map(u16::to_le_bytes))
+            .collect();
+        assert_eq!(piped_text(&utf16).as_deref(), Some("dir\r\n"));
+    }
+
+    #[test]
+    fn piped_binary_is_not_text() {
+        assert_eq!(
+            piped_text(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00"),
+            None
+        );
     }
 }

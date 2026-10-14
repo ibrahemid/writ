@@ -58,6 +58,7 @@ function note(): BufferDocument {
     read_only: false,
     size_bytes: NOTE.length,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

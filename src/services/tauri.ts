@@ -740,6 +740,16 @@ export async function setBufferLanguage(
   return invoke("set_buffer_language", { id, language });
 }
 
+// Reads a file again in another text encoding and keeps that encoding for it
+// (ADR-049). Only the row changes; the tab then reloads its text. Rejects with
+// a read code when the file is not text in that encoding.
+export async function reopenWithEncoding(
+  bufferId: string,
+  encoding: string,
+): Promise<BufferDocument> {
+  return invoke("reopen_with_encoding", { bufferId, encoding });
+}
+
 // Asks the sync provider for a note's bytes. Returns as soon as the download
 // has started; the outcome arrives as a note:download event.
 export async function materialiseNote(path: string): Promise<void> {

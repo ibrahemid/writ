@@ -39,6 +39,7 @@ use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
+use writ_core::text_encoding::TextEncoding;
 use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
 use writ_core::watcher::pending::{hold_window, HeldRemoval, HoldAnswer, PendingRemovals};
@@ -725,7 +726,12 @@ fn open_note_modification(
         return None;
     }
     vanished.tracking.files.note_file_changed(note_id);
-    Some(open_note_modified(note_id, path, bytes))
+    Some(open_note_modified(
+        note_id,
+        path,
+        bytes,
+        vanished.tracking.files.encoding_of(note_id),
+    ))
 }
 
 /// The file's bytes, or `None` where reading them is the wrong thing to do.
@@ -745,13 +751,21 @@ fn readable_bytes(path: &Path) -> Option<Vec<u8>> {
 /// Shared by both watchers so a tab cannot get a different payload depending
 /// on which side of the notes folder its file happens to sit
 /// ([`super::handler::route_notes_change_to_open_tab`]).
-pub fn open_note_modified(note_id: &str, path: &Path, bytes: Option<&[u8]>) -> WritEvent {
+///
+/// The digest is taken over the file's text in `encoding`, the note's own
+/// (ADR-049), since that is what the tab compares it with.
+pub fn open_note_modified(
+    note_id: &str,
+    path: &Path,
+    bytes: Option<&[u8]>,
+    encoding: TextEncoding,
+) -> WritEvent {
     WritEvent::BufferExternal {
         buffer_id: note_id.to_string(),
         path: path.to_string_lossy().into_owned(),
         change: ExternalChange::Modified,
         new_path: None,
-        disk_hash: bytes.map(writ_core::hash::comparison_digest_hex),
+        disk_hash: bytes.map(|bytes| encoding.comparison_digest_hex(bytes)),
     }
 }
 
@@ -772,7 +786,7 @@ pub fn open_note_removed(note_id: &str, path: &Path) -> WritEvent {
 /// being about the file it is holding. The digest is the file's, read at its
 /// new home: a move changes no bytes, so this is what the tab already has, and
 /// carrying it is what lets the editor confirm that rather than assume it.
-pub fn open_note_moved(note_id: &str, from: &Path, to: &Path) -> WritEvent {
+pub fn open_note_moved(note_id: &str, from: &Path, to: &Path, encoding: TextEncoding) -> WritEvent {
     WritEvent::BufferExternal {
         buffer_id: note_id.to_string(),
         path: from.to_string_lossy().into_owned(),
@@ -780,7 +794,7 @@ pub fn open_note_moved(note_id: &str, from: &Path, to: &Path) -> WritEvent {
         new_path: Some(to.to_string_lossy().into_owned()),
         disk_hash: readable_bytes(to)
             .as_deref()
-            .map(writ_core::hash::comparison_digest_hex),
+            .map(|bytes| encoding.comparison_digest_hex(bytes)),
     }
 }
 
@@ -966,6 +980,7 @@ pub fn open_note_vanished(
                 note_id,
                 path,
                 readable_bytes(path).as_deref(),
+                files.encoding_of(note_id),
             ))
         }
     }
@@ -997,7 +1012,12 @@ fn announce_move(
             tracking
                 .holds
                 .answer(note_id, HoldAnswer::Moved(to.to_path_buf()));
-            Some(open_note_moved(note_id, from, to))
+            Some(open_note_moved(
+                note_id,
+                from,
+                to,
+                files.encoding_of(note_id),
+            ))
         }
         MoveOutcome::AlreadyThere => {
             tracking

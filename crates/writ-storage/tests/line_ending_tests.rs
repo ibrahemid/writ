@@ -58,6 +58,7 @@ fn open_note(store: &BufferStore, dir: &TempDir, on_disk: &str) -> (std::path::P
         read_only: false,
         size_bytes: on_disk.len() as u64,
         line_ending: LineEnding::detect(on_disk),
+        encoding: None,
     };
     store.open_from_path(&doc, on_disk).expect("open");
     let state = recorded(&path);

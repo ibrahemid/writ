@@ -261,7 +261,19 @@ impl NotesIndexStore {
         terms: &[String],
         limit: usize,
     ) -> StorageResult<Vec<SearchHit>> {
-        self.read(|conn| queries::search_hits(conn, query, terms, limit))
+        self.search_hits_from(query, terms, 0, limit)
+    }
+
+    /// [`NotesIndexStore::search_hits`] after the first `offset` ranked hits,
+    /// for a caller reading the hits a page at a time.
+    pub fn search_hits_from(
+        &self,
+        query: &str,
+        terms: &[String],
+        offset: usize,
+        limit: usize,
+    ) -> StorageResult<Vec<SearchHit>> {
+        self.read(|conn| queries::search_hits(conn, query, terms, offset, limit))
     }
 
     /// Total number of notes matching `query`. See
@@ -393,10 +405,13 @@ impl NotesIndexStore {
         if note.size > THRESHOLD_NORMAL_BYTES || !should_index(path) {
             return Ok(false);
         }
-        let Ok(content) = std::fs::read_to_string(path) else {
+        let Ok(bytes) = std::fs::read(path) else {
             return Ok(false);
         };
-        self.upsert(&note, &content)?;
+        let Some(decoded) = writ_core::text_encoding::decode_file(&bytes) else {
+            return Ok(false);
+        };
+        self.upsert(&note, &decoded.text)?;
         Ok(true)
     }
 

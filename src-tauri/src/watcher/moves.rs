@@ -14,6 +14,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use writ_core::text_encoding::TextEncoding;
 
 use tauri::{AppHandle, Manager};
 use writ_core::notes::guard::DiskState;
@@ -62,6 +63,13 @@ pub trait NoteFiles: Send + Sync {
     /// not evidence of where a file went — a move is followed on the id and
     /// nothing else (ADR-033 §12).
     fn last_disk_state(&self, note_id: &str) -> Option<DiskState>;
+
+    /// The text encoding the note reads its file in (ADR-049), which is what
+    /// the digest a tab is handed is taken over. UTF-8 when there is no row
+    /// to ask.
+    fn encoding_of(&self, _note_id: &str) -> TextEncoding {
+        TextEncoding::utf8()
+    }
 
     /// The notes folder as it is now, or `None` when there is no application
     /// behind this record.
@@ -191,6 +199,10 @@ impl NoteFiles for AppNoteFiles {
         self.app.state::<AppState>().disk_state(note_id)
     }
 
+    fn encoding_of(&self, note_id: &str) -> TextEncoding {
+        encoding_of_note(&self.app.state::<AppState>(), note_id)
+    }
+
     fn notes_root(&self) -> Option<PathBuf> {
         Some(self.app.state::<AppState>().notes_root())
     }
@@ -244,6 +256,14 @@ impl NoteFiles for SharedNoteFiles {
         self.state.upgrade()?.disk_state(note_id)
     }
 
+    fn encoding_of(&self, note_id: &str) -> TextEncoding {
+        self.state
+            .upgrade()
+            .map_or_else(TextEncoding::utf8, |state| {
+                encoding_of_note(&state, note_id)
+            })
+    }
+
     fn notes_root(&self) -> Option<PathBuf> {
         Some(self.state.upgrade()?.notes_root())
     }
@@ -252,6 +272,20 @@ impl NoteFiles for SharedNoteFiles {
 /// What the filesystem last called the note's file.
 fn identity_of_note(state: &AppState, note_id: &str) -> Option<FileIdentity> {
     state.source_identity(note_id)
+}
+
+/// The text encoding the note's row reads its file in, UTF-8 for a row that
+/// names none or cannot be read. Takes the store lock, so it is never asked
+/// with that lock held.
+pub(crate) fn encoding_of_note(state: &AppState, note_id: &str) -> TextEncoding {
+    let store =
+        crate::poison::recover_poison(state.store.lock(), "watcher::moves::encoding_of_note");
+    store
+        .find(note_id)
+        .ok()
+        .flatten()
+        .and_then(|doc| doc.encoding)
+        .unwrap_or_else(TextEncoding::utf8)
 }
 
 /// What became of a note whose file was found at another path.
