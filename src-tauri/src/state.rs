@@ -24,8 +24,8 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::notes_index::NotesIndexStore;
-use writ_storage::write_lock::WriteLock;
 use writ_storage::paths::file_name_only;
+use writ_storage::write_lock::WriteLock;
 
 use crate::fts_scheduler::FtsScheduler;
 use crate::poison::recover_poison;

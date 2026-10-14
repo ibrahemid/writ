@@ -70,6 +70,8 @@ pub trait NoteFiles: Send + Sync {
     /// to ask.
     fn encoding_of(&self, _note_id: &str) -> TextEncoding {
         TextEncoding::utf8()
+    }
+
     /// Whether the note's file is marked as deleted, so a file at its path is
     /// one that came back and has to be read rather than recognised by its
     /// size and modification time.
@@ -207,6 +209,8 @@ impl NoteFiles for AppNoteFiles {
 
     fn encoding_of(&self, note_id: &str) -> TextEncoding {
         encoding_of_note(&self.app.state::<AppState>(), note_id)
+    }
+
     fn is_marked_removed(&self, note_id: &str) -> bool {
         self.app.state::<AppState>().is_removed_on_disk(note_id)
     }
@@ -270,6 +274,8 @@ impl NoteFiles for SharedNoteFiles {
             .map_or_else(TextEncoding::utf8, |state| {
                 encoding_of_note(&state, note_id)
             })
+    }
+
     fn is_marked_removed(&self, note_id: &str) -> bool {
         self.state
             .upgrade()
