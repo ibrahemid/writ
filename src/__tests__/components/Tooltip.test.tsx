@@ -3,6 +3,8 @@ import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import Tooltip from "../../components/Tooltip/Tooltip";
+import { registerCommand, unregisterCommand } from "../../commands/registry";
+import { rebuildKeyMap, setKeybindingOverrides } from "../../commands/keybindings";
 import { themeStore } from "../../stores/global/theme";
 
 const HOVER_DELAY_MS = 500;
@@ -235,5 +237,67 @@ describe("Tooltip dark surface", () => {
     });
 
     expect(document.documentElement.matches(selector as string)).toBe(true);
+  });
+});
+
+describe("Tooltip with a shortcut", () => {
+  beforeEach(() => vi.useFakeTimers());
+
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    unregisterCommand("test.sidebar");
+    setKeybindingOverrides({});
+    rebuildKeyMap();
+  });
+
+  function hover(container: HTMLElement) {
+    fireEvent.pointerEnter(container.querySelector(".writ-tooltip-anchor")!);
+    vi.advanceTimersByTime(HOVER_DELAY_MS);
+  }
+
+  it("shows the chord a command answers to, and the new one once it is rebound", () => {
+    registerCommand({
+      id: "test.sidebar",
+      label: "Toggle sidebar",
+      keybinding: "CmdOrCtrl+\\",
+      scope: "app",
+      execute: () => {},
+    });
+    rebuildKeyMap();
+    const { container } = render(() => (
+      <Tooltip label="Toggle sidebar" kbd="test.sidebar">
+        <button type="button">Sidebar</button>
+      </Tooltip>
+    ));
+
+    hover(container);
+    expect(tip()?.querySelector(".writ-tooltip-kbd")?.textContent).toBe("Ctrl+\\");
+
+    setKeybindingOverrides({ "test.sidebar": "CmdOrCtrl+Shift+B" });
+    rebuildKeyMap();
+    expect(tip()?.textContent).toBe("Toggle sidebar Ctrl+Shift+B");
+  });
+
+  it("shows a fixed key that is no command", () => {
+    const { container } = render(() => (
+      <Tooltip label="Close settings" chord="Escape">
+        <button type="button">Close</button>
+      </Tooltip>
+    ));
+
+    hover(container);
+    expect(tip()?.textContent).toBe("Close settings Esc");
+  });
+
+  it("shows the label alone for a command with no chord", () => {
+    const { container } = render(() => (
+      <Tooltip label="Chat" kbd="test.unbound">
+        <button type="button">Chat</button>
+      </Tooltip>
+    ));
+
+    hover(container);
+    expect(tip()?.textContent).toBe("Chat");
   });
 });

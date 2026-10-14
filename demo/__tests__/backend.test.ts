@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { IpcBridge } from "../ipc";
 import { formatRenameError } from "../../src/lib/save-error";
+import { createFolderListing } from "../../src/stores/global/folder-listing";
+import type { DirListing } from "../../src/types/workspace";
 import { createBackend, DemoCommandError } from "../backend/backend";
 import { SEED_FILES, SEED_VERSIONS } from "../backend/seed";
 import { VersionsNotSeededError, digestText } from "../backend/state";
@@ -41,19 +43,34 @@ describe("the demo backend", () => {
 
   it("lists folders before files, as the app's tree does", async () => {
     const { handle } = backend();
-    const entries = (await handle("list_workspace_dir", { dirPath: NOTES_ROOT })) as { name: string; is_dir: boolean }[];
-    const firstFile = entries.findIndex((e) => !e.is_dir);
-    expect(entries.slice(firstFile).every((e) => !e.is_dir)).toBe(true);
-    expect(entries.some((e) => e.name === "To do.txt")).toBe(true);
+    const listing = (await handle("list_workspace_dir", { dirPath: NOTES_ROOT })) as DirListing;
+    expect(listing.unreadable).toBe(0);
+    const firstFile = listing.entries.findIndex((e) => !e.is_dir);
+    expect(listing.entries.slice(firstFile).every((e) => !e.is_dir)).toBe(true);
+    expect(listing.entries.some((e) => e.name === "To do.txt")).toBe(true);
   });
 
   it("lists the notes folder the sidebar shows when no folder is open", async () => {
     const { handle } = backend();
     await handle("clear_workspace_root", {});
-    const names = (entries: unknown) => (entries as { name: string }[]).map((entry) => entry.name);
+    const names = (listing: unknown) => (listing as DirListing).entries.map((entry) => entry.name);
     const notes = names(await handle("list_notes_dir", { dirPath: NOTES_ROOT }));
     expect(notes).toContain("To do.txt");
     expect(notes).toEqual(names(await handle("list_workspace_dir", { dirPath: NOTES_ROOT })));
+  });
+
+  it("fills the sidebar's folder listing with the seeded notes", async () => {
+    const { handle } = backend();
+    for (const command of ["list_notes_dir", "list_workspace_dir"]) {
+      const listing = createFolderListing(
+        async (dirPath) => (await handle(command, { dirPath })) as DirListing,
+        () => NOTES_ROOT,
+      );
+      await listing.loadDir(NOTES_ROOT);
+      expect(listing.errorFor(NOTES_ROOT)).toBeNull();
+      expect(listing.unreadableFor(NOTES_ROOT)).toBe(0);
+      expect(listing.entriesFor(NOTES_ROOT)?.map((entry) => entry.name)).toContain("To do.txt");
+    }
   });
 
   it("reports the digest of the text with its line breaks as LF", async () => {

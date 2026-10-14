@@ -6,9 +6,9 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import Icon from "../Icon/Icon";
 import Kbd from "../Kbd/Kbd";
 import { composeSections, type ComposedSection } from "./compose";
-import { parsePaletteQuery } from "./query";
+import { PALETTE_PREFIXES, parsePaletteQuery } from "./query";
 import { providerModes, type PaletteResult, type ResultProvider } from "./types";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { logFailure } from "../../lib/log";
 import "./Palette.css";
 
@@ -84,6 +84,25 @@ export default function Palette(props: PaletteProps) {
   const activeProviders = createMemo(() =>
     props.providers.filter((p) => providerModes(p).includes(parsed().mode)),
   );
+
+  // The footer teaches the prefixes this palette's providers answer, and no
+  // other: a keycap that routes to nothing would be a promise the list breaks.
+  const prefixes = createMemo(() =>
+    PALETTE_PREFIXES.filter((entry) =>
+      props.providers.some((p) => providerModes(p).includes(entry.mode)),
+    ),
+  );
+
+  /** A keycap click: routes the terms typed so far, or drops the route again. */
+  function choosePrefix(prefix: string) {
+    const { text, prefix: current } = parsed();
+    setQuery(current === prefix ? text : `${prefix}${text}`);
+    if (inputRef) {
+      inputRef.focus();
+      const end = inputRef.value.length;
+      inputRef.setSelectionRange(end, end);
+    }
+  }
 
   const buckets = createMemo<Buckets>(() => {
     const fromQuery = queried();
@@ -392,6 +411,24 @@ export default function Palette(props: PaletteProps) {
           <Show when={props.notice?.()}>
             {(notice) => <div class="palette-notice">{notice()}</div>}
           </Show>
+          <div class="palette-prefixes">
+            <For each={prefixes()}>
+              {(entry) => (
+                <button
+                  type="button"
+                  class="palette-prefix"
+                  data-prefix={entry.prefix}
+                  aria-pressed={parsed().prefix === entry.prefix}
+                  onClick={() => choosePrefix(entry.prefix)}
+                >
+                  <span class="kbd-key" aria-hidden="true">
+                    {entry.prefix}
+                  </span>
+                  {entry.label}
+                </button>
+              )}
+            </For>
+          </div>
         </div>
       </div>
     </Show>

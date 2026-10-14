@@ -2,18 +2,58 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow-y: auto;
 }
 
-.search-result-list {
+.search-group {
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
   padding: var(--writ-space-1) 0;
-  min-height: 0;
 }
 
-.search-result-list .writ-tooltip-anchor {
+.search-group .writ-tooltip-anchor {
   display: block;
+}
+
+/* The folder a group searched, named so the scope is never a guess (NV-03). */
+.search-group-heading {
+  padding: var(--writ-space-2-5) var(--writ-space-4) var(--writ-space-1);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-group-line {
+  padding: var(--writ-space-2) var(--writ-space-4);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg-faint);
+}
+
+.search-group-failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--writ-space-3);
+}
+
+.search-retry {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--writ-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* The option the field's arrows reached: the hover fill, since focus stays in
+   the field. */
+.search-result[aria-selected="true"] {
+  background: var(--writ-bg-hover);
+  box-shadow: inset 0 0 0 1px var(--writ-accent);
 }
 
 .search-result {
@@ -83,8 +123,7 @@
 
 .search-footer {
   flex-shrink: 0;
-  padding: var(--writ-space-2-5) var(--writ-space-4);
-  border-top: 1px solid var(--writ-border-soft);
+  padding: var(--writ-space-2) var(--writ-space-4);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   color: var(--writ-fg-faint);

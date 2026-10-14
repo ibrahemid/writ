@@ -77,6 +77,42 @@ describe("cut", () => {
   });
 });
 
+// EP-22: the context menu copied and cut the main range only, while Cmd+C
+// copies every range.
+describe("with several selection ranges", () => {
+  function multiView(doc: string, ranges: Array<[number, number]>) {
+    const state = EditorState.create({
+      doc,
+      selection: EditorSelection.create(ranges.map(([from, to]) => EditorSelection.range(from, to))),
+      extensions: [EditorState.allowMultipleSelections.of(true)],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    return new EditorView({ state, parent: container });
+  }
+
+  it("copies every range, one per line", async () => {
+    await copySelection(multiView("one two three", [[0, 3], [4, 7], [8, 13]]));
+    expect(mocks.writeClipboardText).toHaveBeenCalledWith("one\ntwo\nthree");
+  });
+
+  it("skips empty ranges", async () => {
+    await copySelection(multiView("one two", [[0, 3], [5, 5]]));
+    expect(mocks.writeClipboardText).toHaveBeenCalledWith("one");
+  });
+
+  it("cuts every range and leaves a caret at each", async () => {
+    const view = multiView("one two three", [[0, 3], [8, 13]]);
+    await cutSelection(view);
+    expect(mocks.writeClipboardText).toHaveBeenCalledWith("one\nthree");
+    expect(view.state.doc.toString()).toBe(" two ");
+    expect(view.state.selection.ranges.map((r) => [r.from, r.to])).toEqual([
+      [0, 0],
+      [5, 5],
+    ]);
+  });
+});
+
 describe("paste", () => {
   it("replaces the selection with the clipboard text", async () => {
     mocks.readClipboardText.mockResolvedValue("there");

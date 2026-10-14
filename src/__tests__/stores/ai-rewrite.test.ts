@@ -15,7 +15,7 @@ vi.mock("../../services/tauri", () => ({
   aiClearApiKey: vi.fn().mockResolvedValue({ is_set: false, memory_only: false }),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: (...args: unknown[]) => showToast(...args),
 }));
 

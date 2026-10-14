@@ -2,10 +2,10 @@ import { createSignal } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import type { BufferRegistry, OpenOutcome } from "../global/buffer-registry";
 import { largeFileOpen } from "../global/large-file-open";
-import { reportOpenOutcome } from "../global/open-report";
+import { reportOpenOutcome, reportOpenOutcomes } from "../global/open-report";
 import { flushAutosave, keepUnsavedForRecovery, type SaveFailure } from "../../services/autosave";
 import { asSentence, formatSaveError } from "../../lib/save-error";
-import { requestConfirm } from "../../components/ConfirmDialog/ConfirmDialog";
+import { requestConfirm } from "../global/dialogs";
 import { basename } from "../../lib/path";
 import type { DownloadStore } from "./download-store";
 import { saveStatusStore } from "../global/save-status";
@@ -75,6 +75,12 @@ export function createTabStore(deps: {
     return doc;
   }
 
+  async function newNoteInFolder(folder: string): Promise<BufferDocument> {
+    const doc = await registry.newNoteInFolder(folder);
+    setActiveTabId(doc.id);
+    return doc;
+  }
+
   // Today's file may already be open, in which case the row that comes back
   // is that tab's, and selecting it is the whole of the command. Otherwise it
   // answers as an open of its path does, and is reported the same way.
@@ -87,10 +93,12 @@ export function createTabStore(deps: {
   // The tab goes with the note. Selection moves to the survivor first, for the
   // same reason closeTab does it: a transient null active buffer recreates the
   // preview iframe, which hard-freezes the macOS webview.
-  async function deleteNote(id: string): Promise<void> {
+  /** Moves the note to the Trash; answers the token its Undo takes, if any. */
+  async function deleteNote(id: string): Promise<string | null> {
     selectSurvivor(id);
-    await registry.deleteNote(id);
+    const undo = await registry.deleteNote(id);
     await forgetClosed([id]);
+    return undo;
   }
 
   // A buffer on a volume that never accepts a write would otherwise hold its
@@ -191,11 +199,12 @@ export function createTabStore(deps: {
 
   // `closeBuffers` writes every note before any leaves the active set, which
   // is what moves the selection here.
-  async function closeAllTabs(): Promise<void> {
+  /** Closes every tab and answers the ones that moved to Recent, in tab order. */
+  async function closeAllTabs(): Promise<string[]> {
     const toClose = registry.activeTabs();
     if (toClose.length === 0) {
       setActiveTabId(null);
-      return;
+      return [];
     }
     const ids = toClose.map((b) => b.id);
     const outcome = await registry.closeBuffers(ids);
@@ -203,6 +212,25 @@ export function createTabStore(deps: {
     await forgetClosed(ids);
     const remaining = registry.activeTabs();
     setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1].id : null);
+    const open = new Set(remaining.map((b) => b.id));
+    return ids.filter((id) => !open.has(id));
+  }
+
+  /**
+   * Opens closed tabs again, in the order given, and puts `front` in front
+   * when it came back. A file that cannot be opened again is reported once
+   * with the rest.
+   */
+  async function reopenTabs(ids: readonly string[], front: string | null): Promise<void> {
+    const outcomes: OpenOutcome[] = [];
+    for (const id of ids) {
+      outcomes.push(await showOpened(await registry.restoreBuffer(id), false));
+    }
+    reportOpenOutcomes(outcomes);
+    const open = registry.activeTabs().map((b) => b.id);
+    const back = ids.filter((id) => open.includes(id));
+    if (back.length === 0) return;
+    setActiveTabId(front !== null && back.includes(front) ? front : back[back.length - 1]);
   }
 
   // A closed file reopens in front, or says why it did not.
@@ -287,11 +315,13 @@ export function createTabStore(deps: {
     loadAndActivate,
     createTab,
     newNote,
+    newNoteInFolder,
     todaysNote,
     deleteNote,
     closeTab,
     closeOtherTabs,
     closeAllTabs,
+    reopenTabs,
     restoreFromHistory,
     openUnreadTab,
     openPath,

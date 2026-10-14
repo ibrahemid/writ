@@ -215,13 +215,16 @@
   padding: var(--writ-space-4) var(--writ-space-4) var(--writ-space-2) 0;
 }
 
+/* A 24px target around the 16px glyph (WCAG 2.5.8, NV-31); the negative
+   margin keeps the heading laid out as it was for an 18px control. */
 .sidebar-section-action {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
+  margin: -3px;
   padding: 0;
   border: none;
   background: transparent;

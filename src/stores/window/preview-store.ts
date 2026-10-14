@@ -7,6 +7,11 @@ import {
 import type { ThemePolarity } from "../../types/theme";
 import type { PreviewSearchController } from "../../editor/search/preview-search-controller";
 import { previewScriptsStore } from "../global/preview-scripts";
+import { leadingCodeOf } from "../../lib/read-failure";
+import { logFailure } from "../../lib/log";
+
+/** A render whose work stopped before it answered (ADR-047). */
+const ERR_COMMAND_STOPPED = "ERR_COMMAND_STOPPED";
 
 // Per-window preview coordination. Lean scope: the preview is a same-window
 // iframe, so there is no per-pane webview process to pool, idle-pause, or
@@ -41,7 +46,8 @@ export function createPreviewStore() {
   /**
    * Render the live buffer text and cache the HTML for the iframe to load. The
    * render checks the file's scripts opt-in, so its verdict is what the status
-   * bar shows from then on.
+   * bar shows from then on. A render whose work stopped answers as a failed
+   * render, which the pane shows in place of the document.
    */
   async function render(
     bufferId: string,
@@ -51,7 +57,17 @@ export function createPreviewStore() {
     zoom: number,
   ): Promise<PreviewRenderResult> {
     const issuedAt = previewScriptsStore.issue();
-    const result = await previewForceRender(bufferId, contentType, text, theme, zoom);
+    let result: PreviewRenderResult;
+    try {
+      result = await previewForceRender(bufferId, contentType, text, theme, zoom);
+    } catch (error) {
+      if (leadingCodeOf(error, [ERR_COMMAND_STOPPED]) === null) throw error;
+      logFailure("a preview render stopped before it answered");
+      return {
+        kind: "failed",
+        message: "The render stopped before it finished. Run Preview: Refresh to try again.",
+      };
+    }
     if (result.kind === "rendered") {
       previewScriptsStore.settle(bufferId, issuedAt, result.scripts_enabled);
     }

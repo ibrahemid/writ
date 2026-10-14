@@ -183,7 +183,9 @@ fn the_paths_a_tag_names_are_the_paths_the_file_tree_lists() {
     // to drift, the filter would empty the tree instead of narrowing it.
     let (_dir, root, index) = indexed(&[("Drafts/Launch.md", "#idea\n")]);
 
-    let listing = workspace_store::list_dir(&root, &root.join("Drafts")).expect("list_dir");
+    let listing = workspace_store::list_dir(&root, &root.join("Drafts"))
+        .expect("list_dir")
+        .entries;
     let listed = listing
         .iter()
         .find(|entry| entry.name == "Launch.md")

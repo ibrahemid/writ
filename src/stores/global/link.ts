@@ -4,7 +4,7 @@
 import * as tauri from "../../services/tauri";
 import { writeClipboardText } from "../../services/tauri";
 import { indexCacheStore } from "./index-cache";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "./notifications";
 import { resolveWithinRoot } from "../../lib/path";
 import { noteLinkHeading, noteLinkPath } from "../../lib/wikilink";
 import type { LinkVerdict } from "../../types/link";

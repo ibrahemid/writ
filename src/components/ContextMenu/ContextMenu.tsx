@@ -15,6 +15,12 @@ export interface MenuItem {
    * Close all tabs, Clear all history).
    */
   separator?: boolean;
+  /**
+   * Names the group this item opens, drawn above it (below a `separator`).
+   * Presentational like `separator`: the item stays an ordinary row and the
+   * heading is never focused.
+   */
+  heading?: string;
   /** The only flag that makes an item non-actionable. */
   disabled?: boolean;
   /** Shortcut hint, right-aligned. */
@@ -309,6 +315,11 @@ export default function ContextMenu() {
             {(item, index) => (
               <>
                 {item.separator && <div class="context-menu-separator" />}
+                {item.heading && (
+                  <div class="context-menu-heading" aria-hidden="true">
+                    {item.heading}
+                  </div>
+                )}
                 <button
                   ref={(el) => (buttons[index()] = el)}
                   type="button"

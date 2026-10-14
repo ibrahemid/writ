@@ -485,3 +485,22 @@ describe("the mention list", () => {
     expect(list.textContent).not.toContain("No file by that name.");
   });
 });
+
+describe("Enter while an input method composes", () => {
+  it("sends nothing when the Enter confirms a conversion", () => {
+    mocks.draft = "かんじ";
+    const { container } = mount();
+    fireEvent.keyDown(field(container), { key: "Enter", isComposing: true });
+    fireEvent.keyDown(field(container), { key: "Enter", keyCode: 229 });
+    expect(mocks.send).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(field(container), { key: "Enter" });
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves Escape to the input method while it composes", () => {
+    const { container, onClose } = mount();
+    fireEvent.keyDown(field(container), { key: "Escape", isComposing: true });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

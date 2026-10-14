@@ -17,16 +17,16 @@ export interface EditorCommandKey {
 // `CmdOrCtrl+Shift+/` alias covers layouts where `/` needs Shift; on US layouts
 // Shift+/ yields `?`, so the alias is inert there rather than wrong.
 export const EDITOR_COMMAND_KEYS: readonly EditorCommandKey[] = [
-  { id: "editor.duplicateLine", label: "Duplicate Line", keybinding: "CmdOrCtrl+D" },
+  { id: "editor.duplicateLine", label: "Duplicate line", keybinding: "CmdOrCtrl+D" },
   // Cmd+E is Eject in Finder and Use Selection for Find in Cocoa, so deleting
   // a line answers to Cmd+Shift+K alone.
-  { id: "editor.deleteLine", label: "Delete Line", keybinding: "CmdOrCtrl+Shift+K" },
-  { id: "editor.moveLineUp", label: "Move Line Up", keybinding: "Shift+Alt+ArrowUp" },
-  { id: "editor.moveLineDown", label: "Move Line Down", keybinding: "Shift+Alt+ArrowDown" },
-  { id: "editor.toggleComment", label: "Toggle Comment", keybinding: "CmdOrCtrl+/", aliases: ["CmdOrCtrl+Shift+/"] },
-  { id: "editor.selectLine", label: "Select Line", keybinding: "CmdOrCtrl+L" },
-  { id: "editor.insertLineBelow", label: "Insert Line Below", keybinding: "CmdOrCtrl+Enter" },
-  { id: "editor.insertLineAbove", label: "Insert Line Above", keybinding: "CmdOrCtrl+Shift+Enter" },
-  { id: "editor.joinLines", label: "Join Lines", keybinding: "CmdOrCtrl+Shift+J" },
-  { id: "editor.selectNextOccurrence", label: "Select Next Occurrence", keybinding: "CmdOrCtrl+Shift+D" },
+  { id: "editor.deleteLine", label: "Delete line", keybinding: "CmdOrCtrl+Shift+K" },
+  { id: "editor.moveLineUp", label: "Move line up", keybinding: "Shift+Alt+ArrowUp" },
+  { id: "editor.moveLineDown", label: "Move line down", keybinding: "Shift+Alt+ArrowDown" },
+  { id: "editor.toggleComment", label: "Toggle comment", keybinding: "CmdOrCtrl+/", aliases: ["CmdOrCtrl+Shift+/"] },
+  { id: "editor.selectLine", label: "Select line", keybinding: "CmdOrCtrl+L" },
+  { id: "editor.insertLineBelow", label: "Insert line below", keybinding: "CmdOrCtrl+Enter" },
+  { id: "editor.insertLineAbove", label: "Insert line above", keybinding: "CmdOrCtrl+Shift+Enter" },
+  { id: "editor.joinLines", label: "Join lines", keybinding: "CmdOrCtrl+Shift+J" },
+  { id: "editor.selectNextOccurrence", label: "Select next occurrence", keybinding: "CmdOrCtrl+Shift+D" },
 ];

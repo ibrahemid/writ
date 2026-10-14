@@ -35,6 +35,18 @@ describe("promptEstimateStore", () => {
     expect(promptEstimateStore.count()).toBe(3);
   });
 
+  it("keeps the filled text for the preview, and drops it on reset", async () => {
+    fillMock.mockResolvedValue("Hello Ada");
+    estimateMock.mockResolvedValue(3);
+
+    promptEstimateStore.request("Hello {{name}}", { name: "Ada" });
+    await vi.advanceTimersByTimeAsync(400);
+    expect(promptEstimateStore.filled()).toBe("Hello Ada");
+
+    promptEstimateStore.reset();
+    expect(promptEstimateStore.filled()).toBeNull();
+  });
+
   it("debounces rapid requests to a single estimate", async () => {
     fillMock.mockResolvedValue("x");
     estimateMock.mockResolvedValue(1);

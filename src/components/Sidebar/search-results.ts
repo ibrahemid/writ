@@ -1,5 +1,6 @@
 import type { BufferDocument } from "../../types/buffer";
-import type { SearchHit, SnippetSegment } from "../../types/search";
+import type { ContentHit, SearchHit, SnippetSegment } from "../../types/search";
+import { basename, joinPath } from "../../lib/path";
 
 export type SearchRowSource = "active" | "history" | "file" | "other";
 
@@ -86,3 +87,49 @@ export function highlightLiteral(text: string, query: string): SnippetSegment[] 
   if (pos < text.length) segments.push({ text: text.slice(pos), matched: false });
   return segments;
 }
+
+/** A match the text search found in the folder opened by hand. */
+export interface FolderSearchRow {
+  id: string;
+  /** Absolute, to open. */
+  path: string;
+  name: string;
+  /** Inside the folder, to tell two files of one name apart. */
+  relative: string;
+  line: number;
+  segments: SnippetSegment[];
+}
+
+export function buildFolderRows(hits: readonly ContentHit[], root: string): FolderSearchRow[] {
+  return hits.map((hit) => ({
+    id: `${hit.path}:${hit.line}`,
+    path: joinPath(root, hit.path),
+    name: basename(hit.path),
+    relative: hit.path,
+    line: hit.line,
+    segments: hit.snippet,
+  }));
+}
+
+/** One option of the sidebar's result list, in list order. */
+export type SearchOption =
+  | { group: "notes"; row: SearchRow }
+  | { group: "folder"; row: FolderSearchRow };
+
+export function searchOptions(
+  notes: readonly SearchRow[],
+  folder: readonly FolderSearchRow[],
+): SearchOption[] {
+  return [
+    ...notes.map((row) => ({ group: "notes" as const, row })),
+    ...folder.map((row) => ({ group: "folder" as const, row })),
+  ];
+}
+
+/** The DOM id of option `index`, for the field's `aria-activedescendant`. */
+export function searchOptionId(index: number): string {
+  return `sidebar-search-option-${index}`;
+}
+
+/** The id of the result list the field controls. */
+export const SEARCH_LISTBOX_ID = "sidebar-search-results";

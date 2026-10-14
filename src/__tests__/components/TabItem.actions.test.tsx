@@ -12,7 +12,7 @@ const tabItemCss = readFileSync(
 describe("TabItem actions (#45)", () => {
   afterEach(() => cleanup());
 
-  it("renders close as a real <button> with accessible name 'Close tab'", () => {
+  it("renders remove as a real <button> with accessible name 'Remove from Recent'", () => {
     const { container } = render(() => (
       <TabItem label="t" onClick={() => undefined} onClose={() => undefined} />
     ));
@@ -20,7 +20,7 @@ describe("TabItem actions (#45)", () => {
     expect(close).not.toBeNull();
     expect(close!.tagName).toBe("BUTTON");
     expect(close!.getAttribute("type")).toBe("button");
-    expect(close!.getAttribute("aria-label")).toBe("Close tab");
+    expect(close!.getAttribute("aria-label")).toBe("Remove from Recent");
   });
 
   it("renders restore as a real <button> with accessible name 'Restore tab'", () => {

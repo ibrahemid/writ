@@ -2,7 +2,7 @@ import { windowRegistry } from "../../stores/global/window-registry";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { PLAIN_TEXT_LANGUAGE, isKnownLanguage, languageChoices } from "../../editor/languages";
 import type { PaletteResult, ResultProvider } from "../../components/Palette/types";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { displayFileName } from "../../lib/display-name";
 import { basename } from "../../lib/path";
 import { logFailure } from "../../lib/log";

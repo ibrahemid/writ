@@ -1,5 +1,5 @@
 import { showContextMenu, type MenuItem } from "../components/ContextMenu/ContextMenu";
-import { readClipboardText, writeClipboardText } from "../services/tauri";
+import { clipboardStore } from "../stores/global/clipboard";
 import { IS_MAC } from "./platform";
 
 /**
@@ -48,13 +48,13 @@ function fieldMenuItems(field: HTMLInputElement | HTMLTextAreaElement): MenuItem
       kbd: `${MOD}X`,
       disabled: !editable,
       action: () => {
-        void writeClipboardText(selected).then(() => replaceSelection(""));
+        void clipboardStore.copyText(selected).then(() => replaceSelection(""));
       },
     });
     items.push({
       label: "Copy",
       kbd: `${MOD}C`,
-      action: () => void writeClipboardText(selected),
+      action: () => void clipboardStore.copyText(selected),
     });
   }
   items.push({
@@ -62,7 +62,7 @@ function fieldMenuItems(field: HTMLInputElement | HTMLTextAreaElement): MenuItem
     kbd: `${MOD}V`,
     disabled: !editable,
     action: () => {
-      void readClipboardText().then((text) => {
+      void clipboardStore.readText().then((text) => {
         if (text) replaceSelection(text);
       });
     },

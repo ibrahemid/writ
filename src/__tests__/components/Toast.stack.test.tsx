@@ -2,7 +2,8 @@ import { describe, it, expect, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, cleanup } from "@solidjs/testing-library";
-import ToastContainer, { showToast, dismissToast } from "../../components/Notifications/Toast";
+import ToastContainer from "../../components/Notifications/Toast";
+import { showToast, dismissToast } from "../../stores/global/notifications";
 
 // A loop of failures raises one toast per failure. The column is fixed and
 // does not scroll, so an uncapped stack runs off the top of the window.

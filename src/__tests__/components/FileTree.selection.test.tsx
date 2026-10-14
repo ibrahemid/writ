@@ -16,6 +16,10 @@ vi.mock("../../stores/global/workspace", () => ({
     root: () => h.root,
     entriesFor: (path: string) => h.entries.get(path),
     loadDir: vi.fn(),
+    errorFor: () => null,
+    unreadableFor: () => 0,
+    isLoading: () => false,
+    revealEntry: vi.fn(async () => {}),
   },
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({

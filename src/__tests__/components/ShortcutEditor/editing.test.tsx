@@ -26,7 +26,7 @@ vi.mock("../../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({ editor: { focusEditor: h.focusEditor } }),
 }));
 
-vi.mock("../../../components/Notifications/Toast", () => ({
+vi.mock("../../../stores/global/notifications", () => ({
   showToast: h.showToast,
   default: () => null,
 }));
@@ -239,5 +239,111 @@ describe("a command whose app is off", () => {
     fireEvent.click(screen.container.querySelector("[data-action='save-shortcuts']")!);
     await waitFor(() => expect(h.saveConfig).toHaveBeenCalled());
     expect(h.saveConfig.mock.calls[0][0].keybindings).toEqual({ "chat.toggle": "CmdOrCtrl+Alt+C" });
+  });
+});
+
+describe("chords the macOS menu bar holds", () => {
+  afterEach(() => {
+    delete (window.navigator as unknown as Record<string, unknown>).platform;
+  });
+
+  it("counts Quit's chord as taken and holds Save back", () => {
+    Object.defineProperty(window.navigator, "platform", { value: "MacIntel", configurable: true });
+    registerCommand({
+      id: "note.new",
+      label: "New note",
+      keybinding: "CmdOrCtrl+N",
+      scope: "app",
+      execute: vi.fn(),
+    });
+    h.keybindings = { "note.new": "CmdOrCtrl+Q" };
+
+    const screen = render(both);
+    openShortcutEditor();
+
+    expect(screen.container.querySelector(".shortcut-row-conflict")!.textContent).toBe(
+      "Conflicts with Quit Writ",
+    );
+    const save = screen.container.querySelector<HTMLButtonElement>("[data-action='save-shortcuts']")!;
+    expect(save.disabled).toBe(true);
+    expect(screen.container.querySelector(".shortcut-editor-blocked")!.textContent).toBe(
+      "The menu bar already uses a shortcut.",
+    );
+  });
+
+  it("leaves the chord free where there is no menu bar", () => {
+    Object.defineProperty(window.navigator, "platform", { value: "Win32", configurable: true });
+    registerCommand({
+      id: "note.new",
+      label: "New note",
+      keybinding: "CmdOrCtrl+N",
+      scope: "app",
+      execute: vi.fn(),
+    });
+    h.keybindings = { "note.new": "CmdOrCtrl+Q" };
+
+    const screen = render(both);
+    openShortcutEditor();
+
+    expect(screen.container.querySelector(".shortcut-row-conflict")).toBeNull();
+  });
+});
+
+describe("finding and reading rows", () => {
+  function twoCommands() {
+    registerCommand({
+      id: "note.new",
+      label: "New note",
+      keybinding: "CmdOrCtrl+N",
+      scope: "app",
+      execute: vi.fn(),
+    });
+    registerCommand({
+      id: "sidebar.toggle",
+      label: "Toggle sidebar",
+      keybinding: "CmdOrCtrl+\\",
+      scope: "app",
+      execute: vi.fn(),
+    });
+  }
+
+  const labels = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll(".shortcut-row-label")).map((el) => el.textContent);
+
+  it("narrows the rows to the ones whose name matches the filter", () => {
+    twoCommands();
+    const screen = render(both);
+    openShortcutEditor();
+
+    const filter = screen.getByLabelText("Filter shortcuts") as HTMLInputElement;
+    fireEvent.input(filter, { target: { value: "sidebar" } });
+    expect(labels(screen.container)).toEqual(["Toggle sidebar"]);
+
+    fireEvent.input(filter, { target: { value: "nothing like this" } });
+    expect(labels(screen.container)).toEqual([]);
+    expect(screen.getByText("No shortcuts match.")).toBeTruthy();
+  });
+
+  it("marks a row whose chord is not the shipped one", () => {
+    twoCommands();
+    h.keybindings = { "note.new": "CmdOrCtrl+Shift+N" };
+    const screen = render(both);
+    openShortcutEditor();
+
+    const marked = Array.from(screen.container.querySelectorAll(".shortcut-row"))
+      .filter((row) => row.querySelector(".shortcut-row-changed"))
+      .map((row) => row.querySelector(".shortcut-row-label")!.textContent);
+    expect(marked).toEqual(["New note"]);
+  });
+
+  it("shows each chord as keycaps with a spoken name", () => {
+    twoCommands();
+    const screen = render(both);
+    openShortcutEditor();
+
+    const names = Array.from(
+      screen.container.querySelectorAll(".shortcut-row-chip .kbd-chord"),
+    ).map((el) => el.getAttribute("aria-label"));
+    expect(names).toContain("Control N");
   });
 });

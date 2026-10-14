@@ -4,6 +4,7 @@ import Button from "../Button/Button";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { promptEstimateStore } from "../../stores/global/prompt-estimate";
 import { formatTokenCount } from "../../lib/token-estimate";
+import { PREVIEW_CHARS, previewOf } from "../../lib/prompt-preview";
 import "./PromptFillModal.css";
 
 export type PlaceholderValues = Record<string, string>;
@@ -48,6 +49,18 @@ export default function PromptFillModal() {
 
   const varCount = createMemo(() => pending()?.names.length ?? 0);
 
+  // A click beside the dialog closes it only while nothing has been typed:
+  // values are work, and a stray click must not throw them away.
+  function dismissFromScrim() {
+    if (Object.values(values()).some((value) => value.length > 0)) return;
+    settle(false);
+  }
+
+  const preview = createMemo(() => {
+    const text = promptEstimateStore.filled();
+    return text === null ? null : previewOf(text);
+  });
+
   // Re-estimate the filled prompt whenever the template or any value changes.
   // The store debounces and runs the authoritative Rust fill before counting.
   createEffect(() => {
@@ -71,7 +84,7 @@ export default function PromptFillModal() {
   return (
     <Show when={pending()}>
       {(req) => (
-        <div class="placeholders-overlay" onClick={() => settle(false)}>
+        <div class="placeholders-overlay" onClick={dismissFromScrim}>
           <div
             ref={dialogRef}
             class="placeholders-dialog"
@@ -88,7 +101,7 @@ export default function PromptFillModal() {
                 the fields point at it with aria-describedby instead. */}
             <div id="placeholders-meta" class="placeholders-meta" aria-live="off">
               <span class="placeholders-meta-count">
-                {varCount()} {varCount() === 1 ? "variable" : "variables"}
+                {varCount()} {varCount() === 1 ? "placeholder" : "placeholders"}
               </span>
               <Show when={promptEstimateStore.count() !== null}>
                 <span class="placeholders-meta-sep" aria-hidden="true">
@@ -101,7 +114,11 @@ export default function PromptFillModal() {
             </div>
             <Show
               when={req().names.length > 0}
-              fallback={<div class="placeholders-empty">No placeholders found.</div>}
+              fallback={
+                <div class="placeholders-empty">
+                  Write {"{{name}}"} in the file to make a placeholder.
+                </div>
+              }
             >
               <form
                 class="placeholders-fields"
@@ -131,6 +148,28 @@ export default function PromptFillModal() {
                   )}
                 </For>
               </form>
+              <Show when={preview()}>
+                {(shown) => (
+                  <div class="placeholders-preview-block">
+                    <div class="placeholders-label" id="placeholders-preview-label">
+                      Preview
+                    </div>
+                    <pre
+                      class="placeholders-preview"
+                      aria-labelledby="placeholders-preview-label"
+                      tabindex="0"
+                    >
+                      {shown().text}
+                    </pre>
+                    <Show when={shown().cut}>
+                      <div class="placeholders-preview-cut">
+                        Showing the first {PREVIEW_CHARS.toLocaleString()} characters. Copy takes all of
+                        it.
+                      </div>
+                    </Show>
+                  </div>
+                )}
+              </Show>
             </Show>
             <div class="placeholders-actions">
               <Show when={req().names.length > 0}>

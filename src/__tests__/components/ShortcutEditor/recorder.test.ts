@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ShortcutRecorder,
   findConflicts,
+  findFixedConflicts,
   DOUBLE_TAP_WINDOW_MS,
 } from "../../../components/ShortcutEditor/recorder";
 
@@ -24,32 +25,52 @@ describe("ShortcutRecorder", () => {
     ).toEqual({ kind: "waiting" });
   });
 
-  it("captures CmdOrCtrl+Shift+K as a normalized chord", () => {
-    const recorder = new ShortcutRecorder();
-    const outcome = recorder.handle({
-      key: "k",
-      metaKey: true,
-      shiftKey: true,
+  it("records Command as CmdOrCtrl and Control as Ctrl on macOS", () => {
+    const recorder = new ShortcutRecorder(DOUBLE_TAP_WINDOW_MS, "mac");
+    expect(recorder.handle({ key: "k", code: "KeyK", metaKey: true, shiftKey: true })).toEqual({
+      kind: "captured",
+      binding: "CmdOrCtrl+Shift+K",
     });
-    expect(outcome).toEqual({ kind: "captured", binding: "CmdOrCtrl+Shift+K" });
+    expect(recorder.handle({ key: "n", code: "KeyN", ctrlKey: true })).toEqual({
+      kind: "captured",
+      binding: "Ctrl+N",
+    });
   });
 
-  it("uppercases single character keys", () => {
-    const recorder = new ShortcutRecorder();
-    const outcome = recorder.handle({ key: "n", metaKey: true });
-    expect(outcome).toEqual({ kind: "captured", binding: "CmdOrCtrl+N" });
+  it("records Control as CmdOrCtrl on Windows and Linux", () => {
+    for (const platform of ["win", "linux"] as const) {
+      const recorder = new ShortcutRecorder(DOUBLE_TAP_WINDOW_MS, platform);
+      expect(recorder.handle({ key: "n", code: "KeyN", ctrlKey: true })).toEqual({
+        kind: "captured",
+        binding: "CmdOrCtrl+N",
+      });
+    }
   });
 
-  it("captures the backslash key as the sidebar chord", () => {
-    const recorder = new ShortcutRecorder();
-    const outcome = recorder.handle({ key: "\\", metaKey: true });
-    expect(outcome).toEqual({ kind: "captured", binding: "CmdOrCtrl+\\" });
+  it("records the key's position on a non-Latin layout", () => {
+    const recorder = new ShortcutRecorder(DOUBLE_TAP_WINDOW_MS, "win");
+    expect(recorder.handle({ key: "ى", code: "KeyN", ctrlKey: true })).toEqual({
+      kind: "captured",
+      binding: "CmdOrCtrl+N",
+    });
   });
 
-  it("translates Space into the Space token", () => {
-    const recorder = new ShortcutRecorder();
-    const outcome = recorder.handle({ key: " ", metaKey: true });
-    expect(outcome).toEqual({ kind: "captured", binding: "CmdOrCtrl+Space" });
+  it("records punctuation and Space by the character", () => {
+    const recorder = new ShortcutRecorder(DOUBLE_TAP_WINDOW_MS, "mac");
+    expect(recorder.handle({ key: "\\", code: "Backslash", metaKey: true })).toEqual({
+      kind: "captured",
+      binding: "CmdOrCtrl+\\",
+    });
+    expect(recorder.handle({ key: " ", code: "Space", metaKey: true })).toEqual({
+      kind: "captured",
+      binding: "CmdOrCtrl+Space",
+    });
+  });
+
+  it("records a function key on its own, and waits on any other bare key", () => {
+    const recorder = new ShortcutRecorder(DOUBLE_TAP_WINDOW_MS, "mac");
+    expect(recorder.handle({ key: "F2", code: "F2" })).toEqual({ kind: "captured", binding: "F2" });
+    expect(recorder.handle({ key: "a", code: "KeyA" })).toEqual({ kind: "waiting" });
   });
 
   it("cancels and clears pending state on Escape", () => {
@@ -94,5 +115,31 @@ describe("findConflicts", () => {
   it("ignores empty bindings", () => {
     const conflicts = findConflicts({ "a.cmd": "", "b.cmd": "" });
     expect(conflicts.size).toBe(0);
+  });
+});
+
+describe("findConflicts across platforms", () => {
+  it("counts a Control chord and a Command chord as one key off macOS", () => {
+    const draft = { "a.cmd": "Ctrl+K", "b.cmd": "CmdOrCtrl+K" };
+    expect(findConflicts(draft, "win").get("a.cmd")).toEqual(["b.cmd"]);
+    expect(findConflicts(draft, "mac").size).toBe(0);
+  });
+});
+
+describe("findFixedConflicts", () => {
+  const fixed = [{ chord: "CmdOrCtrl+Q", label: "Quit Writ" }];
+
+  it("names the menu item a draft would collide with", () => {
+    const conflicts = findFixedConflicts(
+      { "a.cmd": "CmdOrCtrl+Q", "b.cmd": "CmdOrCtrl+T" },
+      fixed,
+      "mac",
+    );
+    expect(conflicts.get("a.cmd")).toBe("Quit Writ");
+    expect(conflicts.has("b.cmd")).toBe(false);
+  });
+
+  it("finds nothing with no fixed chords", () => {
+    expect(findFixedConflicts({ "a.cmd": "CmdOrCtrl+Q" }, [], "win").size).toBe(0);
   });
 });

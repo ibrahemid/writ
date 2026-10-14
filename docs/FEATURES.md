@@ -28,20 +28,24 @@ What Writ does, at the level of detail that answers "does it do X".
 
 ## Search
 
-- `Cmd+Shift+F` searches commands, settings, file names and the text of every file in the folder in one list.
-- Prefixes narrow it: `>` commands, `#` text, `:` go to a line, `@` file names.
+- `Cmd+Shift+F` (Edit > Search Everywhere) searches commands, settings, file names and the text of every file in the folder in one list.
+- Prefixes narrow it and the command palette alike: `>` commands, `@` file names, `#` text, `:` go to a line. Both palettes list them along the bottom, and a click on one narrows what is typed.
 - `Cmd+Shift+O` opens a file by name.
+- The sidebar's search field searches the text of Writ's folder and of a folder opened with Open Folder, with each folder's matches under its name. Typing opens the sidebar on the results; the arrow keys walk them, `Enter` opens one at its line, and `Escape` clears the field and returns to the file.
 - `Cmd+F` finds in the current file, `Cmd+Option+F` replaces.
 
 ## Editing
 
 - CodeMirror 6. A file's name decides its language, and a `.txt` or `.text` file stays plain text whatever it holds. Change Language in the palette picks another language for one file, and the file keeps it.
 - Word wrap and tab size, under Settings, Editor, apply to open files at once.
-- The command palette opens on a double tap of `Shift`.
+- The command palette opens on a double tap of `Shift` (Help > Command Palette). Typing a file's name there lists the file under the commands.
+- File > Open Folder (`Cmd+Option+O`) shows a folder's files in the sidebar. The tree draws only the rows on screen; it is one `Tab` stop, with the arrow keys, `Home`, `End` and typing a name to move inside it. A folder Writ cannot read says so with Try again, and folders stay open across launches. Right-click on any row shows it in the file manager or copies its path; in Writ's folder it also renames, moves to the Trash, or makes a new file in a folder.
+- Help holds Writ Help (the guide on the site), Keyboard Shortcuts, What's New (the changelog at this version), Show Setup Again and Report an Issue (the bug form, with the version filled in).
 - Line commands: duplicate (`Cmd+D`), delete (`Cmd+Shift+K`), move (`Shift+Alt+Up/Down`), select (`Cmd+L`), join (`Cmd+Shift+J`), insert below or above (`Cmd+Enter`, `Cmd+Shift+Enter`), toggle comment (`Cmd+/`) and select next occurrence (`Cmd+Shift+D`).
-- Text transforms in the palette: trim leading or trailing spaces, collapse repeated spaces, straighten quotes, remove shared indentation, end with one newline, fix spacing before punctuation, prepare as prompt, and tidy whitespace, which runs several of them.
-- Fill placeholders asks for a value for each `{{placeholder}}` and copies the result, with a token estimate. Copy as Prompt strips frontmatter and comments and copies the rest.
-- Right-click opens Writ's own menu: spelling corrections, link actions, clipboard, rewrite actions on a selection when Rewrite is on, and a search seeded with the selection.
+- Text transforms in Edit > Transform, in the right-click menu on a selection, and in the palette: trim leading or trailing spaces, collapse repeated spaces, straighten quotes, remove shared indentation, end with one newline, fix spacing before punctuation, prepare as prompt, and tidy whitespace, which runs several of them. A transform acts on the selection, or on the whole file when nothing is selected; text typed elsewhere in the file while it runs stays, and an edit inside the text it acts on leaves the text as it is.
+- Fill placeholders asks for a value for each `{{placeholder}}`, shows the filled text, and copies it, with a token estimate. Copy as prompt (Edit menu, right-click menu, palette) strips frontmatter and comments and copies the rest.
+- Copy files as prompt (palette) puts several files on the clipboard as one prompt: the file in front with the files it links to, the files of its folder, or the files carrying a tag. It shows the files, a token estimate for each and for the whole, the files it could not read, and the text before copying, and holds up to 100 files and 4 MB.
+- Right-click opens Writ's own menu: spelling corrections, link actions, clipboard with Copy as prompt, the Rewrite actions on a selection when Rewrite is on, the Transform actions on a selection, and a search seeded with the selection. Copy and Cut act on every selection range.
 - A file in another text encoding (Windows-1252, Shift JIS, GBK, UTF-16 and others) opens as text and saves in that encoding. A save that would lose a character the encoding cannot hold is refused, and the character is named.
 - The status bar shows the cursor position, the file's encoding and the layout switch. The encoding reopens the file in another one. Word, character and token counts are behind a switch in Settings, Editor.
 

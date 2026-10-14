@@ -296,6 +296,43 @@ fn rename_goes_through_the_disk_state_guard() {
 }
 
 #[test]
+fn restore_trashed_puts_the_bytes_back_as_they_were() {
+    let root = TempDir::new().expect("temp dir");
+    let path = root.path().join("gone").join("Plan.txt");
+    // CRLF and a byte that is not UTF-8: the restore writes what the file held.
+    let bytes = b"line one\r\nl\xe9gume\r\n".to_vec();
+    let stamped = std::cell::RefCell::new(Vec::new());
+    let hook = |at: &Path, written: &[u8]| {
+        stamped
+            .borrow_mut()
+            .push((at.to_path_buf(), written.to_vec()))
+    };
+
+    note_ops::restore_trashed(&path, &bytes, Some(&hook)).expect("restore");
+
+    assert_eq!(std::fs::read(&path).expect("read back"), bytes);
+    assert_eq!(
+        stamped.borrow().first().map(|(at, _)| at.clone()),
+        Some(path.clone())
+    );
+}
+
+#[test]
+fn restore_trashed_never_replaces_a_file_at_the_path() {
+    let root = TempDir::new().expect("temp dir");
+    let path = root.path().join("Plan.md");
+    std::fs::write(&path, "written since").expect("seed");
+
+    let error = note_ops::restore_trashed(&path, b"the old text", None).expect_err("taken");
+
+    assert!(matches!(error, StorageError::NoteNameTaken { ref name, .. } if name == "Plan.md"));
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "written since"
+    );
+}
+
+#[test]
 fn trash_note_does_not_unlink() {
     let root = TempDir::new().expect("temp dir");
     let path = root.path().join("2026-08-29.md");

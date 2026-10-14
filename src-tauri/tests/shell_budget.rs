@@ -141,6 +141,8 @@ fn mock_app(state: AppState) -> (tauri::App<MockRuntime>, WebviewWindow<MockRunt
             writ_tauri_lib::commands::buffer::save_buffer_content,
             writ_tauri_lib::commands::preview::preview_render,
             writ_tauri_lib::commands::workspace::search_workspace_files,
+            writ_tauri_lib::commands::prompt::prompt_context_pack,
+            writ_tauri_lib::commands::workspace::list_workspace_dir,
         ])
         .build(mock_context(noop_assets()))
         .expect("mock app");
@@ -348,6 +350,48 @@ fn search_workspace_files_returns_its_thread_while_its_work_waits() {
     assert!(sent.answer().is_ok());
 }
 
+#[test]
+fn prompt_context_pack_returns_its_thread_while_its_work_waits() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let state = app.state::<AppState>();
+    let notes_root = state.notes_root();
+    std::fs::write(notes_root.join("Plan.md"), "# Plan\n").unwrap();
+
+    let folder = state.notes_root.write().expect("folder");
+    let sent = dispatch(
+        &window,
+        "prompt_context_pack",
+        json!({
+            "source": { "kind": "linked", "path": notes_root.join("Plan.md") },
+            "live": [],
+        }),
+    );
+    sent.held();
+    drop(folder);
+    assert!(sent.answer().is_ok());
+}
+
+#[test]
+fn list_workspace_dir_returns_its_thread_while_its_work_waits() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let state = app.state::<AppState>();
+    let folder = dir.path().join("workspace");
+    std::fs::create_dir_all(&folder).unwrap();
+    *state.workspace_root.lock().expect("root") = Some(folder.canonicalize().unwrap());
+
+    let root = state.workspace_root.lock().expect("root");
+    let sent = dispatch(
+        &window,
+        "list_workspace_dir",
+        json!({ "dirPath": folder.canonicalize().unwrap() }),
+    );
+    sent.held();
+    drop(root);
+    assert!(sent.answer().is_ok());
+}
+
 /// Saves of one note sent one after the other land in that order, even when
 /// all of them are waiting on an earlier write of the note when they arrive.
 #[test]
@@ -538,4 +582,77 @@ fn shell_budget_of_search_workspace_files_over_200k_files() {
         millis(slowest_work)
     );
     assert!(millis(slowest_held) <= SHELL_BUDGET_MS);
+}
+
+#[test]
+fn shell_budget_of_prompt_context_pack_of_a_hundred_files() {
+    if !perf_gate() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let state = app.state::<AppState>();
+    let notes_root = state.notes_root();
+    let body = "A line of an ordinary file, long enough to count.\n".repeat(800);
+    let mut links = String::new();
+    for n in 0..99 {
+        std::fs::write(notes_root.join(format!("Part {n}.md")), &body).unwrap();
+        links.push_str(&format!("[[Part {n}]]\n"));
+    }
+    std::fs::write(notes_root.join("Index.md"), &links).unwrap();
+    state
+        .notes_index
+        .reconcile(&notes_root, &|| false, &|_| false)
+        .expect("reconcile");
+
+    let start = Instant::now();
+    let sent = dispatch(
+        &window,
+        "prompt_context_pack",
+        json!({
+            "source": { "kind": "linked", "path": notes_root.join("Index.md") },
+            "live": [],
+        }),
+    );
+    let held = sent.held();
+    sent.answer().expect("pack");
+    let work = start.elapsed();
+    eprintln!(
+        "shell budget: prompt_context_pack of 100 files (held / work) {} / {} ms",
+        millis(held),
+        millis(work)
+    );
+    assert!(millis(held) <= SHELL_BUDGET_MS);
+}
+
+#[test]
+fn shell_budget_of_list_workspace_dir_of_twenty_thousand_entries() {
+    if !perf_gate() {
+        return;
+    }
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let folder = dir.path().join("workspace").join("node_modules_sized");
+    std::fs::create_dir_all(&folder).unwrap();
+    for n in 0..20_000 {
+        std::fs::write(folder.join(format!("entry-{n:05}.js")), b"").unwrap();
+    }
+    let root = dir.path().join("workspace").canonicalize().unwrap();
+    *app.state::<AppState>().workspace_root.lock().expect("root") = Some(root.clone());
+
+    let start = Instant::now();
+    let sent = dispatch(
+        &window,
+        "list_workspace_dir",
+        json!({ "dirPath": root.join("node_modules_sized") }),
+    );
+    let held = sent.held();
+    sent.answer().expect("listing");
+    let work = start.elapsed();
+    eprintln!(
+        "shell budget: list_workspace_dir of 20,000 entries (held / work) {} / {} ms",
+        millis(held),
+        millis(work)
+    );
+    assert!(millis(held) <= SHELL_BUDGET_MS);
 }

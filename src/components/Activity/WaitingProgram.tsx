@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, Show, untrack, type JSX } from "solid-js";
 
 import Button from "../Button/Button";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { activityStore, type PendingClient } from "../../stores/global/activity";
 import { displayProgramName } from "../../lib/program-names";
 import "./WaitingProgram.css";

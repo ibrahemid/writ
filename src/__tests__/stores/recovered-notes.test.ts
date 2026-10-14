@@ -91,9 +91,9 @@ describe("the notes the launch recovered", () => {
   });
 
   it("is what the window's launch hands the recovered notes to", () => {
-    const app = readFileSync(resolve(process.cwd(), "src/App.tsx"), "utf8");
+    const boot = readFileSync(resolve(process.cwd(), "src/stores/window/boot.ts"), "utf8");
 
-    expect(app).toContain("const recovered = await getRecoveredBuffers().catch(() => []);");
-    expect(app).toContain("const restored = applyRecoveredNotes(win.editor, recovered);");
+    expect(boot).toContain("const recovered = await api.getRecoveredBuffers().catch(() => []);");
+    expect(boot).toContain("const restored = applyRecoveredNotes(win.editor, recovered);");
   });
 });

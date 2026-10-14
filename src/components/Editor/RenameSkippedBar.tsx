@@ -24,7 +24,14 @@ export default function RenameSkippedBar() {
             <For each={notes()}>
               {(note) => (
                 <li>
-                  {note.name}: {note.reason}
+                  <Button
+                    variant="ghost"
+                    class="editor-bar-link"
+                    onClick={() => void renameLinksStore.openSkipped(note)}
+                  >
+                    {note.name}
+                  </Button>
+                  : {note.reason}
                 </li>
               )}
             </For>

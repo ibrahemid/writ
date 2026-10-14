@@ -53,3 +53,30 @@ describe("preview store render", () => {
     expect(previewScriptsStore.enabled("verdict-2")).toBeUndefined();
   });
 });
+
+describe("a render whose work stopped (ADR-047)", () => {
+  beforeEach(() => {
+    mocks.render.mockReset();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("answers as a failed render the pane shows", async () => {
+    mocks.render.mockRejectedValue(
+      "ERR_COMMAND_STOPPED: the command stopped before it answered (task panicked)",
+    );
+    const result = await createPreviewStore().render("b1", "text/markdown", "# hi", "light", 1);
+    expect(result.kind).toBe("failed");
+    if (result.kind === "failed") {
+      expect(result.message).not.toContain("ERR_COMMAND_STOPPED");
+      expect(result.message.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("leaves any other rejection to the caller", async () => {
+    mocks.render.mockRejectedValue("ERR_SOMETHING_ELSE");
+    await expect(
+      createPreviewStore().render("b1", "text/markdown", "# hi", "light", 1),
+    ).rejects.toBe("ERR_SOMETHING_ELSE");
+  });
+});
+

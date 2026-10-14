@@ -38,7 +38,7 @@ vi.mock("../../stores/global/window-registry", () => ({
   },
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({ showToast: h.toast }));
+vi.mock("../../stores/global/notifications", () => ({ showToast: h.toast }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({ editor: { focusEditor: vi.fn() } }),

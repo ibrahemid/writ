@@ -2,7 +2,7 @@ import { createEffect, createSignal, Show, untrack } from "solid-js";
 
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { activityStore } from "../../stores/global/activity";
 import { configStore } from "../../stores/global/config";
 import { programName, WaitingChoices } from "./WaitingProgram";

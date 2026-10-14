@@ -27,11 +27,11 @@ const mocks = vi.hoisted(() => ({
   unregisterCommand: vi.fn(),
 }));
 
-vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+vi.mock("../../stores/global/dialogs", () => ({
   requestConfirm: mocks.requestConfirm,
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: mocks.showToast,
 }));
 
@@ -185,6 +185,7 @@ describe("the blockers before a send", () => {
     expect(asked.title).toBe("Send files to api.example.com?");
     expect(asked.message).toContain("2 files");
     expect(asked.confirmLabel).toBe("Send");
+    expect(asked.defaultAction).toBe("cancel");
   });
 
   it("sends nothing when the question is answered no", async () => {

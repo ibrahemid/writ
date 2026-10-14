@@ -3,7 +3,7 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { indexCacheStore } from "../../stores/global/index-cache";
 import { sidebarFolderStore } from "../../stores/global/sidebar-folder";
 import { buildTagTree, type TagNode } from "../../lib/tag-tree";
-import { moveTreeFocus } from "../../lib/tree-focus";
+import { isImeComposing } from "../../lib/ime";
 import { displayFileName } from "../../lib/display-name";
 import { basename } from "../../lib/path";
 import { foldersForSharedNames } from "../../lib/shared-names";
@@ -16,11 +16,36 @@ import "./TagsSection.css";
 // parent's label (ADR-030 decision 4).
 const BASE_INDENT = 10;
 const INDENT_PER_LEVEL = 16;
+// Keys typed further apart than this start a new type-ahead search.
+const TYPE_AHEAD_MS = 500;
+
+/** One row of the tags tree in the order it is drawn, for the keyboard. */
+interface NavRow {
+  key: string;
+  name: string;
+  /** The row a Left steps out to, or `null` at the top. */
+  parent: string | null;
+}
+
+/**
+ * The tree's one Tab stop and the keys that move it (NV-17): each row asks for
+ * its tabindex, registers its element, and hands the keys it does not use
+ * itself to `navigate`.
+ */
+interface TreeNav {
+  tabIndexOf(key: string): 0 | -1;
+  register(key: string, el: HTMLElement): void;
+  focused(key: string): void;
+  navigate(e: KeyboardEvent, key: string): void;
+}
+
+const tagKey = (tag: string) => `tag:${tag}`;
+const fileKey = (tag: string, path: string) => `file:${tag}:${path}`;
 
 interface TagRowProps {
   node: TagNode;
   level: number;
-  tree: () => HTMLDivElement | undefined;
+  nav: TreeNav;
   folded: () => ReadonlySet<string>;
   setFolded: (tag: string, folded: boolean) => void;
   /** The tag whose files are listed under its row, or `null`. */
@@ -30,7 +55,7 @@ interface TagRowProps {
 interface TaggedFilesProps {
   tag: string;
   level: number;
-  tree: () => HTMLDivElement | undefined;
+  nav: TreeNav;
 }
 
 /**
@@ -56,16 +81,9 @@ function TaggedFiles(props: TaggedFilesProps) {
       case " ":
         e.preventDefault();
         open(path);
-        break;
-      case "ArrowDown":
-      case "ArrowUp": {
-        e.preventDefault();
-        const tree = props.tree();
-        if (!tree) break;
-        moveTreeFocus(tree, e.currentTarget as HTMLElement, e.key === "ArrowDown" ? 1 : -1);
-        break;
-      }
+        return;
     }
+    props.nav.navigate(e, fileKey(props.tag, path));
   }
 
   return (
@@ -89,12 +107,14 @@ function TaggedFiles(props: TaggedFilesProps) {
       >
         {(path) => (
           <div
+            ref={(el) => props.nav.register(fileKey(props.tag, path), el)}
             role="treeitem"
             aria-level={props.level + 1}
-            tabIndex={0}
+            tabIndex={props.nav.tabIndexOf(fileKey(props.tag, path))}
             class="sidebar-row tags-file"
             style={{ "padding-left": paddingLeft() }}
             onClick={() => open(path)}
+            onFocus={() => props.nav.focused(fileKey(props.tag, path))}
             onKeyDown={(e) => handleKeyDown(e, path)}
           >
             <Icon name="file-text" />
@@ -133,29 +153,25 @@ function TagRow(props: TagRowProps) {
       case " ":
         e.preventDefault();
         select();
-        break;
+        return;
       case "ArrowRight":
-        if (hasChildren() && !expanded()) {
-          e.preventDefault();
-          props.setFolded(props.node.tag, false);
-        }
-        break;
+        if (!hasChildren()) return;
+        e.preventDefault();
+        if (!expanded()) props.setFolded(props.node.tag, false);
+        else props.nav.navigate(new KeyboardEvent("keydown", { key: "ArrowDown" }), key());
+        return;
       case "ArrowLeft":
         if (expanded()) {
           e.preventDefault();
           props.setFolded(props.node.tag, true);
+          return;
         }
         break;
-      case "ArrowDown":
-      case "ArrowUp": {
-        e.preventDefault();
-        const tree = props.tree();
-        if (!tree) break;
-        moveTreeFocus(tree, e.currentTarget as HTMLElement, e.key === "ArrowDown" ? 1 : -1);
-        break;
-      }
     }
+    props.nav.navigate(e, key());
   }
+
+  const key = () => tagKey(props.node.tag);
 
   const paddingLeft = () => `${BASE_INDENT + (props.level - 1) * INDENT_PER_LEVEL}px`;
   const connectorLeft = () => `${BASE_INDENT + (props.level - 1) * INDENT_PER_LEVEL + 8}px`;
@@ -163,15 +179,17 @@ function TagRow(props: TagRowProps) {
   return (
     <>
       <div
+        ref={(el) => props.nav.register(key(), el)}
         role="treeitem"
         aria-expanded={hasChildren() ? expanded() : undefined}
         aria-level={props.level}
         aria-selected={selected()}
-        tabIndex={0}
+        tabIndex={props.nav.tabIndexOf(key())}
         class="sidebar-row tags-row"
         classList={{ "is-selected": selected() }}
         style={{ "padding-left": paddingLeft() }}
         onClick={select}
+        onFocus={() => props.nav.focused(key())}
         onKeyDown={handleKeyDown}
       >
         <span class="tags-row-caret" aria-hidden="true" onClick={toggleFromCaret}>
@@ -188,7 +206,7 @@ function TagRow(props: TagRowProps) {
         </Show>
       </div>
       <Show when={props.listedTag() === props.node.tag}>
-        <TaggedFiles tag={props.node.tag} level={props.level} tree={props.tree} />
+        <TaggedFiles tag={props.node.tag} level={props.level} nav={props.nav} />
       </Show>
       <Show when={expanded()}>
         <div
@@ -201,7 +219,7 @@ function TagRow(props: TagRowProps) {
               <TagRow
                 node={child}
                 level={props.level + 1}
-                tree={props.tree}
+                nav={props.nav}
                 folded={props.folded}
                 setFolded={props.setFolded}
                 listedTag={props.listedTag}
@@ -216,7 +234,6 @@ function TagRow(props: TagRowProps) {
 
 export default function TagsSection() {
   const win = useWindow();
-  let treeRef: HTMLDivElement | undefined;
   onCleanup(indexCacheStore.holdTags());
   const tags = indexCacheStore.allTags();
   const tagsError = indexCacheStore.tagsError();
@@ -249,6 +266,105 @@ export default function TagsSection() {
     onCleanup(indexCacheStore.holdTag(tag));
   });
 
+  // The rows in the order they are drawn: a tag, the files it lists, then the
+  // tags under it while it is open.
+  const navRows = createMemo<NavRow[]>(() => {
+    const rows: NavRow[] = [];
+    const listed = listedTag();
+    const walk = (list: readonly TagNode[], parent: string | null) => {
+      for (const node of list) {
+        const key = tagKey(node.tag);
+        rows.push({ key, name: node.name, parent });
+        if (listed === node.tag) {
+          for (const path of indexCacheStore.pathsForTag(node.tag)()) {
+            rows.push({ key: fileKey(node.tag, path), name: basename(path), parent: key });
+          }
+        }
+        if (node.children.length > 0 && !folded().has(node.tag)) walk(node.children, key);
+      }
+    };
+    walk(nodes(), null);
+    return rows;
+  });
+  const indexOf = createMemo(() => new Map(navRows().map((row, i) => [row.key, i])));
+
+  const [activeKey, setActiveKey] = createSignal<string | null>(null);
+  // The one Tab stop: the row last focused while it is drawn, else the
+  // selected tag, else the first row.
+  const tabStop = createMemo<string | null>(() => {
+    const at = indexOf();
+    const active = activeKey();
+    if (active !== null && at.has(active)) return active;
+    const selected = win.sidebar.selectedTag();
+    if (selected !== null && at.has(tagKey(selected))) return tagKey(selected);
+    return navRows()[0]?.key ?? null;
+  });
+  const rowEls = new Map<string, HTMLElement>();
+
+  function focusIndex(index: number) {
+    const rows = navRows();
+    const row = rows[Math.max(0, Math.min(rows.length - 1, index))];
+    if (!row) return;
+    setActiveKey(row.key);
+    rowEls.get(row.key)?.focus();
+  }
+
+  let typed = "";
+  let typedAt = 0;
+  const nav: TreeNav = {
+    tabIndexOf: (key) => (tabStop() === key ? 0 : -1),
+    register(key, el) {
+      rowEls.set(key, el);
+      onCleanup(() => {
+        if (rowEls.get(key) === el) rowEls.delete(key);
+      });
+    },
+    focused: (key) => setActiveKey(key),
+    navigate(e, key) {
+      const rows = navRows();
+      const at = indexOf().get(key) ?? 0;
+      switch (e.key) {
+        case "ArrowDown":
+          e.preventDefault();
+          focusIndex(at + 1);
+          return;
+        case "ArrowUp":
+          e.preventDefault();
+          focusIndex(at - 1);
+          return;
+        case "Home":
+          e.preventDefault();
+          focusIndex(0);
+          return;
+        case "End":
+          e.preventDefault();
+          focusIndex(rows.length - 1);
+          return;
+        case "ArrowLeft": {
+          e.preventDefault();
+          const parent = rows[at]?.parent;
+          if (parent) focusIndex(indexOf().get(parent) ?? at);
+          return;
+        }
+      }
+      if (e.key.length !== 1 || e.key === " " || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isImeComposing(e)) return;
+      e.preventDefault();
+      const now = Date.now();
+      typed = now - typedAt > TYPE_AHEAD_MS ? e.key.toLocaleLowerCase() : typed + e.key.toLocaleLowerCase();
+      typedAt = now;
+      const repeated = [...typed].every((ch) => ch === typed[0]);
+      const prefix = repeated ? typed[0] : typed;
+      for (let step = repeated ? 1 : 0; step <= rows.length; step++) {
+        const index = (at + step) % rows.length;
+        if (rows[index].name.toLocaleLowerCase().startsWith(prefix)) {
+          focusIndex(index);
+          return;
+        }
+      }
+    },
+  };
+
   // Nothing is said until the list has been read: an unread list and an empty
   // one look the same, and only one of them means there are no tags.
   const showsHowToTag = () => tagsSettled() && tagsError() === null && nodes().length === 0;
@@ -266,13 +382,13 @@ export default function TagsSection() {
         <p class="tags-note tags-section-note">Type #tag in a file to list it here.</p>
       </Show>
       <Show when={nodes().length > 0}>
-        <div ref={treeRef} role="tree" aria-label="Tags" class="tags-tree">
+        <div role="tree" aria-label="Tags" class="tags-tree">
           <For each={nodes()}>
             {(node) => (
               <TagRow
                 node={node}
                 level={1}
-                tree={() => treeRef}
+                nav={nav}
                 folded={folded}
                 setFolded={foldTag}
                 listedTag={listedTag}

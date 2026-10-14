@@ -66,8 +66,9 @@ describe("FileChangedBar", () => {
     expect(buttons(container).map((one) => one.textContent)).toEqual([
       "Keep mine",
       "Use the file on disk",
-      "Show both",
+      "Keep both",
     ]);
+    expect(bar.textContent).toContain("Whichever you don't keep is saved beside it as a copy.");
     // The words for what is happening here are the ones a person would use
     // about their own file, not the ones a version control system uses.
     for (const word of ["conflict", "merge", "resolve"]) {

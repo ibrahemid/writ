@@ -8,6 +8,9 @@ const SERVICES_DIR = resolve(SRC, "services");
 const COMPONENTS_DIR = resolve(SRC, "components");
 const EDITOR_DIR = resolve(SRC, "editor");
 const STORES_DIR = resolve(SRC, "stores");
+const LIB_DIR = resolve(SRC, "lib");
+const COMMANDS_DIR = resolve(SRC, "commands");
+const APP_FILE = resolve(SRC, "App.tsx");
 
 const IMPORT_RE = /import\s+(?:[\s\S]*?)\s+from\s+["']([^"']+)["']/g;
 
@@ -61,6 +64,22 @@ function extractImports(file: string): string[] {
     out.push(m[1]);
   }
   return out;
+}
+
+// The specifiers of imports that load a module at run time: `import type`
+// is erased by the compiler and names a shape, not a dependency.
+function extractRuntimeImports(file: string): string[] {
+  const text = readFileSync(file, "utf8");
+  const out: string[] = [];
+  for (const m of text.matchAll(IMPORT_RE)) {
+    if (/^import\s+type\s/.test(m[0])) continue;
+    out.push(m[1]);
+  }
+  return out;
+}
+
+function reachesDir(resolved: string, dir: string): boolean {
+  return resolved === dir || resolved.startsWith(dir + "/");
 }
 
 describe("frontend layering", () => {
@@ -152,5 +171,46 @@ describe("frontend layering", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  // Toast and dialog state are stores; a store that imports a component cannot
+  // be loaded, or tested, without the component tree behind it.
+  it("no file under src/stores/ imports from src/components/", () => {
+    const offenders: { file: string; spec: string }[] = [];
+    for (const file of walk(STORES_DIR)) {
+      for (const spec of extractRuntimeImports(file)) {
+        const resolved = resolveSpecifier(file, spec);
+        if (resolved && reachesDir(resolved, COMPONENTS_DIR)) {
+          offenders.push({ file: relative(REPO_ROOT, file), spec });
+        }
+      }
+    }
+    expect(
+      offenders,
+      `stores must not import components: ${offenders
+        .map((o) => `${o.file} -> ${o.spec}`)
+        .join("; ")}`,
+    ).toEqual([]);
+  });
+
+  // App.tsx, the shared note actions and the commands sit with the components:
+  // they call stores, and only stores call services.
+  it("App.tsx, src/lib/ and src/commands/ reach services only through stores", () => {
+    const files = [APP_FILE, ...walk(LIB_DIR), ...walk(COMMANDS_DIR)];
+    const offenders: { file: string; spec: string }[] = [];
+    for (const file of files) {
+      for (const spec of extractRuntimeImports(file)) {
+        const resolved = resolveSpecifier(file, spec);
+        if (resolved && reachesDir(resolved, SERVICES_DIR)) {
+          offenders.push({ file: relative(REPO_ROOT, file), spec });
+        }
+      }
+    }
+    expect(
+      offenders,
+      `call a store instead of a service: ${offenders
+        .map((o) => `${o.file} -> ${o.spec}`)
+        .join("; ")}`,
+    ).toEqual([]);
   });
 });

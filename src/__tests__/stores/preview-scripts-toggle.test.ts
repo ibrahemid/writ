@@ -10,9 +10,9 @@ vi.mock("../../services/tauri", () => ({
   previewSetScripts: mocks.set,
 }));
 
-import { togglePreviewScripts } from "../../lib/preview-actions";
+import { createPreviewScriptsStore } from "../../stores/global/preview-scripts";
 
-describe("togglePreviewScripts", () => {
+describe("previewScriptsStore.toggle", () => {
   beforeEach(() => {
     mocks.get.mockReset();
     mocks.set.mockReset().mockResolvedValue(undefined);
@@ -20,23 +20,25 @@ describe("togglePreviewScripts", () => {
 
   it("opts a file in when it was off, remembering it per buffer", async () => {
     mocks.get.mockResolvedValue(false);
-    const result = await togglePreviewScripts("buf-1");
-    expect(result).toBe(true);
+    const store = createPreviewScriptsStore();
+    expect(await store.toggle("buf-1")).toBe(true);
     expect(mocks.get).toHaveBeenCalledWith("buf-1");
     expect(mocks.set).toHaveBeenCalledWith("buf-1", true);
+    expect(store.enabled("buf-1")).toBe(true);
   });
 
   it("opts a file out when it was on", async () => {
     mocks.get.mockResolvedValue(true);
-    const result = await togglePreviewScripts("buf-2");
-    expect(result).toBe(false);
+    const store = createPreviewScriptsStore();
+    expect(await store.toggle("buf-2")).toBe(false);
     expect(mocks.set).toHaveBeenCalledWith("buf-2", false);
   });
 
   it("flips the opt-in the user is shown without reading the stored one", async () => {
     mocks.get.mockResolvedValue(false);
-    const result = await togglePreviewScripts("buf-4", true);
-    expect(result).toBe(false);
+    const store = createPreviewScriptsStore();
+    store.settle("buf-4", store.issue(), true);
+    expect(await store.toggle("buf-4")).toBe(false);
     expect(mocks.get).not.toHaveBeenCalled();
     expect(mocks.set).toHaveBeenCalledWith("buf-4", false);
   });
@@ -44,6 +46,7 @@ describe("togglePreviewScripts", () => {
   it("propagates a write failure without swallowing it", async () => {
     mocks.get.mockResolvedValue(false);
     mocks.set.mockRejectedValue(new Error("disk full"));
-    await expect(togglePreviewScripts("buf-3")).rejects.toThrow("disk full");
+    const store = createPreviewScriptsStore();
+    await expect(store.toggle("buf-3")).rejects.toThrow("disk full");
   });
 });

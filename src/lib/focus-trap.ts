@@ -17,6 +17,12 @@ function isRestorable(el: Element | null): el is HTMLElement {
 
 const SILENT_ATTR = "data-writ-focus-silent";
 
+/**
+ * Marks a surface a modal leaves live: the toast column and the update banner
+ * report what happened inside the modal, so they stay clickable and announced.
+ */
+export const FOCUS_TRAP_EXEMPT = "data-writ-focus-trap-exempt";
+
 function matchesFocusVisible(el: Element | null): boolean {
   if (!el) return false;
   try {
@@ -49,6 +55,7 @@ function collectPathInerts(container: HTMLElement): HTMLElement[] {
       if (child === node) continue;
       if (!(child instanceof HTMLElement)) continue;
       if (child.hasAttribute("inert")) continue;
+      if (child.hasAttribute(FOCUS_TRAP_EXEMPT)) continue;
       child.setAttribute("inert", "");
       inerted.push(child);
     }

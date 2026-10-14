@@ -18,6 +18,10 @@
   z-index: var(--writ-z-popover);
 }
 
+.writ-tooltip-kbd {
+  color: var(--writ-fg-muted);
+}
+
 :root[data-theme="dark"] .writ-tooltip {
   background: var(--writ-bg-raised);
 }

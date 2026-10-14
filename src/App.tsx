@@ -1,8 +1,8 @@
-import { onMount, onCleanup, createEffect, Show } from "solid-js";
+import { onMount, onCleanup, createEffect, Show, untrack } from "solid-js";
 import TitleBar from "./components/TitleBar/TitleBar";
 import WindowLights from "./components/TitleBar/WindowLights";
 import EditorArea from "./components/Editor/EditorArea";
-import Sidebar from "./components/Sidebar/Sidebar";
+import Sidebar, { focusIsOutsideSidebar } from "./components/Sidebar/Sidebar";
 import RightPanel from "./components/RightPanel/RightPanel";
 import ChatPane from "./components/Chat/ChatPane";
 import CommandPalette, {
@@ -15,69 +15,61 @@ import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import ActivityPanel, { openActivity } from "./components/Activity/ActivityPanel";
 import ProgramNotice from "./components/Activity/ProgramNotice";
-import { activityStore } from "./stores/global/activity";
 import NoteHistoryPanel, { openNoteVersions } from "./components/NoteHistory/NoteHistoryPanel";
 import NotesMigrationReport from "./components/NotesMigrationReport/NotesMigrationReport";
 import { startRenameActiveTab } from "./components/Editor/TabBar";
-import { renameLinksStore } from "./stores/global/rename-links";
 import { confirmAndDeleteNote, noteIsDeletable, saveCopyOfNote } from "./lib/note-actions";
 import ContextMenu from "./components/ContextMenu/ContextMenu";
 import LinkAmbiguityPicker from "./components/Editor/LinkAmbiguityPicker";
 import LanguagePicker from "./components/Editor/LanguagePicker";
 import EncodingPicker from "./components/Editor/EncodingPicker";
 import IconSprite from "./components/Icon/IconSprite";
-import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
-import { IS_MAC, resolvePlatform } from "./lib/platform";
-import ToastContainer, { showToast } from "./components/Notifications/Toast";
-import ConfirmDialog, { requestConfirm } from "./components/ConfirmDialog/ConfirmDialog";
+import ToastContainer from "./components/Notifications/Toast";
+import ConfirmDialog from "./components/ConfirmDialog/ConfirmDialog";
 import LargeFileOpen from "./components/LargeFileOpen/LargeFileOpen";
 import AppFrame from "./components/AppFrame/AppFrame";
 import ErrorBoundary from "./components/ErrorBoundary/ErrorBoundary";
+import BootError from "./components/BootError/BootError";
 import UpdateBanner from "./components/UpdateBanner/UpdateBanner";
 import WindowProvider, { useWindow } from "./components/WindowProvider/WindowProvider";
-import { bufferRegistry, type OpenOutcome } from "./stores/global/buffer-registry";
-import { reportOpenOutcomes } from "./stores/global/open-report";
-import { openFailureReason } from "./lib/open-failure";
-import { saveStatusStore } from "./stores/global/save-status";
-import { previewScriptsStore } from "./stores/global/preview-scripts";
-import { logFailure } from "./lib/log";
-import { armReveal } from "./lib/boot-reveal";
-import { openBootTab } from "./stores/window/boot-tab";
-import { applyRecoveredNotes } from "./stores/window/recovered-notes";
 import FirstRunHint from "./components/Editor/FirstRunHint";
 import FirstRunSetup from "./components/FirstRun/FirstRunSetup";
-import { firstRunStore, watchSavesForRetitle } from "./stores/global/first-run";
-import { openThirdPartyNoticesBuffer } from "./stores/global/notices";
-import { workspaceStore } from "./stores/global/workspace";
-import { notesStore } from "./stores/global/notes";
-import { inboxStore } from "./stores/global/inbox";
-import { updateStore } from "./stores/global/update";
-import { hotkeyStore } from "./stores/global/hotkey";
-import { configStore } from "./stores/global/config";
-import { commandUsageStore } from "./stores/global/command-usage";
-import { syncConfigFromDisk } from "./stores/global/config-sync";
-import { themeStore } from "./stores/global/theme";
-import { osWindowStore } from "./stores/global/os-window";
-import { windowRegistry } from "./stores/global/window-registry";
-import { focusAfterSidebarChange } from "./lib/sidebar-focus";
-import { openContentSearch } from "./commands/search";
-import { findStore } from "./stores/global/find-store";
-import { registerTransformCommands } from "./commands/transforms";
-import { registerPromptCommands } from "./commands/prompt";
-import { toggleChat } from "./commands/chat";
-import { openRecent } from "./commands/recent";
-import { defineAppCommands, definedAppCommandIds } from "./commands/app-commands";
-import { followAppSwitches } from "./commands/app-switches";
-import { chatStore } from "./stores/global/chat";
-import { aiRewriteStore } from "./stores/global/ai-rewrite";
 import AiRewriteOverlay from "./components/AiRewrite/AiRewriteOverlay";
 import PromptFillModal from "./components/PromptFill/PromptFillModal";
-import { registerPreviewKeymap } from "./keymap/preview";
-import { rendererRegistry } from "./stores/global/renderer-registry";
-import { probeDefaultAppSupport } from "./stores/global/default-app-support";
-import { previewListRenderers, getRecoveredBuffers, previewUrlPrefix } from "./services/tauri";
-import { loadPreviewUrlPrefix } from "./stores/global/preview-url";
+import ContextPackModal from "./components/ContextPack/ContextPackModal";
+import { installNativeContextMenuSuppressor } from "./lib/native-context-menu";
+import { resolvePlatform } from "./lib/platform";
+import { DOCS_URL, reportIssueUrl } from "./lib/help-links";
+import { APP_VERSION } from "./lib/app-info";
+import { logFailure } from "./lib/log";
+import { focusAfterSidebarChange } from "./lib/sidebar-focus";
+import { firstRunStore } from "./stores/global/first-run";
+import { bufferRegistry } from "./stores/global/buffer-registry";
+import { renameLinksStore } from "./stores/global/rename-links";
+import { openThirdPartyNoticesBuffer } from "./stores/global/notices";
+import { workspaceStore } from "./stores/global/workspace";
+import { inboxStore } from "./stores/global/inbox";
+import { updateStore } from "./stores/global/update";
+import { linkStore } from "./stores/global/link";
+import { windowRegistry } from "./stores/global/window-registry";
+import { findStore } from "./stores/global/find-store";
 import { editorZoom } from "./stores/global/editor-zoom";
+import { requestConfirm } from "./stores/global/dialogs";
+import { removeFromRecent } from "./stores/global/recent-removal";
+import { notesStore } from "./stores/global/notes";
+import { configStore } from "./stores/global/config";
+import { commandUsageStore } from "./stores/global/command-usage";
+import { themeStore } from "./stores/global/theme";
+import { showToast } from "./stores/global/notifications";
+import { createBootStore, createBootPlan, type BootShell } from "./stores/window/boot";
+import { registerTransformCommands } from "./commands/transforms";
+import { registerPromptCommands } from "./commands/prompt";
+import { defineAppCommands, definedAppCommandIds } from "./commands/app-commands";
+import { openContentSearch } from "./commands/search";
+import { toggleChat } from "./commands/chat";
+import { openRecent } from "./commands/recent";
+import { followAppSwitches } from "./commands/app-switches";
+import { registerPreviewKeymap } from "./keymap/preview";
 import { registerCommand, executeCommand, getAllCommands, setExecuteListener } from "./commands/registry";
 import {
   installKeyboardHandler,
@@ -86,91 +78,38 @@ import {
   setKeybindingOverrides,
   pruneLegacyDefaultOverrides,
 } from "./commands/keybindings";
-import { onEvent, emitFrontendReady } from "./services/events";
-import { handleExternalEdit, readExternalEditPayload } from "./services/external-edit";
-import { createExternalEditDeps } from "./lib/external-edit-deps";
-import { recheckOpenNotes } from "./services/notes-sweep";
-import { reportFirstPaint } from "./services/tauri";
-import { installCloseFlush, startWindowLifecycle } from "./services/window-lifecycle";
-import type { UnlistenFn } from "./services/events";
 import "./styles/global.css";
 import "./App.css";
 
 const MAIN_WINDOW_ID = 1;
 
+type Unlisten = () => void;
+
 /**
- * How long the boot waits on the first-launch read before shaping the window
- * without it.
- *
- * The read decides whether a tab may be created, so it comes first; a read that
- * never settles would otherwise leave a revealed window with no editor in it.
- * Past the deadline the boot carries on as a launch with nothing to ask, which
- * is what every launch after the first one is.
+ * The window. The frame paints the window and holds the crash screen, so a
+ * render error still leaves a window that can be moved and closed; the toasts
+ * and the update banner sit beside it, outside every modal's focus trap and
+ * outside the error boundary, so they report what happened in either.
  */
-const FIRST_RUN_READ_DEADLINE_MS = 1500;
-
-/** [`firstRunStore.load`], given at most `deadlineMs` to settle. */
-async function readFirstRunWithin(deadlineMs: number): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, deadlineMs);
-  });
-  try {
-    await Promise.race([firstRunStore.load(), deadline]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// A save failure names the file the user knows, never the buffer UUID.
-async function openPendingPaths(paths: string[]) {
-  if (!Array.isArray(paths)) {
-    logFailure("an open request arrived without a list of files");
-    showToast("Couldn't open the files", "error");
-    return;
-  }
-  const win = windowRegistry.getActive();
-  if (!win) {
-    logFailure("an open request arrived with no window to open into");
-    showToast("Couldn't open the files", "error");
-    return;
-  }
-  // A drop of twenty unreadable files is one line to the user, not twenty.
-  const outcomes: OpenOutcome[] = [];
-  for (const path of paths) {
-    try {
-      outcomes.push(await win.tabs.openPath(path));
-    } catch (error) {
-      outcomes.push({ kind: "refused", path, reason: openFailureReason(error) });
-    }
-  }
-  reportOpenOutcomes(outcomes);
-}
-
-function measureFirstPaint(
-  mode: "cold" | "warm",
-  rustElapsedUs: number | null = null,
-) {
-  const start = performance.now();
-  requestAnimationFrame(() => {
-    const elapsed = performance.now() - start;
-    void reportFirstPaint(elapsed, mode, rustElapsedUs);
-  });
-}
-
 export default function App() {
   return (
-    <ErrorBoundary>
-      <WindowProvider windowId={MAIN_WINDOW_ID}>
-        <AppShell />
-      </WindowProvider>
-    </ErrorBoundary>
+    <>
+      <AppFrame>
+        <ErrorBoundary>
+          <WindowProvider windowId={MAIN_WINDOW_ID}>
+            <AppShell />
+          </WindowProvider>
+        </ErrorBoundary>
+      </AppFrame>
+      <ToastContainer />
+      <UpdateBanner />
+    </>
   );
 }
 
 // Follow-system polarity. Registered in onMount and removed through the
 // onCleanup list below, never at module scope.
-function watchSystemPolarity(): UnlistenFn {
+function watchSystemPolarity(): Unlisten {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
     return () => {};
   }
@@ -190,7 +129,7 @@ function watchSystemPolarity(): UnlistenFn {
  * the person has read it or not by the time they touch the keyboard. A
  * modifier held on its own is not a keystroke.
  */
-function dismissHintOnFirstKeystroke(): () => void {
+function dismissHintOnFirstKeystroke(): Unlisten {
   const onKeyDown = (event: KeyboardEvent) => {
     if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
     firstRunStore.dismissHint();
@@ -207,9 +146,24 @@ function activeNotePath(): string | null {
   return bufferRegistry.activeTabs().find((b) => b.id === id)?.source_path ?? null;
 }
 
+/** Reads the shortcut overrides and starts answering chords. */
+function installKeyboard(): Unlisten {
+  const loadedKeybindings = configStore.config().keybindings;
+  const liveKeybindings = pruneLegacyDefaultOverrides(loadedKeybindings);
+  if (Object.keys(liveKeybindings).length !== Object.keys(loadedKeybindings).length) {
+    configStore.save({ ...configStore.config(), keybindings: liveKeybindings }).catch(() => {});
+  }
+  setKeybindingOverrides(liveKeybindings);
+  rebuildKeyMap();
+  installKeyboardHandler();
+  return uninstallKeyboardHandler;
+}
+
 function AppShell() {
   const win = useWindow();
-  const unlisteners: UnlistenFn[] = [];
+  const boot = createBootStore();
+  const unlisteners: Unlisten[] = [];
+  let disposed = false;
 
   // Registered here rather than with the rest: the label names the app the
   // folder opens in, and that word comes from Rust with the first-run state,
@@ -228,114 +182,8 @@ function AppShell() {
     });
   });
 
-  onMount(async () => {
-    measureFirstPaint("cold");
-    // Writ owns every context menu; the engine's belongs to a browser.
-    onCleanup(installNativeContextMenuSuppressor());
-    // The platform layer is a token overlay keyed off the root; Writ is
-    // single-window, so it is written once and never recomputed (ADR-030).
-    document.documentElement.setAttribute("data-platform", resolvePlatform());
-    themeStore.applyToRoot();
-    // The preview URL base is host-decided; load it before any preview renders
-    // so the iframe never requests a scheme the engine treats as external.
-    await loadPreviewUrlPrefix(previewUrlPrefix);
-    await configStore.load();
-    void configStore.noticeUnreadValues();
-    // A config written before ADR-030 carries overrides in the old vocabulary.
-    // They are translated on load; writing the result back means the next
-    // launch reads a clean map.
-    const migratedOverrides = themeStore.loadConfig(
-      configStore.config().theme,
-      configStore.config().appearance,
-    );
-    if (migratedOverrides) {
-      const current = configStore.config();
-      configStore
-        .save({ ...current, theme: { ...current.theme, overrides: migratedOverrides } })
-        .catch(() => {});
-    }
-    unlisteners.push(watchSystemPolarity());
-    unlisteners.push(await osWindowStore.installFocusSync());
-    // Only the Windows and Linux titlebars read maximized(); on macOS this
-    // would be an IPC round-trip per resize feeding a signal nothing renders.
-    if (!IS_MAC) unlisteners.push(await osWindowStore.installMaximizeSync());
-    unlisteners.push(await osWindowStore.installGeometryPersistence());
-    unlisteners.push(await installCloseFlush([() => osWindowStore.flushGeometry()]));
-    unlisteners.push(...(await startWindowLifecycle()));
-    await bufferRegistry.loadSession();
-    await workspaceStore.hydrate().catch(() => undefined);
-    await inboxStore.hydrate().catch(() => undefined);
-    await notesStore.load();
-    void activityStore.watchWaiting();
-
-    const recovered = await getRecoveredBuffers().catch(() => []);
-    const restored = applyRecoveredNotes(win.editor, recovered);
-    if (restored.length > 0) {
-      showToast(
-        restored.length === 1
-          ? "Restored 1 file that could not be saved last time"
-          : `Restored ${restored.length} files that could not be saved last time`,
-        "info",
-        6000,
-      );
-    }
-
-    const unlistenPending = await onEvent("pending:opens", (payload) => {
-      void openPendingPaths(payload.paths);
-    });
-    unlisteners.push(unlistenPending);
-
-    const unlistenShown = await onEvent("window:shown", (payload) => {
-      measureFirstPaint("warm", payload.rust_elapsed_us);
-    });
-    unlisteners.push(unlistenShown);
-
-    const unlistenWorkspace = await onEvent("workspace:changed", (payload) => {
-      workspaceStore.handleChanged(payload.path, payload.removed);
-    });
-    unlisteners.push(unlistenWorkspace);
-
-    const unlistenWorkspaceSwept = await onEvent("workspace:swept", () => {
-      workspaceStore.handleSwept();
-    });
-    unlisteners.push(unlistenWorkspaceSwept);
-
-    const unlistenInbox = await onEvent("inbox:file-arrived", (payload) => {
-      void inboxStore.handleFileArrived(payload.path);
-    });
-    unlisteners.push(unlistenInbox);
-
-    await emitFrontendReady();
-
-    // The window was created hidden to avoid a cold-start flash, so it takes a
-    // reveal to appear. Armed before the two steps below rather than sequenced
-    // after them: either can reject, and either can hang on a slow disk, and
-    // both of those used to end with an app running and no window on screen.
-    // Showing directly (not via requestAnimationFrame, which a browser may
-    // throttle for a hidden document) makes the window appear promptly without
-    // waiting on the Rust timer; the webview paints the already-built DOM as it
-    // becomes visible.
-    const reveal = armReveal(osWindowStore.reveal);
-    try {
-      // Read before the first frame is shaped, because a first launch asks
-      // its question on the window the reveal is about to show rather than
-      // over a note it has already put there. Under a deadline, so a read that
-      // never settles costs that and nothing more.
-      await readFirstRunWithin(FIRST_RUN_READ_DEADLINE_MS);
-
-      await openBootTab(win.tabs, bufferRegistry.activeTabs(), firstRunStore.step());
-
-      // Reapplied here rather than in the hidden Rust restore path: on Windows
-      // maximizing runs ShowWindow(SW_MAXIMIZE), which has no visibility guard,
-      // so it would put an unpainted frame on screen for the whole boot and turn
-      // the reveal into a no-op. By this point the webview has painted.
-      if (configStore.config().window.maximized) await osWindowStore.maximize();
-    } catch {
-      logFailure("the first tab could not be prepared");
-    } finally {
-      reveal.now();
-    }
-
+  /** The window's own commands: files, tabs, panels, search, settings. */
+  function registerCommands(): void {
     registerCommand({
       id: "note.new",
       icon: "note-pencil",
@@ -385,7 +233,10 @@ function AppShell() {
       icon: "folder-open",
       label: "Open folder…",
       description: "Show a folder's files in the sidebar",
+      keybinding: "CmdOrCtrl+Alt+O",
       scope: "app",
+      // Global: the editor holds focus almost all the time.
+      global: true,
       execute: () => {
         void workspaceStore.openFolder().then((root) => {
           if (root) {
@@ -738,10 +589,18 @@ function AppShell() {
         const confirmed = await requestConfirm({
           title: "Close all tabs?",
           message:
-            "Each tab that saves moves to history, where you can reopen it. A tab that cannot save stays open.",
+            "Each tab that saves moves to Recent, where you can reopen it. A tab that cannot save stays open.",
           confirmLabel: "Close all",
         });
-        if (confirmed) void w.tabs.closeAllTabs();
+        if (!confirmed) return;
+        const front = w.tabs.activeTabId();
+        const closed = await w.tabs.closeAllTabs();
+        if (closed.length === 0) return;
+        showToast({
+          text: closed.length === 1 ? "Closed 1 tab" : `Closed ${closed.length} tabs`,
+          type: "success",
+          action: { label: "Undo", run: () => w.tabs.reopenTabs(closed, front) },
+        });
       },
     });
 
@@ -750,15 +609,16 @@ function AppShell() {
       label: "Clear Recent",
       scope: "app",
       execute: async () => {
-        const count = bufferRegistry.historyList().length;
+        const ids = bufferRegistry.historyList().map((b) => b.id);
+        const count = ids.length;
         if (count === 0) return;
         const confirmed = await requestConfirm({
           title: "Clear Recent?",
-          message: `This removes ${count} file${count === 1 ? "" : "s"} from Recent and cannot be undone. The files stay where they are.`,
+          message: `This removes ${count} file${count === 1 ? "" : "s"} from Recent. The files stay where they are.`,
           confirmLabel: "Clear Recent",
           danger: true,
         });
-        if (confirmed) void bufferRegistry.clearAllHistory();
+        if (confirmed) removeFromRecent(ids, "Cleared Recent");
       },
     });
 
@@ -791,10 +651,47 @@ function AppShell() {
 
     registerCommand({
       id: "shortcuts.customize",
-      label: "Customize shortcuts…",
-      description: "Rebind any command in the palette",
+      label: "Keyboard shortcuts",
+      description: "List every shortcut and change any of them",
+      keywords: ["customize", "rebind", "keys", "chord"],
       scope: "app",
       execute: () => openShortcutEditor(),
+    });
+
+    registerCommand({
+      id: "help.docs",
+      label: "Writ help",
+      description: "Open the guide on the Writ site",
+      keywords: ["docs", "documentation", "manual", "guide"],
+      scope: "app",
+      execute: () => void linkStore.openExternal(DOCS_URL),
+    });
+
+    registerCommand({
+      id: "help.whatsNew",
+      label: "What's new",
+      description: `Open the changelog at version ${APP_VERSION}`,
+      keywords: ["changelog", "release notes", "version"],
+      scope: "app",
+      execute: () => void updateStore.openReleaseNotes(APP_VERSION),
+    });
+
+    registerCommand({
+      id: "help.showSetup",
+      label: "Show setup again",
+      description: "Choose the format for new files and the apps that are on",
+      keywords: ["first run", "welcome", "onboarding", "apps"],
+      scope: "app",
+      execute: () => firstRunStore.showSetup(),
+    });
+
+    registerCommand({
+      id: "help.reportIssue",
+      label: "Report an issue",
+      description: "Open the bug form on GitHub, with this version filled in",
+      keywords: ["bug", "feedback", "problem", "github"],
+      scope: "app",
+      execute: () => void linkStore.openExternal(reportIssueUrl(APP_VERSION, resolvePlatform())),
     });
 
     defineAppCommands("programs", [
@@ -813,7 +710,7 @@ function AppShell() {
       id: "settings.open",
       icon: "gear",
       label: "Settings",
-      description: "Open editor settings",
+      description: "Folder, apps, appearance and shortcuts",
       keybinding: "CmdOrCtrl+,",
       scope: "app",
       global: true,
@@ -848,117 +745,62 @@ function AppShell() {
       scope: "app",
       execute: () => updateStore.checkForUpdate(),
     });
+  }
 
-    try {
-      await registerTransformCommands();
-    } catch {
-      showToast("Failed to load transform commands", "error");
-      logFailure("transform commands could not be registered");
-    }
+  const shell: BootShell = {
+    prepareShell: () => {
+      const off: Unlisten[] = [];
+      // Writ owns every context menu; the engine's belongs to a browser.
+      off.push(installNativeContextMenuSuppressor());
+      // The platform layer is a token overlay keyed off the root; Writ is
+      // single-window, so it is written once and never recomputed (ADR-030).
+      document.documentElement.setAttribute("data-platform", resolvePlatform());
+      themeStore.applyToRoot();
+      off.push(watchSystemPolarity());
+      off.push(dismissHintOnFirstKeystroke());
+      return off;
+    },
+    registerCommands,
+    installKeyboard,
+    runMenuAction: (id) => executeCommand(id),
+    afterReveal: [
+      [
+        "transforms",
+        async () => {
+          try {
+            await registerTransformCommands();
+          } catch {
+            showToast("Failed to load transform commands", "error");
+            logFailure("transform commands could not be registered");
+          }
+        },
+      ],
+      ["prompts", () => registerPromptCommands()],
+      ["preview keymap", () => registerPreviewKeymap()],
+      [
+        "command usage",
+        async () => {
+          await commandUsageStore.load();
+          setExecuteListener((id) => commandUsageStore.record(id));
+          commandUsageStore.prune(
+            new Set([...getAllCommands().map((c) => c.id), ...definedAppCommandIds()]),
+          );
+        },
+      ],
+      // The commands registered since the keyboard handler was installed.
+      ["key map", () => rebuildKeyMap()],
+    ],
+  };
 
-    registerPromptCommands();
-
-    try {
-      const list = await previewListRenderers();
-      rendererRegistry.setFromIpc(list);
-    } catch {
-      logFailure("preview renderers could not be listed");
-      showToast("Preview is unavailable. Restart Writ to try again.", "error");
-    }
-
-    registerPreviewKeymap();
-
-    await commandUsageStore.load();
-    setExecuteListener((id) => commandUsageStore.record(id));
-    commandUsageStore.prune(
-      new Set([...getAllCommands().map((c) => c.id), ...definedAppCommandIds()]),
-    );
-
-    // Resolve default-app platform support up front so settings search and the
-    // command palette can offer those rows before the Settings modal mounts.
-    void probeDefaultAppSupport();
-
-    const loadedKeybindings = configStore.config().keybindings;
-    const liveKeybindings = pruneLegacyDefaultOverrides(loadedKeybindings);
-    if (Object.keys(liveKeybindings).length !== Object.keys(loadedKeybindings).length) {
-      configStore
-        .save({ ...configStore.config(), keybindings: liveKeybindings })
-        .catch(() => {});
-    }
-    setKeybindingOverrides(liveKeybindings);
-    rebuildKeyMap();
-    installKeyboardHandler();
-    unlisteners.push(uninstallKeyboardHandler);
-
-    const unlisten1 = await onEvent("config:changed", () => {
-      void syncConfigFromDisk();
+  onMount(() => {
+    void boot.run(createBootPlan(win, shell)).then((off) => {
+      if (disposed) for (const unlisten of off) unlisten();
+      else unlisteners.push(...off);
     });
-    unlisteners.push(unlisten1);
-
-    const externalEditDeps = createExternalEditDeps({
-      editor: win.editor,
-      openBuffers: () => bufferRegistry.buffers(),
-      refreshBuffer: (id) => bufferRegistry.refreshBuffer(id),
-      forgetSaveStatus: (id) => saveStatusStore.forgetNote(id),
-      refreshScripts: (id) => previewScriptsStore.refresh(id),
-    });
-
-    const unlisten2 = await onEvent("buffer:external", (payload) => {
-      const change = readExternalEditPayload(payload);
-      if (!change) return;
-      void handleExternalEdit(change, externalEditDeps);
-    });
-    unlisteners.push(unlisten2);
-
-    // The notes folder changed faster than the watcher could list it, so no
-    // file was named and every open note asks after its own.
-    const unlistenSwept = await onEvent("notes:swept", () => {
-      void recheckOpenNotes({
-        tabs: bufferRegistry,
-        diskStateOf: (id) => win.editor.readDiskState(id),
-        lastKnownDiskHash: (id) => win.editor.lastKnownDiskHash(id),
-        onChanged: (payload) => handleExternalEdit(payload, externalEditDeps),
-        onFailure: () => logFailure("an open note could not be checked after the folder changed"),
-      });
-    });
-    unlisteners.push(unlistenSwept);
-
-    const unlisten3 = await onEvent("menu:action", (payload) => {
-      executeCommand(payload.action);
-    });
-    unlisteners.push(unlisten3);
-
-    const unlisten4 = await onEvent("files:dropped", (payload) => {
-      void openPendingPaths(payload.paths);
-    });
-    unlisteners.push(unlisten4);
-
-    const unlistenUpdate = await updateStore.subscribe();
-    unlisteners.push(unlistenUpdate);
-
-    // The window's own chord: read what the OS said at startup, then follow
-    // every rebind, so the shortcut editor can show a chord another app holds
-    // rather than a key that quietly does nothing.
-    unlisteners.push(await hotkeyStore.subscribe());
-    void hotkeyStore.load();
-
-    const unlistenAi = await onEvent("ai:rewrite", (payload) => {
-      aiRewriteStore.handleStreamEvent(payload);
-    });
-    unlisteners.push(unlistenAi);
-
-    const unlistenChat = await onEvent("ai:chat", (payload) => {
-      chatStore.handleStreamEvent(payload);
-    });
-    unlisteners.push(unlistenChat);
-
-    // What a new note's first line may do to its file name. What the first
-    // launch shows was read above, before the window was revealed.
-    unlisteners.push(watchSavesForRetitle());
-    unlisteners.push(dismissHintOnFirstKeystroke());
   });
 
   onCleanup(() => {
+    disposed = true;
     for (const unlisten of unlisteners) {
       unlisten();
     }
@@ -966,16 +808,20 @@ function AppShell() {
 
   // Toggling the sidebar changes what is visible, not where you type: showing
   // it leaves the caret in the note, hiding it returns focus to the note so
-  // nothing stays focused inside a collapsed region.
+  // nothing stays focused inside a collapsed region. Focus on a control
+  // outside the sidebar, the toolbar's search field clearing its query, stays.
   createEffect(() => {
-    if (focusAfterSidebarChange(win.sidebar.isOpen()) === "editor") win.editor.focusEditor();
+    const open = win.sidebar.isOpen();
+    if (focusAfterSidebarChange(open, untrack(focusIsOutsideSidebar)) === "editor") {
+      win.editor.focusEditor();
+    }
   });
 
   // Commands come and go, and panels close, with the app switches.
   followAppSwitches(win);
 
   return (
-    <AppFrame>
+    <>
       <IconSprite />
       <TitleBar />
       <div class="app-body">
@@ -984,6 +830,9 @@ function AppShell() {
         <RightPanel />
         <ChatPane />
         <FirstRunHint />
+        <Show when={boot.failure()}>
+          {(failure) => <BootError failure={failure()} onRetry={boot.retry} />}
+        </Show>
         {/* Last in the row and over both panes: the lights sit at the window's
             leading edge whatever the sidebar is doing under them. */}
         <WindowLights />
@@ -1003,13 +852,12 @@ function AppShell() {
       <ConfirmDialog />
       <LargeFileOpen />
       <PromptFillModal />
+      <ContextPackModal />
       <AiRewriteOverlay />
-      <ToastContainer />
-      <UpdateBanner />
       <NotesMigrationReport />
       <Show when={firstRunStore.step() !== null}>
         <FirstRunSetup />
       </Show>
-    </AppFrame>
+    </>
   );
 }

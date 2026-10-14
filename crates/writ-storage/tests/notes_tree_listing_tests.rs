@@ -38,7 +38,10 @@ fn every_listed_file(root: &Path) -> Vec<String> {
     let mut files = Vec::new();
     let mut folders = vec![root.to_path_buf()];
     while let Some(folder) = folders.pop() {
-        for entry in workspace_store::list_notes_dir(root, &folder).expect("listing") {
+        for entry in workspace_store::list_notes_dir(root, &folder)
+            .expect("listing")
+            .entries
+        {
             if entry.is_dir {
                 folders.push(PathBuf::from(entry.path));
             } else {
@@ -88,6 +91,7 @@ fn a_name_the_index_reads_stays_in_the_tree() {
 
     let names: Vec<String> = workspace_store::list_notes_dir(&root, &root)
         .expect("listing")
+        .entries
         .into_iter()
         .map(|entry| entry.name)
         .collect();

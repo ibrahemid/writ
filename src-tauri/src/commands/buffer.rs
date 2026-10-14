@@ -989,6 +989,19 @@ pub fn close_debounce_window(state: &AppState, id: &str, seen: u64) -> Option<u6
             reindex_settled_buffer(state, id);
             None
         }
+        PollOutcome::Taken => None,
+    }
+}
+
+/// Reindexes now every note whose deferred reindex has not run yet, so a
+/// search that follows reads the text as it was last saved rather than as the
+/// last debounce window left it (F25). Each file is read in a turn on its
+/// note, so a write of it still landing lands first, and with the store
+/// released, as the deferred worker reads it.
+pub fn reindex_pending_now(state: &AppState) {
+    for id in state.fts_scheduler.take_pending() {
+        let _turn = state.buffer_writes.turn(&id);
+        reindex_settled_buffer(state, &id);
     }
 }
 

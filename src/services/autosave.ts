@@ -115,6 +115,18 @@ interface InFlightWrite {
 // being able to write.
 const MIN_WRITE_INTERVAL_MS = 1000;
 
+// A write that failed for a reason that passes (a file another program holds
+// open, a share that dropped for a moment) is tried again on its own, sooner
+// at first and then no more than every half minute, until it lands or newer
+// text replaces it.
+export const RETRY_FIRST_MS = 2000;
+export const RETRY_MAX_MS = 30_000;
+const retryAttempts = new Map<string, number>();
+
+function retryDelay(attempt: number): number {
+  return Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_MAX_MS);
+}
+
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const lastWriteAt = new Map<string, number>();
 const pendingContent = new Map<string, QueuedContent>();
@@ -129,6 +141,9 @@ const startListeners = new Set<AutosaveStartListener>();
 // text again is stopped the same way), and that text still has to reach the
 // unsaved-text journal.
 const lastFailedContent = new Map<string, UnsavedText>();
+// The text of each write still out, so a close that stops waiting on a write
+// to a stalled share can still hand that text to the unsaved-text journal.
+const inFlightContent = new Map<string, string>();
 
 export function onAutosaveError(listener: AutosaveErrorListener): () => void {
   errorListeners.add(listener);
@@ -334,10 +349,11 @@ export function collectUnsavedContent(): Array<{ id: string; content: string }> 
     ...pendingContent.keys(),
     ...heldContent.keys(),
     ...lastFailedContent.keys(),
+    ...inFlightContent.keys(),
   ]);
   const notes: Array<{ id: string; content: string }> = [];
   for (const id of ids) {
-    const content = peekUnsavedContent(id);
+    const content = peekUnsavedContent(id) ?? inFlightContent.get(id);
     if (content !== undefined) notes.push({ id, content });
   }
   return notes;
@@ -377,6 +393,7 @@ function queueContent(bufferId: string, content: ContentSource, writer?: SaveWri
   heldContent.delete(bufferId);
   clearKeepTimer(bufferId);
   keptHolds.delete(bufferId);
+  retryAttempts.delete(bufferId);
   pendingContent.set(bufferId, {
     source: content,
     generation: bumpGeneration(bufferId),
@@ -479,6 +496,8 @@ export function cancelAutosave(bufferId: string) {
   clearKeepTimer(bufferId);
   lastWriteAt.delete(bufferId);
   lastFailedContent.delete(bufferId);
+  inFlightContent.delete(bufferId);
+  retryAttempts.delete(bufferId);
   // Retire the current generation so a write already in flight cannot put the
   // discarded text back on the queue when it fails.
   bumpGeneration(bufferId);
@@ -499,6 +518,8 @@ export function resetAutosave() {
   lastWriteAt.clear();
   generations.clear();
   inFlight.clear();
+  inFlightContent.clear();
+  retryAttempts.clear();
   lastFailedContent.clear();
 }
 
@@ -557,7 +578,10 @@ async function startWrite(bufferId: string): Promise<SaveResult> {
   try {
     return await promise;
   } finally {
-    if (inFlight.get(bufferId)?.promise === promise) inFlight.delete(bufferId);
+    if (inFlight.get(bufferId)?.promise === promise) {
+      inFlight.delete(bufferId);
+      inFlightContent.delete(bufferId);
+    }
   }
 }
 
@@ -578,9 +602,11 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
   for (const listener of startListeners) {
     listener(bufferId);
   }
+  inFlightContent.set(bufferId, content);
   try {
     const diskHash = await (queued.writer ?? saveBufferContent)(bufferId, content);
     lastFailedContent.delete(bufferId);
+    retryAttempts.delete(bufferId);
     const write: LandedWrite = {
       source: typeof queued.source === "object" ? queued.source : content,
       generation: queued.generation,
@@ -606,6 +632,13 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
         generation: queued.generation,
         writer: queued.writer,
       });
+      // A keystroke or flush in the meantime writes it sooner; this is for
+      // the note nobody touches again.
+      if (!timers.has(bufferId)) {
+        const attempt = retryAttempts.get(bufferId) ?? 0;
+        retryAttempts.set(bufferId, attempt + 1);
+        armTimer(bufferId, retryDelay(attempt));
+      }
     }
     // Only while it is still the newest text there is. A write whose
     // generation has been retired was superseded while it was out: by a

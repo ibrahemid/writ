@@ -15,17 +15,20 @@ import {
   rebuildKeyMap,
   setKeybindingOverrides,
 } from "../../commands/keybindings";
-import { ShortcutRecorder, findConflicts } from "./recorder";
-import { keybindingSegments } from "../../lib/keybinding-format";
+import { ShortcutRecorder, findConflicts, findFixedConflicts } from "./recorder";
+import { fixedMenuChords } from "../../commands/menu-commands";
+import { detectPlatform } from "../../lib/platform";
 import { configStore } from "../../stores/global/config";
 import { hotkeyStore } from "../../stores/global/hotkey";
 import Button from "../Button/Button";
+import Icon from "../Icon/Icon";
+import Kbd from "../Kbd/Kbd";
 import Tooltip from "../Tooltip/Tooltip";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { joinAnd } from "../../lib/join-and";
-import { requestChoice } from "../ConfirmDialog/ConfirmDialog";
-import { showToast } from "../Notifications/Toast";
+import { requestChoice } from "../../stores/global/dialogs";
+import { showToast } from "../../stores/global/notifications";
 import type { Command } from "../../types/commands";
 import "./ShortcutEditor.css";
 
@@ -57,6 +60,8 @@ interface DraftEntry {
  * is the one row that can come back "taken".
  */
 const GLOBAL_TOGGLE_ROW = "hotkey.toggle";
+const GLOBAL_ROW_LABEL = "Show and hide Writ";
+const GLOBAL_ROW_DESC = "Works while another app is in front";
 
 export default function ShortcutEditor() {
   const win = useWindow();
@@ -66,6 +71,8 @@ export default function ShortcutEditor() {
   const [globalDraft, setGlobalDraft] = createSignal("");
   const [globalProblem, setGlobalProblem] = createSignal("");
   const [listeningId, setListeningId] = createSignal<string | null>(null);
+  const [filter, setFilter] = createSignal("");
+  const platform = detectPlatform();
   let modalRef: HTMLDivElement | undefined;
 
   const commands = createMemo<Command[]>(() =>
@@ -75,11 +82,17 @@ export default function ShortcutEditor() {
       .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" })),
   );
 
+  const matchesFilter = (text: string): boolean => {
+    const words = filter().trim().toLowerCase();
+    return words === "" || text.toLowerCase().includes(words);
+  };
+  const listsCommand = (c: Command) => matchesFilter(`${c.label} ${c.description ?? ""}`);
+  const showsGlobalRow = () => matchesFilter(`${GLOBAL_ROW_LABEL} ${GLOBAL_ROW_DESC}`);
   const appCommands = createMemo<Command[]>(() =>
-    commands().filter((c) => c.scope === "app"),
+    commands().filter((c) => c.scope === "app" && listsCommand(c)),
   );
   const editorCommands = createMemo<Command[]>(() =>
-    commands().filter((c) => c.scope === "editor"),
+    commands().filter((c) => c.scope === "editor" && listsCommand(c)),
   );
 
   // Seeding happens on the way in and nowhere else. It used to run again on
@@ -105,6 +118,7 @@ export default function ShortcutEditor() {
       setGlobalDraft(hotkeyStore.chord() || configStore.config().hotkey.toggle);
       setGlobalProblem("");
       setListeningId(null);
+      setFilter("");
       recorder.reset();
     });
     wasOpen = true;
@@ -129,7 +143,13 @@ export default function ShortcutEditor() {
     return map;
   }
 
-  const conflicts = createMemo(() => findConflicts(effectiveDraftMap()));
+  const conflicts = createMemo(() => findConflicts(effectiveDraftMap(), platform));
+  // The macOS menu bar answers Quit, Hide, Copy and the rest before Writ sees
+  // the key, so a command bound to one of them would never run.
+  const fixedConflicts = createMemo(() =>
+    findFixedConflicts(effectiveDraftMap(), fixedMenuChords(platform), platform),
+  );
+  const hasConflicts = () => conflicts().size > 0 || fixedConflicts().size > 0;
 
   function defaultBindingFor(commandId: string): string {
     const cmd = commands().find((c) => c.id === commandId);
@@ -157,13 +177,7 @@ export default function ShortcutEditor() {
     const handler = (event: KeyboardEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      const outcome = recorder.handle({
-        key: event.key,
-        metaKey: event.metaKey,
-        ctrlKey: event.ctrlKey,
-        shiftKey: event.shiftKey,
-        altKey: event.altKey,
-      });
+      const outcome = recorder.handle(event);
       if (outcome.kind === "captured") {
         if (id === GLOBAL_TOGGLE_ROW) {
           setGlobalDraft(outcome.binding);
@@ -290,13 +304,12 @@ export default function ShortcutEditor() {
   // and one thing they cannot show: a chord another app is already holding.
   function renderGlobalRow() {
     const isListening = () => listeningId() === GLOBAL_TOGGLE_ROW;
-    const segments = () => keybindingSegments(globalDraft());
 
     return (
       <div class="shortcut-row" data-shortcut="global-toggle">
         <div class="shortcut-row-info">
-          <div class="shortcut-row-label">Show and hide Writ</div>
-          <div class="shortcut-row-desc">Works while another app is in front</div>
+          <div class="shortcut-row-label">{GLOBAL_ROW_LABEL}</div>
+          <div class="shortcut-row-desc">{GLOBAL_ROW_DESC}</div>
           <Show when={hotkeyStore.isTaken()}>
             <div class="shortcut-row-conflict" data-state="taken">
               Another app is using this shortcut.
@@ -313,12 +326,10 @@ export default function ShortcutEditor() {
             when={isListening()}
             fallback={
               <Show
-                when={segments().length > 0}
+                when={globalDraft()}
                 fallback={<span class="shortcut-row-empty">Not set</span>}
               >
-                <span class="kbd-chord">
-                  <For each={segments()}>{(seg) => <span class="kbd-key">{seg}</span>}</For>
-                </span>
+                <Kbd binding={globalDraft()} />
               </Show>
             }
           >
@@ -360,14 +371,22 @@ export default function ShortcutEditor() {
     const binding = () => drafts()[cmd.id]?.binding ?? "";
     const aliases = () => cmd.keybindingAliases ?? [];
     const isListening = () => listeningId() === cmd.id;
-    const conflictWith = () => conflicts().get(cmd.id) ?? [];
-    const segments = () => keybindingSegments(binding());
+    const conflictWith = () => {
+      const names = (conflicts().get(cmd.id) ?? []).map(labelFor);
+      const fixed = fixedConflicts().get(cmd.id);
+      return fixed === undefined ? names : [...names, fixed];
+    };
     const isDefault = () => binding() === (cmd.keybinding ?? "");
 
     return (
       <div class="shortcut-row">
         <div class="shortcut-row-info">
-          <div class="shortcut-row-label">{cmd.label}</div>
+          <div class="shortcut-row-label">
+            <Show when={!isDefault()}>
+              <span class="shortcut-row-changed" role="img" aria-label="Changed" />
+            </Show>
+            {cmd.label}
+          </div>
           <Show when={cmd.description}>
             <div class="shortcut-row-desc">{cmd.description}</div>
           </Show>
@@ -378,7 +397,7 @@ export default function ShortcutEditor() {
           </Show>
           <Show when={conflictWith().length > 0}>
             <div class="shortcut-row-conflict">
-              Conflicts with {joinAnd(conflictWith().map(labelFor))}
+              Conflicts with {joinAnd(conflictWith())}
             </div>
           </Show>
         </div>
@@ -387,14 +406,10 @@ export default function ShortcutEditor() {
             when={isListening()}
             fallback={
               <Show
-                when={segments().length > 0}
+                when={binding()}
                 fallback={<span class="shortcut-row-empty">Not set</span>}
               >
-                <span class="kbd-chord">
-                  <For each={segments()}>
-                    {(seg) => <span class="kbd-key">{seg}</span>}
-                  </For>
-                </span>
+                <Kbd binding={binding()} />
               </Show>
             }
           >
@@ -441,18 +456,21 @@ export default function ShortcutEditor() {
               <Show when={conflicts().size > 0}>
                 <span class="shortcut-editor-blocked">Two commands share a shortcut.</span>
               </Show>
+              <Show when={conflicts().size === 0 && fixedConflicts().size > 0}>
+                <span class="shortcut-editor-blocked">The menu bar already uses a shortcut.</span>
+              </Show>
               <Button data-action="reset-all-shortcuts" onClick={handleResetAll}>
                 Reset all
               </Button>
               <Button
                 data-action="save-shortcuts"
                 variant="primary"
-                disabled={conflicts().size > 0}
+                disabled={hasConflicts()}
                 onClick={handleSave}
               >
                 Save
               </Button>
-              <Tooltip label="Close shortcut editor">
+              <Tooltip label="Close shortcut editor" chord="Escape">
                 <Button
                   variant="ghost"
                   icon="x"
@@ -464,9 +482,24 @@ export default function ShortcutEditor() {
             </div>
           </div>
 
+          <div class="shortcut-editor-filter">
+            <Icon name="magnifying-glass" class="shortcut-editor-filter-icon" size={16} />
+            <input
+              type="text"
+              class="shortcut-editor-filter-input"
+              data-writ-focus-silent
+              placeholder="Filter shortcuts"
+              aria-label="Filter shortcuts"
+              value={filter()}
+              onInput={(e) => setFilter(e.currentTarget.value)}
+            />
+          </div>
+
           <div class="shortcut-editor-body">
-            <div class="shortcut-group-label">Window</div>
-            {renderGlobalRow()}
+            <Show when={showsGlobalRow()}>
+              <div class="shortcut-group-label">Window</div>
+              {renderGlobalRow()}
+            </Show>
             <Show when={appCommands().length > 0}>
               <div class="shortcut-group-label">Commands</div>
               <For each={appCommands()}>{renderRow}</For>
@@ -477,6 +510,13 @@ export default function ShortcutEditor() {
                 Markdown formatting commands appear while a Markdown file is open.
               </div>
               <For each={editorCommands()}>{renderRow}</For>
+            </Show>
+            <Show
+              when={
+                !showsGlobalRow() && appCommands().length === 0 && editorCommands().length === 0
+              }
+            >
+              <div class="shortcut-group-note">No shortcuts match.</div>
             </Show>
           </div>
         </div>

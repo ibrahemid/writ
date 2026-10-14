@@ -561,7 +561,9 @@ fn the_notes_folder_lists_its_folders_then_its_files() {
     std::fs::write(root.join(".writ-tmp-a1b2c3"), "half written").expect("write");
     std::fs::create_dir_all(root.join(".git")).expect("git");
 
-    let entries = list_notes_dir_inner(&state, &root.to_string_lossy()).expect("listing");
+    let entries = list_notes_dir_inner(&state, &root.to_string_lossy())
+        .expect("listing")
+        .entries;
 
     let names: Vec<(&str, bool)> = entries
         .iter()
@@ -586,7 +588,9 @@ fn a_folder_inside_the_notes_folder_lists_what_it_holds() {
     std::fs::create_dir_all(&projects).expect("folder");
     std::fs::write(projects.join("Launch.md"), "launch").expect("write");
 
-    let entries = list_notes_dir_inner(&state, &projects.to_string_lossy()).expect("listing");
+    let entries = list_notes_dir_inner(&state, &projects.to_string_lossy())
+        .expect("listing")
+        .entries;
 
     assert_eq!(
         entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
@@ -626,8 +630,9 @@ fn a_link_leading_out_of_the_notes_folder_is_refused() {
     std::os::unix::fs::symlink(&outside, &link).expect("symlink");
 
     assert!(list_notes_dir_inner(&state, &link.to_string_lossy()).is_err());
-    let root_listing =
-        list_notes_dir_inner(&state, &state.notes_root().to_string_lossy()).expect("root");
+    let root_listing = list_notes_dir_inner(&state, &state.notes_root().to_string_lossy())
+        .expect("root")
+        .entries;
     assert!(
         root_listing.iter().all(|entry| entry.name != "Shortcut"),
         "a link out of the folder is not a folder of it"
@@ -1021,7 +1026,10 @@ fn the_tree_hides_the_folders_the_index_skips_and_no_others() {
     let mut shown = Vec::new();
     let mut folders = vec![root.to_string_lossy().into_owned()];
     while let Some(folder) = folders.pop() {
-        for entry in list_notes_dir_inner(&state, &folder).expect("listing") {
+        for entry in list_notes_dir_inner(&state, &folder)
+            .expect("listing")
+            .entries
+        {
             if entry.is_dir {
                 folders.push(entry.path);
             } else {

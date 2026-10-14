@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -8,7 +8,7 @@ use tauri::{AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tracing::warn;
 use writ_core::workspace::file_search::FileHit;
-use writ_core::workspace::{WorkspaceEntry, WorkspaceKind};
+use writ_core::workspace::{DirListing, WorkspaceKind};
 use writ_storage::workspace_grep::{
     self, ContentHit, GrepLimits, GrepOutcome, GrepRequest, ScanObserver,
 };
@@ -117,10 +117,7 @@ pub fn clear_workspace_root_inner(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-pub fn list_workspace_dir_inner(
-    state: &AppState,
-    dir_path: &str,
-) -> Result<Vec<WorkspaceEntry>, String> {
+pub fn list_workspace_dir_inner(state: &AppState, dir_path: &str) -> Result<DirListing, String> {
     let root = state
         .workspace_root
         .lock()
@@ -166,9 +163,53 @@ pub fn clear_workspace_root(state: State<'_, AppState>) -> Result<(), String> {
 pub async fn list_workspace_dir<R: Runtime>(
     app: AppHandle<R>,
     dir_path: String,
-) -> Result<Vec<WorkspaceEntry>, String> {
+) -> Result<DirListing, String> {
     run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
         list_workspace_dir_inner(state, &dir_path)
+    })
+    .await
+}
+
+/// Code a request carries when it names a path the folder opened by hand does
+/// not hold. The frontend never shows it: the menu it comes from is drawn only
+/// on that folder's own rows.
+pub const ERR_NOT_IN_FOLDER: &str = "ERR_NOT_IN_FOLDER";
+
+/// The entry of the folder opened by hand that `path` names, resolved the way
+/// the write gate resolves a path, and whether it is a folder. Anything outside
+/// that folder, or a request with no folder open, answers [`ERR_NOT_IN_FOLDER`].
+pub fn workspace_reveal_target(state: &AppState, path: &str) -> Result<(PathBuf, bool), String> {
+    let root = state
+        .workspace_root
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .ok_or(ERR_NOT_IN_FOLDER)?;
+    let root = crate::security::resolve_for_containment(&root).ok_or(ERR_NOT_IN_FOLDER)?;
+    let resolved =
+        crate::security::resolve_for_containment(Path::new(path)).ok_or(ERR_NOT_IN_FOLDER)?;
+    if !Path::new(&resolved).starts_with(&root) {
+        return Err(ERR_NOT_IN_FOLDER.to_string());
+    }
+    let target = PathBuf::from(resolved);
+    let is_dir = target.is_dir();
+    Ok((target, is_dir))
+}
+
+/// IPC: shows an entry of the folder opened by hand in the platform's file
+/// manager, a folder opened and a file selected in its folder.
+#[tauri::command]
+pub async fn show_workspace_entry_in_file_manager<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+) -> Result<(), String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        let (target, is_dir) = workspace_reveal_target(state, &path)?;
+        if is_dir {
+            crate::commands::storage::open_folder_in_file_manager(&target)
+        } else {
+            crate::commands::storage::show_in_file_manager(&target)
+        }
     })
     .await
 }

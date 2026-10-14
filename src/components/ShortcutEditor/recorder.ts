@@ -1,3 +1,6 @@
+import { canonicalChord, chordForRecording, isFunctionKey, type ChordEvent } from "../../lib/chord";
+import { detectPlatform, type Platform } from "../../lib/platform";
+
 export const DOUBLE_TAP_WINDOW_MS = 300;
 
 const BARE_MODIFIERS: ReadonlySet<string> = new Set([
@@ -7,13 +10,7 @@ const BARE_MODIFIERS: ReadonlySet<string> = new Set([
   "Alt",
 ]);
 
-export interface RecorderEvent {
-  key: string;
-  metaKey?: boolean;
-  ctrlKey?: boolean;
-  shiftKey?: boolean;
-  altKey?: boolean;
-}
+export type RecorderEvent = ChordEvent;
 
 export type RecorderOutcome =
   | { kind: "captured"; binding: string }
@@ -28,9 +25,11 @@ interface PendingBareTap {
 export class ShortcutRecorder {
   private pendingTap: PendingBareTap | null = null;
   private readonly windowMs: number;
+  private readonly platform: Platform;
 
-  constructor(windowMs: number = DOUBLE_TAP_WINDOW_MS) {
+  constructor(windowMs: number = DOUBLE_TAP_WINDOW_MS, platform: Platform = detectPlatform()) {
     this.windowMs = windowMs;
+    this.platform = platform;
   }
 
   reset(): void {
@@ -60,35 +59,33 @@ export class ShortcutRecorder {
 
     this.pendingTap = null;
 
-    const parts: string[] = [];
-    if (event.metaKey || event.ctrlKey) parts.push("CmdOrCtrl");
-    if (event.shiftKey) parts.push("Shift");
-    if (event.altKey) parts.push("Alt");
-
-    let key = event.key;
-    if (key === " ") key = "Space";
-    if (key.length === 1) key = key.toUpperCase();
-    parts.push(key);
-
-    if (parts.length === 1) {
+    const binding = chordForRecording(event, this.platform);
+    // A key with no modifier types text, so it is no chord; a function key
+    // types nothing, so it is one on its own (F2 renames).
+    const bare = !binding.includes("+") || binding === "+";
+    if (bare && !isFunctionKey(binding)) {
       return { kind: "waiting" };
     }
 
-    return { kind: "captured", binding: parts.join("+") };
+    return { kind: "captured", binding };
   }
 }
 
-export function normalizeBinding(binding: string | undefined): string {
+export function normalizeBinding(
+  binding: string | undefined,
+  platform: Platform = detectPlatform(),
+): string {
   if (!binding) return "";
-  return binding.trim();
+  return canonicalChord(binding, platform);
 }
 
 export function findConflicts(
   draft: Readonly<Record<string, string>>,
+  platform: Platform = detectPlatform(),
 ): Map<string, string[]> {
   const groups = new Map<string, string[]>();
   for (const [id, binding] of Object.entries(draft)) {
-    const normalized = normalizeBinding(binding);
+    const normalized = normalizeBinding(binding, platform);
     if (!normalized) continue;
     const existing = groups.get(normalized) ?? [];
     existing.push(id);
@@ -101,6 +98,31 @@ export function findConflicts(
     for (const id of ids) {
       conflicts.set(id, ids.filter((other) => other !== id));
     }
+  }
+  return conflicts;
+}
+
+/** A chord the window holds for an item that is no command, such as Quit. */
+export interface FixedChord {
+  chord: string;
+  label: string;
+}
+
+/**
+ * The rows whose chord a fixed item already holds, by command id, with that
+ * item's name. The macOS menu bar answers its own chords before Writ sees the
+ * key, so a command bound to one would never run.
+ */
+export function findFixedConflicts(
+  draft: Readonly<Record<string, string>>,
+  fixed: readonly FixedChord[],
+  platform: Platform = detectPlatform(),
+): Map<string, string> {
+  const held = new Map(fixed.map((item) => [normalizeBinding(item.chord, platform), item.label]));
+  const conflicts = new Map<string, string>();
+  for (const [id, binding] of Object.entries(draft)) {
+    const label = held.get(normalizeBinding(binding, platform));
+    if (label !== undefined) conflicts.set(id, label);
   }
   return conflicts;
 }

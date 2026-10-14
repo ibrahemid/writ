@@ -90,7 +90,7 @@ describe("editor commands in the command palette", () => {
     });
     registerCommand({
       id: "editor.duplicateLine",
-      label: "Duplicate Line",
+      label: "Duplicate line",
       keybinding: "CmdOrCtrl+D",
       scope: "editor",
       execute: () => {
@@ -128,10 +128,10 @@ describe("editor commands in the command palette", () => {
     expect(labels).toContain("Editor");
 
     const item = Array.from(document.querySelectorAll(".palette-item")).find((el) =>
-      el.textContent?.includes("Duplicate Line"),
+      el.textContent?.includes("Duplicate line"),
     );
     expect(item).toBeDefined();
-    expect(item!.querySelector('[aria-label="CmdOrCtrl+D"]')).not.toBeNull();
+    expect(item!.querySelector('[aria-label="Control D"]')).not.toBeNull();
   });
 
   it("executes an editor command on Enter and records its use", async () => {
@@ -140,7 +140,7 @@ describe("editor commands in the command palette", () => {
     await waitFor(() =>
       expect(
         document.querySelector(".palette-item.is-selected")?.textContent,
-      ).toContain("Duplicate Line"),
+      ).toContain("Duplicate line"),
     );
     await user.keyboard("{Enter}");
     expect(dupExecuted).toBe(1);
@@ -158,7 +158,7 @@ describe("editor commands in the shortcut editor", () => {
     dupExecuted = 0;
     registerCommand({
       id: "editor.duplicateLine",
-      label: "Duplicate Line",
+      label: "Duplicate line",
       keybinding: "CmdOrCtrl+D",
       scope: "editor",
       execute: () => {
@@ -202,14 +202,14 @@ describe("editor commands in the shortcut editor", () => {
     const rows = Array.from(document.querySelectorAll(".shortcut-row-label")).map(
       (el) => el.textContent,
     );
-    expect(rows).toContain("Duplicate Line");
+    expect(rows).toContain("Duplicate line");
   });
 
   it("rebinds the editor command and the new chord takes effect", async () => {
     const user = await open();
 
     const row = Array.from(document.querySelectorAll(".shortcut-row")).find((el) =>
-      el.textContent?.includes("Duplicate Line"),
+      el.textContent?.includes("Duplicate line"),
     )!;
     const recordBtn = Array.from(
       row.querySelectorAll<HTMLButtonElement>("[data-action='record-shortcut']"),

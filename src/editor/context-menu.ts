@@ -23,6 +23,8 @@ export interface EditorMenuItem {
   label: string;
   action: () => void;
   separator?: boolean;
+  /** Names the group this item opens. */
+  heading?: string;
   disabled?: boolean;
   danger?: boolean;
   kbd?: string;
@@ -72,8 +74,14 @@ export interface EditorMenuActions {
   runRewrite(actionId: string, range: PinnedRange): void;
   fillPlaceholders(): void;
   searchWorkspace(query: string): void;
+  /** Copies the selection, or the whole file, as a prompt. */
+  copyAsPrompt(): void;
+  /** Runs a text transform over the selection, by its command id. */
+  runTransform(commandId: string): void;
   /** Rewrite actions, from the one action table. */
   rewriteActions: ReadonlyArray<{ id: string; menuLabel: string }>;
+  /** The text transforms, in the Edit menu's order, read when the menu opens. */
+  transformActions(): ReadonlyArray<{ commandId: string; label: string }>;
 }
 
 const MOD = IS_MAC ? "⌘" : "Ctrl+";
@@ -132,12 +140,16 @@ export function buildEditorMenuItems(
       kbd: `${MOD}X`,
     });
     items.push({ label: "Copy", action: actions.copy, kbd: `${MOD}C` });
+    // Copy as prompt reads the main range, or the whole file when it is
+    // empty, so it sits beside Copy only while it copies the same text.
+    if (ctx.pinnedRange) items.push({ label: "Copy as prompt", action: actions.copyAsPrompt });
     items.push({
       label: "Paste",
       action: actions.paste,
       disabled: !ctx.editable,
       kbd: `${MOD}V`,
     });
+    if (!ctx.pinnedRange) items.push({ label: "Copy as prompt", action: actions.copyAsPrompt });
   } else {
     items.push({
       label: "Paste",
@@ -147,11 +159,13 @@ export function buildEditorMenuItems(
       kbd: `${MOD}V`,
     });
     items.push({ label: "Select all", action: actions.selectAll, kbd: `${MOD}A` });
+    items.push({ label: "Copy as prompt", action: actions.copyAsPrompt });
   }
 
   // Rewrite acts on a selection. With nothing selected the whole-document path
   // stays available from the palette and the status-bar chip, so the menu does
-  // not offer five rows that all open the same confirmation.
+  // not offer five rows that all open the same confirmation. The heading says
+  // these rows send text to a model, which "Polish" alone does not.
   if (ctx.aiEnabled && ctx.hasSelection && ctx.pinnedRange) {
     const pinned = ctx.pinnedRange;
     actions.rewriteActions.forEach((action, index) => {
@@ -160,6 +174,19 @@ export function buildEditorMenuItems(
         action: () => actions.runRewrite(action.id, pinned),
         disabled: !ctx.editable,
         separator: index === 0,
+        heading: index === 0 ? "Rewrite" : undefined,
+      });
+    });
+  }
+
+  if (ctx.hasSelection && ctx.pinnedRange) {
+    actions.transformActions().forEach((transform, index) => {
+      items.push({
+        label: transform.label,
+        action: () => actions.runTransform(transform.commandId),
+        disabled: !ctx.editable,
+        separator: index === 0,
+        heading: index === 0 ? "Transform" : undefined,
       });
     });
   }
@@ -172,7 +199,7 @@ export function buildEditorMenuItems(
     });
   }
 
-  if (ctx.hasSelection) {
+  if (ctx.selectionText.trim().length > 0) {
     items.push({
       label: `Search workspace for "${truncate(ctx.selectionText, SEARCH_LABEL_CHARS)}"`,
       action: () => actions.searchWorkspace(ctx.selectionText),
@@ -245,6 +272,11 @@ export function editorContextMenu(deps: EditorContextMenuDeps): Extension {
       const selectionText = selection.empty
         ? ""
         : view.state.doc.sliceString(selection.from, selection.to);
+      // Copy and Cut act on every range, so a selection in any of them offers
+      // them; the search row, a rewrite and a transform read the main range.
+      const anySelected =
+        selectionText.trim().length > 0 ||
+        view.state.selection.ranges.some((range) => range !== selection && !range.empty);
       const linkRange =
         pos === null ? null : (findLinkTargets(view.state, pos, pos).find(
           (r) => pos >= r.from && pos < r.to,
@@ -252,7 +284,7 @@ export function editorContextMenu(deps: EditorContextMenuDeps): Extension {
 
       const items = buildEditorMenuItems(
         {
-          hasSelection: selectionText.trim().length > 0,
+          hasSelection: anySelected,
           selectionText,
           pinnedRange: selection.empty
             ? null

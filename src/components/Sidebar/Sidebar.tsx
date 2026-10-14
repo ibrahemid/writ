@@ -18,6 +18,19 @@ import HistorySection from "./HistorySection";
 import SearchResults from "./SearchResults";
 import "./Sidebar.css";
 
+// Singleton — the sidebar mounts once, in the main window.
+let sidebarRef: HTMLDivElement | undefined;
+
+/**
+ * Whether focus is on a control outside the sidebar. Nothing focused, or
+ * focus inside the sidebar, answers false.
+ */
+export function focusIsOutsideSidebar(): boolean {
+  const active = document.activeElement;
+  if (!sidebarRef || !active || active === document.body) return false;
+  return !sidebarRef.contains(active);
+}
+
 export default function Sidebar() {
   const win = useWindow();
   // GNOME keeps the search entry in the sidebar's own header segment; the
@@ -40,6 +53,7 @@ export default function Sidebar() {
 
   return (
     <div
+      ref={sidebarRef}
       class="sidebar"
       classList={{ "is-open": win.sidebar.isOpen(), "is-resizing": dragWidth() !== null }}
       style={{ "--writ-sidebar-live-width": `${width()}px` }}

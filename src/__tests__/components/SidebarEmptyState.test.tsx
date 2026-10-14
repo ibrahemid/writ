@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import type { BufferDocument } from "../../types/buffer";
-import type { WorkspaceEntry } from "../../types/workspace";
+import type { DirListing } from "../../types/workspace";
 
 // The empty state belongs to the notes folder's tree: it says the folder is
 // empty once the folder has been listed and found so, and nothing else in the
@@ -65,10 +65,10 @@ vi.mock("../../services/tauri", () => ({
   notePathsForTag: vi.fn(async () => []),
   updateConfig: vi.fn(async () => {}),
   getNotesRoot: vi.fn(async () => NOTES),
-  listNotesDir: vi.fn(async () => []),
+  listNotesDir: vi.fn(async () => ({ entries: [], unreadable: 0 })),
   getWorkspaceRoot: vi.fn(async () => h.workspaceRoot),
   clearWorkspaceRoot: vi.fn(async () => {}),
-  listWorkspaceDir: vi.fn(async () => []),
+  listWorkspaceDir: vi.fn(async () => ({ entries: [], unreadable: 0 })),
 }));
 vi.mock("../../services/events", () => ({
   onEvent: vi.fn().mockResolvedValue(() => {}),
@@ -113,8 +113,8 @@ beforeEach(async () => {
   vi.clearAllMocks();
   h.history = [];
   h.workspaceRoot = null;
-  mockedApi.listNotesDir.mockResolvedValue([]);
-  mockedApi.listWorkspaceDir.mockResolvedValue([]);
+  mockedApi.listNotesDir.mockResolvedValue({ entries: [], unreadable: 0 });
+  mockedApi.listWorkspaceDir.mockResolvedValue({ entries: [], unreadable: 0 });
   await workspaceStore.closeFolder();
 });
 
@@ -124,9 +124,9 @@ afterEach(() => {
 
 describe("the notes folder's empty state", () => {
   it("says the folder is empty once it has been listed, and offers the two ways to fill it", async () => {
-    let finish!: (entries: WorkspaceEntry[]) => void;
+    let finish!: (listing: DirListing) => void;
     mockedApi.listNotesDir.mockReturnValueOnce(
-      new Promise<WorkspaceEntry[]>((resolve) => {
+      new Promise<DirListing>((resolve) => {
         finish = resolve;
       }),
     );
@@ -134,7 +134,7 @@ describe("the notes folder's empty state", () => {
     expect(container.querySelector(".sidebar-empty")).toBeNull();
     expect(container.textContent).not.toContain("Empty folder");
 
-    finish([]);
+    finish({ entries: [], unreadable: 0 });
     await settle();
 
     const empty = container.querySelector(".sidebar-empty");

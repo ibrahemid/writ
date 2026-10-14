@@ -31,7 +31,7 @@ const confirmMock = vi.hoisted(() =>
   vi.fn((_request: ConfirmRequest) => Promise.resolve(false)),
 );
 
-vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+vi.mock("../../stores/global/dialogs", () => ({
   requestConfirm: confirmMock,
 }));
 
@@ -68,7 +68,7 @@ vi.mock("../../services/tauri", () => ({
   recordUnsavedNotes: vi.fn().mockResolvedValue(undefined),
 }));
 
-import type { ConfirmRequest } from "../../components/ConfirmDialog/ConfirmDialog";
+import type { ConfirmRequest } from "../../stores/global/dialogs";
 import { createTabStore } from "../../stores/window/tab-store";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { debouncedSave, cancelAutosave, flushAutosave } from "../../services/autosave";
@@ -338,6 +338,31 @@ describe("tabStore (per-window factory)", () => {
       expect(mockedApi.closeBuffers).toHaveBeenCalledOnce();
       expect(mockedApi.closeBuffers).toHaveBeenCalledWith([first.id, second.id]);
       expect(tabs.activeTabId()).toBeNull();
+    });
+
+    it("answers the tabs it closed, and puts them back in order with the front one in front", async () => {
+      const tabs = freshTabStore();
+      const first = await tabs.createTab();
+      const second = await tabs.createTab();
+      const third = await tabs.createTab();
+      tabs.setActiveTabId(second.id);
+
+      const closed = await tabs.closeAllTabs();
+      expect(closed).toEqual([first.id, second.id, third.id]);
+
+      const byId = new Map([first, second, third].map((doc) => [doc.id, doc]));
+      mockedApi.restoreBuffer.mockImplementation(async (id: string) => ({
+        doc: { ...byId.get(id)!, status: "active" },
+        mode: { kind: "Normal" },
+        size_bytes: 0,
+      }));
+      mockedApi.listActiveBuffers.mockResolvedValue(
+        [first, second, third].map((doc) => ({ ...doc, status: "active" })),
+      );
+      await tabs.reopenTabs(closed, second.id);
+
+      expect(mockedApi.restoreBuffer.mock.calls.map(([id]) => id)).toEqual(closed);
+      expect(tabs.activeTabId()).toBe(second.id);
     });
 
     it("keeps a tab whose text could not be written, and selects it", async () => {

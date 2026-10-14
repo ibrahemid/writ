@@ -27,6 +27,31 @@ vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: { historyList: () => closed.rows() },
 }));
 
+const folders = await vi.hoisted(async () => {
+  const { createSignal } = await import("solid-js");
+  const [workspaceRoot, setWorkspaceRoot] = createSignal<string | null>(null);
+  return {
+    workspaceRoot,
+    setWorkspaceRoot,
+    notesRoot: "/Users/me/Writ" as string | null,
+    streamContent: vi.fn(),
+    refreshIndexStatus: vi.fn(async () => ({ file_count: 1, truncated: false, has_workspace: true })),
+  };
+});
+
+vi.mock("../../stores/global/workspace", () => ({
+  workspaceStore: { root: folders.workspaceRoot },
+}));
+vi.mock("../../stores/global/notes", () => ({
+  notesStore: { root: () => folders.notesRoot },
+}));
+vi.mock("../../stores/global/workspace-search", () => ({
+  workspaceSearchStore: {
+    streamContent: folders.streamContent,
+    refreshIndexStatus: folders.refreshIndexStatus,
+  },
+}));
+
 vi.mock("../../services/tauri", () => ({
   searchBuffers: vi.fn().mockResolvedValue({ hits: [], total: 0 }),
   getConfig: vi.fn(),
@@ -186,7 +211,7 @@ describe("sidebar-store (per-window factory)", () => {
       sidebarStore.setSearchQuery("");
       expect(sidebarStore.searchHits()).toEqual([]);
       expect(sidebarStore.searchTotal()).toBe(0);
-      expect(sidebarStore.searchMs()).toBeNull();
+      expect(sidebarStore.searchStatus()).toBe("idle");
       expect(mockedSearch).not.toHaveBeenCalled();
     });
 
@@ -196,7 +221,7 @@ describe("sidebar-store (per-window factory)", () => {
       expect(mockedSearch).not.toHaveBeenCalled();
     });
 
-    it("debounces search calls and stores hits, total, and timing", async () => {
+    it("debounces search calls and stores hits, total, and that it answered", async () => {
       mockedSearch.mockResolvedValueOnce({ hits: [hit("id-1"), hit("id-2")], total: 7 });
 
       sidebarStore.setSearchQuery("test");
@@ -209,10 +234,10 @@ describe("sidebar-store (per-window factory)", () => {
       expect(mockedSearch).toHaveBeenCalledWith("test");
       expect(sidebarStore.searchHits().map((h) => h.buffer_id)).toEqual(["id-1", "id-2"]);
       expect(sidebarStore.searchTotal()).toBe(7);
-      expect(sidebarStore.searchMs()).not.toBeNull();
+      expect(sidebarStore.searchStatus()).toBe("done");
     });
 
-    it("resets results on search failure", async () => {
+    it("says a failed search failed rather than finding nothing (NV-05)", async () => {
       mockedSearch.mockRejectedValueOnce(new Error("db error"));
 
       sidebarStore.setSearchQuery("fail");
@@ -220,7 +245,14 @@ describe("sidebar-store (per-window factory)", () => {
 
       expect(sidebarStore.searchHits()).toEqual([]);
       expect(sidebarStore.searchTotal()).toBe(0);
-      expect(sidebarStore.searchMs()).toBeNull();
+      expect(sidebarStore.searchStatus()).toBe("failed");
+
+      mockedSearch.mockResolvedValueOnce({ hits: [hit("back")], total: 1 });
+      sidebarStore.retrySearch();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(sidebarStore.searchStatus()).toBe("done");
+      expect(sidebarStore.searchHits().map((h) => h.buffer_id)).toEqual(["back"]);
     });
 
     it("cancels previous search when query changes rapidly", async () => {
@@ -271,6 +303,107 @@ describe("sidebar-store (per-window factory)", () => {
 
       expect(mockedFlush).toHaveBeenCalledOnce();
       expect(order).toEqual(["flush", "search"]);
+    });
+  });
+
+  describe("search with the sidebar closed (NV-04)", () => {
+    it("opens the sidebar on the results without writing that to the settings", () => {
+      expect(sidebarStore.isOpen()).toBe(false);
+      sidebarStore.setSearchQuery("plan");
+
+      expect(sidebarStore.isOpen()).toBe(true);
+      expect(configStore.config().sidebar.open).toBe(false);
+    });
+
+    it("hands the sidebar back closed when the query is cleared", () => {
+      sidebarStore.setSearchQuery("plan");
+      sidebarStore.setSearchQuery("");
+      expect(sidebarStore.isOpen()).toBe(false);
+    });
+
+    it("leaves a sidebar that was open open when the query is cleared", () => {
+      sidebarStore.show();
+      sidebarStore.setSearchQuery("plan");
+      sidebarStore.setSearchQuery("");
+      expect(sidebarStore.isOpen()).toBe(true);
+    });
+
+    it("closes from the toggle while a search holds it open", () => {
+      sidebarStore.setSearchQuery("plan");
+      sidebarStore.toggle();
+      expect(sidebarStore.isOpen()).toBe(false);
+      expect(configStore.config().sidebar.open).toBe(false);
+    });
+  });
+
+  describe("search over the folder opened by hand (NV-03)", () => {
+    afterEach(() => {
+      folders.setWorkspaceRoot(null);
+      folders.notesRoot = "/Users/me/Writ";
+    });
+
+    it("searches the open folder beside the notes folder and keeps its matches apart", async () => {
+      folders.setWorkspaceRoot("/Users/me/code/app");
+      folders.streamContent.mockImplementationOnce(
+        async (_q: string, onBatch: (batch: unknown) => void) => {
+          onBatch({
+            hits: [{ path: "src/main.rs", line: 4, snippet: [] }],
+            outcome: { hit_count: 1, files_scanned: 9, truncated: false, cancelled: false, skipped_not_downloaded: 0 },
+          });
+        },
+      );
+      mockedSearch.mockResolvedValueOnce({ hits: [hit("note")], total: 1 });
+
+      sidebarStore.setSearchQuery("render");
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(folders.streamContent).toHaveBeenCalledWith("render", expect.any(Function), expect.any(AbortSignal));
+      expect(sidebarStore.searchedFolder()).toBe("/Users/me/code/app");
+      expect(sidebarStore.folderHits().map((h) => h.path)).toEqual(["src/main.rs"]);
+      expect(sidebarStore.folderStatus()).toBe("done");
+      expect(sidebarStore.searchHits().map((h) => h.buffer_id)).toEqual(["note"]);
+    });
+
+    it("leaves the notes folder's own files to its index when the open folder holds it", async () => {
+      folders.setWorkspaceRoot("/Users/me");
+      folders.streamContent.mockImplementationOnce(
+        async (_q: string, onBatch: (batch: unknown) => void) => {
+          onBatch({
+            hits: [
+              { path: "Writ/Plan.md", line: 1, snippet: [] },
+              { path: "code/app/README.md", line: 2, snippet: [] },
+            ],
+            outcome: null,
+          });
+        },
+      );
+
+      sidebarStore.setSearchQuery("plan");
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(sidebarStore.folderHits().map((h) => h.path)).toEqual(["code/app/README.md"]);
+    });
+
+    it("searches only the index when the open folder is the notes folder", async () => {
+      folders.setWorkspaceRoot("/Users/me/Writ");
+
+      sidebarStore.setSearchQuery("plan");
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(folders.streamContent).not.toHaveBeenCalled();
+      expect(sidebarStore.searchedFolder()).toBeNull();
+    });
+
+    it("says the open folder's search failed while the notes keep their results", async () => {
+      folders.setWorkspaceRoot("/Users/me/code/app");
+      folders.streamContent.mockRejectedValueOnce(new Error("walk failed"));
+      mockedSearch.mockResolvedValueOnce({ hits: [hit("note")], total: 1 });
+
+      sidebarStore.setSearchQuery("render");
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(sidebarStore.folderStatus()).toBe("failed");
+      expect(sidebarStore.searchStatus()).toBe("done");
     });
   });
 

@@ -3,7 +3,7 @@ import { notesMigrationStore } from "../../stores/global/notes-migration";
 import type { MoveArchiveOutcome } from "../../stores/global/notes-migration";
 import { notesStore } from "../../stores/global/notes";
 import Button from "../Button/Button";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { logFailure } from "../../lib/log";
 import { SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import "./NotesMigrationReport.css";

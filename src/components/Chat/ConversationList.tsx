@@ -1,8 +1,9 @@
 import { For, Show, createSignal } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
-import { requestConfirm } from "../ConfirmDialog/ConfirmDialog";
+import { requestConfirm } from "../../stores/global/dialogs";
 import { chatStore, type ChatConversationSummary } from "../../stores/global/chat";
+import { isImeComposing } from "../../lib/ime";
 
 /**
  * When a chat was last written to: the time today, the day and time yesterday,
@@ -114,6 +115,7 @@ export default function ConversationList(props: { onPick: () => void }) {
                     ref={(el) => queueMicrotask(() => el.select())}
                     onBlur={(event) => void commitRename(row, event.currentTarget.value)}
                     onKeyDown={(event) => {
+                      if (isImeComposing(event)) return;
                       if (event.key === "Enter") {
                         event.preventDefault();
                         void commitRename(row, event.currentTarget.value);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { WorkspaceEntry } from "../../types/workspace";
+import type { DirListing, WorkspaceEntry } from "../../types/workspace";
 
 const h = vi.hoisted(() => ({
   handlers: new Map<string, ((payload: unknown) => void)[]>(),
@@ -83,7 +83,10 @@ beforeEach(async () => {
     [NOTES, [folder(`${NOTES}/Projects`), file(`${NOTES}/Plan.md`)]],
     [`${NOTES}/Projects`, [file(`${NOTES}/Projects/Alpha.md`)]],
   ]);
-  mockedApi.listNotesDir.mockImplementation(async (path: string) => disk.get(path) ?? []);
+  mockedApi.listNotesDir.mockImplementation(async (path: string) => ({
+    entries: disk.get(path) ?? [],
+    unreadable: 0,
+  }));
   mockedApi.getNotesRoot.mockResolvedValue(NOTES);
   await notesStore.load();
 });
@@ -132,14 +135,14 @@ describe("the notes folder's tree", () => {
   });
 
   it("lists a folder once more after the listing running, however often it was asked", async () => {
-    const first = deferred<WorkspaceEntry[]>();
+    const first = deferred<DirListing>();
     mockedApi.listNotesDir.mockReturnValueOnce(first.promise);
 
     const running = notesTreeStore.loadDir(NOTES);
     void notesTreeStore.loadDir(NOTES);
     void notesTreeStore.loadDir(NOTES);
     void notesTreeStore.loadDir(NOTES);
-    first.resolve([]);
+    first.resolve({ entries: [], unreadable: 0 });
     await running;
 
     expect(listed()).toEqual([NOTES, NOTES]);
@@ -158,13 +161,13 @@ describe("the notes folder's tree", () => {
   });
 
   it("drops a listing that lands after the notes folder moved", async () => {
-    const late = deferred<WorkspaceEntry[]>();
+    const late = deferred<DirListing>();
     mockedApi.listNotesDir.mockReturnValueOnce(late.promise);
     const running = notesTreeStore.loadDir(NOTES);
 
     mockedApi.getNotesRoot.mockResolvedValue("/moved");
     await notesStore.load();
-    late.resolve([file(`${NOTES}/Stale.md`)]);
+    late.resolve({ entries: [file(`${NOTES}/Stale.md`)], unreadable: 0 });
     await running;
 
     expect(notesTreeStore.entriesFor(NOTES)).toBeUndefined();

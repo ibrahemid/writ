@@ -30,6 +30,7 @@ import {
   type UnmadeFile,
 } from "../../services/tauri";
 import { applyExternalDocument } from "../../editor/external-reload";
+import { holdRange, releaseRange } from "../../editor/held-ranges";
 import { sameDocument } from "../../editor/same-document";
 import { readFailureOf, type ReadFailure } from "../../lib/read-failure";
 import {
@@ -48,7 +49,10 @@ export type ApplyEditResult =
   | { applied: true; usedSelection: boolean; outputLength: number }
   | {
       applied: false;
-      reason: "no-active-view" | "transform-error";
+      /** `document-changed`: an edit touched the range, or its view went away,
+       * while the transform ran; the result was computed from text that is no
+       * longer there, so nothing is replaced. */
+      reason: "no-active-view" | "read-only" | "transform-error" | "document-changed";
       error?: unknown;
     };
 
@@ -1144,22 +1148,33 @@ export function createEditorStore() {
     const view = activeView;
     if (!view) return { applied: false, reason: "no-active-view" };
 
+    if (view.state.readOnly) return { applied: false, reason: "read-only" };
+
     const main = view.state.selection.main;
     const useSelection = options.useSelectionIfPresent && !main.empty;
-    const from = useSelection ? main.from : 0;
-    const to = useSelection ? main.to : view.state.doc.length;
-    const input = view.state.doc.sliceString(from, to);
+    const start = useSelection ? main.from : 0;
+    const end = useSelection ? main.to : view.state.doc.length;
+    const input = view.state.doc.sliceString(start, end);
+    // The transform answers later; typing in the meantime moves the text the
+    // range covers, and the result must land where that text is then.
+    const held = holdRange(view, start, end);
 
     let output: string;
     try {
       output = await options.transform(input);
     } catch (error) {
+      releaseRange(view, held);
       return { applied: false, reason: "transform-error", error };
     }
 
+    const range = releaseRange(view, held);
+    if (range === null || !view.dom.isConnected) {
+      return { applied: false, reason: "document-changed" };
+    }
+    if (view.state.readOnly) return { applied: false, reason: "read-only" };
     view.dispatch({
-      changes: { from, to, insert: output },
-      selection: EditorSelection.single(from, from + output.length),
+      changes: { from: range.from, to: range.to, insert: output },
+      selection: EditorSelection.single(range.from, range.from + output.length),
     });
     view.focus();
 

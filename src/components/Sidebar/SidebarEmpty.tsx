@@ -1,6 +1,7 @@
 import Button from "../Button/Button";
 import Kbd from "../Kbd/Kbd";
 import { executeCommand } from "../../commands/registry";
+import { useCommandBinding } from "../../commands/effective-bindings";
 import { firstRunStore } from "../../stores/global/first-run";
 import "./SidebarEmpty.css";
 
@@ -19,7 +20,7 @@ export default function SidebarEmpty() {
         >
           New file
         </Button>
-        <Kbd binding="CmdOrCtrl+N" />
+        <Kbd binding={useCommandBinding("note.new")} />
       </div>
       <div class="sidebar-empty-line">
         <Button

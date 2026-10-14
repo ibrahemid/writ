@@ -3,6 +3,8 @@ import Palette from "../Palette/Palette";
 import { createCommandProvider } from "../../commands/providers/command-provider";
 import { createNotesProvider } from "../../commands/providers/notes-provider";
 import { createSettingsProvider } from "../../commands/providers/settings-provider";
+import { createContentProvider } from "../../commands/providers/content-provider";
+import { createGotoLineProvider } from "../../commands/providers/goto-line-provider";
 import type { ResultProvider } from "../Palette/types";
 
 // Singleton state — Writ is single-window
@@ -20,14 +22,18 @@ export function openNoteSearch() { setSeed(NOTES_PREFIX); setIsOpen(true); }
 
 const NOTES_PREFIX = "@";
 
+// An unprefixed query finds commands, files by name (a few, so they never bury
+// the commands) and settings; each prefix in the footer narrows to one kind.
 const PROVIDERS: ResultProvider[] = [
+  createGotoLineProvider({ order: -1 }),
   createCommandProvider({
     excludeIds: ["palette.open"],
     listOnEmptyQuery: true,
     order: 0,
   }),
-  createNotesProvider({ order: 1 }),
+  createNotesProvider({ order: 1, cap: 5, modes: ["all", "notes"] }),
   createSettingsProvider({ order: 2 }),
+  createContentProvider({ order: 3, modes: ["content"] }),
 ];
 
 export default function CommandPalette() {

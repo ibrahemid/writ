@@ -17,7 +17,7 @@ vi.mock("../../services/tauri", () => ({
   previewSetLayout: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: mocks.toast,
 }));
 

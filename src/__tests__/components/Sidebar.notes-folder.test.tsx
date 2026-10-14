@@ -49,8 +49,11 @@ vi.mock("../../services/tauri", () => ({
   getNotesRoot: vi.fn(async () => NOTES),
   getWorkspaceRoot: vi.fn(async () => h.workspaceRoot),
   clearWorkspaceRoot: vi.fn(async () => {}),
-  listWorkspaceDir: vi.fn(async (dir: string) => h.workspaceDirs.get(dir) ?? []),
-  listNotesDir: vi.fn(async (dir: string) => h.notesDirs.get(dir) ?? []),
+  listWorkspaceDir: vi.fn(async (dir: string) => ({
+    entries: h.workspaceDirs.get(dir) ?? [],
+    unreadable: 0,
+  })),
+  listNotesDir: vi.fn(async (dir: string) => ({ entries: h.notesDirs.get(dir) ?? [], unreadable: 0 })),
   noteAllTags: vi.fn(async () => []),
   notePathsForTag: vi.fn(async () => []),
   noteFacts: vi.fn(),

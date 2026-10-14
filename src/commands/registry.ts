@@ -1,6 +1,6 @@
 import { createSignal } from "solid-js";
 import type { Command } from "../types/commands";
-import { showToast } from "../components/Notifications/Toast";
+import { showToast } from "../stores/global/notifications";
 import { logFailure } from "../lib/log";
 
 const commands = new Map<string, Command>();

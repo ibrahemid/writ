@@ -17,12 +17,13 @@
   gap: var(--writ-space-4-5);
   max-width: min(440px, calc(100vw - 32px));
   padding: var(--writ-space-3-5) var(--writ-space-4-5);
-  background: var(--writ-bg-selected);
-  border: 1px solid var(--writ-border);
-  border-radius: var(--writ-r-card);
+  /* The same sheet as a toast: the two corners report in one voice. */
+  background: var(--writ-bg-raised);
+  border: 0;
+  border-radius: var(--writ-r-media);
   color: var(--writ-fg);
   font-size: var(--writ-ui-sm);
-  box-shadow: var(--writ-shadow-modal);
+  box-shadow: var(--writ-shadow-popover);
 }
 
 .update-banner::before {
@@ -45,8 +46,8 @@
   font-weight: 600;
 }
 
-.update-banner-error {
-  color: var(--writ-fg-muted);
+.update-banner.is-failed::before {
+  background: var(--writ-status-error);
 }
 
 .update-banner-actions {

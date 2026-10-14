@@ -71,7 +71,17 @@ function FormatStep() {
   // the screen, and the chord handler reads the same step this screen does, so
   // nothing opens underneath it.
   onMount(() => {
-    if (panel) onCleanup(installFocusTrap(panel));
+    // Opened again from Help, Escape leaves the answers as they were; a first
+    // launch has nothing to go back to.
+    if (panel) {
+      onCleanup(
+        installFocusTrap(panel, {
+          onEscape: () => {
+            if (firstRunStore.revisiting()) firstRunStore.cancelApps();
+          },
+        }),
+      );
+    }
     const index = FORMATS.findIndex((option) => option.value === firstRunStore.format());
     options[index === -1 ? 0 : index]?.focus();
   });
@@ -147,13 +157,20 @@ function FormatStep() {
             }}
           </For>
         </div>
-        <Button
-          variant="primary"
-          class="first-run-setup-continue"
-          onClick={submit}
-        >
-          Continue
-        </Button>
+        <div class="first-run-setup-actions">
+          <Button
+            variant="primary"
+            class="first-run-setup-continue"
+            onClick={submit}
+          >
+            Continue
+          </Button>
+          <Show when={firstRunStore.revisiting()}>
+            <Button data-action="cancel-setup" onClick={() => firstRunStore.cancelApps()}>
+              Cancel
+            </Button>
+          </Show>
+        </div>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import type { BufferDocument } from "../../types/buffer";
 // with its reason, nothing for Cancel, and one line for a gesture that opened
 // many files.
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
@@ -30,7 +30,7 @@ vi.mock("../../stores/global/large-file-open", () => ({
   },
 }));
 
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { flushAutosave } from "../../services/autosave";
 import { reportOpenOutcomes } from "../../stores/global/open-report";
 import { largeFileOpen } from "../../stores/global/large-file-open";

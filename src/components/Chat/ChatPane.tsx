@@ -16,6 +16,7 @@ import {
 } from "../../stores/global/config";
 import { chatStore, noteName, type Attachment, type FrontTab } from "../../stores/global/chat";
 import "./ChatPane.css";
+import { isImeComposing } from "../../lib/ime";
 
 /**
  * The chat column: what the model can read, what has been said, and what it
@@ -153,6 +154,7 @@ export default function ChatPane() {
                 ref={(el) => queueMicrotask(() => el.select())}
                 onBlur={(event) => commitTitle(event.currentTarget.value)}
                 onKeyDown={(event) => {
+                  if (isImeComposing(event)) return;
                   if (event.key === "Enter") {
                     event.preventDefault();
                     commitTitle(event.currentTarget.value);

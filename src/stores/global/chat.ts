@@ -34,7 +34,7 @@ import { linkStore } from "./link";
 import { notesStore } from "./notes";
 import { saveStatusStore } from "./save-status";
 import { windowRegistry } from "./window-registry";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "./notifications";
 import { writeClipboardText } from "../../services/tauri";
 import type { WritEvent } from "../../types/events";
 

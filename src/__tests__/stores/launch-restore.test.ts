@@ -67,12 +67,12 @@ vi.mock("../../services/autosave", () => ({
   onAutosaveError: vi.fn(() => () => {}),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
 import * as api from "../../services/tauri";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { bufferRegistry, UnreadTabReadError } from "../../stores/global/buffer-registry";
 import { unreadTabs } from "../../stores/global/unread-tabs";
 import { largeFileOpen } from "../../stores/global/large-file-open";

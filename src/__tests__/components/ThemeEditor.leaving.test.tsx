@@ -21,7 +21,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({ editor: { focusEditor: h.focusEditor } }),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: h.showToast,
   default: () => null,
 }));

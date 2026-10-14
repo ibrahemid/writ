@@ -67,16 +67,46 @@ async function flushThenConfirm(): Promise<void> {
   }
 }
 
+/**
+ * How long closing the window waits on the last writes. A write to a share
+ * that stopped answering never settles, and a close that waits on it leaves a
+ * window nobody can close.
+ */
+export const CLOSE_FLUSH_DEADLINE_MS = 3000;
+
+const TIMED_OUT = Symbol("timed out");
+
+/** `work`, or [`TIMED_OUT`] once `ms` have passed without it settling. */
+async function within<T>(work: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function installCloseFlush(
   extraFlushes: ReadonlyArray<() => Promise<void> | void> = [],
+  deadlineMs: number = CLOSE_FLUSH_DEADLINE_MS,
 ): Promise<() => void> {
   return onWindowCloseRequested(async () => {
     // Quit is not blocked on a failed write: the error listener has already
     // shown the reason, and holding the window open here would trap the user
-    // in an app that cannot save.
-    await keepUnsavedText(await flushAutosave(), "closing");
+    // in an app that cannot save. Nor on a write that never answers: past the
+    // deadline the text still out is handed to the journal and the window
+    // goes.
+    const flushed = await within(flushAutosave(), deadlineMs);
+    if (flushed === TIMED_OUT) logFailure("a save did not finish before the window closed");
+    const outcome = flushed === TIMED_OUT ? { ok: true, failures: [] } : flushed;
+    if ((await within(keepUnsavedText(outcome, "closing"), deadlineMs)) === TIMED_OUT) {
+      logFailure("unsaved text could not be kept before the window closed");
+    }
     for (const flush of extraFlushes) {
-      await flush();
+      await within(Promise.resolve().then(flush), deadlineMs);
     }
   });
 }

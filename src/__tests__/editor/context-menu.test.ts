@@ -22,6 +22,12 @@ function actions(): EditorMenuActions {
     runRewrite: vi.fn(),
     fillPlaceholders: vi.fn(),
     searchWorkspace: vi.fn(),
+    copyAsPrompt: vi.fn(),
+    runTransform: vi.fn(),
+    transformActions: () => [
+      { commandId: "transform.trim_trailing_whitespace", label: "Trim trailing spaces" },
+      { commandId: "transform.dedent", label: "Remove shared indentation" },
+    ],
     rewriteActions: [
       { id: "proofread", menuLabel: "Proofread" },
       { id: "rephrase", menuLabel: "Rephrase" },
@@ -74,7 +80,18 @@ describe("editor menu adapts to the selection", () => {
 
   it("offers paste and select all when nothing is selected", () => {
     const items = buildEditorMenuItems(context(), actions());
-    expect(labels(items)).toEqual(["Paste", "Select all"]);
+    expect(labels(items)).toEqual(["Paste", "Select all", "Copy as prompt"]);
+  });
+
+  it("copies the selection as a prompt from beside Copy", () => {
+    const acts = actions();
+    const items = buildEditorMenuItems(
+      context({ hasSelection: true, selectionText: "hi", pinnedRange: PINNED }),
+      acts,
+    );
+    expect(labels(items).slice(0, 4)).toEqual(["Cut", "Copy", "Copy as prompt", "Paste"]);
+    items.find((i) => i.label === "Copy as prompt")!.action();
+    expect(acts.copyAsPrompt).toHaveBeenCalledTimes(1);
   });
 
   it("disables the editing verbs in a read-only buffer but keeps copy", () => {
@@ -98,6 +115,18 @@ describe("rewrite group", () => {
     expect(labels(items)).toEqual(
       expect.arrayContaining(["Proofread", "Rephrase", "Polish", "Improve prompt", "Custom…"]),
     );
+  });
+
+  // CH-25: unlabelled, "Polish" read as a local formatter.
+  it("sits under a Rewrite heading", () => {
+    const items = buildEditorMenuItems(
+      context({ hasSelection: true, selectionText: "hi", aiEnabled: true, pinnedRange: PINNED }),
+      actions(),
+    );
+    const first = items.find((i) => i.label === "Proofread")!;
+    expect(first.heading).toBe("Rewrite");
+    expect(first.separator).toBe(true);
+    expect(items.filter((i) => i.heading === "Rewrite")).toHaveLength(1);
   });
 
   it("is absent when the feature is off", () => {
@@ -136,6 +165,49 @@ describe("rewrite group", () => {
     ctx.selectionText = "something else";
     items.find((i) => i.label === "Proofread")!.action();
     expect(acts.runRewrite).toHaveBeenCalledWith("proofread", PINNED);
+  });
+});
+
+// MN-11: the transforms were palette rows only.
+describe("transform group", () => {
+  const selected = () => context({ hasSelection: true, selectionText: "hi", pinnedRange: PINNED });
+
+  it("lists the transforms under a Transform heading when text is selected", () => {
+    const items = buildEditorMenuItems(selected(), actions());
+    const at = items.findIndex((i) => i.heading === "Transform");
+    expect(at).toBeGreaterThan(-1);
+    expect(labels(items.slice(at, at + 2))).toEqual([
+      "Trim trailing spaces",
+      "Remove shared indentation",
+    ]);
+  });
+
+  it("runs the transform it names", () => {
+    const acts = actions();
+    const items = buildEditorMenuItems(selected(), acts);
+    items.find((i) => i.label === "Trim trailing spaces")!.action();
+    expect(acts.runTransform).toHaveBeenCalledWith("transform.trim_trailing_whitespace");
+  });
+
+  it("is absent with no selection", () => {
+    const items = buildEditorMenuItems(context(), actions());
+    expect(items.some((i) => i.heading === "Transform")).toBe(false);
+  });
+
+  it("is absent when only another cursor holds a selection, since a transform reads the main one", () => {
+    const items = buildEditorMenuItems(context({ hasSelection: true }), actions());
+    expect(labels(items)).toContain("Copy");
+    expect(items.some((i) => i.heading === "Transform")).toBe(false);
+    // Copy as prompt would copy the whole file there, so it leaves Copy's side.
+    expect(labels(items).slice(0, 4)).toEqual(["Cut", "Copy", "Paste", "Copy as prompt"]);
+  });
+
+  it("is disabled in a read-only file", () => {
+    const items = buildEditorMenuItems(
+      context({ hasSelection: true, selectionText: "hi", pinnedRange: PINNED, editable: false }),
+      actions(),
+    );
+    expect(items.find((i) => i.label === "Trim trailing spaces")!.disabled).toBe(true);
   });
 });
 

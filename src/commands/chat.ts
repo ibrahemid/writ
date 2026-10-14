@@ -1,5 +1,5 @@
-import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
-import { showToast } from "../components/Notifications/Toast";
+import { requestConfirm } from "../stores/global/dialogs";
+import { showToast } from "../stores/global/notifications";
 import { openSettings } from "../components/SettingsModal/SettingsModal";
 import { aiConnectionStore } from "../stores/global/ai-connection";
 import {
@@ -117,6 +117,7 @@ export async function clearBlockersBeforeSending(
     const confirmed = await requestConfirm({
       ...sendNotice(host, attachments),
       confirmLabel: "Send",
+      defaultAction: "cancel",
     });
     if (!confirmed) return false;
     try {

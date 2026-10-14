@@ -23,7 +23,7 @@ vi.mock("../../stores/global/window-registry", () => ({
   },
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({ showToast: h.showToast }));
+vi.mock("../../stores/global/notifications", () => ({ showToast: h.showToast }));
 vi.mock("../../lib/log", () => ({ logFailure: h.logFailure }));
 
 import { createLanguageProvider } from "../../commands/providers/language-provider";

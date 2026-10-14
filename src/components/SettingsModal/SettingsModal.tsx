@@ -26,7 +26,7 @@ import { installFocusTrap } from "../../lib/focus-trap";
 import { logFailure } from "../../lib/log";
 import { FILE_MANAGER_NAME, IS_MAC, SHOW_IN_FILE_MANAGER } from "../../lib/platform";
 import { useWindow } from "../WindowProvider/WindowProvider";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { fetchCliStatus, installCli } from "../../stores/global/cli";
 import {
   aiRewriteStore,
@@ -1976,7 +1976,7 @@ export default function SettingsModal() {
           >
             <div class="settings-header">
               <span id={titleId} class="settings-title">Settings</span>
-              <Tooltip label="Close settings">
+              <Tooltip label="Close settings" chord="Escape">
                 <Button
                   variant="ghost"
                   icon="x"

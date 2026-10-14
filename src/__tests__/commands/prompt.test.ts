@@ -7,7 +7,7 @@ vi.mock("../../services/tauri", () => ({
   promptFillPlaceholders: vi.fn(),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
@@ -29,7 +29,7 @@ vi.mock("../../stores/global/window-registry", () => ({
 import { registerPromptCommands } from "../../commands/prompt";
 import { getCommand } from "../../commands/registry";
 import * as tauriApi from "../../services/tauri";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { requestPlaceholderFill } from "../../components/PromptFill/PromptFillModal";
 
 const mockedApi = vi.mocked(tauriApi);

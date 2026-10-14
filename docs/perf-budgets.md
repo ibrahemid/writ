@@ -452,6 +452,12 @@ Notes:
   lookup before it renders.
 - Not covered: the JSON body of a large save is parsed on the main thread
   before dispatch (EP-13), so a 300 MB autosave still costs that parse there.
+- `prompt_context_pack` (a file and the files it links to, up to 100, as one
+  prompt) was `async` from its first version, so it has no "before". Its
+  always-on test holds its work; its timed test packs 100 files of 40 KB.
+- `list_workspace_dir` (one folder of the sidebar's tree) runs on the
+  blocking pool since ADR-047. Its always-on test holds the open folder's
+  root; its timed test lists one folder of 20,000 entries.
 
 ### Re-baselining
 

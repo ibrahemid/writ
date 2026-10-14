@@ -11,6 +11,7 @@ struct Inner {
     pending_open: HashSet<String>,
     blessed_sources: HashSet<String>,
     rename_undo: Option<(String, RenameUndo)>,
+    trash_undo: Option<(String, TrashUndo)>,
 }
 
 /// What `Undo rename` may touch: the note's file as the rename left it, the
@@ -26,6 +27,39 @@ pub struct RenameUndo {
     pub previous_name: String,
     /// The files the rename rewrote, in the order it wrote them.
     pub updated: Vec<String>,
+}
+
+/// What the Undo after Move to Trash puts back: the note's path and the bytes
+/// its file held when it went.
+///
+/// Held here and handed to the webview only as a token, like [`RenameUndo`],
+/// so the undo writes the file Rust trashed and no path the webview names.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TrashUndo {
+    /// Where the note was.
+    pub path: PathBuf,
+    /// What its file held.
+    pub bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for TrashUndo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrashUndo")
+            .field("bytes", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// A token nobody can guess, or `None` when the system has no randomness.
+fn mint_token() -> Option<String> {
+    let mut bytes = [0u8; 16];
+    match getrandom::fill(&mut bytes) {
+        Ok(()) => Some(bytes.iter().map(|b| format!("{b:02x}")).collect()),
+        Err(error) => {
+            tracing::warn!(%error, "no undo token could be minted");
+            None
+        }
+    }
 }
 
 #[derive(Default, Debug)]
@@ -163,6 +197,30 @@ impl AuthorizedPaths {
             "security::authorized_paths::clear_rename_undo",
         );
         guard.rename_undo = None;
+    }
+
+    /// Holds the one Move to Trash the Undo can put back, replacing any
+    /// earlier one, and answers the token the webview presents to undo it.
+    pub fn hold_trash_undo(&self, undo: TrashUndo) -> Option<String> {
+        let token = mint_token();
+        let mut guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::hold_trash_undo",
+        );
+        guard.trash_undo = token.clone().map(|token| (token, undo));
+        token
+    }
+
+    /// Spends `token`: the trashed note it stands for, once.
+    pub fn take_trash_undo(&self, token: &str) -> Option<TrashUndo> {
+        let mut guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::take_trash_undo",
+        );
+        match guard.trash_undo.as_ref() {
+            Some((held, _)) if held == token => guard.trash_undo.take().map(|(_, undo)| undo),
+            _ => None,
+        }
     }
 
     pub fn pending_open_len(&self) -> usize {

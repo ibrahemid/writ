@@ -5,13 +5,13 @@ vi.mock("../../services/tauri", () => ({
   updateConfig: vi.fn(),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
 import { configStore } from "../../stores/global/config";
 import { getConfig, updateConfig } from "../../services/tauri";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import type { WritConfig } from "../../types/config";
 
 const mockedGetConfig = vi.mocked(getConfig);
