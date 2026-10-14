@@ -41,6 +41,10 @@ fn default_hotkey_toggle() -> String {
     "CmdOrCtrl+Shift+Space".to_string()
 }
 
+fn default_hotkey_capture() -> String {
+    "CmdOrCtrl+Shift+Alt+Space".to_string()
+}
+
 fn default_sidebar_toggle() -> String {
     "CmdOrCtrl+\\".to_string()
 }
@@ -303,12 +307,17 @@ pub struct HotkeyConfig {
     /// Hotkey used to toggle the Writ window from any application.
     #[serde(default = "default_hotkey_toggle")]
     pub toggle: String,
+    /// Hotkey that opens the quick capture note from any application
+    /// (ADR-055). Empty turns it off.
+    #[serde(default = "default_hotkey_capture")]
+    pub capture: String,
 }
 
 impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
             toggle: default_hotkey_toggle(),
+            capture: default_hotkey_capture(),
         }
     }
 }
@@ -509,6 +518,35 @@ impl Default for WindowConfig {
     }
 }
 
+/// How Writ starts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GeneralConfig {
+    /// Start Writ hidden at login, so the window chord works after a restart.
+    /// Written by the login-item command, which asks the OS first.
+    #[serde(default)]
+    pub launch_at_login: bool,
+}
+
+/// [`Default`] is a fresh install: on, starting hidden (decision OD-11). A
+/// file written before this table existed reads [`GeneralConfig::existing`]
+/// instead, so an update never adds a login item nobody asked for.
+impl Default for GeneralConfig {
+    fn default() -> Self {
+        Self {
+            launch_at_login: true,
+        }
+    }
+}
+
+impl GeneralConfig {
+    /// What a config written before `[general]` existed had: no login item.
+    pub fn existing() -> Self {
+        Self {
+            launch_at_login: false,
+        }
+    }
+}
+
 /// History retention configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistoryConfig {
@@ -699,6 +737,10 @@ pub struct WritConfig {
     /// without the table predates it and reads as all on (ADR-042 section 2).
     #[serde(default = "AppsConfig::existing")]
     pub apps: AppsConfig,
+
+    /// How Writ starts.
+    #[serde(default = "GeneralConfig::existing")]
+    pub general: GeneralConfig,
 }
 
 impl Default for WritConfig {
@@ -725,6 +767,7 @@ impl Default for WritConfig {
             mcp: McpConfig::default(),
             spelling: SpellingConfig::default(),
             apps: AppsConfig::default(),
+            general: GeneralConfig::default(),
         }
         .fresh_sidebar()
     }
@@ -815,6 +858,7 @@ impl WritConfig {
         self.workspace.root = live.workspace.root.clone();
         self.notes.root = live.notes.root.clone();
         self.inbox.path = live.inbox.path.clone();
+        self.general.launch_at_login = live.general.launch_at_login;
     }
 }
 

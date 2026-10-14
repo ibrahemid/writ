@@ -175,6 +175,7 @@ describe("the window's plan", () => {
       "ai:chat",
       "update:status",
       "hotkey:status",
+      "hotkey:capture-status",
     ]) {
       expect(h.subscribed, kind).toContain(kind);
     }

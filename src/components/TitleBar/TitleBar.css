@@ -330,3 +330,11 @@
 .maclight:hover {
   filter: brightness(1.05);
 }
+
+.titlebar-chord-unheld {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}

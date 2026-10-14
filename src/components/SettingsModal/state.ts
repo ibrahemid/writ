@@ -5,6 +5,8 @@ import { SECTION_ORDER, settingEntry, type SettingEntry, type SettingsSection } 
 import { isSectionAvailable } from "../../settings/availability";
 import type { AppId } from "../../types/config";
 import { discardShortcutDrafts, hasUnsavedShortcuts } from "../ShortcutEditor/ShortcutEditor";
+import { openDueApps } from "../../commands/app-surfaces";
+import { setRecordingId, WINDOW_CHORD_RECORDING } from "./recording";
 
 // Singleton state — Writ is single-window
 
@@ -55,6 +57,16 @@ export function closeSettings() {
   setHighlightId(null);
   setIsOpen(false);
   discardShortcutDrafts();
+  // After the dialog has handed focus back, so a surface that takes focus
+  // keeps it.
+  queueMicrotask(openDueApps);
+}
+
+/** Opens Settings at the window's chord, listening for a new one when
+ * `record` is set: for a chord another app holds. */
+export function openWindowChordSetting(record: boolean) {
+  openSettings("general", "hotkey.toggle");
+  if (record) setRecordingId(WINDOW_CHORD_RECORDING);
 }
 
 export async function requestCloseSettings(): Promise<boolean> {

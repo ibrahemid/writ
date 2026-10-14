@@ -4,6 +4,8 @@ import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 const h = vi.hoisted(() => ({ chord: "", taken: false }));
 
 vi.mock("../../stores/global/hotkey", () => ({
+  SHIPPED_WINDOW_CHORD: "CmdOrCtrl+Shift+Space",
+  SHIPPED_CAPTURE_CHORD: "CmdOrCtrl+Shift+Alt+Space",
   hotkeyStore: { chord: () => h.chord, isTaken: () => h.taken },
 }));
 

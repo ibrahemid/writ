@@ -1,6 +1,9 @@
 import { Show, createMemo, onCleanup } from "solid-js";
 import PanelSection from "./PanelSection";
 import GraphCanvas from "../Graph/GraphCanvas";
+import Button from "../Button/Button";
+import Tooltip from "../Tooltip/Tooltip";
+import { executeCommand } from "../../commands/registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { indexCacheStore } from "../../stores/global/index-cache";
 import { neighbourhoodOf } from "../../lib/graph/neighbourhood";
@@ -19,7 +22,8 @@ interface Props {
  * not in that graph at all: the index resolves none of them (ADR-034), and a
  * line to a guess is the one thing a drawing must not add.
  *
- * A note with nothing around it renders no section, not an empty one.
+ * A note with nothing around it renders no section, not an empty one. Open
+ * graph under the drawing takes the reader to the whole folder.
  */
 export default function LocalGraphSection(props: Props) {
   const win = useWindow();
@@ -42,6 +46,16 @@ export default function LocalGraphSection(props: Props) {
           focusPath={props.path}
           onOpen={(path) => void win.tabs.openFile(path).catch(() => null)}
         />
+        <Tooltip label="Open graph" kbd="folderGraph.open">
+          <Button
+            variant="ghost"
+            class="right-panel-graph-open"
+            icon="graph"
+            onClick={() => executeCommand("folderGraph.open")}
+          >
+            Open graph
+          </Button>
+        </Tooltip>
       </PanelSection>
     </Show>
   );

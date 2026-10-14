@@ -96,9 +96,14 @@ describe("settings index", () => {
     }
   });
 
-  it("puts the folder, the format and the window's chord in General", () => {
+  it("puts the folder, the format, the window's chord and open at login in General", () => {
     const general = SETTINGS_INDEX.filter((e) => e.section === "general").map((e) => e.id);
-    expect(general).toEqual(["notes.folder", "files.default_extension", "hotkey.toggle"]);
+    expect(general).toEqual([
+      "notes.folder",
+      "files.default_extension",
+      "hotkey.toggle",
+      "general.launch_at_login",
+    ]);
   });
 
   it("takes the terminal command, the file types and the watched folder out of Advanced", () => {

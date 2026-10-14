@@ -17,7 +17,7 @@ import { configStore } from "../global/config";
 import { syncConfigFromDisk } from "../global/config-sync";
 import { probeDefaultAppSupport } from "../global/default-app-support";
 import { firstRunStore, watchSavesForRetitle } from "../global/first-run";
-import { hotkeyStore } from "../global/hotkey";
+import { captureHotkeyStore, hotkeyStore } from "../global/hotkey";
 import { inboxStore } from "../global/inbox";
 import { showToast } from "../global/notifications";
 import { notesStore } from "../global/notes";
@@ -363,6 +363,8 @@ export function createBootPlan(win: WindowState, shell: BootShell): BootPlan {
       // so the shortcut editor can show a chord another app holds rather than a
       // key that quietly does nothing.
       ["hotkey:status", () => hotkeyStore.subscribe()],
+      // The capture chord's answer, for its row in the shortcut editor.
+      ["hotkey:capture-status", () => captureHotkeyStore.subscribe()],
       ["ai:rewrite", () => onEvent("ai:rewrite", (p) => aiRewriteStore.handleStreamEvent(p))],
       ["ai:chat", () => onEvent("ai:chat", (p) => chatStore.handleStreamEvent(p))],
       // What a new note's first line may do to its file name.
@@ -408,6 +410,7 @@ export function createBootPlan(win: WindowState, shell: BootShell): BootPlan {
       // command palette can offer those rows before the Settings modal mounts.
       ["default app", () => void probeDefaultAppSupport()],
       ["hotkey", () => void hotkeyStore.load()],
+      ["capture hotkey", () => void captureHotkeyStore.load()],
     ],
   };
 }

@@ -61,6 +61,25 @@
 
 /* The one line a panel with nothing to list shows, in the sidebar's empty
    shape: a note with no connections yet, or no note at all. */
+/* The panel's name and its close, above the sections. The close's tip names
+   the chord that brings the panel back. */
+.right-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-2) var(--writ-space-2) 0 var(--writ-space-4);
+}
+
+.right-panel-title {
+  margin: 0;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  letter-spacing: var(--writ-ui-tracking);
+  font-weight: 600;
+  color: var(--writ-fg);
+}
+
 .right-panel-empty {
   margin: 0;
   padding: var(--writ-space-3);
@@ -177,6 +196,13 @@
   padding-bottom: 0;
 }
 
+/* The heading the caret is under, drawn the way the file tree draws the file
+   in front. */
+.right-panel-heading.is-current {
+  background: var(--writ-bg-selected);
+  font-weight: 500;
+}
+
 .right-panel-row-context {
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
@@ -184,6 +210,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Under the drawing, from its left edge, as small as the section's other
+   second lines. */
+.right-panel-graph-open {
+  align-self: flex-start;
+  margin: 0 var(--writ-space-2) var(--writ-space-2);
+  font-size: var(--writ-ui-sm);
+}
+
+/* Under the link's own words, and as small as the line naming what else it
+   could mean. */
+.right-panel-row-create {
+  align-self: flex-start;
+  margin-top: var(--writ-space-1);
+  font-size: var(--writ-ui-sm);
 }
 
 /* Set off from the quoted sentence above it: that line is the note's words,

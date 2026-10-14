@@ -104,6 +104,21 @@ beforeEach(async () => {
   mockedEvents.onEvent.mockResolvedValue(() => {});
 });
 
+describe("a note's facts alone", () => {
+  // The offers read what a file holds and never what points at it.
+  it("reads the facts without the files linking to it, and drops them once handed back", async () => {
+    mockedApi.noteFacts.mockResolvedValue(facts({ tags: [{ name: "work", line: 1 } as never] }));
+    const release = indexCacheStore.holdFacts(NOTE);
+    await settle();
+    expect(indexCacheStore.factsSettledFor(NOTE)()).toBe(true);
+    expect(indexCacheStore.factsFor(NOTE)().tags).toHaveLength(1);
+    expect(mockedApi.noteBacklinks).not.toHaveBeenCalled();
+
+    release();
+    expect(indexCacheStore.factsSettledFor(NOTE)()).toBe(false);
+  });
+});
+
 describe("a note's facts", () => {
   // An empty list and an unread one look identical from outside, and a surface
   // that says "nothing here" on the second one states a falsehood for the

@@ -6,6 +6,8 @@ import { createRoot } from "solid-js";
 
 // ADR-042 section 3: an app that is off has no menu item, no palette row and
 // no sidebar section, and switching it on brings them back without a restart.
+// Its commands stay registered, so a chord bound to one opens the app's row
+// in Settings, Apps, marked, rather than doing nothing.
 
 const h = vi.hoisted(() => ({
   updateConfig: vi.fn().mockResolvedValue(undefined),
@@ -47,6 +49,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
     tabs: { activeTabId: () => null, setActiveTabId: vi.fn(), closeTab: vi.fn() },
     rightPanel: { isOpen: () => true },
     chatPanel: { isOpen: () => false },
+    folderGraph: { isOpen: () => false, toggle: vi.fn() },
   }),
 }));
 vi.mock("../../stores/global/buffer-registry", () => ({
@@ -66,8 +69,10 @@ vi.mock("../../components/Sidebar/SearchResults", () => ({ default: () => null }
 vi.mock("../../components/Sidebar/SidebarEmpty", () => ({ default: () => null }));
 
 import { configStore } from "../../stores/global/config";
-import { registerCommand, unregisterCommand, getCommand } from "../../commands/registry";
+import { executeCommand, getCommand } from "../../commands/registry";
 import { defineAppCommands, resetAppCommands } from "../../commands/app-commands";
+import { APP_REGISTRATIONS } from "../commands/app-registrations";
+import { APPS } from "../../lib/apps";
 import { followAppSwitches } from "../../commands/app-switches";
 import { createCommandProvider } from "../../commands/providers/command-provider";
 import { appMenuItems } from "../../components/TitleBar/AppMenu";
@@ -97,31 +102,67 @@ const APP_COMMANDS: Record<"connections" | "graph" | "programs", string> = {
   programs: "activity.open",
 };
 
+/** The Settings row each app's switch is on. */
+function rowOf(app: AppId): string {
+  return APPS.find((entry) => entry.id === app)!.settingId;
+}
+
+/** The chord App.tsx gives `id`, as written there. */
+function chordOf(id: string): string {
+  return APP_REGISTRATIONS.get(id)?.keybinding ?? "";
+}
+
+const ran = vi.fn<(id: string) => void>();
 let dispose: (() => void) | undefined;
 
 function stand(): void {
   for (const [app, id] of Object.entries(APP_COMMANDS)) {
     defineAppCommands(app as AppId, [
-      { id, label: labelIn(id), scope: "app", execute: () => {} },
+      {
+        id,
+        label: labelIn(id),
+        keybinding: chordOf(id) || undefined,
+        scope: "app",
+        global: true,
+        execute: () => ran(id),
+      },
     ]);
   }
-  registerCommand({
-    id: "chat.toggle",
-    label: labelIn("chat.toggle"),
-    keybinding: "CmdOrCtrl+Shift+A",
-    scope: "app",
-    global: true,
-    app: "chat",
-    execute: () => toggleChat(),
-  });
+  defineAppCommands("chat", [
+    {
+      id: "chat.toggle",
+      label: labelIn("chat.toggle"),
+      keybinding: chordOf("chat.toggle"),
+      scope: "app",
+      global: true,
+      execute: () => toggleChat(),
+    },
+  ]);
   createRoot((d) => {
     dispose = d;
     followAppSwitches({
       chatPanel: { hide: h.chatHide } as never,
       folderGraph: { close: h.graphClose } as never,
       sidebar: { selectTag: h.selectTag } as never,
+      tabs: { activeTabId: () => null } as never,
     });
   });
+}
+
+/** Presses `chord` (Windows spelling: this file runs as Windows). */
+function press(chord: string): boolean {
+  const parts = chord.split("+");
+  const key = parts[parts.length - 1];
+  const shifted: Record<string, string> = { "\\": "|" };
+  const shift = parts.includes("Shift");
+  const event = new KeyboardEvent("keydown", {
+    key: shift ? (shifted[key] ?? key) : key.toLowerCase(),
+    code: key === "\\" ? "Backslash" : `Key${key.toUpperCase()}`,
+    ctrlKey: parts.includes("CmdOrCtrl"),
+    shiftKey: shift,
+    altKey: parts.includes("Alt"),
+  });
+  return handleKeyDown(event);
 }
 
 function paletteIds(): string[] {
@@ -150,7 +191,6 @@ afterEach(() => {
   cleanup();
   dispose?.();
   resetAppCommands();
-  unregisterCommand("chat.toggle");
   vi.clearAllMocks();
 });
 
@@ -172,6 +212,11 @@ describe("Chat", () => {
     expect(h.openSettings).toHaveBeenCalledWith("apps", "ai.chat.enabled");
   });
 
+  it("opens its row from the chord itself while off", () => {
+    expect(press(chordOf("chat.toggle"))).toBe(true);
+    expect(h.openSettings).toHaveBeenCalledWith("apps", rowOf("chat"));
+  });
+
   it("puts no button in the toolbar while off, and closes its pane", async () => {
     await turn("chat", true);
     const { queryByLabelText } = render(() => <Toolbar />);
@@ -184,22 +229,25 @@ describe("Chat", () => {
 
 describe("Rewrite", () => {
   it("has no palette row while off, and its commands come with it", async () => {
-    for (const id of REWRITE_COMMAND_IDS) expect(getCommand(id)).toBeUndefined();
+    for (const id of REWRITE_COMMAND_IDS) expect(paletteIds()).not.toContain(id);
     await turn("rewrite", true);
     for (const id of REWRITE_COMMAND_IDS) expect(paletteIds()).toContain(id);
     await turn("rewrite", false);
     for (const id of REWRITE_COMMAND_IDS) expect(paletteIds()).not.toContain(id);
   });
 
-  it("answers a chord bound to it as soon as it is switched on", async () => {
+  it("opens its row from a chord bound to it while off", async () => {
     const id = REWRITE_COMMAND_IDS[0];
     setKeybindingOverrides({ [id]: "CmdOrCtrl+Alt+P" });
     rebuildKeyMap();
     const chord = () =>
       handleKeyDown(new KeyboardEvent("keydown", { key: "p", metaKey: true, altKey: true }));
-    expect(chord()).toBe(false);
+    expect(chord()).toBe(true);
+    expect(h.openSettings).toHaveBeenCalledWith("apps", rowOf("rewrite"));
+    h.openSettings.mockClear();
     await turn("rewrite", true);
     expect(chord()).toBe(true);
+    expect(h.openSettings).not.toHaveBeenCalled();
     setKeybindingOverrides({});
   });
 
@@ -215,18 +263,42 @@ describe.each([
   ["graph", "folderGraph.open"],
   ["programs", "activity.open"],
 ] as const)("%s", (app, id) => {
-  it("is not registered while off, so neither the palette nor the menu has it", async () => {
-    expect(getCommand(id)).toBeUndefined();
+  it("is in neither the palette nor the menu while off, and in both once on", async () => {
+    expect(getCommand(id)?.app).toBe(app);
     expect(paletteIds()).not.toContain(id);
     expect(menuLabels()).not.toContain(labelIn(id));
     await turn(app, true);
-    expect(getCommand(id)).toBeDefined();
     expect(paletteIds()).toContain(id);
     if (MENU_COMMANDS.some((entry) => entry.id === id)) {
       expect(menuLabels()).toContain(labelIn(id));
     }
     await turn(app, false);
-    expect(getCommand(id)).toBeUndefined();
+    expect(paletteIds()).not.toContain(id);
+  });
+
+  it("opens its row in Settings, Apps while off, and does its own work once on", async () => {
+    executeCommand(id);
+    expect(h.openSettings).toHaveBeenCalledWith("apps", rowOf(app));
+    expect(ran).not.toHaveBeenCalled();
+    h.openSettings.mockClear();
+    await turn(app, true);
+    executeCommand(id);
+    expect(ran).toHaveBeenCalledWith(id);
+    expect(h.openSettings).not.toHaveBeenCalled();
+  });
+});
+
+// MN-08: ⌘⇧\ on a fresh install did nothing at all.
+describe.each([
+  ["connections", "panel.toggle"],
+  ["graph", "folderGraph.open"],
+] as const)("the chord of %s while it is off", (app, id) => {
+  it("opens its row in Settings, Apps, marked", () => {
+    const chord = chordOf(id);
+    expect(chord).not.toBe("");
+    expect(press(chord)).toBe(true);
+    expect(h.openSettings).toHaveBeenCalledWith("apps", rowOf(app));
+    expect(ran).not.toHaveBeenCalled();
   });
 });
 

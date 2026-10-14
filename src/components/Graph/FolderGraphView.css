@@ -93,11 +93,94 @@
   font-variant-numeric: tabular-nums;
 }
 
-.folder-graph-close {
+/* What the drawing is of. Two options in one control, the pressed one on the
+   raised ground the search field sits on. */
+.folder-graph-scope {
+  pointer-events: auto;
+  display: inline-flex;
+  align-self: flex-start;
+  padding: var(--writ-space-1);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-canvas);
+}
+
+.folder-graph-scope-option {
+  padding: var(--writ-space-1) var(--writ-space-3);
+  border: 0;
+  border-radius: var(--writ-r-control);
+  background: transparent;
+  color: var(--writ-fg-muted);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  cursor: pointer;
+}
+
+.folder-graph-scope-option[aria-pressed="true"] {
+  background: var(--writ-bg-raised);
+  color: var(--writ-fg);
+}
+
+/* The chosen note's name, read out as it changes. Empty until a note is
+   chosen, and it keeps its line so the legend under it does not jump. */
+.folder-graph-chosen {
+  margin: 0;
+  min-height: var(--writ-ui-sm-lh);
+  color: var(--writ-fg);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+}
+
+/* One chip per top-level folder, in its colour. A long folder list wraps and
+   then scrolls inside the corner rather than covering the drawing. */
+.folder-graph-legend {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--writ-space-2);
+  max-width: 320px;
+  max-height: 120px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.folder-graph-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-1) var(--writ-space-3);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-control);
+  background: var(--writ-bg-raised);
+  color: var(--writ-fg-muted);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  cursor: pointer;
+}
+
+.folder-graph-chip[aria-pressed="true"] {
+  border-color: var(--writ-border);
+  color: var(--writ-fg);
+}
+
+.folder-graph-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* Zoom out, zoom in, fit and close, in the corner opposite the search. */
+.folder-graph-tools {
   position: absolute;
   top: var(--writ-space-4);
   right: var(--writ-space-4);
   z-index: 1;
+  display: flex;
+  gap: var(--writ-space-1);
 }
 
 /* The drawing fills the layer. The canvas keeps its own ground, which is the
@@ -125,8 +208,3 @@
   cursor: grabbing;
 }
 
-/* The name of whatever the pointer is over, along the bottom, out of the way
-   of the chrome in the opposite corner. */
-.folder-graph-drawing .graph-hovered {
-  padding: 0 var(--writ-space-4) var(--writ-space-4);
-}

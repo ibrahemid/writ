@@ -15,6 +15,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "buffer:external": "writ://buffer-external",
   "menu:action": "writ://menu-action",
   "hotkey:status": "writ://hotkey-status",
+  "hotkey:capture-status": "writ://hotkey-capture-status",
   "workspace:changed": "writ://workspace-changed",
   "workspace:swept": "writ://workspace-swept",
   "notes:changed": "writ://notes-changed",

@@ -68,7 +68,8 @@ const PROGRAMS_PAGE: readonly AppId[] = ["programs"];
 export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "notes.folder", section: "general", title: "Folder", description: "New files are saved here. Move… puts them in a folder you pick.", keywords: ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"] },
   { id: "files.default_extension", section: "general", title: "Default format", description: "For files you create. A file you name keeps the extension you type.", keywords: ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"] },
-  { id: "hotkey.toggle", section: "general", title: "Show and hide Writ", description: "Works from any app, even while Writ is hidden.", keywords: ["shortcut", "global", "hotkey", "summon", "show", "hide", "window", "chord", "keyboard"] },
+  { id: "hotkey.toggle", section: "general", title: "Show and hide Writ", description: "Works from any app, even while Writ is hidden.", keywords: ["shortcut", "global", "hotkey", "summon", "show", "hide", "window", "chord", "keyboard", "toggle", "from any app", "taken"] },
+  { id: "general.launch_at_login", section: "general", title: "Open at login", description: "Starts hidden.", keywords: ["login", "startup", "start", "boot", "autostart", "launch", "restart", "hidden"] },
   { id: "editor.font_size", section: "editor", title: "Font size", description: "Text size in the editor and the preview.", keywords: ["font", "size", "text", "zoom"] },
   { id: "editor.tab_size", section: "editor", title: "Tab size", description: "Spaces per indent, and the width of a tab character.", keywords: ["tab", "indent", "spaces", "width"] },
   { id: "editor.word_wrap", section: "editor", title: "Word wrap", description: "Long lines wrap at the edge of the pane instead of scrolling sideways.", keywords: ["wrap", "word", "line", "soft wrap"] },
@@ -92,6 +93,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "apps.connections", section: "apps", title: "Connections", description: appDetail("connections"), keywords: ["app", "connections", "links", "backlinks", "outline", "properties", "panel"] },
   { id: "apps.graph", section: "apps", title: "Graph", description: appDetail("graph"), keywords: ["app", "graph", "map", "links", "nearby"] },
   { id: "apps.tags", section: "apps", title: "Tags", description: appDetail("tags"), keywords: ["app", "tags", "hashtag", "filter", "sidebar"] },
+  { id: "apps.offers", section: "apps", title: "Offer apps that are off", description: "Once per app, when an open file has links or tags.", keywords: ["apps", "offer", "suggest", "notice", "tips", "links", "tags"] },
   { id: "ai.provider", section: "apps", title: "Provider", description: "The service that runs the model.", keywords: ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"], requires: AI_PAGES, pages: AI_PAGES },
   { id: "ai.base_url", section: "apps", title: "Base URL", description: "Most servers expect /v1 at the end.", keywords: ["ai", "base url", "endpoint", "host", "server"], requires: AI_PAGES, pages: AI_PAGES },
   { id: "ai.api_key", section: "apps", title: "API key", description: "Kept in your system keychain when it is available.", keywords: ["ai", "api key", "token", "secret", "credential"], requires: AI_PAGES, pages: AI_PAGES },

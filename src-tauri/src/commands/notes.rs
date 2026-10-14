@@ -214,26 +214,14 @@ pub struct TodaysFile {
 /// [`create_note_at`], so the guard and the index see the file the same way
 /// they see every other new note.
 pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFile, String> {
-    let root = state.notes_root();
-    let names = dated_name_candidates(now, state.default_extension());
-    for name in &names {
-        let path = root.join(name);
-        if path.is_file() {
+    let minting = match find_todays_file(state, now)? {
+        TodaysFileAt::Existing(path) => {
             let path = path.to_string_lossy().into_owned();
             let opened = crate::commands::file::open_file_from_path(state, &path)?;
             return Ok(TodaysFile { path, opened });
         }
-    }
-    // The name about to be minted is already on something that is not a note
-    // file: a folder, or a link to one. Minting would dedupe around it and hand
-    // back a second file for the same day, one more on every ask, so the name
-    // is reported as taken instead. Only the configured name is asked about:
-    // the other one is somewhere to read the day from, never somewhere to
-    // write, so a folder wearing it blocks nothing.
-    let minting = root.join(&names[0]);
-    if minting.symlink_metadata().is_ok() {
-        return Err(name_is_taken(&names[0]));
-    }
+        TodaysFileAt::Missing(minting) => minting,
+    };
     let doc = new_dated_note_inner(state, now)?;
     let path = doc
         .source_path
@@ -245,6 +233,44 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<T
         doc: Some(doc),
     };
     Ok(TodaysFile { path, opened })
+}
+
+/// Where Today's File is, or where it would be minted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TodaysFileAt {
+    /// The dated file, in whichever format the day already has it.
+    Existing(PathBuf),
+    /// No file for the day yet: the path the configured format mints.
+    Missing(PathBuf),
+}
+
+/// Finds Today's File without opening or minting it.
+///
+/// Both formats the dated name may be written in are looked for, the
+/// configured one first (spec D1).
+///
+/// # Errors
+///
+/// The configured name is already on something that is not a note file: a
+/// folder, or a link to one. Minting would dedupe around it and hand back a
+/// second file for the same day, one more on every ask, so the name is
+/// reported as taken instead. Only the configured name is asked about: the
+/// other one is somewhere to read the day from, never somewhere to write, so
+/// a folder wearing it blocks nothing.
+pub fn find_todays_file(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFileAt, String> {
+    let root = state.notes_root();
+    let names = dated_name_candidates(now, state.default_extension());
+    for name in &names {
+        let path = root.join(name);
+        if path.is_file() {
+            return Ok(TodaysFileAt::Existing(path));
+        }
+    }
+    let minting = root.join(&names[0]);
+    if minting.symlink_metadata().is_ok() {
+        return Err(name_is_taken(&names[0]));
+    }
+    Ok(TodaysFileAt::Missing(minting))
 }
 
 /// [`open_or_mint_dated_note`] for the menu item and the command that share it.

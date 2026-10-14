@@ -1,7 +1,8 @@
-import { For, Show, type Accessor } from "solid-js";
+import { For, Show, createMemo, type Accessor } from "solid-js";
 import PanelSection from "./PanelSection";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import type { NoteFacts, NoteHeading } from "../../stores/global/index-cache";
+import { currentHeadingIndex } from "../../lib/outline";
 
 interface Props {
   facts: Accessor<NoteFacts>;
@@ -17,11 +18,13 @@ const INDENT_PX = 16;
  *
  * A click moves the caret through the editor store, which is the same path a
  * search result and a `[[Note#Heading]]` take. Nothing here reaches for the
- * document or for CodeMirror.
+ * document or for CodeMirror. The heading the caret is under is marked, read
+ * off the caret line the editor store already keeps for the status bar.
  */
 export default function OutlineSection(props: Props) {
   const win = useWindow();
   const headings = () => props.facts().headings;
+  const current = createMemo(() => currentHeadingIndex(headings(), win.editor.cursorLine()));
 
   function indentOf(heading: NoteHeading): string {
     return `${Math.max(0, heading.level - 1) * INDENT_PX}px`;
@@ -32,13 +35,15 @@ export default function OutlineSection(props: Props) {
       <PanelSection section="outline" heading="Outline">
         <ul class="right-panel-list">
           <For each={headings()}>
-            {(heading) => (
+            {(heading, index) => (
               <li>
                 <button
                   type="button"
                   class="right-panel-row right-panel-heading"
+                  classList={{ "is-current": index() === current() }}
                   style={{ "padding-left": `calc(var(--writ-space-3) + ${indentOf(heading)})` }}
                   data-level={heading.level}
+                  aria-current={index() === current() ? "location" : undefined}
                   onClick={() => win.editor.requestReveal(props.bufferId, heading.line)}
                 >
                   <span class="right-panel-row-name">{heading.text}</span>

@@ -4,6 +4,8 @@ import type { FileExtension } from "../../types/config";
 import Button from "../Button/Button";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { APPS } from "../../lib/apps";
+import Icon from "../Icon/Icon";
+import AppEntryPoints from "../Apps/AppEntryPoints";
 import "./FirstRunSetup.css";
 
 interface FormatOption {
@@ -238,6 +240,7 @@ function AppsStep() {
             const detailId = `first-run-app-${app.id}-detail`;
             return (
               <li class="first-run-app" data-app={app.id} onClick={() => firstRunStore.toggleApp(app.id)}>
+                <Icon name={app.icon} class="first-run-app-icon" />
                 <span class="first-run-app-text">
                   <span class="first-run-app-label" id={labelId}>
                     {app.label}
@@ -245,6 +248,7 @@ function AppsStep() {
                   <span class="first-run-app-detail" id={detailId}>
                     {app.detail}
                   </span>
+                  <AppEntryPoints app={app} class="first-run-app-where" />
                 </span>
                 <button
                   ref={(el) => (switches[index()] = el)}

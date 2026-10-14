@@ -24,6 +24,7 @@ import {
   isSearching,
   leaveSettings,
   openSettings,
+  openWindowChordSetting,
   query,
   requestCloseSettings,
   selectSection,
@@ -41,7 +42,7 @@ import AdvancedSection from "./sections/Advanced";
 import AboutSection from "./sections/About";
 import "./SettingsModal.css";
 
-export { openSettings, closeSettings, toggleSettings };
+export { openSettings, closeSettings, toggleSettings, openWindowChordSetting };
 
 const NAV_ITEMS: { id: SettingsSection; label: string }[] = SECTION_ORDER.filter(
   isSectionAvailable,

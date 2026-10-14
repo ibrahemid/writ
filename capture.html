@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quick capture</title>
+    <link rel="stylesheet" href="/src/styles/global.css" />
+    <script>
+      // Pre-paint theme restore, as in index.html: the main window's saved token
+      // set and root attributes, applied before the module bundle runs.
+      (function () {
+        try {
+          var raw = localStorage.getItem("writ-theme-vars-v3");
+          if (!raw) return;
+          var saved = JSON.parse(raw);
+          var root = document.documentElement;
+          var vars = saved.vars || {};
+          for (var key in vars) {
+            if (Object.prototype.hasOwnProperty.call(vars, key) && key.indexOf("--writ-") === 0) {
+              root.style.setProperty(key, vars[key]);
+            }
+          }
+          var attrs = saved.attrs || {};
+          for (var name in attrs) {
+            if (name === "data-theme" || name === "data-accent") {
+              root.setAttribute(name, attrs[name]);
+            }
+          }
+        } catch (e) {
+          /* corrupt or unavailable storage: fall back to the stylesheet defaults */
+        }
+      })();
+    </script>
+</head>
+<body>
+    <div id="capture"></div>
+    <script type="module" src="/src/capture/main.tsx"></script>
+</body>
+</html>

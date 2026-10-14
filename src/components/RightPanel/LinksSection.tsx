@@ -1,9 +1,11 @@
 import { For, Show, createEffect, createSignal, on } from "solid-js";
 import PanelSection from "./PanelSection";
+import Button from "../Button/Button";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { indexCacheStore, type NoteLink } from "../../stores/global/index-cache";
 import { linkStore, type LinkResolution } from "../../stores/global/link";
 import { ambiguityMarker, targetName } from "../../lib/note-target";
+import { wikilinkName, wikilinkTargetPath } from "../../lib/wikilink";
 
 interface Props {
   /** The note the panel is showing. */
@@ -27,6 +29,8 @@ interface Row {
  * was written rather than dropped: a link to a note that is not there yet is
  * still something the note says, and a target naming two notes says which two
  * (ADR-034). Neither opens anything, because there is nothing settled to open.
+ * A target that names no note at all carries Create, which makes the note the
+ * link names and opens it, the same as following the link in the editor.
  */
 export default function LinksSection(props: Props) {
   const win = useWindow();
@@ -97,6 +101,21 @@ export default function LinksSection(props: Props) {
     await win.tabs.openFile(path).catch(() => null);
   }
 
+  /** Whether a row's target names no note, and so may be made. A target
+   * still being asked about is not offered: it may yet name one. */
+  function isMissing(row: Row): boolean {
+    return (
+      row.path === null &&
+      row.candidates.length === 0 &&
+      resolutions().get(row.name)?.status === "missing"
+    );
+  }
+
+  async function create(target: string) {
+    const created = await linkStore.createNote(wikilinkTargetPath(target));
+    if (created?.source_path) await open(created.source_path);
+  }
+
   return (
     <Show when={rows().length > 0}>
       <PanelSection section="links" heading="Links from this file">
@@ -113,6 +132,16 @@ export default function LinksSection(props: Props) {
                         <span class="right-panel-row-marker">
                           {ambiguityMarker(row.candidates)}
                         </span>
+                      </Show>
+                      <Show when={isMissing(row) && wikilinkName(row.name) !== ""}>
+                        <Button
+                          variant="ghost"
+                          class="right-panel-row-create"
+                          data-action="create-linked-file"
+                          onClick={() => void create(row.name)}
+                        >
+                          Create {wikilinkName(row.name)}
+                        </Button>
                       </Show>
                     </span>
                   }

@@ -1,22 +1,30 @@
 import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js";
 import { configStore } from "../../../stores/global/config";
 import { hotkeyStore } from "../../../stores/global/hotkey";
+import { loginItemStore } from "../../../stores/global/login-item";
 import { notesStore } from "../../../stores/global/notes";
 import type { NotesFallbackReason } from "../../../stores/global/notes";
 import { showToast } from "../../../stores/global/notifications";
 import { UNUSABLE_GLOBAL_KEY } from "../../../lib/chord";
 import { joinAnd } from "../../../lib/join-and";
 import { logFailure } from "../../../lib/log";
-import { FILE_MANAGER_NAME, SHOW_IN_FILE_MANAGER } from "../../../lib/platform";
+import { formatKeybinding } from "../../../lib/keybinding-format";
+import { detectPlatform, FILE_MANAGER_NAME, SHOW_IN_FILE_MANAGER } from "../../../lib/platform";
 import type { FileExtension } from "../../../types/config";
 import Button from "../../Button/Button";
 import Kbd from "../../Kbd/Kbd";
 import { ShortcutRecorder } from "../../ShortcutEditor/recorder";
+import {
+  CAPTURE_ROW_LABEL,
+  WAYLAND_LINE,
+  heldCaptureChord,
+  readAnyAppChord,
+} from "../../ShortcutEditor/any-app-chord";
 import { NotesSyncNote } from "../NotesSyncNote";
 import { PathText, SectionLabel, patchConfig } from "../controls";
-import { recordingId, setRecordingId } from "../recording";
+import { recordingId, setRecordingId, WINDOW_CHORD_RECORDING } from "../recording";
 import { FormatSample } from "../previews";
-import { SettingsRow } from "../SettingsRow";
+import { SettingsRow, SwitchRow } from "../SettingsRow";
 
 /**
  * Says where the files went when the folder in the settings could not be used.
@@ -120,12 +128,11 @@ function FolderRow() {
   );
 }
 
-const GLOBAL_CHORD_ROW = "general.hotkey.toggle";
-
 function GlobalChordRow() {
   const recorder = new ShortcutRecorder();
+  const platform = detectPlatform();
   const [problem, setProblem] = createSignal("");
-  const listening = () => recordingId() === GLOBAL_CHORD_ROW;
+  const listening = () => recordingId() === WINDOW_CHORD_RECORDING;
   const chord = () => hotkeyStore.chord() || configStore.config().hotkey.toggle;
 
   function stopRecording() {
@@ -136,15 +143,21 @@ function GlobalChordRow() {
   function startRecording() {
     recorder.reset();
     setProblem("");
-    setRecordingId(GLOBAL_CHORD_ROW);
+    setRecordingId(WINDOW_CHORD_RECORDING);
   }
 
   async function apply(next: string) {
+    let given: boolean;
     try {
-      await hotkeyStore.rebind(next);
+      given = await hotkeyStore.rebind(next);
     } catch {
       setProblem(UNUSABLE_GLOBAL_KEY);
       return;
+    }
+    // Refused, the OS keeps the chord there was, which the config keeps too.
+    // A session that cannot deliver the chord says so in the caution instead.
+    if (!given && !hotkeyStore.isUnsupported()) {
+      setProblem(`Another app is using ${formatKeybinding(next)}.`);
     }
     const toggle = hotkeyStore.chord() || next;
     await patchConfig((prev) => ({ ...prev, hotkey: { ...prev.hotkey, toggle } }));
@@ -156,12 +169,24 @@ function GlobalChordRow() {
       event.preventDefault();
       event.stopPropagation();
       const outcome = recorder.handle(event);
-      if (outcome.kind === "captured") {
+      if (outcome.kind === "cancelled") {
         stopRecording();
-        void apply(outcome.binding);
-      } else if (outcome.kind === "cancelled") {
-        stopRecording();
+        return;
       }
+      // The rule the OS holds a chord for every app by, and the capture
+      // chord it cannot share: refused, the row says why and keeps listening.
+      const reading = readAnyAppChord(outcome, platform, {
+        chord: heldCaptureChord(),
+        label: CAPTURE_ROW_LABEL,
+      });
+      if (reading.kind === "wait") return;
+      if (reading.kind === "refuse") {
+        setProblem(reading.text);
+        if (reading.resetRecorder) recorder.reset();
+        return;
+      }
+      stopRecording();
+      void apply(reading.binding);
     };
     document.addEventListener("keydown", handler, { capture: true });
     onCleanup(() => document.removeEventListener("keydown", handler, { capture: true }));
@@ -172,8 +197,16 @@ function GlobalChordRow() {
     if (untrack(listening)) stopRecording();
   });
 
+  // The chord does nothing from other apps: another app holds it, or the
+  // session cannot deliver it.
+  const unheld = () => hotkeyStore.isTaken() || hotkeyStore.isUnsupported();
   const caution = () =>
-    problem() || (hotkeyStore.isTaken() ? "Another app is using this shortcut." : undefined);
+    problem() ||
+    (hotkeyStore.isTaken()
+      ? "Another app is using this shortcut."
+      : hotkeyStore.isUnsupported()
+        ? WAYLAND_LINE
+        : undefined);
 
   return (
     <SettingsRow id="hotkey.toggle" caution={caution()}>
@@ -182,7 +215,7 @@ function GlobalChordRow() {
           when={listening()}
           fallback={
             <Show when={chord()} fallback={<span class="settings-chord-note">Not set</span>}>
-              <Kbd binding={chord()} />
+              <Kbd binding={chord()} muted={unheld()} />
             </Show>
           }
         >
@@ -200,6 +233,8 @@ function GlobalChordRow() {
 }
 
 export default function GeneralSection() {
+  onMount(() => void loginItemStore.load());
+
   function onDefaultExtensionChange(raw: string) {
     const extension = raw as FileExtension;
     void patchConfig((prev) => ({ ...prev, files: { ...prev.files, default_extension: extension } }));
@@ -226,6 +261,13 @@ export default function GeneralSection() {
         </select>
       </SettingsRow>
       <GlobalChordRow />
+      <SwitchRow
+        id="general.launch_at_login"
+        setting="launch_at_login"
+        checked={loginItemStore.enabled()}
+        disabled={loginItemStore.busy()}
+        onChange={() => void loginItemStore.set(!loginItemStore.enabled())}
+      />
     </div>
   );
 }

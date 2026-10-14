@@ -6,6 +6,12 @@ import type { AppId } from "../../../types/config";
 import Button from "../../Button/Button";
 import Tooltip from "../../Tooltip/Tooltip";
 import { openActivity } from "../../Activity/ActivityPanel";
+import AppEntryPoints from "../../Apps/AppEntryPoints";
+import {
+  canOpenApp,
+  openAppSurface,
+  switchAppFromSettings,
+} from "../../../commands/app-surfaces";
 import AiConnectionRows from "../apps/AiConnectionRows";
 import ProgramsRows from "../apps/ProgramsRows";
 import { SectionLabel } from "../controls";
@@ -25,7 +31,7 @@ function appEntry(id: AppId): AppEntry {
 
 async function setAppOn(app: AppId, on: boolean) {
   try {
-    await configStore.setAppOn(app, on);
+    await switchAppFromSettings(app, on);
   } catch {
     showToast("Could not save your settings", "error");
   }
@@ -35,6 +41,40 @@ const aiOn = () => configStore.isAppOn("chat") || configStore.isAppOn("rewrite")
 
 function openProgramActivity() {
   void leaveSettings(() => openActivity());
+}
+
+/**
+ * Where an app lives once it is on, with Open while it is on (ADR-042
+ * section 4). Open closes Settings first, so the surface it shows keeps the
+ * focus it takes.
+ */
+function AppWhere(props: { app: AppEntry }) {
+  const on = () => configStore.isAppOn(props.app.id);
+  function open() {
+    const app = props.app.id;
+    void leaveSettings(() => queueMicrotask(() => openAppSurface(app)));
+  }
+  return (
+    <span class="settings-app-where">
+      <AppEntryPoints app={props.app} />
+      <Show when={on() && canOpenApp(props.app.id)}>
+        <Button class="settings-app-open" data-action="open-app" onClick={open}>
+          Open
+        </Button>
+      </Show>
+    </span>
+  );
+}
+
+function OffersRow() {
+  return (
+    <SwitchRow
+      id="apps.offers"
+      setting="apps_offers"
+      checked={configStore.appOffersOn()}
+      onChange={() => configStore.setAppOffersOn(!configStore.appOffersOn())}
+    />
+  );
 }
 
 function AppCard(props: { app: AppEntry }) {
@@ -49,6 +89,7 @@ function AppCard(props: { app: AppEntry }) {
       setting={`app_${props.app.id}`}
       checked={on()}
       onChange={() => void setAppOn(props.app.id, !on())}
+      footer={<AppWhere app={props.app} />}
       aside={
         <Tooltip label={`Open ${props.app.label}`}>
           <Button
@@ -108,6 +149,7 @@ function AppPage(props: { app: AppEntry }) {
         />
       </div>
       <p class="settings-app-page-detail">{props.app.detail}</p>
+      <AppWhere app={props.app} />
       <AppPageRows app={props.app.id} />
     </div>
   );
@@ -122,6 +164,7 @@ export default function AppsSection() {
         fallback={
           <>
             <For each={APPS}>{(app) => <AppCard app={app} />}</For>
+            <OffersRow />
             <Show when={aiOn()}>
               <AiConnectionRows withChatModel={true} />
             </Show>
@@ -134,9 +177,12 @@ export default function AppsSection() {
         <Show
           when={activePage()}
           fallback={
-            <div class="settings-app-cards">
-              <For each={APPS}>{(app) => <AppCard app={app} />}</For>
-            </div>
+            <>
+              <div class="settings-app-cards">
+                <For each={APPS}>{(app) => <AppCard app={app} />}</For>
+              </div>
+              <OffersRow />
+            </>
           }
         >
           {(page) => <AppPage app={appEntry(page())} />}

@@ -124,6 +124,11 @@
   border-top: 1px solid var(--writ-border-soft);
 }
 
+.first-run-app-icon {
+  flex: none;
+  color: var(--writ-fg-muted);
+}
+
 .first-run-app-text {
   flex: 1;
   min-width: 0;

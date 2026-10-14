@@ -12,6 +12,7 @@ import {
   takesAccentSetting,
   DEFAULT_PRESET_ID,
 } from "../../styles/themes";
+import { THEME_MIRROR_KEY } from "../../lib/theme-mirror";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // Theme is shared across every window; CSS custom properties on :root propagate.
@@ -23,7 +24,7 @@ const HEX_PATTERN = /^#[0-9a-fA-F]{3,8}$/;
 // (no FOUC). Versioned: a snapshot from an older property set paints names the
 // stylesheets no longer read, so it would flash the wrong palette on the first
 // launch after an update. v3 is the ADR-030 vocabulary.
-const FAST_BOOT_KEY = "writ-theme-vars-v3";
+const FAST_BOOT_KEY = THEME_MIRROR_KEY;
 
 const DEFAULT_APPEARANCE: AppearanceConfig = {
   polarity: "system",

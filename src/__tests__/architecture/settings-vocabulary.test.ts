@@ -16,7 +16,8 @@ import {
 const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["notes.folder", "general", "Folder", ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"]],
   ["files.default_extension", "general", "Default format", ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"]],
-  ["hotkey.toggle", "general", "Show and hide Writ", ["shortcut", "global", "hotkey", "summon", "show", "hide", "window", "chord", "keyboard"]],
+  ["hotkey.toggle", "general", "Show and hide Writ", ["shortcut", "global", "hotkey", "summon", "show", "hide", "window", "chord", "keyboard", "toggle", "from any app", "taken"]],
+  ["general.launch_at_login", "general", "Open at login", ["login", "startup", "start", "boot", "autostart", "launch", "restart", "hidden"]],
   ["editor.font_size", "editor", "Font size", ["font", "size", "text", "zoom"]],
   ["editor.tab_size", "editor", "Tab size", ["tab", "indent", "spaces", "width"]],
   ["editor.word_wrap", "editor", "Word wrap", ["wrap", "word", "line", "soft wrap"]],
@@ -40,6 +41,7 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["apps.connections", "apps", "Connections", ["app", "connections", "links", "backlinks", "outline", "properties", "panel"]],
   ["apps.graph", "apps", "Graph", ["app", "graph", "map", "links", "nearby"]],
   ["apps.tags", "apps", "Tags", ["app", "tags", "hashtag", "filter", "sidebar"]],
+  ["apps.offers", "apps", "Offer apps that are off", ["apps", "offer", "suggest", "notice", "tips", "links", "tags"]],
   ["ai.provider", "apps", "Provider", ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"]],
   ["ai.base_url", "apps", "Base URL", ["ai", "base url", "endpoint", "host", "server"]],
   ["ai.api_key", "apps", "API key", ["ai", "api key", "token", "secret", "credential"]],

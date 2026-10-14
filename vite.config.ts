@@ -1,4 +1,5 @@
 /// <reference types="vitest" />
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import solidPlugin from "vite-plugin-solid";
 
@@ -22,6 +23,13 @@ export default defineConfig({
   // baseline target.
   build: {
     target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
+    // The quick capture window loads a page of its own (ADR-055).
+    rolldownOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        capture: fileURLToPath(new URL("./capture.html", import.meta.url)),
+      },
+    },
   },
   server: {
     port: devPort,

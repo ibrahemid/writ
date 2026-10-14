@@ -26,7 +26,7 @@ export default function Toolbar() {
 
   const appControls = createMemo(
     () =>
-      `${configStore.isAppOn("connections")}:${configStore.isAppOn("chat")}:${configStore.isAppOn("programs")}`,
+      `${configStore.isAppOn("connections")}:${configStore.isAppOn("graph")}:${configStore.isAppOn("chat")}:${configStore.isAppOn("programs")}`,
   );
 
   const waitingCount = () => activityStore.pending().length;
@@ -127,6 +127,19 @@ export default function Toolbar() {
       </Show>
 
       {/* Each button is here only while its app is on (ADR-042 section 3). */}
+      <Show when={configStore.isAppOn("graph")}>
+        <Tooltip label="Graph" kbd="folderGraph.open">
+          <Button
+            variant="ghost"
+            class="writ-toolbar-btn"
+            icon="graph"
+            aria-label="Graph"
+            pressed={win.folderGraph.isOpen()}
+            onClick={() => win.folderGraph.toggle()}
+          />
+        </Tooltip>
+      </Show>
+
       <Show when={configStore.isAppOn("chat")}>
         <Tooltip label="Chat" kbd={CHAT_TOGGLE_COMMAND_ID}>
           <Button

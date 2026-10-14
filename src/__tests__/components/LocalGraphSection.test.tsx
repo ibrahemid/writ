@@ -223,3 +223,17 @@ describe("the section beside a note with notes around it", () => {
     expect(h.openFile).toHaveBeenCalledWith(`${named}.md`);
   });
 });
+
+// NV-09: the whole folder's drawing was reachable from the View menu alone.
+describe("Open graph", () => {
+  it("opens the whole folder's drawing from under the nearby files", async () => {
+    const { registerCommand, unregisterCommand } = await import("../../commands/registry");
+    const open = vi.fn();
+    registerCommand({ id: "folderGraph.open", label: "Open graph", scope: "app", execute: open });
+    h.graph = FOLDER;
+    const { getByRole } = render(() => <LocalGraphSection path="Alpha.md" />);
+    fireEvent.click(getByRole("button", { name: "Open graph" }));
+    expect(open).toHaveBeenCalledTimes(1);
+    unregisterCommand("folderGraph.open");
+  });
+});

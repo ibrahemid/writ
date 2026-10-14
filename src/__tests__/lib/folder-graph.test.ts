@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import {
   NODE_CAP,
   countMatches,
+  fileGraphOf,
   folderGraphOf,
+  folderLegend,
+  graphMatches,
   matchesQuery,
+  stepMatch,
   type FolderEdgeRow,
   type FolderNodeRow,
 } from "../../lib/graph/folder-graph";
@@ -149,5 +153,90 @@ describe("searching the drawing", () => {
     expect(countMatches(graph.nodes, "alp")).toBe(2);
     expect(countMatches(graph.nodes, "")).toBe(3);
     expect(countMatches(graph.nodes, "nothing")).toBe(0);
+  });
+});
+
+describe("fileGraphOf", () => {
+  const nodes = [
+    { path: "a.md", name: "A", folder: "" },
+    { path: "Work/b.md", name: "B", folder: "Work" },
+    { path: "Work/c.md", name: "C", folder: "Work" },
+    { path: "d.md", name: "D", folder: "" },
+  ];
+  const edges = [
+    { from_path: "a.md", to_path: "Work/b.md" },
+    { from_path: "Work/c.md", to_path: "a.md" },
+    { from_path: "Work/c.md", to_path: "d.md" },
+  ];
+
+  it("is the open file and the files one link from it, each in its folder", () => {
+    const drawn = fileGraphOf(nodes, edges, "a.md");
+    expect(drawn.nodes.map((node) => [node.path, node.folder])).toEqual([
+      ["a.md", ""],
+      ["Work/b.md", "Work"],
+      ["Work/c.md", "Work"],
+    ]);
+    expect(drawn.capped).toBe(false);
+  });
+
+  it("is empty for a file nothing links with, and for no file", () => {
+    expect(fileGraphOf(nodes, [], "a.md").nodes).toEqual([]);
+    expect(fileGraphOf(nodes, edges, "").nodes).toEqual([]);
+  });
+});
+
+describe("graphMatches and stepMatch", () => {
+  const drawn = folderGraphOf(
+    [
+      { path: "Work/zeta.md", name: "Zeta", folder: "Work" },
+      { path: "alpha.md", name: "Alpha", folder: "" },
+      { path: "Work/beta.md", name: "Beta", folder: "Work" },
+    ],
+    [],
+  ).nodes;
+
+  it("lists what the search names among the lit folder, by name", () => {
+    expect(graphMatches(drawn, "", null).map((node) => node.name)).toEqual(["Alpha", "Beta", "Zeta"]);
+    expect(graphMatches(drawn, "a", "Work").map((node) => node.name)).toEqual(["Beta", "Zeta"]);
+    expect(graphMatches(drawn, "", "").map((node) => node.name)).toEqual(["Alpha"]);
+  });
+
+  it("steps forward and back, wrapping, from no choice or a stale one", () => {
+    const matches = graphMatches(drawn, "", null);
+    expect(stepMatch(matches, null, 1)).toBe("alpha.md");
+    expect(stepMatch(matches, null, -1)).toBe("Work/zeta.md");
+    expect(stepMatch(matches, "Work/zeta.md", 1)).toBe("alpha.md");
+    expect(stepMatch(matches, "alpha.md", -1)).toBe("Work/zeta.md");
+    expect(stepMatch(matches, "gone.md", 1)).toBe("alpha.md");
+    expect(stepMatch([], null, 1)).toBeNull();
+  });
+});
+
+describe("folderLegend", () => {
+  it("gives each top-level folder a chip in its colour, then the top level", () => {
+    const drawn = folderGraphOf(
+      [
+        { path: "Work/a.md", name: "A", folder: "Work" },
+        { path: "Home/b.md", name: "B", folder: "Home" },
+        { path: "c.md", name: "C", folder: "" },
+      ],
+      [],
+    ).nodes;
+    const colors = new Map([
+      ["Home", "red"],
+      ["Work", "blue"],
+    ]);
+    expect(folderLegend(drawn, colors, "grey", "Writ")).toEqual([
+      { folder: "Home", label: "Home", color: "red" },
+      { folder: "Work", label: "Work", color: "blue" },
+      { folder: "", label: "Writ", color: "grey" },
+    ]);
+  });
+
+  it("has no top-level chip when every file is in a folder", () => {
+    const drawn = folderGraphOf([{ path: "Work/a.md", name: "A", folder: "Work" }], []).nodes;
+    expect(folderLegend(drawn, new Map(), "grey", "Writ").map((entry) => entry.label)).toEqual([
+      "Work",
+    ]);
   });
 });

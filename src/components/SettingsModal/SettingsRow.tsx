@@ -67,6 +67,10 @@ interface SettingsRowProps {
   /** A control that belongs with the label rather than with the row's own
    * control, such as the link to a provider's key page. */
   labelAside?: JSX.Element;
+  /** What follows the description in the label column, such as where an app
+   * lives and the control that opens it. Kept out of the row's control
+   * column, so the description stays on the row's own control. */
+  footer?: JSX.Element;
   align?: "start";
   layout?: "full";
   children: JSX.Element;
@@ -140,6 +144,7 @@ export function SettingsRow(props: SettingsRowProps) {
               {props.caution}
             </span>
           </Show>
+          {props.footer}
         </span>
         {props.children}
       </div>
@@ -155,6 +160,7 @@ interface SwitchRowProps {
   description?: string;
   caution?: string;
   detail?: JSX.Element;
+  footer?: JSX.Element;
   aside?: JSX.Element;
   onChange: () => void;
 }
@@ -178,6 +184,7 @@ export function SwitchRow(props: SwitchRowProps) {
       description={props.description}
       caution={props.caution}
       detail={props.detail}
+      footer={props.footer}
     >
       {props.aside ? (
         <span class="settings-switch-row-controls">

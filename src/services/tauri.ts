@@ -1526,14 +1526,73 @@ export interface GlobalHotkeyStatus {
   chord: string;
   /** `false` when the OS gave the chord to another app first. */
   registered: boolean;
+  /** The session cannot deliver a chord from other apps at all (Wayland). */
+  unsupported: boolean;
+}
+
+/** What asking for a new chord came to. */
+export interface HotkeyRebind {
+  status: GlobalHotkeyStatus;
+  /** Another app holds the chord asked for; `status` is the chord kept. */
+  refused: boolean;
 }
 
 export async function globalHotkeyStatus(): Promise<GlobalHotkeyStatus> {
   return invoke("global_hotkey_status");
 }
 
-export async function setGlobalHotkey(chord: string): Promise<GlobalHotkeyStatus> {
+/** Rejects a chord that cannot be held for every app, before the OS is asked. */
+export async function setGlobalHotkey(chord: string): Promise<HotkeyRebind> {
   return invoke("set_global_hotkey", { chord });
+}
+
+export async function captureHotkeyStatus(): Promise<GlobalHotkeyStatus> {
+  return invoke("capture_hotkey_status");
+}
+
+/** As `setGlobalHotkey`, for the capture chord. Also rejects the window's
+ * chord. An empty chord turns capture off. */
+export async function setCaptureHotkey(chord: string): Promise<HotkeyRebind> {
+  return invoke("set_capture_hotkey", { chord });
+}
+
+// --- The quick capture note (ADR-055) ---
+
+export interface CaptureOutcome {
+  /** Today's file, by name. */
+  name: string;
+  /** `false` when the note held nothing to add. */
+  added: boolean;
+}
+
+/** Adds `text` to the end of today's file, minting the file if the day has none. */
+export async function appendCapture(text: string): Promise<CaptureOutcome> {
+  return invoke("capture_append", { text });
+}
+
+/** The name of the file an entry goes to now. */
+export async function captureTarget(): Promise<string> {
+  return invoke("capture_target");
+}
+
+/** Hides the capture note; with `returnFocus`, the app in front before it gets
+ * the keyboard back. */
+export async function closeCapture(returnFocus: boolean): Promise<void> {
+  return invoke("capture_close", { returnFocus });
+}
+
+// --- Open at login ---
+
+export interface LoginItemStatus {
+  enabled: boolean;
+}
+
+export async function launchAtLoginStatus(): Promise<LoginItemStatus> {
+  return invoke("launch_at_login_status");
+}
+
+export async function setLaunchAtLogin(on: boolean): Promise<LoginItemStatus> {
+  return invoke("set_launch_at_login", { on });
 }
 
 // --- Third-party licences ---

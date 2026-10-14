@@ -330,6 +330,15 @@ function createIndexCacheStore() {
   }
 
   /**
+   * Keeps the facts of the note at `path` read and current, without the notes
+   * linking to it, until the function returned is called. For a surface that
+   * asks what a note holds and not what points at it.
+   */
+  function holdFacts(path: string): () => void {
+    return hold(keyOf(FACTS, path), () => noteFacts(path), NO_FACTS, FACTS_FAILED);
+  }
+
+  /**
    * What the index holds about the note at `path`: its links, properties,
    * tags and headings. Reading it holds nothing; it is current while a
    * surface holds the note ([`holdNote`]).
@@ -548,6 +557,7 @@ function createIndexCacheStore() {
     pathsForTag,
     tagPathsError,
     tagPathsSettled,
+    holdFacts,
     holdGraph,
     graph,
     graphError,

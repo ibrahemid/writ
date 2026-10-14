@@ -20,9 +20,14 @@ export interface Pan {
 
 const NO_PAN: Pan = { x: 0, y: 0 };
 
+/** What the drawing is of: the whole folder, or the files one link from the
+ * open one. */
+export type GraphScope = "folder" | "file";
+
 /**
- * The whole-folder drawing: whether it is showing, what is typed into its
- * search, and where the drawing has been taken.
+ * The whole-folder drawing: whether it is showing, what it is of, what is
+ * typed into its search, which note is chosen, which folder the legend keeps
+ * lit, and where the drawing has been taken.
  *
  * Per-window state, and none of it persists. Where someone left the drawing
  * last week is not a setting, and reopening it on the folder as it is now is
@@ -33,17 +38,24 @@ export function createFolderGraphStore() {
   const [query, setQuery] = createSignal("");
   const [zoom, setZoom] = createSignal(1);
   const [pan, setPanState] = createSignal<Pan>(NO_PAN);
+  const [scope, setScopeState] = createSignal<GraphScope>("folder");
+  const [selected, setSelected] = createSignal<string | null>(null);
+  const [isolated, setIsolated] = createSignal<string | null>(null);
 
   function clampZoom(next: number): number {
     if (next < MIN_ZOOM) return MIN_ZOOM;
     return next > MAX_ZOOM ? MAX_ZOOM : next;
   }
 
-  /** Opens the drawing on the whole folder, with nothing searched for yet. */
+  /** Opens the drawing on the whole folder, with nothing searched for, chosen
+   * or kept lit yet. */
   function open() {
     setQuery("");
     setZoom(1);
     setPanState(NO_PAN);
+    setScopeState("folder");
+    setSelected(null);
+    setIsolated(null);
     setIsOpen(true);
   }
 
@@ -56,8 +68,32 @@ export function createFolderGraphStore() {
     else open();
   }
 
+  /** A new search starts the choosing over: the note chosen under the last
+   * one may be one this one passes over. */
   function search(text: string) {
     setQuery(text);
+    setSelected(null);
+  }
+
+  /** Draws the whole folder or the files around the open one, from where the
+   * drawing opened. */
+  function setScope(next: GraphScope) {
+    if (scope() === next) return;
+    setScopeState(next);
+    setSelected(null);
+    setIsolated(null);
+    resetView();
+  }
+
+  /** Chooses a note, or none. */
+  function select(path: string | null) {
+    setSelected(path);
+  }
+
+  /** Keeps one top-level folder lit and dims the rest; the same folder again,
+   * or `null`, lights every folder. `""` is the files at the top level. */
+  function isolate(folder: string | null) {
+    setIsolated((current) => (current === folder ? null : folder));
   }
 
   /** Multiplies the zoom, held between the two bounds. */
@@ -110,6 +146,8 @@ export function createFolderGraphStore() {
       notesStore.root,
       () => {
         setQuery("");
+        setSelected(null);
+        setIsolated(null);
         resetView();
       },
       { defer: true },
@@ -121,10 +159,16 @@ export function createFolderGraphStore() {
     query,
     zoom,
     pan,
+    scope,
+    selected,
+    isolated,
     open,
     close,
     toggle,
     search,
+    setScope,
+    select,
+    isolate,
     zoomBy,
     zoomIn,
     zoomOut,

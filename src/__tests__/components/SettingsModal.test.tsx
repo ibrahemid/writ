@@ -270,6 +270,26 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   default: (props: { children: unknown }) => props.children,
 }));
 
+// What Open finds when it runs: Settings gone and focus handed back, so the
+// surface it shows keeps the focus it takes.
+const surfaces = vi.hoisted(() => ({
+  opened: [] as { app: string; modalPresent: boolean; active: Element | null }[],
+}));
+vi.mock("../../commands/app-surfaces", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../commands/app-surfaces")>();
+  return {
+    ...actual,
+    openAppSurface: (app: string) => {
+      surfaces.opened.push({
+        app,
+        modalPresent: document.querySelector(".settings-modal") !== null,
+        active: document.activeElement,
+      });
+      return true;
+    },
+  };
+});
+
 vi.mock("../../components/ThemeEditor/ThemeEditor", () => ({
   openThemeEditor: mocks.openThemeEditor,
   default: () => null,
@@ -321,7 +341,9 @@ import {
 import { SETTINGS_INDEX, SECTION_ORDER, settingDescription, settingTitle } from "../../settings";
 import { setKeybindingOverrides } from "../../commands/effective-bindings";
 import { UNUSABLE_GLOBAL_KEY } from "../../lib/chord";
-import { spokenKeybinding } from "../../lib/keybinding-format";
+import { formatKeybinding, spokenKeybinding } from "../../lib/keybinding-format";
+import { windowChordRule } from "../../components/ShortcutEditor/any-app-chord";
+import { detectPlatform } from "../../lib/platform";
 import { getPreset } from "../../styles/themes";
 import { ACCENTS } from "../../styles/generated/tokens";
 
@@ -870,7 +892,10 @@ describe("SettingsModal", () => {
     });
 
     it("asks the OS for a recorded chord and keeps the one it gave", async () => {
-      mocks.rebindHotkey.mockResolvedValue({ chord: "Alt+Space", registered: true });
+      mocks.rebindHotkey.mockResolvedValue({
+        status: { chord: "Alt+Space", registered: true, unsupported: false },
+        refused: false,
+      });
       const { container } = render(() => <SettingsModal />);
       openSettings("general");
       await waitFor(() =>
@@ -926,6 +951,48 @@ describe("SettingsModal", () => {
         ).toBe(UNUSABLE_GLOBAL_KEY),
       );
       expect(mocks.save).not.toHaveBeenCalled();
+    });
+
+    it("refuses a key with no Cmd, Ctrl or Alt, states the rule and keeps listening", async () => {
+      const { container } = render(() => <SettingsModal />);
+      openSettings("general");
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='record-global-chord']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector("[data-action='record-global-chord']")!);
+      fireEvent.keyDown(document.body, { key: "a", code: "KeyA" });
+      await waitFor(() =>
+        expect(
+          container.querySelector("[data-setting-id='hotkey.toggle'] .settings-row-caution")
+            ?.textContent,
+        ).toBe(windowChordRule(detectPlatform())),
+      );
+      expect(container.querySelector("[data-action='record-global-chord']")!.textContent).toBe(
+        "Cancel",
+      );
+      expect(mocks.rebindHotkey).not.toHaveBeenCalled();
+    });
+
+    it("names the chord another app holds when the OS turns it down", async () => {
+      mocks.rebindHotkey.mockResolvedValue({
+        status: { chord: "CmdOrCtrl+Shift+Space", registered: true, unsupported: false },
+        refused: true,
+      });
+      const { container } = render(() => <SettingsModal />);
+      openSettings("general");
+      await waitFor(() =>
+        expect(container.querySelector("[data-action='record-global-chord']")).not.toBeNull(),
+      );
+      fireEvent.click(container.querySelector("[data-action='record-global-chord']")!);
+      fireEvent.keyDown(document.body, { key: "k", code: "KeyK", ctrlKey: true, altKey: true });
+      await waitFor(() => expect(mocks.rebindHotkey).toHaveBeenCalledTimes(1));
+      const asked = mocks.rebindHotkey.mock.calls[0][0] as string;
+      await waitFor(() =>
+        expect(
+          container.querySelector("[data-setting-id='hotkey.toggle'] .settings-row-caution")
+            ?.textContent,
+        ).toBe(`Another app is using ${formatKeybinding(asked)}.`),
+      );
     });
   });
 
@@ -2988,5 +3055,97 @@ describe("the words the panel uses", () => {
     const title = container.querySelector(".settings-empty-title")!.textContent!;
     expect(title).toBe("No settings match “zzzzz”");
     expect(title).not.toContain('"');
+  });
+});
+
+// NV-34: neither the row nor the setup card said where an app lives.
+describe("the Apps rows", () => {
+  function graphOn(): WritConfig {
+    const base = baseConfig();
+    return { ...base, apps: { ...base.apps, graph: true } };
+  }
+
+  beforeEach(() => {
+    mocks.config.mockReset().mockReturnValue(graphOn());
+  });
+
+  afterEach(() => {
+    closeSettings();
+    cleanup();
+  });
+
+  async function openApps() {
+    const result = render(() => <SettingsModal />);
+    openSettings("apps", "apps.graph");
+    await waitFor(() =>
+      expect(result.container.querySelector("[data-setting-id='apps.graph']")).not.toBeNull(),
+    );
+    return result;
+  }
+
+  it("lists where each app lives under its sentence", async () => {
+    const { registerCommand, unregisterCommand } = await import("../../commands/registry");
+    registerCommand({
+      id: "folderGraph.open",
+      label: "Open graph",
+      keybinding: "CmdOrCtrl+Alt+G",
+      scope: "app",
+      execute: () => {},
+    });
+    const { container } = await openApps();
+    const where = (id: string) =>
+      collapse(container.querySelector(`[data-setting-id='${id}'] .app-entry-points`)?.textContent ?? "");
+    expect(where("apps.graph")).toContain("Toolbar");
+    expect(where("apps.graph")).toContain("View menu");
+    expect(where("ai.rewrite.enabled")).toContain("Right-click selected text");
+    expect(
+      container.querySelector("[data-setting-id='apps.graph'] .app-entry-points .kbd-chord"),
+    ).not.toBeNull();
+    unregisterCommand("folderGraph.open");
+  });
+
+  it("offers Open for an app that is on, and none for one that is off", async () => {
+    const { container } = await openApps();
+    const open = (id: string) =>
+      container.querySelector(`[data-setting-id='${id}'] [data-action='open-app']`);
+    expect(open("apps.graph")).not.toBeNull();
+    expect(open("apps.tags")).toBeNull();
+  });
+
+  it("closes Settings from Open, then shows the app once focus is handed back", async () => {
+    surfaces.opened = [];
+    const before = document.createElement("button");
+    document.body.append(before);
+    before.focus();
+    const { container } = await openApps();
+    const open = container.querySelector<HTMLButtonElement>(
+      "[data-setting-id='apps.graph'] [data-action='open-app']",
+    )!;
+    open.focus();
+    fireEvent.click(open);
+    await waitFor(() => expect(surfaces.opened.length).toBe(1));
+    expect(surfaces.opened[0].app).toBe("graph");
+    expect(surfaces.opened[0].modalPresent).toBe(false);
+    expect(surfaces.opened[0].active).toBe(before);
+    before.remove();
+  });
+
+  it("marks the row a chord opened it at", async () => {
+    const { container } = await openApps();
+    expect(
+      container.querySelector("[data-setting-id='apps.graph']")!.classList.contains(
+        "settings-row-highlight",
+      ),
+    ).toBe(true);
+  });
+
+  it("turns every offer off from one switch", async () => {
+    const { container } = await openApps();
+    const toggle = container.querySelector<HTMLButtonElement>("[data-setting='apps_offers']")!;
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(configStore.appOffersOn()).toBe(false);
+    configStore.setAppOffersOn(true);
   });
 });

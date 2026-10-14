@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   resolutions: {} as Record<string, LinkResolution>,
   openFile: vi.fn<(path: string) => Promise<{ id: string } | null>>(),
   resolveNoteLink: vi.fn<(from: string, target: string) => Promise<LinkResolution>>(),
+  createNote: vi.fn<(target: string) => Promise<{ source_path: string } | null>>(),
   collapsed: new Set<string>(),
 }));
 
@@ -37,7 +38,7 @@ vi.mock("../../stores/global/index-cache", () => ({
 }));
 
 vi.mock("../../stores/global/link", () => ({
-  linkStore: { resolveNoteLink: h.resolveNoteLink },
+  linkStore: { resolveNoteLink: h.resolveNoteLink, createNote: h.createNote },
 }));
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
@@ -68,6 +69,9 @@ beforeEach(() => {
   h.resolutions = {};
   h.collapsed = new Set();
   h.openFile.mockReset().mockResolvedValue({ id: "buf-2" });
+  h.createNote.mockReset().mockImplementation((target) =>
+    Promise.resolve({ source_path: `/notes/${target}.md` }),
+  );
   h.resolveNoteLink
     .mockReset()
     .mockImplementation((_from, target) => Promise.resolve(h.resolutions[target] ?? missing()));
@@ -116,6 +120,24 @@ describe("a link the index settled on nothing", () => {
     expect(container.querySelector(".right-panel-row-unsettled")?.textContent).toBe(
       "Not here yet",
     );
+  });
+
+  // NV-25: an unresolved link was a dead row.
+  it("offers to create the file a target names, and opens it", async () => {
+    h.links = [link("Not here yet", null)];
+    const { findByRole } = render(() => <LinksSection path="Alpha.md" />);
+    const create = await findByRole("button", { name: "Create Not here yet" });
+    fireEvent.click(create);
+    await vi.waitFor(() => expect(h.openFile).toHaveBeenCalledWith("/notes/Not here yet.md"));
+    expect(h.createNote).toHaveBeenCalledWith("Not here yet");
+  });
+
+  it("offers no Create for a target that could mean several files", async () => {
+    h.links = [link("Notes", null)];
+    h.resolutions = { Notes: ambiguous(["work/Notes.md", "home/Notes.md"]) };
+    const { findByText, queryByRole } = render(() => <LinksSection path="Alpha.md" />);
+    await findByText("Could also mean work/Notes or home/Notes");
+    expect(queryByRole("button", { name: /^Create/ })).toBeNull();
   });
 
   it("names the notes a target could have meant, with nothing to open", async () => {

@@ -23,7 +23,11 @@ export type WritEvent =
       };
     }
   | { kind: "menu:action"; payload: { action: string } }
-  | { kind: "hotkey:status"; payload: { chord: string; registered: boolean } }
+  | { kind: "hotkey:status"; payload: { chord: string; registered: boolean; unsupported: boolean } }
+  | {
+      kind: "hotkey:capture-status";
+      payload: { chord: string; registered: boolean; unsupported: boolean };
+    }
   | { kind: "workspace:changed"; payload: { path: string; removed: boolean } }
   | { kind: "workspace:swept"; payload: { root: string } }
   | { kind: "notes:changed"; payload: { path: string; removed: boolean } }

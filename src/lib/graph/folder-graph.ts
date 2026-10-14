@@ -13,6 +13,7 @@
  */
 
 import type { LayoutEdge } from "./layout";
+import { neighbourhoodOf } from "./neighbourhood";
 
 /** How many notes are drawn before the view keeps only the largest group. */
 export const NODE_CAP = 2000;
@@ -192,4 +193,91 @@ export function countMatches(nodes: readonly FolderGraphNode[], query: string): 
   let found = 0;
   for (const node of nodes) if (matchesQuery(node.name, query)) found += 1;
   return found;
+}
+
+/**
+ * The open note and the notes one link from it, drawn the way the folder is:
+ * each note keeps its folder, so its colour is the one the whole folder gives
+ * it. Empty for a note nothing links with, and for no note at all.
+ */
+export function fileGraphOf(
+  nodes: readonly FolderNodeRow[],
+  edges: readonly FolderEdgeRow[],
+  focusPath: string,
+): FolderGraph {
+  if (focusPath === "") return EMPTY;
+  const near = neighbourhoodOf(nodes, edges, focusPath);
+  if (near.nodes.length === 0) return EMPTY;
+  const folderOf = new Map(nodes.map((node) => [node.path, node.folder] as const));
+  return {
+    nodes: near.nodes.map((node) => ({
+      path: node.path,
+      name: node.name,
+      folder: folderOf.get(node.path) ?? "",
+      degree: node.degree,
+    })),
+    edges: near.edges,
+    total: near.nodes.length,
+    capped: false,
+  };
+}
+
+/**
+ * The notes a search names among the ones still lit, by name: what the
+ * arrows step through and the first of which Enter opens. With `isolated`
+ * set, only the notes of that top-level folder are lit (`""` is the files at
+ * the top level).
+ */
+export function graphMatches(
+  nodes: readonly FolderGraphNode[],
+  query: string,
+  isolated: string | null,
+): FolderGraphNode[] {
+  return nodes
+    .filter((node) => matchesQuery(node.name, query))
+    .filter((node) => isolated === null || node.folder === isolated)
+    .sort((a, b) => a.name.localeCompare(b.name) || (a.path < b.path ? -1 : 1));
+}
+
+/**
+ * The match `step` places from `selected`, wrapping at either end. With
+ * nothing chosen, or a choice the matches no longer hold, the first step
+ * forward lands on the first match and the first step back on the last.
+ */
+export function stepMatch(
+  matches: readonly FolderGraphNode[],
+  selected: string | null,
+  step: 1 | -1,
+): string | null {
+  if (matches.length === 0) return null;
+  const at = selected === null ? -1 : matches.findIndex((node) => node.path === selected);
+  if (at === -1) return step === 1 ? matches[0].path : matches[matches.length - 1].path;
+  return matches[(at + step + matches.length) % matches.length].path;
+}
+
+/** One chip of the legend: a top-level folder, or the files at the top. */
+export interface LegendEntry {
+  /** The folder as the index names it, `""` for the files at the top level. */
+  folder: string;
+  label: string;
+  color: string;
+}
+
+/**
+ * The legend under the search: one chip per top-level folder the drawing
+ * holds, in the order the colours are handed out, then the files at the top
+ * level in the muted colour, labelled with the notes folder's own name.
+ */
+export function folderLegend(
+  nodes: readonly FolderGraphNode[],
+  colors: ReadonlyMap<string, string>,
+  rootColor: string,
+  rootLabel: string,
+): LegendEntry[] {
+  const folders = [...new Set(nodes.map((node) => node.folder))].sort();
+  const entries: LegendEntry[] = folders
+    .filter((folder) => folder.length > 0)
+    .map((folder) => ({ folder, label: folder, color: colors.get(folder) ?? rootColor }));
+  if (folders.includes("")) entries.push({ folder: "", label: rootLabel, color: rootColor });
+  return entries;
 }

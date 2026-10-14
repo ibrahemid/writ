@@ -63,19 +63,20 @@ What Writ does, at the level of detail that answers "does it do X".
 ## Window
 
 - `Cmd+Shift+Space` (`Ctrl+Shift+Space` on Windows and Linux) shows and hides the window from any app. Settings, General records a new one, and Settings, Shortcuts lists it first with every other shortcut.
+- `Cmd+Shift+Option+Space` (`Ctrl+Shift+Alt+Space` on Windows and Linux) opens a small window over any app. Escape adds what you typed to the end of Today's File; on macOS and Windows the app you were in gets the keyboard back.
 - Tabs switch with `Cmd+[` and `Cmd+]`, and `Cmd+Shift+T` reopens the last closed one.
 - Light and dark follow the system, with six accent colours, preset themes and custom colours.
 - The editor font size (`Cmd+=`, `Cmd+-`, `Cmd+0`) and the interface text size (Settings, Appearance) change separately.
 
 ## Apps
 
-Six features are apps, each switched on under Settings, Apps, and all off on a fresh install. An app that is off has no menu item, palette command, shortcut or panel.
+Six features are apps, each switched on under Settings, Apps, and all off on a fresh install. An app that is off has no menu item, palette command or panel; its shortcut opens its row in Settings, Apps. Each row and setup card lists where the app lives, and Open shows it. A Markdown file with links or tags offers Connections or Tags once, as one notice; Settings, Apps has one switch for these offers.
 
 - **Chat**: a pane beside the file (`Cmd+Shift+A`) with the open file attached; `@` attaches another. Only attached files are sent, and the send dialog names the host and the byte count first. A proposed edit shows as a line diff with Apply and Discard. Conversations are kept and can be renamed or deleted.
 - **Rewrite**: proofread, rephrase, polish, improve prompt (which keeps `{{placeholders}}` as written), or your own instruction, on a selection.
 - **Connected programs**: an MCP server, `writ mcp`, that another program starts over stdio. Eleven tools: eight that read (list_notes, search_notes, read_note, note_links, note_backlinks, note_properties, note_tags, folder_tags) and three that write (write_note, create_note, rename_note), with separate read and write switches per program and nothing that deletes. Paths in answers are relative to the folder, and the folder follows a change in Settings without a restart. A program waits under Waiting for you, in Settings and in a notice, until you approve it or don't allow it, and Program activity lists every call.
-- **Connections**: a panel (`Cmd+Shift+\`) listing the files that link to the open one with the sentence each link sits in, its outline of headings, and its frontmatter properties.
-- **Graph**: the files around the open one, and a view of the whole folder with search and one colour per top-level folder.
+- **Connections**: a panel (`Cmd+Shift+\`) listing the files that link to the open one with the sentence each link sits in, its outline of headings with the one the cursor is under marked, and its frontmatter properties. A link to a file that does not exist yet has Create.
+- **Graph**: a toolbar button and `Cmd+Option+G` (`Ctrl+Alt+G` on Windows and Linux) open a view of the whole folder, or of the files one link from the open one, with search, a legend of the colour per top-level folder, and zoom and fit buttons. A click selects a file; Enter or a double-click opens it. In the search, the arrow keys step through the matches and Enter opens the selected one or the first. With Connections on, its panel also draws the files around the open one.
 - **Tags**: `#tags` and frontmatter tags in the sidebar with counts. Nested tags group under their parent, and selecting one filters the tree of Writ's folder.
 
 Chat and Rewrite share one AI connection: Ollama or LM Studio on this machine, Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together or Fireworks with a key, or any OpenAI-compatible endpoint. The key goes in the system keychain on macOS and Windows, and in memory for the session elsewhere. Writ asks before the first send to a host off your machine.

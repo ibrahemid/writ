@@ -47,7 +47,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       toggleSection: vi.fn(),
     },
     tabs: { activeTabId: () => "buf-1", openFile: h.openFile },
-    editor: { requestReveal: h.requestReveal },
+    editor: { requestReveal: h.requestReveal, cursorLine: () => 1 },
   }),
 }));
 

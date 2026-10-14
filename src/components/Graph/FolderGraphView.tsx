@@ -1,4 +1,5 @@
 import {
+  For,
   Show,
   createEffect,
   createMemo,
@@ -10,17 +11,29 @@ import {
 import GraphCanvas from "./GraphCanvas";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
+import Tooltip from "../Tooltip/Tooltip";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { useActiveBuffer } from "../../lib/use-active-buffer";
 import { indexCacheStore } from "../../stores/global/index-cache";
+import { notesStore } from "../../stores/global/notes";
 import { themeStore } from "../../stores/global/theme";
 import { FOLDER_LAYOUT_OPTIONS } from "../../lib/graph/layout";
 import { folderColors } from "../../lib/graph/color";
-import { countMatches, folderGraphOf, matchesQuery } from "../../lib/graph/folder-graph";
+import {
+  fileGraphOf,
+  folderGraphOf,
+  folderLegend,
+  graphMatches,
+  stepMatch,
+} from "../../lib/graph/folder-graph";
+import { basename } from "../../lib/path";
 import "./FolderGraphView.css";
 
 /** The token a note in the root of the notes folder is drawn in. */
 const ROOT_TOKEN = "--writ-fg-muted";
+
+/** The keys the drawing takes for itself rather than handing to the search. */
+const ZOOM_KEYS = new Set(["+", "=", "-"]);
 
 /**
  * The whole folder, drawn.
@@ -33,9 +46,14 @@ const ROOT_TOKEN = "--writ-fg-muted";
  * window on macOS (PR #127).
  *
  * Colour is the folder a note is in, taken from the accent the theme already
- * spends on links, and searching dims everything the search does not name.
- * Clicking a note opens it behind the drawing, which stays where it is: this
- * is a way of choosing what to read next, not a place to be sent away from.
+ * spends on links, and the legend under the search names each folder's colour
+ * and keeps one lit. Searching dims everything the search does not name. The
+ * same layer draws the files one link from the open one, so the graph around
+ * a file does not need the connections panel.
+ *
+ * A click chooses a note and names it; Enter or a double-click opens it and
+ * closes the layer (ADR-037 section 9). From the search, the arrows step
+ * through what it names and Enter opens the chosen note, or the first.
  */
 export default function FolderGraphView() {
   const win = useWindow();
@@ -45,6 +63,7 @@ export default function FolderGraphView() {
   onCleanup(indexCacheStore.holdGraph());
   const graph = indexCacheStore.graph();
   const graphError = indexCacheStore.graphError();
+  const graphSettled = indexCacheStore.graphSettled();
 
   let layer: HTMLDivElement | undefined;
   let field: HTMLInputElement | undefined;
@@ -53,6 +72,9 @@ export default function FolderGraphView() {
   // the note is still there underneath: leaving focus on the body would mean
   // typing into nothing until the note is clicked.
   let returnFocusTo: HTMLElement | null = null;
+  // Set when a note was opened from the drawing: what had focus belongs to the
+  // note that was in front, and the one opened is where typing goes now.
+  let handsFocusToEditor = false;
   const titleId = createUniqueId();
   // The two colours the drawing is built from: the accent every folder's
   // colour is turned from, and what a note in no folder is drawn in. Both are
@@ -69,12 +91,23 @@ export default function FolderGraphView() {
     });
   }
 
+  const focusPath = () => activeBuffer()?.source_path ?? "";
+  const folderName = () => {
+    const root = notesStore.root();
+    return root ? basename(root) : "";
+  };
+
   const drawn = createMemo(() => {
     const rows = graph();
-    return folderGraphOf(rows.nodes, rows.edges);
+    return win.folderGraph.scope() === "file"
+      ? fileGraphOf(rows.nodes, rows.edges, focusPath())
+      : folderGraphOf(rows.nodes, rows.edges);
   });
 
-  const matching = createMemo(() => countMatches(drawn().nodes, win.folderGraph.query()));
+  /** What the search names among the notes still lit, by name. */
+  const matches = createMemo(() =>
+    graphMatches(drawn().nodes, win.folderGraph.query(), win.folderGraph.isolated()),
+  );
 
   const colors = createMemo(() =>
     folderColors(
@@ -83,15 +116,27 @@ export default function FolderGraphView() {
     ),
   );
 
-  const focusPath = () => activeBuffer()?.source_path ?? "";
+  const legend = createMemo(() =>
+    folderLegend(drawn().nodes, colors(), tokens().root, folderName() || "Top level"),
+  );
+
+  const nameOf = (path: string | null) =>
+    path === null ? "" : (drawn().nodes.find((node) => node.path === path)?.name ?? "");
 
   /** What the drawing shows, in one line under the search. */
   const count = createMemo(() => {
+    if (!graphSettled()) return "Reading the folder…";
     const graphNow = drawn();
     const shown = graphNow.nodes.length;
+    if (win.folderGraph.scope() === "file") {
+      if (focusPath() === "") return "Open a file to see the files it links with.";
+      if (shown === 0) return "No links to or from this file yet.";
+      const around = shown - 1;
+      return around === 1 ? "1 file one link away" : `${around} files one link away`;
+    }
     if (shown === 0) return "No files yet";
-    if (win.folderGraph.query().trim().length > 0) {
-      return `${matching()} of ${shown} files match`;
+    if (win.folderGraph.query().trim().length > 0 || win.folderGraph.isolated() !== null) {
+      return `${matches().length} of ${shown} files match`;
     }
     if (graphNow.capped) {
       return `${shown} of ${graphNow.total} files, the largest linked group`;
@@ -102,17 +147,30 @@ export default function FolderGraphView() {
   /** What the drawing is, for a reader who is never shown the drawing. */
   const description = () => {
     const shown = drawn().nodes.length;
+    if (win.folderGraph.scope() === "file") {
+      const around = Math.max(0, shown - 1);
+      const name = nameOf(focusPath());
+      return around === 1 ? `${name} and 1 file it links with` : `${name} and ${around} files it links with`;
+    }
     if (shown === 1) return "1 file in this folder and the links between them";
     return `${shown} files in this folder and the links between them`;
   };
 
-  /** The notes a search passed over, which the drawing draws faint. */
+  /** The note a click or the arrows chose, named, with how to open it. */
+  const chosenLine = () => {
+    const name = nameOf(win.folderGraph.selected());
+    return name ? `${name}. Enter opens it.` : "";
+  };
+
+  /** The notes a search or the legend passed over, which the drawing draws faint. */
   const dimmed = createMemo(() => {
-    const query = win.folderGraph.query();
     const paths = new Set<string>();
-    if (query.trim().length === 0) return paths;
+    if (win.folderGraph.query().trim().length === 0 && win.folderGraph.isolated() === null) {
+      return paths;
+    }
+    const lit = new Set(matches().map((node) => node.path));
     for (const node of drawn().nodes) {
-      if (!matchesQuery(node.name, query)) paths.add(node.path);
+      if (!lit.has(node.path)) paths.add(node.path);
     }
     return paths;
   });
@@ -141,9 +199,10 @@ export default function FolderGraphView() {
   });
 
   // Closing puts focus back where it was, and in the editor when what held it
-  // has gone with the palette or the menu the drawing was opened from.
+  // has gone with the palette or the menu the drawing was opened from, or a
+  // note was opened from the drawing.
   onCleanup(() => {
-    if (returnFocusTo?.isConnected) returnFocusTo.focus();
+    if (!handsFocusToEditor && returnFocusTo?.isConnected) returnFocusTo.focus();
     else win.editor.focusEditor();
   });
 
@@ -155,6 +214,43 @@ export default function FolderGraphView() {
     queueMicrotask(readTokens);
   });
 
+  /** Opens `path` behind the layer, then closes the layer onto it. */
+  async function openAndClose(path: string) {
+    await win.tabs.openFile(path).catch(() => null);
+    handsFocusToEditor = true;
+    win.folderGraph.close();
+  }
+
+  /** Opens the chosen note, or with `orFirst` the first the search names. */
+  function openChosen(orFirst: boolean): boolean {
+    const chosen = win.folderGraph.selected();
+    const searched = win.folderGraph.query().trim().length > 0;
+    const path = chosen ?? (orFirst && searched ? (matches()[0]?.path ?? null) : null);
+    if (path === null) return false;
+    void openAndClose(path);
+    return true;
+  }
+
+  function onFieldKeyDown(event: KeyboardEvent) {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    switch (event.key) {
+      case "ArrowDown":
+      case "ArrowUp": {
+        event.preventDefault();
+        // Stopped here: the layer's arrows move the drawing.
+        event.stopPropagation();
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        win.folderGraph.select(stepMatch(matches(), win.folderGraph.selected(), step));
+        return;
+      }
+      case "Enter":
+        event.preventDefault();
+        event.stopPropagation();
+        openChosen(true);
+        return;
+    }
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -164,7 +260,13 @@ export default function FolderGraphView() {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     // Inside the search field the arrows and the minus key are typing.
     if (event.target === field) return;
+    // Outside a button, a key that types goes to the search, which is what a
+    // name typed at a drawing that just opened is for.
+    if (event.target instanceof HTMLButtonElement) return;
     switch (event.key) {
+      case "Enter":
+        if (openChosen(false)) event.preventDefault();
+        return;
       case "ArrowLeft":
         win.folderGraph.panLeft();
         break;
@@ -185,7 +287,10 @@ export default function FolderGraphView() {
         win.folderGraph.zoomOut();
         break;
       default:
-        return;
+        if (event.key.length !== 1 || ZOOM_KEYS.has(event.key)) return;
+        win.folderGraph.search(win.folderGraph.query() + event.key);
+        field?.focus();
+        break;
     }
     event.preventDefault();
   }
@@ -204,8 +309,26 @@ export default function FolderGraphView() {
     >
       <div class="folder-graph-chrome">
         <h2 class="folder-graph-title" id={titleId}>
-          Graph
+          {folderName() ? `Graph · ${folderName()}` : "Graph"}
         </h2>
+        <div class="folder-graph-scope" role="group" aria-label="Files drawn">
+          <button
+            type="button"
+            class="folder-graph-scope-option"
+            aria-pressed={win.folderGraph.scope() === "folder"}
+            onClick={() => win.folderGraph.setScope("folder")}
+          >
+            Folder
+          </button>
+          <button
+            type="button"
+            class="folder-graph-scope-option"
+            aria-pressed={win.folderGraph.scope() === "file"}
+            onClick={() => win.folderGraph.setScope("file")}
+          >
+            This file
+          </button>
+        </div>
         <label class="folder-graph-search">
           <Icon name="magnifying-glass" size={14} />
           <input
@@ -217,37 +340,107 @@ export default function FolderGraphView() {
             aria-label="Search files"
             spellcheck={false}
             onInput={(event) => win.folderGraph.search(event.currentTarget.value)}
+            onKeyDown={onFieldKeyDown}
           />
         </label>
         <p class="folder-graph-count">{graphError() ?? count()}</p>
+        <p class="folder-graph-chosen" aria-live="polite">
+          {chosenLine()}
+        </p>
+        <Show when={legend().length > 1}>
+          <ul class="folder-graph-legend" aria-label="Folders">
+            <For each={legend()}>
+              {(entry) => (
+                <li>
+                  <button
+                    type="button"
+                    class="folder-graph-chip"
+                    aria-pressed={win.folderGraph.isolated() === entry.folder}
+                    onClick={() => win.folderGraph.isolate(entry.folder)}
+                  >
+                    <span
+                      class="folder-graph-swatch"
+                      style={{ background: entry.color }}
+                      aria-hidden="true"
+                    />
+                    {entry.label}
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
       </div>
 
-      <Button
-        class="folder-graph-close"
-        variant="ghost"
-        icon="x"
-        aria-label="Close graph"
-        onClick={() => win.folderGraph.close()}
-      />
+      <div class="folder-graph-tools">
+        <Tooltip label="Zoom out" chord="-">
+          <Button variant="ghost" icon="minus" aria-label="Zoom out" onClick={() => win.folderGraph.zoomOut()} />
+        </Tooltip>
+        <Tooltip label="Zoom in" chord="++">
+          <Button variant="ghost" icon="plus" aria-label="Zoom in" onClick={() => win.folderGraph.zoomIn()} />
+        </Tooltip>
+        <Tooltip label="Fit to window">
+          <Button
+            variant="ghost"
+            icon="frame-corners"
+            aria-label="Fit to window"
+            onClick={() => win.folderGraph.resetView()}
+          />
+        </Tooltip>
+        <Tooltip label="Close graph" chord="Escape">
+          <Button
+            class="folder-graph-close"
+            variant="ghost"
+            icon="x"
+            aria-label="Close graph"
+            onClick={() => win.folderGraph.close()}
+          />
+        </Tooltip>
+      </div>
 
       <Show when={drawn().nodes.length > 0}>
-        <GraphCanvas
-          class="folder-graph-drawing"
-          nodes={drawn().nodes}
-          edges={drawn().edges}
-          focusPath={focusPath()}
-          options={FOLDER_LAYOUT_OPTIONS}
-          label={description()}
-          colors={nodeColors()}
-          dimmed={dimmed()}
-          zoom={win.folderGraph.zoom()}
-          pan={win.folderGraph.pan()}
-          onPanBy={(dx, dy) => win.folderGraph.panBy(dx, dy)}
-          onZoomBy={(factor) => win.folderGraph.zoomBy(factor)}
-          focusable
-          keepsPlaces
-          onOpen={(path) => void win.tabs.openFile(path).catch(() => null)}
-        />
+        <Show
+          when={win.folderGraph.scope() === "folder"}
+          fallback={
+            <GraphCanvas
+              class="folder-graph-drawing"
+              nodes={drawn().nodes}
+              edges={drawn().edges}
+              focusPath={focusPath()}
+              label={description()}
+              colors={nodeColors()}
+              dimmed={dimmed()}
+              zoom={win.folderGraph.zoom()}
+              pan={win.folderGraph.pan()}
+              onPanBy={(dx, dy) => win.folderGraph.panBy(dx, dy)}
+              onZoomBy={(factor) => win.folderGraph.zoomBy(factor)}
+              focusable
+              selectedPath={win.folderGraph.selected()}
+              onSelect={(path) => win.folderGraph.select(path)}
+              onOpen={(path) => void openAndClose(path)}
+            />
+          }
+        >
+          <GraphCanvas
+            class="folder-graph-drawing"
+            nodes={drawn().nodes}
+            edges={drawn().edges}
+            focusPath={focusPath()}
+            options={FOLDER_LAYOUT_OPTIONS}
+            label={description()}
+            colors={nodeColors()}
+            dimmed={dimmed()}
+            zoom={win.folderGraph.zoom()}
+            pan={win.folderGraph.pan()}
+            onPanBy={(dx, dy) => win.folderGraph.panBy(dx, dy)}
+            onZoomBy={(factor) => win.folderGraph.zoomBy(factor)}
+            focusable
+            keepsPlaces
+            selectedPath={win.folderGraph.selected()}
+            onSelect={(path) => win.folderGraph.select(path)}
+            onOpen={(path) => void openAndClose(path)}
+          />
+        </Show>
       </Show>
     </div>
   );

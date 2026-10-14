@@ -40,7 +40,7 @@ const MOCK_CONFIG: WritConfig = {
   updater: { auto_check: true },
   ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
   mcp: { enabled: false, approved_clients: [] },
-  apps: { connections: false, graph: false, tags: false },
+  apps: { connections: false, graph: false, tags: false, offers: true, offered: [], opened: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
   preview: {
     default_layout_html: "split",
@@ -489,6 +489,47 @@ describe("configStore", () => {
       expect(mockedUpdateConfig).not.toHaveBeenCalled();
     });
   });
+  describe("app offers and first switch-ons", () => {
+    it("reads offers as allowed and none made from a file that predates them", async () => {
+      const older = { ...MOCK_CONFIG, apps: { connections: true, graph: false, tags: true } };
+      mockedGetConfig.mockResolvedValueOnce(older as WritConfig);
+      await configStore.load();
+      expect(configStore.appOffersOn()).toBe(true);
+      expect(configStore.wasAppOffered("tags")).toBe(false);
+      expect(configStore.wasAppOpened("graph")).toBe(false);
+    });
+
+    it("keeps the apps it names once each and drops a word that names no app", async () => {
+      mockedGetConfig.mockResolvedValueOnce({
+        ...MOCK_CONFIG,
+        apps: {
+          ...MOCK_CONFIG.apps,
+          offered: ["tags", "nonsense", "tags"],
+          opened: ["graph"],
+        },
+      } as unknown as WritConfig);
+      await configStore.load();
+      expect(configStore.config().apps.offered).toEqual(["tags"]);
+      expect(configStore.config().apps.opened).toEqual(["graph"]);
+    });
+
+    it("writes an offer, the switch and an opened app at once", async () => {
+      await configStore.save(MOCK_CONFIG);
+      mockedUpdateConfig.mockClear();
+
+      configStore.noteAppOffered("connections");
+      expect(mockedUpdateConfig.mock.lastCall![0].apps.offered).toEqual(["connections"]);
+      configStore.setAppOffersOn(false);
+      expect(mockedUpdateConfig.mock.lastCall![0].apps.offers).toBe(false);
+      configStore.noteAppsOpened(["graph", "graph"]);
+      expect(mockedUpdateConfig.mock.lastCall![0].apps.opened).toEqual(["graph"]);
+      expect(mockedUpdateConfig).toHaveBeenCalledTimes(3);
+
+      configStore.noteAppOffered("connections");
+      expect(mockedUpdateConfig).toHaveBeenCalledTimes(3);
+    });
+  });
+
   describe("noteFirstRunHintDismissed", () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
