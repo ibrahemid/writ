@@ -87,7 +87,7 @@ describe("StatusBar persistent live region (#50)", () => {
       fileName: "notes.md",
       reason: { code: "ERR_PERMISSION_DENIED", message: "no permission", retryable: true },
     });
-    expect(label()).toBe("Couldn't save notes.md");
+    expect(label()).toBe("Could not save notes.md");
   });
 
   // Autosave runs on every pause. The tab's mark already says a note is
@@ -117,7 +117,7 @@ describe("StatusBar persistent live region (#50)", () => {
     const pill = container.querySelector<HTMLElement>(".statusbar-save")!;
     expect(pill.classList.contains("is-failed")).toBe(true);
     expect(pill.hasAttribute("title")).toBe(false);
-    expect(pill.querySelector(".statusbar-label")!.textContent).toBe("Couldn't save one.md");
+    expect(pill.querySelector(".statusbar-label")!.textContent).toBe("Could not save one.md");
   });
 
   it("says one thing at a time when a note is both unsaved and just reloaded", () => {
@@ -137,7 +137,7 @@ describe("StatusBar persistent live region (#50)", () => {
     fixtures.setStatus({ state: "failed", fileName: "one.md" });
     const { container } = render(() => <StatusBar />);
 
-    expect(container.querySelector(".statusbar-save")?.textContent).toBe("Couldn't save one.md");
+    expect(container.querySelector(".statusbar-save")?.textContent).toBe("Could not save one.md");
     expect(container.querySelector(".statusbar-updated")).toBeNull();
   });
 });

@@ -126,7 +126,7 @@ describe("ConfirmDialog", () => {
     render(() => <ConfirmDialog />, { container });
 
     requestConfirm({
-      title: "Couldn't save notes.md",
+      title: "Could not save notes.md",
       message: "disk full. Closing the tab discards the unsaved text.",
       confirmLabel: "Close and lose changes",
       cancelLabel: "Keep open",

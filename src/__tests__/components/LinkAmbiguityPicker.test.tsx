@@ -39,7 +39,7 @@ describe("LinkAmbiguityPicker", () => {
     render(() => <LinkAmbiguityPicker />);
     showLinkCandidates("Note", ["/notes/a/Note.md", "/notes/b/Note.md"], onPick);
 
-    expect(await screen.findByText(/More than one note is called/)).toBeTruthy();
+    expect(await screen.findByText(/More than one file is called/)).toBeTruthy();
     const rows = document.querySelectorAll(".link-picker-row");
     expect(rows.length).toBe(2);
     expect(rows[0].textContent).toContain("Note.md");
@@ -56,7 +56,7 @@ describe("LinkAmbiguityPicker", () => {
     render(() => <LinkAmbiguityPicker />);
     showLinkCandidates("Note", ["/Users/me/Writ/api/Note.md", "/Users/me/Writ/Note.md"], vi.fn());
 
-    await screen.findByText(/More than one note is called/);
+    await screen.findByText(/More than one file is called/);
     const folders = [...document.querySelectorAll(".link-picker-row")].map(
       (row) => row.querySelector(".link-picker-folder")?.textContent ?? "",
     );
@@ -66,7 +66,7 @@ describe("LinkAmbiguityPicker", () => {
   it("moves between rows with the arrow keys", async () => {
     render(() => <LinkAmbiguityPicker />);
     showLinkCandidates("Note", ["/notes/a/Note.md", "/notes/b/Note.md"], vi.fn());
-    await screen.findByText(/More than one note is called/);
+    await screen.findByText(/More than one file is called/);
     const rows = [...document.querySelectorAll<HTMLButtonElement>(".link-picker-row")];
     rows[0].focus();
 
@@ -83,7 +83,7 @@ describe("LinkAmbiguityPicker", () => {
     render(() => <LinkAmbiguityPicker />);
     showMissingNote("New", onCreate);
 
-    expect(await screen.findByText(/No note is called/)).toBeTruthy();
+    expect(await screen.findByText(/No file is called/)).toBeTruthy();
     const create = screen.getByText("Create file");
     fireEvent.click(create);
     expect(onCreate).toHaveBeenCalledTimes(1);
@@ -94,7 +94,7 @@ describe("LinkAmbiguityPicker", () => {
     const onPick = vi.fn();
     render(() => <LinkAmbiguityPicker />);
     showLinkCandidates("Note", ["/notes/a/Note.md"], onPick);
-    await screen.findByText(/More than one note is called/);
+    await screen.findByText(/More than one file is called/);
 
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(onPick).not.toHaveBeenCalled();
@@ -112,7 +112,7 @@ describe("LinkAmbiguityPicker", () => {
   it("keeps Tab inside the dialog it declares itself modal for", async () => {
     render(() => <LinkAmbiguityPicker />);
     showLinkCandidates("Note", ["/notes/a/Note.md", "/notes/b/Note.md"], vi.fn());
-    await screen.findByText(/More than one note is called/);
+    await screen.findByText(/More than one file is called/);
 
     const panel = document.querySelector(".link-picker")!;
     for (let i = 0; i < 3; i += 1) {

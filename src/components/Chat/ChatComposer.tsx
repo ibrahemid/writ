@@ -41,13 +41,16 @@ export function mentionQuery(text: string, caret: number): { query: string; star
 }
 
 /** What a chip says when the pointer rests on it: the whole key, and for a
- * note with unsaved text which of the two versions travels. */
+ * note with unsaved text which of the two versions travels. The chip the tab
+ * in front added says so, because nobody picked it (ADR-031 rule 2.5, amended
+ * 2026-10-15). */
 export function chipTitle(note: Attachment): string {
   const key = noteKeyLabel(note);
   if (note.state === "unreadable") {
     return note.reason ? `${key}: ${note.reason}` : `${key} could not be read.`;
   }
-  return note.dirty ? `Sends the saved version of ${key}` : key;
+  if (note.dirty) return `Sends the saved version of ${key}`;
+  return note.auto ? `From the tab in front: ${key}` : key;
 }
 
 /** One note's chip: what it is, how big it is, and the way back out. */
@@ -58,6 +61,7 @@ function NoteChip(props: { note: Attachment }) {
       classList={{
         "is-unreadable": props.note.state === "unreadable",
         "is-dirty": props.note.dirty === true,
+        "is-auto": props.note.auto === true,
       }}
     >
       <Icon name="file-text" size={12} />
@@ -134,11 +138,16 @@ export default function ChatComposer(props: {
   openNote: () => OpenNoteState;
   /** Closes the column, which is what Escape does with nothing else pending. */
   onClose: () => void;
+  /** Hands the message field to the pane, which focuses it when the column
+   * opens. */
+  inputRef?: (el: HTMLTextAreaElement) => void;
 }) {
   let input: HTMLTextAreaElement | undefined;
   const [rows, setRows] = createSignal<MentionRow[]>([]);
   const [active, setActive] = createSignal(0);
   const [mention, setMention] = createSignal<{ query: string; start: number } | null>(null);
+  // Whether a lookup has answered since the list opened (CH-17).
+  const [answered, setAnswered] = createSignal(false);
   const [refusal, setRefusal] = createSignal<string | null>(null);
   let debounce: ReturnType<typeof setTimeout> | null = null;
 
@@ -162,6 +171,7 @@ export default function ChatComposer(props: {
     setMention(null);
     setRows([]);
     setActive(0);
+    setAnswered(false);
   }
 
   /** Fits the field to what it holds, up to the ceiling the stylesheet sets,
@@ -223,6 +233,7 @@ export default function ChatComposer(props: {
             .openTabCandidates(found.query, MENTION_LIMIT)
             .map((tab): MentionRow => ({ kind: "tab", path: tab.path, name: tab.name })),
         ]);
+        setAnswered(true);
       });
     }, MENTION_DEBOUNCE_MS);
   }
@@ -346,7 +357,7 @@ export default function ChatComposer(props: {
         )}
       </For>
 
-      <Show when={refusal()}>
+      <Show when={refusal() ?? chatStore.attachRefusal()}>
         {(why) => (
           <p class="chat-composer-note" role="status">
             {why()}
@@ -356,7 +367,7 @@ export default function ChatComposer(props: {
 
       <div class="chat-composer-field">
         <Show when={isOpen()}>
-          <MentionPopover rows={rows()} active={active()} onPick={pick} />
+          <MentionPopover rows={rows()} active={active()} onPick={pick} answered={answered()} />
         </Show>
         <textarea
           class="chat-composer-input"
@@ -365,7 +376,7 @@ export default function ChatComposer(props: {
           placeholder={
             chatStore.attachments().length > 0
               ? "Ask about the attached files. @ attaches another."
-              : "@ attaches a file or a folder."
+              : "@ attaches a file or a folder. Enter sends; Shift+Enter starts a new line."
           }
           aria-label="Message"
           role="combobox"
@@ -373,13 +384,20 @@ export default function ChatComposer(props: {
           aria-expanded={isOpen()}
           aria-controls={isOpen() ? MENTION_LIST_ID : undefined}
           aria-activedescendant={isOpen() && rows().length > 0 ? mentionRowId(active()) : undefined}
-          ref={input}
+          ref={(el) => {
+            input = el;
+            props.inputRef?.(el);
+          }}
           value={chatStore.draft()}
           onInput={onInput}
           onKeyDown={onKeyDown}
           onBlur={closeMention}
         />
       </div>
+
+      <Show when={chatStore.draft().length === 0 && !busy()}>
+        <p class="chat-composer-hint">Enter sends. Shift+Enter starts a new line.</p>
+      </Show>
 
       <div class="chat-composer-actions">
         <ChatConnectionControl />
@@ -389,16 +407,20 @@ export default function ChatComposer(props: {
         <Show
           when={busy()}
           fallback={
-            <Button
-              variant="primary"
-              disabled={chatStore.draft().trim().length === 0 || unreadable().length > 0}
-              onClick={() => void sendChatMessage()}
-            >
-              Send
-            </Button>
+            <Tooltip label="Send" chord="Enter">
+              <Button
+                variant="primary"
+                disabled={chatStore.draft().trim().length === 0 || unreadable().length > 0}
+                onClick={() => void sendChatMessage()}
+              >
+                Send
+              </Button>
+            </Tooltip>
           }
         >
-          <Button onClick={() => chatStore.stop()}>Stop</Button>
+          <Tooltip label="Stop" chord="Escape">
+            <Button onClick={() => chatStore.stop()}>Stop</Button>
+          </Tooltip>
         </Show>
       </div>
     </div>

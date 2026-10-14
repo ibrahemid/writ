@@ -171,7 +171,7 @@ describe("a note with nothing to show", () => {
   it("says how a link is made rather than opening blank", () => {
     const { container } = mount();
     expect(container.querySelector(".right-panel-empty")!.textContent).toBe(
-      "Type [[ to link this file to another.",
+      "Nothing links to this file yet. Type [[ in another file to link here.",
     );
   });
 

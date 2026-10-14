@@ -197,13 +197,13 @@ async function readFirstRunWithin(deadlineMs: number): Promise<void> {
 async function openPendingPaths(paths: string[]): Promise<void> {
   if (!Array.isArray(paths)) {
     logFailure("an open request arrived without a list of files");
-    showToast("Couldn't open the files", "error");
+    showToast("Could not open the files", "error");
     return;
   }
   const win = windowRegistry.getActive();
   if (!win) {
     logFailure("an open request arrived with no window to open into");
-    showToast("Couldn't open the files", "error");
+    showToast("Could not open the files", "error");
     return;
   }
   const outcomes: OpenOutcome[] = [];

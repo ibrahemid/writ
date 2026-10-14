@@ -11,7 +11,6 @@ import CommandPalette, {
 } from "./components/CommandPalette/CommandPalette";
 import SearchPalette, { toggleSearchPalette } from "./components/SearchPalette/SearchPalette";
 import ThemeEditor, { openThemeEditor } from "./components/ThemeEditor/ThemeEditor";
-import ShortcutEditor, { openShortcutEditor } from "./components/ShortcutEditor/ShortcutEditor";
 import SettingsModal, { openSettings } from "./components/SettingsModal/SettingsModal";
 import ActivityPanel, { openActivity } from "./components/Activity/ActivityPanel";
 import ProgramNotice from "./components/Activity/ProgramNotice";
@@ -638,13 +637,13 @@ function AppShell() {
       execute: async () => {
         const confirmed = await requestConfirm({
           title: "Clear command usage history?",
-          message: "Recent and frequently-used ordering will reset to default.",
+          message: "The palette's Recent list empties.",
           confirmLabel: "Clear",
         });
         if (!confirmed) return;
         commandUsageStore.clear().then(
           () => showToast("Command usage cleared", "success"),
-          () => showToast("Failed to clear command usage", "error"),
+          () => showToast("Could not clear command usage", "error"),
         );
       },
     });
@@ -655,7 +654,7 @@ function AppShell() {
       description: "List every shortcut and change any of them",
       keywords: ["customize", "rebind", "keys", "chord"],
       scope: "app",
-      execute: () => openShortcutEditor(),
+      execute: () => openSettings("shortcuts"),
     });
 
     registerCommand({
@@ -719,8 +718,8 @@ function AppShell() {
 
     registerCommand({
       id: "app.thirdPartyNotices",
-      label: "Third-party licences",
-      description: "Open the licences of the code Writ is built on",
+      label: "Third-party licenses",
+      description: "Open the licenses of the code Writ is built on",
       scope: "app",
       execute: () => {
         void (async () => {
@@ -732,7 +731,7 @@ function AppShell() {
             // already active loads nothing, so the text is pulled in here.
             if (reused) active?.editor.requestExternalReload(doc.id);
           } catch {
-            showToast("Could not open the third-party licences", "error");
+            showToast("Could not open the third-party licenses", "error");
           }
         })();
       },
@@ -770,7 +769,7 @@ function AppShell() {
           try {
             await registerTransformCommands();
           } catch {
-            showToast("Failed to load transform commands", "error");
+            showToast("Could not load the Transform commands", "error");
             logFailure("transform commands could not be registered");
           }
         },
@@ -844,7 +843,6 @@ function AppShell() {
       <ProgramNotice />
       <NoteHistoryPanel />
       <ThemeEditor />
-      <ShortcutEditor />
       <ContextMenu />
       <LinkAmbiguityPicker />
       <LanguagePicker />

@@ -5,7 +5,8 @@
 Accepted, 2026-10-13. Proposed 2026-09-14 and shipped in 0.5.0. Amended 2026-10-13: the
 OpenRouter callback carries its state in the path and the receiver waits for it (section 6), and
 the first model, request bodies, refusals, Stop and applied proposals follow what providers accept
-(section 12).
+(section 12). Amended 2026-10-15: Apple's on-device model, servers on the local network, and the
+llama.cpp and Jan rows (section 15).
 
 Amends [ADR-031](./031-the-ai-harness-and-what-leaves-the-machine.md) in four places (rules 2.1,
 2.4, 5.2 and 7.1, stated in section 10). Stands on [ADR-028](./028-files-are-the-only-copy.md),
@@ -360,6 +361,18 @@ The store is exposed through five commands, `chat_list`, `chat_open`, `chat_new`
 and `chat_delete`, beside the six that exist (`src-tauri/src/lib.rs:725-730`). The pane's store
 loads the most recent conversation on open and creates one on the first send when none exists.
 
+**Amended 2026-10-15.** "Holds no note text" was not true of proposals: each kept `new_content`, the
+whole proposed note. A proposal now drops it once it is applied or discarded and keeps its path,
+summary, digest and status (`Conversation::set_proposal_status`); a refused one keeps it, because
+Apply is still offered. Undo after Apply puts back the version history kept of the text the
+proposal was made against, through the guarded write, so it needs no copy here. A request no longer
+carries every turn: the turns are fitted to an estimated context, 8,192 tokens for a runtime on this
+machine and 128,000 for a hosted model, less the reply's share, the system prompt and the attached
+notes, oldest dropped first, with the newest turn always sent and the window opening on a user turn
+(`chat::fit_turns`). An earlier reply that offered changes carries one line per change naming the
+file, its summary and what became of it. The attached notes may hold 4 MB between them, refused by
+the sizes call and by the read alike.
+
 ### 9. The reply is rendered, the fence is stripped where the stream is parsed, and a proposal shows a diff
 
 **Rendering.** A reply is Markdown rendered by `writ-render`, so the chat and the preview agree on
@@ -671,6 +684,22 @@ by rows 1, 2 and 8. Linux keeps keys in the Secret Service through keyring's lib
 key stays in memory and the key row says it is not saved. A note whose text closes the attached
 notes' frame is sent verbatim under `<note-N>` tags it does not contain. The chat list reads
 `chats/index.json` and opens a conversation only when its file no longer matches its row.
+
+### 15. Apple's on-device model, servers on the local network, llama.cpp and Jan, amended 2026-10-15
+
+On macOS 26, on a Mac that can run it, the table offers one more row: `apple`, "Apple
+Intelligence", group `on_device`, served by the Foundation Models framework through a Swift bridge
+linked into the app (`src-tauri/swift/WritOnDevice`, `src-tauri/src/on_device.rs`). The framework
+has no network address and no C interface, so the bridge is the only route. The row has no URL,
+key, consent or model list; `AiConfig::effective_base_url` answers nothing for it and every HTTP
+path refuses it. It serves Rewrite only, which departs from section 1: chat on this connection
+answers `RewriteOnly` and the pane points at the provider. Windows, Linux and a build made with an
+SDK before macOS 26 never offer it. `http` is allowed to an IP address on a private network
+(10/8, 172.16/12, 192.168/16, 100.64/10, 169.254/16, fc00::/7, fe80::/10, never a name), which
+counts as hosted for consent: nothing reaches it, the model list and the check included, until
+that host is allowed, once per host. A key is optional there, the turn budget is the local one,
+and its requests skip the system proxy. llama.cpp (port 8080) and Jan (port 1337) join the local
+rows of section 2, and the probe of section 4 knocks on all four ports.
 
 ## Consequences
 

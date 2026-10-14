@@ -4,7 +4,7 @@ The `writ` command connects Claude Code to Writ in two ways: piped output become
 
 ## Prerequisites
 
-On macOS and Linux, install the `writ` command from Settings, Advanced, Terminal command, or create the link yourself:
+On macOS and Linux, install the `writ` command from Settings, Integrations, Terminal command, or create the link yourself:
 
 ```sh
 ln -sf "/Applications/Writ.app/Contents/MacOS/writ" /usr/local/bin/writ

@@ -102,10 +102,12 @@ pub enum PolishError {
     #[error("The base URL is not a valid URL.")]
     InvalidBaseUrl,
     /// The scheme/host pair failed the outbound guard.
-    #[error("This base URL is not allowed. Use https, or http for localhost.")]
+    #[error(
+        "This base URL is not allowed. Use https, or http for this machine or an IP address on your local network."
+    )]
     EndpointNotAllowed,
     /// No model id is configured.
-    #[error("Choose a model in AI settings.")]
+    #[error("Choose a model in Settings, Apps, Rewrite.")]
     ModelRequired,
     /// The one-time send notice for this host has not been accepted.
     #[error("Confirm sending text to {host} first.")]
@@ -119,6 +121,10 @@ pub enum PolishError {
         /// The host the missing key belongs to.
         host: String,
     },
+    /// The connection is Apple's on-device model, which has no address to send
+    /// a request to; its rewrites go through the system framework.
+    #[error("Apple's on-device model is not reached over the network.")]
+    OnDeviceProvider,
 }
 
 /// A configured endpoint, resolved once and reused by every caller that needs
@@ -136,10 +142,31 @@ pub struct EndpointTarget {
     /// only — never the consent key, so moving a local server between ports
     /// cannot silently re-use another host's consent.
     pub host_port: String,
-    /// The endpoint reaches somewhere other than this machine.
+    /// The endpoint reaches somewhere other than this machine, so a send
+    /// waits for consent to its host.
     pub is_hosted: bool,
+    /// The host is an IP address on a private network ([`is_private_network`]):
+    /// it is hosted, so consent still applies, but it is not a provider's
+    /// service, so a key is optional and http is allowed.
+    pub is_private_network: bool,
+    /// The scheme is `https`.
+    pub is_encrypted: bool,
     /// The scheme/host pair passes the outbound guard.
     pub is_allowed: bool,
+}
+
+impl EndpointTarget {
+    /// Whether a request cannot go without a key: a hosted endpoint that is
+    /// not on a private network.
+    pub fn needs_key(&self) -> bool {
+        self.is_hosted && !self.is_private_network
+    }
+
+    /// Whether a stored key may go with a request: to a hosted endpoint, and
+    /// never over plain http, where it would cross the network readable.
+    pub fn takes_key(&self) -> bool {
+        self.is_hosted && (self.is_encrypted || !self.is_private_network)
+    }
 }
 
 /// Resolves a configured base URL into its [`EndpointTarget`].
@@ -160,6 +187,8 @@ pub fn resolve_endpoint(base_url: &str) -> Result<EndpointTarget, PolishError> {
     let is_allowed = is_endpoint_allowed(url.scheme(), &host);
     Ok(EndpointTarget {
         is_hosted: is_hosted(&host),
+        is_private_network: is_private_network(&host),
+        is_encrypted: url.scheme() == "https",
         is_allowed,
         host,
         host_port,
@@ -271,12 +300,45 @@ pub fn is_hosted(host: &str) -> bool {
     !is_localhost(host)
 }
 
-/// The outbound guard. `https` is always allowed; `http` only to the local
-/// machine, so a plaintext request can never leave the device.
+/// Whether `host` is an IP address on a private network: the IPv4 private
+/// ranges (10/8, 172.16/12, 192.168/16), the shared range 100.64/10 that
+/// Tailscale addresses come from, IPv4 link-local 169.254/16, IPv6 unique local
+/// fc00::/7 and link-local fe80::/10, and those IPv4 ranges written as
+/// IPv4-mapped IPv6.
+///
+/// Only an address literal qualifies. A name can resolve anywhere, so a
+/// plaintext request to one could leave the network it seemed to be on.
+pub fn is_private_network(host: &str) -> bool {
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .unwrap_or(host);
+    match bare.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => is_private_v4(v4),
+        Ok(std::net::IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_private_v4(v4),
+            None => {
+                let first = v6.segments()[0];
+                first & 0xfe00 == 0xfc00 || first & 0xffc0 == 0xfe80
+            }
+        },
+        Err(_) => false,
+    }
+}
+
+fn is_private_v4(addr: std::net::Ipv4Addr) -> bool {
+    let [a, b, ..] = addr.octets();
+    addr.is_private() || addr.is_link_local() || (a == 100 && (64..=127).contains(&b))
+}
+
+/// The outbound guard. `https` is always allowed; `http` only to this machine
+/// and to an address on a private network, so a plaintext request never
+/// crosses the internet. A private-network host is hosted, so its requests
+/// still wait for consent to that host.
 pub fn is_endpoint_allowed(scheme: &str, host: &str) -> bool {
     match scheme {
         "https" => true,
-        "http" => is_localhost(host),
+        "http" => is_localhost(host) || is_private_network(host),
         _ => false,
     }
 }
@@ -412,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_policy_allows_http_only_to_loopback() {
+    fn endpoint_policy_allows_http_to_loopback() {
         assert!(is_endpoint_allowed("http", "localhost"));
         assert!(is_endpoint_allowed("http", "127.0.0.1"));
         assert!(is_endpoint_allowed("http", "::1"));
@@ -420,6 +482,128 @@ mod tests {
         // The classic substring-bypass hosts must not slip through.
         assert!(!is_endpoint_allowed("http", "localhost.evil.com"));
         assert!(!is_endpoint_allowed("http", "127.0.0.1.evil.com"));
+    }
+
+    #[test]
+    fn endpoint_policy_allows_http_to_a_private_network_address() {
+        for host in [
+            "192.168.1.20",
+            "10.0.0.5",
+            "172.16.0.1",
+            "100.101.102.103",
+            "[fd00::1]",
+        ] {
+            assert!(is_endpoint_allowed("http", host), "{host}");
+        }
+        for host in [
+            "8.8.8.8",
+            "printer.local",
+            "192.168.1.20.evil.com",
+            "[2001:db8::1]",
+        ] {
+            assert!(!is_endpoint_allowed("http", host), "{host}");
+        }
+    }
+
+    #[test]
+    fn private_network_covers_the_ranges_and_stops_at_their_edges() {
+        for host in [
+            "10.0.0.0",
+            "10.255.255.255",
+            "172.16.0.0",
+            "172.31.255.255",
+            "192.168.0.1",
+            "100.64.0.0",
+            "100.127.255.255",
+            "169.254.1.1",
+            "[fc00::1]",
+            "[fdff:ffff::1]",
+            "[fe80::1]",
+            "[febf::1]",
+            "[::ffff:10.1.2.3]",
+            "::ffff:192.168.0.9",
+        ] {
+            assert!(is_private_network(host), "{host}");
+        }
+        for host in [
+            "172.15.255.255",
+            "172.32.0.0",
+            "100.63.255.255",
+            "100.128.0.0",
+            "192.169.0.1",
+            "11.0.0.1",
+            "0.0.0.0",
+            "255.255.255.255",
+            "127.0.0.1",
+            "[::1]",
+            "[fec0::1]",
+            "[2001:db8::1]",
+            "[::ffff:8.8.8.8]",
+            "localhost",
+            "nas.local",
+            "10.0.0.1.example.com",
+            "",
+        ] {
+            assert!(!is_private_network(host), "{host}");
+        }
+    }
+
+    #[test]
+    fn a_private_address_is_hosted_for_consent_and_needs_no_key() {
+        let t = resolve_endpoint("http://192.168.1.20:11434/v1").unwrap();
+        assert_eq!(t.host, "192.168.1.20");
+        assert_eq!(t.host_port, "192.168.1.20:11434");
+        assert!(t.is_allowed);
+        assert!(t.is_hosted, "a private address still waits for consent");
+        assert!(t.is_private_network);
+        assert!(!t.needs_key());
+
+        let public = resolve_endpoint("https://api.deepseek.com/v1").unwrap();
+        assert!(!public.is_private_network);
+        assert!(public.needs_key());
+
+        let local = resolve_endpoint("http://localhost:11434/v1").unwrap();
+        assert!(!local.is_private_network);
+        assert!(!local.needs_key());
+    }
+
+    #[test]
+    fn a_key_never_goes_over_plain_http() {
+        let plain = resolve_endpoint("http://192.168.1.20:11434/v1").unwrap();
+        assert!(!plain.is_encrypted);
+        assert!(!plain.takes_key());
+        let encrypted = resolve_endpoint("https://192.168.1.20/v1").unwrap();
+        assert!(encrypted.takes_key());
+        assert!(resolve_endpoint("https://api.deepseek.com/v1")
+            .unwrap()
+            .takes_key());
+        assert!(!resolve_endpoint("http://localhost:11434/v1")
+            .unwrap()
+            .takes_key());
+    }
+
+    #[test]
+    fn an_address_the_parser_normalises_is_classified_as_written_out() {
+        // The URL parser turns a hex or shortened IPv4 into dotted form, and
+        // the host the guard reads is that form.
+        let hex = resolve_endpoint("http://0xc0a80101:8080/v1").unwrap();
+        assert_eq!(hex.host, "192.168.1.1");
+        assert!(hex.is_private_network && hex.is_allowed);
+
+        let short = resolve_endpoint("http://10.1/v1").unwrap();
+        assert_eq!(short.host, "10.0.0.1");
+        assert!(short.is_private_network && short.is_allowed);
+
+        let mapped = resolve_endpoint("http://[::ffff:8.8.8.8]/v1").unwrap();
+        assert!(!mapped.is_private_network);
+        assert!(!mapped.is_allowed);
+    }
+
+    #[test]
+    fn a_name_on_the_local_network_is_not_a_private_address() {
+        let named = resolve_endpoint("http://nas.local:11434/v1").unwrap();
+        assert!(!named.is_private_network);
+        assert!(!named.is_allowed);
     }
 
     #[test]

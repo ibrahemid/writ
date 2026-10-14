@@ -7,7 +7,8 @@ import Tooltip from "../Tooltip/Tooltip";
 import { resolvePlatform } from "../../lib/platform";
 import { resolveChromeLayout } from "../../lib/window-chrome";
 import { executeCommand } from "../../commands/registry";
-import { openShortcutEditor, WAYLAND_LINE } from "../ShortcutEditor/ShortcutEditor";
+import { WAYLAND_LINE } from "../ShortcutEditor/any-app-chord";
+import { openWindowChordSetting } from "../SettingsModal/state";
 import { formatKeybinding } from "../../lib/keybinding-format";
 import { configStore } from "../../stores/global/config";
 import { hotkeyStore } from "../../stores/global/hotkey";
@@ -105,7 +106,7 @@ export default function TitleBar() {
                 data-no-drag
                 data-state={hotkeyStore.isTaken() ? "taken" : "unsupported"}
                 aria-label={unheldLine()}
-                onClick={() => openShortcutEditor({ recordWindowChord: hotkeyStore.isTaken() })}
+                onClick={() => openWindowChordSetting(hotkeyStore.isTaken())}
               >
                 <Kbd binding={windowChord()} muted />
               </button>

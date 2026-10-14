@@ -1,108 +1,147 @@
+import { APPS } from "../lib/apps";
 import type { AppId } from "../types/config";
 
 export type SettingsSection =
+  | "general"
   | "editor"
-  | "files"
-  | "apps"
-  | "preview"
   | "appearance"
-  | "sidebar"
-  | "updates"
+  | "apps"
+  | "integrations"
   | "shortcuts"
-  | "advanced";
+  | "advanced"
+  | "about";
 
 export interface SettingEntry {
   /** Stable id; also the `data-setting-id` on the rendered row. */
   id: string;
   section: SettingsSection;
-  /** Human label shown in search results and matched first. */
+  /** The row's label on screen and its name in search: one string for both. */
   title: string;
+  /** One plain sentence under the label: what the row does, beyond its name. */
+  description: string;
   /** Extra terms that should surface this setting in a search. */
   keywords: string[];
   /** Apps any one of which must be on for the row to be drawn. A row whose
    * apps are all off is not found by search either. */
   requires?: readonly AppId[];
+  /** The app pages under Apps that hold the row. A link to it opens the first
+   * of them whose app is on. A row with none sits on the section itself. */
+  pages?: readonly AppId[];
+}
+
+export class UnknownSettingError extends Error {
+  constructor(id: string) {
+    super(`no settings entry is named ${id}`);
+    this.name = "UnknownSettingError";
+  }
 }
 
 export const SECTION_LABELS: Record<SettingsSection, string> = {
-  files: "Files",
-  apps: "Apps",
+  general: "General",
   editor: "Editor",
-  preview: "Preview",
   appearance: "Appearance",
-  sidebar: "Sidebar",
-  updates: "Updates",
+  apps: "Apps",
+  integrations: "Integrations",
   shortcuts: "Shortcuts",
   advanced: "Advanced",
+  about: "About",
 };
 
 export const SECTION_ORDER: SettingsSection[] = [
-  "files",
-  "apps",
+  "general",
   "editor",
-  "preview",
   "appearance",
-  "sidebar",
-  "updates",
+  "apps",
+  "integrations",
   "shortcuts",
   "advanced",
+  "about",
 ];
 
+const AI_PAGES: readonly AppId[] = ["chat", "rewrite"];
+
+function appDetail(id: AppId): string {
+  return APPS.find((app) => app.id === id)?.detail ?? "";
+}
+const PROGRAMS_PAGE: readonly AppId[] = ["programs"];
+
 export const SETTINGS_INDEX: SettingEntry[] = [
-  { id: "notes.folder", section: "files", title: "Folder", keywords: ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"] },
-  { id: "files.default_extension", section: "files", title: "Default format", keywords: ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"] },
-  { id: "files.default_app", section: "files", title: "Open these file types with Writ", keywords: ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"] },
-  { id: "files.cli", section: "advanced", title: "Terminal command", keywords: ["cli", "writ command", "terminal", "command line", "install"] },
-  { id: "notes.versions", section: "advanced", title: "Versions", keywords: ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"] },
-  { id: "editor.font_size", section: "editor", title: "Font size", keywords: ["font", "size", "text", "zoom"] },
-  { id: "editor.tab_size", section: "editor", title: "Tab size", keywords: ["tab", "indent", "spaces", "width"] },
-  { id: "editor.word_wrap", section: "editor", title: "Word wrap", keywords: ["wrap", "word", "line", "soft wrap"] },
-  { id: "editor.markdown_editing", section: "editor", title: "Markdown shortcuts", keywords: ["markdown", "editing", "bold", "italic", "strikethrough", "link", "shortcuts", "checkbox", "list"] },
-  { id: "editor.spelling", section: "editor", title: "Spell check", keywords: ["spell", "spelling", "check", "dictionary", "typos", "grammar"] },
-  { id: "editor.spelling_dialect", section: "editor", title: "Spelling", keywords: ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"] },
-  { id: "editor.status_bar", section: "editor", title: "Status bar", keywords: ["status bar", "line", "column", "encoding", "word count"] },
-  { id: "editor.status_bar_counts", section: "editor", title: "Word, character and token counts", keywords: ["word count", "character count", "token", "counts", "status bar"] },
-  { id: "preview.layout_md", section: "preview", title: "When opening a Markdown file, show:", keywords: ["layout", "markdown", "md", "text", "preview", "inline"] },
-  { id: "preview.layout_html", section: "advanced", title: "When opening an HTML file, show:", keywords: ["layout", "html", "text", "preview", "split"] },
-  { id: "ai.provider", section: "apps", title: "Provider", keywords: ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"], requires: ["chat", "rewrite"] },
-  { id: "ai.base_url", section: "apps", title: "Base URL", keywords: ["ai", "base url", "endpoint", "host", "server"], requires: ["chat", "rewrite"] },
-  { id: "ai.api_key", section: "apps", title: "API key", keywords: ["ai", "api key", "token", "secret", "credential"], requires: ["chat", "rewrite"] },
-  { id: "ai.model", section: "apps", title: "Model", keywords: ["ai", "model", "id"], requires: ["chat", "rewrite"] },
-  { id: "ai.connection", section: "apps", title: "Connection", keywords: ["ai", "connection", "check", "reachable", "status"], requires: ["chat", "rewrite"] },
-  { id: "ai.chat.enabled", section: "apps", title: "Chat", keywords: ["app", "ai", "chat", "ask", "conversation", "attach", "enable"] },
-  { id: "ai.rewrite.enabled", section: "apps", title: "Rewrite", keywords: ["app", "ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"] },
-  { id: "ai.chat.model", section: "apps", title: "Use a different model for chat", keywords: ["ai", "chat", "model", "id", "different"], requires: ["chat"] },
-  { id: "mcp.enabled", section: "apps", title: "Connected programs", keywords: ["app", "mcp", "programs", "clients", "connect", "claude", "cursor", "editor", "assistant", "tools", "server", "enable"] },
-  { id: "mcp.waiting", section: "apps", title: "Waiting for you", keywords: ["mcp", "waiting", "approve", "allow", "programs", "claude", "cursor", "permission"], requires: ["programs"] },
-  { id: "mcp.command", section: "apps", title: "Command to give a program", keywords: ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"], requires: ["programs"] },
-  { id: "mcp.tools", section: "apps", title: "What a program can do", keywords: ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"], requires: ["programs"] },
-  { id: "mcp.clients", section: "apps", title: "Programs", keywords: ["mcp", "programs", "approved", "allowed", "clients", "permission", "read", "write", "revoke", "forget"], requires: ["programs"] },
-  { id: "mcp.activity", section: "apps", title: "Program activity", keywords: ["activity", "log", "record", "calls", "what happened", "audit", "programs", "mcp"], requires: ["programs"] },
-  { id: "apps.connections", section: "apps", title: "Connections", keywords: ["app", "connections", "links", "backlinks", "outline", "properties", "panel"] },
-  { id: "apps.graph", section: "apps", title: "Graph", keywords: ["app", "graph", "map", "links", "nearby"] },
-  { id: "apps.tags", section: "apps", title: "Tags", keywords: ["app", "tags", "hashtag", "filter", "sidebar"] },
-  { id: "apps.offers", section: "apps", title: "Offer apps that are off", keywords: ["apps", "offer", "suggest", "notice", "tips", "links", "tags"] },
-  { id: "apps.screen", section: "apps", title: "Setup screen", keywords: ["apps", "setup", "choose", "screen", "start"] },
-  { id: "appearance.polarity", section: "appearance", title: "Light and dark", keywords: ["appearance", "light", "dark", "system", "theme", "polarity", "follow system"] },
-  { id: "appearance.accent", section: "appearance", title: "Accent color", keywords: ["accent", "color", "pine", "highlight"] },
-  { id: "appearance.prose_face", section: "appearance", title: "Prose typeface", keywords: ["font", "typeface", "prose", "writing", "ia writer", "quattro"] },
-  { id: "appearance.interface_text_size", section: "appearance", title: "Interface text size", keywords: ["interface", "text", "size", "ui", "font", "scale", "bigger", "smaller", "sidebar", "tabs"] },
-  { id: "appearance.theme", section: "appearance", title: "Theme", keywords: ["theme", "color", "appearance", "preset", "dark", "light"] },
-  { id: "appearance.custom_colors", section: "appearance", title: "Custom colors", keywords: ["theme", "colors", "custom", "palette"] },
-  { id: "sidebar.folder", section: "sidebar", title: "Show files", keywords: ["sidebar", "folder", "files", "tree", "show", "hide"] },
-  { id: "sidebar.inbox", section: "advanced", title: "Show watched folder", keywords: ["sidebar", "watch", "watched folder", "new files", "show", "hide"] },
-  { id: "sidebar.recent", section: "sidebar", title: "Show recently closed", keywords: ["sidebar", "recent", "recently closed", "closed", "show", "hide"] },
-  { id: "updates.auto_check", section: "updates", title: "Check for updates automatically", keywords: ["update", "auto", "check", "version"] },
-  { id: "updates.check_now", section: "updates", title: "Check for updates now", keywords: ["update", "check", "now", "version"] },
-  { id: "shortcuts.window", section: "shortcuts", title: "Show and hide Writ", keywords: ["global", "hotkey", "summon", "toggle", "window", "shortcut", "from any app", "taken"] },
-  { id: "general.launch_at_login", section: "shortcuts", title: "Open at login", keywords: ["login", "startup", "start", "boot", "autostart", "launch", "restart", "hidden"] },
-  { id: "shortcuts.edit", section: "shortcuts", title: "Keyboard shortcuts", keywords: ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"] },
-  { id: "files.inbox_folder", section: "advanced", title: "Folder to watch for new files", keywords: ["watch", "watched folder", "new files", "auto-open", "drop"] },
-  { id: "files.inbox_focus", section: "advanced", title: "Bring Writ to the front when a new file arrives", keywords: ["watch", "focus", "window", "front", "new file"] },
-  { id: "preview.live_threshold", section: "advanced", title: "Stop live preview above", keywords: ["preview", "live", "size", "mb", "large files"] },
-  { id: "preview.refuse_threshold", section: "advanced", title: "Do not preview files above", keywords: ["preview", "limit", "size", "mb", "large files"] },
-  { id: "storage.location", section: "advanced", title: "Writ's data folder", keywords: ["database", "sqlite", "db", "writ.db", "index", "logs", "settings file", "app data"] },
+  { id: "notes.folder", section: "general", title: "Folder", description: "New files are saved here. Move… puts them in a folder you pick.", keywords: ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"] },
+  { id: "files.default_extension", section: "general", title: "Default format", description: "For files you create. A file you name keeps the extension you type.", keywords: ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"] },
+  { id: "hotkey.toggle", section: "general", title: "Show and hide Writ", description: "Works from any app, even while Writ is hidden.", keywords: ["shortcut", "global", "hotkey", "summon", "show", "hide", "window", "chord", "keyboard", "toggle", "from any app", "taken"] },
+  { id: "general.launch_at_login", section: "general", title: "Open at login", description: "Starts hidden.", keywords: ["login", "startup", "start", "boot", "autostart", "launch", "restart", "hidden"] },
+  { id: "editor.font_size", section: "editor", title: "Font size", description: "Text size in the editor and the preview.", keywords: ["font", "size", "text", "zoom"] },
+  { id: "editor.tab_size", section: "editor", title: "Tab size", description: "Spaces per indent, and the width of a tab character.", keywords: ["tab", "indent", "spaces", "width"] },
+  { id: "editor.word_wrap", section: "editor", title: "Word wrap", description: "Long lines wrap at the edge of the pane instead of scrolling sideways.", keywords: ["wrap", "word", "line", "soft wrap"] },
+  { id: "editor.markdown_editing", section: "editor", title: "Markdown shortcuts", description: "In Markdown files, typing *, _, ~ or ` over a selection wraps it.", keywords: ["markdown", "editing", "bold", "italic", "strikethrough", "link", "shortcuts", "checkbox", "list"] },
+  { id: "preview.layout_md", section: "editor", title: "Markdown opens in", description: "Inline formats Markdown as you type. Source shows the raw text.", keywords: ["layout", "markdown", "md", "text", "preview", "inline", "source"] },
+  { id: "editor.spelling", section: "editor", title: "Spell check", description: "Runs on this computer. Code, links, acronyms and camelCase words are skipped.", keywords: ["spell", "spelling", "check", "dictionary", "typos", "grammar"] },
+  { id: "editor.spelling_dialect", section: "editor", title: "Dictionary", description: "Which English spelling counts as correct.", keywords: ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"] },
+  { id: "editor.status_bar", section: "editor", title: "Status bar", description: "The line under the editor with the cursor position and the encoding.", keywords: ["status bar", "line", "column", "encoding", "word count"] },
+  { id: "editor.status_bar_counts", section: "editor", title: "Word, character and token counts", description: "Adds them to the status bar. The token count is an estimate.", keywords: ["word count", "character count", "token", "counts", "status bar"] },
+  { id: "sidebar.folder", section: "editor", title: "Show files", description: "Lists the folder's files in the sidebar.", keywords: ["sidebar", "folder", "files", "tree", "show", "hide"] },
+  { id: "sidebar.recent", section: "editor", title: "Show recently closed", description: "Lists the files you closed last in the sidebar.", keywords: ["sidebar", "recent", "recently closed", "closed", "show", "hide"] },
+  { id: "appearance.polarity", section: "appearance", title: "Light and dark", description: "System follows your computer's light or dark setting.", keywords: ["appearance", "light", "dark", "system", "theme", "polarity", "follow system"] },
+  { id: "appearance.accent", section: "appearance", title: "Accent color", description: "The highlight color of switches, links and selected items.", keywords: ["accent", "color", "pine", "highlight"] },
+  { id: "appearance.prose_face", section: "appearance", title: "Prose typeface", description: "Used for the text you write. Menus and Settings keep the system font.", keywords: ["font", "typeface", "prose", "writing", "ia writer", "quattro"] },
+  { id: "appearance.interface_text_size", section: "appearance", title: "Interface text size", description: "Text size of the sidebar, menus and Settings. The editor has its own size.", keywords: ["interface", "text", "size", "ui", "font", "scale", "bigger", "smaller", "sidebar", "tabs"] },
+  { id: "appearance.theme", section: "appearance", title: "Theme", description: "The colors of the whole window.", keywords: ["theme", "color", "appearance", "preset", "dark", "light"] },
+  { id: "appearance.custom_colors", section: "appearance", title: "Custom colors", description: "Change single colors of the current theme.", keywords: ["theme", "colors", "custom", "palette"] },
+  { id: "ai.chat.enabled", section: "apps", title: "Chat", description: appDetail("chat"), keywords: ["app", "ai", "chat", "ask", "conversation", "attach", "enable"] },
+  { id: "ai.rewrite.enabled", section: "apps", title: "Rewrite", description: appDetail("rewrite"), keywords: ["app", "ai", "rewrite", "proofread", "rephrase", "polish", "selection", "enable"] },
+  { id: "mcp.enabled", section: "apps", title: "Connected programs", description: appDetail("programs"), keywords: ["app", "mcp", "programs", "clients", "connect", "claude", "cursor", "editor", "assistant", "tools", "server", "enable"] },
+  { id: "apps.connections", section: "apps", title: "Connections", description: appDetail("connections"), keywords: ["app", "connections", "links", "backlinks", "outline", "properties", "panel"] },
+  { id: "apps.graph", section: "apps", title: "Graph", description: appDetail("graph"), keywords: ["app", "graph", "map", "links", "nearby"] },
+  { id: "apps.tags", section: "apps", title: "Tags", description: appDetail("tags"), keywords: ["app", "tags", "hashtag", "filter", "sidebar"] },
+  { id: "apps.offers", section: "apps", title: "Offer apps that are off", description: "Once per app, when an open file has links or tags.", keywords: ["apps", "offer", "suggest", "notice", "tips", "links", "tags"] },
+  { id: "ai.provider", section: "apps", title: "Provider", description: "The service that runs the model.", keywords: ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"], requires: AI_PAGES, pages: AI_PAGES },
+  { id: "ai.base_url", section: "apps", title: "Base URL", description: "Most servers expect /v1 at the end.", keywords: ["ai", "base url", "endpoint", "host", "server"], requires: AI_PAGES, pages: AI_PAGES },
+  { id: "ai.api_key", section: "apps", title: "API key", description: "Kept in your system keychain when it is available.", keywords: ["ai", "api key", "token", "secret", "credential"], requires: AI_PAGES, pages: AI_PAGES },
+  { id: "ai.model", section: "apps", title: "Model", description: "Used by Chat and Rewrite.", keywords: ["ai", "model", "id"], requires: AI_PAGES, pages: AI_PAGES },
+  { id: "ai.connection", section: "apps", title: "Connection", description: "Asks the server for its model list.", keywords: ["ai", "connection", "check", "reachable", "status"], requires: AI_PAGES, pages: AI_PAGES },
+  { id: "ai.chat.model", section: "apps", title: "Use a different model for chat", description: "Off means chat uses the model above.", keywords: ["ai", "chat", "model", "id", "different"], requires: ["chat"], pages: ["chat"] },
+  { id: "mcp.waiting", section: "apps", title: "Waiting for you", description: "Approve a program here before it can read or write your files.", keywords: ["mcp", "waiting", "approve", "allow", "programs", "claude", "cursor", "permission"], requires: PROGRAMS_PAGE, pages: PROGRAMS_PAGE },
+  { id: "mcp.command", section: "apps", title: "Command to give a program", description: "Paste it into a program's MCP settings to connect it to Writ.", keywords: ["mcp", "command", "copy", "paste", "configure", "setup", "stdio"], requires: PROGRAMS_PAGE, pages: PROGRAMS_PAGE },
+  { id: "mcp.tools", section: "apps", title: "What a program can do", description: "Reading and writing are approved separately for each program.", keywords: ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission"], requires: PROGRAMS_PAGE, pages: PROGRAMS_PAGE },
+  { id: "mcp.clients", section: "apps", title: "Programs", description: "Each program you approved, and what it may do.", keywords: ["mcp", "programs", "approved", "allowed", "clients", "permission", "read", "write", "revoke", "forget"], requires: PROGRAMS_PAGE, pages: PROGRAMS_PAGE },
+  { id: "mcp.activity", section: "apps", title: "Program activity", description: "Every call a program made, newest first.", keywords: ["activity", "log", "record", "calls", "what happened", "audit", "programs", "mcp"], requires: PROGRAMS_PAGE, pages: PROGRAMS_PAGE },
+  { id: "files.cli", section: "integrations", title: "Terminal command", description: "Opens files and folders in Writ from a terminal.", keywords: ["cli", "writ command", "terminal", "command line", "install"] },
+  { id: "files.default_app", section: "integrations", title: "Open these file types with Writ", description: "A double-click on a file of a type you choose opens it in Writ.", keywords: ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"] },
+  { id: "files.inbox_folder", section: "integrations", title: "Folder to watch for new files", description: "A file that appears in this folder opens in a new tab.", keywords: ["watch", "watched folder", "new files", "auto-open", "drop"] },
+  { id: "files.inbox_focus", section: "integrations", title: "Bring Writ to the front when a new file arrives", description: "Off opens the file without taking you away from the app you are in.", keywords: ["watch", "focus", "window", "front", "new file"] },
+  { id: "sidebar.inbox", section: "integrations", title: "Show watched folder", description: "Lists the watched folder's files in the sidebar.", keywords: ["sidebar", "watch", "watched folder", "new files", "show", "hide"] },
+  { id: "shortcuts.edit", section: "shortcuts", title: "Keyboard shortcuts", description: "Click Record, then press the keys.", keywords: ["shortcut", "keyboard", "keybinding", "hotkey", "rebind"] },
+  { id: "preview.layout_html", section: "advanced", title: "HTML opens in", description: "Text and preview puts the rendered page beside the code.", keywords: ["layout", "html", "text", "preview", "split"] },
+  { id: "preview.live_threshold", section: "advanced", title: "Stop live preview above", description: "Above this size the preview updates only when you refresh it.", keywords: ["preview", "live", "size", "mb", "large files"] },
+  { id: "preview.refuse_threshold", section: "advanced", title: "Do not preview files above", description: "Above this size a file is not previewed. It still opens as text.", keywords: ["preview", "limit", "size", "mb", "large files"] },
+  { id: "storage.location", section: "advanced", title: "Writ's data folder", description: "Settings, the search index and versions are kept here. Your files stay in your folder.", keywords: ["database", "sqlite", "db", "writ.db", "index", "logs", "settings file", "app data"] },
+  { id: "notes.versions", section: "advanced", title: "Versions", description: "Files over 2 MB are not versioned. File, Revert To… lists the versions of the open file.", keywords: ["versions", "version", "restore", "revert", "older", "previous", "keep", "retention", "days"] },
+  { id: "about.version", section: "about", title: "Version", description: "What's new lists the changes in this version.", keywords: ["version", "release", "what's new", "changelog"] },
+  { id: "updates.check_now", section: "about", title: "Updates", description: "Nothing installs until you choose Install.", keywords: ["update", "check", "now", "version", "up to date"] },
+  { id: "updates.auto_check", section: "about", title: "Check for updates automatically", description: "Looks at most once a day while Writ is open.", keywords: ["update", "auto", "check", "version"] },
+  { id: "about.docs", section: "about", title: "Writ help", description: "Opens the guide on the Writ site.", keywords: ["help", "docs", "documentation", "manual", "guide"] },
+  { id: "about.licences", section: "about", title: "Third-party licenses", description: "Opens them in a read-only tab.", keywords: ["licences", "licenses", "notices", "open source", "copyright", "credits"] },
 ];
+
+const ENTRIES: ReadonlyMap<string, SettingEntry> = new Map(
+  SETTINGS_INDEX.map((entry) => [entry.id, entry]),
+);
+
+export function settingEntry(id: string): SettingEntry | undefined {
+  return ENTRIES.get(id);
+}
+
+export function settingTitle(id: string): string {
+  const entry = ENTRIES.get(id);
+  if (!entry) throw new UnknownSettingError(id);
+  return entry.title;
+}
+
+export function settingDescription(id: string): string {
+  const entry = ENTRIES.get(id);
+  if (!entry) throw new UnknownSettingError(id);
+  return entry.description;
+}
 
 /** The one row offering Writ as the handler for the claimable file types. */
 export const DEFAULT_APP_SETTING_ID = "files.default_app";
@@ -156,6 +195,16 @@ export function rankSettings(
 
 export function matchedSettingIds(query: string): Set<string> {
   return new Set(rankSettings(query).map((entry) => entry.id));
+}
+
+export function rankSections(query: string): SettingsSection[] {
+  const q = query.toLowerCase().trim();
+  if (!q) return [];
+  const starts = SECTION_ORDER.filter((id) => SECTION_LABELS[id].toLowerCase().startsWith(q));
+  const contains = SECTION_ORDER.filter(
+    (id) => !starts.includes(id) && SECTION_LABELS[id].toLowerCase().includes(q),
+  );
+  return [...starts, ...contains];
 }
 
 export function sectionHasMatch(section: SettingsSection, query: string): boolean {

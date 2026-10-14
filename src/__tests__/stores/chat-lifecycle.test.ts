@@ -188,6 +188,37 @@ describe("two conversations, one pane", () => {
     expect(chatStore.status()).toBe("thinking");
   });
 
+  it("a withheld change ends Thinking and names the file it is for", async () => {
+    await sendInto("c1", "tidy the launch note");
+    expect(chatStore.status()).toBe("thinking");
+
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "progress",
+      text: "Ideas/Launch.md",
+    });
+    expect(chatStore.status()).toBe("streaming");
+    expect(chatStore.messages()[1].writing).toBe("Ideas/Launch.md");
+    expect(chatStore.messages()[1].content).toBe("");
+
+    chatStore.handleStreamEvent({
+      conversation_id: "c1",
+      request_id: rid("c1"),
+      kind: "chunk",
+      text: "That folds the intros.",
+    });
+    expect(chatStore.messages()[1].writing).toBeUndefined();
+
+    chatStore.handleStreamEvent({
+      conversation_id: "a-request-that-ended",
+      request_id: "nope",
+      kind: "progress",
+      text: "Other.md",
+    });
+    expect(chatStore.messages()[1].writing).toBeUndefined();
+  });
+
   it("a frame with a stale request id is dropped", async () => {
     await sendInto("c1", "what does it argue");
 
@@ -288,6 +319,29 @@ describe("two conversations, one pane", () => {
       "what does it argue",
       "half an ans",
     ]);
+  });
+});
+
+describe("the draft across conversations", () => {
+  it("keeps a typed question across New chat and opening another chat", async () => {
+    chatStore.setDraft("a long question that belongs somewhere else");
+    chatStore.newChat();
+    expect(chatStore.draft()).toBe("a long question that belongs somewhere else");
+
+    await chatStore.open("c2");
+    expect(chatStore.current()?.id).toBe("c2");
+    expect(chatStore.draft()).toBe("a long question that belongs somewhere else");
+  });
+
+  it("drops an edit's words with the conversation they were taken from", async () => {
+    files.c1 = [userTurn("what does it argue"), replyTurn("that March is late")];
+    await chatStore.open("c1");
+    await chatStore.beginEdit(0);
+    expect(chatStore.draft()).toBe("what does it argue");
+
+    await chatStore.open("c2");
+    expect(chatStore.editing()).toBeNull();
+    expect(chatStore.draft()).toBe("");
   });
 });
 

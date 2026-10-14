@@ -350,7 +350,10 @@ mod tests {
     #[test]
     fn the_mcp_help_names_where_it_is_turned_on() {
         let help = subcommand_help("mcp").expect("mcp");
-        assert!(help.contains("Connected programs"), "{help}");
+        assert!(
+            help.contains("Settings, Apps, Connected programs"),
+            "{help}"
+        );
         assert!(help.contains("stdin and stdout"), "{help}");
         assert!(help.contains("WRIT_NOTES_DIR"), "{help}");
     }

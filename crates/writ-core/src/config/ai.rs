@@ -114,9 +114,12 @@ impl Default for AiConfig {
 
 impl AiConfig {
     /// Where requests go: the provider table's base URL, or the typed one for
-    /// `custom` and for any id the table does not know.
+    /// `custom` and for any id the table does not know. Nothing for the
+    /// on-device row, which has no address: a typed URL left in the file is
+    /// never reached through it.
     pub fn effective_base_url(&self) -> String {
         match providers::provider(&self.provider) {
+            Some(row) if row.group == providers::ProviderGroup::OnDevice => String::new(),
             Some(row) if !row.base_url.is_empty() => row.base_url.to_string(),
             _ => self.base_url.clone(),
         }
@@ -571,5 +574,16 @@ mod tests {
         assert_eq!(c, back);
         assert_eq!(back.chat_model(), "house-model-large");
         assert_eq!(back.effective_base_url(), "https://llm.example/v1");
+    }
+
+    #[test]
+    fn the_on_device_row_never_reaches_a_typed_url_left_in_the_file() {
+        let c = AiConfig {
+            provider: "apple".to_string(),
+            base_url: "https://llm.example/v1".to_string(),
+            ..AiConfig::default()
+        };
+        assert_eq!(c.effective_base_url(), "");
+        assert!(crate::polish::resolve_endpoint(&c.effective_base_url()).is_err());
     }
 }

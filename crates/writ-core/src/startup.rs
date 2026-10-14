@@ -54,9 +54,9 @@ impl StartupStage {
                 "Set WRIT_DATA_DIR to a folder outside the synced folder, then start Writ again."
             }
             StartupStage::AppState => {
-                "Writ keeps its buffers, settings and database in that directory. Make it \
-                 readable and writable, or set WRIT_DATA_DIR to another directory, then start \
-                 Writ again."
+                "Writ keeps its settings and database in that directory. Make it readable \
+                 and writable, or set WRIT_DATA_DIR to another directory, then start Writ \
+                 again."
             }
             StartupStage::Window => {
                 "Writ draws its window with the system web view. On Windows, install or repair \

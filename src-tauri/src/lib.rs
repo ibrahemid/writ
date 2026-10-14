@@ -13,6 +13,7 @@ pub mod logging;
 pub mod menu;
 pub mod navigation;
 pub mod notes;
+pub mod on_device;
 pub mod poison;
 pub mod preview;
 pub mod quit;
@@ -637,6 +638,7 @@ pub fn run() {
             commands::ai::ai_rewrite,
             commands::ai::ai_cancel,
             commands::ai::ai_check_connection,
+            commands::ai::ai_word_diff,
             commands::ai::ai_set_api_key,
             commands::ai::ai_clear_api_key,
             commands::ai::ai_has_api_key,
@@ -659,6 +661,7 @@ pub fn run() {
             commands::chat::chat_send,
             commands::chat::chat_stop,
             commands::chat::chat_apply_proposal,
+            commands::chat::chat_undo_proposal,
             commands::chat::chat_discard_proposal,
             commands::activity::activity_recent,
             commands::activity::activity_clear,

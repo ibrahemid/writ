@@ -42,8 +42,7 @@ vi.mock("../../services/tauri", () => ({
 vi.mock("../../services/events", () => ({ onEvent: h.onEvent }));
 
 import ShortcutEditor, {
-  openShortcutEditor,
-  closeShortcutEditor,
+  discardShortcutDrafts,
   windowChordRule,
 } from "../../components/ShortcutEditor/ShortcutEditor";
 import { detectPlatform } from "../../lib/platform";
@@ -77,7 +76,7 @@ describe("the capture chord's row", () => {
   });
 
   afterEach(() => {
-    closeShortcutEditor();
+    discardShortcutDrafts();
     cleanup();
   });
 
@@ -85,7 +84,6 @@ describe("the capture chord's row", () => {
     h.captureHotkeyStatus.mockResolvedValue(status("CmdOrCtrl+Shift+Alt+Space", false));
     await captureHotkeyStore.load();
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
     expect(container.querySelector('[data-shortcut="global-toggle"]')).not.toBeNull();
     expect(captureRow(container).querySelector('[data-state="taken"]')).not.toBeNull();
     expect(
@@ -95,7 +93,6 @@ describe("the capture chord's row", () => {
 
   it("refuses a bare key with the rule and keeps listening", async () => {
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
     fireEvent.click(captureRow(container).querySelector('[data-action="record-capture-shortcut"]')!);
     fireEvent.keyDown(document, { key: "n" });
     expect(captureRow(container).textContent).toContain(windowChordRule(detectPlatform()));
@@ -104,7 +101,6 @@ describe("the capture chord's row", () => {
 
   it("refuses the window's chord, which the OS can give to only one of them", async () => {
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
     fireEvent.click(captureRow(container).querySelector('[data-action="record-capture-shortcut"]')!);
     fireEvent.keyDown(document, { key: " ", metaKey: true, shiftKey: true });
     expect(captureRow(container).textContent).toContain("Show and hide Writ uses this shortcut.");
@@ -113,7 +109,6 @@ describe("the capture chord's row", () => {
   it("asks for a new capture chord on its own and records it", async () => {
     h.setCaptureHotkey.mockResolvedValue({ status: status("CmdOrCtrl+Alt+N"), refused: false });
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
     fireEvent.click(captureRow(container).querySelector('[data-action="record-capture-shortcut"]')!);
     fireEvent.keyDown(document, { key: "n", metaKey: true, altKey: true });
     fireEvent.click(container.querySelector('[data-action="save-shortcuts"]')!);
@@ -134,7 +129,6 @@ describe("the capture chord's row", () => {
       refused: true,
     });
     const { container } = render(() => <ShortcutEditor />);
-    openShortcutEditor();
     fireEvent.click(captureRow(container).querySelector('[data-action="record-capture-shortcut"]')!);
     fireEvent.keyDown(document, { key: "n", metaKey: true, altKey: true });
     fireEvent.click(container.querySelector('[data-action="save-shortcuts"]')!);
@@ -158,8 +152,7 @@ describe("the capture chord's row", () => {
     });
     try {
       const { container } = render(() => <ShortcutEditor />);
-      openShortcutEditor();
-      fireEvent.click(container.querySelector('[data-action="reset-all-shortcuts"]')!);
+        fireEvent.click(container.querySelector('[data-action="reset-all-shortcuts"]')!);
       fireEvent.click(container.querySelector('[data-action="save-shortcuts"]')!);
       await settle();
       expect(h.setCaptureHotkey).toHaveBeenCalledWith("CmdOrCtrl+Shift+Alt+Space");

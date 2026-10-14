@@ -29,7 +29,7 @@ Or download a `.pkg` or `.dmg`, `.msi`, `.AppImage` or `.deb` from [Releases](ht
 
 ## The `writ` command
 
-Install it from Settings, Advanced, Terminal command.
+Install it from Settings, Integrations, Terminal command.
 
 ```sh
 writ todo.txt README.md                  # open files

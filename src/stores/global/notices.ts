@@ -2,7 +2,7 @@ import { openThirdPartyNotices } from "../../services/tauri";
 import { bufferRegistry } from "./buffer-registry";
 import type { BufferDocument } from "../../types/buffer";
 
-export const THIRD_PARTY_NOTICES_TITLE = "Third-party licences";
+export const THIRD_PARTY_NOTICES_TITLE = "Third-party licenses";
 
 export interface NoticesBuffer {
   doc: BufferDocument;

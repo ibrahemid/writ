@@ -12,6 +12,7 @@ const SIDEBAR_DIR = "src/components/Sidebar";
 const RIGHT_PANEL_DIR = "src/components/RightPanel";
 const RESIZER_DIR = "src/components/Resizer";
 const CHAT_DIR = "src/components/Chat";
+const SETTINGS_SECTIONS_DIR = "src/components/SettingsModal/sections";
 
 function componentsIn(dir: string): string[] {
   return readdirSync(resolve(REPO_ROOT, dir))
@@ -41,6 +42,9 @@ const MIGRATED = [
   "src/components/Preview/LinkConfirm.tsx",
   "src/components/PromptFill/PromptFillModal.tsx",
   "src/components/SettingsModal/SettingsModal.tsx",
+  "src/components/SettingsModal/controls.tsx",
+  "src/components/SettingsModal/apps/AiConnectionRows.tsx",
+  ...componentsIn(SETTINGS_SECTIONS_DIR),
   "src/components/ShortcutEditor/ShortcutEditor.tsx",
   ...EDITOR_BARS,
   "src/components/Editor/FirstRunHint.tsx",

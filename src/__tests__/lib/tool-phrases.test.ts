@@ -44,5 +44,11 @@ describe("isReadAction", () => {
     expect(isReadAction("folder_tags")).toBe(true);
     expect(isReadAction("write_note")).toBe(false);
     expect(isReadAction("apply_proposal")).toBe(false);
+    expect(isReadAction("undo_proposal")).toBe(false);
+  });
+
+  it("names a chat Undo in words", () => {
+    expect(describeCall("undo_proposal", true, "allow")).toBe("put back an earlier version of");
+    expect(describeCall("undo_proposal", false, "refuse")).toBe("asked to put back an earlier version");
   });
 });

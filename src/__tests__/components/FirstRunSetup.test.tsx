@@ -188,6 +188,23 @@ describe("the format the first launch asks about", () => {
     expect(container.querySelector(`#${heading}`)?.textContent).toBe("Default format");
   });
 
+  it("says what each step decides and where it changes later", async () => {
+    await firstRunStore.load();
+    const { container } = mount();
+    const described = () =>
+      container.querySelector(
+        `#${container.querySelector(".first-run-setup-panel")!.getAttribute("aria-describedby")}`,
+      )?.textContent;
+    expect(described()).toBe("New files are saved in this format. Settings, General changes it later.");
+
+    await continueToApps(container);
+    await waitFor(() =>
+      expect(described()?.replace(/\s+/g, " ")).toBe(
+        "Each app adds one thing to the window. They stay off until you switch them on, here or in Settings, Apps.",
+      ),
+    );
+  });
+
   it("selects the focused option with Space and answers with Enter", async () => {
     await firstRunStore.load();
     // The answer is refused, so the screen stays up.

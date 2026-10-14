@@ -143,7 +143,7 @@ describe("language provider", () => {
     query("python")[0].execute();
     await flush();
     // The tab's own name for the file: a text format's extension is dropped.
-    expect(h.showToast).toHaveBeenCalledWith("Couldn't change the language of snippet", "error");
+    expect(h.showToast).toHaveBeenCalledWith("Could not change the language of snippet", "error");
     expect(h.logFailure).toHaveBeenCalledTimes(1);
   });
 });

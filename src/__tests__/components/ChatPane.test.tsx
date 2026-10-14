@@ -44,6 +44,8 @@ vi.mock("../../services/tauri", () => ({
   chatApplyProposal: mocks.chatApplyProposal,
   chatDiscardProposal: mocks.chatDiscardProposal,
   chatState: mocks.chatState,
+  aiProbeLocal: vi.fn().mockResolvedValue({ ollama: false, lmstudio: false }),
+  aiCheckConnection: vi.fn().mockRejectedValue("no connection in a test"),
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
   searchBuffers: vi.fn().mockResolvedValue([]),
@@ -268,6 +270,32 @@ describe("the chat column", () => {
       </WindowProvider>
     ));
     expect(container.querySelector(".chat-pane")).toBeNull();
+  });
+
+  it("puts the caret in the composer when opened, and hands it back to the editor on close", async () => {
+    const { container } = open();
+    const field = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
+    await waitFor(() => expect(document.activeElement).toBe(field));
+
+    const win = windowRegistry.getActive()!;
+    const focusEditor = vi.spyOn(win.editor, "focusEditor").mockImplementation(() => undefined);
+    win.chatPanel.hide();
+    await waitFor(() => expect(focusEditor).toHaveBeenCalledTimes(1));
+    expect(container.querySelector(".chat-pane")?.hasAttribute("inert")).toBe(true);
+    focusEditor.mockRestore();
+  });
+
+  it("leaves focus where it is for a column the stored settings opened", async () => {
+    setChatColumnOpen(true);
+    const { container } = render(() => (
+      <WindowProvider windowId={9103}>
+        <ChatPane />
+      </WindowProvider>
+    ));
+    const field = container.querySelector(".chat-composer-input") as HTMLTextAreaElement;
+    await waitFor(() => expect(container.querySelector(".chat-pane")?.hasAttribute("inert")).toBe(false));
+    expect(document.activeElement).not.toBe(field);
+    setChatColumnOpen(false);
   });
 
   it("lists the note in front and sends that one and no other", async () => {
@@ -550,7 +578,11 @@ describe("the chat column", () => {
 
     fireEvent.click(container.querySelector(".chat-chip-remove") as HTMLElement);
 
-    await waitFor(() => expect(composer.placeholder).toBe("@ attaches a file or a folder."));
+    await waitFor(() =>
+      expect(composer.placeholder).toBe(
+        "@ attaches a file or a folder. Enter sends; Shift+Enter starts a new line.",
+      ),
+    );
   });
 
   it("shows a proposal as the lines it would change", async () => {
@@ -588,7 +620,7 @@ describe("the chat column", () => {
     );
     await waitFor(() =>
       expect(container.querySelector(".chat-proposal-verdict")?.textContent).toBe(
-        "Applied. The file is now 16 bytes.",
+        "Applied to Launch.md.",
       ),
     );
   });
@@ -768,7 +800,7 @@ describe("the chat column", () => {
     const banner = container.querySelector(".chat-readiness") as HTMLElement;
     expect(banner.getAttribute("data-state")).toBe("no_model");
     expect(banner.textContent).toContain("No model is set.");
-    expect(banner.textContent).toContain("Open settings");
+    expect(banner.textContent).toContain("Choose a model");
     // It sits between the conversation and the field it is about.
     expect(
       banner.compareDocumentPosition(container.querySelector(".chat-composer") as Node) &

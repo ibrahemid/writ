@@ -175,6 +175,12 @@ describe("linkStore createNote", () => {
     expect(linkStore.knownNoteLink(FROM, "New")).toBeNull();
   });
 
+  it("says its own line when the refusal is log text", async () => {
+    mockedApi.newNoteFromLink.mockRejectedValue("the name New.md is already taken in /n");
+    expect(await linkStore.createNote("New")).toBeNull();
+    expect(showToast).toHaveBeenCalledWith("Could not create the file.", "error");
+  });
+
   it("reports a refusal rather than swallowing it", async () => {
     mockedApi.newNoteFromLink.mockRejectedValue("A note named \"New.md\" is already there.");
     expect(await linkStore.createNote("New")).toBeNull();

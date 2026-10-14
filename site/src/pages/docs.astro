@@ -42,7 +42,7 @@ curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</code></pr
 
   <h2 id="first-launch">First launch</h2>
   <Capture name="first-run" alt="The first screen: Plain text (.txt) and Markdown (.md) side by side, with a Continue button" />
-  <p>Writ asks two things before the first file. The format for new files: Plain text (.txt) or Markdown (.md). Then the apps, each with a switch, all off. Continue saves both and opens an untitled file in the chosen format. Both answers can be changed later in Settings, Files and Settings, Apps.</p>
+  <p>Writ asks two things before the first file. The format for new files: Plain text (.txt) or Markdown (.md). Then the apps, each with a switch, all off. Continue saves both and opens an untitled file in the chosen format. Both answers can be changed later in Settings, General and Settings, Apps.</p>
 
   <h2 id="hotkey">The hotkey</h2>
   <p><kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> (<kbd class="kc">Ctrl</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> on Windows and Linux) brings the window up over whatever is in front; the same keys put it away. Writ keeps running while the window is away, and it comes back on the tab you were on. Change the key in Settings, Shortcuts.</p>
@@ -50,12 +50,12 @@ curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</code></pr
   <h2 id="files">Files and the folder</h2>
   <Capture name="text-file" alt="A plain text file open in Writ" />
   <p>Drag a file onto the window, double-click it in Finder once Writ is the default app, use Open File, or run <code>writ path</code>. Writ saves the file where it is, a second after you stop typing; <kbd class="kc">⌘</kbd><kbd class="kc">S</kbd> saves at once. Code, configs and logs open with highlighting for the language, binary files open read-only as hex, and very large files open with highlighting off.</p>
-  <p>Writ also has a folder of its own, <code>~/Writ</code> unless you choose another in Settings, Files, Folder. New File (<kbd class="kc">⌘</kbd><kbd class="kc">N</kbd>) creates a file there named <code>writ-</code> plus the date and time, in the format set in Settings, Files, Default format. Name it <code>Groceries.md</code> or <code>Groceries.txt</code> and the name decides the format. Today's File, in the File menu, opens a file named for the date. Delete moves a file to the Trash, and closing a tab keeps the file.</p>
+  <p>Writ also has a folder of its own, <code>~/Writ</code> unless you choose another in Settings, General, Folder. New File (<kbd class="kc">⌘</kbd><kbd class="kc">N</kbd>) creates a file there named <code>writ-</code> plus the date and time, in the format set in Settings, General, Default format. Name it <code>Groceries.md</code> or <code>Groceries.txt</code> and the name decides the format. Today's File, in the File menu, opens a file named for the date. Delete moves a file to the Trash, and closing a tab keeps the file.</p>
   <p>The folder is watched, so a change made in another program shows up at once. A file with unsaved edits asks before anything is replaced, and a save never overwrites a newer file: the unsaved text is written beside it as a dated copy instead. Drag another folder onto the window, or run <code>writ .</code> in it, and the sidebar shows its tree.</p>
 
   <h2 id="markdown">Markdown</h2>
   <Capture name="markdown-inline" alt="A Markdown file in Inline mode: headings, a list and checkboxes formatted, the line being edited showing its markup" />
-  <p>A Markdown file opens in Inline mode: headings, emphasis, lists, checkboxes, links, images and code blocks are formatted where they are written, and the line you are editing shows its markup. Source shows the plain text. The status bar switches between the two, and so does <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">V</kbd>; Settings, Preview sets which one a Markdown file opens in. Tables stay as written, with their columns styled.</p>
+  <p>A Markdown file opens in Inline mode: headings, emphasis, lists, checkboxes, links, images and code blocks are formatted where they are written, and the line you are editing shows its markup. Source shows the plain text. The status bar switches between the two, and so does <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">V</kbd>; Settings, Editor, Markdown opens in sets which one a Markdown file opens in. Tables stay as written, with their columns styled.</p>
   <p>Lists continue on <kbd class="kc">Enter</kbd>, a checkbox toggles on click, and <kbd class="kc">⌘</kbd><kbd class="kc">B</kbd>, <kbd class="kc">⌘</kbd><kbd class="kc">I</kbd>, <kbd class="kc">⌘</kbd><kbd class="kc">K</kbd> wrap the selection. In a Markdown file, <code>[[File]]</code> opens that file, <code>[[Folder/File]]</code> picks one of two with the same name, and <code>[[File#Heading]]</code> opens it at the heading. Typing <code>[[</code> offers the files in the folder. Renaming a file offers to update the links that point at it.</p>
 
   <h2 id="preview">HTML preview</h2>
@@ -76,10 +76,10 @@ curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</code></pr
   <p>Writ keeps a version of a file in the folder each time it is saved. A run of saves inside ten seconds is one version. Versions are kept for thirty days, at most two hundred per file and 250 MB in all, in Writ's own data folder and never in the folder itself. A file over 2 MB is not versioned. Revert To, in the File menu, puts one back, and the restore is kept as a version too.</p>
 
   <h2 id="default-app">Default app</h2>
-  <p>On macOS, Settings, Files, Open these file types with Writ has a box per group: Plain text &amp; logs, Markdown, Config &amp; data, Source code. macOS keeps the choice per file type. The guide on <a href={`${base}/guides/default-md-app/`}>making Writ the app for .md and .txt</a> covers Windows and Linux.</p>
+  <p>On macOS, Settings, Integrations, Open these file types with Writ has a box per group: Plain text &amp; logs, Markdown, Config &amp; data, Source code. macOS keeps the choice per file type. The guide on <a href={`${base}/guides/default-md-app/`}>making Writ the app for .md and .txt</a> covers Windows and Linux.</p>
 
   <h2 id="cli">Command line</h2>
-  <p>The <code>writ</code> command opens files in the running app. Install it from Settings, Advanced, Terminal command (macOS asks for an administrator password once to link it into <code>/usr/local/bin</code>).</p>
+  <p>The <code>writ</code> command opens files in the running app. Install it from Settings, Integrations, Terminal command (macOS asks for an administrator password once to link it into <code>/usr/local/bin</code>).</p>
   <pre><code>writ todo.txt            # open a file
 writ .                   # open the folder
 pbpaste | writ           # stdin becomes a new file
@@ -87,7 +87,7 @@ make test 2>&1 | writ --title tests</code></pre>
   <p>Piped text is saved as a file in Writ's folder, so it stays after the terminal closes.</p>
 
   <h2 id="inbox">Watched folder</h2>
-  <p>Point Settings, Advanced, Folder to watch for new files at a folder. Any file that appears there after that moment opens by itself and the window comes forward. Files that were already in the folder are left alone, and more than three arrivals in two seconds collapse into one notice. Turn off "Bring Writ to the front when a new file arrives" to keep arrivals quiet.</p>
+  <p>Point Settings, Integrations, Folder to watch for new files at a folder. Any file that appears there after that moment opens by itself and the window comes forward. Files that were already in the folder are left alone, and more than three arrivals in two seconds collapse into one notice. Turn off "Bring Writ to the front when a new file arrives" to keep arrivals quiet.</p>
 
   <h2 id="spelling">Spelling</h2>
   <p>Off until you turn it on in Settings, Editor. It runs on your machine. Double-click a flagged word to accept a correction, fix every occurrence, or add the word to your dictionary. Code, links and tokens like <code>API</code> are not flagged.</p>
@@ -108,7 +108,7 @@ make test 2>&1 | writ --title tests</code></pre>
 
   <h2 id="obsidian">A folder written in Obsidian</h2>
   <Capture name="obsidian-folder" alt="A folder written in Obsidian open in Writ: the tree in the sidebar and a Markdown file in Inline mode" />
-  <p>Set Settings, Files, Folder to the folder Obsidian uses and the files open where they are. Links, properties and tags read as written, nothing is copied or converted, and Obsidian keeps working from the same folder. The <a href={`${base}/guides/obsidian-vault-files/`}>guide</a> lists what carries over, and <a href={`${base}/guides/obsidian/`}>Writ and Obsidian on one folder</a> covers using both.</p>
+  <p>Set Settings, General, Folder to the folder Obsidian uses and the files open where they are. Links, properties and tags read as written, nothing is copied or converted, and Obsidian keeps working from the same folder. The <a href={`${base}/guides/obsidian-vault-files/`}>guide</a> lists what carries over, and <a href={`${base}/guides/obsidian/`}>Writ and Obsidian on one folder</a> covers using both.</p>
 
   <h2 id="appearance">Appearance</h2>
   <p>Light, dark, or following the system, with six accents to choose from in Settings, Appearance. Interface text size is a setting of its own, and Zoom scales the editor and the rendered pane together.</p>
@@ -127,5 +127,5 @@ make test 2>&1 | writ --title tests</code></pre>
   </table>
 
   <h2 id="config">Config</h2>
-  <p>Everything in Settings is also in <code>~/.writ/config.toml</code>, including which programs you approved. Logs are in <code>~/.writ/logs/</code>. Writ checks for an update shortly after launch, at most once a day, and Settings, Updates turns the check off.</p>
+  <p>Everything in Settings is also in <code>~/.writ/config.toml</code>, including which programs you approved. Logs are in <code>~/.writ/logs/</code>. Writ checks for an update shortly after launch, at most once a day, and Settings, About turns the check off.</p>
 </Prose>

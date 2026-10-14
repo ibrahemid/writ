@@ -13,6 +13,7 @@ import {
   type VersionCopy,
 } from "../../services/tauri";
 import { logFailure } from "../../lib/log";
+import { userErrorText } from "../../lib/error-text";
 
 export type { DiffHunk, NoteVersion, NoVersionsReason, RestoredVersion, VersionCopy };
 
@@ -46,9 +47,7 @@ const [undo, setUndo] = createSignal<UndoableRestore | null>(null);
 let readToken = 0;
 
 function messageOf(error: unknown, fallback: string): string {
-  if (typeof error === "string") return error;
-  if (error instanceof Error && error.message) return error.message;
-  return fallback;
+  return userErrorText(error) ?? fallback;
 }
 
 /**

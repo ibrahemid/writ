@@ -81,6 +81,15 @@ describe("a read the panel has moved past", () => {
 
     expect(h.logFailure).toHaveBeenCalledTimes(1);
     expect(noteVersionsStore.text()).toBe("");
+    expect(noteVersionsStore.textError()).toBe("That version could not be read.");
+  });
+
+  it("says a reason Rust wrote for a person in place of its own", async () => {
+    h.noteVersionContent.mockRejectedValueOnce("That version is damaged and cannot be restored.");
+
+    await noteVersionsStore.select(1);
+
+    expect(noteVersionsStore.textError()).toBe("That version is damaged and cannot be restored.");
   });
 });
 

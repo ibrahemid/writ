@@ -9,16 +9,18 @@
 use tauri::{AppHandle, Manager, State};
 use tokio_util::sync::CancellationToken;
 use writ_ai::connection::{
-    self, endpoint_state_from, needs_key_lookup, prepare_request, run_rewrite_stream, StreamEvent,
+    self, endpoint_state_from, needs_key_lookup, prepare_on_device, prepare_request,
+    run_rewrite_stream, StreamEvent,
 };
 use writ_core::ai::models::{seed_model, ModelCatalog};
+use writ_core::ai::on_device;
 use writ_core::ai::providers::{self, ProviderInfo};
 use writ_core::config::AiConfig;
 use writ_core::polish::{self, PolishError};
 
 pub use writ_ai::connection::{
-    build_client, build_client_with, is_consented, probe_local_at, AiConnectionStatus,
-    AiEndpointState, AiState, LocalProbe,
+    build_client, build_client_for, build_client_with, is_consented, probe_local_at,
+    AiConnectionStatus, AiEndpointState, AiState, LocalProbe, LocalProbeUrls,
 };
 pub use writ_ai::keys::{AiKeyState, KeyStore, MemoryKeyStore};
 
@@ -132,7 +134,8 @@ pub fn ai_consent_host(app: AppHandle) -> Result<AiEndpointState, String> {
         announce_ai_config(&app);
     }
 
-    // Reached only for a hosted endpoint, which does need a key.
+    // Reached only for a hosted endpoint, which takes a key: a required one, or
+    // an optional one on a private network.
     let key_state = key_state_for(&app, &config.ai.provider);
     Ok(endpoint_state_from(&config.ai, key_state))
 }
@@ -231,6 +234,15 @@ pub fn ai_set_provider(app: AppHandle, provider: String) -> Result<AiConfig, Str
     Ok(updated.ai)
 }
 
+/// Emits one event of a rewrite's stream, whichever way it was reached.
+fn emit_stream_event(app: &AppHandle, request_id: &str, event: StreamEvent) {
+    match event {
+        StreamEvent::Chunk(content) => emit_ai(app, request_id, "chunk", Some(content)),
+        StreamEvent::Done => emit_ai(app, request_id, "done", None),
+        StreamEvent::Error(message) => emit_ai(app, request_id, "error", Some(message)),
+    }
+}
+
 fn emit_ai(app: &AppHandle, request_id: &str, kind: &str, text: Option<String>) {
     if let Err(e) = emit_event(
         app,
@@ -262,6 +274,25 @@ pub async fn ai_rewrite(
         guard.ai.clone()
     };
 
+    if on_device::is_on_device(&cfg.provider) {
+        let request = prepare_on_device(&cfg, &action, &text, custom_instruction)
+            .map_err(|e| e.to_string())?;
+        tracing::info!(text_len = text.len(), "starting on-device rewrite");
+        let cancel = CancellationToken::new();
+        app.state::<AiState>()
+            .track_rewrite(&request_id, cancel.clone());
+        let task_app = app.clone();
+        let task_id = request_id.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::on_device::run_rewrite(&request, &cancel, |event| {
+                emit_stream_event(&task_app, &task_id, event)
+            })
+            .await;
+            task_app.state::<AiState>().finish_rewrite(&task_id);
+        });
+        return Ok(request_id);
+    }
+
     let prepared = prepare_request(&cfg, &action, &text, custom_instruction, |preset| {
         key_for(&app, preset)
     })
@@ -269,7 +300,7 @@ pub async fn ai_rewrite(
 
     tracing::info!(text_len = text.len(), "starting rewrite");
 
-    let client = build_client()?;
+    let client = build_client_for(prepared.is_private_network())?;
 
     let cancel = CancellationToken::new();
 
@@ -281,10 +312,8 @@ pub async fn ai_rewrite(
     let task_app = app.clone();
     let task_id = request_id.clone();
     tauri::async_runtime::spawn(async move {
-        run_rewrite_stream(&client, &prepared, &cancel, |event| match event {
-            StreamEvent::Chunk(content) => emit_ai(&task_app, &task_id, "chunk", Some(content)),
-            StreamEvent::Done => emit_ai(&task_app, &task_id, "done", None),
-            StreamEvent::Error(message) => emit_ai(&task_app, &task_id, "error", Some(message)),
+        run_rewrite_stream(&client, &prepared, &cancel, |event| {
+            emit_stream_event(&task_app, &task_id, event)
         })
         .await;
 
@@ -303,10 +332,15 @@ pub fn ai_cancel(ai: State<'_, AiState>, request_id: String) {
 }
 
 /// The provider table, so the settings dropdown, the probe and the model list
-/// read one definition of a row rather than three.
+/// read one definition of a row rather than three. The on-device row is in it
+/// only where the system has the model ([`crate::on_device::is_offered`]),
+/// which is asked of the system off the main thread.
 #[tauri::command]
-pub fn ai_providers() -> Vec<ProviderInfo> {
-    providers::PROVIDERS.to_vec()
+pub async fn ai_providers() -> Result<Vec<ProviderInfo>, String> {
+    crate::commands::offload::run_detached(crate::commands::offload::ERR_COMMAND_STOPPED, || {
+        Ok(providers::offered_providers(crate::on_device::is_offered()))
+    })
+    .await
 }
 
 /// Reads the model list of the configured connection.
@@ -335,6 +369,21 @@ pub async fn ai_probe_local() -> LocalProbe {
     connection::probe_local().await
 }
 
+/// The words a rewrite changed, for the preview to mark in place
+/// ([`writ_core::diff::word_diff`]). Off the main thread: two texts of up to
+/// the diff's limit are compared here.
+#[tauri::command]
+pub async fn ai_word_diff(
+    before: String,
+    after: String,
+) -> Result<Vec<writ_core::diff::WordSpan>, String> {
+    crate::commands::offload::run_detached(
+        crate::commands::offload::ERR_COMMAND_STOPPED,
+        move || writ_core::diff::word_diff(&before, &after).map_err(|error| error.to_string()),
+    )
+    .await
+}
+
 /// Probes the configured endpoint's model list so the UI can show connection
 /// state before a rewrite is attempted ([`connection::check_connection`]).
 #[tauri::command]
@@ -344,6 +393,17 @@ pub async fn ai_check_connection(app: AppHandle) -> Result<AiConnectionStatus, S
         let guard = recover_poison(state.config.lock(), "commands::ai::ai_check_connection");
         guard.ai.clone()
     };
+    if on_device::is_on_device(&cfg.provider) {
+        return crate::commands::offload::run_detached(
+            crate::commands::offload::ERR_COMMAND_STOPPED,
+            || {
+                Ok(connection::on_device_status(
+                    crate::on_device::availability(),
+                ))
+            },
+        )
+        .await;
+    }
     Ok(connection::check_connection(&cfg, |provider| key_for(&app, provider)).await)
 }
 
@@ -361,6 +421,7 @@ mod tests {
             "commands::ai::ai_list_models",
             "commands::ai::ai_probe_local",
             "commands::ai::ai_check_connection",
+            "commands::ai::ai_word_diff",
             "commands::ai::ai_endpoint_state",
             "commands::ai::ai_consent_host",
             "commands::ai::ai_set_api_key",
@@ -373,8 +434,15 @@ mod tests {
 
     #[test]
     fn the_table_is_answered_whole() {
-        let rows = ai_providers();
-        assert_eq!(rows.len(), writ_core::ai::providers::PROVIDERS.len());
+        let rows = tauri::async_runtime::block_on(ai_providers()).expect("the table");
+        assert_eq!(
+            rows,
+            providers::offered_providers(crate::on_device::is_offered())
+        );
+        assert_eq!(
+            rows.iter().any(|row| on_device::is_on_device(row.id)),
+            crate::on_device::is_offered()
+        );
         assert_eq!(rows[0].id, "ollama");
         let json = serde_json::to_string(&rows).expect("serialised");
         assert!(json.contains("\"group\":\"local\""), "{json}");

@@ -303,7 +303,12 @@ describe("the demo backend", () => {
 
   it("reports the connection honestly: nothing local answers, no key is held", async () => {
     const { handle } = backend();
-    expect(await handle("ai_probe_local", {})).toEqual({ ollama: false, lmstudio: false });
+    expect(await handle("ai_probe_local", {})).toEqual({
+      ollama: false,
+      lmstudio: false,
+      llamacpp: false,
+      jan: false,
+    });
     expect(await handle("ai_has_api_key", { provider: "anthropic" })).toEqual({ is_set: false, memory_only: false });
     expect(((await handle("ai_check_connection", {})) as { kind: string }).kind).toBe("refused");
     await expect(handle("ai_rewrite", { requestId: "r1", action: "polish", text: "x" })).rejects.toBe("Rewriting is turned off.");

@@ -30,6 +30,19 @@
   color: var(--writ-fg);
 }
 
+.first-run-setup-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+}
+
+.first-run-setup-lead {
+  margin: 0;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-fg-muted);
+}
+
 .first-run-formats {
   display: flex;
   gap: var(--writ-space-4);

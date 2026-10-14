@@ -67,7 +67,7 @@ function ConnectionsPanel() {
       const doc = bufferRegistry.activeTabs().find((tab) => tab.id === id);
       return doc && !isMarkdownBuffer(doc)
         ? "Links, headings and properties are read from Markdown files."
-        : "Type [[ to link this file to another.";
+        : "Nothing links to this file yet. Type [[ in another file to link here.";
     };
     return <p class="right-panel-empty">{line()}</p>;
   }

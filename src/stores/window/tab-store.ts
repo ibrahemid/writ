@@ -148,11 +148,11 @@ export function createTabStore(deps: {
     const discard =
       ids.length === 1
         ? await confirmDiscard(
-            `Couldn't save ${names[0]}`,
+            `Could not save ${names[0]}`,
             `${asSentence(formatSaveError(failures.find((f) => f.bufferId === ids[0])?.error))} Closing the tab discards the unsaved text.`,
           )
         : await confirmDiscard(
-            `Couldn't save ${ids.length} tabs`,
+            `Could not save ${ids.length} tabs`,
             `${names.join(", ")}\n\nClosing them discards the unsaved text.`,
           );
     if (!discard) return;

@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
   setPreset: vi.fn(),
   focusEditor: vi.fn(),
   openThemeEditor: vi.fn(),
-  openShortcutEditor: vi.fn(),
   fetchDefaultAppStatus: vi.fn().mockResolvedValue({ status: "unsupported" }),
   claimDefaultApp: vi.fn().mockResolvedValue(undefined),
   fetchDefaultAppTypes: vi.fn(),
@@ -34,8 +33,8 @@ const mocks = vi.hoisted(() => ({
   requestExternalReload: vi.fn(),
   aiEndpointState: vi.fn(),
   aiConsentHost: vi.fn(),
-  notesFolder: vi.fn(),
-  notesLoadFolder: vi.fn(),
+  notesFolder: vi.fn(() => null),
+  notesLoadFolder: vi.fn().mockResolvedValue(undefined),
   notesShowInFileManager: vi.fn(),
   notesCopyPath: vi.fn(),
   notesMove: vi.fn(),
@@ -151,8 +150,8 @@ vi.mock("../../components/ThemeEditor/ThemeEditor", () => ({
 }));
 
 vi.mock("../../components/ShortcutEditor/ShortcutEditor", () => ({
-  openShortcutEditor: mocks.openShortcutEditor,
-  WAYLAND_LINE: "Wayland doesn't pass this shortcut to Writ from other apps.",
+  hasUnsavedShortcuts: () => false,
+  discardShortcutDrafts: vi.fn(),
   default: () => null,
 }));
 
@@ -207,7 +206,11 @@ vi.mock("../../stores/global/theme", () => ({
 }));
 
 
-import SettingsModal, { openSettings, closeSettings } from "../../components/SettingsModal/SettingsModal";
+import SettingsModal, {
+  openSettings,
+  closeSettings,
+  openWindowChordSetting,
+} from "../../components/SettingsModal/SettingsModal";
 import { rankSettings } from "../../settings";
 
 function baseConfig(): WritConfig {
@@ -242,21 +245,20 @@ function baseConfig(): WritConfig {
   };
 }
 
-async function openShortcutsSection(container: Element) {
+async function openGeneralSection(container: Element) {
   await configStore.save(baseConfig());
-  openSettings("shortcuts");
-  await waitFor(() => expect(container.querySelector("[data-section='shortcuts']")).not.toBeNull());
+  openSettings("general");
+  await waitFor(() => expect(container.querySelector("[data-section='general']")).not.toBeNull());
 }
 
 function windowRow(container: Element): HTMLElement {
-  const row = container.querySelector<HTMLElement>("[data-setting-id='shortcuts.window']");
-  expect(row, "Shortcuts carries the window's chord").not.toBeNull();
+  const row = container.querySelector<HTMLElement>("[data-setting-id='hotkey.toggle']");
+  expect(row, "General carries the window's chord").not.toBeNull();
   return row!;
 }
 
-describe("SettingsModal shortcuts section", () => {
+describe("SettingsModal General: the window's chord and open at login", () => {
   beforeEach(() => {
-    mocks.openShortcutEditor.mockReset();
     mocks.fetchDefaultAppTypes.mockReset().mockResolvedValue([]);
     login.load.mockClear();
     login.set.mockClear();
@@ -272,29 +274,52 @@ describe("SettingsModal shortcuts section", () => {
 
   it("shows the window's chord with no caution while Writ holds it", async () => {
     const { container } = render(() => <SettingsModal />);
-    await openShortcutsSection(container);
+    await openGeneralSection(container);
 
     expect(windowRow(container).querySelector(".settings-row-caution")).toBeNull();
     expect(windowRow(container).querySelector(".kbd-chord-muted")).toBeNull();
   });
 
-  it("says another app holds the chord, and Change opens the recorder on it", async () => {
+  it("says another app holds the chord, mutes it and keeps its recorder", async () => {
     chord.setTaken(true);
     const { container } = render(() => <SettingsModal />);
-    await openShortcutsSection(container);
+    await openGeneralSection(container);
 
     const caution = windowRow(container).querySelector(".settings-row-caution");
-    expect(caution?.textContent).toMatch(/^Another app is using .+Space\.$/);
+    expect(caution?.textContent).toBe("Another app is using this shortcut.");
     expect(windowRow(container).querySelector(".kbd-chord-muted")).not.toBeNull();
+    expect(windowRow(container).querySelector("[data-action='record-global-chord']")).not.toBeNull();
+  });
 
-    fireEvent.click(windowRow(container).querySelector("[data-action='record-window-chord']")!);
-    expect(mocks.openShortcutEditor).toHaveBeenCalledWith({ recordWindowChord: true });
+  it("opens Settings listening on the window's chord when asked to", async () => {
+    chord.setTaken(true);
+    await configStore.save(baseConfig());
+    const { container } = render(() => <SettingsModal />);
+    openWindowChordSetting(true);
+
+    await waitFor(() =>
+      expect(windowRow(container).querySelector(".settings-chord-note")?.textContent).toBe(
+        "Press a key…",
+      ),
+    );
+    expect(windowRow(container).classList.contains("settings-row-highlight")).toBe(true);
+  });
+
+  it("opens Settings at the window's chord without listening when not asked to", async () => {
+    await configStore.save(baseConfig());
+    const { container } = render(() => <SettingsModal />);
+    openWindowChordSetting(false);
+
+    await waitFor(() => expect(windowRow(container)).not.toBeNull());
+    expect(
+      windowRow(container).querySelector("[data-action='record-global-chord']")!.textContent,
+    ).toBe("Record");
   });
 
   it("says a Wayland session cannot pass the chord on", async () => {
     chord.setUnsupported(true);
     const { container } = render(() => <SettingsModal />);
-    await openShortcutsSection(container);
+    await openGeneralSection(container);
 
     expect(windowRow(container).querySelector(".settings-row-caution")?.textContent).toBe(
       "Wayland doesn't pass this shortcut to Writ from other apps.",
@@ -304,7 +329,7 @@ describe("SettingsModal shortcuts section", () => {
   it("reads open at login from the OS and asks it on a click", async () => {
     login.setEnabled(true);
     const { container } = render(() => <SettingsModal />);
-    await openShortcutsSection(container);
+    await openGeneralSection(container);
 
     expect(login.load).toHaveBeenCalled();
     const toggle = container.querySelector<HTMLButtonElement>("[data-setting='launch_at_login']")!;
@@ -316,6 +341,6 @@ describe("SettingsModal shortcuts section", () => {
 
   it("finds open at login by searching for startup", () => {
     expect(rankSettings("startup").map((entry) => entry.id)).toContain("general.launch_at_login");
-    expect(rankSettings("hotkey").map((entry) => entry.id)).toContain("shortcuts.window");
+    expect(rankSettings("hotkey").map((entry) => entry.id)).toContain("hotkey.toggle");
   });
 });

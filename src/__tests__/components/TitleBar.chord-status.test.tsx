@@ -19,7 +19,7 @@ beforeAll(() => {
 });
 
 const h = vi.hoisted(() => ({
-  openShortcutEditor: vi.fn(),
+  openWindowChordSetting: vi.fn(),
   hotkey: null as null | {
     setTaken: (taken: boolean) => void;
     setUnsupported: (unsupported: boolean) => void;
@@ -76,9 +76,8 @@ vi.mock("../../stores/global/hotkey", async () => {
   });
 });
 
-vi.mock("../../components/ShortcutEditor/ShortcutEditor", () => ({
-  openShortcutEditor: h.openShortcutEditor,
-  WAYLAND_LINE: "Wayland doesn't pass this shortcut to Writ from other apps.",
+vi.mock("../../components/SettingsModal/state", () => ({
+  openWindowChordSetting: h.openWindowChordSetting,
 }));
 
 import TitleBar from "../../components/TitleBar/TitleBar";
@@ -93,7 +92,7 @@ describe("the titlebar keycap for the window's chord", () => {
   afterEach(() => {
     h.hotkey?.setTaken(false);
     h.hotkey?.setUnsupported(false);
-    h.openShortcutEditor.mockReset();
+    h.openWindowChordSetting.mockReset();
     cleanup();
   });
 
@@ -114,7 +113,7 @@ describe("the titlebar keycap for the window's chord", () => {
     expect(button.getAttribute("aria-label")).toBe("Another app is using Ctrl+Shift+Space");
 
     fireEvent.click(button);
-    expect(h.openShortcutEditor).toHaveBeenCalledWith({ recordWindowChord: true });
+    expect(h.openWindowChordSetting).toHaveBeenCalledWith(true);
   });
 
   it("follows the chord coming free again", () => {
@@ -136,6 +135,6 @@ describe("the titlebar keycap for the window's chord", () => {
       "Wayland doesn't pass this shortcut to Writ from other apps.",
     );
     fireEvent.click(button);
-    expect(h.openShortcutEditor).toHaveBeenCalledWith({ recordWindowChord: false });
+    expect(h.openWindowChordSetting).toHaveBeenCalledWith(false);
   });
 });

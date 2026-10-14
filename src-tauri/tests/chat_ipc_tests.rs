@@ -28,6 +28,7 @@ const COMMANDS: &[&str] = &[
     "commands::chat::chat_send",
     "commands::chat::chat_stop",
     "commands::chat::chat_apply_proposal",
+    "commands::chat::chat_undo_proposal",
     "commands::chat::chat_discard_proposal",
 ];
 
@@ -307,6 +308,42 @@ fn chat_attached_sizes_reads_a_notes_folder_spelled_as_the_app_carries_it() {
     assert_eq!(sizes[0].bytes, "the first text\n".len() as u64);
 }
 
+#[test]
+fn chat_attached_sizes_refuses_a_note_over_the_ceiling_before_the_send() {
+    let (notes, _writ) = folders();
+    let root = root(&notes);
+    let big = vec![b'a'; (writ_core::notes::host::MAX_NOTE_BYTES + 1) as usize];
+    std::fs::write(root.join("Big.md"), big).expect("write");
+
+    let error = attached_sizes_in(&root, &NoOpenNotes, &["Big.md".to_string()])
+        .expect_err("refused when it is attached, not after the send dialog");
+    assert_eq!(error, "Big.md is too large to attach.");
+}
+
+#[test]
+fn notes_over_the_total_are_refused_by_the_sizes_call_and_by_the_read() {
+    let (notes, _writ) = folders();
+    let root = root(&notes);
+    let near = vec![b'a'; writ_core::notes::host::MAX_NOTE_BYTES as usize];
+    let names: Vec<String> = (0..3).map(|index| format!("Near{index}.md")).collect();
+    for name in &names {
+        std::fs::write(root.join(name), &near).expect("write");
+    }
+    // Three notes at the ceiling are over the total; two are not.
+    let refused = attached_sizes_in(&root, &NoOpenNotes, &names).expect_err("over the total");
+    assert_eq!(
+        refused,
+        "Attached files can hold at most 4 MB between them."
+    );
+    let read = read_attached_in(&root, &NoOpenNotes, &names).expect_err("over the total");
+    assert_eq!(read, refused, "the send refuses in the same words");
+
+    assert!(
+        attached_sizes_in(&root, &NoOpenNotes, &names[..2]).is_ok(),
+        "two notes at the ceiling fit"
+    );
+}
+
 // --- chat_send --------------------------------------------------------------
 
 #[test]
@@ -334,6 +371,59 @@ fn chat_send_carries_the_attached_notes_and_nothing_else() {
         "a note nobody attached reached the request"
     );
     assert_eq!(prepared.context[0].path, "Launch.md");
+}
+
+#[test]
+fn a_long_conversation_is_fitted_to_a_local_runtime_oldest_turns_first() {
+    let filler = "word ".repeat(400);
+    let mut turns = Vec::new();
+    for index in 0..60 {
+        turns.push(ChatTurn {
+            role: Role::User,
+            content: format!("question {index} {filler}"),
+        });
+        turns.push(ChatTurn {
+            role: Role::Assistant,
+            content: format!("answer {index} {filler}"),
+        });
+    }
+    turns.push(ChatTurn {
+        role: Role::User,
+        content: "the newest question".to_string(),
+    });
+
+    let prepared = prepare_chat(
+        &config("http://localhost:11434/v1"),
+        &turns,
+        Vec::new(),
+        None,
+        |_| None,
+    )
+    .expect("prepared");
+    let messages = prepared.body["messages"].as_array().expect("messages");
+    // The system message, then the turns that fit.
+    let sent: Vec<&serde_json::Value> = messages.iter().skip(1).collect();
+    assert!(
+        sent.len() < turns.len(),
+        "{} of {} turns",
+        sent.len(),
+        turns.len()
+    );
+    assert!(!sent.is_empty());
+    assert_eq!(
+        sent[0]["role"], "user",
+        "the window opens on the person's turn"
+    );
+    assert_eq!(
+        sent.last().expect("the newest")["content"],
+        "the newest question"
+    );
+    assert!(
+        !serde_json::to_string(&prepared.body)
+            .expect("body")
+            .contains("question 0 "),
+        "the oldest turn went first"
+    );
 }
 
 #[test]

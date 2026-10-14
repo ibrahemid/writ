@@ -30,3 +30,18 @@ export const EDITOR_COMMAND_KEYS: readonly EditorCommandKey[] = [
   { id: "editor.joinLines", label: "Join lines", keybinding: "CmdOrCtrl+Shift+J" },
   { id: "editor.selectNextOccurrence", label: "Select next occurrence", keybinding: "CmdOrCtrl+Shift+D" },
 ];
+
+/**
+ * The Markdown formatting commands, registered while a Markdown file is in
+ * front with Markdown shortcuts on (EditorInstance). Settings names their
+ * chords from here while no Markdown file is open to register them.
+ */
+export const MARKDOWN_FORMAT_KEYS = [
+  { id: "editor.toggleBold", label: "Bold", keybinding: "CmdOrCtrl+B" },
+  { id: "editor.toggleItalic", label: "Italic", keybinding: "CmdOrCtrl+I" },
+  { id: "editor.toggleStrikethrough", label: "Strikethrough", keybinding: "CmdOrCtrl+Shift+X" },
+  { id: "editor.toggleInlineCode", label: "Inline code", keybinding: "CmdOrCtrl+Shift+E" },
+  { id: "editor.insertLink", label: "Insert link", keybinding: "CmdOrCtrl+K" },
+  { id: "editor.toggleBulletList", label: "Bulleted list", keybinding: undefined },
+  { id: "editor.toggleTaskList", label: "Task list", keybinding: undefined },
+] as const;

@@ -24,7 +24,7 @@ export interface PaletteProps {
   // Fired once per open, before the first query runs.
   onOpen?: () => void;
   // Seeds the input when the palette opens, for callers that already know what
-  // the user is looking for (the editor's "Search workspace for …" row).
+  // the user is looking for (the editor's "Search the folder for …" row).
   initialQuery?: () => string;
 }
 
@@ -62,7 +62,7 @@ export default function Palette(props: PaletteProps) {
     if (reportedFailures.has(provider.id)) return;
     reportedFailures.add(provider.id);
     logFailure(`the "${provider.id}" palette provider failed`);
-    showToast(`Couldn't search ${provider.section.toLowerCase()}`, "error");
+    showToast(`Could not search ${provider.section.toLowerCase()}`, "error");
   }
 
   // A bare prefix is a routing choice, not a failed search: no "nothing
@@ -79,6 +79,17 @@ export default function Palette(props: PaletteProps) {
       default:
         return null;
     }
+  }
+
+  function contentModeHint(): string | null {
+    if (parsed().mode !== "all") return null;
+    const searchedText = props.providers.some((p) => {
+      const modes = providerModes(p);
+      return modes.includes("content") && modes.includes("all");
+    });
+    if (searchedText) return null;
+    const content = prefixes().find((entry) => entry.mode === "content");
+    return content ? `Search inside files with ${content.prefix}.` : null;
   }
 
   const activeProviders = createMemo(() =>
@@ -321,7 +332,9 @@ export default function Palette(props: PaletteProps) {
                         <div class="palette-empty-title">
                           Nothing matches “{query()}”
                         </div>
-                        <div class="palette-empty-hint">Try a different word.</div>
+                        <Show when={contentModeHint()}>
+                          {(hint) => <div class="palette-empty-hint">{hint()}</div>}
+                        </Show>
                       </>
                     }
                   >

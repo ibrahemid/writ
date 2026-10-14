@@ -62,7 +62,8 @@ vi.mock("../../stores/global/command-usage", () => ({
   },
 }));
 
-vi.mock("../../stores/global/config", () => ({
+vi.mock("../../stores/global/config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../stores/global/config")>()),
   configStore: {
     config: () => ({
       theme: {},
@@ -70,6 +71,7 @@ vi.mock("../../stores/global/config", () => ({
       hotkey: { toggle: "CmdOrCtrl+Shift+Space" },
     }),
     save: h.saveConfig,
+    isAppOn: () => false,
   },
 }));
 
@@ -114,10 +116,10 @@ import ThemeEditor, {
   openThemeEditor,
   closeThemeEditor,
 } from "../../components/ThemeEditor/ThemeEditor";
-import ShortcutEditor, {
-  openShortcutEditor,
-  closeShortcutEditor,
-} from "../../components/ShortcutEditor/ShortcutEditor";
+import SettingsModal, {
+  openSettings,
+  closeSettings,
+} from "../../components/SettingsModal/SettingsModal";
 import {
   installKeyboardHandler,
   uninstallKeyboardHandler,
@@ -182,7 +184,7 @@ describe("Modal background suppression", () => {
     uninstallKeyboardHandler();
     closeCommandPalette();
     closeThemeEditor();
-    closeShortcutEditor();
+    closeSettings();
     cleanup();
     resetDom();
     resetModalStack();
@@ -232,11 +234,11 @@ describe("Modal background suppression", () => {
     expect(probe).not.toHaveBeenCalled();
   });
 
-  it("shortcut editor open blocks a global command keybinding", async () => {
+  it("Settings open on the shortcut list blocks a global command keybinding", async () => {
     const container = mountAppShell();
     const user = userEvent.setup({ document });
-    render(() => <ShortcutEditor />, { container });
-    openShortcutEditor();
+    render(() => <SettingsModal />, { container });
+    openSettings("shortcuts");
     await flush();
     expect(isModalOpen()).toBe(true);
     await user.keyboard("{Meta>}1{/Meta}");

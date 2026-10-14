@@ -22,7 +22,7 @@ pub const LONG_ABOUT: &str = "\
 Serves your folder to an MCP client over stdin and stdout.
 The client launches this command; it opens no port.
 
-Turn it on in Writ's settings, under Connected programs, and
+Turn it on in Writ under Settings, Apps, Connected programs, and
 approve the program there. Until then no tool call is answered.";
 
 /// The environment `writ mcp` reads, printed after its help.

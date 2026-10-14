@@ -68,9 +68,9 @@ describe("a toast with an action", () => {
 
 describe("how long a toast stays", () => {
   it("keeps an error until it is dismissed, whatever duration the caller passed", () => {
-    showToast("Couldn't move \"Draft\" to the Trash.", "error", 4000);
+    showToast("Could not move \"Draft\" to the Trash.", "error", 4000);
     vi.advanceTimersByTime(60_000);
-    expect(toasts().map((t) => t.text)).toEqual(["Couldn't move \"Draft\" to the Trash."]);
+    expect(toasts().map((t) => t.text)).toEqual(["Could not move \"Draft\" to the Trash."]);
   });
 
   it("lets an info line go after its time", () => {

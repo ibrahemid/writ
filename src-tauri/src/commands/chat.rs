@@ -123,6 +123,31 @@ pub fn apply_proposal_inner(
     )
 }
 
+/// Puts back what a note held before a proposal was applied to it
+/// ([`chat::undo_proposal_inner`]).
+#[allow(clippy::too_many_arguments)]
+pub fn undo_proposal_inner(
+    notes_root: &Path,
+    open_notes: &dyn OpenNotes,
+    writ_dir: &Path,
+    host: &str,
+    path: &str,
+    before_hash: &str,
+    applied_hash: &str,
+    history: Option<&writ_storage::note_history::NoteHistoryStore>,
+) -> Result<ProposalOutcome, String> {
+    chat::undo_proposal_inner(
+        notes_root,
+        &Tabs(open_notes),
+        writ_dir,
+        host,
+        path,
+        before_hash,
+        applied_hash,
+        history,
+    )
+}
+
 /// Records that a proposal was read and not applied
 /// ([`chat::discard_proposal_inner`]).
 pub fn discard_proposal_inner(
@@ -371,7 +396,7 @@ pub async fn chat_send(
         )?
     };
 
-    let client = super::ai::build_client()?;
+    let client = super::ai::build_client_for(prepared.is_private_network)?;
 
     let attached = prepared.context.clone();
     let accepted_identity = prepared.identity.clone();
@@ -545,6 +570,68 @@ pub fn apply_proposal_to_state(
         }
     }
     drop(tab_turn);
+    outcome
+}
+
+/// Puts back what a note held before the card's Apply, and tells a tab
+/// holding the note what it now holds.
+///
+/// The conversation keeps its record: the proposal was applied, and Undo is a
+/// second write the activity log records on its own line. Off the main thread,
+/// like the apply it undoes (ADR-047).
+#[tauri::command]
+pub async fn chat_undo_proposal(
+    app: AppHandle,
+    path: String,
+    before_hash: String,
+    applied_hash: String,
+) -> Result<ProposalOutcome, String> {
+    crate::commands::offload::run_detached(crate::commands::buffer::ERR_WRITE_FAILED, move || {
+        let host = chat_host(&app);
+        let outcome = undo_proposal_to_state(
+            &app.state::<AppState>(),
+            &host,
+            &path,
+            &before_hash,
+            &applied_hash,
+        );
+        announce_activity(&app);
+        outcome
+    })
+    .await
+}
+
+/// [`chat_undo_proposal`] against the app's state.
+///
+/// Only a note in the folder has versions, so the write goes through the note
+/// host and the tab holding the note hears about it the way it hears about an
+/// applied proposal ([`announce_applied_note`]).
+pub fn undo_proposal_to_state(
+    state: &AppState,
+    host: &str,
+    path: &str,
+    before_hash: &str,
+    applied_hash: &str,
+) -> Result<ProposalOutcome, String> {
+    let notes_root = state.notes_root();
+    let open_tabs = state.open_tabs();
+    let outcome = undo_proposal_inner(
+        &notes_root,
+        &open_tabs,
+        &state.writ_dir,
+        host,
+        path,
+        before_hash,
+        applied_hash,
+        Some(&state.note_history),
+    );
+    if outcome.as_ref().is_ok_and(|undone| undone.changed) {
+        if let Ok(context) = chat::resolve_context_file(&notes_root, &Tabs(&open_tabs), path) {
+            if let Ok(bytes) = std::fs::read(&context.file) {
+                announce_applied_note(state, &context.file, &bytes);
+            }
+        }
+    }
     outcome
 }
 

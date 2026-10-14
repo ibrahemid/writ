@@ -164,3 +164,7 @@ export function sameChord(a: string, b: string): boolean {
   const modifiers = (parts: string[]) => [...parts.slice(0, -1)].sort().join("+");
   return key(left) === key(right) && modifiers(left) === modifiers(right);
 }
+
+/** Why the window's chord was not taken: Rust registers only these keys. */
+export const UNUSABLE_GLOBAL_KEY =
+  "Writ can't use that key. Pick a letter, number, punctuation, arrow, Space or F1–F24 key.";

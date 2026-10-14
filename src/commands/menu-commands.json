@@ -1,5 +1,5 @@
 [
-  { "id": "app.thirdPartyNotices", "label": "Third-Party Licences", "menu": "app", "group": 0, "platforms": ["mac", "win", "linux"] },
+  { "id": "app.thirdPartyNotices", "label": "Third-Party Licenses", "menu": "app", "group": 0, "platforms": ["mac", "win", "linux"] },
   { "id": "settings.open", "label": "Settings…", "accelerator": "CmdOrCtrl+,", "menu": "app", "group": 1, "platforms": ["mac", "win", "linux"] },
   { "id": "app.check_updates", "label": "Check for Updates…", "menu": "app", "group": 2, "platforms": ["mac", "win", "linux"] },
 

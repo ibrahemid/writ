@@ -17,6 +17,7 @@ import { showToast } from "../../stores/global/notifications";
 import { formatBytes } from "../../lib/format-bytes";
 import { hunkRows } from "../../lib/diff-rows";
 import { noteVersionsStore, type NoteVersion } from "../../stores/global/note-versions";
+import { userErrorText } from "../../lib/error-text";
 import "./NoteHistoryPanel.css";
 
 // Singleton state — Writ is single-window
@@ -64,9 +65,7 @@ export function versionLabel(atMs: number, now: Date = new Date()): string {
 }
 
 function readableError(error: unknown): string {
-  if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  return "That version was not written.";
+  return userErrorText(error) ?? "That version was not written.";
 }
 
 function Row(props: { version: NoteVersion }) {
@@ -266,7 +265,7 @@ function VersionsDialog() {
       >
         <div class="note-versions-header">
           <span id={titleId} class="note-versions-title">
-            Earlier versions
+            Versions
           </span>
           <Show when={noteVersionsStore.path()}>
             {(path) => <span class="note-versions-note">{nameOf(path())}</span>}
@@ -291,7 +290,7 @@ function VersionsDialog() {
                 ref={listRef}
                 class="note-versions-list"
                 role="listbox"
-                aria-label="Earlier versions"
+                aria-label="Versions"
                 onKeyDown={onListKeyDown}
               >
                 <For each={noteVersionsStore.versions()}>

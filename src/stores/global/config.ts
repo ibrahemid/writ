@@ -271,14 +271,14 @@ export function unreadValuesNotice(unread: readonly ConfigDiagnostic[]): string 
   if (!first) return null;
   const tail = "Settings won't be saved until the file is fixed.";
   if (!first.key) {
-    return `Writ couldn't read config.toml (line ${first.line}) and is using default settings. ${tail}`;
+    return `Writ could not read config.toml (line ${first.line}) and is using default settings. ${tail}`;
   }
   const others = unread.length - 1;
   if (others === 0) {
-    return `Writ couldn't read ${first.key} on line ${first.line} of config.toml and is using its default. ${tail}`;
+    return `Writ could not read ${first.key} on line ${first.line} of config.toml and is using its default. ${tail}`;
   }
   const more = others === 1 ? "1 other value" : `${others} other values`;
-  return `Writ couldn't read ${first.key} on line ${first.line} of config.toml and ${more}, and is using defaults for them. ${tail}`;
+  return `Writ could not read ${first.key} on line ${first.line} of config.toml and ${more}, and is using defaults for them. ${tail}`;
 }
 
 /**
@@ -342,7 +342,7 @@ function createConfigStore() {
       loadFailureReported = true;
       logFailure("settings could not be read");
       showToast(
-        "Couldn't read your settings. Writ is using defaults; saving now replaces the stored file.",
+        "Could not read your settings. Writ is using defaults; saving now replaces the stored file.",
         "error",
         8000,
       );
@@ -460,7 +460,7 @@ function createConfigStore() {
         if (persistFailureReported) return;
         persistFailureReported = true;
         logFailure("settings could not be written");
-        showToast("Couldn't save your settings. The change applies to this session only.", "error");
+        showToast("Could not save your settings. The change applies to this session only.", "error");
       },
     );
   }

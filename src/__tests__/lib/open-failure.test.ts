@@ -6,7 +6,7 @@ import {
   tooLargeReason,
 } from "../../lib/open-failure";
 
-// Each reason reads as the second half of "Couldn't open <name>: ".
+// Each reason reads as the second half of "Could not open <name>: ".
 
 describe("tooLargeReason", () => {
   it("states the file's size and the size Writ opens up to", () => {
