@@ -18,7 +18,7 @@ vi.mock("../../stores/global/spelling", () => ({
   },
   entryKey: (entry: SpellingEntry) => `${entry.from}:${entry.to}:${entry.word}`,
 }));
-vi.mock("../../components/Notifications/Toast", () => ({ showToast: h.showToast }));
+vi.mock("../../stores/global/notifications", () => ({ showToast: h.showToast }));
 
 import SpellingPreview, {
   openSpellingPreview,
