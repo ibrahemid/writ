@@ -111,14 +111,14 @@ class TestKey:
         assert OPENSSL is not None
         self.dir = directory
         self.dir.mkdir()
-        self.secret = self.dir / "secret.pem"
+        self.signing_key_pem = self.dir / "signing-key.pem"
         subprocess.run(
-            [OPENSSL, "genpkey", "-algorithm", "ed25519", "-out", str(self.secret)],
+            [OPENSSL, "genpkey", "-algorithm", "ed25519", "-out", str(self.signing_key_pem)],
             check=True,
             capture_output=True,
         )
         der = subprocess.run(
-            [OPENSSL, "pkey", "-in", str(self.secret), "-pubout", "-outform", "DER"],
+            [OPENSSL, "pkey", "-in", str(self.signing_key_pem), "-pubout", "-outform", "DER"],
             check=True,
             capture_output=True,
         ).stdout
@@ -129,7 +129,7 @@ class TestKey:
         message_path = self.dir / "message"
         message_path.write_bytes(message)
         return subprocess.run(
-            [OPENSSL, "pkeyutl", "-sign", "-inkey", str(self.secret), "-rawin", "-in", str(message_path)],
+            [OPENSSL, "pkeyutl", "-sign", "-inkey", str(self.signing_key_pem), "-rawin", "-in", str(message_path)],
             check=True,
             capture_output=True,
         ).stdout
