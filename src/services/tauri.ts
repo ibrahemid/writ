@@ -497,12 +497,48 @@ export interface DiskState {
   mtime_ms: number | null;
 }
 
+/** The request header a raw-body save names its note in (`NOTE_ID_HEADER` in Rust). */
+const NOTE_ID_HEADER = "writ-note-id";
+
 /**
  * Writes the note and reports the digest of what its file now holds, or null
  * when the note had nothing in it and no file to write it to.
+ *
+ * The text goes as the request's raw body, UTF-8 encoded, and the note in a
+ * header: nothing turns the document into JSON on either side (EP-13).
  */
 export async function saveBufferContent(id: string, content: string): Promise<string | null> {
-  return invoke("save_buffer_content", { id, content });
+  return invoke("save_buffer_content", new TextEncoder().encode(content), {
+    headers: { [NOTE_ID_HEADER]: id },
+  });
+}
+
+/**
+ * Writes the note as `changes` (CodeMirror's `ChangeSet.toJSON()`) applied to
+ * the text whose digest is `base`, the digest a write of it answered with.
+ * `length` is the length in UTF-16 code units of the document the changes
+ * produce. Answers like [`saveBufferContent`]; refused under
+ * `ERR_CHANGES_STALE` when the file no longer holds that text.
+ */
+export async function saveBufferChanges(
+  id: string,
+  base: string,
+  changes: unknown,
+  length: number,
+): Promise<string | null> {
+  return invoke("save_buffer_changes", { id, base, changes, length });
+}
+
+/**
+ * Records where a note was left: the caret and the first position on the top
+ * line of the view, as offsets into its document.
+ */
+export async function setBufferViewPosition(
+  id: string,
+  cursorPos: number,
+  scrollPos: number,
+): Promise<void> {
+  return invoke("set_buffer_view_position", { id, cursorPos, scrollPos });
 }
 
 /**
@@ -1241,32 +1277,49 @@ export class InlineImageResolveError extends Error {
 }
 
 type InlineImageResult =
-  | { kind: "ready"; data_url: string; mime: string; byte_len: number }
+  | { kind: "ready"; url: string; mime: string; byte_len: number }
   | { kind: "refused"; reason: string };
 
 function inlineImageFailureOf(reason: string): InlineImageFailure {
   return isInlineImageFailure(reason) ? reason : "not_found";
 }
 
-/**
- * Read one image referenced by an open file, encoded for an `img` element.
- *
- * Rejects with an [`InlineImageResolveError`] when the host refuses the
- * reference; the size cap is applied to the file's metadata, so a file over
- * it is never read.
- */
-export async function previewInlineImage(
-  notePath: string | null,
-  reference: string,
-): Promise<{ dataUrl: string }> {
-  const result = await invoke<InlineImageResult>("preview_inline_image", {
-    notePath,
-    reference,
-  });
+function inlineImageSource(result: InlineImageResult): { src: string } {
   if (result.kind === "refused") {
     throw new InlineImageResolveError(inlineImageFailureOf(result.reason));
   }
-  return { dataUrl: result.data_url };
+  return { src: result.url };
+}
+
+/**
+ * The URL one image referenced by an open buffer is drawn from, served
+ * read-only by the preview scheme.
+ *
+ * Rejects with an [`InlineImageResolveError`] when the host refuses the
+ * reference. Every refusal is decided before the file's bytes are read, and
+ * an image a sync provider has not downloaded is refused as `not_downloaded`.
+ */
+export async function previewInlineImage(
+  bufferId: string,
+  reference: string,
+): Promise<{ src: string }> {
+  return inlineImageSource(
+    await invoke<InlineImageResult>("preview_inline_image", { bufferId, reference }),
+  );
+}
+
+/**
+ * Download an image a sync provider holds, then answer as
+ * [`previewInlineImage`] does. Resolves once the bytes are on this machine;
+ * rejects with `not_downloaded` when the download ends without them.
+ */
+export async function previewInlineImageDownload(
+  bufferId: string,
+  reference: string,
+): Promise<{ src: string }> {
+  return inlineImageSource(
+    await invoke<InlineImageResult>("preview_inline_image_download", { bufferId, reference }),
+  );
 }
 
 

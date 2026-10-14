@@ -776,18 +776,193 @@ fn attach_new_note_file(
     Ok(path)
 }
 
+/// The request header a raw-body save names its note in.
+pub const NOTE_ID_HEADER: &str = "writ-note-id";
+
+/// Code a raw-body save carries when the request is not a note's text: no
+/// note named, a body that is not bytes, or bytes that are not UTF-8.
+pub const ERR_SAVE_BODY: &str = "ERR_SAVE_BODY";
+
+/// Why a raw-body save's request could not be read.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SaveBodyError {
+    /// The request names no note in [`NOTE_ID_HEADER`].
+    #[error("{}: the save names no file", ERR_SAVE_BODY)]
+    NoNote,
+    /// The body is neither raw bytes nor a JSON array of bytes.
+    #[error("{}: the body is not the file's bytes", ERR_SAVE_BODY)]
+    NotBytes,
+    /// The bytes are not UTF-8 text.
+    #[error("{}: the text is not UTF-8", ERR_SAVE_BODY)]
+    NotUtf8,
+}
+
+/// The note a raw-body save names.
+pub fn note_id_of(headers: &tauri::http::HeaderMap) -> Result<String, SaveBodyError> {
+    headers
+        .get(NOTE_ID_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .ok_or(SaveBodyError::NoNote)
+}
+
+/// The bytes of a raw-body save.
+///
+/// A webview that fell back from the IPC protocol to `postMessage` sends them
+/// as a JSON array of numbers, which is read as the same bytes.
+pub fn body_bytes(body: &tauri::ipc::InvokeBody) -> Result<Vec<u8>, SaveBodyError> {
+    match body {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes.clone()),
+        tauri::ipc::InvokeBody::Json(serde_json::Value::Array(items)) => items
+            .iter()
+            .map(|item| item.as_u64().and_then(|n| u8::try_from(n).ok()))
+            .collect::<Option<Vec<u8>>>()
+            .ok_or(SaveBodyError::NotBytes),
+        tauri::ipc::InvokeBody::Json(_) => Err(SaveBodyError::NotBytes),
+    }
+}
+
 /// IPC: [`save_buffer_content_inner`], off the main thread and in the note's
 /// queue (ADR-047).
+///
+/// The text is the request's raw body, as UTF-8, and the note is named in the
+/// [`NOTE_ID_HEADER`] header, so the document is never written out as JSON on
+/// one side and parsed on the other (EP-13). The bytes are copied off the
+/// request on the async runtime and checked as UTF-8 on the blocking pool.
 #[tauri::command]
 pub async fn save_buffer_content<R: Runtime>(
     app: AppHandle<R>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<Option<String>, String> {
+    let id = note_id_of(request.headers()).map_err(|e| e.to_string())?;
+    let ticket = note_ticket(&app, &id);
+    let bytes = body_bytes(request.body()).map_err(|e| e.to_string())?;
+    let reindex = app.clone();
+    run_in_turn(app, ticket, ERR_WRITE_FAILED, move |state, turn| {
+        let content = String::from_utf8(bytes).map_err(|_| SaveBodyError::NotUtf8.to_string())?;
+        let disk_hash = save_in_turn(state, turn, &content)?;
+        schedule_reindex(&reindex, state, turn.key());
+        Ok(disk_hash)
+    })
+    .await
+}
+
+/// Code a change-set save carries when the note's file no longer holds the
+/// text the changes were made against, or holds none Writ can read without
+/// asking. The editor sends the whole text instead.
+pub const ERR_CHANGES_STALE: &str = "ERR_CHANGES_STALE";
+
+/// Code a change-set save carries when the changes do not fit the text they
+/// name as their base, or do not produce the length the editor holds.
+pub const ERR_CHANGES_INVALID: &str = "ERR_CHANGES_INVALID";
+
+/// Why a change-set save wrote nothing.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ChangesRefused {
+    /// The file is not the text the changes were made against.
+    #[error(
+        "{}: the file no longer holds the text the changes were made against",
+        ERR_CHANGES_STALE
+    )]
+    Stale,
+    /// The changes do not apply to that text.
+    #[error("{code}: {0}", code = ERR_CHANGES_INVALID)]
+    Invalid(String),
+}
+
+/// Saves note `id` as `changes` applied to the text its file holds, when that
+/// text is the one whose comparison digest is `base`
+/// ([`writ_core::hash::comparison_digest_hex`]), and `length` is the length in
+/// UTF-16 code units of the document the editor holds after them.
+///
+/// The editor's large tiers save this way once one of their writes has landed
+/// (ADR-022): `base` is the digest that write answered with. The result goes
+/// through [`save_in_turn`], so it is encoded, given the file's line ending,
+/// guarded and journaled exactly as a whole-text save is.
+///
+/// Waits its turn in the note's queue, like every write of the note.
+pub fn save_buffer_changes_inner(
+    state: &AppState,
+    id: &str,
+    base: &str,
+    changes: &writ_core::buffer::change_set::ChangeSet,
+    length: usize,
+) -> Result<Option<String>, String> {
+    let turn = state.buffer_writes.turn(id);
+    save_changes_in_turn(state, &turn, base, changes, length)
+}
+
+fn save_changes_in_turn(
+    state: &AppState,
+    turn: &Turn,
+    base: &str,
+    changes: &writ_core::buffer::change_set::ChangeSet,
+    length: usize,
+) -> Result<Option<String>, String> {
+    let text = editor_text_of_file(state, turn.key()).map_err(|e| e.to_string())?;
+    if writ_core::hash::comparison_digest_hex(text.as_bytes()) != base {
+        return Err(ChangesRefused::Stale.to_string());
+    }
+    if changes.result_length() != length {
+        return Err(ChangesRefused::Invalid(format!(
+            "the changes produce {} code units and the editor holds {length}",
+            changes.result_length()
+        ))
+        .to_string());
+    }
+    let content = changes
+        .apply(&text)
+        .map_err(|e| ChangesRefused::Invalid(e.to_string()).to_string())?;
+    drop(text);
+    save_in_turn(state, turn, &content)
+}
+
+/// The text the editor would hold for note `id`'s file as it stands: decoded
+/// in the note's encoding, with its line breaks as `\n`.
+///
+/// Read without the store. A note with no file, a read-only one, a file whose
+/// bytes are not on this machine and a file that cannot be read all answer
+/// [`ChangesRefused::Stale`]: the whole-text save that follows is the one that
+/// says what is wrong with them.
+fn editor_text_of_file(state: &AppState, id: &str) -> Result<String, ChangesRefused> {
+    let doc = state
+        .store
+        .lock()
+        .map_err(|_| ChangesRefused::Stale)?
+        .get(id)
+        .map_err(|_| ChangesRefused::Stale)?;
+    let Some(path) = doc.source_path.as_deref() else {
+        return Err(ChangesRefused::Stale);
+    };
+    if doc.read_only || is_not_downloaded(dataless_flags(Path::new(path))) {
+        return Err(ChangesRefused::Stale);
+    }
+    let read =
+        writ_storage::buffer_store::read_doc_text(&doc).map_err(|_| ChangesRefused::Stale)?;
+    let text = read.text;
+    Ok(
+        match writ_core::hash::normalise_line_endings(text.as_bytes()) {
+            Cow::Borrowed(_) => text,
+            Cow::Owned(bytes) => String::from_utf8(bytes).map_err(|_| ChangesRefused::Stale)?,
+        },
+    )
+}
+
+/// IPC: [`save_buffer_changes_inner`], off the main thread and in the note's
+/// queue (ADR-047).
+#[tauri::command]
+pub async fn save_buffer_changes<R: Runtime>(
+    app: AppHandle<R>,
     id: String,
-    content: String,
+    base: String,
+    changes: writ_core::buffer::change_set::ChangeSet,
+    length: usize,
 ) -> Result<Option<String>, String> {
     let ticket = note_ticket(&app, &id);
     let reindex = app.clone();
     run_in_turn(app, ticket, ERR_WRITE_FAILED, move |state, turn| {
-        let disk_hash = save_in_turn(state, turn, &content)?;
+        let disk_hash = save_changes_in_turn(state, turn, &base, &changes, length)?;
         schedule_reindex(&reindex, state, turn.key());
         Ok(disk_hash)
     })
@@ -1940,6 +2115,36 @@ pub fn set_buffer_language(
     language: Option<String>,
 ) -> Result<BufferDocument, String> {
     set_buffer_language_inner(&state, &id, language.as_deref())
+}
+
+/// Records where note `id` was left: the caret at `cursor_pos` and the line
+/// at the top of the view starting at `scroll_pos`, both as offsets into the
+/// document. A tab opened on the note again starts there.
+pub fn set_buffer_view_position_inner(
+    state: &AppState,
+    id: &str,
+    cursor_pos: u64,
+    scroll_pos: u64,
+) -> Result<(), String> {
+    let store = state.store.lock().map_err(|e| e.to_string())?;
+    store
+        .set_view_position(id, cursor_pos, scroll_pos)
+        .map_err(|e| e.to_string())
+}
+
+/// IPC: [`set_buffer_view_position_inner`], on the blocking pool so a store
+/// held by other work never holds the window.
+#[tauri::command]
+pub async fn set_buffer_view_position<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+    cursor_pos: u64,
+    scroll_pos: u64,
+) -> Result<(), String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        set_buffer_view_position_inner(state, &id, cursor_pos, scroll_pos)
+    })
+    .await
 }
 
 /// Code a reopen carries when the encoding asked for is not one Writ reads.

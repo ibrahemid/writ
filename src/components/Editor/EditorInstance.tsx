@@ -1,10 +1,11 @@
 import { onMount, onCleanup, createEffect, createMemo, on, Show } from "solid-js";
-import { Compartment, EditorState, type Extension, type Text } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, type Extension, type Text } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap,
   drawSelection,
   rectangularSelection, crosshairCursor,
+  type ViewUpdate,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { syntaxHighlighting, bracketMatching, indentOnInput } from "@codemirror/language";
@@ -57,6 +58,7 @@ import {
   toggleTaskList,
 } from "../../commands/markdown-format";
 import type { BufferDocument, FileOpenMode } from "../../types/buffer";
+import type { ViewPosition } from "../../stores/window/editor-store";
 import { configStore } from "../../stores/global/config";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
@@ -73,9 +75,20 @@ import { loadGrammar, loadedGrammar, warmGrammar } from "../../editor/languages"
 import { contentMayNameLanguage, languageOfFile } from "../../editor/file-language";
 import { openLanguagePicker } from "./LanguagePicker";
 import { openEncodingPicker } from "./EncodingPicker";
-import { editorModeForContent, THRESHOLD_NORMAL_BYTES } from "../../editor/large-file";
-import { ExternalReloadTxn } from "../../editor/external-reload";
+import {
+  editorTierForContent,
+  featuresFor,
+  isLargeTier,
+  longestLineOfDocument,
+  THRESHOLD_NORMAL_BYTES,
+  tierForDocument,
+  type EditorFeatures,
+} from "../../editor/large-file";
+import { ExternalReloadTxn, smallestChange } from "../../editor/external-reload";
+import { TabStateCache } from "../../editor/tab-state-cache";
 import { autoTextDirection } from "../../editor/bidi";
+import { placeholderExtension } from "../../editor/placeholder";
+import { commandChord } from "../../lib/command-chord";
 import { codeChrome, codeChromeFor, isCodeBuffer, surfaceFollowsLanguage } from "../../editor/code-chrome";
 import { indentationFor, lineWrappingFor } from "../../editor/editor-settings";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
@@ -83,6 +96,26 @@ import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-c
 import "./EditorInstance.css";
 
 const LARGE_FILE_AUTOSAVE_DEBOUNCE_MS = 2000;
+
+// How long the caret and the scroll rest before where the note was left is
+// written to its row.
+const POSITION_SAVE_DELAY_MS = 2000;
+
+// A transaction that moves at least this many code units (a paste, a Replace
+// All, a reload) has the document's tier looked at again.
+const LARGE_TRANSACTION = 64 * 1024;
+
+const NORMAL: FileOpenMode = { kind: "Normal" };
+
+/** The text the editor holds for `content`: CodeMirror reads every line break as `\n`. */
+function asEditorText(content: string): string {
+  return content.indexOf("\r") === -1 ? content : content.replace(/\r\n?/g, "\n");
+}
+
+/** The first position on the line at the top of the view. */
+function topOfView(view: EditorView): number {
+  return view.lineBlockAtHeight(Math.max(0, view.scrollDOM.scrollTop)).from;
+}
 
 // The name a file's language is read from: the last part of its path when it
 // has one, since the path is what the file is; otherwise a title typed with an
@@ -122,6 +155,7 @@ export default function EditorInstance(props: Props) {
   let containerRef!: HTMLDivElement;
   let view: EditorView | undefined;
   let disposeEditorCommands: (() => void) | undefined;
+  let stopClosedListener: (() => void) | undefined;
   let currentBufferId: string | undefined;
   // The buffer the view holds; it trails currentBufferId during a switch.
   let viewBufferId: string | undefined;
@@ -140,6 +174,33 @@ export default function EditorInstance(props: Props) {
   // a change reaches the open file without rebuilding it.
   const wrapCompartment = new Compartment();
   const indentationCompartment = new Compartment();
+  const directionCompartment = new Compartment();
+  const placeholderCompartment = new Compartment();
+
+  // The editor states of the open tabs behind the one in front (EP-06). A tab
+  // dropped to keep within the budget lets go of the document its last write
+  // landed with too.
+  const tabStates = new TabStateCache(undefined, (id) => win.editor.releaseDocument(id));
+  // Tabs closed since they were last loaded. A close selects the next tab
+  // before the closed one is forgotten, and the switch that follows must not
+  // keep the closed tab's state after the close dropped it.
+  const closedTabs = new Set<string>();
+
+  // The tier of the note the view holds, and what it gets from it.
+  function currentMode(): FileOpenMode {
+    return win.editor.largeFileMode() ?? NORMAL;
+  }
+
+  function currentFeatures(): EditorFeatures {
+    const id = viewBufferId ?? props.buffer.id;
+    return featuresFor(currentMode(), win.editor.longestLine(), win.editor.overridesOf(id));
+  }
+
+  // Whether the file's language is decided at all: always where the surface
+  // follows it, and in the large tiers once highlighting is turned on.
+  function languageApplies(mode: FileOpenMode, features: EditorFeatures): boolean {
+    return surfaceFollowsLanguage(mode) || features.highlight;
+  }
 
   // A destination without a scheme is a file reference. It opens in Writ when
   // it resolves inside the open workspace or inside the notes folder; anything
@@ -176,6 +237,11 @@ export default function EditorInstance(props: Props) {
       void followNoteLink(source, raw, noteLinkActions);
       return true;
     },
+    wikilinkStatus: (raw: string) => {
+      const source = props.buffer.source_path;
+      if (!source) return "missing" as const;
+      return linkStore.knownNoteLink(source, raw.trim())?.status ?? null;
+    },
   };
 
   const noteLinkActions = {
@@ -207,7 +273,7 @@ export default function EditorInstance(props: Props) {
   };
 
   const wikilinkCompleteDeps = {
-    candidates: (query: string) => linkStore.noteNameCandidates(query),
+    candidates: (query: string) => linkStore.linkCandidates(query, props.buffer.source_path ?? null),
   };
 
   // Writ's own right-click menu. The native WKWebView menu is suppressed
@@ -269,8 +335,7 @@ export default function EditorInstance(props: Props) {
   // only decides whether the checker attaches.
   function spellingIsEligible(): boolean {
     if (!view) return false;
-    const mode = win.editor.largeFileMode();
-    if (mode && mode.kind !== "Normal") return false;
+    if (!currentFeatures().spelling) return false;
     if (view.state.doc.length > SPELLING_MAX_CHARS) return false;
     return true;
   }
@@ -299,18 +364,18 @@ export default function EditorInstance(props: Props) {
     }
   }
 
-  // An image is read against the file that references it, so the path is
-  // taken when the request is made rather than when the extension is built.
+  // An image resolves against the folder of the buffer's file, which the host
+  // reads off the buffer's row when the request is made.
   const imageDeps: InlineImageDeps = {
-    resolve: (reference: string) =>
-      linkStore.inlineImage(props.buffer.source_path ?? null, reference),
+    resolve: (reference: string) => linkStore.inlineImage(props.buffer.id, reference),
+    download: (reference: string) => linkStore.downloadInlineImage(props.buffer.id, reference),
   };
 
   // The layout decides. A markdown buffer laid out inline is the only one
   // that carries the decorations; its source layout is the raw text, and a
   // buffer of another type has no markdown to render.
-  function typographyExtension(markdown: boolean, mode: FileOpenMode): Extension {
-    if (mode.kind !== "Normal") return [];
+  function typographyExtension(markdown: boolean, features: EditorFeatures): Extension {
+    if (!features.markdown) return [];
     if (markdown && win.layout.get(props.buffer.id, "markdown").kind === "inline") {
       return markdownInlineExtension(imageDeps);
     }
@@ -324,12 +389,17 @@ export default function EditorInstance(props: Props) {
     return isCodeBuffer(lang) ? writCodeFace : [];
   }
 
-  function editingExtension(markdown: boolean, mode: FileOpenMode): Extension {
-    if (mode.kind !== "Normal") return [];
+  function editingExtension(markdown: boolean, features: EditorFeatures): Extension {
+    if (!features.markdown) return [];
     if (markdown && configStore.config().editor.markdown_editing) {
       return markdownEditingExtension;
     }
     return [];
+  }
+
+  function placeholderFor(markdown: boolean, mode: FileOpenMode): Extension {
+    if (mode.kind === "Binary") return [];
+    return placeholderExtension(markdown ? "markdown" : "plain", commandChord("palette.open"));
   }
 
   // A plain file still gets its urls clicked; the wikilink layers are Markdown's.
@@ -348,13 +418,14 @@ export default function EditorInstance(props: Props) {
   // file's language changed while the chunk was on its way.
   function requestGrammar(lang: string | null) {
     if (!view || lang === null || loadedGrammar(lang)) return;
-    const target = view;
+    // The view stays across tabs and takes each tab's state in turn, so the
+    // note it holds is what says whether it moved on.
+    const target = viewBufferId;
     loadGrammar(lang).then(
       (support) => {
-        if (!support || view !== target || win.editor.language() !== lang) return;
-        const mode = win.editor.largeFileMode();
-        if (mode && mode.kind !== "Normal") return;
-        target.dispatch({ effects: languageCompartment.reconfigure(support) });
+        if (!support || !view || viewBufferId !== target || win.editor.language() !== lang) return;
+        if (!currentFeatures().highlight) return;
+        view.dispatch({ effects: languageCompartment.reconfigure(support) });
       },
       () => logFailure("a language's highlighting could not be loaded"),
     );
@@ -371,11 +442,12 @@ export default function EditorInstance(props: Props) {
   function applyDetectedLanguage(lang: string) {
     if (!view) return;
     win.editor.setLanguage(lang);
-    const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
+    const mode = currentMode();
+    const features = currentFeatures();
     view.dispatch({
       effects: [
-        typographyCompartment.reconfigure(typographyExtension(isMarkdown(), mode)),
-        editingCompartment.reconfigure(editingExtension(isMarkdown(), mode)),
+        typographyCompartment.reconfigure(typographyExtension(isMarkdown(), features)),
+        editingCompartment.reconfigure(editingExtension(isMarkdown(), features)),
         // The face and the chrome follow the language only on a normal buffer.
         // A restricted one keeps what it mounted with (see surfaceFollowsLanguage).
         ...(surfaceFollowsLanguage(mode)
@@ -386,15 +458,14 @@ export default function EditorInstance(props: Props) {
           : []),
       ],
     });
-    if (mode.kind === "Normal") attachGrammar(lang);
+    if (features.highlight) attachGrammar(lang);
   }
 
   // A file whose name says nothing gets its language from what it holds once
   // there is enough of it. A name with an extension, or a language chosen for
   // the file, settles it: a .txt stays plain text whatever is typed into it.
   function maybeDetectFromContent(doc: Text, force: boolean) {
-    const mode = win.editor.largeFileMode();
-    if (mode && mode.kind !== "Normal") return;
+    if (!currentFeatures().detectLanguage) return;
     if (win.editor.language() !== null) return;
     if (
       !contentMayNameLanguage({
@@ -412,33 +483,42 @@ export default function EditorInstance(props: Props) {
     if (detected) applyDetectedLanguage(detected);
   }
 
-  function createExtensions(bufferId: string, langId: string | null, markdown: boolean, mode: FileOpenMode): Extension[] {
-    const isLarge =
-      mode.kind === "LargeFile" || mode.kind === "LargeFileConfirm" || mode.kind === "LongLines";
-    const isBinary = mode.kind === "Binary";
-    const isRestricted = isLarge || isBinary;
+  // Restricted tiers save less often: each save of a large file is a write of
+  // the whole file on disk, whatever travels over IPC.
+  function autosaveDebounce(): number {
+    return currentMode().kind === "Normal"
+      ? configStore.config().editor.autosave_debounce_ms
+      : LARGE_FILE_AUTOSAVE_DEBOUNCE_MS;
+  }
 
-    const autosaveDebounce = isRestricted
-      ? LARGE_FILE_AUTOSAVE_DEBOUNCE_MS
-      : configStore.config().editor.autosave_debounce_ms;
+  function createExtensions(
+    bufferId: string,
+    langId: string | null,
+    markdown: boolean,
+    mode: FileOpenMode,
+    features: EditorFeatures,
+  ): Extension[] {
+    const isBinary = mode.kind === "Binary";
+    // A large or binary buffer is a file being inspected, not a note: it keeps
+    // the line numbers that are the only way to navigate it, whatever its
+    // language.
+    const surface = surfaceFollowsLanguage(mode);
 
     return [
       // The grammar when it has already loaded; requestGrammar brings it in
       // otherwise once the view is up.
-      languageCompartment.of(isRestricted ? [] : (loadedGrammar(langId) ?? [])),
-      typographyCompartment.of(isRestricted ? [] : typographyExtension(markdown, mode)),
-      codeFaceCompartment.of(isRestricted ? [] : codeFaceExtension(langId)),
-      // A large or binary buffer is a file being inspected, not a note: it
-      // wraps nothing and its language is never detected, so it keeps the
-      // numbers that are the only way to navigate it.
-      codeChromeCompartment.of(isRestricted ? codeChrome : codeChromeFor(langId)),
-      editingCompartment.of(isRestricted ? [] : editingExtension(markdown, mode)),
+      languageCompartment.of(features.highlight ? (loadedGrammar(langId) ?? []) : []),
+      typographyCompartment.of(typographyExtension(markdown, features)),
+      codeFaceCompartment.of(surface ? codeFaceExtension(langId) : []),
+      codeChromeCompartment.of(surface ? codeChromeFor(langId) : codeChrome),
+      editingCompartment.of(editingExtension(markdown, features)),
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
-      linkCompartment.of(isRestricted ? [] : linkExtensions(markdown)),
+      linkCompartment.of(features.links ? linkExtensions(markdown) : []),
       // Outside every compartment: the completion plugin never clears its typing
       // timer, which throws if it fires after the completion is reconfigured away.
-      isRestricted ? [] : wikilinkCompletion(wikilinkCompleteDeps),
+      // The link compartment's gate turns it on and off instead.
+      isBinary ? [] : wikilinkCompletion(wikilinkCompleteDeps),
       contextMenuExtension,
       spellingMenuExtension,
       readOnlyCompartment.of(
@@ -465,9 +545,10 @@ export default function EditorInstance(props: Props) {
         indentWithTab,
       ]),
       themeCompartment.of(editorThemeFor(themeStore.polarity())),
-      wrapCompartment.of(lineWrappingFor(configStore.config().editor.word_wrap, mode)),
+      wrapCompartment.of(lineWrappingFor(configStore.config().editor.word_wrap, features.wrap)),
       indentationCompartment.of(indentationFor(configStore.config().editor.tab_size)),
-      ...(isRestricted ? [] : [autoTextDirection]),
+      directionCompartment.of(features.direction ? autoTextDirection : []),
+      placeholderCompartment.of(placeholderFor(markdown, mode)),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           // A reload-from-disk must never trigger a save-back (it would rewrite
@@ -480,27 +561,24 @@ export default function EditorInstance(props: Props) {
           win.editor.noteDocChanged();
           if (!isBinary && !isExternalReload) {
             win.editor.noteEdited(bufferId, update.state.doc);
-            win.editor.scheduleAutosave(bufferId, update.state.doc, autosaveDebounce);
+            win.editor.scheduleAutosave(bufferId, update.state.doc, autosaveDebounce());
           }
-          if (!isRestricted) {
-            maybeDetectFromContent(update.state.doc, false);
-            if (
-              configStore.config().spelling.enabled &&
-              update.state.doc.length <= SPELLING_MAX_CHARS
-            ) {
-              spellingStore.requestCheck();
-            }
+          const now = currentFeatures();
+          if (now.detectLanguage) maybeDetectFromContent(update.state.doc, false);
+          if (
+            now.spelling &&
+            configStore.config().spelling.enabled &&
+            update.state.doc.length <= SPELLING_MAX_CHARS
+          ) {
+            spellingStore.requestCheck();
           }
           // Keep any live rewrite preview's anchored range in sync, and abort it
           // if this edit lands inside that range.
           aiRewriteStore.onDocChanged(bufferId, update.changes);
+          if (!isBinary) reviewTier(bufferId, update);
         }
-        const sel = update.state.selection;
-        const pos = sel.main.head;
-        const line = update.state.doc.lineAt(pos);
-        win.editor.setCursorLine(line.number);
-        win.editor.setCursorCol(pos - line.from + 1);
-        win.editor.setSelectionCount(sel.ranges.length);
+        publishCursor(update.state);
+        if (update.selectionSet || update.viewportChanged) schedulePositionSave();
       }),
       EditorView.domEventHandlers({
         paste: () => {
@@ -512,6 +590,47 @@ export default function EditorInstance(props: Props) {
         },
       }),
     ];
+  }
+
+  function publishCursor(state: EditorState) {
+    const sel = state.selection;
+    const pos = sel.main.head;
+    const line = state.doc.lineAt(pos);
+    win.editor.setCursorLine(line.number);
+    win.editor.setCursorCol(pos - line.from + 1);
+    win.editor.setSelectionCount(sel.ranges.length);
+  }
+
+  // After a transaction that moved a lot of text, the chip offers the tier
+  // the document now calls for when it is on the other side of the byte
+  // threshold (EP-18). Nothing switches until the person says so.
+  function reviewTier(bufferId: string, update: ViewUpdate) {
+    let moved = 0;
+    update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      moved += toA - fromA + inserted.length;
+    });
+    if (moved < LARGE_TRANSACTION) return;
+    const wanted = tierForDocument(update.state.doc).mode;
+    const differs = isLargeTier(wanted) !== isLargeTier(currentMode());
+    win.editor.offerTier(differs ? { bufferId, mode: wanted } : null);
+  }
+
+  // Where the note in front was left, kept for this window and, when
+  // `persist`, on its row for a later session.
+  function rememberPosition(id: string, persist: boolean) {
+    if (!view) return;
+    const position: ViewPosition = { cursor: view.state.selection.main.head, top: topOfView(view) };
+    win.editor.rememberViewPosition(id, position, persist);
+  }
+
+  let positionTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function schedulePositionSave() {
+    if (positionTimer !== undefined) clearTimeout(positionTimer);
+    positionTimer = setTimeout(() => {
+      positionTimer = undefined;
+      if (viewBufferId) rememberPosition(viewBufferId, true);
+    }, POSITION_SAVE_DELAY_MS);
   }
 
   async function saveCurrentContent() {
@@ -581,6 +700,7 @@ export default function EditorInstance(props: Props) {
     viewBufferId = undefined;
     win.editor.registerView(null);
     win.editor.setLargeFileMode(null);
+    win.editor.setLongestLine(0);
     win.editor.setLanguage(null);
     win.editor.setLineCount(0);
     win.editor.setCurrentBufferId(null);
@@ -627,27 +747,101 @@ export default function EditorInstance(props: Props) {
 
   // Decides the language again after the name or the choice changed, and
   // dresses the open view for it.
-  function applyLanguageFromBuffer(buffer: BufferDocument, content: string) {
-    const mode = editorModeForContent(buffer, content);
-    if (mode.kind !== "Normal") return;
+  function applyLanguageFromBuffer(buffer: BufferDocument) {
+    if (!view) return;
+    const mode = currentMode();
+    const features = currentFeatures();
+    if (!languageApplies(mode, features)) return;
     const key = languageKey(buffer);
-    if (key === appliedLanguageKey && view) return;
+    if (key === appliedLanguageKey) return;
     appliedLanguageKey = key;
-    const lang = languageOf(buffer, content);
-    const markdown = isMarkdownBuffer(buffer);
-    win.editor.setLanguage(lang);
-    if (view) {
-      view.dispatch({
-        effects: [
-          typographyCompartment.reconfigure(typographyExtension(markdown, mode)),
-          editingCompartment.reconfigure(editingExtension(markdown, mode)),
-          linkCompartment.reconfigure(linkExtensions(markdown)),
-          codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
-          codeChromeCompartment.reconfigure(codeChromeFor(lang)),
-        ],
-      });
-      attachGrammar(lang);
+    // Only a file whose surface follows its language reads it from what it
+    // holds; a large file is named by its name.
+    const content = surfaceFollowsLanguage(mode) ? view.state.doc.toString() : "";
+    win.editor.setLanguage(languageOf(buffer, content));
+    reconfigureForTier();
+  }
+
+  // Dresses the view for the tier, the person's choices for the file and the
+  // current settings, every compartment at once. A state kept while its tab
+  // was behind another missed every change made in the meantime, and a tier
+  // switch or a choice from the chip changes several of them together.
+  function reconfigureForTier() {
+    if (!view) return;
+    const mode = currentMode();
+    const features = currentFeatures();
+    const markdown = isMarkdown();
+    const surface = surfaceFollowsLanguage(mode);
+    if (languageApplies(mode, features) && appliedLanguageKey === "") {
+      appliedLanguageKey = languageKey(props.buffer);
+      win.editor.setLanguage(languageOf(props.buffer, ""));
     }
+    const lang = win.editor.language();
+    const editor = configStore.config().editor;
+    view.dispatch({
+      effects: [
+        languageCompartment.reconfigure(features.highlight ? (loadedGrammar(lang) ?? []) : []),
+        typographyCompartment.reconfigure(typographyExtension(markdown, features)),
+        codeFaceCompartment.reconfigure(surface ? codeFaceExtension(lang) : []),
+        codeChromeCompartment.reconfigure(surface ? codeChromeFor(lang) : codeChrome),
+        editingCompartment.reconfigure(editingExtension(markdown, features)),
+        linkCompartment.reconfigure(features.links ? linkExtensions(markdown) : []),
+        wrapCompartment.reconfigure(lineWrappingFor(editor.word_wrap, features.wrap)),
+        indentationCompartment.reconfigure(indentationFor(editor.tab_size)),
+        directionCompartment.reconfigure(features.direction ? autoTextDirection : []),
+        placeholderCompartment.reconfigure(placeholderFor(markdown, mode)),
+        themeCompartment.reconfigure(editorThemeFor(themeStore.polarity())),
+        readOnlyCompartment.reconfigure(
+          mode.kind === "Binary" ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : [],
+        ),
+      ],
+    });
+    if (features.highlight) requestGrammar(lang);
+    applySpelling();
+  }
+
+  // The outgoing tab's editor, kept so switching back keeps its undo history,
+  // selection and scroll (EP-06), and where it was left, kept for a later
+  // session. A binary file's view is a rendering with nothing to keep.
+  function keepOutgoingState() {
+    if (!view || !viewBufferId) return;
+    if (positionTimer !== undefined) {
+      clearTimeout(positionTimer);
+      positionTimer = undefined;
+    }
+    rememberPosition(viewBufferId, true);
+    const mode = currentMode();
+    if (mode.kind === "Binary" || closedTabs.has(viewBufferId)) return;
+    tabStates.put(viewBufferId, {
+      state: view.state,
+      scroll: view.scrollSnapshot(),
+      mode,
+      longest: win.editor.longestLine(),
+    });
+  }
+
+  // The kept state of a tab, when its document is the text the load decided
+  // on: the file, or the text a held note kept. Anything else means the file
+  // changed while the tab was behind another one, and the tab opens on what
+  // it holds now.
+  function keptStateFor(id: string, content: string) {
+    const kept = tabStates.take(id);
+    if (kept === undefined) return undefined;
+    const text = asEditorText(content);
+    if (kept.state.doc.length !== text.length || kept.state.doc.toString() !== text) return undefined;
+    return kept;
+  }
+
+  // Where a tab that kept no state opens: where it was left in this window,
+  // else where its row says, within the document.
+  function startingPosition(buffer: BufferDocument, length: number): ViewPosition | null {
+    const kept =
+      win.editor.viewPositionOf(buffer.id) ??
+      (buffer.cursor_pos > 0 || buffer.scroll_pos > 0
+        ? { cursor: buffer.cursor_pos, top: buffer.scroll_pos }
+        : null);
+    if (kept === null) return null;
+    return { cursor: Math.min(kept.cursor, length), top: Math.min(kept.top, length) };
   }
 
   async function loadBuffer(buffer: BufferDocument) {
@@ -659,6 +853,8 @@ export default function EditorInstance(props: Props) {
     // Drop the outgoing buffer's spell-check state so an in-flight result can
     // never land on the incoming buffer's view.
     spellingStore.detach();
+    keepOutgoingState();
+    closedTabs.delete(buffer.id);
 
     currentBufferId = buffer.id;
     appliedLanguageKey = "";
@@ -707,43 +903,76 @@ export default function EditorInstance(props: Props) {
       fromFile = loaded.fromFile;
     }
 
-    // Mode is content-aware: byte size drives the large-file tiers, but a
-    // small file with pathologically long lines is also restricted so the
-    // view thread does not stall mounting it (see editor/large-file.ts).
-    const mode = editorModeForContent(buffer, content);
-    win.editor.setLargeFileMode(mode.kind === "Normal" ? null : mode);
+    // The tab's own editor comes back when it still holds this text, with its
+    // undo history, selection and scroll; otherwise the text opens fresh.
+    const restored = buffer.read_only ? undefined : keptStateFor(buffer.id, content);
+
+    // Mode is content-aware: byte size drives the large-file tiers, and a
+    // file with a line over the per-line limit opens as LongLines, whose
+    // features follow its longest line (see editor/large-file.ts).
+    const tier = restored ?? editorTierForContent(buffer, content);
+    win.editor.setLargeFileMode(tier.mode.kind === "Normal" ? null : tier.mode);
+    win.editor.setLongestLine(tier.longest);
+    win.editor.recordTier(buffer.id, tier.mode);
+    win.editor.offerTier(null);
+    const features = featuresFor(tier.mode, tier.longest, win.editor.overridesOf(buffer.id));
 
     let lang: string | null = null;
-    if (mode.kind === "Normal") {
-      lang = languageOf(buffer, content);
+    if (languageApplies(tier.mode, features)) {
+      lang = languageOf(buffer, surfaceFollowsLanguage(tier.mode) ? content : "");
       appliedLanguageKey = languageKey(buffer);
     }
     win.editor.setLanguage(lang);
 
-    if (view) {
-      view.destroy();
+    let state: EditorState;
+    let position: ViewPosition | null = null;
+    if (restored) {
+      state = restored.state;
+    } else {
+      state = EditorState.create({
+        doc: content,
+        extensions: createExtensions(buffer.id, lang, isMarkdownBuffer(buffer), tier.mode, features),
+      });
+      position = startingPosition(buffer, state.doc.length);
+      if (position !== null && position.cursor > 0) {
+        state = state.update({ selection: EditorSelection.cursor(position.cursor) }).state;
+      }
     }
 
-    const state = EditorState.create({
-      doc: content,
-      extensions: createExtensions(buffer.id, lang, isMarkdownBuffer(buffer), mode),
-    });
-
-    view = new EditorView({
-      state,
-      parent: containerRef,
-    });
+    // One view serves every tab: it takes the incoming tab's state rather
+    // than being rebuilt, so nothing in the view outlives the state it shows.
+    if (view) {
+      view.setState(state);
+    } else {
+      view = new EditorView({ state, parent: containerRef });
+    }
     viewBufferId = buffer.id;
+    if (restored) {
+      // Settings, the theme and the person's choices may have changed while
+      // the tab was behind another one.
+      reconfigureForTier();
+      if (restored.scroll) view.dispatch({ effects: restored.scroll });
+    } else if (position !== null && position.top > 0) {
+      view.dispatch({ effects: EditorView.scrollIntoView(position.top, { y: "start" }) });
+    }
+    win.editor.rememberViewPosition(
+      buffer.id,
+      { cursor: view.state.selection.main.head, top: position?.top ?? win.editor.viewPositionOf(buffer.id)?.top ?? 0 },
+      false,
+    );
 
     win.editor.registerView(view);
     win.editor.setLineCount(view.state.doc.lines);
+    publishCursor(view.state);
     win.editor.noteOpened(buffer.id, view.state.doc, fromFile);
     // Publish the loaded id last, after the view holding its document: a
     // preview pane gating on this id reads the matching buffer's text.
     win.editor.setCurrentBufferId(buffer.id);
     win.editor.clearReadFailure();
-    applySpelling();
-    if (mode.kind === "Normal") requestGrammar(lang);
+    if (!restored) {
+      applySpelling();
+      if (features.highlight) requestGrammar(lang);
+    }
     if (findStore.isOpen()) findStore.retarget();
     view.focus();
   }
@@ -771,7 +1000,24 @@ export default function EditorInstance(props: Props) {
       if (!wasUnread && unread && id === currentBufferId) showUnreadPane(id, unread);
       return;
     }
+    if (id !== currentBufferId) updateKeptState(id, content);
     win.editor.applyExternalContent(id, content);
+  }
+
+  // A tab behind another one whose file changed takes the file's text into
+  // its kept state as one undoable change, the way the tab in front does, so
+  // switching back keeps its history rather than opening fresh.
+  function updateKeptState(id: string, content: string) {
+    const kept = tabStates.peek(id);
+    if (kept === undefined) return;
+    const before = kept.state.doc.toString();
+    const after = asEditorText(content);
+    if (before === after) return;
+    const change = smallestChange(before, after);
+    tabStates.update(
+      id,
+      kept.state.update({ changes: change, annotations: ExternalReloadTxn.of(true) }).state,
+    );
   }
 
   // Cmd/Ctrl + wheel (and trackpad pinch, which the OS reports as ctrl+wheel)
@@ -787,6 +1033,11 @@ export default function EditorInstance(props: Props) {
     containerRef.addEventListener("wheel", onWheelZoom, { passive: false });
 
     disposeEditorCommands = registerEditorCommands(() => view ?? null);
+    // A closed tab's kept editor goes with it.
+    stopClosedListener = win.editor.onNoteClosed((id) => {
+      tabStates.delete(id);
+      closedTabs.add(id);
+    });
 
     // Inline mode draws nothing until the Markdown grammar is there, so it is
     // loaded while the main thread is idle rather than on the first .md open.
@@ -851,6 +1102,34 @@ export default function EditorInstance(props: Props) {
     }
   ));
 
+  // A tier the chip offered and the person took: the view keeps its document,
+  // selection and undo history and takes the tier's features.
+  createEffect(on(
+    () => win.editor.tierSwitch(),
+    (change) => {
+      if (!change || !view || change.bufferId !== viewBufferId) return;
+      const longest = isLargeTier(change.mode) ? 0 : longestLineOfDocument(view.state.doc);
+      win.editor.setLargeFileMode(change.mode.kind === "Normal" ? null : change.mode);
+      win.editor.setLongestLine(longest);
+      win.editor.recordTier(change.bufferId, change.mode);
+      appliedLanguageKey = "";
+      if (!languageApplies(change.mode, currentFeatures())) win.editor.setLanguage(null);
+      reconfigureForTier();
+    },
+    { defer: true },
+  ));
+
+  // Wrapping or highlighting turned on or off for this file from the chip.
+  const fileOverrides = createMemo(() => win.editor.overridesOf(props.buffer.id));
+  createEffect(on(
+    fileOverrides,
+    () => {
+      if (!view || props.buffer.id !== viewBufferId) return;
+      reconfigureForTier();
+    },
+    { defer: true },
+  ));
+
   // The unread tab in front is read once its open answers.
   createEffect(() => {
     const id = props.buffer.id;
@@ -900,7 +1179,7 @@ export default function EditorInstance(props: Props) {
       // A switch changes the name too; loadBuffer configures the incoming
       // view, and the outgoing one keeps its own file's type.
       if (!view || props.buffer.id !== viewBufferId) return;
-      applyLanguageFromBuffer(props.buffer, view.state.doc.toString());
+      applyLanguageFromBuffer(props.buffer);
     },
     { defer: true },
   ));
@@ -913,10 +1192,9 @@ export default function EditorInstance(props: Props) {
     [wordWrap, tabSize],
     ([wrap, size]) => {
       if (!view) return;
-      const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
       view.dispatch({
         effects: [
-          wrapCompartment.reconfigure(lineWrappingFor(wrap, mode)),
+          wrapCompartment.reconfigure(lineWrappingFor(wrap, currentFeatures().wrap)),
           indentationCompartment.reconfigure(indentationFor(size)),
         ],
       });
@@ -941,14 +1219,14 @@ export default function EditorInstance(props: Props) {
     const editingEnabled = markdownEditing();
     const lang = win.editor.language();
     const markdown = isMarkdown();
-    const mode = win.editor.largeFileMode();
-    if (mode && mode.kind !== "Normal") return;
+    if (!surfaceFollowsLanguage(currentMode())) return;
+    const features = currentFeatures();
     view?.dispatch({
       effects: [
         codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
         codeChromeCompartment.reconfigure(codeChromeFor(lang)),
         editingCompartment.reconfigure(
-          markdown && editingEnabled ? markdownEditingExtension : [],
+          markdown && editingEnabled && features.markdown ? markdownEditingExtension : [],
         ),
       ],
     });
@@ -963,9 +1241,8 @@ export default function EditorInstance(props: Props) {
     () => win.layout.get(props.buffer.id, isMarkdown() ? "markdown" : null).kind,
     () => {
       if (!view || props.buffer.id !== viewBufferId) return;
-      const mode = win.editor.largeFileMode() ?? { kind: "Normal" as const };
       view.dispatch({
-        effects: typographyCompartment.reconfigure(typographyExtension(isMarkdown(), mode)),
+        effects: typographyCompartment.reconfigure(typographyExtension(isMarkdown(), currentFeatures())),
         scrollIntoView: true,
       });
     },
@@ -1030,7 +1307,7 @@ export default function EditorInstance(props: Props) {
     const active =
       isMarkdown() &&
       configStore.config().editor.markdown_editing &&
-      !(win.editor.largeFileMode() && win.editor.largeFileMode()!.kind !== "Normal");
+      currentFeatures().markdown;
     if (active) {
       for (const cmd of formatCommands) {
         registerCommand({
@@ -1051,7 +1328,11 @@ export default function EditorInstance(props: Props) {
 
   onCleanup(() => {
     containerRef.removeEventListener("wheel", onWheelZoom);
+    if (positionTimer !== undefined) clearTimeout(positionTimer);
+    if (view && viewBufferId) rememberPosition(viewBufferId, true);
+    tabStates.clear();
     disposeEditorCommands?.();
+    stopClosedListener?.();
     for (const cmd of formatCommands) unregisterCommand(cmd.id);
     unregisterCommand("editor.addCursorUp");
     unregisterCommand("editor.addCursorDown");

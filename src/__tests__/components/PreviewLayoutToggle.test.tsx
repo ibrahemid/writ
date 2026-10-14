@@ -6,6 +6,8 @@ import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { rendererRegistry } from "../../stores/global/renderer-registry";
 import { DEFAULT_RATIO } from "../../lib/preview-layout";
 import type { BufferDocument } from "../../types/buffer";
+import { registerCommand, unregisterCommand } from "../../commands/registry";
+import { formatKeybinding } from "../../lib/keybinding-format";
 
 vi.mock("../../services/tauri", () => ({
   previewListRenderers: vi.fn().mockResolvedValue([]),
@@ -256,5 +258,47 @@ describe("PreviewLayoutToggle", () => {
       expect(document.activeElement?.getAttribute("aria-checked")).toBe("true"),
     );
     expect(document.activeElement).toBe(segs[1]);
+  });
+  // Each segment says what it shows in one sentence and names the chord that
+  // switches it, through the themed tip rather than a native title.
+  it("explains Inline and Source with the chord that switches them", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    registerCommand({
+      id: "preview.cycleLayout",
+      label: "Preview: Cycle layout",
+      keybinding: "CmdOrCtrl+Shift+V",
+      scope: "app",
+      execute: () => {},
+    });
+    const { container } = await mountWithActive(MD_BUFFER);
+    await vi.waitFor(() => expect(container.querySelectorAll('[role="radio"]').length).toBe(2));
+    const chord = formatKeybinding("CmdOrCtrl+Shift+V");
+    const tips: string[] = [];
+    for (const anchor of container.querySelectorAll<HTMLElement>(".writ-tooltip-anchor")) {
+      fireEvent.pointerEnter(anchor);
+      await vi.advanceTimersByTimeAsync(600);
+      tips.push(document.querySelector('[role="tooltip"]')!.textContent ?? "");
+      fireEvent.pointerLeave(anchor);
+    }
+    expect(tips).toEqual([
+      `Inline: Markdown formatted as you type ${chord}`,
+      `Source: the raw Markdown ${chord}`,
+    ]);
+    expect(container.querySelector('[role="radio"][title]')).toBeNull();
+    unregisterCommand("preview.cycleLayout");
+    vi.useRealTimers();
+  });
+
+  it("calls the split layout editor and preview together, whichever way it stacks", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const { container } = await mountWithActive(HTML_BUFFER);
+    await vi.waitFor(() => expect(container.querySelectorAll('[role="radio"]').length).toBe(3));
+    const anchor = container.querySelectorAll<HTMLElement>(".writ-tooltip-anchor")[1];
+    fireEvent.pointerEnter(anchor);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(document.querySelector('[role="tooltip"]')!.textContent).toMatch(
+      /^Editor and preview together/,
+    );
+    vi.useRealTimers();
   });
 });

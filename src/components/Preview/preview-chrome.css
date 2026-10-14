@@ -154,6 +154,40 @@
   box-shadow: var(--writ-shadow-chip);
 }
 
+.preview-chip-button {
+  font-family: var(--writ-font-ui);
+  cursor: pointer;
+}
+
+.preview-chip-button:hover,
+.preview-chip-button[aria-expanded="true"] {
+  color: var(--writ-fg);
+}
+
+.preview-chip-button:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset, 2px);
+}
+
+.preview-chip-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.preview-pane-overlay {
+  flex-direction: column;
+  gap: var(--writ-space-3);
+}
+
+.preview-pane-overlay-line {
+  margin: 0;
+  max-width: 44ch;
+}
+
 .preview-chip.is-error {
   color: var(--writ-status-error);
   border-color: var(--writ-status-error);
@@ -165,13 +199,6 @@
 
 .preview-chip-mode {
   font-weight: 500;
-}
-
-.preview-chip-detail {
-  max-width: 28ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .preview-chip-warn {

@@ -21,8 +21,15 @@ const rule = (selector: string): string => {
   return match![1]!;
 };
 
+const notesRoot = vi.hoisted(() => {
+  let value: string | null = null;
+  return { get: () => value, set: (next: string | null) => (value = next) };
+});
+vi.mock("../../stores/global/notes", () => ({ notesStore: { root: () => notesRoot.get() } }));
+
 afterEach(() => {
   hideLinkPicker();
+  notesRoot.set(null);
   cleanup();
 });
 
@@ -42,6 +49,33 @@ describe("LinkAmbiguityPicker", () => {
     fireEvent.click(rows[1]);
     expect(onPick).toHaveBeenCalledWith("/notes/b/Note.md");
     expect(document.querySelector(".link-picker")).toBeNull();
+  });
+
+  it("names each folder inside the notes folder rather than from the disk root", async () => {
+    notesRoot.set("/Users/me/Writ");
+    render(() => <LinkAmbiguityPicker />);
+    showLinkCandidates("Note", ["/Users/me/Writ/api/Note.md", "/Users/me/Writ/Note.md"], vi.fn());
+
+    await screen.findByText(/More than one note is called/);
+    const folders = [...document.querySelectorAll(".link-picker-row")].map(
+      (row) => row.querySelector(".link-picker-folder")?.textContent ?? "",
+    );
+    expect(folders).toEqual(["api", ""]);
+  });
+
+  it("moves between rows with the arrow keys", async () => {
+    render(() => <LinkAmbiguityPicker />);
+    showLinkCandidates("Note", ["/notes/a/Note.md", "/notes/b/Note.md"], vi.fn());
+    await screen.findByText(/More than one note is called/);
+    const rows = [...document.querySelectorAll<HTMLButtonElement>(".link-picker-row")];
+    rows[0].focus();
+
+    fireEvent.keyDown(rows[0], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rows[1]);
+    fireEvent.keyDown(rows[1], { key: "ArrowDown" });
+    expect(document.activeElement).toBe(rows[0]);
+    fireEvent.keyDown(rows[0], { key: "ArrowUp" });
+    expect(document.activeElement).toBe(rows[1]);
   });
 
   it("offers to create the note when the target names none", async () => {
@@ -93,13 +127,14 @@ describe("LinkAmbiguityPicker", () => {
     expect(rule(".link-picker")).toMatch(/box-shadow:\s*var\(--writ-shadow-modal\)/);
   });
 
+  // A weight change on focus reflows the row under the pointer.
   it("selects a row with the neutral fill, and never cancels its focus ring", () => {
     expect(CSS).not.toMatch(/outline:\s*none/);
     expect(rule(".link-picker-row:hover")).toMatch(/background:\s*var\(--writ-bg-hover\)/);
     expect(rule(".link-picker-row:focus-visible")).toMatch(
       /background:\s*var\(--writ-bg-selected\)/,
     );
-    expect(rule(".link-picker-row:focus-visible")).toMatch(/font-weight:\s*500/);
+    expect(rule(".link-picker-row:focus-visible")).not.toMatch(/font-weight/);
     expect(CSS).not.toMatch(/background:\s*var\(--writ-accent\)/);
   });
 });

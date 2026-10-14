@@ -1,6 +1,7 @@
 import { createSignal, createEffect, Show, For, onCleanup } from "solid-js";
 import Icon, { type IconName } from "../Icon/Icon";
 import "./ContextMenu.css";
+import "../SaveMarker/SaveMarker.css";
 
 export interface MenuItem {
   label: string;
@@ -19,6 +20,18 @@ export interface MenuItem {
   disabled?: boolean;
   /** Shortcut hint, right-aligned. */
   kbd?: string;
+  /**
+   * An on/off choice: the row is a checkbox item, drawn with a check when on.
+   * Omit it for an ordinary action.
+   */
+  checked?: boolean;
+  /**
+   * A sentence of explanation rather than an action: it wraps, and the
+   * keyboard passes over it like a disabled row.
+   */
+  note?: boolean;
+  /** The save marker a tab carries, drawn after the label. */
+  marker?: "unsaved" | "failed";
 }
 
 // A menu is positioned either at cursor coordinates (right-click) or anchored
@@ -118,7 +131,7 @@ export default function ContextMenu() {
   }
 
   function focusableIndices(items: MenuItem[]): number[] {
-    return items.map((it, i) => (it.disabled ? -1 : i)).filter((i) => i >= 0);
+    return items.map((it, i) => (it.disabled || it.note ? -1 : i)).filter((i) => i >= 0);
   }
 
   function moveFocus(delta: number) {
@@ -138,7 +151,7 @@ export default function ContextMenu() {
   function activate(index: number) {
     const m = menu();
     const item = m?.items[index];
-    if (!item || item.disabled) return;
+    if (!item || item.disabled || item.note) return;
     close();
     item.action();
   }
@@ -312,15 +325,27 @@ export default function ContextMenu() {
                 <button
                   ref={(el) => (buttons[index()] = el)}
                   type="button"
-                  role="menuitem"
+                  role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                  aria-checked={item.checked === undefined ? undefined : item.checked}
                   tabindex={-1}
                   data-writ-focus-silent
-                  disabled={item.disabled}
+                  disabled={item.disabled || item.note}
                   class={`context-menu-item ${item.danger ? "context-menu-danger" : ""}`}
+                  classList={{ "context-menu-note": item.note === true }}
                   onClick={() => activate(index())}
                 >
+                  {item.checked === true && <Icon name="check" />}
+                  {item.checked === false && <span class="context-menu-check-space" aria-hidden="true" />}
                   {item.icon && <Icon name={item.icon} />}
                   <span class="context-menu-label">{item.label}</span>
+                  {item.marker && (
+                    <span
+                      class="save-marker"
+                      classList={{ "save-marker--failed": item.marker === "failed" }}
+                      role="img"
+                      aria-label={item.marker === "failed" ? "Not saved" : "Unsaved changes"}
+                    />
+                  )}
                   {item.kbd && <span class="context-menu-kbd">{item.kbd}</span>}
                 </button>
               </>

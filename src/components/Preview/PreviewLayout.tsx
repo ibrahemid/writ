@@ -2,6 +2,7 @@ import { Show, createEffect, createMemo, type JSX } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
 import EditorInstance from "../Editor/EditorInstance";
 import NoteDownloading from "../Editor/NoteDownloading";
+import StartSurface from "../Editor/StartSurface";
 import PreviewPane from "./PreviewPane";
 import PreviewSplit from "./PreviewSplit";
 import { configStore } from "../../stores/global/config";
@@ -148,7 +149,7 @@ export default function PreviewLayout(props: Props) {
           fallback={
             <Show
               when={win.downloads.selected()}
-              fallback={<div class="editor-empty">No file open</div>}
+              fallback={<StartSurface />}
             >
               {(download) => (
                 <NoteDownloading

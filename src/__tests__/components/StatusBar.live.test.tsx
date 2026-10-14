@@ -25,6 +25,10 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
     editor: {
       largeFileMode: () => null,
+      currentBufferId: () => "note-1",
+      tierOffer: () => null,
+      longestLine: () => 0,
+      overridesOf: () => ({}),
       cursorLine: () => 1,
       cursorCol: () => 1,
       language: () => null,
@@ -71,15 +75,9 @@ describe("StatusBar persistent live region (#50)", () => {
     expect(liveAfter.querySelector(".statusbar-save")).not.toBeNull();
   });
 
-  it("names the file it is reporting on, in every state", () => {
+  it("names the file it is reporting on when a save is asked for or fails", () => {
     const { container } = render(() => <StatusBar />);
     const label = () => container.querySelector(".statusbar-label")!.textContent;
-
-    fixtures.setStatus({ state: "dirty", fileName: "notes.md" });
-    expect(label()).toBe("Unsaved changes in notes.md");
-
-    fixtures.setStatus({ state: "saving", fileName: "notes.md" });
-    expect(label()).toBe("Saving notes.md");
 
     fixtures.setStatus({ state: "saved", fileName: "notes.md" });
     expect(label()).toBe("Saved notes.md");
@@ -92,7 +90,20 @@ describe("StatusBar persistent live region (#50)", () => {
     expect(label()).toBe("Couldn't save notes.md");
   });
 
-  it("failure marks the pill is-failed and carries the reason without lengthening the label", () => {
+  // Autosave runs on every pause. The tab's mark already says a note is
+  // unsaved, so the corner stays quiet and the live region announces nothing.
+  it("says nothing while autosave works", () => {
+    const { container } = render(() => <StatusBar />);
+
+    fixtures.setStatus({ state: "dirty", fileName: "one.md" });
+    expect(container.querySelector(".statusbar-save")).toBeNull();
+
+    fixtures.setStatus({ state: "saving", fileName: "one.md" });
+    expect(container.querySelector(".statusbar-save")).toBeNull();
+    expect(container.querySelector(".statusbar-live")!.textContent).toBe("");
+  });
+
+  it("marks a failure is-failed and leaves the reason to the bar above", () => {
     const { container } = render(() => <StatusBar />);
     fixtures.setStatus({
       state: "failed",
@@ -105,23 +116,8 @@ describe("StatusBar persistent live region (#50)", () => {
     });
     const pill = container.querySelector<HTMLElement>(".statusbar-save")!;
     expect(pill.classList.contains("is-failed")).toBe(true);
-    expect(pill.getAttribute("title")).toBe("you do not have permission to change this file.");
+    expect(pill.hasAttribute("title")).toBe(false);
     expect(pill.querySelector(".statusbar-label")!.textContent).toBe("Couldn't save one.md");
-  });
-
-  it("leaves the announced text alone while the note stays dirty", () => {
-    const { container } = render(() => <StatusBar />);
-    fixtures.setStatus({ state: "dirty", fileName: "one.md" });
-    const first = container.querySelector(".statusbar-label")!.firstChild;
-
-    // A second keystroke leaves the note dirty. The same text node has to
-    // survive unwritten, or a screen reader announces the state again.
-    fixtures.setStatus({ state: "dirty", fileName: "one.md" });
-
-    expect(container.querySelector(".statusbar-label")!.firstChild).toBe(first);
-    expect(container.querySelector(".statusbar-label")!.textContent).toBe(
-      "Unsaved changes in one.md",
-    );
   });
 
   it("says one thing at a time when a note is both unsaved and just reloaded", () => {
@@ -138,12 +134,10 @@ describe("StatusBar persistent live region (#50)", () => {
   });
 
   it("hands the region back to the save state once the marker has gone", () => {
-    fixtures.setStatus({ state: "dirty", fileName: "one.md" });
+    fixtures.setStatus({ state: "failed", fileName: "one.md" });
     const { container } = render(() => <StatusBar />);
 
-    expect(container.querySelector(".statusbar-save")?.textContent).toBe(
-      "Unsaved changes in one.md",
-    );
+    expect(container.querySelector(".statusbar-save")?.textContent).toBe("Couldn't save one.md");
     expect(container.querySelector(".statusbar-updated")).toBeNull();
   });
 });

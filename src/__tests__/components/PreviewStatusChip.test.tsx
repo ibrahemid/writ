@@ -1,14 +1,28 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import PreviewStatusChip from "../../components/Preview/PreviewStatusChip";
+import PreviewStatusChip, {
+  RENDERING_SHOWN_AFTER_MS,
+  type PreviewState,
+} from "../../components/Preview/PreviewStatusChip";
+
+const menu = vi.hoisted(() => ({ showAnchoredMenu: vi.fn() }));
+vi.mock("../../components/ContextMenu/ContextMenu", () => ({
+  showAnchoredMenu: menu.showAnchoredMenu,
+  isMenuOpenFor: () => false,
+}));
 
 // The chip is now a transient status indicator: silent in the steady OK
 // state, visible only for rendering / size-gate / error / warnings.
 
 describe("PreviewStatusChip — transient status indicator", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    vi.useRealTimers();
+    menu.showAnchoredMenu.mockClear();
+    cleanup();
+  });
 
   it("renders nothing in the OK state with no warnings", () => {
     const { container } = render(() => (
@@ -17,23 +31,58 @@ describe("PreviewStatusChip — transient status indicator", () => {
     expect(container.querySelector(".preview-chip")).toBeNull();
   });
 
-  it("shows a rendering label while rendering", () => {
+  // A render that lands quickly says nothing: the label flashing on every
+  // typing pause in a split was noise.
+  it("shows the rendering label only once a render passes the delay", async () => {
+    vi.useFakeTimers();
     const { container } = render(() => (
       <PreviewStatusChip state="rendering" warnings={[]} message="" />
     ));
-    const chip = container.querySelector(".preview-chip");
-    expect(chip).not.toBeNull();
-    expect(chip!.textContent).toContain("Rendering");
+    expect(container.querySelector(".preview-chip")).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(RENDERING_SHOWN_AFTER_MS - 1);
+    expect(container.querySelector(".preview-chip")).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(container.querySelector(".preview-chip")!.textContent).toContain("Rendering");
   });
 
-  it("shows the error state and message", () => {
+  it("announces errors and nothing else", async () => {
+    vi.useFakeTimers();
+    const [state, setState] = createSignal<PreviewState>("rendering");
     const { container } = render(() => (
-      <PreviewStatusChip state="error" warnings={[]} message="boom" />
+      <PreviewStatusChip state={state()} warnings={[]} message="Parse error on line 3" />
     ));
-    const chip = container.querySelector(".preview-chip")!;
+    const live = container.querySelector<HTMLElement>('[aria-live="polite"]')!;
+    await vi.advanceTimersByTimeAsync(RENDERING_SHOWN_AFTER_MS);
+    expect(live.textContent).toBe("");
+    expect(container.querySelector(".preview-chip")!.getAttribute("aria-live")).toBeNull();
+
+    setState("error");
+    expect(live.textContent).toBe("Could not render: Parse error on line 3");
+  });
+
+  it("opens the whole message and the warnings from the chip", () => {
+    const { container } = render(() => (
+      <PreviewStatusChip
+        state="error"
+        warnings={["line 4: unknown node"]}
+        message="Mermaid could not parse the diagram on line 2"
+      />
+    ));
+    const chip = container.querySelector<HTMLButtonElement>("button.preview-chip")!;
     expect(chip.classList.contains("is-error")).toBe(true);
     expect(chip.textContent).toContain("Could not render");
-    expect(chip.textContent).toContain("boom");
+    expect(chip.textContent).toContain("1 warning");
+    expect(chip.querySelector("[title]")).toBeNull();
+
+    chip.click();
+    const items = menu.showAnchoredMenu.mock.calls[0][1] as { label: string; note?: boolean }[];
+    expect(items.map((item) => item.label)).toEqual([
+      "Mermaid could not parse the diagram on line 2",
+      "line 4: unknown node",
+    ]);
+    expect(items.every((item) => item.note)).toBe(true);
   });
 
   it("surfaces parser warnings even in the OK state", () => {
@@ -65,17 +114,15 @@ describe("PreviewStatusChip — transient status indicator", () => {
     expect(chip.textContent).not.toContain("—");
   });
 
-  it("says a document past the cap cannot be rendered at all", () => {
+  // The pane's overlay states the cap with the file's size and carries the
+  // way out, so the chip says nothing a second time.
+  it("leaves a document past the cap to the pane's overlay", () => {
     const { container } = render(() => (
       <PreviewStatusChip state="too_large" warnings={[]} message="" />
     ));
-    expect(container.querySelector(".preview-chip")!.textContent).toContain(
-      "Too large to render",
-    );
+    expect(container.querySelector(".preview-chip")).toBeNull();
   });
 
-  // The chip is where a state is stated. The overlay is on screen at the same
-  // moment, so it carries the way out and does not say the state a second time.
   it("is the only place the size gate is stated", () => {
     const pane = readFileSync(
       resolve(process.cwd(), "src/components/Preview/PreviewPane.tsx"),
@@ -83,7 +130,7 @@ describe("PreviewStatusChip — transient status indicator", () => {
     );
     const overlay = pane.match(/<div class="preview-pane-overlay">([\s\S]*?)<\/div>/);
     expect(overlay, "the pane draws the size-gate overlay").toBeTruthy();
-    expect(overlay![1]).not.toContain("Too large to render");
-    expect(overlay![1]).toContain("Use the source view.");
+    expect(overlay![1]).toContain("render_refuse_threshold_mb");
+    expect(overlay![1]).toContain("Switch to Source");
   });
 });

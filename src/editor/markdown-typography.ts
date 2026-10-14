@@ -18,6 +18,7 @@ import {
   inlineImages,
 } from "./markdown-images";
 import { fenceCollapse, fenceCollapsible } from "./markdown-fences";
+import { rangesWithinLineLimit } from "./line-limit";
 
 // Minimal structural types matching @lezer/common — avoids a direct import
 // of @lezer/common which is not in the direct dependency list.
@@ -674,7 +675,7 @@ function buildDecorationSet(view: EditorView): DecorationSet {
   const images = state.field(inlineImageField, false) ?? NO_IMAGES;
   const allSpecs: DecorationSpec[] = [];
 
-  for (const { from, to } of view.visibleRanges) {
+  for (const { from, to } of rangesWithinLineLimit(view)) {
     const rangeSpecs = buildMarkdownDecorations(
       (vf, vt, cb) => tree.iterate({ from: vf, to: vt, enter: cb }),
       (pos) => state.doc.lineAt(pos),

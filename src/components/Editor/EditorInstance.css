@@ -15,3 +15,15 @@
   text-decoration-thickness: from-font;
   text-underline-offset: 0.18em;
 }
+
+.editor-instance .cm-placeholder {
+  color: var(--writ-fg-faint);
+}
+
+.writ-link-hint {
+  padding: 5px 9px;
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  white-space: nowrap;
+}

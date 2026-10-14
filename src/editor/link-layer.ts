@@ -12,6 +12,7 @@ import {
   EditorView,
   ViewPlugin,
   ViewUpdate,
+  hoverTooltip,
   keymap,
   type DecorationSet,
   type PluginValue,
@@ -19,6 +20,7 @@ import {
 import { syntaxTree } from "@codemirror/language";
 import { isFrontmatterFence } from "../lib/frontmatter";
 import { IS_MAC } from "../lib/platform";
+import { rangesWithinLineLimit } from "./line-limit";
 
 // Minimal structural type matching @lezer/common, mirroring the shape used by
 // editor/markdown-typography.ts so this module keeps out of the direct
@@ -68,6 +70,8 @@ export interface LinkDeps {
    * injected rather than read from a store.
    */
   openNoteLink?(target: string): boolean;
+  /** What a `[[…]]` target is known to resolve to, for the hover hint. */
+  wikilinkStatus?(target: string): "resolved" | "ambiguous" | "missing" | null;
 }
 
 // Anchored on a known scheme and length-bounded so a pathological line cannot
@@ -444,9 +448,30 @@ export function linkClickTarget(
   return null;
 }
 
+export function linkHintText(
+  kind: LinkKind,
+  wikilinkStatus: "resolved" | "ambiguous" | "missing" | null,
+  mac: boolean = IS_MAC,
+): string {
+  const gesture = mac ? "⌘-click" : "Ctrl+click";
+  return kind === "wikilink" && wikilinkStatus === "missing"
+    ? `${gesture} to create`
+    : `${gesture} to open`;
+}
+
+export function linkRangeAt(
+  state: EditorState,
+  ranges: readonly LinkRange[],
+  pos: number,
+): LinkRange | null {
+  const inline = inlineLinkTargetAt(state, pos);
+  if (inline) return inline;
+  return ranges.find((range) => pos >= range.from && pos < range.to) ?? null;
+}
+
 function rangesForView(view: EditorView): LinkRange[] {
   const found: LinkRange[] = [];
-  for (const { from, to } of view.visibleRanges) {
+  for (const { from, to } of rangesWithinLineLimit(view)) {
     found.push(...findLinkTargets(view.state, from, to));
   }
   return mergeLinkRanges(found);
@@ -535,6 +560,31 @@ export function linkLayer(deps: LinkDeps): Extension {
           },
         },
       ]),
+    ),
+    hoverTooltip(
+      (view, pos) => {
+        const instance = view.plugin(linkPlugin);
+        if (!instance) return null;
+        const hit = linkRangeAt(view.state, instance.ranges, pos);
+        if (!hit) return null;
+        const status =
+          hit.kind === "wikilink"
+            ? (deps.wikilinkStatus?.(view.state.doc.sliceString(hit.from, hit.to)) ?? null)
+            : null;
+        const text = linkHintText(hit.kind, status);
+        return {
+          pos: hit.from,
+          end: hit.to,
+          above: true,
+          create: () => {
+            const dom = document.createElement("div");
+            dom.className = "writ-link-hint";
+            dom.textContent = text;
+            return { dom };
+          },
+        };
+      },
+      { hoverTime: 500 },
     ),
     EditorView.editorAttributes.compute([modifierField], (state) =>
       state.field(modifierField, false)

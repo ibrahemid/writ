@@ -205,6 +205,48 @@ fn a_planned_write_lands_without_the_store_and_settles_back_under_it() {
 }
 
 #[test]
+fn a_settled_write_records_the_size_it_wrote_on_the_row() {
+    let f = fixture();
+    let path = f.notes.join("Grown.md");
+    std::fs::write(&path, "small\n").expect("write");
+    let doc = row(&f.store, &path, 6, false);
+    f.store
+        .set_line_ending(&doc.id, writ_core::notes::line_ending::LineEnding::CrLf)
+        .expect("ending");
+
+    let grown = "line\n".repeat(4096);
+    let planned = f.store.plan_source_write(&doc.id, &grown).expect("plan");
+    let outcome = planned.land(None, None).expect("land");
+    f.store
+        .settle_source_write(&doc.id, &outcome)
+        .expect("settle");
+
+    let on_disk = std::fs::metadata(&path).expect("metadata").len();
+    assert_eq!(on_disk, 4096 * 6, "the file carries its CRLF endings");
+    assert_eq!(f.store.get(&doc.id).expect("row").size_bytes, on_disk);
+}
+
+#[test]
+fn a_save_through_the_store_records_the_size_it_wrote_on_the_row() {
+    let f = fixture();
+    let path = f.notes.join("Saved.md");
+    std::fs::write(&path, "small\n").expect("write");
+    let doc = row(&f.store, &path, 6, false);
+
+    let state = f
+        .store
+        .save_to_source_without_index(&doc.id, "a longer body than before\n", None, None)
+        .expect("save");
+    assert_eq!(state.size, 26);
+    assert_eq!(f.store.get(&doc.id).expect("row").size_bytes, 26);
+
+    f.store
+        .save_to_source(&doc.id, "short\n", Some(state), None)
+        .expect("save");
+    assert_eq!(f.store.get(&doc.id).expect("row").size_bytes, 6);
+}
+
+#[test]
 fn a_planned_write_keeps_the_guard_against_a_change_writ_never_read() {
     let f = fixture();
     let path = f.notes.join("Note.md");

@@ -32,7 +32,7 @@ use tracing::{error, warn};
 use writ_core::preview::frames::disarm_frame_navigations;
 use writ_core::preview::hints::neutralize_resource_hints;
 use writ_core::preview::protocol::{
-    resolve_asset, sniff_image_mime, split_asset_request, AssetRequest,
+    resolve_asset, sniff_image_mime, split_asset_request, AssetRequest, ASSET_MAX_BYTES,
 };
 use writ_core::preview::AssetScope;
 use writ_core::serial::{KeyedQueue, Ticket};
@@ -41,10 +41,6 @@ use super::csp::{build_chrome_csp, build_document_csp};
 use super::protocol::{parse, record, Disposition, PreviewScope, RefusalReason, RequestRecord};
 use crate::poison::recover_poison;
 use crate::state::AppState;
-
-/// Largest note asset served inline (ADR-035). Past it the preview shows a
-/// placeholder instead of pushing tens of megabytes into the webview.
-const MAX_ASSET_BYTES: u64 = 16 * 1024 * 1024;
 
 /// Content type for both a served SVG and the placeholder.
 const SVG_MIME: &str = "image/svg+xml";
@@ -73,15 +69,22 @@ pub struct RenderedDoc {
     pub scripts_enabled: bool,
 }
 
-/// Per-buffer cache of the most recently rendered document.
+/// Per-buffer cache of the most recently rendered document, and of the asset
+/// scope the note-asset route serves each buffer's images under.
 ///
 /// Keyed by buffer id: the rendered HTML is identical across windows (one
 /// fixed policy, no per-window trust state in the lean scope). A document is
 /// shared through an `Arc`, so a request for it does not copy the HTML before
 /// serving it.
+///
+/// The scopes are kept apart from the documents because the editor draws a
+/// note's images from the same route with no preview open (ADR-035): a scope
+/// is recorded by a render or by the editor's image command, and outlives the
+/// eviction of the document.
 #[derive(Default)]
 pub struct RenderCache {
     docs: Mutex<HashMap<String, Arc<RenderedDoc>>>,
+    scopes: Mutex<HashMap<String, AssetScope>>,
     renders: KeyedQueue,
 }
 
@@ -91,10 +94,16 @@ impl RenderCache {
         Self::default()
     }
 
-    /// Store (or replace) the rendered document for `buffer_id`.
+    /// Store (or replace) the rendered document for `buffer_id`, and record
+    /// its asset scope when it has one.
     pub fn put(&self, buffer_id: impl Into<String>, doc: RenderedDoc) {
+        let buffer_id = buffer_id.into();
+        if let Some(scope) = &doc.assets {
+            recover_poison(self.scopes.lock(), "preview::render_cache::put_scope")
+                .insert(buffer_id.clone(), scope.clone());
+        }
         recover_poison(self.docs.lock(), "preview::render_cache::put")
-            .insert(buffer_id.into(), Arc::new(doc));
+            .insert(buffer_id, Arc::new(doc));
     }
 
     /// Fetch the rendered document for `buffer_id`.
@@ -113,18 +122,38 @@ impl RenderCache {
         self.renders.ticket(buffer_id)
     }
 
-    /// Fetch just the asset scope of the cached document.
+    /// The newest asset scope recorded for `buffer_id`.
     ///
-    /// Narrower than [`RenderCache::get`] on purpose: a render asks for the
-    /// previous scope to keep its token, and cloning the whole document to
-    /// read four fields would copy the rendered HTML on every keystroke.
+    /// The note-asset route resolves every request against it. It survives
+    /// [`RenderCache::evict`]: the editor's images are served from it while no
+    /// preview is open.
     pub fn scope(&self, buffer_id: &str) -> Option<AssetScope> {
-        recover_poison(self.docs.lock(), "preview::render_cache::scope")
+        recover_poison(self.scopes.lock(), "preview::render_cache::scope")
             .get(buffer_id)
-            .and_then(|doc| doc.assets.clone())
+            .cloned()
     }
 
-    /// Drop the cached document for `buffer_id` (on preview close).
+    /// The scope `buffer_id`'s images resolve under, over these roots,
+    /// recorded for the route.
+    ///
+    /// The buffer's token is kept ([`AssetScope::for_render`]) and a new one
+    /// is minted under the same hold of the lock that records it, so the
+    /// requests the editor sends together for a buffer's first images, and a
+    /// render running beside them, all carry one token.
+    pub fn scope_for(
+        &self,
+        buffer_id: &str,
+        notes_root: std::path::PathBuf,
+        note_dir: std::path::PathBuf,
+    ) -> AssetScope {
+        let mut scopes = recover_poison(self.scopes.lock(), "preview::render_cache::scope_for");
+        let scope = AssetScope::for_render(scopes.get(buffer_id), buffer_id, notes_root, note_dir);
+        scopes.insert(buffer_id.to_string(), scope.clone());
+        scope
+    }
+
+    /// Drop the cached document for `buffer_id` (on preview close). Its asset
+    /// scope stays for the editor.
     pub fn evict(&self, buffer_id: &str) {
         recover_poison(self.docs.lock(), "preview::render_cache::evict").remove(buffer_id);
     }
@@ -205,7 +234,8 @@ impl ResolvedResponse {
     }
 }
 
-/// Resolve a request URL, including the note-asset route.
+/// Resolve a request URL, including the note-asset route, with each asset
+/// request judged against the scope of the document `document_lookup` returns.
 ///
 /// The route is split out from [`resolve`] because it is the one response
 /// that reads a file off disk: everything else is served from the render
@@ -218,10 +248,32 @@ pub fn resolve_with_assets(
     chrome_asset: impl Fn(&str) -> Option<(&'static [u8], &'static str)>,
     is_dataless: &dyn Fn(&Path) -> bool,
 ) -> ResolvedResponse {
+    let scope_lookup =
+        |buffer_id: &str| document_lookup(buffer_id).and_then(|doc| doc.assets.clone());
+    resolve_with_scopes(
+        url,
+        scripts_enabled,
+        &document_lookup,
+        &scope_lookup,
+        chrome_asset,
+        is_dataless,
+    )
+}
+
+/// [`resolve_with_assets`] with the asset scope looked up on its own, so an
+/// image the editor draws resolves with no document cached for its buffer.
+fn resolve_with_scopes(
+    url: &str,
+    scripts_enabled: bool,
+    document_lookup: &dyn Fn(&str) -> Option<Arc<RenderedDoc>>,
+    scope_lookup: &dyn Fn(&str) -> Option<AssetScope>,
+    chrome_asset: impl Fn(&str) -> Option<(&'static [u8], &'static str)>,
+    is_dataless: &dyn Fn(&Path) -> bool,
+) -> ResolvedResponse {
     if let Ok(parsed) = parse(url) {
         if parsed.scope == PreviewScope::Document {
             if let Some(request) = split_asset_request(&parsed.path) {
-                return resolve_note_asset(request, &document_lookup, is_dataless);
+                return resolve_note_asset(request, scope_lookup, is_dataless);
             }
         }
     }
@@ -237,11 +289,11 @@ pub fn resolve_with_assets(
 /// file, so a note reads the same whether or not its images are at hand.
 fn resolve_note_asset(
     request: AssetRequest<'_>,
-    document_lookup: &impl Fn(&str) -> Option<Arc<RenderedDoc>>,
+    scope_lookup: &dyn Fn(&str) -> Option<AssetScope>,
     is_dataless: &dyn Fn(&Path) -> bool,
 ) -> ResolvedResponse {
     let file_name = request.relative.rsplit('/').next().unwrap_or_default();
-    let Some(scope) = document_lookup(request.buffer_id).and_then(|doc| doc.assets.clone()) else {
+    let Some(scope) = scope_lookup(request.buffer_id) else {
         return ResolvedResponse::not_found();
     };
     // The scope is reached by quoting the token its own render was given.
@@ -276,7 +328,7 @@ fn resolve_note_asset(
     let Ok(metadata) = std::fs::metadata(&path) else {
         return asset_placeholder(file_name);
     };
-    if !metadata.is_file() || metadata.len() > MAX_ASSET_BYTES {
+    if !metadata.is_file() || metadata.len() > ASSET_MAX_BYTES {
         return asset_placeholder(file_name);
     }
     let Ok(bytes) = std::fs::read(&path) else {
@@ -585,10 +637,11 @@ pub fn resolve_cached(
     is_dataless: &dyn Fn(&Path) -> bool,
 ) -> ResolvedResponse {
     let scripts_enabled = document_scripts_enabled(url, cache);
-    resolve_with_assets(
+    resolve_with_scopes(
         url,
         scripts_enabled,
-        |id| cache.get(id),
+        &|id| cache.get(id),
+        &|id| cache.scope(id),
         chrome_asset,
         is_dataless,
     )
@@ -1501,7 +1554,7 @@ mod asset_tests {
     fn a_file_past_the_size_cap_is_a_placeholder() {
         let f = Fixture::new();
         let mut huge = PNG.to_vec();
-        huge.resize((MAX_ASSET_BYTES + 1) as usize, 0);
+        huge.resize((ASSET_MAX_BYTES + 1) as usize, 0);
         std::fs::write(f.notes.join("attachments/huge.png"), &huge).unwrap();
         let r = f.get("attachments/huge.png");
         assert_eq!(header(&r, "Content-Type"), Some(SVG_MIME));
@@ -1806,5 +1859,114 @@ mod asset_tests {
             "<p>note</p>"
         );
         let _ = &f.note_dir;
+    }
+
+    /// The scope the editor records for a buffer no preview has rendered.
+    fn editor_scope(f: &Fixture, buffer_id: &str) -> AssetScope {
+        f.cache
+            .scope_for(buffer_id, f.notes.clone(), f.note_dir.clone())
+    }
+
+    /// The editor draws an 8 MB screenshot from the route with no document in
+    /// the cache. It was refused before the editor drew from the scheme, when
+    /// it carried base64 under a 2 MB cap.
+    #[test]
+    fn an_editor_scope_serves_an_eight_megabyte_image_with_no_document_cached() {
+        let f = Fixture::new();
+        let mut shot = PNG.to_vec();
+        shot.resize(8 * 1024 * 1024, 0);
+        std::fs::write(f.note_dir.join("shot.png"), &shot).unwrap();
+        let token = editor_scope(&f, "buf-9").token;
+        assert!(f.cache.get("buf-9").is_none());
+
+        let r = resolve_cached(
+            &format!("writ-preview://document/_note-asset/buf-9/{token}/d/shot.png"),
+            &f.cache,
+            &never_dataless,
+        );
+        assert_eq!(r.status, 200);
+        assert_eq!(header(&r, "Content-Type"), Some("image/png"));
+        assert_eq!(r.body.len(), shot.len());
+    }
+
+    #[test]
+    fn an_editor_scope_outlives_the_preview_closing() {
+        let f = Fixture::new();
+        f.cache.evict("buf-1");
+        let r = resolve_cached(
+            &format!("writ-preview://document/_note-asset/buf-1/{TOKEN}/n/attachments/a.png"),
+            &f.cache,
+            &never_dataless,
+        );
+        assert_eq!(r.status, 200);
+        assert!(r.body.starts_with(PNG));
+    }
+
+    #[test]
+    fn an_editor_scope_refuses_a_path_outside_its_root_and_a_foreign_token() {
+        let f = Fixture::new();
+        let outside = f.notes.parent().unwrap().join("outside.png");
+        std::fs::write(&outside, PNG).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, f.note_dir.join("link.png")).unwrap();
+        let token = editor_scope(&f, "buf-9").token;
+
+        let traversal = resolve_cached(
+            &format!("writ-preview://document/_note-asset/buf-9/{token}/d/../outside.png"),
+            &f.cache,
+            &never_dataless,
+        );
+        assert_eq!(traversal.status, 403);
+
+        #[cfg(unix)]
+        {
+            let linked = resolve_cached(
+                &format!("writ-preview://document/_note-asset/buf-9/{token}/d/link.png"),
+                &f.cache,
+                &never_dataless,
+            );
+            assert_eq!(linked.status, 403);
+            assert!(!linked.body.starts_with(PNG));
+        }
+
+        let foreign = resolve_cached(
+            &format!("writ-preview://document/_note-asset/buf-9/{TOKEN}/n/attachments/a.png"),
+            &f.cache,
+            &never_dataless,
+        );
+        assert_eq!(foreign.status, 403);
+        assert_eq!(
+            foreign.disposition,
+            Disposition::Refused(RefusalReason::ScopeMismatch)
+        );
+    }
+
+    /// The editor asks for a note's visible images together, each on a pool
+    /// thread. Minted apart, all but the last token recorded would be refused
+    /// as a scope mismatch.
+    #[test]
+    fn requests_racing_for_a_new_buffer_agree_on_one_token() {
+        let f = Arc::new(Fixture::new());
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let tokens: Vec<String> = (0..8)
+            .map(|_| {
+                let f = Arc::clone(&f);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    editor_scope(&f, "buf-9").token
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert!(tokens.iter().all(|token| *token == tokens[0]), "{tokens:?}");
+        assert_eq!(f.cache.scope("buf-9").unwrap().token, tokens[0]);
+        // A render of the same buffer keeps it too.
+        let rendered = f
+            .cache
+            .scope_for("buf-9", f.notes.clone(), f.note_dir.join("moved"));
+        assert_eq!(rendered.token, tokens[0]);
     }
 }

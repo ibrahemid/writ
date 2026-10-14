@@ -8,6 +8,7 @@ import {
   type PluginValue,
 } from "@codemirror/view";
 import { findLinkTargets, mergeLinkRanges, type LinkRange } from "./link-layer";
+import { rangesWithinLineLimit } from "./line-limit";
 
 /** Whether a `[[…]]` target names one note, several, or none. */
 export type WikilinkStatus = "resolved" | "ambiguous" | "missing";
@@ -81,7 +82,7 @@ export function wikilinkDecorations(
 
 function wikilinkRanges(view: EditorView): LinkRange[] {
   const found: LinkRange[] = [];
-  for (const { from, to } of view.visibleRanges) {
+  for (const { from, to } of rangesWithinLineLimit(view)) {
     found.push(...findLinkTargets(view.state, from, to));
   }
   return mergeLinkRanges(found).filter((range) => range.kind === "wikilink");

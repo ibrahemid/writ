@@ -63,6 +63,29 @@ describe("the demo backend", () => {
     expect(saved).toBe(await digestText("writ\n"));
   });
 
+  it("applies a change set to the text the last save left, and refuses one made against another", async () => {
+    const { handle } = backend();
+    const [doc] = (await handle("list_active_buffers", {})) as { id: string }[];
+    const base = (await handle("save_buffer_content", { id: doc.id, content: "one\ntwo\n" })) as string;
+
+    const saved = await handle("save_buffer_changes", { id: doc.id, base, changes: [4, [3, "TWO"], 1], length: 8 });
+    expect(saved).toBe(await digestText("one\nTWO\n"));
+    const bytes = (await handle("read_buffer_content", { id: doc.id })) as ArrayBuffer;
+    expect(new TextDecoder().decode(bytes)).toBe("one\nTWO\n");
+
+    await expect(
+      handle("save_buffer_changes", { id: doc.id, base, changes: [4, [3, "2"], 1], length: 6 }),
+    ).rejects.toMatch(/^ERR_CHANGES_STALE:/);
+  });
+
+  it("keeps where a tab was left on its row", async () => {
+    const { handle } = backend();
+    const [doc] = (await handle("list_active_buffers", {})) as { id: string }[];
+    await handle("set_buffer_view_position", { id: doc.id, cursorPos: 12, scrollPos: 4 });
+    const row = (await handle("get_buffer", { id: doc.id })) as { cursor_pos: number; scroll_pos: number };
+    expect([row.cursor_pos, row.scroll_pos]).toEqual([12, 4]);
+  });
+
   it("writes a new file on its first save and renames it from its first line", async () => {
     const { handle, emitted } = backend();
     const doc = (await handle("create_buffer", { title: null })) as { id: string; filename: string };

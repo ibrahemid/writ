@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView, Decoration } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -11,11 +11,14 @@ import {
 import { buildMarkdownCorpus } from "./fixtures/markdown-corpus";
 import {
   InlineImageWidget,
+  TYPING_PAUSE_MS,
+  downloadInlineImage,
   imageLabel,
   imageReferenceAt,
   inlineImageField,
   inlineImages,
   setInlineImage,
+  type InlineImageDeps,
   type InlineImageState,
 } from "../../editor/markdown-images";
 import { inlineLinkTargetAt, findLinkTargets } from "../../editor/link-layer";
@@ -28,6 +31,9 @@ import {
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 const PARSE_TIMEOUT_MS = 30_000;
+
+// A widget reaches the view only from its Download button.
+const NO_VIEW = {} as EditorView;
 
 type SyntaxTree = NonNullable<ReturnType<typeof ensureSyntaxTree>>;
 
@@ -270,7 +276,7 @@ describe("inline image decorations", () => {
 
   it("reserves the image widget's height before the bytes arrive", () => {
     const widget = new InlineImageWidget("shots/one.png", { status: "pending" });
-    const dom = widget.toDOM();
+    const dom = widget.toDOM(NO_VIEW);
     expect(dom.classList.contains("cm-md-image")).toBe(true);
     expect(dom.dataset.status).toBe("pending");
     expect(dom.querySelector("img")).toBeNull();
@@ -279,11 +285,13 @@ describe("inline image decorations", () => {
   it("draws the picture once the bytes arrive", () => {
     const widget = new InlineImageWidget("shots/one.png", {
       status: "ready",
-      dataUrl: "data:image/png;base64,AAAA",
+      src: "writ-preview://document/_note-asset/b/t/n/shots/one.png",
       label: "one.png",
     });
-    const image = widget.toDOM().querySelector("img");
-    expect(image?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    const image = widget.toDOM(NO_VIEW).querySelector("img");
+    expect(image?.getAttribute("src")).toBe(
+      "writ-preview://document/_note-asset/b/t/n/shots/one.png",
+    );
     expect(image?.getAttribute("alt")).toBe("one.png");
   });
 
@@ -293,7 +301,7 @@ describe("inline image decorations", () => {
       label: "one.png",
       reason: "too_large",
     });
-    const dom = widget.toDOM();
+    const dom = widget.toDOM(NO_VIEW);
     expect(dom.querySelector("img")).toBeNull();
     expect(dom.textContent).toContain("one.png");
     expect(dom.dataset.status).toBe("failed");
@@ -306,7 +314,7 @@ describe("inline image decorations", () => {
       pending.eq(
         new InlineImageWidget("shots/one.png", {
           status: "ready",
-          dataUrl: "data:image/png;base64,AAAA",
+          src: "writ-preview://document/_note-asset/b/t/n/shots/one.png",
           label: "one.png",
         }),
       ),
@@ -334,18 +342,28 @@ describe("inline image decorations", () => {
 describe("inlineImages", () => {
   const doc = "![Alt text](shots/one.png)\n";
 
-  function mount(resolve: (reference: string) => Promise<{ dataUrl: string }>): EditorView {
+  const SRC = "writ-preview://document/_note-asset/buf-1/tok/n/shots/one.png";
+
+  function mount(
+    resolve: InlineImageDeps["resolve"],
+    download: InlineImageDeps["download"] = () => new Promise(() => {}),
+    source = doc,
+  ): EditorView {
     return new EditorView({
-      state: stateFor(doc, [inlineImages({ resolve })]),
+      state: stateFor(source, [inlineImages({ resolve, download })]),
       parent: document.body,
     });
   }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
   it("asks for every reference in the viewport once", async () => {
     const asked: string[] = [];
     const view = mount((reference) => {
       asked.push(reference);
-      return Promise.resolve({ dataUrl: "data:image/png;base64,AAAA" });
+      return Promise.resolve({ src: SRC });
     });
     await Promise.resolve();
     await Promise.resolve();
@@ -356,13 +374,90 @@ describe("inlineImages", () => {
     view.destroy();
   });
 
-  it("holds the resolved bytes so a redraw costs no round trip", async () => {
-    const view = mount(() => Promise.resolve({ dataUrl: "data:image/png;base64,AAAA" }));
+  it("holds the resolved URL so a redraw costs no round trip", async () => {
+    const view = mount(() => Promise.resolve({ src: SRC }));
     for (let tick = 0; tick < 8; tick++) await Promise.resolve();
     expect(view.state.field(inlineImageField).get("shots/one.png")).toEqual({
       status: "ready",
-      dataUrl: "data:image/png;base64,AAAA",
+      src: SRC,
       label: "one.png",
+    });
+    view.destroy();
+  });
+
+  // Every prefix typed inside `![](` is a reference of its own. Before the
+  // pause each one was asked for as it appeared.
+  it("asks only for the reference left when typing inside the brackets pauses", async () => {
+    vi.useFakeTimers();
+    const asked: string[] = [];
+    const typed = "![]()\n";
+    const view = mount(
+      (reference) => {
+        asked.push(reference);
+        return Promise.resolve({ src: SRC });
+      },
+      undefined,
+      typed,
+    );
+    let at = typed.indexOf(")");
+    for (const char of "shot.png") {
+      view.dispatch({ changes: { from: at, insert: char } });
+      at += 1;
+      await vi.advanceTimersByTimeAsync(TYPING_PAUSE_MS / 4);
+    }
+    expect(asked).toEqual([]);
+    await vi.advanceTimersByTimeAsync(TYPING_PAUSE_MS);
+    expect(asked).toEqual(["shot.png"]);
+    view.destroy();
+  });
+
+  it("downloads an image the provider holds when asked, then draws it", async () => {
+    const notDownloaded = Object.assign(new Error("refused"), { reason: "not_downloaded" });
+    const downloads: string[] = [];
+    const view = mount(
+      () => Promise.reject(notDownloaded),
+      (reference) => {
+        downloads.push(reference);
+        return Promise.resolve({ src: SRC });
+      },
+    );
+    for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+    expect(view.state.field(inlineImageField).get("shots/one.png")).toEqual({
+      status: "failed",
+      label: "one.png",
+      reason: "not_downloaded",
+    });
+
+    view.dispatch({ effects: downloadInlineImage.of("shots/one.png") });
+    view.dispatch({ effects: downloadInlineImage.of("shots/one.png") });
+    await Promise.resolve();
+    expect(view.state.field(inlineImageField).get("shots/one.png")).toEqual({
+      status: "downloading",
+      label: "one.png",
+    });
+    for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+    expect(downloads).toEqual(["shots/one.png"]);
+    expect(view.state.field(inlineImageField).get("shots/one.png")).toEqual({
+      status: "ready",
+      src: SRC,
+      label: "one.png",
+    });
+    view.destroy();
+  });
+
+  it("stays not downloaded when the download ends without the file", async () => {
+    const notDownloaded = Object.assign(new Error("refused"), { reason: "not_downloaded" });
+    const view = mount(
+      () => Promise.reject(notDownloaded),
+      () => Promise.reject(notDownloaded),
+    );
+    for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+    view.dispatch({ effects: downloadInlineImage.of("shots/one.png") });
+    for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+    expect(view.state.field(inlineImageField).get("shots/one.png")).toEqual({
+      status: "failed",
+      label: "one.png",
+      reason: "not_downloaded",
     });
     view.destroy();
   });
@@ -391,7 +486,12 @@ describe("inlineImages", () => {
   });
 
   it("keeps the states of references it was not told about", () => {
-    const state = stateFor(doc, [inlineImages({ resolve: () => Promise.reject(new Error()) })]);
+    const state = stateFor(doc, [
+      inlineImages({
+        resolve: () => Promise.reject(new Error()),
+        download: () => Promise.reject(new Error()),
+      }),
+    ]);
     const next = state.update({
       effects: setInlineImage.of({
         reference: "other.png",
@@ -402,6 +502,87 @@ describe("inlineImages", () => {
     expect(
       next.update({ changes: { from: 0, insert: "x" } }).state.field(inlineImageField).size,
     ).toBe(1);
+  });
+});
+
+// ─── The widget ───────────────────────────────────────────────────────────
+
+describe("the image widget", () => {
+  function viewWith(effects: unknown[]): EditorView {
+    const view = new EditorView({ state: stateFor("x\n"), parent: document.body });
+    const dispatch = view.dispatch.bind(view);
+    view.dispatch = ((spec: { effects?: unknown }) => {
+      effects.push(spec.effects);
+      dispatch(spec as never);
+    }) as typeof view.dispatch;
+    return view;
+  }
+
+  it("draws a ready image from its URL, decoded off the main thread", () => {
+    const view = viewWith([]);
+    const widget = new InlineImageWidget("shots/one.png", {
+      status: "ready",
+      src: "writ-preview://document/_note-asset/b/t/n/shots/one.png",
+      label: "one.png",
+    });
+    const image = widget.toDOM(view).querySelector("img")!;
+    expect(image.getAttribute("src")).toBe(
+      "writ-preview://document/_note-asset/b/t/n/shots/one.png",
+    );
+    expect(image.decoding).toBe("async");
+    const frame = image.parentElement!;
+    expect(frame.dataset.loaded).toBe("false");
+    image.dispatchEvent(new Event("load"));
+    expect(frame.dataset.loaded).toBe("true");
+    view.destroy();
+  });
+
+  it("offers a download for an image that is not downloaded", () => {
+    const effects: unknown[] = [];
+    const view = viewWith(effects);
+    const widget = new InlineImageWidget("shots/one.png", {
+      status: "failed",
+      label: "one.png",
+      reason: "not_downloaded",
+    });
+    const frame = widget.toDOM(view);
+    expect(frame.textContent).toContain("one.png · not downloaded");
+    const button = frame.querySelector("button")!;
+    expect(button.textContent).toBe("Download");
+    expect(widget.ignoreEvent({ target: button } as unknown as Event)).toBe(true);
+    expect(widget.ignoreEvent({ target: frame } as unknown as Event)).toBe(false);
+    button.click();
+    const sent = effects.flat() as { is: (type: unknown) => boolean; value: unknown }[];
+    expect(sent.some((e) => e.is(downloadInlineImage) && e.value === "shots/one.png")).toBe(true);
+    view.destroy();
+  });
+
+  it("offers no download for any other refusal", () => {
+    const view = viewWith([]);
+    const widget = new InlineImageWidget("shots/one.png", {
+      status: "failed",
+      label: "one.png",
+      reason: "too_large",
+    });
+    const frame = widget.toDOM(view);
+    expect(frame.textContent).toBe("one.png · too large");
+    expect(frame.querySelector("button")).toBeNull();
+    view.destroy();
+  });
+
+  it("redraws when the reason a reference is refused changes", () => {
+    const missing = new InlineImageWidget("a.png", {
+      status: "failed",
+      label: "a.png",
+      reason: "not_found",
+    });
+    const evicted = new InlineImageWidget("a.png", {
+      status: "failed",
+      label: "a.png",
+      reason: "not_downloaded",
+    });
+    expect(missing.eq(evicted)).toBe(false);
+    expect(evicted.eq(evicted)).toBe(true);
   });
 });
 

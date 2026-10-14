@@ -122,6 +122,25 @@ fn insert_and_get_buffer() {
 }
 
 #[test]
+fn the_view_position_is_kept_on_the_row_and_leaves_updated_at_alone() {
+    let (_dir, store) = setup();
+    let doc = make_unwritten("pos-1", "Positioned");
+    store.insert(&doc).expect("insert");
+    let before = store.get("pos-1").expect("row").updated_at;
+
+    store
+        .set_view_position("pos-1", 1_234, 987)
+        .expect("position");
+
+    let row = store.get("pos-1").expect("row");
+    assert_eq!((row.cursor_pos, row.scroll_pos), (1_234, 987));
+    assert_eq!(row.updated_at, before);
+    store.close("pos-1").expect("close");
+    let closed = store.get("pos-1").expect("closed row");
+    assert_eq!((closed.cursor_pos, closed.scroll_pos), (1_234, 987));
+}
+
+#[test]
 fn preview_scripts_defaults_off_and_remembers_the_opt_in() {
     let (_dir, store) = setup();
     let doc = make_doc("buf-scripts", "Scripts");

@@ -37,6 +37,33 @@
   height: 0;
 }
 
+.tabbar-tabs.is-clipped-end {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - var(--writ-space-6)), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - var(--writ-space-6)), transparent);
+}
+
+.tabbar-tabs.is-clipped-start {
+  -webkit-mask-image: linear-gradient(to left, black calc(100% - var(--writ-space-6)), transparent);
+  mask-image: linear-gradient(to left, black calc(100% - var(--writ-space-6)), transparent);
+}
+
+.tabbar-tabs.is-clipped-start.is-clipped-end {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--writ-space-6),
+    black calc(100% - var(--writ-space-6)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--writ-space-6),
+    black calc(100% - var(--writ-space-6)),
+    transparent
+  );
+}
+
 .tab {
   min-height: 28px;
   min-width: 100px;
@@ -68,9 +95,18 @@
   font-weight: 500;
 }
 
+.tab > .writ-tooltip-anchor:first-child {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+}
+
 .tab-label {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--writ-space-2);
   padding: 0;
   border: 0;
   background: transparent;
@@ -83,9 +119,21 @@
 
 .tab-title {
   display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tab-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--writ-ui-sm);
+  font-weight: 400;
+  color: var(--writ-fg-faint);
 }
 
 /* A tab whose file is gone: struck through as well as dimmed, so the state
@@ -146,6 +194,33 @@
   margin-left: var(--writ-space-2);
   font-size: var(--writ-ui-sm);
   color: var(--writ-fg-faint);
+}
+
+.tab-overflow {
+  width: 24px;
+  min-height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  margin-left: var(--writ-space-1);
+  padding: 0;
+  border: 0;
+  border-radius: var(--writ-r-tab) var(--writ-r-tab) 0 0;
+  background: transparent;
+  color: var(--writ-fg-muted);
+  cursor: pointer;
+  transition: background var(--writ-motion), color var(--writ-motion);
+}
+
+.tab-overflow:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset-inset, -2px);
+}
+
+.tab-overflow:hover,
+.tab-overflow[aria-expanded="true"] {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
 }
 
 .tab-add {
@@ -226,6 +301,7 @@
   border-radius: var(--writ-r-pill);
 }
 
+.tabbar[data-platform="linux"] .tab-overflow,
 .tabbar[data-platform="linux"] .tab-add {
   min-height: 26px;
   border-radius: var(--writ-r-tab);
