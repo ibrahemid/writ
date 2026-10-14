@@ -9,21 +9,18 @@ export type RightPanelStore = ReturnType<typeof createRightPanelStore>;
  * The panel beside the note: whether it is showing, how wide it is, and which
  * of its sections are folded away.
  *
- * Per-window state, like the sidebar's. What persists is what a person set —
- * the open state and the width — and it persists through `configStore`, so
- * one panel opened on one launch is the panel that opens on the next.
+ * What persists is what a person set, the open state and the width, and both
+ * are read from `configStore` rather than copied out of it, so a hand edit of
+ * config.toml moves the panel and a toggle never writes back a stale value.
  */
 export function createRightPanelStore() {
-  const [isOpen, setIsOpen] = createSignal(false);
+  /** Closed until the stored settings have loaded. */
+  const isOpen = (): boolean => configStore.loaded() && configStore.config().panel.open;
   // Folded sections last for the session. A fold is a glance at something
   // else, not a setting, and a config write per disclosure would be one.
   const [collapsedSections, setCollapsedSections] = createSignal<ReadonlySet<RightPanelSection>>(
     new Set(),
   );
-
-  function hydrateFromConfig() {
-    setIsOpen(configStore.config().panel.open);
-  }
 
   /** The persisted width, clamped, so a hand-edited config cannot widen it. */
   function width(): number {
@@ -35,19 +32,15 @@ export function createRightPanelStore() {
   }
 
   function show() {
-    setIsOpen(true);
     configStore.setPanelOpen(true);
   }
 
   function hide() {
-    setIsOpen(false);
     configStore.setPanelOpen(false);
   }
 
   function toggle() {
-    const next = !isOpen();
-    setIsOpen(next);
-    configStore.setPanelOpen(next);
+    configStore.setPanelOpen(!isOpen());
   }
 
   function isCollapsed(section: RightPanelSection): boolean {
@@ -67,7 +60,6 @@ export function createRightPanelStore() {
     show,
     hide,
     toggle,
-    hydrateFromConfig,
     width,
     setWidth,
     collapsedSections,

@@ -34,6 +34,10 @@ pub const KEY_NOTES_FACTS_READING: &str = "notes_facts_reading";
 /// reads them again only when another connection changed them, and never for
 /// a commit that left them alone. See [`crate::notes_index::NotesIndexStore`].
 pub const KEY_NOTES_NAMES_VERSION: &str = "notes_names_version";
+/// When the `[commands.usage]` table of `config.toml` was moved into
+/// `command_usage`, as an RFC 3339 timestamp. Present means the move is done
+/// and a launch never repeats it (ADR-048).
+pub const KEY_COMMAND_USAGE_IMPORTED_AT: &str = "command_usage_imported_at";
 /// Absolute path of the pre-migration copy of the database.
 pub const KEY_ROLLBACK_COPY_PATH: &str = "notes_migration_rollback_path";
 /// How many launches the pre-migration copy has survived.

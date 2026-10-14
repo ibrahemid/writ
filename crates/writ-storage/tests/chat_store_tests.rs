@@ -150,6 +150,7 @@ fn a_save_leaves_no_temp_file_and_replaces_the_whole_file() {
     let files: Vec<String> = fs::read_dir(chats_dir(dir.path()))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name != "index.json")
         .collect();
     assert_eq!(files, vec![format!("{ID_A}.json")]);
 
@@ -263,6 +264,7 @@ fn the_spellings_of_one_id_name_one_file() {
     let files: Vec<String> = fs::read_dir(chats_dir(dir.path()))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name != "index.json")
         .collect();
     assert_eq!(files, vec![format!("{ID_A}.json")]);
 
@@ -303,11 +305,155 @@ fn a_file_the_folder_holds_that_is_not_a_conversation_is_skipped() {
         .unwrap();
     fs::write(chats_dir(dir.path()).join("notes.txt"), "not json").unwrap();
     fs::write(chats_dir(dir.path()).join("broken.json"), "{ not json").unwrap();
+    fs::write(
+        chats_dir(dir.path()).join(format!("{ID_B}.json")),
+        "{ not json",
+    )
+    .unwrap();
 
     let listed = store.list().unwrap();
 
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, ID_A);
+}
+
+/// The rows `chats/index.json` holds, by id.
+fn indexed_ids(root: &Path) -> Vec<String> {
+    let index: Value =
+        serde_json::from_slice(&fs::read(chats_dir(root).join("index.json")).unwrap()).unwrap();
+    index["rows"]
+        .as_object()
+        .expect("the index keeps its rows by id")
+        .keys()
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn the_list_reads_no_conversation_bodies() {
+    let dir = TempDir::new().unwrap();
+    let store = ChatStore::new(dir.path());
+    let mut held = conversation(ID_A, "2026-09-15T10:00:00+00:00");
+    held.title = "Launch plan".to_string();
+    store.save(&held).unwrap();
+    store
+        .save(&conversation(ID_B, "2026-09-14T10:00:00+00:00"))
+        .unwrap();
+
+    // Garbage of the same length with the same time: the file still matches
+    // its row, so a list that opened it would skip it as unreadable.
+    let file = chats_dir(dir.path()).join(format!("{ID_A}.json"));
+    let modified = fs::metadata(&file).unwrap().modified().unwrap();
+    let length = fs::metadata(&file).unwrap().len() as usize;
+    fs::write(&file, vec![b'#'; length]).unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(modified)
+        .unwrap();
+
+    let listed = store.list().unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].id, ID_A);
+    assert_eq!(listed[0].title, "Launch plan");
+}
+
+#[test]
+fn a_folder_written_before_the_index_is_listed_whole_and_indexed() {
+    let dir = TempDir::new().unwrap();
+    let store = ChatStore::new(dir.path());
+    store
+        .save(&conversation(ID_A, "2026-09-15T10:00:00+00:00"))
+        .unwrap();
+    store
+        .save(&conversation(ID_B, "2026-09-14T10:00:00+00:00"))
+        .unwrap();
+    fs::remove_file(chats_dir(dir.path()).join("index.json")).unwrap();
+
+    let ids: Vec<String> = store.list().unwrap().into_iter().map(|c| c.id).collect();
+    assert_eq!(ids, vec![ID_A.to_string(), ID_B.to_string()]);
+    assert_eq!(
+        indexed_ids(dir.path()),
+        vec![ID_A.to_string(), ID_B.to_string()]
+    );
+}
+
+#[test]
+fn a_file_changed_behind_the_index_is_read_again() {
+    let dir = TempDir::new().unwrap();
+    let store = ChatStore::new(dir.path());
+    store
+        .save(&conversation(ID_A, "2026-09-15T10:00:00+00:00"))
+        .unwrap();
+
+    let mut changed = conversation(ID_A, "2026-09-16T10:00:00+00:00");
+    changed.title = "Renamed elsewhere".to_string();
+    fs::write(
+        chats_dir(dir.path()).join(format!("{ID_A}.json")),
+        serde_json::to_vec_pretty(&changed).unwrap(),
+    )
+    .unwrap();
+
+    let listed = store.list().unwrap();
+    assert_eq!(listed[0].title, "Renamed elsewhere");
+    assert_eq!(listed[0].updated_at, "2026-09-16T10:00:00+00:00");
+}
+
+#[test]
+fn a_file_removed_behind_the_index_leaves_the_list_and_the_index() {
+    let dir = TempDir::new().unwrap();
+    let store = ChatStore::new(dir.path());
+    store
+        .save(&conversation(ID_A, "2026-09-15T10:00:00+00:00"))
+        .unwrap();
+    store
+        .save(&conversation(ID_B, "2026-09-14T10:00:00+00:00"))
+        .unwrap();
+    fs::remove_file(chats_dir(dir.path()).join(format!("{ID_B}.json"))).unwrap();
+
+    let ids: Vec<String> = store.list().unwrap().into_iter().map(|c| c.id).collect();
+    assert_eq!(ids, vec![ID_A.to_string()]);
+    assert_eq!(indexed_ids(dir.path()), vec![ID_A.to_string()]);
+}
+
+#[test]
+fn a_deleted_conversation_leaves_the_index() {
+    let dir = TempDir::new().unwrap();
+    let store = ChatStore::new(dir.path());
+    store
+        .save(&conversation(ID_A, "2026-09-15T10:00:00+00:00"))
+        .unwrap();
+    store
+        .save(&conversation(ID_B, "2026-09-14T10:00:00+00:00"))
+        .unwrap();
+
+    store.delete(ID_B).unwrap();
+
+    assert_eq!(indexed_ids(dir.path()), vec![ID_A.to_string()]);
+}
+
+#[test]
+fn saves_from_many_threads_each_keep_their_row() {
+    let dir = TempDir::new().unwrap();
+    let ids: Vec<String> = (0..16)
+        .map(|n| format!("0b7d6b7a-4444-4b6a-9d5e-{n:012}"))
+        .collect();
+    std::thread::scope(|scope| {
+        for id in &ids {
+            let root = dir.path().to_path_buf();
+            scope.spawn(move || {
+                // A store per caller, as each command builds its own.
+                ChatStore::new(&root)
+                    .save(&conversation(id, "2026-09-15T10:00:00+00:00"))
+                    .unwrap();
+            });
+        }
+    });
+
+    let mut indexed = indexed_ids(dir.path());
+    indexed.sort();
+    assert_eq!(indexed, ids);
 }
 
 #[test]

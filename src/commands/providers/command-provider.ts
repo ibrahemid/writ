@@ -2,7 +2,7 @@ import { getAllCommands } from "../registry";
 import { isCommandOffered } from "../app-commands";
 import { effectiveBinding } from "../keybindings";
 import { partitionEmptyQuery, rankWithQuery } from "../ranking";
-import { configStore } from "../../stores/global/config";
+import { commandUsageStore } from "../../stores/global/command-usage";
 import type { Command } from "../../types/commands";
 import type {
   PaletteMode,
@@ -42,7 +42,7 @@ function toResult(cmd: Command, section?: PaletteResultSection): PaletteResult {
     section,
     execute: () => {
       cmd.execute();
-      configStore.recordCommandUse(cmd.id);
+      commandUsageStore.record(cmd.id);
     },
   };
 }
@@ -74,7 +74,7 @@ export function createCommandProvider(options: CommandProviderOptions = {}): Res
     showKbd: true,
     query(q: string, _signal: AbortSignal, mode: PaletteMode): PaletteResult[] {
       const all = visibleCommands();
-      const usage = configStore.config().commands.usage;
+      const usage = commandUsageStore.usage();
       if (!q) {
         // A bare `>` addresses this provider by name; it lists everything even
         // where the mixed empty view would stay silent.

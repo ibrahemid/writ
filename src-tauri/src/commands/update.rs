@@ -6,11 +6,17 @@
 //! phase machine and mirrored to the frontend as a `writ://update-status`
 //! event carrying the full [`UpdatePhase`].
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
+use writ_core::update::auto_check::{
+    last_known_check, next_silent_check_step, SilentCheckStep, RESIDENT_WAKE_INTERVAL_MS,
+};
+use writ_core::update::install::{
+    is_managed, InstallFacts, MARKER_SEARCH_LEVELS, PACKAGE_MANAGER_MARKER,
+};
 use writ_core::update::{UpdateEvent, UpdatePhase};
 
 /// File under the Writ data dir holding the epoch-ms of the last silent
@@ -50,6 +56,118 @@ use crate::state::AppState;
 
 const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(100);
 
+/// Delay before the first silent check after launch.
+const FIRST_SILENT_CHECK_DELAY: Duration = Duration::from_secs(5);
+
+/// The facts [`is_managed`] decides on, read from the disk and the
+/// environment.
+///
+/// - `exe`: the running executable.
+/// - `appimage`: the `APPIMAGE` path the AppImage runtime set, if any.
+/// - `replaces_in_place`: whether the updater overwrites the running file
+///   itself (the Linux AppImage path).
+///
+/// The marker is looked for in the executable's directory and up to
+/// [`MARKER_SEARCH_LEVELS`] above it. The updater replaces `appimage` when it
+/// is set and `exe` otherwise; the directory holding that file must be
+/// writable.
+pub fn read_install_facts(
+    exe: &Path,
+    appimage: Option<&Path>,
+    replaces_in_place: bool,
+) -> InstallFacts {
+    let package_manager_marker = exe
+        .ancestors()
+        .skip(1)
+        .take(MARKER_SEARCH_LEVELS + 1)
+        .any(|dir| dir.join(PACKAGE_MANAGER_MARKER).is_file());
+    let target = appimage.unwrap_or(exe);
+    let target_writable = target.parent().is_some_and(dir_is_writable);
+    InstallFacts {
+        package_manager_marker,
+        replaces_in_place,
+        appimage_env: appimage.is_some(),
+        target_writable,
+    }
+}
+
+#[cfg(unix)]
+fn dir_is_writable(dir: &Path) -> bool {
+    rustix::fs::access(
+        dir,
+        rustix::fs::Access::WRITE_OK | rustix::fs::Access::EXEC_OK,
+    )
+    .is_ok()
+}
+
+#[cfg(not(unix))]
+fn dir_is_writable(_dir: &Path) -> bool {
+    true
+}
+
+/// Whether the running Writ was installed by a package manager, so an update
+/// is reported as [`UpdatePhase::Managed`] and never downloaded.
+fn running_install_is_managed() -> bool {
+    let exe = match tauri::utils::platform::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not resolve the running executable");
+            return false;
+        }
+    };
+    let appimage = std::env::var_os("APPIMAGE")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let facts = read_install_facts(&exe, appimage.as_deref(), updater_replaces_in_place());
+    let managed = is_managed(&facts);
+    if managed {
+        tracing::debug!(?facts, "install is managed by a package manager");
+    }
+    managed
+}
+
+/// Whether tauri-plugin-updater overwrites the running file itself: on Linux
+/// for every bundle but `.deb` and `.rpm`, which it hands to dpkg or rpm.
+fn updater_replaces_in_place() -> bool {
+    use tauri::utils::config::BundleType;
+    cfg!(target_os = "linux")
+        && !matches!(
+            tauri::utils::platform::bundle_type(),
+            Some(BundleType::Deb | BundleType::Rpm)
+        )
+}
+
+/// Runs the silent update check for as long as the app is up: the first a
+/// few seconds after launch, then whenever
+/// [`next_silent_check_step`] says one is due. Runs on its own thread, which
+/// sleeps between looks at the clock. The last check is also kept in memory,
+/// so a data directory that refuses the timestamp cannot make it check again
+/// at once.
+pub fn run_silent_checks(app: AppHandle) {
+    std::thread::sleep(FIRST_SILENT_CHECK_DELAY);
+    let mut last_run_ms: Option<u64> = None;
+    loop {
+        let (auto_check, writ_dir) = {
+            let state = app.state::<AppState>();
+            let cfg = recover_poison(state.config.lock(), "commands::update::run_silent_checks");
+            (cfg.updater.auto_check, state.writ_dir.clone())
+        };
+        let now_ms = now_epoch_ms();
+        let last_ms = last_known_check(read_last_check_ms(&writ_dir), last_run_ms);
+        match next_silent_check_step(auto_check, last_ms, now_ms) {
+            SilentCheckStep::CheckNow => {
+                if tauri::async_runtime::block_on(run_update_check(app.clone(), false)) {
+                    last_run_ms = Some(now_ms);
+                    write_last_check_ms(&writ_dir, now_ms);
+                } else {
+                    std::thread::sleep(Duration::from_millis(RESIDENT_WAKE_INTERVAL_MS));
+                }
+            }
+            SilentCheckStep::Wait(ms) => std::thread::sleep(Duration::from_millis(ms)),
+        }
+    }
+}
+
 /// Checks for an update and notifies the frontend.
 ///
 /// `user_initiated` controls visibility: a manual check surfaces every
@@ -73,12 +191,18 @@ pub async fn download_and_install_update(app: AppHandle) -> Result<(), String> {
     advance(&app, UpdateEvent::CheckStarted);
     let update = match updater.check().await {
         Ok(Some(update)) => {
-            advance(
+            let managed = running_install_is_managed();
+            let phase = advance(
                 &app,
                 UpdateEvent::UpdateFound {
                     version: update.version.clone(),
+                    managed,
                 },
             );
+            if managed {
+                emit_phase(&app, &phase);
+                return Ok(());
+            }
             update
         }
         Ok(None) => {
@@ -201,10 +325,24 @@ fn surfaces_to_user(user_initiated: bool, outcome: CheckOutcome) -> bool {
 }
 
 /// Runs a check, advancing the phase machine and emitting status per the
-/// `user_initiated` visibility policy. Shared by the IPC command and the
-/// silent startup check in `lib.rs`.
-pub async fn run_update_check(app: AppHandle, user_initiated: bool) {
-    let checking = advance(&app, UpdateEvent::CheckStarted);
+/// `user_initiated` visibility policy. Shared by the IPC command and
+/// [`run_silent_checks`].
+///
+/// A silent check does not start while a download, an install or a restart
+/// is pending (the phase refuses a new check); it returns `false` then, and
+/// `true` once it has run.
+pub async fn run_update_check(app: AppHandle, user_initiated: bool) -> bool {
+    let checking = if user_initiated {
+        advance(&app, UpdateEvent::CheckStarted)
+    } else {
+        match try_advance(&app, UpdateEvent::CheckStarted) {
+            Some(phase) => phase,
+            None => {
+                tracing::debug!("silent update check skipped: an update is in progress");
+                return false;
+            }
+        }
+    };
     if surfaces_to_user(user_initiated, CheckOutcome::Started) {
         emit_phase(&app, &checking);
     }
@@ -213,7 +351,7 @@ pub async fn run_update_check(app: AppHandle, user_initiated: bool) {
         Ok(updater) => updater,
         Err(e) => {
             finish_check_failure(&app, user_initiated, &e.to_string());
-            return;
+            return true;
         }
     };
 
@@ -224,6 +362,7 @@ pub async fn run_update_check(app: AppHandle, user_initiated: bool) {
                 &app,
                 UpdateEvent::UpdateFound {
                     version: update.version,
+                    managed: running_install_is_managed(),
                 },
             );
             if surfaces_to_user(user_initiated, CheckOutcome::UpdateFound) {
@@ -241,6 +380,7 @@ pub async fn run_update_check(app: AppHandle, user_initiated: bool) {
         }
         Err(e) => finish_check_failure(&app, user_initiated, &e.to_string()),
     }
+    true
 }
 
 fn finish_check_failure(app: &AppHandle, user_initiated: bool, raw: &str) {
@@ -268,6 +408,16 @@ fn advance(app: &AppHandle, event: UpdateEvent) -> UpdatePhase {
             guard.clone()
         }
     }
+}
+
+/// Applies `event` only when it is legal from the current phase, in one hold
+/// of the lock. Returns the new phase, or `None` when the phase refused it.
+fn try_advance(app: &AppHandle, event: UpdateEvent) -> Option<UpdatePhase> {
+    let state = app.state::<AppState>();
+    let mut guard = recover_poison(state.update_phase.lock(), "commands::update::try_advance");
+    let next = guard.apply(event).ok()?;
+    *guard = next.clone();
+    Some(next)
 }
 
 fn emit_phase(app: &AppHandle, phase: &UpdatePhase) {
@@ -411,6 +561,73 @@ mod tests {
                 "user_initiated={user_initiated}, outcome={outcome:?}",
             );
         }
+    }
+
+    fn appimage_tree(root: &Path) -> PathBuf {
+        let bin = root.join("usr").join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let exe = bin.join("writ-tauri");
+        std::fs::write(&exe, b"").unwrap();
+        exe
+    }
+
+    #[test]
+    fn a_marker_at_the_root_of_the_install_tree_makes_the_install_managed() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = appimage_tree(dir.path());
+        let appimage = dir.path().join("Writ.AppImage");
+        assert!(!read_install_facts(&exe, Some(&appimage), true).package_manager_marker);
+
+        std::fs::write(dir.path().join(PACKAGE_MANAGER_MARKER), "pacman\n").unwrap();
+        let facts = read_install_facts(&exe, Some(&appimage), true);
+        assert!(facts.package_manager_marker);
+        assert!(is_managed(&facts));
+    }
+
+    #[test]
+    fn a_marker_above_the_install_tree_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = appimage_tree(&dir.path().join("writ"));
+        std::fs::write(dir.path().join(PACKAGE_MANAGER_MARKER), "pacman\n").unwrap();
+        assert!(!read_install_facts(&exe, None, true).package_manager_marker);
+    }
+
+    #[test]
+    fn an_unpacked_tree_launched_without_appimage_is_managed() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = appimage_tree(dir.path());
+        let facts = read_install_facts(&exe, None, true);
+        assert!(!facts.appimage_env);
+        assert!(facts.target_writable);
+        assert!(is_managed(&facts));
+        assert!(!is_managed(&read_install_facts(&exe, None, false)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_appimage_in_a_directory_the_user_cannot_write_is_managed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let exe = appimage_tree(&dir.path().join("mounted"));
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        let appimage = locked.join("Writ.AppImage");
+        std::fs::write(&appimage, b"").unwrap();
+
+        let writable = read_install_facts(&exe, Some(&appimage), true);
+        assert!(writable.target_writable);
+        assert!(!is_managed(&writable));
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let root_ignores_modes = std::fs::write(locked.join("probe"), b"").is_ok();
+        let facts = read_install_facts(&exe, Some(&appimage), true);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        if root_ignores_modes {
+            return;
+        }
+        assert!(!facts.target_writable);
+        assert!(is_managed(&facts));
     }
 
     #[test]

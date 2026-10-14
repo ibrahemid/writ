@@ -27,6 +27,7 @@ url = "2"
 # `FilesConfig::from_config_text` reads one table out of a whole config.toml
 # for the consumers that hold no `WritConfig`.
 toml = "1.1"
+toml_edit = { version = "0.25", default-features = false, features = ["parse", "display"] }
 
 [dev-dependencies]
 tempfile = "3"

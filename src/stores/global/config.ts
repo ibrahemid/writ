@@ -1,15 +1,16 @@
-import { createSignal, createRoot } from "solid-js";
+import { batch, createRoot, createSignal } from "solid-js";
+import { createStore, reconcile, unwrap } from "solid-js/store";
 import type {
   AppId,
   AiConfig,
   AppearanceConfig,
-  CommandUsage,
+  ConfigDiagnostic,
   FileExtension,
   SidebarSectionId,
   WritConfig,
 } from "../../types/config";
 import * as api from "../../services/tauri";
-import { showToast } from "../../components/Notifications/Toast";
+import { dismissToast, showToast } from "../../components/Notifications/Toast";
 import { logFailure } from "../../lib/log";
 import { knownSidebarSections, withSidebarSection } from "../../lib/sidebar-sections";
 import { SIDEBAR } from "../../styles/generated/tokens";
@@ -100,10 +101,8 @@ const DEFAULT_CONFIG: WritConfig = {
   window: { width: 1100, height: 720, maximized: false },
   keybindings: {},
   history: { max_entries: 500 },
-  storage: { path: "~/.writ" },
   theme: { preset: "writ-light", overrides: {} },
   appearance: DEFAULT_APPEARANCE,
-  commands: { usage: {} },
   files: { default_extension: "txt" },
   preview: {
     default_layout_html: "split",
@@ -130,6 +129,13 @@ const DEFAULT_CONFIG: WritConfig = {
 };
 
 const PERSIST_DEBOUNCE_MS = 750;
+
+/** A plain copy of a config, sharing nothing with the store. The store adopts
+ * and mutates the objects it is given, and the config is JSON-shaped because
+ * it arrives over IPC. */
+function plainCopy(config: WritConfig): WritConfig {
+  return JSON.parse(JSON.stringify(unwrap(config))) as WritConfig;
+}
 
 // A config written before Writ had a format to ask about carries no [files]
 // table, and one written by hand can carry a word that is neither extension.
@@ -192,9 +198,6 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
     first_run: {
       hint_dismissed: incoming.first_run?.hint_dismissed ?? false,
     },
-    commands: {
-      usage: incoming.commands?.usage ?? {},
-    },
     files: {
       default_extension: knownExtension(incoming.files?.default_extension),
     },
@@ -243,39 +246,80 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
   };
 }
 
-function pruneUsage(
-  usage: Record<string, CommandUsage>,
-  knownIds: ReadonlySet<string>,
-): Record<string, CommandUsage> {
-  const next: Record<string, CommandUsage> = {};
-  let changed = false;
-  for (const [id, entry] of Object.entries(usage)) {
-    if (knownIds.has(id)) {
-      next[id] = entry;
-    } else {
-      changed = true;
-    }
+/** What the notice says about the values in config.toml the launch could not
+ * use, or `null` when there are none. Names the first by key and line. */
+export function unreadValuesNotice(unread: readonly ConfigDiagnostic[]): string | null {
+  const [first] = unread;
+  if (!first) return null;
+  const tail = "Settings won't be saved until the file is fixed.";
+  if (!first.key) {
+    return `Writ couldn't read config.toml (line ${first.line}) and is using default settings. ${tail}`;
   }
-  return changed ? next : usage;
+  const others = unread.length - 1;
+  if (others === 0) {
+    return `Writ couldn't read ${first.key} on line ${first.line} of config.toml and is using its default. ${tail}`;
+  }
+  const more = others === 1 ? "1 other value" : `${others} other values`;
+  return `Writ couldn't read ${first.key} on line ${first.line} of config.toml and ${more}, and is using defaults for them. ${tail}`;
 }
 
+/**
+ * The settings, as a store read field by field (ADR-048).
+ *
+ * `config()` answers the store itself, so an effect that reads
+ * `config().editor.font_size` reruns when that field changes and for nothing
+ * else. Every write goes through a section setter or through `reconcile`,
+ * which changes only the fields whose value differs: a reload of a file that
+ * changed one value, or a whole-config save from Settings, reruns the readers
+ * of that value alone.
+ */
 function createConfigStore() {
-  const [config, setConfig] = createSignal<WritConfig>(DEFAULT_CONFIG);
+  const [state, setState] = createStore<WritConfig>(plainCopy(DEFAULT_CONFIG));
+  // Whether the first load has answered, read or failed. Window state derived
+  // from the config waits for it, so a launch does not show the defaults'
+  // layout before the stored one.
+  const [loaded, setLoaded] = createSignal(false);
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   // Config reloads on every `config:changed` event and persists on a debounce,
   // so a lasting failure would toast on repeat. Each is reported once and
   // re-armed by the next success.
   let loadFailureReported = false;
   let persistFailureReported = false;
+  let unreadNotice: number | null = null;
+
+  const config = (): WritConfig => state;
+
+  /** Shows the notice naming the values config.toml holds that the launch
+   * could not use, and takes it down once a reload reads the file in full. */
+  async function noticeUnreadValues(): Promise<void> {
+    let unread: ConfigDiagnostic[];
+    try {
+      unread = await api.getConfigDiagnostics();
+    } catch {
+      logFailure("unread settings could not be listed");
+      return;
+    }
+    const text = unreadValuesNotice(unread);
+    if (text === null) {
+      if (unreadNotice !== null) dismissToast(unreadNotice);
+      unreadNotice = null;
+      return;
+    }
+    if (unreadNotice === null) unreadNotice = showToast(text, "warning", 0);
+  }
+
+  function replaceWith(next: WritConfig) {
+    setState(reconcile(next));
+  }
 
   async function load(): Promise<boolean> {
     try {
       const loaded = await api.getConfig();
-      setConfig(normalizeIncomingConfig(loaded));
+      replaceWith(normalizeIncomingConfig(loaded));
       loadFailureReported = false;
       return true;
     } catch {
-      setConfig(DEFAULT_CONFIG);
+      replaceWith(plainCopy(DEFAULT_CONFIG));
       if (loadFailureReported) return false;
       loadFailureReported = true;
       logFailure("settings could not be read");
@@ -285,13 +329,15 @@ function createConfigStore() {
         8000,
       );
       return false;
+    } finally {
+      setLoaded(true);
     }
   }
 
   async function save(updated: WritConfig) {
-    const normalized = normalizeIncomingConfig(updated);
+    const normalized = plainCopy(normalizeIncomingConfig(updated));
     await api.updateConfig(normalized);
-    setConfig(normalized);
+    replaceWith(normalized);
   }
 
   /** Puts a connection Rust has already written into the running config.
@@ -300,38 +346,17 @@ function createConfigStore() {
    * surface that asked for the change applies that answer rather than reading
    * the file back and racing whatever else is writing it. */
   function applyAi(ai: AiConfig) {
-    setConfig((held) => ({ ...held, ai }));
-  }
-
-  function recordCommandUse(id: string, nowMs: number = Date.now()) {
-    const current = config();
-    const prev = current.commands.usage[id];
-    const next: CommandUsage = {
-      count: (prev?.count ?? 0) + 1,
-      last_used_ms: nowMs,
-    };
-    setConfig({
-      ...current,
-      commands: {
-        ...current.commands,
-        usage: { ...current.commands.usage, [id]: next },
-      },
-    });
-    schedulePersist();
+    setState("ai", reconcile(ai));
   }
 
   // Optimistically apply a new editor font size and persist it through the
   // same config layer the Settings input uses (single source of truth). The
   // write is debounced so a fast zoom (Cmd+scroll, key repeat) coalesces into
-  // one disk write while the editor reflows instantly off the live signal.
+  // one disk write while the editor reflows instantly off the store.
   function setEditorFontSize(size: number) {
     const clamped = clampEditorFontSize(size);
-    const current = config();
-    if (current.editor.font_size === clamped) return;
-    setConfig({
-      ...current,
-      editor: { ...current.editor, font_size: clamped },
-    });
+    if (state.editor.font_size === clamped) return;
+    setState("editor", "font_size", clamped);
     schedulePersist();
   }
 
@@ -339,100 +364,104 @@ function createConfigStore() {
   // through the same debounce as every other setting.
   function setSidebarWidth(width: number) {
     const clamped = clampSidebarWidth(width);
-    const current = config();
-    if (current.sidebar.width === clamped) return;
-    setConfig({
-      ...current,
-      sidebar: { ...current.sidebar, width: clamped },
-    });
+    if (state.sidebar.width === clamped) return;
+    setState("sidebar", "width", clamped);
     schedulePersist();
   }
 
+  /** Shows or hides the sidebar. The window reads its open state from here,
+   * so the change shows at once and the file follows. */
+  function setSidebarOpen(open: boolean) {
+    if (state.sidebar.open === open) return;
+    setState("sidebar", "open", open);
+    persistNow();
+  }
+
   function isSidebarSectionCollapsed(id: SidebarSectionId): boolean {
-    return config().sidebar.collapsed.includes(id);
+    return state.sidebar.collapsed.includes(id);
   }
 
   function isSidebarSectionHidden(id: SidebarSectionId): boolean {
-    return config().sidebar.hidden.includes(id);
+    return state.sidebar.hidden.includes(id);
   }
 
   // A fold is restored on the next launch, so it is written like the width:
   // once per flip, on the shared debounce.
   function setSidebarSectionCollapsed(id: SidebarSectionId, collapsed: boolean) {
-    const current = config();
-    const next = withSidebarSection(current.sidebar.collapsed, id, collapsed);
-    if (next === current.sidebar.collapsed) return;
-    setConfig({ ...current, sidebar: { ...current.sidebar, collapsed: [...next] } });
+    const current = state.sidebar.collapsed;
+    const next = withSidebarSection(current, id, collapsed);
+    if (next === current) return;
+    setState("sidebar", "collapsed", [...next]);
     schedulePersist();
   }
 
   function setSidebarSectionHidden(id: SidebarSectionId, hidden: boolean) {
-    const current = config();
-    const next = withSidebarSection(current.sidebar.hidden, id, hidden);
-    if (next === current.sidebar.hidden) return;
-    setConfig({ ...current, sidebar: { ...current.sidebar, hidden: [...next] } });
+    const current = state.sidebar.hidden;
+    const next = withSidebarSection(current, id, hidden);
+    if (next === current) return;
+    setState("sidebar", "hidden", [...next]);
     schedulePersist();
   }
 
   // The panel's toggle writes on each flip and its drag handle on release;
   // both go through the same debounce as every other setting.
   function setPanelOpen(open: boolean) {
-    const current = config();
-    if (current.panel.open === open) return;
-    setConfig({ ...current, panel: { ...current.panel, open } });
+    if (state.panel.open === open) return;
+    setState("panel", "open", open);
     schedulePersist();
   }
 
   function setPanelWidth(width: number) {
     const clamped = clampPanelWidth(width);
-    const current = config();
-    if (current.panel.width === clamped) return;
-    setConfig({ ...current, panel: { ...current.panel, width: clamped } });
+    if (state.panel.width === clamped) return;
+    setState("panel", "width", clamped);
     schedulePersist();
   }
 
   // The chat column remembers what the panel beside the note remembers, in
   // the same file and on the same debounce.
   function setChatPanelOpen(open: boolean) {
-    const current = config();
-    if (current.chat_panel.open === open) return;
-    setConfig({ ...current, chat_panel: { ...current.chat_panel, open } });
+    if (state.chat_panel.open === open) return;
+    setState("chat_panel", "open", open);
     schedulePersist();
   }
 
   function setChatPanelWidth(width: number) {
     const clamped = clampChatWidth(width);
-    const current = config();
-    if (current.chat_panel.width === clamped) return;
-    setConfig({ ...current, chat_panel: { ...current.chat_panel, width: clamped } });
+    if (state.chat_panel.width === clamped) return;
+    setState("chat_panel", "width", clamped);
     schedulePersist();
+  }
+
+  function writeCurrent() {
+    void api.updateConfig(plainCopy(state)).then(
+      () => {
+        persistFailureReported = false;
+      },
+      () => {
+        if (persistFailureReported) return;
+        persistFailureReported = true;
+        logFailure("settings could not be written");
+        showToast("Couldn't save your settings. The change applies to this session only.", "error");
+      },
+    );
   }
 
   function schedulePersist() {
     if (flushTimer) clearTimeout(flushTimer);
     flushTimer = setTimeout(() => {
       flushTimer = null;
-      void api.updateConfig(config()).then(
-        () => {
-          persistFailureReported = false;
-        },
-        () => {
-          if (persistFailureReported) return;
-          persistFailureReported = true;
-          logFailure("settings could not be written");
-          showToast("Couldn't save your settings. The change applies to this session only.", "error");
-        },
-      );
+      writeCurrent();
     }, PERSIST_DEBOUNCE_MS);
   }
 
-  async function clearCommandUsage() {
-    const current = config();
-    const updated: WritConfig = {
-      ...current,
-      commands: { ...current.commands, usage: {} },
-    };
-    await save(updated);
+  /** Writes at once, taking any debounced change with it. */
+  function persistNow() {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    writeCurrent();
   }
 
   // Rust has already written this one; the copy here catches up so the next
@@ -440,60 +469,68 @@ function createConfigStore() {
   // config write is stamped into the watcher's ignore set, so nothing else
   // tells this store the file moved.
   function noteFirstRunHintDismissed() {
-    const current = config();
-    if (current.first_run.hint_dismissed) return;
-    setConfig({ ...current, first_run: { ...current.first_run, hint_dismissed: true } });
+    if (state.first_run.hint_dismissed) return;
+    setState("first_run", "hint_dismissed", true);
   }
 
-  // The same catching-up as the line above: `finish_first_run` wrote the
-  // chosen format to disk with the rest of the config, and this copy follows
-  // so the next whole-config write does not carry the old answer back.
   /** Whether `app` is on, read from the key that app has always used
    * (`WritConfig::is_app_on` in Rust). Reactive. */
   function isAppOn(app: AppId): boolean {
-    return isAppOnIn(config(), app);
+    return isAppOnIn(state, app);
   }
 
   /** Turns an app on or off and writes the config at once, so the menu bar
    * Rust draws from the file follows the switch. */
   async function setAppOn(app: AppId, on: boolean): Promise<void> {
-    const current = config();
-    if (isAppOnIn(current, app) === on) return;
-    await save(withApp(current, app, on));
+    if (isAppOnIn(state, app) === on) return;
+    await save(withApp(state, app, on));
+  }
+
+  function switchApp(app: AppId, on: boolean) {
+    switch (app) {
+      case "chat":
+        setState("ai", "chat", "enabled", on);
+        return;
+      case "rewrite":
+        setState("ai", "rewrite", "enabled", on);
+        return;
+      case "programs":
+        setState("mcp", "enabled", on);
+        return;
+      case "connections":
+      case "graph":
+      case "tags":
+        setState("apps", app, on);
+        return;
+    }
   }
 
   /** Puts apps Rust has already switched on (the first launch) into the
    * running copy, so the next whole-config write keeps them. */
   function noteAppsOn(apps: readonly AppId[]) {
-    setConfig((held) => apps.reduce((next, app) => withApp(next, app, true), held));
+    batch(() => {
+      for (const app of apps) switchApp(app, true);
+    });
   }
 
+  // The same catching-up as `noteFirstRunHintDismissed`: `finish_first_run`
+  // wrote the chosen format to disk with the rest of the config, and this copy
+  // follows so the next whole-config write does not carry the old answer back.
   function noteDefaultExtension(extension: FileExtension) {
-    const current = config();
-    if (current.files.default_extension === extension) return;
-    setConfig({ ...current, files: { ...current.files, default_extension: extension } });
-  }
-
-  function pruneCommandUsage(knownIds: ReadonlySet<string>) {
-    const current = config();
-    const pruned = pruneUsage(current.commands.usage, knownIds);
-    if (pruned === current.commands.usage) return;
-    const updated: WritConfig = {
-      ...current,
-      commands: { ...current.commands, usage: pruned },
-    };
-    setConfig(updated);
-    schedulePersist();
+    if (state.files.default_extension === extension) return;
+    setState("files", "default_extension", extension);
   }
 
   return {
     config,
+    loaded,
     load,
+    noticeUnreadValues,
     save,
     applyAi,
-    recordCommandUse,
     setEditorFontSize,
     setSidebarWidth,
+    setSidebarOpen,
     isSidebarSectionCollapsed,
     isSidebarSectionHidden,
     setSidebarSectionCollapsed,
@@ -502,8 +539,6 @@ function createConfigStore() {
     setPanelWidth,
     setChatPanelOpen,
     setChatPanelWidth,
-    clearCommandUsage,
-    pruneCommandUsage,
     noteFirstRunHintDismissed,
     noteDefaultExtension,
     isAppOn,

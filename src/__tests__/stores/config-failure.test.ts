@@ -59,7 +59,7 @@ describe("configStore failures reach the user", () => {
     vi.useFakeTimers();
     mockedUpdateConfig.mockRejectedValue(new Error("read-only"));
 
-    configStore.recordCommandUse("tab.new");
+    configStore.setSidebarWidth(configStore.config().sidebar.width === 300 ? 280 : 300);
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(mockedUpdateConfig).toHaveBeenCalled();

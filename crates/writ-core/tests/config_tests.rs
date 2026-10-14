@@ -1,6 +1,6 @@
 use writ_core::config::{
-    Accent, ClientApproval, CommandUsage, DefaultLayout, FileExtension, FilesConfig,
-    MarkdownLayout, Polarity, ProseFace, SidebarPosition, SidebarSection, WritConfig,
+    Accent, ClientApproval, DefaultLayout, FileExtension, FilesConfig, MarkdownLayout, Polarity,
+    ProseFace, SidebarPosition, SidebarSection, WritConfig,
 };
 
 #[test]
@@ -32,8 +32,6 @@ fn default_config_has_expected_values() {
 
     assert_eq!(config.history.max_entries, 500);
 
-    assert_eq!(config.storage.path, "~/.writ");
-
     // ADR-041: a new file is plain text.
     assert_eq!(config.files.default_extension, FileExtension::Txt);
     assert_eq!(
@@ -53,7 +51,8 @@ fn config_serializes_to_toml() {
     assert!(toml_str.contains("[window]"));
     assert!(toml_str.contains("[keybindings]"));
     assert!(toml_str.contains("[history]"));
-    assert!(toml_str.contains("[storage]"));
+    assert!(!toml_str.contains("[storage]"), "{toml_str}");
+    assert!(!toml_str.contains("[commands"), "{toml_str}");
     assert!(toml_str.contains("[files]"), "{toml_str}");
     assert!(toml_str.contains("collapsed = []"), "{toml_str}");
     assert!(toml_str.contains("hidden = [\"recent\"]"), "{toml_str}");
@@ -146,38 +145,21 @@ fn config_round_trip_preserves_appearance_and_status_bar() {
     assert!(!restored.editor.status_bar);
 }
 
+/// `storage.path` was read by nothing (TS-27) and command usage moved to the
+/// database (ADR-048): a file that still carries either reads as before, and
+/// the next write leaves both tables out.
 #[test]
-fn commands_usage_default_is_empty() {
-    let config = WritConfig::default();
-    assert!(config.commands.usage.is_empty());
-}
+fn a_config_with_storage_and_command_usage_reads_and_drops_them_on_write() {
+    let text = "[storage]\npath = \"~/elsewhere\"\n\n\
+                [commands.usage.\"palette.open\"]\ncount = 3\nlast_used_ms = 9\n\n\
+                [editor]\nfont_size = 20\n";
+    let parsed = WritConfig::parse(text).expect("an older file still reads");
+    assert_eq!(parsed.editor.font_size, 20);
 
-#[test]
-fn commands_usage_round_trips_through_toml() {
-    let mut config = WritConfig::default();
-    config.commands.usage.insert(
-        "palette.open".to_string(),
-        CommandUsage {
-            count: 17,
-            last_used_ms: 1_715_500_000_000,
-        },
-    );
-    let toml_str = toml::to_string(&config).expect("serialization failed");
-    let restored: WritConfig = toml::from_str(&toml_str).expect("deserialization failed");
-    let entry = restored
-        .commands
-        .usage
-        .get("palette.open")
-        .expect("palette.open usage missing");
-    assert_eq!(entry.count, 17);
-    assert_eq!(entry.last_used_ms, 1_715_500_000_000);
-}
-
-#[test]
-fn partial_config_without_commands_section_deserializes() {
-    let toml_str = "[sidebar]\ntoggle = \"CmdOrCtrl+S\"\n";
-    let parsed: WritConfig = toml::from_str(toml_str).expect("deserialization failed");
-    assert!(parsed.commands.usage.is_empty());
+    let written = toml::to_string(&parsed).expect("serialization failed");
+    assert!(!written.contains("storage"), "{written}");
+    assert!(!written.contains("commands"), "{written}");
+    assert!(!written.contains("palette.open"), "{written}");
 }
 
 #[test]

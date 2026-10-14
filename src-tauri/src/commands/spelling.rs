@@ -1,4 +1,4 @@
-use crate::commands::config::persist_config;
+use crate::commands::config::mutate_config;
 use crate::state::AppState;
 use tauri::State;
 use writ_core::config::SpellingConfig;
@@ -13,22 +13,10 @@ fn lint_config_from(spelling: &SpellingConfig) -> LintConfig {
 }
 
 /// Adds `word` to the ignore list, persisting through the same watcher-safe
-/// path as `update_config`. Returns whether the list changed.
-fn add_ignored_word_to_state(state: &AppState, word: String) -> Result<bool, String> {
-    let mut config = {
-        let current = state.config.lock().map_err(|e| e.to_string())?;
-        current.clone()
-    };
-
-    if !config.spelling.add_ignored_word(word) {
-        return Ok(false);
-    }
-
-    persist_config(state, &config)?;
-
-    let mut current = state.config.lock().map_err(|e| e.to_string())?;
-    *current = config;
-    Ok(true)
+/// path as `update_config`, under the config lock so a change landing at the
+/// same time keeps both. Returns whether the list changed.
+pub fn add_ignored_word_to_state(state: &AppState, word: String) -> Result<bool, String> {
+    mutate_config(state, |config| config.spelling.add_ignored_word(word))
 }
 
 /// Checks `text` for spelling and mechanical mistakes using the user's

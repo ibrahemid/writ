@@ -48,7 +48,7 @@ deny = [
     { crate = "openssl-sys", reason = "TLS is rustls only" },
     { crate = "native-tls", reason = "TLS is rustls only" },
     { crate = "aws-lc-sys", reason = "ring is the rustls provider" },
-    { crate = "reqwest", wrappers = ["tauri-plugin-updater", "writ-tauri"], reason = "writ-mcp and writ-cli make no outbound request (docs/threat-model.md, row 4)" },
+    { crate = "reqwest", wrappers = ["tauri-plugin-updater", "writ-ai", "writ-tauri"], reason = "writ-mcp and writ-cli make no outbound request (docs/threat-model.md, row 4)" },
 ]
 
 [sources]

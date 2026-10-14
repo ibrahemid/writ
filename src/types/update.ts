@@ -3,6 +3,7 @@ export type UpdatePhase =
   | { status: "checking" }
   | { status: "up_to_date" }
   | { status: "available"; version: string }
+  | { status: "managed"; version: string }
   | { status: "downloading"; downloaded: number; total: number | null }
   | { status: "installing" }
   | { status: "ready" }

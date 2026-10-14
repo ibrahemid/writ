@@ -49,9 +49,6 @@ export const DEMO_CONFIG: WritConfig = {
   "history": {
     "max_entries": 500
   },
-  "storage": {
-    "path": "~/.writ"
-  },
   "theme": {
     "preset": "writ-light",
     "overrides": {}
@@ -61,9 +58,6 @@ export const DEMO_CONFIG: WritConfig = {
     "accent": "pine",
     "prose_face": "system",
     "interface_text_size": null
-  },
-  "commands": {
-    "usage": {}
   },
   "preview": {
     "default_layout_html": "split",

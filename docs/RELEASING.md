@@ -145,7 +145,8 @@ embeds (`MINISIGN_PUBKEY`): that release is signed with the old key through N
    later release: its owner has to reinstall from the site.
 5. Nothing signs with the old key after step 3: destroy its copies. Once the
    first release signed with the new key is published, drop the old key from
-   `install.sh`.
+   `install.sh`. The AUR PKGBUILD checks each release's AppImage against
+   `_minisign_pubkey`: set it to the new key in that release's packages bump.
 
 `KeyTransitionRehearsal` in `.github/scripts/test_release_signing.py` runs
 these steps with throwaway keys: N signed with the old key passes against the

@@ -540,6 +540,11 @@ pub fn run() {
             commands::history::search_notes_by_name,
             commands::config::get_config,
             commands::config::update_config,
+            commands::config::get_config_diagnostics,
+            commands::command_usage::get_command_usage,
+            commands::command_usage::record_command_uses,
+            commands::command_usage::clear_command_usage,
+            commands::command_usage::prune_command_usage,
             commands::window::confirm_quit_flush,
             commands::window::reveal_window,
             commands::window::compute_window_placement,
@@ -886,37 +891,12 @@ pub fn run() {
                 heartbeat::beat(&heartbeat_handle.state::<AppState>());
             });
 
-            let updater_auto_check = {
-                let state = app.state::<AppState>();
-                let cfg = recover_poison(state.config.lock(), "lib::setup:updater_auto_check");
-                cfg.updater.auto_check
-            };
-            let update_writ_dir = app.state::<AppState>().writ_dir.clone();
-            tauri::async_runtime::spawn(async move {
-                tauri::async_runtime::spawn_blocking(|| {
-                    std::thread::sleep(std::time::Duration::from_secs(5));
-                })
-                .await
-                .ok();
-                // Gate the silent check: only when the user has auto-check on
-                // and the last silent check is older than the interval, so a
-                // quick launch-and-quit no longer phones the release endpoint.
-                let now_ms = commands::update::now_epoch_ms();
-                let last_ms = commands::update::read_last_check_ms(&update_writ_dir);
-                if writ_core::update::auto_check::should_auto_check(
-                    updater_auto_check,
-                    last_ms,
-                    now_ms,
-                    writ_core::update::auto_check::MIN_CHECK_INTERVAL_MS,
-                ) {
-                    commands::update::write_last_check_ms(&update_writ_dir, now_ms);
-                    commands::update::run_update_check(handle, false).await;
-                } else {
-                    tracing::debug!(
-                        "silent update check skipped (auto_check off or within interval)"
-                    );
-                }
-            });
+            if let Err(e) = std::thread::Builder::new()
+                .name("writ-update-check".into())
+                .spawn(move || commands::update::run_silent_checks(handle))
+            {
+                tracing::warn!(error = %e, "could not start the update check thread");
+            }
 
             info!("writ ready");
             Ok(())

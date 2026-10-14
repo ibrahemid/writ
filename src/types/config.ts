@@ -1,14 +1,5 @@
 import type { AccentId, ProseFace } from "../styles/generated/tokens";
 
-export interface CommandUsage {
-  count: number;
-  last_used_ms: number;
-}
-
-export interface CommandsConfig {
-  usage: Record<string, CommandUsage>;
-}
-
 export type DefaultLayout = "source" | "split" | "preview";
 
 /** How a Markdown file is shown: rendered in the editor, or as its source. */
@@ -165,10 +156,8 @@ export interface WritConfig {
   window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };
   keybindings: Record<string, string>;
   history: { max_entries: number };
-  storage: { path: string };
   theme: { preset: string; overrides: Record<string, string> };
   appearance: AppearanceConfig;
-  commands: CommandsConfig;
   preview: PreviewConfig;
   files: FilesConfig;
   workspace: { root: string | null };
@@ -178,4 +167,12 @@ export interface WritConfig {
   mcp: McpConfig;
   spelling: SpellingConfig;
   apps: AppsConfig;
+}
+
+/** A value in config.toml the launch could not use (ADR-048). `key` is empty
+ * when the file is not TOML at all. */
+export interface ConfigDiagnostic {
+  key: string;
+  line: number;
+  message: string;
 }
