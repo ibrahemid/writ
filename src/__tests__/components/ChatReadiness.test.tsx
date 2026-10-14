@@ -177,7 +177,7 @@ describe("the first-use card", () => {
     mocks.readiness.mockReturnValue(CASES[1].readiness);
     const { findByText, getByText, queryByText, container } = render(() => <ChatReadiness />);
 
-    expect(container.textContent).toContain("Chat sends what you attach to a model you choose.");
+    expect(container.textContent).toContain("Chat sends what you attach to a model you choose: one on this computer, or a provider with your key.");
     fireEvent.click(await findByText("Use Ollama"));
     await waitFor(() => expect(mocks.selectProvider).toHaveBeenCalledWith("ollama"));
     await waitFor(() => expect(mocks.check).toHaveBeenCalled());
