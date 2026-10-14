@@ -53,7 +53,21 @@ export default function ConversationList(props: { onPick: () => void }) {
 
       <Show
         when={chatStore.conversations().length > 0}
-        fallback={<p class="chat-empty">No chats yet.</p>}
+        fallback={
+          <Show
+            when={!chatStore.listFailed()}
+            fallback={
+              <div class="chat-empty" role="alert">
+                <p class="chat-empty-line">Could not read your chats.</p>
+                <Button data-action="chats-retry" onClick={() => void chatStore.refreshList()}>
+                  Try again
+                </Button>
+              </div>
+            }
+          >
+            <p class="chat-empty">No chats yet.</p>
+          </Show>
+        }
       >
         <ul class="chat-chats-list">
           <For each={chatStore.conversations()}>

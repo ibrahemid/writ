@@ -33,6 +33,9 @@ export const ACTIVITY_LIMIT = 200;
 export const ACTIVITY_POLL_MS = 5_000;
 
 const [records, setRecords] = createSignal<ActivityRecord[]>([]);
+// Whether the last read of the log failed, so the panel can say so rather than
+// show an empty log as if no program had called.
+const [logFailed, setLogFailed] = createSignal(false);
 const [clients, setClients] = createSignal<ClientApproval[]>([]);
 const [pending, setPending] = createSignal<PendingClient[]>([]);
 const [serverCommand, setServerCommand] = createSignal<McpServerCommand | null>(null);
@@ -78,7 +81,9 @@ async function refresh(): Promise<void> {
 async function refreshLog(): Promise<void> {
   try {
     setRecords(await activityRecent(ACTIVITY_LIMIT));
+    setLogFailed(false);
   } catch {
+    setLogFailed(true);
     logFailure("the activity list could not be read");
   }
 }
@@ -144,9 +149,13 @@ async function load(): Promise<void> {
   await Promise.all([refresh(), loadCommand()]);
 }
 
-/** Reads the command a client is given, once per session. */
+/**
+ * Reads the command a client is given, once per session: again only while the
+ * command still waits on the install, which the person can do meanwhile.
+ */
 async function loadCommand(): Promise<void> {
-  if (serverCommand()) return;
+  const current = serverCommand();
+  if (current && !current.needs_install) return;
   try {
     setServerCommand(await mcpServerCommand());
   } catch {
@@ -162,6 +171,22 @@ async function loadTools(): Promise<void> {
   } catch {
     logFailure("the tool list could not be read");
   }
+}
+
+/**
+ * What has to happen before the command is worth giving a program, which
+ * keeps the path it was given: a translocated app's path changes at every
+ * launch, and an AppImage's copy is only there once installed.
+ */
+function commandCaution(): string | undefined {
+  const command = serverCommand();
+  if (command?.needs_move) {
+    return "Move Writ to your Applications folder and open it from there first.";
+  }
+  if (command?.needs_install) {
+    return "Install the writ command under Advanced, Terminal command, first.";
+  }
+  return undefined;
 }
 
 /** Puts the command on the clipboard, for pasting into a client. */
@@ -220,9 +245,11 @@ async function restore(approval: ClientApproval): Promise<boolean> {
 
 export const activityStore = {
   records,
+  logFailed,
   clients,
   pending,
   serverCommand,
+  commandCaution,
   tools,
   load,
   refresh,

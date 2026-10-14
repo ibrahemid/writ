@@ -85,7 +85,11 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
         />
       </SettingsRow>
 
-      <SettingsRow id="mcp.command" label="Command to give a program">
+      <SettingsRow
+        id="mcp.command"
+        label="Command to give a program"
+        caution={activityStore.commandCaution()}
+      >
         <span class="settings-inbox-controls">
           <Tooltip label={activityStore.serverCommand()?.command ?? ""}>
             <span class="settings-inbox-path" data-mcp-command>

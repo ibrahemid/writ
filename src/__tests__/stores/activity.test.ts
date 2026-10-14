@@ -114,6 +114,42 @@ describe("activityStore", () => {
     expect(activityStore.serverCommand()?.command).toBe('"/usr/local/bin/writ" mcp');
   });
 
+  // Each takes its own copy of the module: the command is read once per
+  // session, and an earlier test's command would stand.
+  it("asks for the install while the command is not there yet, and reads it again", async () => {
+    const activityStore = await freshStore();
+    const path = "/home/a/.local/bin/writ";
+    h.mcpServerCommand.mockResolvedValueOnce({
+      path,
+      command: `"${path}" mcp`,
+      needs_install: true,
+      needs_move: false,
+    });
+    await activityStore.loadCommand();
+    expect(activityStore.commandCaution()).toContain("Install the writ command");
+
+    h.mcpServerCommand.mockResolvedValueOnce({
+      path,
+      command: `"${path}" mcp`,
+      needs_install: false,
+      needs_move: false,
+    });
+    await activityStore.loadCommand();
+    expect(activityStore.commandCaution()).toBeUndefined();
+  });
+
+  it("asks for a translocated app to be moved first", async () => {
+    const activityStore = await freshStore();
+    h.mcpServerCommand.mockResolvedValueOnce({
+      path: "/private/var/folders/x/AppTranslocation/1/d/Writ.app/Contents/MacOS/writ",
+      command: "x",
+      needs_install: true,
+      needs_move: true,
+    });
+    await activityStore.loadCommand();
+    expect(activityStore.commandCaution()).toContain("Applications folder");
+  });
+
   it("listens for the app's own changes once, however often it is loaded", async () => {
     h.activityRecent.mockResolvedValue([]);
     h.mcpClients.mockResolvedValue(answer([]));
@@ -390,5 +426,19 @@ describe("a program asking while the app runs", () => {
 
     store.announce("Claude Code");
     expect(store.notice()?.name).toBe("Claude Code");
+  });
+});
+
+describe("a log that could not be read", () => {
+  it("is a failure of its own until a read succeeds", async () => {
+    h.mcpClients.mockResolvedValue({ approved: [], waiting: [] });
+    h.activityRecent.mockRejectedValueOnce("the log is locked");
+    await activityStore.refresh();
+    expect(activityStore.logFailed()).toBe(true);
+
+    h.activityRecent.mockResolvedValueOnce([record()]);
+    await activityStore.refresh();
+    expect(activityStore.logFailed()).toBe(false);
+    expect(activityStore.records()).toHaveLength(1);
   });
 });

@@ -782,3 +782,126 @@ fn a_notes_folder_spelled_as_the_app_carries_it_still_names_its_notes() {
         "one spelling of a note's name on every platform"
     );
 }
+
+/// Forty minutes of typing the way a save hands the store its texts: what the
+/// file held offered first, then a save every ten seconds.
+fn type_for_forty_minutes(fixture: &Fixture, key: &VersionKey, start: SystemTime, before: &[u8]) {
+    fixture
+        .store
+        .capture_replaced(key, before, start - Duration::from_millis(1))
+        .expect("capture what the file held");
+    for save in 0..=240u64 {
+        let text = format!("draft {save}\n");
+        fixture
+            .store
+            .capture(
+                key,
+                text.as_bytes(),
+                start + Duration::from_secs(save * 10),
+                &WriteOrigin::Editor,
+            )
+            .expect("capture a save");
+    }
+}
+
+fn holds_text(fixture: &Fixture, key: &VersionKey, text: &[u8]) -> bool {
+    fixture
+        .store
+        .versions(key)
+        .expect("versions")
+        .iter()
+        .any(|entry| fixture.store.content(entry.id).expect("content") == text)
+}
+
+#[test]
+fn the_version_from_before_a_forty_minute_session_is_kept() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "before the session\n");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(
+            &key,
+            b"before the session\n",
+            at(1_000),
+            &WriteOrigin::Editor,
+        )
+        .expect("an earlier session");
+
+    let start = at(1_000) + Duration::from_secs(2 * 60 * 60);
+    type_for_forty_minutes(&fixture, &key, start, b"before the session\n");
+    fixture
+        .store
+        .prune(start + Duration::from_secs(2_400))
+        .expect("prune");
+
+    assert!(fixture.store.versions(&key).expect("versions").len() <= MAX_VERSIONS_PER_NOTE);
+    assert!(
+        holds_text(&fixture, &key, b"before the session\n"),
+        "the text from before the session is the one a person wants back"
+    );
+}
+
+#[test]
+fn the_text_a_first_session_started_from_is_kept_after_forty_minutes() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "what the file held\n");
+    let key = fixture.key(&path);
+
+    let start = at(50_000);
+    type_for_forty_minutes(&fixture, &key, start, b"what the file held\n");
+    fixture
+        .store
+        .prune(start + Duration::from_secs(2_400))
+        .expect("prune");
+
+    assert!(fixture.store.versions(&key).expect("versions").len() <= MAX_VERSIONS_PER_NOTE);
+    assert!(holds_text(&fixture, &key, b"what the file held\n"));
+}
+
+#[test]
+fn a_damaged_text_is_reported_rather_than_restored() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    let id = fixture
+        .store
+        .capture(
+            &key,
+            b"the text that was kept\n",
+            at(1_000),
+            &WriteOrigin::Editor,
+        )
+        .expect("capture")
+        .entry()
+        .expect("an entry");
+    let blobs = walk(&fixture.writ_dir.join("history"));
+    assert_eq!(blobs.len(), 1);
+    std::fs::write(&blobs[0], b"something else\n").expect("damage the text");
+
+    match fixture.store.content(id) {
+        Err(StorageError::VersionDamaged { id: named }) => assert_eq!(named, id),
+        other => panic!("expected a damaged version, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_text_kept_with_its_digest_handed_over_reads_back_as_kept() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Launch.md", "one\n");
+    let key = fixture.key(&path);
+    let text = b"the text a save already hashed\n";
+    let id = fixture
+        .store
+        .capture_hashed(
+            &key,
+            text,
+            writ_core::hash::sha256_bytes(text),
+            at(1_000),
+            &WriteOrigin::Editor,
+        )
+        .expect("capture")
+        .entry()
+        .expect("an entry");
+    assert_eq!(fixture.store.content(id).expect("content"), text);
+}

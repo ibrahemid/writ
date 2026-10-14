@@ -10,6 +10,8 @@ interface FixtureCase {
   text: string;
   words: number;
   characters: number;
+  cjk: number;
+  arabic: number;
   tokens: number;
 }
 
@@ -24,7 +26,12 @@ describe("the token-estimate fixture shared with writ-core", () => {
   });
 
   it.each(cases)("counts $name as writ-core does", (one) => {
-    expect(countText(Text.of(one.text.split("\n")))).toEqual({ words: one.words, characters: one.characters });
+    expect(countText(Text.of(one.text.split("\n")))).toEqual({
+      words: one.words,
+      characters: one.characters,
+      cjk: one.cjk,
+      arabic: one.arabic,
+    });
   });
 
   it.each(cases)("estimates $name to the tokens writ-core estimates", (one) => {

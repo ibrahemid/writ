@@ -60,7 +60,7 @@ fn a_file_under_a_folder_the_walk_skips_gets_no_rows_from_an_open_a_save_or_a_re
             .expect("open");
         store.open_from_path(&doc, &text).expect("open_from_path");
         store
-            .save_content(&doc.id, &format!("{text}\n## Later\n"))
+            .save_to_source(&doc.id, &format!("{text}\n## Later\n"), None, None)
             .expect("save");
         store.reindex_buffer(&doc.id).expect("reindex");
     }

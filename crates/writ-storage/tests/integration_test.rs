@@ -32,12 +32,14 @@ fn full_buffer_lifecycle() {
         .unwrap();
 
     store
-        .save_content(&buf.id, "Hello from integration test")
+        .save_to_source(&buf.id, "Hello from integration test", None, None)
         .unwrap();
     let content = store.read_content(&buf.id).unwrap();
     assert_eq!(content, "Hello from integration test");
 
-    store.save_content(&buf.id, "Updated content").unwrap();
+    store
+        .save_to_source(&buf.id, "Updated content", None, None)
+        .unwrap();
     let updated = store.read_content(&buf.id).unwrap();
     assert_eq!(updated, "Updated content");
 

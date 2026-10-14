@@ -58,7 +58,7 @@ pub use reconcile::{reconcile, ReconcileOutcome};
 pub use store::NotesIndexStore;
 pub use walk::{has_text_extension, is_dataless, notes_walk_skips};
 
-pub(crate) use schema::backfill_link_name_keys;
+pub(crate) use schema::{backfill_folded, backfill_link_name_keys};
 pub(crate) use walk::{build_notes_walk, indexes_as_note, names_a_note};
 
 /// How much of a file the index holds, stored in `files.indexed_by`

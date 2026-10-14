@@ -7,7 +7,7 @@
 //! offline; see ADR-015 for the design rationale and the estimator's
 //! documented accuracy band.
 
-mod estimate;
+pub(crate) mod estimate;
 mod placeholder;
 pub mod strip;
 

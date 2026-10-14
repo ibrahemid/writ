@@ -61,6 +61,10 @@ pub const MAX_TITLE_BYTES: usize = 200;
 /// Characters no filename may carry on any of the three platforms.
 const ILLEGAL_CHARS: &[char] = &['/', '\\', '<', '>', ':', '"', '|', '?', '*'];
 
+/// Characters a `[[…]]` reads as syntax: `#` starts a heading, `^` a block,
+/// and `[` and `]` open and close the link (ADR-034 §2).
+const LINK_SYNTAX_CHARS: &[char] = &['#', '[', ']', '^'];
+
 /// Errors from resolving or validating a notes-folder path.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NotesRootError {
@@ -247,7 +251,8 @@ pub fn note_display_name(path: &str) -> String {
 /// collapses runs of whitespace to one, strips leading dots so a title never
 /// mints a hidden file, strips trailing dots and spaces which Windows silently
 /// drops, suffixes the reserved device names (`CON`, `PRN`, `AUX`, `NUL`,
-/// `COM1` to `COM9`, `LPT1` to `LPT9`, with or without an extension) with `_`,
+/// `CONIN$`, `CONOUT$`, `COM1` to `COM9`, `LPT1` to `LPT9` and the superscript
+/// `COM¹` to `COM³` and `LPT¹` to `LPT³`, with or without an extension) with `_`,
 /// and truncates to at most [`MAX_TITLE_GRAPHEMES`] grapheme clusters and then
 /// to at most [`MAX_TITLE_BYTES`] UTF-8 bytes at a grapheme boundary.
 ///
@@ -282,6 +287,36 @@ pub fn sanitize_title(raw: &str) -> Option<String> {
     } else {
         Some(cleaned.to_string())
     }
+}
+
+/// The stem a file with `extension` is created or renamed under: `stem`
+/// through [`sanitize_title`], and for a Markdown file the characters a
+/// wikilink reads as syntax (`#`, `[`, `]`, `^`) replaced with a space first,
+/// the way Obsidian does (ADR-034 §9).
+///
+/// A Markdown note is the one a link reaches, and a name carrying one of those
+/// characters is a name no link can spell: `[[C# notes]]` is the note `C` at
+/// the heading `notes`. Every create and every rename of a file passes through
+/// here once its extension is settled, so the note, the link a rename writes
+/// for it and the link that minted it all spell the same name. Any other
+/// extension keeps those characters, which no link syntax touches.
+///
+/// `extension` is given without a dot. Returns `None` when nothing survives.
+pub fn note_stem_for(stem: &str, extension: &str) -> Option<String> {
+    if !extensions::is_markdown_extension(extension) {
+        return sanitize_title(stem);
+    }
+    let replaced: String = stem
+        .chars()
+        .map(|c| {
+            if LINK_SYNTAX_CHARS.contains(&c) {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    sanitize_title(&replaced)
 }
 
 /// [`sanitize_title`], falling back to `fallback` (already sanitised) when it
@@ -439,11 +474,12 @@ pub fn explicit_extension(name: &str) -> Option<(&str, &'static str)> {
 /// The extension the name spells ([`explicit_extension`]) when it spells one,
 /// else `default`, the configured format (ADR-041 §2): `Plan.md` is minted
 /// `Plan.md` whatever the config holds, and `Plan.2026` is a stem the config
-/// decides the format of. `None` when nothing of the name survives
-/// [`sanitize_title`].
+/// decides the format of. The stem is [`note_stem_for`] that extension, so
+/// `C# notes.md` is minted `C notes.md`. `None` when nothing of the name
+/// survives.
 pub fn requested_note_name(name: &str, default: &'static str) -> Option<(String, &'static str)> {
     let (stem, extension) = explicit_extension(name).unwrap_or((name, default));
-    Some((sanitize_title(stem)?, extension))
+    Some((note_stem_for(stem, extension)?, extension))
 }
 
 /// Where the note a link offers to create belongs.
@@ -598,12 +634,18 @@ fn guard_reserved_name(value: &str) -> String {
 
 fn is_reserved_device_name(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+    if matches!(
+        upper.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) {
         return true;
     }
     for prefix in ["COM", "LPT"] {
         if let Some(rest) = upper.strip_prefix(prefix) {
-            if rest.len() == 1 && matches!(rest.as_bytes()[0], b'1'..=b'9') {
+            let mut digits = rest.chars();
+            if let (Some('1'..='9' | '\u{00B9}' | '\u{00B2}' | '\u{00B3}'), None) =
+                (digits.next(), digits.next())
+            {
                 return true;
             }
         }
@@ -1086,11 +1128,33 @@ mod tests {
     #[test]
     fn reserved_names_are_recognised_case_insensitively() {
         for name in [
-            "CON", "con", "Prn", "AUX", "nul", "COM1", "com9", "LPT1", "lpt9",
+            "CON",
+            "con",
+            "Prn",
+            "AUX",
+            "nul",
+            "COM1",
+            "com9",
+            "LPT1",
+            "lpt9",
+            "CONIN$",
+            "conout$",
+            "COM\u{00B9}",
+            "com\u{00B2}",
+            "LPT\u{00B3}",
         ] {
             assert!(is_reserved_device_name(name), "{name} is reserved");
         }
-        for name in ["COM0", "COM10", "CONTRACT", "LPT", "notes"] {
+        for name in [
+            "COM0",
+            "COM10",
+            "CONTRACT",
+            "LPT",
+            "notes",
+            "CONIN",
+            "COM\u{2074}",
+            "LPT\u{00B9}\u{00B9}",
+        ] {
             assert!(!is_reserved_device_name(name), "{name} is not reserved");
         }
     }

@@ -383,3 +383,33 @@ fn strip_frontmatter_agrees_with_the_render_split() {
         );
     }
 }
+
+#[test]
+fn cjk_text_costs_about_a_token_a_character() {
+    let text = "我喜欢写作和读书";
+    assert_eq!(estimate_tokens(text), 9);
+}
+
+#[test]
+fn arabic_text_costs_about_a_token_per_two_characters() {
+    let text = "هذه ملاحظة مهمة جدا";
+    let letters = text.chars().filter(|c| !c.is_whitespace()).count();
+    let est = estimate_tokens(text);
+    assert!(
+        est * 2 >= letters,
+        "arabic estimate {est} undercounts {letters} letters"
+    );
+}
+
+#[test]
+fn latin_text_estimates_as_the_blend_alone() {
+    let chars = PROSE.chars().count() as f64;
+    let words = PROSE.split_whitespace().count() as f64;
+    let blend = 0.6 * (chars / 4.0) + 0.4 * (words * 4.0 / 3.0);
+    assert_eq!(estimate_tokens(PROSE), blend.round() as usize);
+}
+
+#[test]
+fn a_byte_order_mark_is_not_arabic() {
+    assert_eq!(estimate_tokens("\u{FEFF}hello"), estimate_tokens("xhello"));
+}

@@ -219,7 +219,7 @@ describe("the demo backend", () => {
     const { handle, emitted } = backend();
     const [doc] = (await handle("list_active_buffers", {})) as { id: string; source_path: string }[];
     await handle("save_buffer_content", { id: doc.id, content: "changed" });
-    const versions = (await handle("note_versions", { path: doc.source_path })) as { id: number }[];
+    const versions = ((await handle("note_versions", { path: doc.source_path })) as { versions: { id: number }[] }).versions;
     expect(versions).toHaveLength(2);
     const original = versions[1];
     expect(await handle("note_version_content", { versionId: original.id })).toContain("Garden committee");
@@ -228,10 +228,26 @@ describe("the demo backend", () => {
     await expect(handle("note_version_content", { versionId: 999 })).rejects.toBe("That version is not here any more.");
   });
 
+  it("compares a version with the note as it is now, and names the version a restore replaced", async () => {
+    const { handle } = backend();
+    const path = `${NOTES_ROOT}/Newsletter draft.md`;
+    const listed = async () => ((await handle("note_versions", { path })) as { versions: { id: number }[] }).versions;
+    const [newest, older] = await listed();
+    const hunks = (await handle("compare_note_version", { versionId: older.id })) as {
+      lines: { kind: string; text: string }[];
+    }[];
+    expect(hunks.flatMap((hunk) => hunk.lines).some((line) => line.kind !== "context")).toBe(true);
+
+    const restored = (await handle("restore_note_version", { versionId: older.id })) as { replaced: number | null };
+    const replaced = await handle("note_version_content", { versionId: restored.replaced });
+    expect(replaced).toBe(SEED_FILES["Newsletter draft.md"]);
+    expect(newest.id).toBeGreaterThan(0);
+  });
+
   it("lists three earlier versions of the newsletter and restores the second one's text", async () => {
     const { handle } = backend();
     const path = `${NOTES_ROOT}/Newsletter draft.md`;
-    const versions = (await handle("note_versions", { path })) as { id: number; at_ms: number }[];
+    const versions = ((await handle("note_versions", { path })) as { versions: { id: number; at_ms: number }[] }).versions;
     expect(versions).toHaveLength(3);
     expect(versions.map((v) => v.at_ms)).toEqual([...versions.map((v) => v.at_ms)].sort((a, b) => b - a));
     const second = (await handle("note_version_content", { versionId: versions[1].id })) as string;
@@ -246,14 +262,15 @@ describe("the demo backend", () => {
     const { handle, controls, emitted } = backend();
     const path = `${NOTES_ROOT}/Newsletter draft.md`;
     const opened = (await handle("open_file", { path })) as { doc: { id: string } };
-    const before = (await handle("note_versions", { path })) as { id: number }[];
+    const listed = async () => ((await handle("note_versions", { path })) as { versions: { id: number }[] }).versions;
+    const before = await listed();
     await handle("restore_note_version", { versionId: before[1].id });
-    expect(await handle("note_versions", { path })).toHaveLength(5);
+    expect(await listed()).toHaveLength(5);
     emitted.length = 0;
 
     await controls.resetVersions(path);
 
-    const after = (await handle("note_versions", { path })) as { id: number }[];
+    const after = await listed();
     expect(after).toHaveLength(3);
     const texts = await Promise.all(after.map((v) => handle("note_version_content", { versionId: v.id })));
     expect(texts).toEqual(SEED_VERSIONS.map((version) => version.text).reverse());
@@ -262,7 +279,7 @@ describe("the demo backend", () => {
     expect(emitted.filter((e) => e.event === "writ://buffer-external")).toHaveLength(1);
 
     await controls.resetVersions(path);
-    expect(await handle("note_versions", { path })).toHaveLength(3);
+    expect(await listed()).toHaveLength(3);
     expect(emitted.filter((e) => e.event === "writ://buffer-external")).toHaveLength(1);
     await expect(controls.resetVersions(`${NOTES_ROOT}/To do.txt`)).rejects.toBeInstanceOf(VersionsNotSeededError);
   });

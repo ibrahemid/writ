@@ -67,6 +67,13 @@ pub const DERIVED_OBJECTS: &[&str] = &[
 /// The object [`FTS_DDL`] creates. Its own shadow tables are SQLite's to keep.
 pub const FTS_OBJECT: &str = "files_fts";
 
+/// The folded search index over the notes in Han, kana, Hangul or Arabic
+/// script, the DDL migration 51 applies.
+const FOLDED_DDL: &str = include_str!("../../migrations/051_files_folded.sql");
+
+/// The object [`FOLDED_DDL`] creates.
+pub const FOLDED_OBJECT: &str = "files_folded";
+
 /// The object [`SCHEMA_META_DDL`] creates, which the repair writes the cleared
 /// census to.
 pub const SCHEMA_META_OBJECT: &str = "schema_meta";
@@ -110,7 +117,9 @@ pub enum IndexRepairOutcome {
 /// walk that follows writes them back. `files_fts` is created when it is
 /// missing and never dropped when it is there: it shadows `files`, whose rows
 /// this repair does not touch, and dropping it would take the folder's
-/// searchable text out for the length of a walk. `schema_meta` is a hole like
+/// searchable text out for the length of a walk. `files_folded` is created
+/// when it is missing and filled from the text `files_fts` holds.
+/// `schema_meta` is a hole like
 /// any of them: the census the repair clears is written there, and every
 /// reconcile reads it, so a database that lost it is recreated and refilled by
 /// the walk that follows.
@@ -144,9 +153,10 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
         }
     }
     let missing_fts = !object_exists(conn, FTS_OBJECT)?;
+    let missing_folded = !object_exists(conn, FOLDED_OBJECT)?;
     let missing_meta = !object_exists(conn, SCHEMA_META_OBJECT)?;
 
-    if missing_derived.is_empty() && !missing_fts && !missing_meta {
+    if missing_derived.is_empty() && !missing_fts && !missing_folded && !missing_meta {
         return Ok(IndexRepairOutcome::Intact);
     }
 
@@ -193,6 +203,17 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
             })?;
     }
 
+    if missing_folded {
+        // Filled from `files_fts` rather than by the walk, which reads only
+        // what changed: the text it needs is already in the index.
+        tx.execute_batch(FOLDED_DDL)
+            .map_err(StorageError::from)
+            .and_then(|()| crate::notes_index::backfill_folded(&tx))
+            .map_err(|e| StorageError::IndexRepair {
+                message: format!("recreating {} failed: {}", FOLDED_OBJECT, e),
+            })?;
+    }
+
     // Inside the transaction: the tables and the census that sends the walk
     // over them again are one change.
     schema_meta::clear(conn, schema_meta::KEY_NOTES_FACTS_CENSUS)?;
@@ -204,6 +225,7 @@ pub fn repair_notes_index(conn: &Connection) -> StorageResult<IndexRepairOutcome
     info!(
         derived = missing_derived.join(", "),
         files_fts = missing_fts,
+        files_folded = missing_folded,
         schema_meta = missing_meta,
         "recreated missing notes index tables"
     );

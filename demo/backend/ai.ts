@@ -46,7 +46,7 @@ export const MCP_TOOLS: McpTools = {
 /** activity::server_command_for over the `writ` binary bundled beside the app on macOS. */
 export function getMcpServerCommand(): McpServerCommand {
   const path = "/Applications/Writ.app/Contents/MacOS/writ";
-  return { path, command: `"${path}" mcp` };
+  return { path, command: `"${path}" mcp`, needs_install: false, needs_move: false };
 }
 
 /** Why a request refused before it left, carried as the app's own sentence. */

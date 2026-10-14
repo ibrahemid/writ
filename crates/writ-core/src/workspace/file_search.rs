@@ -9,10 +9,11 @@
 //! carries the key with it through [`rank_keyed_file_hits`].
 //!
 //! Scoring is a greedy, deterministic subsequence match. A query matches a path
-//! when its characters appear in order (ASCII-case-insensitively) somewhere in
-//! the path. A match inside the file name is scored on the file name alone and
-//! earns a large bonus, so `app/cfg.rs` beats `cfg/deep/other.rs` for `cfg`;
-//! only when the file name does not contain the query is the whole path scored.
+//! when its characters appear in order somewhere in the path, both sides
+//! compared in NFC and lowercased with the full Unicode mapping. A match inside
+//! the file name is scored on the file name alone and earns a large bonus, so
+//! `app/cfg.rs` beats `cfg/deep/other.rs` for `cfg`; only when the file name
+//! does not contain the query is the whole path scored.
 //! Within whichever text is scored, matches score higher when they are
 //! consecutive or land on a word boundary (after `/`, `_`, `-`, `.`, or space)
 //! and when they start the text. Ties break toward the shorter path, then
@@ -49,24 +50,37 @@ fn is_separator(c: char) -> bool {
     matches!(c, '/' | '\\' | '_' | '-' | '.' | ' ')
 }
 
-/// Greedy subsequence score of `query` (already lowercased chars) over `text`.
-/// Returns `None` when `query` is not a subsequence of `text`. Consecutive
-/// matches and matches on a word boundary score higher; gaps are penalized.
+/// The characters `text` is compared as: NFC, then lowercased with the full
+/// Unicode mapping, so `Émile`, `émile` and a name macOS stored decomposed all
+/// compare equal. Folded as a whole string rather than char by char, because a
+/// lowercase mapping can turn one character into several. Plain ASCII, which
+/// most names are, skips the normalisation.
+fn fold_chars(text: &str) -> Vec<char> {
+    if text.is_ascii() {
+        return text.chars().map(|c| c.to_ascii_lowercase()).collect();
+    }
+    crate::notes::links::name_key(text).chars().collect()
+}
+
+/// Greedy subsequence score of `query` (already folded by [`fold_chars`]) over
+/// `text`. Returns `None` when `query` is not a subsequence of `text`.
+/// Consecutive matches and matches on a word boundary score higher; gaps are
+/// penalized.
 fn greedy_score(query: &[char], text: &str) -> Option<i32> {
     if query.is_empty() {
         return None;
     }
 
-    let chars: Vec<char> = text.chars().collect();
+    let chars = fold_chars(text);
     let mut score = 0i32;
     let mut qi = 0usize;
     let mut prev_match: Option<usize> = None;
 
-    for (ci, &raw) in chars.iter().enumerate() {
+    for (ci, &folded) in chars.iter().enumerate() {
         if qi >= query.len() {
             break;
         }
-        if raw.to_ascii_lowercase() != query[qi] {
+        if folded != query[qi] {
             continue;
         }
 
@@ -110,11 +124,9 @@ fn basename(path: &str) -> &str {
 /// empty/blank or does not match. A path whose file-name segment also contains
 /// the query as a subsequence earns an additional [`BASENAME_BONUS`].
 pub fn subsequence_score(query: &str, path: &str) -> Option<i32> {
-    let q: Vec<char> = query
-        .trim()
-        .chars()
+    let q: Vec<char> = fold_chars(query.trim())
+        .into_iter()
         .filter(|c| !c.is_whitespace())
-        .map(|c| c.to_ascii_lowercase())
         .collect();
     if q.is_empty() {
         return None;
@@ -331,5 +343,18 @@ mod tests {
     #[test]
     fn ranking_empty_query_returns_nothing() {
         assert!(rank("", &[("main.rs", "main.rs")], 10).is_empty());
+    }
+
+    #[test]
+    fn accented_cyrillic_and_decomposed_names_fold_on_both_sides() {
+        assert!(subsequence_score("émile", "Émile.md").is_some());
+        assert!(subsequence_score("ÉMILE", "émile.md").is_some());
+        assert!(subsequence_score("привет", "Привет.md").is_some());
+        assert!(subsequence_score("café", "Cafe\u{301}.md").is_some());
+        assert!(subsequence_score("cafe\u{301}", "Café.md").is_some());
+        assert_eq!(
+            subsequence_score("émile", "Émile.md"),
+            subsequence_score("emile", "Emile.md")
+        );
     }
 }

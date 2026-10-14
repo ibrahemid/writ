@@ -1,11 +1,13 @@
 {
-  "note": "Shared by crates/writ-core/tests/token_estimate_fixture.rs and src/__tests__/lib/token-estimate.fixture.test.ts. words and characters are what a document holding text counts (runs between whitespace, code points); tokens is what writ_core::prompt::estimate_tokens gives for text.",
+  "note": "Shared by crates/writ-core/tests/token_estimate_fixture.rs and src/__tests__/lib/token-estimate.fixture.test.ts. words, characters, cjk and arabic are what a document holding text counts (runs between whitespace, code points, Han/kana/Hangul code points, Arabic-script code points); tokens is what writ_core::prompt::estimate_tokens gives for text.",
   "cases": [
     {
       "name": "empty",
       "text": "",
       "words": 0,
       "characters": 0,
+      "cjk": 0,
+      "arabic": 0,
       "tokens": 0
     },
     {
@@ -13,6 +15,8 @@
       "text": "   \n\t  \n",
       "words": 0,
       "characters": 8,
+      "cjk": 0,
+      "arabic": 0,
       "tokens": 0
     },
     {
@@ -20,6 +24,8 @@
       "text": "a",
       "words": 1,
       "characters": 1,
+      "cjk": 0,
+      "arabic": 0,
       "tokens": 1
     },
     {
@@ -27,6 +33,8 @@
       "text": "The quick brown fox jumps over the lazy dog.",
       "words": 9,
       "characters": 44,
+      "cjk": 0,
+      "arabic": 0,
       "tokens": 11
     },
     {
@@ -34,6 +42,8 @@
       "text": "one two\nthree\n\nfour  five\n",
       "words": 5,
       "characters": 26,
+      "cjk": 0,
+      "arabic": 0,
       "tokens": 7
     },
     {
@@ -41,6 +51,8 @@
       "text": "😀 ok",
       "words": 2,
       "characters": 4,
+      "cjk": 0,
+      "arabic": 0,
       "tokens": 2
     },
     {
@@ -48,20 +60,26 @@
       "text": "نص\u00a0عربي here",
       "words": 3,
       "characters": 12,
-      "tokens": 3
+      "cjk": 0,
+      "arabic": 6,
+      "tokens": 6
     },
     {
       "name": "cjk run",
       "text": "中文文本 and words",
       "words": 3,
       "characters": 14,
-      "tokens": 4
+      "cjk": 4,
+      "arabic": 0,
+      "tokens": 7
     },
     {
       "name": "paragraph",
       "text": "Writ opens any text file. It counts words the way a writer does: runs of characters between spaces, tabs and line breaks.\nThe estimate blends two rules of thumb.",
       "words": 29,
       "characters": 161,
+      "cjk": 0,
+      "arabic": 0,
       "tokens": 40
     },
     {
@@ -69,7 +87,27 @@
       "text": "# Title\n\n- [ ] task one\n- [x] task two\n\n```js\nconst a = 1;\n```\n",
       "words": 17,
       "characters": 63,
+      "cjk": 0,
+      "arabic": 0,
       "tokens": 19
+    },
+    {
+      "name": "han with an astral ideograph",
+      "text": "汉字𠀀写作",
+      "words": 1,
+      "characters": 5,
+      "cjk": 5,
+      "arabic": 0,
+      "tokens": 6
+    },
+    {
+      "name": "arabic with harakat",
+      "text": "مُلاحَظةٌ مهمة",
+      "words": 2,
+      "characters": 14,
+      "cjk": 0,
+      "arabic": 13,
+      "tokens": 8
     }
   ]
 }

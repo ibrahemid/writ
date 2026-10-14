@@ -66,13 +66,13 @@ fn save_content_leaves_no_temp_files_behind() {
 
     let notes_dir = dir.path().join("notes");
     store
-        .save_content("atomic-1", "first write")
+        .save_to_source("atomic-1", "first write", None, None)
         .expect("save_content failed");
     store
-        .save_content("atomic-1", "second write")
+        .save_to_source("atomic-1", "second write", None, None)
         .expect("save_content failed");
     store
-        .save_content("atomic-1", "third write")
+        .save_to_source("atomic-1", "third write", None, None)
         .expect("save_content failed");
 
     assert_eq!(
@@ -97,7 +97,7 @@ fn save_content_does_not_truncate_destination_on_temp_failure() {
 
     let original = "ORIGINAL CONTENT THAT MUST SURVIVE";
     store
-        .save_content("atomic-2", original)
+        .save_to_source("atomic-2", original, None, None)
         .expect("initial save_content failed");
 
     let original_bytes = fs::read(&dest).expect("read dest failed");
@@ -231,12 +231,17 @@ fn save_content_swaps_inode_proving_rename_into_place() {
     store.insert(&doc).expect("insert failed");
 
     store
-        .save_content("inode-1", "first version")
+        .save_to_source("inode-1", "first version", None, None)
         .expect("first save failed");
     let first_inode = fs::metadata(&dest).expect("metadata 1").ino();
 
     store
-        .save_content("inode-1", "second version with different length")
+        .save_to_source(
+            "inode-1",
+            "second version with different length",
+            None,
+            None,
+        )
         .expect("second save failed");
     let second_inode = fs::metadata(&dest).expect("metadata 2").ino();
 
@@ -909,4 +914,27 @@ fn a_save_that_carries_metadata_still_goes_through_the_retrying_rename() {
         Some(&b"Red"[..]),
         "the rename dropped the file's tags"
     );
+}
+
+#[test]
+fn a_new_file_never_replaces_one_that_took_its_name() {
+    let dir = TempDir::new().expect("temp dir");
+    let target = dir.path().join("Launch (recovered).md");
+
+    writ_storage::atomic::write_new(&target, b"first").expect("a free name is written");
+    assert_eq!(fs::read(&target).expect("read"), b"first");
+
+    let error = writ_storage::atomic::write_new(&target, b"second").expect_err("the name is taken");
+    match error {
+        writ_storage::atomic::AtomicWriteError::Io(error) => {
+            assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists)
+        }
+        other => panic!("expected a taken name, got {other:?}"),
+    }
+    assert_eq!(fs::read(&target).expect("read"), b"first");
+    let names: Vec<_> = fs::read_dir(dir.path())
+        .expect("list")
+        .map(|entry| entry.expect("entry").file_name())
+        .collect();
+    assert_eq!(names.len(), 1, "no temp file is left behind: {names:?}");
 }

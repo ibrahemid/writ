@@ -4,7 +4,9 @@ The `writ` command opens files (ADR-017) and answers questions about the Writ
 folder. This page is the record of the second half: the verbs, their output, and
 the exit codes a script can rely on.
 
-Implementation: `crates/writ-cli/src/verbs.rs`.
+Implementation: `crates/writ-cli/src/verbs.rs`; the command line is read by
+clap in `crates/writ-cli/src/args.rs`, so `writ --help` lists every verb and
+`writ <verb> --help` prints its arguments.
 
 ## Where the answers come from
 
@@ -67,7 +69,9 @@ there. `writ mcp --help` prints its usage.
 Code 1 covers: no file of that name, a name two files answer to, a file the
 index does not hold yet, an absent index, an index written under a different
 schema version than this build reads, and a failed create, rename or trash.
-Code 2 prints the usage text on stderr.
+Code 2 prints what was wrong and the usage on stderr. The file-opening path
+uses the same codes: two folders at once, a file and a folder together, and
+`writ -` with nothing piped exit 2.
 
 ## Default output
 

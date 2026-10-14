@@ -124,21 +124,36 @@ fn dropped_paths_to_open(
 ///
 /// The walk retires itself the moment the notes folder moves: one that
 /// finished against the old folder would prune every row the move re-keyed.
-/// The generation is taken per walk, so the one that follows reads the folder
-/// Writ holds now.
+/// The generation and the folder are taken per walk, from `root`, so the one
+/// that follows reads the folder Writ holds now, including a walk owed by a
+/// request the move made while the old walk ran.
 pub(crate) fn spawn_notes_reconcile(
     index: std::sync::Arc<writ_storage::notes_index::NotesIndexStore>,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     gate: std::sync::Arc<writ_core::watcher::reconcile::ReconcileGate>,
-    root: std::path::PathBuf,
+    root: impl Fn() -> std::path::PathBuf + Send + 'static,
     bus: std::sync::Arc<writ_core::events::bus::EventBus>,
 ) {
-    use std::sync::atomic::Ordering;
-
     if !gate.request() {
         return;
     }
-    std::thread::spawn(move || loop {
+    std::thread::spawn(move || reconcile_until_settled(&index, &cancel, &gate, &root, &bus));
+}
+
+/// The walks [`spawn_notes_reconcile`] runs once it holds the gate: one, then
+/// one more for every request that arrived while the last one ran, each over
+/// the folder `root` names when it starts.
+fn reconcile_until_settled(
+    index: &writ_storage::notes_index::NotesIndexStore,
+    cancel: &std::sync::atomic::AtomicBool,
+    gate: &writ_core::watcher::reconcile::ReconcileGate,
+    root: &dyn Fn() -> std::path::PathBuf,
+    bus: &writ_core::events::bus::EventBus,
+) {
+    use std::sync::atomic::Ordering;
+
+    loop {
+        let root = root();
         let generation = index.generation();
         let cancelled = || cancel.load(Ordering::Relaxed) || index.generation() != generation;
         let outcome = index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless);
@@ -152,7 +167,7 @@ pub(crate) fn spawn_notes_reconcile(
                     cancelled = outcome.cancelled,
                     "notes index reconciled"
                 );
-                commands::note_index::announce_walk(&bus, &root, &outcome);
+                commands::note_index::announce_walk(bus, &root, &outcome);
             }
             Err(e) => tracing::warn!(error = %e, "notes index reconcile failed"),
         }
@@ -165,7 +180,7 @@ pub(crate) fn spawn_notes_reconcile(
         if !gate.finished() {
             return;
         }
-    });
+    }
 }
 
 /// How long the main window may stay hidden before Rust shows it without the
@@ -529,6 +544,7 @@ pub fn run() {
             commands::note_history::note_version_content,
             commands::note_history::restore_note_version,
             commands::note_history::copy_note_version,
+            commands::note_history::compare_note_version,
             commands::file::open_file,
             commands::file::open_file_confirmed,
             commands::file::pick_files_to_open,
@@ -802,11 +818,12 @@ pub fn run() {
 
                 // Bring the index in line with the folder before anything
                 // searches it.
+                let root_handle = app.handle().clone();
                 spawn_notes_reconcile(
                     state.notes_index.clone(),
                     state.notes_index_cancel.clone(),
                     state.notes_reconcile.clone(),
-                    notes_root.clone(),
+                    move || root_handle.state::<AppState>().notes_root(),
                     state.event_bus.clone(),
                 );
 
@@ -1381,5 +1398,55 @@ mod tests {
             Some(format!("git+{git}?rev={rev}#{rev}").as_str()),
             "Cargo.lock must resolve wry to the pinned fork rev, not crates.io or a local path (#113)"
         );
+    }
+}
+
+#[cfg(test)]
+mod reconcile_tests {
+    use super::*;
+
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Mutex;
+
+    use writ_core::events::bus::EventBus;
+    use writ_core::watcher::reconcile::ReconcileGate;
+    use writ_storage::notes_index::NotesIndexStore;
+
+    #[test]
+    fn a_walk_owed_while_the_folder_moved_reads_the_folder_writ_holds_now() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let db = dir.path().join("writ.db");
+        let conn = writ_storage::database::connection::open_database(&db).expect("open");
+        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        drop(conn);
+        let index = NotesIndexStore::open(&db).expect("index");
+        let old = dir.path().join("Old");
+        let new = dir.path().join("New");
+        std::fs::create_dir_all(&old).expect("old");
+        std::fs::create_dir_all(&new).expect("new");
+        std::fs::write(new.join("Moved.md"), "here now\n").expect("note");
+
+        let gate = ReconcileGate::new();
+        assert!(gate.request(), "the walk under way");
+        assert!(!gate.request(), "the move asks for a walk while it runs");
+
+        // The first walk starts against the old folder; the move lands before
+        // the walk it is owed starts.
+        let roots = Mutex::new(vec![new.clone(), old.clone()]);
+        let root = || roots.lock().expect("roots").pop().expect("a root per walk");
+        reconcile_until_settled(
+            &index,
+            &AtomicBool::new(false),
+            &gate,
+            &root,
+            &EventBus::new(),
+        );
+
+        let paths = index.note_paths().expect("paths");
+        assert!(
+            paths.iter().any(|path| path.ends_with("Moved.md")),
+            "the owed walk read the new folder: {paths:?}"
+        );
+        assert!(!gate.is_walking());
     }
 }

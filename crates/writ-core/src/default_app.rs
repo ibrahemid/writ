@@ -25,6 +25,10 @@ pub struct ClaimableType {
     /// relying on an ancestor like `public.source-code`. The exported `com.writ.*`
     /// identifiers cover dev extensions macOS has no system UTI for.
     pub utis: &'static [&'static str],
+    /// MIME types whose default handler this group sets on Linux: each one a
+    /// shared-mime-info type or alias, and a `mimeType` the bundle's desktop
+    /// entry declares.
+    pub mimes: &'static [&'static str],
 }
 
 /// The set of type groups the in-app "Make default" control exposes.
@@ -39,12 +43,14 @@ pub fn claimable_types() -> &'static [ClaimableType] {
             label: "Plain text & logs",
             exts: &["txt", "text", "log"],
             utis: &["public.plain-text", "com.apple.log"],
+            mimes: &["text/plain"],
         },
         ClaimableType {
             id: "markdown",
             label: "Markdown",
             exts: &["md", "markdown"],
             utis: &["net.daringfireball.markdown"],
+            mimes: &["text/markdown"],
         },
         ClaimableType {
             id: "config-data",
@@ -60,6 +66,13 @@ pub fn claimable_types() -> &'static [ClaimableType] {
                 "com.writ.config-text",
                 "public.comma-separated-values-text",
                 "public.xml",
+            ],
+            mimes: &[
+                "application/json",
+                "text/yaml",
+                "application/toml",
+                "text/csv",
+                "text/xml",
             ],
         },
         ClaimableType {
@@ -84,6 +97,18 @@ pub fn claimable_types() -> &'static [ClaimableType] {
                 "public.c-plus-plus-source",
                 "public.c-header",
                 "public.swift-source",
+            ],
+            // JSX and Swift have no shared-mime-info type: a default set for
+            // a made-up one reads back as Writ's while their files open
+            // elsewhere.
+            mimes: &[
+                "text/rust",
+                "text/x-go",
+                "application/typescript",
+                "text/x-python",
+                "text/x-shellscript",
+                "text/javascript",
+                "text/x-c",
             ],
         },
     ];
@@ -110,6 +135,9 @@ pub enum DefaultAppStatus {
     NoHandler,
     /// The current platform does not support this query.
     Unsupported,
+    /// The platform lets only the user pick a default app, in its own
+    /// settings: Windows, where Writ links to Default apps.
+    SystemSettings,
 }
 
 impl DefaultAppStatus {
@@ -143,6 +171,12 @@ pub fn aggregate_status(statuses: &[DefaultAppStatus]) -> DefaultAppStatus {
     }
     if statuses
         .iter()
+        .any(|s| matches!(s, DefaultAppStatus::SystemSettings))
+    {
+        return DefaultAppStatus::SystemSettings;
+    }
+    if statuses
+        .iter()
         .all(|s| matches!(s, DefaultAppStatus::IsDefault))
     {
         return DefaultAppStatus::IsDefault;
@@ -152,6 +186,82 @@ pub fn aggregate_status(statuses: &[DefaultAppStatus]) -> DefaultAppStatus {
         .find(|s| !matches!(s, DefaultAppStatus::IsDefault))
         .cloned()
         .unwrap_or(DefaultAppStatus::NoHandler)
+}
+
+/// The Windows settings page where the user picks default apps. Windows lets
+/// no app make itself the default, so Writ opens this page instead.
+pub const WINDOWS_DEFAULT_APPS_URI: &str = "ms-settings:defaultapps";
+
+/// The names Writ's desktop entry ships under on Linux: the package's own
+/// `Writ.desktop`, and `writ.desktop` as distribution packages rename it.
+pub const DESKTOP_ENTRY_NAMES: &[&str] = &["Writ.desktop", "writ.desktop"];
+
+/// The folders a desktop entry is looked up in, in the XDG order:
+/// `$XDG_DATA_HOME/applications` (default `~/.local/share/applications`),
+/// then each of `$XDG_DATA_DIRS` (default `/usr/local/share:/usr/share`).
+pub fn application_dirs(
+    data_home: Option<&str>,
+    data_dirs: Option<&str>,
+    home: Option<&std::path::Path>,
+) -> Vec<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    let mut dirs = Vec::new();
+    match data_home.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => dirs.push(PathBuf::from(value).join("applications")),
+        None => {
+            if let Some(home) = home {
+                dirs.push(home.join(".local/share/applications"));
+            }
+        }
+    }
+    let data_dirs = data_dirs
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("/usr/local/share:/usr/share");
+    dirs.extend(
+        data_dirs
+            .split(':')
+            .filter(|dir| !dir.is_empty())
+            .map(|dir| PathBuf::from(dir).join("applications")),
+    );
+    dirs
+}
+
+/// The first of [`DESKTOP_ENTRY_NAMES`] found in `dirs`, or `None` when Writ
+/// has no desktop entry: an AppImage nobody integrated has none, and no
+/// default can name it.
+pub fn find_desktop_entry(
+    dirs: &[std::path::PathBuf],
+    exists: impl Fn(&std::path::Path) -> bool,
+) -> Option<&'static str> {
+    dirs.iter().find_map(|dir| {
+        DESKTOP_ENTRY_NAMES
+            .iter()
+            .copied()
+            .find(|name| exists(&dir.join(name)))
+    })
+}
+
+/// The status `xdg-mime query default <type>` answers, given Writ's own
+/// desktop entry `ours`. A blank answer means no default is set; another
+/// entry is named without its `.desktop` suffix.
+pub fn desktop_entry_status(answer: &str, ours: &str) -> DefaultAppStatus {
+    let answer = answer.trim();
+    if answer.is_empty() {
+        return DefaultAppStatus::NoHandler;
+    }
+    if answer == ours {
+        return DefaultAppStatus::IsDefault;
+    }
+    DefaultAppStatus::OtherApp {
+        name: Some(
+            answer
+                .strip_suffix(".desktop")
+                .unwrap_or(answer)
+                .to_string(),
+        ),
+    }
 }
 
 #[cfg(test)]

@@ -876,13 +876,15 @@ fn a_recovered_note_with_no_file_gets_one_before_its_text_is_written() {
     store.insert(&doc).expect("insert");
 
     assert!(
-        store.save_content(&doc.id, "recovered text").is_err(),
+        store
+            .save_to_source(&doc.id, "recovered text", None, None)
+            .is_err(),
         "a note with no file has nowhere to put the text"
     );
 
     let file = attach_note(&store, &dir, &doc.id);
     store
-        .save_content(&doc.id, "recovered text")
+        .save_to_source(&doc.id, "recovered text", None, None)
         .expect("save after the file is attached");
 
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "recovered text");

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 
-import type { NoteVersion } from "../../services/tauri";
+import type { NoteVersion, NoVersionsReason } from "../../services/tauri";
 
 // The panel over the real store, with only the IPC layer replaced: what the
 // two controls do has to reach a service, and the store is the thing that
@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   noteVersionContent: vi.fn(),
   restoreNoteVersion: vi.fn(),
   copyNoteVersion: vi.fn(),
+  compareNoteVersion: vi.fn(),
   focusEditor: vi.fn(),
 }));
 
@@ -24,6 +25,7 @@ vi.mock("../../services/tauri", () => ({
   noteVersionContent: h.noteVersionContent,
   restoreNoteVersion: h.restoreNoteVersion,
   copyNoteVersion: h.copyNoteVersion,
+  compareNoteVersion: h.compareNoteVersion,
 }));
 
 import NoteHistoryPanel, {
@@ -58,10 +60,14 @@ function dateOf(atMs: number): string {
   });
 }
 
-function given(versions: NoteVersion[], text = "what the note said\n") {
-  h.noteVersions.mockResolvedValue(versions);
+function given(
+  versions: NoteVersion[],
+  text = "what the note said\n",
+  reason: NoVersionsReason | null = versions.length > 0 ? null : "none_yet",
+) {
+  h.noteVersions.mockResolvedValue({ versions, no_versions_reason: reason });
   h.noteVersionContent.mockResolvedValue(text);
-  h.restoreNoteVersion.mockResolvedValue({ note: "Launch.md", bytes: 1_200 });
+  h.restoreNoteVersion.mockResolvedValue({ note: "Launch.md", bytes: 1_200, replaced: 42 });
   h.copyNoteVersion.mockResolvedValue({ name: "Launch (recovered 2026-09-10 14.32.05).md" });
 }
 
@@ -71,6 +77,7 @@ afterEach(() => {
   h.noteVersionContent.mockReset();
   h.restoreNoteVersion.mockReset();
   h.copyNoteVersion.mockReset();
+  h.compareNoteVersion.mockReset();
   cleanup();
 });
 
@@ -115,14 +122,14 @@ describe("NoteHistoryPanel", () => {
     expect(h.restoreNoteVersion).toHaveBeenCalledWith(11);
   });
 
-  it("copies the selected version once", async () => {
+  it("saves the selected version as a new file once", async () => {
     given([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]);
 
     const screen = render(() => <NoteHistoryPanel />);
     openNoteVersions(NOTE);
-    await waitFor(() => expect(screen.getByText("Copy this version")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Save as a new file")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy this version" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save as a new file" }));
 
     await waitFor(() => expect(h.copyNoteVersion).toHaveBeenCalledTimes(1));
     expect(h.copyNoteVersion).toHaveBeenCalledWith(11);
@@ -133,7 +140,7 @@ describe("NoteHistoryPanel", () => {
 
     const screen = render(() => <NoteHistoryPanel />);
     openNoteVersions(NOTE);
-    await waitFor(() => expect(screen.getByText("Copy this version")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Save as a new file")).toBeTruthy());
 
     fireEvent.click(screen.getByText(dateOf(at(2, 9, 11))));
     await waitFor(() => expect(h.noteVersionContent).toHaveBeenCalledWith(12));
@@ -150,6 +157,112 @@ describe("NoteHistoryPanel", () => {
 
     await waitFor(() => expect(screen.getByText("No versions of this file yet.")).toBeTruthy());
     expect(screen.queryByText("Restore this version")).toBeNull();
+  });
+
+  it("says a file over 2 MB is not versioned instead of promising a version", async () => {
+    given([], "", "too_large");
+
+    const screen = render(() => <NoteHistoryPanel />);
+    openNoteVersions("/logs/server.log");
+
+    await waitFor(() =>
+      expect(screen.getByText("Files over 2 MB are not versioned.")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Writ keeps one each time the file is saved.")).toBeNull();
+  });
+
+  it("says a file outside the folder has no versions", async () => {
+    given([], "", "outside_folder");
+
+    const screen = render(() => <NoteHistoryPanel />);
+    openNoteVersions("/elsewhere/config.toml");
+
+    await waitFor(() =>
+      expect(screen.getByText("Only files in your folder have versions.")).toBeTruthy(),
+    );
+  });
+
+  it("says the versions could not be read, never that there are none, and tries again", async () => {
+    h.noteVersions.mockRejectedValueOnce("the version store is locked");
+    h.noteVersions.mockResolvedValueOnce({
+      versions: [version(11, at(0, 14, 32))],
+      no_versions_reason: null,
+    });
+    h.noteVersionContent.mockResolvedValue("what the note said\n");
+
+    const screen = render(() => <NoteHistoryPanel />);
+    openNoteVersions(NOTE);
+
+    await waitFor(() =>
+      expect(screen.getByText("Could not read the versions of this file.")).toBeTruthy(),
+    );
+    expect(screen.queryByText("No versions of this file yet.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(screen.getByText("Restore this version")).toBeTruthy());
+    expect(h.noteVersions).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes a restore back from the panel", async () => {
+    given([version(11, at(0, 14, 32)), version(12, at(2, 9, 11))]);
+
+    const screen = render(() => <NoteHistoryPanel />);
+    openNoteVersions(NOTE);
+    await waitFor(() => expect(screen.getByText("Restore this version")).toBeTruthy());
+
+    fireEvent.click(screen.getByText(dateOf(at(2, 9, 11))));
+    await waitFor(() => expect(h.noteVersionContent).toHaveBeenCalledWith(12));
+    fireEvent.click(screen.getByRole("button", { name: "Restore this version" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy());
+    expect(screen.getByText("Restored Launch.md")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    await waitFor(() => expect(h.restoreNoteVersion).toHaveBeenCalledTimes(2));
+    expect(h.restoreNoteVersion).toHaveBeenLastCalledWith(42);
+  });
+
+  it("compares the selected version with the current text", async () => {
+    given([version(11, at(0, 14, 32))]);
+    h.compareNoteVersion.mockResolvedValue([
+      {
+        before_start: 1,
+        after_start: 1,
+        lines: [
+          { kind: "context", text: "title" },
+          { kind: "removed", text: "what it says now" },
+          { kind: "added", text: "what it said then" },
+        ],
+      },
+    ]);
+
+    const screen = render(() => <NoteHistoryPanel />);
+    openNoteVersions(NOTE);
+    await waitFor(() => expect(screen.getByText("Compare with current text")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Compare with current text" }));
+
+    await waitFor(() => expect(screen.getByText("what it said then")).toBeTruthy());
+    expect(h.compareNoteVersion).toHaveBeenCalledWith(11);
+    const kinds = [...screen.container.querySelectorAll(".note-versions-diff-row")].map((row) =>
+      row.getAttribute("data-kind"),
+    );
+    expect(kinds).toEqual(["context", "removed", "added"]);
+  });
+
+  it("says a damaged version is damaged and offers nothing to restore from it", async () => {
+    given([version(11, at(0, 14, 32))]);
+    h.noteVersionContent.mockRejectedValue("That version is damaged and cannot be restored.");
+
+    const screen = render(() => <NoteHistoryPanel />);
+    openNoteVersions(NOTE);
+
+    await waitFor(() =>
+      expect(screen.getByText("That version is damaged and cannot be restored.")).toBeTruthy(),
+    );
+    const restore = screen.getByRole("button", { name: "Restore this version" });
+    expect((restore as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("says none of the words this feature is not called", async () => {

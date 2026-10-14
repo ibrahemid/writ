@@ -41,7 +41,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       cursorCol,
       isUpdatedFromDisk: () => false,
     },
-    counts: { counts: () => ({ words: 3, characters: 13, exact: true }), watch: () => () => {} },
+    counts: { counts: () => ({ words: 3, characters: 13, cjk: 0, arabic: 0, exact: true }), watch: () => () => {} },
     tabs: { activeTabId: () => "tab-1" },
     layout: { get: () => ({ kind: "inline" as const }), set: vi.fn() },
   }),

@@ -13,7 +13,6 @@
 //! None of the verbs opens a window. They print records and exit, so they can
 //! be piped; `writ <file>` is still how a note is opened.
 
-use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use writ_core::config::FileExtension;
@@ -32,19 +31,8 @@ pub const EXIT_OK: i32 = 0;
 /// The note, the index or the operation was not there. See the module doc of
 /// each verb for which failures land here.
 pub const EXIT_FAILED: i32 = 1;
-/// The command line could not be read as a verb.
+/// The command line could not be read: clap's exit code for a usage error.
 pub const EXIT_USAGE: i32 = 2;
-
-/// The verbs, in the order the usage text lists them.
-const VERB_NAMES: &[&str] = &[
-    "links",
-    "backlinks",
-    "properties",
-    "tags",
-    "new",
-    "rename",
-    "trash",
-];
 
 /// One parsed verb invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,152 +55,6 @@ pub enum Verb {
     },
     /// Move a note to the operating system's trash.
     Trash { note: String, json: bool },
-}
-
-/// Why a command line could not be read as a verb.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UsageError {
-    /// A flag the verb does not take.
-    UnknownFlag { verb: String, flag: String },
-    /// An argument the verb needs was not given.
-    MissingArgument { verb: String, what: String },
-    /// More arguments than the verb takes.
-    TooManyArguments { verb: String },
-    /// An argument that is not valid text.
-    NotText { verb: String },
-}
-
-impl std::fmt::Display for UsageError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            UsageError::UnknownFlag { verb, flag } => {
-                write!(f, "writ {verb} does not take {flag}")
-            }
-            UsageError::MissingArgument { verb, what } => {
-                write!(f, "writ {verb} needs {what}")
-            }
-            UsageError::TooManyArguments { verb } => {
-                write!(f, "writ {verb} was given more arguments than it takes")
-            }
-            UsageError::NotText { verb } => {
-                write!(f, "writ {verb} was given an argument that is not text")
-            }
-        }
-    }
-}
-
-/// The usage text, listing every verb and what it takes.
-pub fn usage() -> String {
-    [
-        "Usage: writ <verb> [arguments]",
-        "",
-        "  writ links <file> [--json]               links written in a file",
-        "  writ backlinks <file> [--json]           links in other files pointing at it",
-        "  writ properties <file> [--json]          the file's frontmatter properties",
-        "  writ tags [<file>] [--json]              a file's tags, or every tag in the folder",
-        "  writ new [<name>] [--json]               create a file in your folder",
-        "  writ rename <file> <new-name> [--json]   rename a file, keeping its folder",
-        "  writ trash <file> [--json]               move a file to the trash",
-        "",
-        "A <file> is a path, or the name of a file in your folder.",
-        "rename does not yet rewrite links that name the file by its old name.",
-        "Exit codes: 0 read, 1 nothing to read or the operation failed, 2 bad arguments.",
-        "",
-        "Open a file instead: writ <path>",
-    ]
-    .join("\n")
-}
-
-/// Reads a verb off the front of `args`, or `None` when the first argument does
-/// not name one and the invocation belongs to the file-opening path.
-pub fn parse(args: &[OsString]) -> Option<Result<Verb, UsageError>> {
-    let name = args.first()?.to_str()?;
-    if !VERB_NAMES.contains(&name) {
-        return None;
-    }
-    Some(parse_verb(name, &args[1..]))
-}
-
-/// Splits `--json` out of the remaining arguments, refusing any other flag.
-fn split_flags(verb: &str, rest: &[OsString]) -> Result<(Vec<String>, bool), UsageError> {
-    let mut positional = Vec::new();
-    let mut json = false;
-    for arg in rest {
-        let Some(text) = arg.to_str() else {
-            return Err(UsageError::NotText {
-                verb: verb.to_string(),
-            });
-        };
-        if text == "--json" {
-            json = true;
-        } else if text.starts_with("--") {
-            return Err(UsageError::UnknownFlag {
-                verb: verb.to_string(),
-                flag: text.to_string(),
-            });
-        } else {
-            positional.push(text.to_string());
-        }
-    }
-    Ok((positional, json))
-}
-
-fn parse_verb(name: &str, rest: &[OsString]) -> Result<Verb, UsageError> {
-    let (mut positional, json) = split_flags(name, rest)?;
-    let too_many = || UsageError::TooManyArguments {
-        verb: name.to_string(),
-    };
-    let missing = |what: &str| UsageError::MissingArgument {
-        verb: name.to_string(),
-        what: what.to_string(),
-    };
-
-    match name {
-        "links" | "backlinks" | "properties" | "trash" => {
-            if positional.len() > 1 {
-                return Err(too_many());
-            }
-            let note = positional.pop().ok_or_else(|| missing("a file"))?;
-            Ok(match name {
-                "links" => Verb::Links { note, json },
-                "backlinks" => Verb::Backlinks { note, json },
-                "properties" => Verb::Properties { note, json },
-                _ => Verb::Trash { note, json },
-            })
-        }
-        "tags" => {
-            if positional.len() > 1 {
-                return Err(too_many());
-            }
-            Ok(Verb::Tags {
-                note: positional.pop(),
-                json,
-            })
-        }
-        "new" => {
-            if positional.len() > 1 {
-                return Err(too_many());
-            }
-            Ok(Verb::New {
-                name: positional.pop(),
-                json,
-            })
-        }
-        "rename" => {
-            if positional.len() > 2 {
-                return Err(too_many());
-            }
-            let mut args = positional.into_iter();
-            let note = args.next().ok_or_else(|| missing("a file"))?;
-            let new_name = args.next().ok_or_else(|| missing("a new name"))?;
-            Ok(Verb::Rename {
-                note,
-                new_name,
-                json,
-            })
-        }
-        _ => Err(missing("a verb")),
-    }
 }
 
 /// Where a verb reads and writes: resolved once, so a test can point the whole
@@ -711,7 +553,7 @@ fn plain_io_reason(kind: std::io::ErrorKind) -> &'static str {
 /// here that the editor shows for a stopped rename. The app sends codes across
 /// IPC instead because that wording lives in the frontend, and a command line
 /// has no frontend to send them to.
-fn plain_storage_reason(error: &StorageError) -> String {
+pub fn plain_storage_reason(error: &StorageError) -> String {
     match error {
         StorageError::Io(e) => plain_io_reason(e.kind()).to_string(),
         StorageError::NoteNameEmpty => NAME_IS_EMPTY.to_string(),
@@ -840,179 +682,11 @@ mod tests {
 
     use super::*;
 
-    fn os(values: &[&str]) -> Vec<OsString> {
-        values.iter().map(OsString::from).collect()
-    }
-
-    #[test]
-    fn a_file_argument_is_not_a_verb() {
-        assert!(parse(&os(&["note.md"])).is_none());
-        assert!(parse(&os(&["./links"])).is_none());
-        assert!(parse(&os(&[])).is_none());
-    }
-
-    #[test]
-    fn every_listed_verb_parses() {
-        for name in VERB_NAMES {
-            assert!(
-                parse(&os(&[name, "a", "b"])).is_some(),
-                "{name} was not read as a verb"
-            );
-        }
-    }
-
-    #[test]
-    fn a_read_verb_takes_a_note_and_the_json_flag() {
-        assert_eq!(
-            parse(&os(&["links", "Note", "--json"])).unwrap().unwrap(),
-            Verb::Links {
-                note: "Note".to_string(),
-                json: true
-            }
-        );
-        assert_eq!(
-            parse(&os(&["links", "--json", "Note"])).unwrap().unwrap(),
-            Verb::Links {
-                note: "Note".to_string(),
-                json: true
-            }
-        );
-        assert_eq!(
-            parse(&os(&["backlinks", "Note"])).unwrap().unwrap(),
-            Verb::Backlinks {
-                note: "Note".to_string(),
-                json: false
-            }
-        );
-    }
-
-    #[test]
-    fn tags_and_new_take_an_optional_argument() {
-        assert_eq!(
-            parse(&os(&["tags"])).unwrap().unwrap(),
-            Verb::Tags {
-                note: None,
-                json: false
-            }
-        );
-        assert_eq!(
-            parse(&os(&["tags", "Note"])).unwrap().unwrap(),
-            Verb::Tags {
-                note: Some("Note".to_string()),
-                json: false
-            }
-        );
-        assert_eq!(
-            parse(&os(&["new"])).unwrap().unwrap(),
-            Verb::New {
-                name: None,
-                json: false
-            }
-        );
-        assert_eq!(
-            parse(&os(&["new", "Ideas", "--json"])).unwrap().unwrap(),
-            Verb::New {
-                name: Some("Ideas".to_string()),
-                json: true
-            }
-        );
-    }
-
-    #[test]
-    fn rename_takes_two_names() {
-        assert_eq!(
-            parse(&os(&["rename", "Old", "New"])).unwrap().unwrap(),
-            Verb::Rename {
-                note: "Old".to_string(),
-                new_name: "New".to_string(),
-                json: false
-            }
-        );
-        assert_eq!(
-            parse(&os(&["rename", "Old"])).unwrap().unwrap_err(),
-            UsageError::MissingArgument {
-                verb: "rename".to_string(),
-                what: "a new name".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn a_read_verb_with_no_note_is_a_usage_error() {
-        assert_eq!(
-            parse(&os(&["links"])).unwrap().unwrap_err(),
-            UsageError::MissingArgument {
-                verb: "links".to_string(),
-                what: "a file".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn extra_arguments_are_a_usage_error() {
-        assert_eq!(
-            parse(&os(&["links", "a", "b"])).unwrap().unwrap_err(),
-            UsageError::TooManyArguments {
-                verb: "links".to_string()
-            }
-        );
-        assert_eq!(
-            parse(&os(&["rename", "a", "b", "c"])).unwrap().unwrap_err(),
-            UsageError::TooManyArguments {
-                verb: "rename".to_string()
-            }
-        );
-    }
-
-    #[test]
-    fn an_unknown_flag_is_a_usage_error() {
-        assert_eq!(
-            parse(&os(&["tags", "--yaml"])).unwrap().unwrap_err(),
-            UsageError::UnknownFlag {
-                verb: "tags".to_string(),
-                flag: "--yaml".to_string()
-            }
-        );
-    }
-
     #[test]
     fn a_record_keeps_its_fields_on_one_line() {
         assert_eq!(record(["a", "b", "c"]), "a\tb\tc\n");
         assert_eq!(record(["a\tb", "c\nd"]), "a b\tc d\n");
         assert_eq!(record([""; 2]), "\t\n");
-    }
-
-    #[test]
-    fn the_usage_text_names_every_verb() {
-        let usage = usage();
-        for name in VERB_NAMES {
-            assert!(usage.contains(*name), "usage does not mention {name}");
-        }
-    }
-
-    #[test]
-    fn the_usage_text_offers_json_on_every_verb() {
-        let usage = usage();
-        for name in VERB_NAMES {
-            let line = usage
-                .lines()
-                .find(|line| line.trim_start().starts_with(&format!("writ {name} ")))
-                .unwrap_or_else(|| panic!("no usage line for {name}"));
-            assert!(line.contains("[--json]"), "{name} takes --json: {line}");
-            assert!(
-                matches!(parse(&os(&[name, "a", "b", "--json"])), Some(Ok(_)))
-                    || matches!(parse(&os(&[name, "a", "--json"])), Some(Ok(_))),
-                "{name} refused --json"
-            );
-        }
-    }
-
-    #[test]
-    fn the_usage_text_uses_plain_words() {
-        let usage = usage().to_lowercase();
-        for banned in ["vault", "buffer", "scratchpad", "second brain"] {
-            assert!(!usage.contains(banned), "usage says {banned}");
-        }
     }
 
     #[test]

@@ -47,7 +47,12 @@ export function createConfigCommands(state: DemoState): CommandTable {
     dismiss_notes_migration_report: () => null,
     get_storage_info: () => ({ db_path: `${HOME}/.writ/writ.db`, dir: `${HOME}/.writ` }),
     global_hotkey_status: () => ({ chord: state.config.hotkey.toggle, registered: true }),
-    cli_status: () => ({ installed: true, path: "/usr/local/bin/writ" }),
+    cli_status: () => ({
+      installed: true,
+      path: "/usr/local/bin/writ",
+      can_install: true,
+      needs_move: false,
+    }),
     report_first_paint: () => null,
     reveal_window: () => null,
     compute_window_placement: () => null,

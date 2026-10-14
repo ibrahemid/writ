@@ -191,17 +191,37 @@ function ActivityDialog() {
           <Show
             when={programRows().length > 0}
             fallback={
-              <div class="activity-empty">
-                <p class="activity-empty-line">No program has called yet.</p>
-                <p class="activity-empty-line">
-                  Add the command to a program's MCP settings, then ask it to read a file.
-                </p>
-                <Show when={activityStore.serverCommand()}>
-                  <Button data-action="activity-copy-command" onClick={() => void onCopyCommand()}>
-                    Copy command
-                  </Button>
-                </Show>
-              </div>
+              <Show
+                when={!activityStore.logFailed()}
+                fallback={
+                  <div class="activity-empty" role="alert">
+                    <p class="activity-empty-line">Could not read the activity log.</p>
+                    <div>
+                      <Button
+                        data-action="activity-retry"
+                        onClick={() => void activityStore.refresh()}
+                      >
+                        Try again
+                      </Button>
+                    </div>
+                  </div>
+                }
+              >
+                <div class="activity-empty">
+                  <p class="activity-empty-line">No program has called yet.</p>
+                  <p class="activity-empty-line">
+                    Add the command to a program's MCP settings, then ask it to read a file.
+                  </p>
+                  <Show when={activityStore.serverCommand()}>
+                    <Button
+                      data-action="activity-copy-command"
+                      onClick={() => void onCopyCommand()}
+                    >
+                      Copy command
+                    </Button>
+                  </Show>
+                </div>
+              </Show>
             }
           >
             <ul class="activity-list" data-rows="programs">

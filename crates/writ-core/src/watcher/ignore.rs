@@ -90,6 +90,14 @@ impl IgnoreStamps {
         self.inner.insert(key, IgnoreStamp { hash, at: now });
     }
 
+    /// Records `hash` for `key` at `now`, for a write whose bytes the caller
+    /// holds only as a digest: a file that moves without being read, whose
+    /// last recorded digest is what it will hold where it lands.
+    pub fn record_digest(&mut self, key: String, hash: ContentHash, now: Instant) {
+        self.evict_expired(now, DEFAULT_IGNORE_TTL);
+        self.inner.insert(key, IgnoreStamp { hash, at: now });
+    }
+
     /// Decides whether a delivered event for `key` should be emitted
     /// or suppressed.
     ///
@@ -305,5 +313,20 @@ mod tests {
             SuppressDecision::Emit
         );
         assert!(!stamps.contains("draft.txt"));
+    }
+
+    #[test]
+    fn a_stamp_recorded_by_digest_suppresses_the_bytes_it_names() {
+        let mut stamps = IgnoreStamps::new();
+        let now = Instant::now();
+        stamps.record_digest("src:/n/a.md".to_string(), hash_bytes(b"moved"), now);
+        assert_eq!(
+            stamps.decide("src:/n/a.md", Some(b"moved"), now, DEFAULT_IGNORE_TTL),
+            SuppressDecision::Suppress
+        );
+        assert_eq!(
+            stamps.decide("src:/n/a.md", Some(b"edited"), now, DEFAULT_IGNORE_TTL),
+            SuppressDecision::Emit
+        );
     }
 }

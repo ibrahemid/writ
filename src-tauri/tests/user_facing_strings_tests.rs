@@ -75,7 +75,7 @@ struct AllowedString {
 const RUST_ALLOWLIST: &[AllowedString] = &[
     AllowedString {
         file: "crates/writ-core/src/default_app.rs",
-        line: 67,
+        line: 80,
         word: "source",
         note: "file-association group label, release 0.6",
     },

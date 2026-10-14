@@ -1,5 +1,5 @@
 import { createEffect, createSignal, on } from "solid-js";
-import { TextCounter, projectCounts, type TextCounts } from "../../editor/document-counts";
+import { TextCounter, countsOf, projectCounts, type TextCounts } from "../../editor/document-counts";
 import type { FileOpenMode } from "../../types/buffer";
 import type { EditorStore } from "./editor-store";
 
@@ -22,7 +22,13 @@ export type CountsStore = ReturnType<typeof createCountsStore>;
 
 function sameCounts(a: DocumentCounts | null, b: DocumentCounts | null): boolean {
   if (a === null || b === null) return a === b;
-  return a.words === b.words && a.characters === b.characters && a.exact === b.exact;
+  return (
+    a.words === b.words &&
+    a.characters === b.characters &&
+    a.cjk === b.cjk &&
+    a.arabic === b.arabic &&
+    a.exact === b.exact
+  );
 }
 
 function projectsWhileCounting(mode: FileOpenMode | null): boolean {
@@ -63,7 +69,7 @@ export function createCountsStore(editor: EditorStore) {
     const started = performance.now();
     const progress = counter.count(doc, () => performance.now() - started >= COUNT_SLICE_MS);
     if (progress.done) {
-      setCounts({ words: progress.words, characters: progress.characters, exact: true });
+      setCounts({ ...countsOf(progress), exact: true });
       return;
     }
     if (projectsWhileCounting(editor.largeFileMode()) && progress.covered > 0) {

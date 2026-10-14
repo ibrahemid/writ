@@ -22,7 +22,12 @@ vi.mock("../../services/tauri", () => ({
 vi.mock("../../lib/log", () => ({ logFailure: h.logFailure }));
 
 import { noteVersionsStore } from "../../stores/global/note-versions";
-import type { NoteVersion } from "../../services/tauri";
+import type { NoteVersion, NoteVersions } from "../../services/tauri";
+
+/** The answer `note_versions` gives for these versions. */
+function listed(versions: NoteVersion[]): NoteVersions {
+  return { versions, no_versions_reason: versions.length > 0 ? null : "none_yet" };
+}
 
 function version(id: number, atMs = 1_700_000_000_000): NoteVersion {
   return { id, at_ms: atMs, bytes: 1_200 };
@@ -87,7 +92,7 @@ describe("a read still open when the list is re-read", () => {
     h.noteVersionContent.mockReturnValueOnce(open.promise);
     void noteVersionsStore.select(7);
 
-    const list = held<NoteVersion[]>();
+    const list = held<NoteVersions>();
     h.noteVersions.mockReturnValueOnce(list.promise);
     void noteVersionsStore.load("/notes/Launch.md");
     await flush();
@@ -99,7 +104,7 @@ describe("a read still open when the list is re-read", () => {
     expect(noteVersionsStore.selected()).toBeNull();
 
     h.noteVersionContent.mockResolvedValueOnce("the restored text\n");
-    list.settle([version(9)]);
+    list.settle(listed([version(9)]));
     await flush();
 
     expect(noteVersionsStore.text()).toBe("the restored text\n");

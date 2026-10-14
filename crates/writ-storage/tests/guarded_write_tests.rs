@@ -550,3 +550,38 @@ fn siblings(note: &Path) -> Vec<PathBuf> {
         .filter(|path| path != note)
         .collect()
 }
+
+/// A folder that will not list its names: the copy cannot see what is taken,
+/// and the name it picks first is one a file already holds.
+#[cfg(unix)]
+#[test]
+fn a_dated_copy_never_replaces_a_file_holding_its_name() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new().expect("temp dir");
+    let folder = dir.path().join("Writ");
+    std::fs::create_dir_all(&folder).expect("folder");
+    let note = folder.join("Launch.md");
+    std::fs::write(&note, "the note\n").expect("note");
+    let now = chrono::Utc::now();
+    let first_choice = folder.join(format!(
+        "{}.md",
+        writ_core::notes::recovered_file_name("Launch", "", now)
+    ));
+    std::fs::write(&first_choice, "somebody else's file\n").expect("taken name");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o333)).expect("chmod");
+
+    let written = writ_storage::guarded::write_recovered_copy(&note, "recovered text\n", now, None);
+
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    let written = written.expect("the copy lands under another name");
+    assert_ne!(written, first_choice);
+    assert_eq!(
+        std::fs::read_to_string(&first_choice).expect("read"),
+        "somebody else's file\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&written).expect("read"),
+        "recovered text\n"
+    );
+}

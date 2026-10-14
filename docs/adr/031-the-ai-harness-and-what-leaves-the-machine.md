@@ -302,6 +302,17 @@ at 30 days, 200 versions per note, and 250 MB in total, pruned oldest first by a
 over its cap, then globally by size. A note over 2 MB is not versioned. The numbers are stated in
 one read-only settings line and are not configurable in 0.5 (U8).
 
+Amended 2026-10-14: a note over its 200 is thinned rather than cut from the oldest end, because one
+long session of autosaves filled the cap and the first text to go was the one from before the
+session. Entries fall in time buckets that widen with age (a minute within the hour, ten minutes
+within the day, an hour within the week, a day after), and the cap takes, oldest first, entries that
+share a bucket with a newer one, then the other ordinary entries, then markers: the first and last
+entry of each session (a pause of 15 minutes ends one), the first of each day, and a text something
+other than a run of saves set aside. The newest entry, the newest session's first, and the last
+entry before that session are never taken by the cap (`writ_core::note_history::prune_plan`). Age
+and the store-wide size cap are unchanged. A version whose text no longer matches its digest is
+reported as damaged rather than restored.
+
 ### 6. Consent is revocable in the app and by editing the config
 
 6.1. Every consent record lives in `config.toml`, in plain text the user can read and edit:

@@ -545,6 +545,21 @@
   text-align: left;
 }
 
+.settings-cli {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--writ-space-2);
+  min-width: 0;
+  padding: var(--writ-space-2) 0;
+}
+
+.settings-cli-example {
+  font-size: var(--writ-ui-sm);
+  color: var(--writ-fg-muted);
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .settings-modal,
   .settings-row-highlight {

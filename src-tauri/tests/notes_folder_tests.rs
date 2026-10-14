@@ -893,3 +893,71 @@ fn the_notes_watcher_follows_the_folder_to_its_new_root() {
         "a file in the folder Writ left is not"
     );
 }
+
+#[test]
+fn a_move_that_does_not_happen_leaves_the_old_folder_watched() {
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let from = state.notes_root();
+    std::fs::write(from.join("Notes.md"), "mine").expect("seed");
+    let to = dir.path().join("Elsewhere");
+    std::fs::create_dir_all(&to).expect("destination");
+    std::fs::write(to.join("notes.md"), "theirs").expect("seed");
+
+    let outcome = move_notes_folder_to(&state, &to).expect("move");
+
+    assert_eq!(outcome.collided, vec!["Notes.md".to_string()]);
+    assert!(
+        state.notes_watcher.lock().expect("lock").is_some(),
+        "the watcher stopped for the move is running again on the old folder"
+    );
+}
+
+#[test]
+fn a_move_asks_for_its_walk_the_way_every_other_walk_is_asked_for() {
+    use std::sync::{Arc, Mutex};
+    use writ_core::events::bus::WritEvent;
+
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let swept: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let heard = Arc::clone(&swept);
+    state.event_bus.subscribe(move |event| {
+        if let WritEvent::NotesSwept { root } = event {
+            heard.lock().expect("lock").push(root.clone());
+        }
+    });
+
+    let to = dir.path().join("Elsewhere");
+    let outcome = move_notes_folder_to(&state, &to).expect("move");
+
+    assert_eq!(*swept.lock().expect("lock"), vec![outcome.new_root]);
+}
+
+#[test]
+fn a_move_waits_for_an_open_note_whose_save_is_still_landing() {
+    use std::time::Duration;
+
+    let dir = TempDir::new().expect("temp");
+    let state = make_state(&dir);
+    let from = state.notes_root();
+    let note = from.join("Open.md");
+    std::fs::write(&note, "typed").expect("seed");
+    seed_row(&state, "open", Some(&note.to_string_lossy()));
+    let to = dir.path().join("Elsewhere");
+
+    // A save of the open note holds its turn.
+    let saving = state.buffer_writes.turn("open");
+    std::thread::scope(|scope| {
+        let moving = scope.spawn(|| move_notes_folder_to(&state, &to));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            note.exists(),
+            "nothing moves while a save of an open note is landing"
+        );
+        drop(saving);
+        let outcome = moving.join().expect("the move thread").expect("move");
+        assert_eq!(outcome.moved, 1);
+    });
+    assert!(!note.exists());
+}
