@@ -22,6 +22,7 @@ function buf(overrides: Partial<BufferDocument> = {}): BufferDocument {
     read_only: overrides.read_only ?? false,
     size_bytes: overrides.size_bytes ?? 0,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

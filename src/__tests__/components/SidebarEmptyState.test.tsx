@@ -25,6 +25,7 @@ const histDoc: BufferDocument = {
   read_only: false,
   size_bytes: 0,
   line_ending: "lf",
+  encoding: "UTF-8",
 };
 
 const h = vi.hoisted(() => ({

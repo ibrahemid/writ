@@ -2,6 +2,17 @@ import type { BufferDocument, FileOpenResult } from "../../../src/types/buffer";
 import type { RenamePropagation, SkippedFile } from "../../../src/services/tauri";
 import { countUtf8Bytes } from "../history";
 import { classifySize, formatHexDump, onceOpen, sniffsBinary } from "../classify";
+import {
+  EncodingLossyError,
+  EncodingUnwritableError,
+  NotInEncodingError,
+  UTF_8,
+  decodeIn,
+  detectLineEnding,
+  encodeIn,
+  resolveEncoding,
+  withBomOf,
+} from "../encoding";
 import { getNoteDisplayName, rewriteLinks, parseStoredTarget, stripNoteExtension } from "../links";
 import { formatDateStem, dedupeStem, deriveFirstLineTitle, formatMintedStem, deriveNoteFileStem, sanitizeTitle } from "../naming";
 import {
@@ -14,6 +25,13 @@ import {
   type DemoState,
 } from "../state";
 import { DemoFileError, HOME, NOTES_ROOT, basename, dirname, extension, stem } from "../vfs";
+import { encodingName } from "../../../src/lib/text-encoding";
+import {
+  ERR_READ_FAILED,
+  ERR_READ_FILE_MISSING,
+  ERR_READ_NOT_IN_ENCODING,
+  ERR_READ_NOT_UTF8,
+} from "../../../src/lib/read-failure";
 
 /** writ_core::notes::TEXT_EXTENSIONS: what a typed name may switch a note to. */
 const TEXT_EXTENSIONS = ["md", "markdown", "txt", "text"];
@@ -30,6 +48,26 @@ class NoteRefusal extends Error {
     super(message);
     this.name = "NoteRefusal";
   }
+}
+
+/** commands::buffer::ERR_UNKNOWN_ENCODING. */
+const ERR_UNKNOWN_ENCODING = "ERR_UNKNOWN_ENCODING";
+
+/** commands::buffer::ERR_NOTE_READ_ONLY. */
+const ERR_NOTE_READ_ONLY = "ERR_NOTE_READ_ONLY";
+
+/** commands::buffer::ERR_ENCODING_LOSSY. */
+const ERR_ENCODING_LOSSY = "ERR_ENCODING_LOSSY";
+
+/** commands::buffer::read_failure_message for the reads a page can fail. Anything else is a fault, thrown on. */
+function describeReadRefusal(error: unknown): string {
+  if (error instanceof NotInEncodingError) {
+    const code = encodingName(error.encoding) === UTF_8 ? ERR_READ_NOT_UTF8 : ERR_READ_NOT_IN_ENCODING;
+    return `${code}: ${error.message}`;
+  }
+  if (error instanceof DemoFileError && error.kind === "missing") return `${ERR_READ_FILE_MISSING}: ${error.message}`;
+  if (error instanceof EncodingUnwritableError) return `${ERR_READ_FAILED}: ${error.message}`;
+  throw error;
 }
 
 /** writ_core::notes::name_is_taken. */
@@ -71,12 +109,24 @@ export function createBufferCommands(state: DemoState): CommandTable {
   // Files Writ named itself whose first line may still rename them.
   const renameable = new Set<string>();
 
-  /** commands::buffer::read_buffer_content: the file's bytes, or the hex dump a binary file opened as. */
+  /** commands::buffer::read_buffer_content: the file's text in the note's encoding, or the hex dump a binary file opened as. */
   const readBufferContent = (doc: BufferDocument): Uint8Array => {
     if (!doc.source_path) return new Uint8Array(0);
-    const bytes = state.readBytes(doc.source_path);
-    if (doc.read_only && sniffsBinary(bytes)) return new TextEncoder().encode(formatHexDump(bytes, bytes.length));
-    return bytes;
+    if (doc.read_only) {
+      const bytes = state.readBytes(doc.source_path);
+      return sniffsBinary(bytes) ? new TextEncoder().encode(formatHexDump(bytes, bytes.length)) : bytes;
+    }
+    return new TextEncoder().encode(state.readTextIn(doc.source_path, doc.encoding ?? UTF_8));
+  };
+
+  /** commands::buffer::reopen_with_encoding_inner: the file read in `chosen`, which the note keeps from then on. */
+  const reopenWithEncoding = (doc: BufferDocument, path: string, chosen: string): BufferDocument => {
+    const bytes = state.readFileBytes(path);
+    const encoding = withBomOf(chosen, bytes);
+    const text = decodeIn(bytes, encoding);
+    doc.encoding = encoding;
+    doc.line_ending = detectLineEnding(text);
+    return { ...doc };
   };
 
   /** note_ops::create_note, then the tab: an empty file first, deduped on a taken name. */
@@ -185,7 +235,10 @@ export function createBufferCommands(state: DemoState): CommandTable {
         .map((b) => ({ ...b })),
     get_recovered_buffers: () => [],
     get_buffer: (args) => ({ ...state.getBuffer(args.id) }),
-    read_buffer_content: (args) => readBufferContent(state.getBuffer(args.id)).slice().buffer,
+    read_buffer_content: (args) => {
+      const doc = state.getBuffer(args.id);
+      return refuseOnThrow(() => readBufferContent(doc).slice().buffer, describeReadRefusal);
+    },
     open_file: (args) => state.openPath(String(args.path)),
     open_file_confirmed: (args) => state.openConfirmedPath(String(args.path)),
     create_buffer: (args) => {
@@ -203,15 +256,23 @@ export function createBufferCommands(state: DemoState): CommandTable {
     save_buffer_content: (args) => {
       const doc = state.getBuffer(args.id);
       const content = String(args.content);
+      const encoding = doc.encoding ?? UTF_8;
+      let sizeBytes = countUtf8Bytes(content);
+      try {
+        sizeBytes = encodeIn(content, encoding).length;
+      } catch (error) {
+        if (error instanceof EncodingLossyError) return refuse(`${ERR_ENCODING_LOSSY}: ${error.message}`);
+        if (!(error instanceof EncodingUnwritableError)) throw error;
+      }
       if (!doc.source_path) {
         if (!content) return null;
         doc.source_path = `${NOTES_ROOT}/${doc.filename}`;
-        state.writeNote(doc.source_path, content, "editor");
+        state.writeNote(doc.source_path, content, "editor", encoding);
         state.emitNoteChanged(doc.source_path);
       } else {
-        state.writeNote(doc.source_path, content, "editor");
+        state.writeNote(doc.source_path, content, "editor", encoding);
       }
-      doc.size_bytes = countUtf8Bytes(content);
+      doc.size_bytes = sizeBytes;
       doc.updated_at = stampNow();
       return digestText(content);
     },
@@ -324,6 +385,16 @@ export function createBufferCommands(state: DemoState): CommandTable {
     rename_buffer: (args): Answer<"renameBuffer"> => {
       state.getBuffer(args.id).title = String(args.title);
     },
+    reopen_with_encoding: (args) => {
+      const label = String(args.encoding);
+      const chosen = resolveEncoding(label);
+      if (chosen === null) return refuse(`${ERR_UNKNOWN_ENCODING}: ${JSON.stringify(label)} is not an encoding`);
+      const doc = state.getBuffer(args.bufferId);
+      if (doc.read_only) return refuse(`${ERR_NOTE_READ_ONLY}: file ${doc.id} is read-only`);
+      const path = doc.source_path;
+      if (!path) return refuse(`${ERR_READ_FILE_MISSING}: file ${doc.id} is on disk nowhere`);
+      return refuseOnThrow((): Answer<"reopenWithEncoding"> => reopenWithEncoding(doc, path, chosen), describeReadRefusal);
+    },
     set_buffer_language: (args): Answer<"setBufferLanguage"> => {
       const doc = state.getBuffer(args.id);
       doc.language = typeof args.language === "string" ? args.language : null;
@@ -365,10 +436,18 @@ export function createBufferCommands(state: DemoState): CommandTable {
     note_disk_state: async (args): Promise<Answer<"noteDiskState">> => {
       const doc = state.getBuffer(args.id);
       if (!doc.source_path || !folder.has(doc.source_path)) return { state: "no_file" };
-      const text = folder.read(doc.source_path);
+      let text: string;
+      try {
+        text = state.readTextIn(doc.source_path, doc.encoding ?? UTF_8);
+      } catch (error) {
+        if (error instanceof NotInEncodingError || error instanceof EncodingUnwritableError) {
+          return { state: "undescribed" };
+        }
+        throw error;
+      }
       return {
         state: "described",
-        disk: { hash: await digestText(text), size: countUtf8Bytes(text), mtime_ms: Date.now() },
+        disk: { hash: await digestText(text), size: state.readBytes(doc.source_path).length, mtime_ms: Date.now() },
       };
     },
   };

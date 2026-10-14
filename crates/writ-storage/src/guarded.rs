@@ -5,17 +5,20 @@
 //! recover it from. The decision is [`decide_save`]'s and it is asked here,
 //! once: every writer in the crate — a save, a new note, a link rewritten
 //! after a rename, text a relaunch recovered — comes through
-//! [`write_note_guarded`] or [`create_note_guarded`], and the terminal writer
-//! they share is private to this module. A writer that inlined the guard
-//! instead would be a second answer to the same question, and the copies
-//! would drift.
+//! [`write_note_guarded`] or [`create_note_guarded`], and the step that lands
+//! what the guard let through (`land`) is private to this module. A writer
+//! that inlined the guard instead would be a second answer to the same
+//! question, and the copies would drift.
 //!
-//! Three things travel with a write. Its origin ([`WriteOrigin`]), so the
+//! Four things travel with a write. Its origin ([`WriteOrigin`]), so the
 //! record of what happened to a note says which surface made it. Its conflict
 //! policy ([`ConflictPolicy`]), because a refusal that carries text writes it
 //! beside the note (ADR-028 §5) and a refusal that carries none has nothing
-//! to set aside. And its capture ([`HistoryHook`]), which is where the
-//! version store is filled in.
+//! to set aside. Its capture ([`HistoryHook`]), which is where the version
+//! store is filled in. And the data folder's [`WriteLock`], which each Writ
+//! process writing the same notes holds across its last read of the note and
+//! its rename, so neither lands between the other's compare and its rename
+//! (AM-40).
 
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -27,13 +30,14 @@ use writ_core::notes::guard::{decide_save, is_not_downloaded, DiskState, SaveDec
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::WriteOrigin;
 
-use crate::atomic::{write_atomic, AtomicWriteError};
+use crate::atomic::{prepare_replacement, write_atomic, AtomicWriteError};
 use crate::buffer_store::{
     dataless_flags, read_disk_state, taken_names, BeforeWrite, DatalessProbe,
 };
 use crate::errors::{StorageError, StorageResult};
 use crate::note_history::NoteHistoryStore;
 use crate::paths::file_name_only;
+use crate::write_lock::WriteLock;
 
 /// What a refusal does with the text it was handed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +181,10 @@ pub struct GuardedWrite<'a> {
     pub on_conflict: ConflictPolicy,
     /// Where the write is captured, if anywhere.
     pub history: HistoryHook<'a>,
+    /// The data folder's write lock, held across the last read of the file
+    /// and the rename. `None` writes without it: the last read still decides,
+    /// and nothing holds another process off between that read and the rename.
+    pub lock: Option<&'a WriteLock>,
 }
 
 /// One new note, minted into the notes folder.
@@ -198,6 +206,8 @@ pub struct CreateNote<'a> {
     pub on_taken_name: TakenName,
     /// Where the write is captured, if anywhere.
     pub history: HistoryHook<'a>,
+    /// The data folder's write lock ([`GuardedWrite::lock`]).
+    pub lock: Option<&'a WriteLock>,
 }
 
 /// What became of a write the guard let through.
@@ -229,6 +239,13 @@ pub struct WriteOutcome {
 ///
 /// A file whose bytes are not on this machine is stopped before the compare
 /// read, because that read is what would pull it down (ADR-028 §5).
+///
+/// A write the guard lets through is written beside the note and synced
+/// first. Then, holding `req.lock` when there is one, the file is read once
+/// more and the replacement renamed over it only while it still holds what
+/// the decision was made on. The lock covers that read and the
+/// rename and nothing else, so a save waits on another process's write for
+/// as long as one read and one rename take.
 ///
 /// # Errors
 ///
@@ -281,31 +298,144 @@ pub fn write_note_guarded(
             &req.origin,
             before_write,
         )),
+        _ => land(req, on_disk, incoming, before_write),
+    }
+}
+
+/// Lands a write the guard let through, unless the file moved on after the
+/// read the decision was made on.
+///
+/// Everything slow happens before the lock is taken: the replacement is
+/// written and synced beside the note. Under the lock the file is read once
+/// more, and that read decides. Still the text the decision was made on, the
+/// replacement is renamed over it. Moved on, the decision is made again on
+/// what it holds now ([`decide_again`]), so a write another process landed in
+/// between is compared, refused with a copy or kept as a version, and never
+/// renamed over unseen. The lock is let go after the rename; the folder sync
+/// and the version capture follow it.
+///
+/// The bytes read under the lock are what the version store keeps as the text
+/// this write replaced, so the version is the text that was there, not the
+/// text an earlier read found.
+fn land(
+    req: GuardedWrite<'_>,
+    decided_on: Option<DiskState>,
+    incoming: Sha256Digest,
+    before_write: BeforeWrite<'_>,
+) -> StorageResult<WriteOutcome> {
+    let target = req.target;
+    let prepared = prepare_replacement(target, req.bytes)
+        .map_err(|error| refusal_as_storage_error(target, error))?;
+    let held = req.lock.and_then(WriteLock::hold);
+    let current = read_current(target)?;
+    let found = current.as_ref().map(|(_, state)| *state);
+    let decision = if same_text(decided_on, found) {
+        SaveDecision::Proceed
+    } else {
+        decide_again(&req, found, incoming)
+    };
+    match (decision, found) {
+        (SaveDecision::AlreadyIdentical, Some(state)) => Ok(WriteOutcome {
+            disk_state: state,
+            found,
+            decision,
+            conflict_copy: None,
+        }),
+        (SaveDecision::Refuse, Some(state)) => {
+            drop(held);
+            drop(prepared);
+            Err(refuse(
+                target,
+                &state,
+                req.bytes,
+                req.on_conflict,
+                &req.origin,
+                before_write,
+            ))
+        }
         _ => {
-            // Read back only for a caller that keeps versions: the pre-write
-            // bytes are the one thing the capture cannot recover afterwards,
-            // and reading every file twice for a hook nobody supplied would
-            // put the cost on every save.
-            let before = req.history.and_then(|_| std::fs::read(target).ok());
-            write_guarded_by_stamp(target, req.bytes, before_write)?;
+            crate::atomic::refuse_unreplaceable_destination(target)
+                .map_err(|error| refusal_as_storage_error(target, error))?;
+            if let Some(stamp) = before_write {
+                stamp(target, req.bytes);
+            }
+            let placed = prepared
+                .place(target)
+                .map_err(|error| refusal_as_storage_error(target, error))?;
+            drop(held);
+            placed.finish();
             let after = written_state(target, incoming, req.bytes.len() as u64);
             if let Some(hook) = req.history {
                 hook(WriteCapture {
                     target,
                     origin: &req.origin,
-                    before: before.as_deref(),
+                    before: current.as_ref().map(|(bytes, _)| bytes.as_slice()),
                     bytes: req.bytes,
                     after: &after,
                 });
             }
             Ok(WriteOutcome {
                 disk_state: after,
-                found: on_disk,
+                found,
                 decision,
                 conflict_copy: None,
             })
         }
     }
+}
+
+/// The decision for a file that holds something other than what the first
+/// read found.
+///
+/// A file that went away is written, as a write to a missing file always is,
+/// and one that already holds the incoming bytes needs no write. Otherwise it
+/// depends on what the write was built from. A caller that handed over its own
+/// read ([`DiskRead::Read`]) built its bytes from that text, and the file no
+/// longer holds it, so the write is refused: a link rewrite of old text, a
+/// program's write against the text it read, or a new note where a file has
+/// since appeared would each replace text nobody read. A caller whose bytes
+/// owe nothing to the disk ([`DiskRead::Fresh`]) is judged again by the guard
+/// against what the file holds now.
+fn decide_again(
+    req: &GuardedWrite<'_>,
+    found: Option<DiskState>,
+    incoming: Sha256Digest,
+) -> SaveDecision {
+    match found {
+        None => SaveDecision::Proceed,
+        Some(state) if state.hash == incoming => SaveDecision::AlreadyIdentical,
+        Some(state) => match req.on_disk {
+            DiskRead::Read(_) => SaveDecision::Refuse,
+            DiskRead::Fresh => decide_save(req.last_known.as_ref(), Some(&state), incoming),
+        },
+    }
+}
+
+/// Whether two reads of a file found the same text, or both found no file.
+fn same_text(first: Option<DiskState>, second: Option<DiskState>) -> bool {
+    match (first, second) {
+        (None, None) => true,
+        (Some(first), Some(second)) => first.hash == second.hash,
+        _ => false,
+    }
+}
+
+/// The bytes `path` holds now and their state, or `None` for no file.
+fn read_current(path: &Path) -> StorageResult<Option<(Vec<u8>, DiskState)>> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let metadata = std::fs::metadata(path).ok();
+    let state = DiskState {
+        hash: writ_core::hash::sha256_bytes(&bytes),
+        size: metadata
+            .as_ref()
+            .map_or(bytes.len() as u64, |meta| meta.len()),
+        mtime: metadata.and_then(|meta| meta.modified().ok()),
+    };
+    Ok(Some((bytes, state)))
 }
 
 /// Mints a new note file in `req.notes_root` and returns where it landed.
@@ -371,15 +501,24 @@ pub fn create_note_guarded(
             bytes: content.as_bytes(),
             last_known: None,
             // The path was just established to hold no file, so there is
-            // nothing to read and nothing the guard could refuse.
+            // nothing to read. A file that appears there before the rename is
+            // refused under the lock and answered as a taken name below.
             on_disk: DiskRead::Read(None),
             dataless: None,
             origin: req.origin,
             on_conflict: ConflictPolicy::RefuseOnly,
             history: req.history,
+            lock: req.lock,
         },
         before_write,
-    )?;
+    )
+    .map_err(|error| match error {
+        StorageError::SourceChangedOnDisk { .. } => StorageError::NoteNameTaken {
+            name: name.clone(),
+            folder: req.notes_root.to_path_buf(),
+        },
+        other => other,
+    })?;
     Ok(path)
 }
 
@@ -564,14 +703,16 @@ fn write_beside(
     Ok(target)
 }
 
-/// Refuses, stamps, then writes, in that order.
+/// Refuses, stamps, then writes, in that order, for a write with no file of
+/// its own to compare: a dated copy beside a note, or a file the notes
+/// migration moves.
 ///
-/// Every write this crate performs goes through here, because a write the
-/// caller has not been told about first is a write its watcher reads as
-/// somebody else's edit. [`write_atomic`] has this one call site so that no
-/// future write can skip the stamp by reaching past it, and this function is
-/// called only from this module so that no future write can skip the guard
-/// either.
+/// Every write this crate performs is stamped before it lands, because a
+/// write the caller has not been told about first is a write its watcher
+/// reads as somebody else's edit. A note's own write lands through [`land`],
+/// which stamps just before the rename it holds the write lock across; every
+/// other write comes through here, the one call site of [`write_atomic`], so
+/// that no future write can skip the stamp by reaching past it.
 ///
 /// The destination is asked whether it can be replaced before the stamp
 /// rather than after: an ignore entry for a write that never happens is one

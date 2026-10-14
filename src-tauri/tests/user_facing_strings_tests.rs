@@ -99,7 +99,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-core/src/file_ops.rs",
-        line: 204,
+        line: 205,
         word: "MiB",
         note: "size formatter unit, release 0.6",
     },
@@ -111,7 +111,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-storage/src/database/queries.rs",
-        line: 102,
+        line: 108,
         word: "buffer",
         note: "row lookup error, release 0.6",
     },
@@ -171,25 +171,25 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-mcp/src/server.rs",
-        line: 25,
+        line: 33,
         word: "note",
         note: "MCP server instructions, out of the copy sweep (decision C1)",
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 132,
+        line: 163,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 138,
+        line: 169,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },
     AllowedString {
         file: "crates/writ-mcp/src/tools.rs",
-        line: 141,
+        line: 177,
         word: "note",
         note: "MCP tool error, read by a program rather than a person",
     },
@@ -201,13 +201,13 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 430,
+        line: 434,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 488,
+        line: 492,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },

@@ -24,6 +24,7 @@ function buffer(overrides: Partial<BufferDocument> = {}): BufferDocument {
     read_only: false,
     size_bytes: 1024,
     line_ending: "lf",
+    encoding: "UTF-8",
     ...overrides,
   };
 }

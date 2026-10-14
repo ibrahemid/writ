@@ -123,6 +123,7 @@ function doc(id: string, title: string, sourcePath: string | null = null): Buffe
     read_only: false,
     size_bytes: 0,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

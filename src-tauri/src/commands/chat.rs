@@ -312,6 +312,7 @@ pub fn announce_note_change(state: &AppState, note_id: &str, file: &Path, bytes:
             note_id,
             file,
             Some(bytes),
+            crate::watcher::moves::encoding_of_note(state, note_id),
         ));
 }
 

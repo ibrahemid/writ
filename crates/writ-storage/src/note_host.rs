@@ -36,6 +36,7 @@ use crate::guarded::{
 use crate::note_history::NoteHistoryStore;
 use crate::notes_index::{self, NotesIndexStore};
 use crate::paths::{file_name_only, relative_slug};
+use crate::write_lock::WriteLock;
 
 /// The notes folder, the index over it, and what one consumer may ask of both.
 ///
@@ -50,6 +51,7 @@ pub struct NoteHostImpl<'a> {
     index: Option<Arc<NotesIndexStore>>,
     permissions: PermissionSet,
     history: Option<&'a NoteHistoryStore>,
+    write_lock: Option<WriteLock>,
     default_extension: FileExtension,
     seen: Arc<Mutex<HashMap<String, Sha256Digest>>>,
 }
@@ -61,6 +63,7 @@ impl std::fmt::Debug for NoteHostImpl<'_> {
             .field("index", &self.index.is_some())
             .field("permissions", &self.permissions)
             .field("history", &self.history.is_some())
+            .field("write_lock", &self.write_lock)
             .field("default_extension", &self.default_extension)
             .field("seen", &self.seen().len())
             .finish_non_exhaustive()
@@ -79,7 +82,8 @@ impl<'a> NoteHostImpl<'a> {
     /// The root is resolved once here so every containment check compares two
     /// paths the filesystem spells the same way.
     ///
-    /// `default_extension` is the format [`NoteHost::create_note`] mints in.
+    /// `default_extension` is the format [`NoteHost::create_note`] mints in
+    /// when the name it is handed spells none.
     /// A consumer reads it from its own config ([`writ_core::config::FilesConfig`]):
     /// a note a connected program makes is a file Writ mints and follows the
     /// same rule as the rest (ADR-041 §2).
@@ -99,9 +103,43 @@ impl<'a> NoteHostImpl<'a> {
             index: db_path.and_then(open_index).map(Arc::new),
             permissions,
             history: None,
+            write_lock: None,
             default_extension,
             seen: Arc::default(),
         })
+    }
+
+    /// A handle over `notes_root`, minting in `default_extension`, with the
+    /// index at `db_path` opened again, holding what this one holds.
+    ///
+    /// What this handle has seen each note hold carries over, so a long-lived
+    /// consumer that follows a moved folder or an index that appeared after it
+    /// started does not forget what it read: a write compares against the same
+    /// text either way ([`LastKnown::LastSeen`]). The folder is resolved and
+    /// the index opened as [`NoteHostImpl::open`] does, with the same answers.
+    pub fn reopen(
+        &self,
+        notes_root: &Path,
+        db_path: Option<&Path>,
+        default_extension: FileExtension,
+    ) -> Result<NoteHostImpl<'a>, HostError> {
+        let opened = NoteHostImpl::open(
+            notes_root,
+            db_path,
+            self.permissions.clone(),
+            default_extension,
+        )?;
+        Ok(NoteHostImpl {
+            history: self.history,
+            write_lock: self.write_lock.clone(),
+            seen: Arc::clone(&self.seen),
+            ..opened
+        })
+    }
+
+    /// The format a note this handle mints carries when its name spells none.
+    pub fn default_extension(&self) -> FileExtension {
+        self.default_extension
     }
 
     /// A second handle over the same folder and index, holding `permissions`.
@@ -114,6 +152,7 @@ impl<'a> NoteHostImpl<'a> {
             index: self.index.clone(),
             permissions,
             history: self.history,
+            write_lock: self.write_lock.clone(),
             default_extension: self.default_extension,
             seen: Arc::clone(&self.seen),
         }
@@ -131,12 +170,23 @@ impl<'a> NoteHostImpl<'a> {
         self
     }
 
+    /// The same handle, holding the data folder's write lock across the last
+    /// read and the rename of each write it makes ([`crate::write_lock`]).
+    ///
+    /// The app holds the same lock around its saves, so a write made through
+    /// this handle and a save in the app never land between each other's
+    /// compare and rename (AM-40). Every handle made from this one holds it.
+    pub fn with_write_lock(mut self, lock: Option<WriteLock>) -> Self {
+        self.write_lock = lock;
+        self
+    }
+
     /// The folder every path argument is checked against.
     pub fn notes_root(&self) -> &Path {
         &self.notes_root
     }
 
-    /// Whether the index answered when the host was opened.
+    /// Whether the index answered when this handle was opened.
     pub fn has_index(&self) -> bool {
         self.index.is_some()
     }
@@ -273,11 +323,16 @@ impl NoteHost for NoteHostImpl<'_> {
         let read = std::fs::read(&file).map_err(|_| HostError::Unreadable {
             path: path.to_string(),
         })?;
-        let text = String::from_utf8(read).map_err(|_| HostError::NotText {
-            path: path.to_string(),
-        })?;
+        // Read as the open and the index read it (ADR-049). The digest is of
+        // the file's bytes, which is what a write compares it with.
+        let text = writ_core::text_encoding::decode_file(&read)
+            .ok_or_else(|| HostError::NotText {
+                path: path.to_string(),
+            })?
+            .text
+            .into_owned();
         let key = notes_index::index_key(&file);
-        let digest = writ_core::hash::sha256_bytes(text.as_bytes());
+        let digest = writ_core::hash::sha256_bytes(&read);
         self.saw(&key, digest);
         Ok(NoteContent {
             path: key,
@@ -304,7 +359,12 @@ impl NoteHost for NoteHostImpl<'_> {
         })
     }
 
-    fn search_notes(&self, query: &str, limit: usize) -> Result<Vec<NoteHit>, HostError> {
+    fn search_notes(
+        &self,
+        query: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Vec<NoteHit>, HostError> {
         self.permit(Capability::SearchNotes)?;
         let index = self.index()?;
 
@@ -313,7 +373,7 @@ impl NoteHost for NoteHostImpl<'_> {
         };
         let terms = writ_core::search::search_terms(query);
         let hits = index
-            .search_hits(&expression, &terms, limit)
+            .search_hits_from(&expression, &terms, offset, limit)
             .map_err(|_| HostError::IndexUnavailable)?;
 
         Ok(hits
@@ -476,6 +536,7 @@ impl NoteHost for NoteHostImpl<'_> {
                 origin,
                 on_conflict: ConflictPolicy::RefuseWithCopy,
                 history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
+                lock: self.write_lock.as_ref(),
             },
             // No ignore stamp: a write made through this surface is meant to
             // reach the running app the way any other program's write does,
@@ -504,7 +565,11 @@ impl NoteHost for NoteHostImpl<'_> {
         origin: WriteOrigin,
     ) -> Result<WriteReceipt, HostError> {
         self.permit(Capability::CreateNote)?;
-        let stem = writ_core::notes::sanitize_title(name).ok_or(HostError::NameEmpty)?;
+        // A name that spells a text format keeps it, as `writ new` and the
+        // window's own New File do (ADR-041 §2): `Plan.md` is not `Plan.md.txt`.
+        let (stem, extension) =
+            writ_core::notes::requested_note_name(name, self.default_extension.as_str())
+                .ok_or(HostError::NameEmpty)?;
         // The dedupe is what a person who asked for a new note wants and the
         // wrong answer for a program: a caller that asked for `Launch` and got
         // `Launch 2` has put its text in a note it did not name. The facade
@@ -515,12 +580,13 @@ impl NoteHost for NoteHostImpl<'_> {
             CreateNote {
                 notes_root: &self.notes_root,
                 stem: &stem,
-                extension: self.default_extension.as_str(),
+                extension,
                 content,
                 origin,
                 on_taken_name: TakenName::Refuse,
                 // A note that did not exist has no earlier text to keep.
                 history: None,
+                lock: self.write_lock.as_ref(),
             },
             None,
         )

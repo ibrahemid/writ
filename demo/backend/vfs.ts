@@ -24,7 +24,11 @@ export class DemoFileError extends Error {
 interface FileRecord {
   content: string;
   modified: number;
+  /** The encoding the file holds `content` in, as Rust names it. */
+  encoding: string;
 }
+
+const UTF_8 = "UTF-8";
 
 /** The notes folder, held in memory for the life of the page. */
 export class VirtualFolder {
@@ -33,7 +37,7 @@ export class VirtualFolder {
   constructor(seed: Record<string, string>) {
     const now = Date.now();
     for (const [relative, content] of Object.entries(seed)) {
-      this.files.set(`${NOTES_ROOT}/${relative}`, { content, modified: now });
+      this.files.set(`${NOTES_ROOT}/${relative}`, { content, modified: now, encoding: UTF_8 });
     }
   }
 
@@ -47,8 +51,14 @@ export class VirtualFolder {
     return record.content;
   }
 
-  write(path: string, content: string): void {
-    this.files.set(path, { content, modified: Date.now() });
+  encodingOf(path: string): string {
+    const record = this.files.get(path);
+    if (!record) throw new DemoFileError(path, "missing");
+    return record.encoding;
+  }
+
+  write(path: string, content: string, encoding = UTF_8): void {
+    this.files.set(path, { content, modified: Date.now(), encoding });
   }
 
   remove(path: string): void {

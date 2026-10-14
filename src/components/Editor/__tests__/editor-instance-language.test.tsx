@@ -46,6 +46,7 @@ function fileBuffer(id: string, name: string, language: string | null = null): B
     read_only: false,
     size_bytes: 0,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

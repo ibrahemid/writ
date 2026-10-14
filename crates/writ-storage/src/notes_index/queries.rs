@@ -28,8 +28,8 @@ use crate::errors::StorageResult;
 /// Enough for the line a match sits on, which is all a result shows.
 const SNIPPET_TOKENS: i64 = 32;
 
-/// Up to `limit` ranked content hits, each carrying the note's path, name,
-/// matching line and a highlighted snippet.
+/// Up to `limit` ranked content hits after the first `offset`, each carrying
+/// the note's path, name, matching line and a highlighted snippet.
 ///
 /// The snippet is cut by the index itself (`snippet()`), which marks the
 /// matches with the tokenizer that found them, so the text of a note never
@@ -44,6 +44,7 @@ pub(crate) fn search_hits(
     conn: &Connection,
     query: &str,
     terms: &[String],
+    offset: usize,
     limit: usize,
 ) -> StorageResult<Vec<SearchHit>> {
     let rows: Vec<(i64, String, String, Vec<u8>)> = {
@@ -53,8 +54,8 @@ pub(crate) fn search_hits(
                FROM files_fts x
                JOIN files f ON f.rowid = x.rowid
               WHERE files_fts MATCH ?1
-              ORDER BY rank
-              LIMIT ?2",
+              ORDER BY rank, x.rowid
+              LIMIT ?2 OFFSET ?7",
         )?;
         let rows = stmt.query_map(
             params![
@@ -64,6 +65,7 @@ pub(crate) fn search_hits(
                 [FRAGMENT_MATCH_OPEN].as_slice(),
                 [FRAGMENT_MATCH_CLOSE].as_slice(),
                 [FRAGMENT_CUT].as_slice(),
+                offset as i64,
             ],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )?;
@@ -525,7 +527,7 @@ impl NotesIndex<'_> {
         terms: &[String],
         limit: usize,
     ) -> StorageResult<Vec<SearchHit>> {
-        search_hits(self.conn, query, terms, limit)
+        search_hits(self.conn, query, terms, 0, limit)
     }
 
     /// Total number of notes matching `query`, independent of any result

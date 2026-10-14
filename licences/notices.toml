@@ -16,35 +16,11 @@
 # does an entry here that no longer matches a shipped crate.
 
 [[notice]]
-crates = ["burn-ir", "burn-nn", "burn-optim"]
-licence = "MIT"
-file = "burn.txt"
-sources = [
-    "https://raw.githubusercontent.com/tracel-ai/burn/a6da424feacf6d82d6a0e81db197310796267c2b/LICENSE-MIT",
-]
-
-[[notice]]
-crates = ["cubecl-quant"]
-licence = "MIT"
-file = "cubecl.txt"
-sources = [
-    "https://raw.githubusercontent.com/tracel-ai/cubecl/0e2ba072b1ebba595d65a90804e616e1b799ef16/LICENSE-MIT",
-]
-
-[[notice]]
 crates = ["dlopen2", "dlopen2_derive"]
 licence = "MIT"
 file = "dlopen2.txt"
 sources = [
     "https://raw.githubusercontent.com/OpenByteDev/dlopen2/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE",
-]
-
-[[notice]]
-crates = ["embassy-futures"]
-licence = "MIT"
-file = "embassy.txt"
-sources = [
-    "https://raw.githubusercontent.com/embassy-rs/embassy/3e8d8fec15286eb25b8bba7d103c8fc279544551/LICENSE-MIT",
 ]
 
 [[notice]]
@@ -151,4 +127,39 @@ files = [
 ]
 sources = [
     "https://raw.githubusercontent.com/mermaid-js/mermaid/v11.15.0/LICENSE",
+]
+
+[[bundled]]
+name = "Harper a/an rule and word list (harper-core 2.11.0)"
+licence = "Apache-2.0"
+file = "harper.txt"
+files = [
+    "crates/writ-lint/dictionaries/harper-words.txt",
+    "crates/writ-lint/src/an_a.rs",
+]
+sources = [
+    "https://raw.githubusercontent.com/Automattic/harper/c821f511f83c24401993e207f7e5cdb51ae872e6/LICENSE",
+]
+
+# The spell-check dictionaries, unmodified from the SCOWL release; the text is
+# the copyright section of the README_*.txt shipped beside them.
+[[bundled]]
+name = "SCOWL English Hunspell dictionaries 2026.02.25"
+licence = "LicenseRef-SCOWL"
+file = "scowl.txt"
+files = [
+    "crates/writ-lint/dictionaries/en_AU.aff",
+    "crates/writ-lint/dictionaries/en_AU.dic",
+    "crates/writ-lint/dictionaries/en_CA.aff",
+    "crates/writ-lint/dictionaries/en_CA.dic",
+    "crates/writ-lint/dictionaries/en_GB-ise.aff",
+    "crates/writ-lint/dictionaries/en_GB-ise.dic",
+    "crates/writ-lint/dictionaries/en_US.aff",
+    "crates/writ-lint/dictionaries/en_US.dic",
+]
+sources = [
+    "https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_AU-2026.02.25.zip",
+    "https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_CA-2026.02.25.zip",
+    "https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_GB-ise-2026.02.25.zip",
+    "https://github.com/en-wl/wordlist/releases/download/rel-2026.02.25/hunspell-en_US-2026.02.25.zip",
 ]

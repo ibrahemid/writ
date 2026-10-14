@@ -145,6 +145,22 @@ async fn a_client_initialises_lists_the_tools_and_calls_one() {
     expected.sort();
     assert_eq!(names, expected);
 
+    for tool in listed["result"]["tools"].as_array().expect("a tool list") {
+        let name = tool["name"].as_str().expect("a name");
+        let hints = &tool["annotations"];
+        assert_eq!(hints["openWorldHint"], false, "{name}");
+        if READ_TOOLS.contains(&name) {
+            assert_eq!(hints["readOnlyHint"], true, "{name}");
+        } else {
+            assert_eq!(hints["readOnlyHint"], false, "{name}");
+            assert_eq!(
+                hints["destructiveHint"],
+                name != "create_note",
+                "{name}: writing and renaming replace what is there, creating does not"
+            );
+        }
+    }
+
     let called = call(
         &mut writer,
         &mut reader,
@@ -160,14 +176,20 @@ async fn a_client_initialises_lists_the_tools_and_calls_one() {
     let text = called["result"]["content"][0]["text"]
         .as_str()
         .expect("one text block");
-    let notes: Vec<serde_json::Value> = serde_json::from_str(text).expect("json");
-    let listed_paths: Vec<&str> = notes
+    assert!(!text.contains('\n'), "compact, not indented: {text}");
+    let page: serde_json::Value = serde_json::from_str(text).expect("json");
+    assert_eq!(
+        called["result"]["structuredContent"], page,
+        "the structured content and the text block carry the same answer"
+    );
+    let listed_paths: Vec<&str> = page["notes"]
+        .as_array()
+        .expect("a notes array")
         .iter()
         .map(|note| note["path"].as_str().expect("a path"))
         .collect();
-    assert_eq!(listed_paths.len(), 2);
-    assert!(listed_paths.iter().any(|path| path.ends_with("Launch.md")));
-    assert!(listed_paths.iter().any(|path| path.ends_with("Plan.md")));
+    assert_eq!(listed_paths, vec!["Launch.md", "Plan.md"]);
+    assert!(page.get("next_cursor").is_none(), "one page holds both");
 
     drop(writer);
     drop(reader);

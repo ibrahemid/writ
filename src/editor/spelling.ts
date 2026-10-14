@@ -264,7 +264,7 @@ export function sameSpellingRules(a: SpellingRules, b: SpellingRules): boolean {
 // time.
 const PARAGRAPH_REACH_LINES = 32;
 
-// Blocks a check must not cut through: Harper reads Markdown, and a slice that
+// Blocks a check must not cut through: the checker reads Markdown, and a slice that
 // starts inside a fence would read the code in it as prose.
 const WHOLE_BLOCKS = new Set(["FencedCode", "CodeBlock", "HTMLBlock", "CommentBlock"]);
 

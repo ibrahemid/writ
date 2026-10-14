@@ -9,6 +9,7 @@ use crate::buffer::document::{BufferDocument, BufferStatus};
 use crate::errors::{WritError, WritResult};
 use crate::events::bus::{EventBus, WritEvent};
 use crate::notes::line_ending::LineEnding;
+use crate::text_encoding::TextEncoding;
 
 fn validate_buffer_title(title: &str) -> WritResult<()> {
     let trimmed = title.trim();
@@ -120,6 +121,7 @@ impl BufferManager {
             read_only: false,
             size_bytes: 0,
             line_ending: LineEnding::default(),
+            encoding: Some(TextEncoding::utf8()),
         };
 
         self.buffers.insert(id, doc.clone());
@@ -166,6 +168,7 @@ impl BufferManager {
             read_only: false,
             size_bytes: 0,
             line_ending: LineEnding::default(),
+            encoding: Some(TextEncoding::utf8()),
         };
 
         self.buffers.insert(id, doc.clone());

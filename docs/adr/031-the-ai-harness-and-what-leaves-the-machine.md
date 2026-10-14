@@ -21,6 +21,12 @@ Rule 2.4 amended 2026-10-13: the OAuth loopback receiver answers any request tha
 flow's callback with a 404 and goes on waiting, until the callback arrives or the flow ends
 (ADR-040 section 6). Until then it accepted one request and closed.
 
+Rule 1.4 amended 2026-10-14: the app and `writ mcp` hold an advisory lock file, `write.lock` in
+the data folder, across the compare and the rename of a guarded note write, so a write from one
+process cannot land between the other's compare and its rename. The file carries no data. Until then
+the two processes shared no lock but SQLite's on `history.db`, and an app save and a program's
+write in the same instant could lose one side with no copy.
+
 Rules 3.2, 5.1, 5.5 and 7.2 amended 2026-10-13: a client the user turns down is stored and
 answered as not allowed, the server records one line per call with repeated reads counted, and a
 server that is off answers `NotEnabled`. Until then every refusal was `NotApproved` with one
@@ -100,10 +106,15 @@ asserts every version both processes keep while writing at once, and
 note at the same moment.
 
 1.4. A running app learns about an outside write through the notes watcher
-([ADR-033](./033-external-change-handling.md)), not through a channel the harness adds. No socket,
-no lock of the harness's own, no new IPC between the server process and the app (U6). The one
-thing the two processes share is SQLite's own lock on `history.db` under rule 1.3, which carries
-no message: the app still learns of a program's write only through the watcher.
+([ADR-033](./033-external-change-handling.md)), not through a channel the harness adds. No socket
+and no new IPC between the server process and the app (U6). The two processes share two locks,
+and neither carries a message: SQLite's own lock on `history.db` under rule 1.3, and `write.lock`
+in the data folder (`writ_storage::write_lock`), an advisory lock on an empty file that each
+process holds across the read and the rename at the end of a guarded write
+(`writ_storage::guarded::write_note_guarded`) and for nothing else. The replacement is written
+and synced before the lock is taken, so it is held for one read and one rename. A writer that
+cannot take it within two seconds writes without it, guarded as before. The app still learns of a
+program's write only through the watcher.
 
 1.5. The plugin surface this harness is built on is internal. No third-party code is loaded,
 nothing is installable, no manifest is read from disk, and no surface is documented for anyone

@@ -226,7 +226,7 @@ fn the_check_precedes_resolution_the_index_and_the_stat() {
             Capability::ReadNote,
         ),
         (
-            nothing.search_notes("body", 10).unwrap_err(),
+            nothing.search_notes("body", 0, 10).unwrap_err(),
             Capability::SearchNotes,
         ),
         (

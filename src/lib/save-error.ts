@@ -1,3 +1,5 @@
+import { encodingLabel } from "./text-encoding";
+
 // Codes a failed save carries, minted in src-tauri/src/commands/buffer.rs. The
 // code is the contract; the message after it is for logs and is free to
 // change, so no wording a person reads crosses the boundary.
@@ -13,6 +15,9 @@ const ERR_FILE_IN_USE = "ERR_FILE_IN_USE";
 const ERR_FILE_MISSING = "ERR_FILE_MISSING";
 const ERR_WRITE_TIMED_OUT = "ERR_WRITE_TIMED_OUT";
 const ERR_WRITE_FAILED = "ERR_WRITE_FAILED";
+// The one code whose message is read too: the encoding's name and the
+// characters it has no bytes for (ADR-049).
+const ERR_ENCODING_LOSSY = "ERR_ENCODING_LOSSY";
 // Two a rename mints for a note it left alone, neither of them a failed write:
 // src-tauri/src/commands/notes.rs.
 const ERR_LINK_NOT_FOUND = "ERR_LINK_NOT_FOUND";
@@ -36,6 +41,7 @@ const CODE_MESSAGES: Record<string, string> = {
   [ERR_FILE_MISSING]: "the folder this file was in is no longer there.",
   [ERR_WRITE_TIMED_OUT]: "the disk stopped responding. Check that the drive is still connected.",
   [ERR_WRITE_FAILED]: "the disk would not take the write.",
+  [ERR_ENCODING_LOSSY]: "this file's encoding cannot hold some of the characters in it.",
 };
 
 // What a failure with no code of its own says. The message underneath is the
@@ -101,6 +107,7 @@ const RENAME_CODE_MESSAGES: Record<string, string> = {
 // The two refusals about the file itself stand until the file changes. The
 // refusal about its folder does not, so it is not here: a folder comes back.
 const NOT_WORTH_REPEATING = new Set([
+  ERR_ENCODING_LOSSY,
   ERR_FILE_CHANGED_ON_DISK,
   ERR_FILE_NOT_DOWNLOADED,
   ERR_FILE_REMOVED_ON_DISK,
@@ -116,6 +123,7 @@ const NOT_WORTH_REPEATING = new Set([
 // take the write: a sync client or a mount hands it back, and the same press
 // lands then too.
 const NOT_WORTH_A_SECOND_PRESS = new Set([
+  ERR_ENCODING_LOSSY,
   ERR_NOTE_READ_ONLY,
   ERR_READ_ONLY_DESTINATION,
   ERR_HARD_LINKED,
@@ -171,9 +179,38 @@ export function describeSaveFailure(error: unknown): SaveFailureReason {
   }
   return {
     code,
-    message: CODE_MESSAGES[code],
+    message: (code === ERR_ENCODING_LOSSY && lossyMessage(error)) || CODE_MESSAGES[code],
     retryable: !NOT_WORTH_A_SECOND_PRESS.has(code),
   };
+}
+
+// `ERR_ENCODING_LOSSY: windows-1252 has no bytes for U+1F600 U+4E2D`, the shape
+// src-tauri/src/commands/buffer.rs documents for the code.
+const LOSSY_SHAPE = /^ERR_ENCODING_LOSSY: (.+) has no bytes for ((?:U\+[0-9A-F]{4,6} ?)+)$/;
+
+/** The characters a lossy save names, read off the refusal, or null. */
+export function lossyCharacters(
+  error: unknown,
+): { encoding: string; characters: string[] } | null {
+  const match = LOSSY_SHAPE.exec(rawMessage(error));
+  if (!match) return null;
+  const characters = match[2]
+    .trim()
+    .split(" ")
+    .map((point) => String.fromCodePoint(Number.parseInt(point.slice(2), 16)));
+  return { encoding: match[1], characters };
+}
+
+// "this file is Windows-1252, which cannot hold “😀” or “中”."
+function lossyMessage(error: unknown): string | null {
+  const lossy = lossyCharacters(error);
+  if (!lossy) return null;
+  const quoted = lossy.characters.map((character) => `“${character}”`);
+  const listed =
+    quoted.length < 2
+      ? quoted.join("")
+      : `${quoted.slice(0, -1).join(", ")} or ${quoted[quoted.length - 1]}`;
+  return `this file is ${encodingLabel(lossy.encoding)}, which cannot hold ${listed}.`;
 }
 
 export function formatSaveError(error: unknown): string {

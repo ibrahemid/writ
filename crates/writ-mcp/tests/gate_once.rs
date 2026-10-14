@@ -83,7 +83,7 @@ fn each_tool_call_asks_the_gate_once() {
     .expect("host");
     let client = client();
 
-    let _ = host.list_notes(&client, None, 10);
+    let _ = host.list_notes(&client, None, None, 10);
     let _ = host.read_note(&client, "Launch.md");
     let _ = host.note_links(&client, "Launch.md");
     let _ = host.folder_tags(&client);

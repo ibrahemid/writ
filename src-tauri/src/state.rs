@@ -25,6 +25,7 @@ use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_storage::paths::file_name_only;
+use writ_storage::write_lock::WriteLock;
 
 use crate::fts_scheduler::FtsScheduler;
 use crate::poison::recover_poison;
@@ -367,6 +368,9 @@ impl AppState {
 
         let mut store = BufferStore::new(conn, buffers_dir.clone());
         store.set_history(Arc::clone(&note_history));
+        // `writ mcp` holds the same lock around a program's write, so a save
+        // and that write never land between each other's compare and rename.
+        store.set_write_lock(WriteLock::in_data_folder(&writ_dir));
         // A save is stamped into the watcher's ignore set before it lands, so
         // the notes watcher never sees Writ's own writes: the store indexes
         // them itself, and needs to know which folder is the notes folder to

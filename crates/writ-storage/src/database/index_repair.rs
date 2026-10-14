@@ -1,8 +1,8 @@
 //! Recreates the notes-index tables a database lost outside the migration
 //! runner.
 //!
-//! `run_migrations` is version-gated: it applies a migration only when its
-//! version is above the one the database records. A database whose
+//! `run_migrations` is version-gated: it applies a migration only when the
+//! database records no row for its version. A database whose
 //! `schema_version` is current but whose derived tables are gone — partial
 //! corruption, a truncated write, a third-party sqlite tool — therefore has
 //! nothing to bring them back, and the first

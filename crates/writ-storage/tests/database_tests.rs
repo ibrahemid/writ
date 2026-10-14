@@ -48,6 +48,13 @@ fn roll_back_048(conn: &rusqlite::Connection) {
         .expect("failed to drop the column 048 added");
 }
 
+/// Takes back what migration 050 added: the text encoding on `buffers`. The
+/// stamp is the caller's to remove.
+fn roll_back_050(conn: &rusqlite::Connection) {
+    conn.execute("ALTER TABLE buffers DROP COLUMN encoding", [])
+        .expect("failed to drop the column 050 added");
+}
+
 #[test]
 fn open_database_creates_file_in_wal_mode() {
     let (_dir, conn) = setup_temp_db();
@@ -293,6 +300,7 @@ fn migration_043_leaves_a_row_written_before_it_on_lf() {
 
     // The shape a release before 043 leaves behind: rows with no ending
     // recorded, which the column's default has to answer for.
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -361,11 +369,11 @@ fn stamps_above_043(conn: &rusqlite::Connection) -> Vec<i32> {
 }
 
 #[test]
-fn a_fresh_database_runs_044_to_049_once_each() {
+fn a_fresh_database_runs_044_to_050_once_each() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
-    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49]);
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49, 50]);
     assert_eq!(journal_columns(&conn), JOURNAL_COLUMNS);
     let name_key: i64 = conn
         .query_row(
@@ -377,17 +385,18 @@ fn a_fresh_database_runs_044_to_049_once_each() {
     assert_eq!(name_key, 1);
 
     run_migrations(&conn).expect("second run failed");
-    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49]);
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49, 50]);
 }
 
 #[test]
-fn a_database_at_043_runs_044_to_049_with_its_rows_intact() {
+fn a_database_at_043_runs_044_to_050_with_its_rows_intact() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
     // The shape 0.5 leaves behind: 043 is the last migration it ran, so the
     // language column holds a guess from the file's name, `links` has no name
     // key and there is no journal.
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -419,7 +428,7 @@ fn a_database_at_043_runs_044_to_049_with_its_rows_intact() {
 
     run_migrations(&conn).expect("migration from 043 failed");
 
-    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49]);
+    assert_eq!(stamps_above_043(&conn), vec![44, 45, 46, 47, 48, 49, 50]);
     let (title, language): (String, Option<String>) = conn
         .query_row(
             "SELECT title, language FROM buffers WHERE id = 'buf-old'",
@@ -449,6 +458,7 @@ fn migration_044_clears_every_language_guessed_from_a_name() {
 
     // The shape a release before 044 leaves behind: rows whose language the
     // open path filled in from the extension.
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -520,6 +530,7 @@ fn migration_047_defaults_an_existing_row_to_scripts_off() {
 
     // The shape a release before 047 leaves behind: a buffer row with no
     // preview-scripts choice. The column's default has to answer for it.
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -552,6 +563,7 @@ fn migration_048_leaves_an_existing_opt_in_with_no_digest() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     conn.execute("DELETE FROM schema_version WHERE version >= 48", [])
@@ -585,6 +597,7 @@ fn a_database_at_041_gains_the_column_with_its_rows_intact() {
 
     // Roll the database back to the shape the release that ships 040 and 041
     // leaves behind, then migrate it forward again.
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -793,6 +806,7 @@ fn a_database_at_043_gains_the_name_key_of_every_stored_link() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -857,6 +871,7 @@ fn a_database_at_043_that_lost_its_links_table_still_migrates() {
 
     conn.execute("DROP TABLE links", [])
         .expect("failed to drop the table");
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -888,6 +903,7 @@ fn a_database_at_044_gains_the_name_key_of_every_stored_link() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -937,6 +953,7 @@ fn a_database_whose_links_already_carry_the_name_key_still_migrates() {
     let (_dir, conn) = setup_temp_db();
     run_migrations(&conn).expect("migrations failed");
 
+    roll_back_050(&conn);
     roll_back_049(&conn);
     roll_back_048(&conn);
     roll_back_047(&conn);
@@ -968,4 +985,76 @@ fn a_database_whose_links_already_carry_the_name_key_still_migrates() {
         })
         .expect("failed to read max version");
     assert_eq!(max_version, binary_schema_version());
+}
+
+#[test]
+fn migration_050_records_utf8_for_a_text_row_and_nothing_for_a_hex_view() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+    roll_back_050(&conn);
+    conn.execute("DELETE FROM schema_version WHERE version >= 50", [])
+        .expect("failed to roll the stamp back");
+    conn.execute(
+        "INSERT INTO buffers
+            (id, title, filename, status, cursor_pos, scroll_pos, tab_order,
+             created_at, updated_at, read_only, size_bytes)
+         VALUES ('text', 'Text', 'text.txt', 'active', 0, 0, 0,
+                 '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', 0, 5),
+                ('hex', 'Hex', 'hex.txt', 'active', 0, 0, 1,
+                 '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', 1, 5)",
+        [],
+    )
+    .expect("failed to insert buffer rows");
+
+    run_migrations(&conn).expect("migration to 050 failed");
+
+    let encoding = |id: &str| -> Option<String> {
+        conn.query_row("SELECT encoding FROM buffers WHERE id = ?1", [id], |row| {
+            row.get(0)
+        })
+        .expect("failed to read the row back")
+    };
+    assert_eq!(encoding("text").as_deref(), Some("UTF-8"));
+    assert_eq!(encoding("hex"), None);
+}
+
+/// Two branches each add a migration, and the one merged second carries the
+/// lower version. A database that ran the higher one first still gets the
+/// lower one on its next run, and nothing it already ran runs again.
+#[test]
+fn a_migration_listed_below_the_highest_recorded_one_still_runs() {
+    let (_dir, conn) = setup_temp_db();
+    run_migrations(&conn).expect("migrations failed");
+
+    roll_back_048(&conn);
+    conn.execute("DELETE FROM schema_version WHERE version = 48", [])
+        .expect("failed to remove the stamp of 048");
+    conn.execute(
+        "INSERT INTO buffers
+            (id, title, filename, status, cursor_pos, scroll_pos, tab_order,
+             created_at, updated_at, read_only, size_bytes, encoding)
+         VALUES ('buf', 'Buf', 'buf.txt', 'active', 0, 0, 0,
+                 '2026-10-14T00:00:00Z', '2026-10-14T00:00:00Z', 0, 0, 'windows-1252')",
+        [],
+    )
+    .expect("failed to insert buffer row");
+
+    run_migrations(&conn).expect("the run that fills the gap failed");
+
+    let stamps: Vec<i32> = conn
+        .prepare("SELECT version FROM schema_version WHERE version >= 48 ORDER BY version")
+        .expect("failed to prepare")
+        .query_map([], |row| row.get(0))
+        .expect("failed to query")
+        .collect::<Result<_, _>>()
+        .expect("failed to read the stamps");
+    assert_eq!(stamps, vec![48, 49, 50]);
+    let row: (Option<String>, String) = conn
+        .query_row(
+            "SELECT preview_scripts_hash, encoding FROM buffers WHERE id = 'buf'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the column 048 adds is missing");
+    assert_eq!(row, (None, "windows-1252".to_string()));
 }

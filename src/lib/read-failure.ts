@@ -3,6 +3,7 @@
 // message after it is for logs, so no wording a person reads crosses the
 // boundary. A string until the IPC errors are typed end to end.
 export const ERR_READ_NOT_UTF8 = "ERR_READ_NOT_UTF8";
+export const ERR_READ_NOT_IN_ENCODING = "ERR_READ_NOT_IN_ENCODING";
 export const ERR_READ_PERMISSION_DENIED = "ERR_READ_PERMISSION_DENIED";
 export const ERR_READ_FILE_IN_USE = "ERR_READ_FILE_IN_USE";
 export const ERR_READ_FILE_MISSING = "ERR_READ_FILE_MISSING";
@@ -11,6 +12,7 @@ export const ERR_READ_FAILED = "ERR_READ_FAILED";
 
 export const READ_FAILURE_CODES = [
   ERR_READ_NOT_UTF8,
+  ERR_READ_NOT_IN_ENCODING,
   ERR_READ_PERMISSION_DENIED,
   ERR_READ_FILE_IN_USE,
   ERR_READ_FILE_MISSING,
@@ -26,7 +28,9 @@ export interface ReadFailure {
 
 // The second half of "Could not open this file: ".
 const REASONS: Record<string, string> = {
-  [ERR_READ_NOT_UTF8]: "it is not UTF-8 text.",
+  [ERR_READ_NOT_UTF8]: "it is not UTF-8 text. Choose another encoding in the status bar.",
+  [ERR_READ_NOT_IN_ENCODING]:
+    "it is not text in the encoding it was opened in. Choose another in the status bar.",
   [ERR_READ_PERMISSION_DENIED]: "you do not have permission to read it.",
   [ERR_READ_FILE_IN_USE]: "another program has it open.",
   [ERR_READ_FILE_MISSING]: "it is no longer there.",

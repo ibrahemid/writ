@@ -47,7 +47,8 @@ pub enum HostError {
         /// The path as the caller wrote it.
         path: String,
     },
-    /// The file is there and what it holds is not UTF-8 text.
+    /// The file is there and what it holds is binary, not text in any
+    /// encoding (ADR-049).
     #[error("{path} is not text")]
     NotText {
         /// The path as the caller wrote it.

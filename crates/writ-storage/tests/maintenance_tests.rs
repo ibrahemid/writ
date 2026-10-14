@@ -59,6 +59,7 @@ fn note_row(id: &str) -> BufferDocument {
         read_only: false,
         size_bytes: 0,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     }
 }
 

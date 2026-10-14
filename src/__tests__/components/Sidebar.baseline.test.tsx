@@ -113,6 +113,7 @@ function doc(id: string, title: string, sourcePath: string | null): BufferDocume
     read_only: false,
     size_bytes: 0,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

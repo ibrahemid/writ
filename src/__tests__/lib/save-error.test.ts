@@ -6,6 +6,7 @@ import {
   formatRenameError,
   formatSaveError,
   isRetryableSaveError,
+  lossyCharacters,
 } from "../../lib/save-error";
 
 const CHANGED = "ERR_FILE_CHANGED_ON_DISK: the file changed on disk: /Users/x/Writ/Meeting notes.md";
@@ -243,5 +244,41 @@ describe("formatRenameError", () => {
   it("a_failure_that_says_nothing_still_says_something", () => {
     expect(formatRenameError("")).toBe("The file could not be renamed.");
     expect(formatRenameError(null)).toBe("The file could not be renamed.");
+  });
+});
+
+// The shape src-tauri/src/commands/buffer.rs documents for ERR_ENCODING_LOSSY,
+// as `a_lossy_save_is_refused_with_the_characters_named` asserts it there.
+const LOSSY = "ERR_ENCODING_LOSSY: windows-1252 has no bytes for U+1F600 U+4E2D";
+
+describe("a save the file's encoding cannot hold", () => {
+  it("reads the encoding and the characters off the refusal", () => {
+    expect(lossyCharacters(LOSSY)).toEqual({
+      encoding: "windows-1252",
+      characters: ["😀", "中"],
+    });
+    expect(lossyCharacters("ERR_ENCODING_LOSSY: something else")).toBeNull();
+    expect(lossyCharacters(CHANGED)).toBeNull();
+  });
+
+  it("names the encoding and the characters it cannot hold", () => {
+    expect(describeSaveFailure(LOSSY)).toEqual({
+      code: "ERR_ENCODING_LOSSY",
+      message: "this file is Windows-1252, which cannot hold “😀” or “中”.",
+      retryable: false,
+    });
+    expect(formatSaveError("ERR_ENCODING_LOSSY: Shift_JIS has no bytes for U+00E9")).toBe(
+      "this file is Shift JIS, which cannot hold “é”.",
+    );
+  });
+
+  it("falls back to the code's own sentence when the characters are not there", () => {
+    expect(formatSaveError("ERR_ENCODING_LOSSY")).toBe(
+      "this file's encoding cannot hold some of the characters in it.",
+    );
+  });
+
+  it("is not written again until the text changes", () => {
+    expect(isRetryableSaveError(LOSSY)).toBe(false);
   });
 });

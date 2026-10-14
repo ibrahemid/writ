@@ -50,6 +50,7 @@ function mockBuffer(id: string, name: string, sourcePath: string | null): Buffer
     read_only: false,
     size_bytes: 0,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

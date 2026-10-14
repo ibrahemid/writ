@@ -19,6 +19,7 @@ function mockBuffer(title: string, id = "notices-buffer"): BufferDocument {
     read_only: true,
     size_bytes: 0,
     line_ending: "lf",
+    encoding: "UTF-8",
   };
 }
 

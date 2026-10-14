@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::notes::line_ending::LineEnding;
+use crate::text_encoding::TextEncoding;
 
 /// Lifecycle state of a buffer.
 ///
@@ -73,4 +74,13 @@ pub struct BufferDocument {
     /// [`LineEnding::Lf`](crate::notes::line_ending::LineEnding::Lf).
     #[serde(default)]
     pub line_ending: LineEnding,
+    /// The text encoding the source file is in, read from its bytes when the
+    /// file was first read or chosen with Reopen with Encoding (ADR-049).
+    ///
+    /// The editor works in UTF-8, so this is what a save encodes the text
+    /// back into. `None` for a row whose file is not text Writ reads as such:
+    /// a binary file's hex view and a document Writ generated. A text row
+    /// written before it existed was read as UTF-8 and records that.
+    #[serde(default)]
+    pub encoding: Option<TextEncoding>,
 }

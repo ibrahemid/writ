@@ -348,6 +348,13 @@ function createBufferRegistry() {
     setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
   }
 
+  // Records the text encoding the file is read in and patches the entry. The
+  // caller reloads the tab's text, which is read in the encoding just kept.
+  async function reopenWithEncoding(id: string, encoding: string): Promise<void> {
+    const doc = await api.reopenWithEncoding(id, encoding);
+    setBuffers((prev) => prev.map((b) => (b.id === doc.id ? doc : b)));
+  }
+
   // `path` is what the caller asked to open; a result that names no file of
   // its own is answered under it.
   function registerOpenResult(result: FileOpenResult, path?: string): OpenOutcome {
@@ -505,6 +512,7 @@ function createBufferRegistry() {
     clearAllHistory,
     renameBuffer,
     setLanguage,
+    reopenWithEncoding,
     openFile,
     registerOpenResult,
     showOpenFileDialog,

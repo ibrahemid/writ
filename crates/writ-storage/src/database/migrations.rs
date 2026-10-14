@@ -1,6 +1,7 @@
 use crate::database::index_repair::{object_exists, repair_notes_index};
 use crate::errors::{StorageError, StorageResult};
 use rusqlite::Connection;
+use std::collections::HashSet;
 use tracing::info;
 
 const MIGRATIONS: &[(i32, &str)] = &[
@@ -45,6 +46,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
         include_str!("../../migrations/048_buffer_preview_scripts_hash.sql"),
     ),
     (49, include_str!("../../migrations/049_command_usage.sql")),
+    (50, include_str!("../../migrations/050_buffer_encoding.sql")),
 ];
 
 /// Work a migration needs that its SQL cannot do, run inside the same
@@ -111,12 +113,23 @@ pub fn applied_schema_version(conn: &Connection) -> StorageResult<i32> {
     )?)
 }
 
+/// Every migration version the database at `conn` has recorded.
+fn applied_schema_versions(conn: &Connection) -> StorageResult<HashSet<i32>> {
+    let mut statement = conn.prepare("SELECT version FROM schema_version")?;
+    let versions = statement
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<HashSet<i32>, _>>()?;
+    Ok(versions)
+}
+
 /// Applies every pending schema migration to `conn`.
 ///
 /// Migrations are embedded at compile time and tracked in a
-/// `schema_version` table. A migration is applied when its version is
-/// strictly greater than the highest previously applied version. The
-/// function is idempotent: calling it on an up-to-date database is a
+/// `schema_version` table. A migration is applied when the table has no row
+/// for its version, in the order `MIGRATIONS` lists them. Two branches can
+/// each add a migration, and the one merged second may carry the lower
+/// version; a database that already ran the higher one still gets the lower
+/// one. The function is idempotent: calling it on an up-to-date database is a
 /// no-op.
 ///
 /// Before applying anything, the runner enforces a downgrade guard: if
@@ -125,8 +138,8 @@ pub fn applied_schema_version(conn: &Connection) -> StorageResult<i32> {
 /// and is refused with [`StorageError::SchemaTooNew`] rather than read
 /// through a stale column layout (audit blocker #53.8).
 ///
-/// A version-gated runner recreates nothing in a database that records a
-/// current version, so the pass ends with
+/// A version-gated runner recreates nothing in a database that records every
+/// version, so the pass ends with
 /// [`repair_notes_index`](crate::database::index_repair::repair_notes_index),
 /// which puts back the notes-index tables a database lost some other way.
 pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
@@ -147,8 +160,9 @@ pub fn run_migrations(conn: &Connection) -> StorageResult<()> {
         });
     }
 
+    let applied = applied_schema_versions(conn)?;
     for (version, sql) in MIGRATIONS {
-        if *version > current_version {
+        if !applied.contains(version) {
             // Apply the migration body and stamp its version in one transaction
             // so a mid-batch failure rolls back completely. Without this a
             // multi-statement migration (e.g. the FTS rebuild in v30: create,

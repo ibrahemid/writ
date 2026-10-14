@@ -67,6 +67,7 @@ fn make_source_doc(id: &str, title: &str, source_path: &str) -> BufferDocument {
         read_only: false,
         size_bytes: 0,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     }
 }
 
@@ -88,6 +89,7 @@ fn make_scratch_doc(id: &str, title: &str) -> BufferDocument {
         read_only: false,
         size_bytes: 0,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     }
 }
 

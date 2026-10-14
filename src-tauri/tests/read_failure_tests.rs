@@ -28,7 +28,8 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
-    close_buffer_inner, read_buffer_content_inner, save_buffer_content_inner,
+    close_buffer_inner, read_buffer_content_inner, reopen_with_encoding_inner,
+    save_buffer_content_inner,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -165,15 +166,15 @@ fn line_ending_of(state: &AppState, id: &str) -> LineEnding {
 }
 
 #[test]
-fn a_file_that_is_not_utf8_opens_into_a_read_that_fails_with_a_code() {
+fn a_file_that_is_not_utf8_opens_in_its_own_encoding_and_reads() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let file = dir.path().join("prices-1252.csv");
     let cp1252: &[u8] = b"caf\xe9,3.50\r\nth\xe9,2.00\r\n";
     std::fs::write(&file, cp1252).unwrap();
 
-    // An open that failed had nowhere to say why: the click in the file tree
-    // did nothing. It opens a tab, and the tab's read carries the reason.
+    // The open detects the encoding (ADR-049), so the tab's read hands over
+    // the text rather than failing on bytes that are not UTF-8.
     let canonical = canonicalize_for_authorization(&file).expect("canonical");
     state.authorized_paths.record_for_open(canonical.clone());
     let opened = open_file_from_path(&state, &canonical).expect("a file that is not UTF-8 opens");
@@ -181,13 +182,14 @@ fn a_file_that_is_not_utf8_opens_into_a_read_that_fails_with_a_code() {
         matches!(opened.mode, FileOpenMode::Normal),
         "a text file that is not UTF-8 is not a binary or large file"
     );
-    let id = opened.doc.expect("the open carries its note").id;
-    let error = read_error(&state, &id);
-
-    assert!(
-        error.starts_with("ERR_READ_NOT_UTF8:"),
-        "the editor cannot tell this read from an empty file: {error}"
+    let doc = opened.doc.expect("the open carries its note");
+    assert_eq!(
+        doc.encoding.map(|encoding| encoding.label()).as_deref(),
+        Some("windows-1252")
     );
+    let bytes = read_buffer_content_inner(&state, &doc.id).expect("the file reads");
+
+    assert_eq!(bytes, "café,3.50\r\nthé,2.00\r\n".as_bytes());
     assert_eq!(
         std::fs::read(&file).unwrap(),
         cp1252,
@@ -196,7 +198,7 @@ fn a_file_that_is_not_utf8_opens_into_a_read_that_fails_with_a_code() {
 }
 
 #[test]
-fn a_closed_file_reopened_after_it_stopped_being_utf8_fails_its_read_with_a_code() {
+fn a_closed_file_reopened_after_it_stopped_being_utf8_reads_in_its_new_encoding() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
     let file = dir.path().join("menu.txt");
@@ -207,13 +209,10 @@ fn a_closed_file_reopened_after_it_stopped_being_utf8_fails_its_read_with_a_code
     let cp1252: &[u8] = b"caf\xe9, in Windows-1252\r\n";
     std::fs::write(&file, cp1252).unwrap();
     let reopened = open(&state, &file);
-    let error = read_error(&state, &reopened);
+    let bytes = read_buffer_content_inner(&state, &reopened).expect("the reopened file reads");
 
     assert_eq!(reopened, id, "the closed note comes back, not a second one");
-    assert!(
-        error.starts_with("ERR_READ_NOT_UTF8:"),
-        "a reopened file that is not UTF-8 read as an uncoded failure: {error}"
-    );
+    assert_eq!(bytes, "café, in Windows-1252\r\n".as_bytes());
     assert_eq!(line_ending_of(&state, &id), LineEnding::CrLf);
     assert_eq!(
         std::fs::read(&file).unwrap(),
@@ -223,29 +222,28 @@ fn a_closed_file_reopened_after_it_stopped_being_utf8_fails_its_read_with_a_code
 }
 
 #[test]
-fn a_file_converted_to_utf8_after_its_failed_read_reads_and_saves_with_its_own_ending() {
+fn a_file_converted_to_another_encoding_while_open_reads_once_reopened_in_it() {
     let dir = TempDir::new().unwrap();
     let state = make_state(&dir);
-    let file = dir.path().join("prices-1252.csv");
-    std::fs::write(&file, b"caf\xe9,3.50\r\nth\xe9,2.00\r\n").unwrap();
+    let file = dir.path().join("prices.csv");
+    std::fs::write(&file, "cafe,3.50\r\n").unwrap();
     let id = open(&state, &file);
-    assert_eq!(
-        line_ending_of(&state, &id),
-        LineEnding::CrLf,
-        "the ending is counted from the bytes even when they are not UTF-8"
-    );
-    read_error(&state, &id);
 
-    // The person converts it outside Writ and presses Try again.
-    std::fs::write(&file, "café,3.50\r\nthé,2.00\r\n").unwrap();
-    let bytes = read_buffer_content_inner(&state, &id).expect("a converted file reads");
+    // Another program saves it as Windows-1252 while the tab holds it as
+    // UTF-8: the read fails with its code, and the note is reopened in the
+    // encoding the file is in now.
+    std::fs::write(&file, b"caf\xe9,3.50\r\nth\xe9,2.00\r\n").unwrap();
+    assert!(read_error(&state, &id).starts_with("ERR_READ_NOT_UTF8:"));
+    reopen_with_encoding_inner(&state, &id, "windows-1252").expect("reopens");
+    let bytes = read_buffer_content_inner(&state, &id).expect("the file reads in its encoding");
     assert_eq!(bytes, "café,3.50\r\nthé,2.00\r\n".as_bytes());
 
     save_buffer_content_inner(&state, &id, "café,3.75\nthé,2.00\n")
-        .expect("the file opened from a failed read can be saved once it reads");
+        .expect("the reopened file saves");
     assert_eq!(
-        std::fs::read_to_string(&file).unwrap(),
-        "café,3.75\r\nthé,2.00\r\n"
+        std::fs::read(&file).unwrap(),
+        b"caf\xe9,3.75\r\nth\xe9,2.00\r\n",
+        "written back in its own encoding and ending"
     );
 }
 

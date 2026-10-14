@@ -27,6 +27,10 @@ url = "2"
 # `FilesConfig::from_config_text` reads one table out of a whole config.toml
 # for the consumers that hold no `WritConfig`.
 toml = "1.1"
+# Text encodings (ADR-049): decoding and encoding, and the guess for a file
+# that is not UTF-8.
+encoding_rs = "0.8.42"
+chardetng = "1.0.0"
 toml_edit = { version = "0.25", default-features = false, features = ["parse", "display"] }
 
 [dev-dependencies]

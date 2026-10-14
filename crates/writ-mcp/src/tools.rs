@@ -37,6 +37,11 @@
 //! session has not seen is refused unless the client passes `overwrite`, and
 //! an overwrite is logged under its own action, [`OVERWRITE_ACTION`].
 //!
+//! Every write holds the data folder's write lock across its last read of the
+//! note and its rename, the lock the app holds around its saves
+//! ([`writ_storage::write_lock`]), so a program's write and a save in the app
+//! never land between each other's compare and rename (ADR-031 rule 1.4).
+//!
 //! Nothing here stamps the app's ignore set, and that is load-bearing rather
 //! than a gap. The stamp is how Writ tells its own writes apart from somebody
 //! else's; a write from this process **is** somebody else's, and the running
@@ -46,8 +51,8 @@
 //! the client's child.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::{Instant, SystemTime};
 
 use writ_core::activity::{display_program_name, ActivityRecord, Actor, RepeatFold};
 use writ_core::config::{FileExtension, FilesConfig};
@@ -58,8 +63,9 @@ use writ_core::notes::WriteOrigin;
 use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::note_host::NoteHostImpl;
 use writ_storage::paths::{file_name_only, relative_slug};
+use writ_storage::write_lock::WriteLock;
 
-use crate::consent::{ClientId, ConsentGate, Decision, Verdict};
+use crate::consent::{stamp_of, ClientId, ConsentGate, Decision, Verdict, CONFIG_FILE};
 
 /// Largest note a tool reads, in bytes (ADR-031 rule 4.8): the note host's
 /// ceiling, which every surface reading a whole note is held to.
@@ -67,6 +73,31 @@ pub use writ_core::notes::host::MAX_NOTE_BYTES;
 
 /// Most notes or hits one call answers with, whatever the caller asked for.
 pub const MAX_RESULTS: usize = 500;
+
+/// How far into the ranked hits a search cursor may point. Every hit up to the
+/// page is ranked and cut a fragment from, so a cursor past any folder's
+/// worth of hits is refused rather than run.
+pub const MAX_SEARCH_OFFSET: usize = 100_000;
+
+/// One page of [`ToolHost::list_notes`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct NotePage {
+    /// The notes on this page, ordered by path.
+    pub notes: Vec<NoteSummary>,
+    /// What to pass as `cursor` for the next page, absent on the last one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+/// One page of [`ToolHost::search_notes`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct HitPage {
+    /// The hits on this page, best match first.
+    pub hits: Vec<SearchResult>,
+    /// What to pass as `cursor` for the next page, absent on the last one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
 
 /// The tools that only read, and the tools that change a note.
 ///
@@ -137,6 +168,11 @@ pub enum ToolError {
     /// The index is absent, unreadable, or at another version.
     #[error("The note index is not readable. Open Writ once and it builds one.")]
     IndexUnavailable,
+    /// The notes folder the settings name is not there, or cannot be told
+    /// apart from anywhere else. Nothing is answered from the folder it was
+    /// before.
+    #[error("The folder set in Writ is not there.")]
+    NotesFolderMissing,
     /// Nothing is at the path.
     #[error("There is no note at {path}.")]
     NotFound {
@@ -152,7 +188,7 @@ pub enum ToolError {
         bytes: u64,
     },
     /// The file is there and this process could not read it: no permission, or
-    /// text that is not UTF-8.
+    /// bytes that are not text.
     #[error("{path} could not be read.")]
     Unreadable {
         /// The path as the client wrote it.
@@ -175,6 +211,9 @@ pub enum ToolError {
         /// written, spelled relative to the notes folder the way `path` is.
         conflict_copy: Option<String>,
     },
+    /// `cursor` is not a `next_cursor` this tool answered with.
+    #[error("cursor has to be the next_cursor an earlier call returned.")]
+    CursorNotUnderstood,
     /// `expected_hash` is not the 64 hex characters a read hands back.
     #[error("expected_hash for {path} has to be the hash read_note returned.")]
     HashNotUnderstood {
@@ -307,35 +346,65 @@ impl AppNotesFolder for FixedAppFolder {
 }
 
 /// The notes folder and the index over it, behind a consent gate.
+///
+/// The folder, the index and the format a minted note carries are read again
+/// whenever `config.toml` changes, so a server a client keeps running follows
+/// the folder the person moves in Settings and the format they pick, and an
+/// index the app builds after the server started is opened at the next call.
 pub struct ToolHost {
     writ_dir: PathBuf,
-    host: NoteHostImpl<'static>,
+    db_path: PathBuf,
+    served: ServedRoot,
     app_folder: Box<dyn AppNotesFolder>,
     gate: Box<dyn ConsentGate>,
-    default_extension: FileExtension,
+    current: Mutex<Current>,
     history: OnceLock<NoteHistoryStore>,
     fold: Mutex<RepeatFold>,
 }
 
+/// Which folder a host answers from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ServedRoot {
+    /// The folder it was opened on, whatever the settings say:
+    /// `WRIT_NOTES_DIR`, or a folder a test serves.
+    Pinned(PathBuf),
+    /// The app's notes folder as [`AppNotesFolder`] names it after each change
+    /// to the settings.
+    App,
+}
+
+/// The handle the last resolution produced, and the settings it was read from.
+struct Current {
+    /// Modified time and length of `config.toml` when the folder and the
+    /// format were last read. `None` is a file that was not there.
+    settings: Option<(SystemTime, u64)>,
+    host: NoteHostImpl<'static>,
+}
+
 impl std::fmt::Debug for ToolHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let current = self.resolved();
         f.debug_struct("ToolHost")
-            .field("notes_root", &self.host.notes_root())
+            .field("notes_root", &current.host.notes_root())
+            .field("served", &self.served)
             .field("writ_dir", &self.writ_dir)
-            .field("index", &self.host.has_index())
-            .field("default_extension", &self.default_extension)
+            .field("index", &current.host.has_index())
+            .field("default_extension", &current.host.default_extension())
             .field("history", &self.history.get().is_some())
             .finish_non_exhaustive()
     }
 }
 
 impl ToolHost {
-    /// Opens the folder at `notes_root` and, if it can, the index at `db_path`.
+    /// Opens the folder at `notes_root` and, if it can, the index at `db_path`,
+    /// serving that folder whatever the settings name later.
     ///
     /// An index that is absent, unreadable, or written to another schema
     /// version leaves the host without one rather than failing: the two tools
     /// that read the folder still answer, and the rest say so
-    /// ([`ToolError::IndexUnavailable`]).
+    /// ([`ToolError::IndexUnavailable`]). Each allowed call tries the index
+    /// again while there is none, so one the app builds later is used without
+    /// a restart.
     ///
     /// The host is opened holding nothing. Each call derives its set from the
     /// gate's verdict, so there is no handle in this process that may write
@@ -349,93 +418,266 @@ impl ToolHost {
         app_folder: Box<dyn AppNotesFolder>,
         gate: Box<dyn ConsentGate>,
     ) -> Result<Self, ToolError> {
-        let default_extension = read_default_extension(writ_dir);
+        Self::open_serving(
+            ServedRoot::Pinned(notes_root.to_path_buf()),
+            db_path,
+            writ_dir,
+            app_folder,
+            gate,
+        )
+    }
+
+    /// Opens the app's notes folder, as `app_folder` names it, and follows it:
+    /// a folder the person moves in Settings is the one the next call answers
+    /// from (AM-12).
+    ///
+    /// Everything else is [`ToolHost::open`]'s. A folder the settings name and
+    /// the disk does not hold is [`ToolError::NotesFolderMissing`], here and at
+    /// any later call.
+    pub fn open_following_app(
+        db_path: &Path,
+        writ_dir: &Path,
+        app_folder: Box<dyn AppNotesFolder>,
+        gate: Box<dyn ConsentGate>,
+    ) -> Result<Self, ToolError> {
+        Self::open_serving(ServedRoot::App, db_path, writ_dir, app_folder, gate)
+    }
+
+    fn open_serving(
+        served: ServedRoot,
+        db_path: &Path,
+        writ_dir: &Path,
+        app_folder: Box<dyn AppNotesFolder>,
+        gate: Box<dyn ConsentGate>,
+    ) -> Result<Self, ToolError> {
+        let settings = stamp_of(&writ_dir.join(CONFIG_FILE));
+        let root = served_root(&served, app_folder.as_ref())?;
         let host = NoteHostImpl::open(
-            notes_root,
+            &root,
             Some(db_path),
             PermissionSet::default(),
-            default_extension,
+            read_default_extension(writ_dir),
         )
-        .map_err(|_| ToolError::NotFound {
-            path: notes_root.display().to_string(),
+        .map(|host| host.with_write_lock(Some(WriteLock::in_data_folder(writ_dir))))
+        .map_err(|_| match &served {
+            ServedRoot::Pinned(root) => ToolError::NotFound {
+                path: root.display().to_string(),
+            },
+            ServedRoot::App => ToolError::NotesFolderMissing,
         })?;
         Ok(Self {
             writ_dir: writ_dir.to_path_buf(),
-            host,
+            db_path: db_path.to_path_buf(),
+            served,
             app_folder,
             gate,
-            default_extension,
+            current: Mutex::new(Current { settings, host }),
             history: OnceLock::new(),
             fold: Mutex::new(RepeatFold::default()),
         })
     }
 
-    /// The folder every path argument is checked against.
-    pub fn notes_root(&self) -> &Path {
-        self.host.notes_root()
+    /// The folder every path argument is checked against, as the last allowed
+    /// call resolved it.
+    pub fn notes_root(&self) -> PathBuf {
+        self.resolved().host.notes_root().to_path_buf()
     }
 
-    /// Whether the index answered when the host was opened.
+    /// Whether the index is open, as of the last allowed call.
     pub fn has_index(&self) -> bool {
-        self.host.has_index()
+        self.resolved().host.has_index()
     }
 
-    /// Every note in the folder, path-ordered.
+    /// The last resolution, as it stands.
+    fn resolved(&self) -> MutexGuard<'_, Current> {
+        self.current
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The handle an allowed call runs through, resolved again when the
+    /// settings changed since the last one.
+    ///
+    /// One `stat` of `config.toml` per call while nothing changed, the guard
+    /// [`crate::consent::ConfigGate`] runs on. A changed file re-reads the
+    /// folder and the format; a folder that is not there answers
+    /// [`ToolError::NotesFolderMissing`] and is asked again at the next call
+    /// rather than remembered. While no index is open, the index is tried on
+    /// every call: the app writes `writ.db` through its own connection, so the
+    /// file's stamp says nothing about when its tables appear.
+    fn refreshed(&self) -> Result<NoteHostImpl<'static>, ToolError> {
+        let settings = stamp_of(&self.writ_dir.join(CONFIG_FILE));
+        let mut current = self.resolved();
+        if current.settings != settings {
+            let root = served_root(&self.served, self.app_folder.as_ref())?;
+            let reopened = current
+                .host
+                .reopen(
+                    &root,
+                    Some(&self.db_path),
+                    read_default_extension(&self.writ_dir),
+                )
+                .map_err(|_| ToolError::NotesFolderMissing)?;
+            current.host = reopened;
+            current.settings = settings;
+        } else if !current.host.has_index() && self.db_path.is_file() {
+            let root = current.host.notes_root().to_path_buf();
+            let extension = current.host.default_extension();
+            if let Ok(reopened) = current.host.reopen(&root, Some(&self.db_path), extension) {
+                current.host = reopened;
+            }
+        }
+        Ok(current.host.with_permissions(PermissionSet::default()))
+    }
+
+    /// Notes in the folder, ordered by path, a page at a time.
     ///
     /// `prefix` is matched against the path relative to the folder and against
-    /// the path this method hands back, so `Projects` and the folder's own
-    /// spelling of it both list that folder and nothing else. Answers from the
-    /// folder, not the index: the file is the only copy (ADR-028 section 1).
+    /// the folder's own spelling of it, so `Projects` lists that folder and
+    /// nothing else. Answers from the folder, not the index: the file is the
+    /// only copy (ADR-028 section 1). Every path is relative to the folder.
+    ///
+    /// `cursor` is the `next_cursor` an earlier page answered with: the page
+    /// starts after that path, so a note added or removed before it shifts
+    /// nothing. The page has a `next_cursor` while more notes follow.
     pub fn list_notes(
         &self,
         client: &ClientId,
         prefix: Option<&str>,
+        cursor: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<NoteSummary>, ToolError> {
+    ) -> Result<NotePage, ToolError> {
         let host = self.permit(client, "list_notes", None)?;
-        host.list_notes(prefix, limit.min(MAX_RESULTS))
-            .map_err(|error| tool_error(self.host.notes_root(), client, "list_notes", error))
+        let root = host.notes_root();
+        let listed = host
+            .list_notes(prefix, usize::MAX)
+            .map_err(|error| tool_error(root, client, "list_notes", error))?;
+        let mut notes: Vec<NoteSummary> = listed
+            .into_iter()
+            .filter_map(|note| {
+                Some(NoteSummary {
+                    path: in_folder(root, &note.path)?,
+                    ..note
+                })
+            })
+            .filter(|note| cursor.is_none_or(|after| note.path.as_str() > after))
+            .collect();
+        notes.sort_by(|a, b| a.path.cmp(&b.path));
+        let limit = limit.clamp(1, MAX_RESULTS);
+        let next_cursor = (notes.len() > limit).then(|| notes[limit - 1].path.clone());
+        notes.truncate(limit);
+        Ok(NotePage { notes, next_cursor })
     }
 
-    /// Up to `limit` notes whose text matches `query`.
+    /// Notes whose text matches `query`, best match first, a page at a time.
     ///
     /// The query is turned into the same prefix-match expression the app's own
     /// search builds, so a tool and the window rank one folder the same way and
-    /// an FTS operator in the argument never reaches the `MATCH` parser.
+    /// an FTS operator in the argument never reaches the `MATCH` parser. A hit
+    /// the served folder does not hold is left out: the index covers the app's
+    /// folder, which a server started on another one does not answer for.
+    ///
+    /// `cursor` is the `next_cursor` an earlier page answered with. It counts
+    /// ranked hits, the left-out ones included, so no hit is skipped or repeated
+    /// while the index stands still.
     pub fn search_notes(
         &self,
         client: &ClientId,
         query: &str,
+        cursor: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<SearchResult>, ToolError> {
+    ) -> Result<HitPage, ToolError> {
         let host = self.permit(client, "search_notes", None)?;
-        host.search_notes(query, limit.min(MAX_RESULTS))
-            .map_err(|error| tool_error(self.host.notes_root(), client, "search_notes", error))
+        let root = host.notes_root();
+        let offset = match cursor {
+            None => 0,
+            Some(cursor) => cursor
+                .parse::<usize>()
+                .ok()
+                .filter(|offset| *offset <= MAX_SEARCH_OFFSET)
+                .ok_or(ToolError::CursorNotUnderstood)?,
+        };
+        let limit = limit.clamp(1, MAX_RESULTS);
+        let mut ranked = host
+            .search_notes(query, offset, limit + 1)
+            .map_err(|error| tool_error(root, client, "search_notes", error))?;
+        let next_cursor = (ranked.len() > limit).then(|| (offset + limit).to_string());
+        ranked.truncate(limit);
+        let hits = ranked
+            .into_iter()
+            .filter_map(|hit| {
+                Some(SearchResult {
+                    path: in_folder(root, &hit.path)?,
+                    ..hit
+                })
+            })
+            .collect();
+        Ok(HitPage { hits, next_cursor })
     }
 
     /// The whole file at `path`, frontmatter included.
     pub fn read_note(&self, client: &ClientId, path: &str) -> Result<NoteContent, ToolError> {
         let host = self.permit(client, "read_note", Some(path))?;
-        host.read_note(path)
-            .map_err(|error| tool_error(self.host.notes_root(), client, "read_note", error))
+        let root = host.notes_root();
+        let note = host
+            .read_note(path)
+            .map_err(|error| tool_error(root, client, "read_note", error))?;
+        Ok(NoteContent {
+            path: spelled_in(root, &note.path),
+            ..note
+        })
     }
 
     /// Every link written in the note at `path`.
+    ///
+    /// A link that resolves to a note outside the served folder answers with
+    /// no `resolved_path`, as one that resolves nowhere does.
     pub fn note_links(&self, client: &ClientId, path: &str) -> Result<Vec<NoteLink>, ToolError> {
         let host = self.permit(client, "note_links", Some(path))?;
-        host.note_links(path)
-            .map_err(|error| tool_error(self.host.notes_root(), client, "note_links", error))
+        let root = host.notes_root();
+        let links = host
+            .note_links(path)
+            .map_err(|error| tool_error(root, client, "note_links", error))?;
+        Ok(links
+            .into_iter()
+            .map(|link| NoteLink {
+                resolved_path: link
+                    .resolved_path
+                    .as_deref()
+                    .and_then(|resolved| in_folder(root, resolved)),
+                ..link
+            })
+            .collect())
     }
 
     /// Every link in another note that points at the note at `path`.
+    ///
+    /// A link written in a note outside the served folder is left out, and so
+    /// is a candidate outside it.
     pub fn note_backlinks(
         &self,
         client: &ClientId,
         path: &str,
     ) -> Result<Vec<NoteBacklink>, ToolError> {
         let host = self.permit(client, "note_backlinks", Some(path))?;
-        host.note_backlinks(path)
-            .map_err(|error| tool_error(self.host.notes_root(), client, "note_backlinks", error))
+        let root = host.notes_root();
+        let backlinks = host
+            .note_backlinks(path)
+            .map_err(|error| tool_error(root, client, "note_backlinks", error))?;
+        Ok(backlinks
+            .into_iter()
+            .filter_map(|backlink| {
+                Some(NoteBacklink {
+                    from_path: in_folder(root, &backlink.from_path)?,
+                    candidates: backlink
+                        .candidates
+                        .iter()
+                        .filter_map(|candidate| in_folder(root, candidate))
+                        .collect(),
+                    ..backlink
+                })
+            })
+            .collect())
     }
 
     /// The frontmatter properties of the note at `path`.
@@ -445,9 +687,9 @@ impl ToolHost {
         path: &str,
     ) -> Result<Vec<NoteProperty>, ToolError> {
         let host = self.permit(client, "note_properties", Some(path))?;
-        let facts = host.note_facts(path).map_err(|error| {
-            tool_error(self.host.notes_root(), client, "note_properties", error)
-        })?;
+        let facts = host
+            .note_facts(path)
+            .map_err(|error| tool_error(host.notes_root(), client, "note_properties", error))?;
         Ok(facts
             .properties
             .into_iter()
@@ -460,7 +702,7 @@ impl ToolHost {
         let host = self.permit(client, "note_tags", Some(path))?;
         let facts = host
             .note_facts(path)
-            .map_err(|error| tool_error(self.host.notes_root(), client, "note_tags", error))?;
+            .map_err(|error| tool_error(host.notes_root(), client, "note_tags", error))?;
         Ok(facts
             .tags
             .into_iter()
@@ -472,7 +714,7 @@ impl ToolHost {
     pub fn folder_tags(&self, client: &ClientId) -> Result<Vec<FolderTag>, ToolError> {
         let host = self.permit(client, "folder_tags", None)?;
         host.folder_tags()
-            .map_err(|error| tool_error(self.host.notes_root(), client, "folder_tags", error))
+            .map_err(|error| tool_error(host.notes_root(), client, "folder_tags", error))
     }
 
     /// Replaces the text of the note at `path`, keeping what it held as a
@@ -510,6 +752,7 @@ impl ToolHost {
         overwrite: bool,
     ) -> Result<WriteReceipt, ToolError> {
         let permitted = self.permit(client, "write_note", Some(path));
+        let root = self.root_of(&permitted);
         let written = permitted.and_then(|host| {
             self.replace_text(host, client, path, content, expected_hash, overwrite)
         });
@@ -520,13 +763,12 @@ impl ToolHost {
             } else {
                 "write_note"
             },
-            Some(
-                self.logged_path(
-                    written
-                        .as_ref()
-                        .map_or(path, |receipt| receipt.path.as_str()),
-                ),
-            ),
+            Some(logged_path(
+                &root,
+                written
+                    .as_ref()
+                    .map_or(path, |receipt| receipt.path.as_str()),
+            )),
             Some(content.len() as u64),
             decision_of(&written),
         );
@@ -537,7 +779,10 @@ impl ToolHost {
     ///
     /// The name is sanitised into a filename the way every other surface
     /// sanitises one ([`writ_core::notes::sanitize_title`]), so a name that
-    /// spells a path is a name and not a path. A note of that name already in
+    /// spells a path is a name and not a path. A name ending in a text
+    /// extension keeps that format and any other takes the configured one
+    /// ([`writ_core::notes::requested_note_name`]), so `Plan.md` is minted as
+    /// `Plan.md` and `Plan.2026` as `Plan.2026.md`. A note of that name already in
     /// the folder is answered with [`ToolError::NameTaken`] and left alone.
     /// Already in the folder is the facade's reading of it, which folds a name
     /// to NFC and lowercase, so `launch.md` holds the name `Launch` on a
@@ -554,13 +799,18 @@ impl ToolHost {
         content: &str,
     ) -> Result<WriteReceipt, ToolError> {
         let permitted = self.permit(client, "create_note", None);
+        let root = self.root_of(&permitted);
+        let extension = match &permitted {
+            Ok(host) => host.default_extension(),
+            Err(_) => self.resolved().host.default_extension(),
+        };
         let created = permitted.and_then(|host| self.mint_note(&host, client, name, content));
         self.record(
             client,
             "create_note",
             Some(created.as_ref().map_or_else(
-                |_| minted_slug(name, self.default_extension),
-                |receipt| self.logged_path(&receipt.path),
+                |_| minted_slug(name, extension),
+                |receipt| logged_path(&root, &receipt.path),
             )),
             Some(content.len() as u64),
             decision_of(&created),
@@ -587,21 +837,30 @@ impl ToolHost {
         new_name: &str,
     ) -> Result<RenameReceipt, ToolError> {
         let permitted = self.permit(client, "rename_note", Some(path));
+        let root = self.root_of(&permitted);
         let renamed = permitted.and_then(|host| self.move_name(&host, client, path, new_name));
         self.record(
             client,
             "rename_note",
-            Some(
-                self.logged_path(
-                    renamed
-                        .as_ref()
-                        .map_or(path, |(receipt, _)| receipt.path.as_str()),
-                ),
-            ),
+            Some(logged_path(
+                &root,
+                renamed
+                    .as_ref()
+                    .map_or(path, |(receipt, _)| receipt.path.as_str()),
+            )),
             renamed.as_ref().ok().map(|(_, bytes)| *bytes),
             decision_of(&renamed),
         );
         renamed.map(|(receipt, _)| receipt)
+    }
+
+    /// The folder a write call is logged against: the one its handle serves,
+    /// or for a refused call, the one the last allowed call resolved.
+    fn root_of(&self, permitted: &Result<NoteHostImpl<'static>, ToolError>) -> PathBuf {
+        match permitted {
+            Ok(host) => host.notes_root().to_path_buf(),
+            Err(_) => self.notes_root(),
+        }
     }
 
     /// [`ToolHost::write_note`] past the gate.
@@ -632,10 +891,16 @@ impl ToolHost {
             (None, false) => LastKnown::LastSeen,
             (None, true) => LastKnown::Overwrite,
         };
-        let history = self.history(path)?;
-        host.with_history(history)
+        let root = host.notes_root().to_path_buf();
+        let history = self.history(&root, path)?;
+        let receipt = host
+            .with_history(history)
             .write_note(path, content, last_known, self.origin(client))
-            .map_err(|error| tool_error(self.host.notes_root(), client, "write_note", error))
+            .map_err(|error| tool_error(&root, client, "write_note", error))?;
+        Ok(WriteReceipt {
+            path: spelled_in(&root, &receipt.path),
+            ..receipt
+        })
     }
 
     /// The app's version store, opened at the first write that needs it, or
@@ -650,7 +915,7 @@ impl ToolHost {
     /// late so a session that only reads, or is refused, creates nothing. A
     /// store that would not open is tried again on the next write rather than
     /// remembered as missing.
-    fn history(&self, path: &str) -> Result<Option<&NoteHistoryStore>, ToolError> {
+    fn history(&self, served: &Path, path: &str) -> Result<Option<&NoteHistoryStore>, ToolError> {
         // Canonical, as the served folder is, so a note's path is spelled the
         // same way relative to both.
         let Some(app_root) = self
@@ -661,7 +926,6 @@ impl ToolHost {
         else {
             return Ok(None);
         };
-        let served = self.host.notes_root();
         if !served.starts_with(&app_root) && !app_root.starts_with(served) {
             return Ok(None);
         }
@@ -690,8 +954,14 @@ impl ToolHost {
         content: &str,
     ) -> Result<WriteReceipt, ToolError> {
         self.text_fits(content)?;
-        host.create_note(name, content, self.origin(client))
-            .map_err(|error| tool_error(self.host.notes_root(), client, "create_note", error))
+        let root = host.notes_root();
+        let receipt = host
+            .create_note(name, content, self.origin(client))
+            .map_err(|error| tool_error(root, client, "create_note", error))?;
+        Ok(WriteReceipt {
+            path: spelled_in(root, &receipt.path),
+            ..receipt
+        })
     }
 
     /// [`ToolHost::rename_note`] past the gate, with the file's length for the
@@ -703,13 +973,14 @@ impl ToolHost {
         path: &str,
         new_name: &str,
     ) -> Result<(RenameReceipt, u64), ToolError> {
+        let root = host.notes_root();
         let moved = host
             .rename_note(path, new_name, self.origin(client))
-            .map_err(|error| tool_error(self.host.notes_root(), client, "rename_note", error))?;
+            .map_err(|error| tool_error(root, client, "rename_note", error))?;
         Ok((
             RenameReceipt {
-                path: moved.path,
-                previous_path: moved.previous_path,
+                path: spelled_in(root, &moved.path),
+                previous_path: spelled_in(root, &moved.previous_path),
             },
             moved.bytes,
         ))
@@ -729,31 +1000,6 @@ impl ToolHost {
             return Err(ToolError::TooMuchText { bytes });
         }
         Ok(())
-    }
-
-    /// The spelling of a note the activity log takes: relative to the notes
-    /// folder, forward slashes, whichever way the call went.
-    ///
-    /// The user reads one list, so a note is spelled one way in it. An allowed
-    /// write naming `Projects/Writ.md` beside a refused one naming
-    /// `/Users/…/Notes/Projects/Writ.md` is the same note written twice as far
-    /// as anybody reading can tell. It also keeps the folder this machine
-    /// keeps its notes in out of a file the user may hand to somebody.
-    ///
-    /// Pure, and it stays pure: a refused call opens no file, so nothing here
-    /// resolves, stats or lists anything. A path the folder does not hold is
-    /// logged by its file name alone: there is no note to name, and the rest of
-    /// what a client sent is a machine's folder layout in a file the user may
-    /// hand to somebody.
-    fn logged_path(&self, path: &str) -> String {
-        let root = self.host.notes_root();
-        let given = Path::new(path);
-        let candidate = if given.is_absolute() {
-            given.to_path_buf()
-        } else {
-            root.join(given)
-        };
-        relative_slug(root, &candidate).unwrap_or_else(|| file_name_only(path))
     }
 
     /// Appends one call to the activity log: the only place this server writes
@@ -792,12 +1038,13 @@ impl ToolHost {
     }
 
     /// Called first by every method: the gate decides once, and an allowed call
-    /// gets a handle holding what its direction may ask for.
+    /// gets a handle over the folder as the settings name it now, holding what
+    /// its direction may ask for.
     ///
     /// A read's line is written here, with the file `path` names. A write's is
     /// written by the method once the write has run, so its line can say where
-    /// it landed. A refusal never reaches the host, so it opens no file and
-    /// runs no query.
+    /// it landed. A refusal never reaches the host, so it opens no file, runs
+    /// no query and resolves no folder.
     fn permit(
         &self,
         client: &ClientId,
@@ -805,22 +1052,27 @@ impl ToolHost {
         path: Option<&str>,
     ) -> Result<NoteHostImpl<'static>, ToolError> {
         let verdict = self.gate.decide(client, tool);
+        let decision = verdict.decision();
         let writes = writ_core::tools::is_write_tool(tool);
+        let resolved = match refusal_for(verdict, client, tool) {
+            Some(refusal) => Err(refusal),
+            None => self.refreshed(),
+        };
         if !writes {
+            let root = self.root_of(&resolved);
             self.record(
                 client,
                 tool,
-                path.map(|path| self.logged_path(path)),
+                path.map(|path| logged_path(&root, path)),
                 None,
-                verdict.decision(),
+                decision,
             );
         }
-        refusal_for(verdict, client, tool).map_or(Ok(()), Err)?;
         let held = match writes {
             true => write_permissions(),
             false => read_permissions(),
         };
-        Ok(self.host.with_permissions(held))
+        Ok(resolved?.with_permissions(held))
     }
 }
 
@@ -872,25 +1124,78 @@ fn decision_of<T>(result: &Result<T, ToolError>) -> Decision {
     }
 }
 
+/// The spelling of a note the activity log takes: relative to the notes
+/// folder `root`, forward slashes, whichever way the call went.
+///
+/// The user reads one list, so a note is spelled one way in it. An allowed
+/// write naming `Projects/Writ.md` beside a refused one naming
+/// `/Users/…/Notes/Projects/Writ.md` is the same note written twice as far
+/// as anybody reading can tell. It also keeps the folder this machine
+/// keeps its notes in out of a file the user may hand to somebody.
+///
+/// Pure, and it stays pure: a refused call opens no file, so nothing here
+/// resolves, stats or lists anything. A path the folder does not hold is
+/// logged by its file name alone: there is no note to name, and the rest of
+/// what a client sent is a machine's folder layout in a file the user may
+/// hand to somebody.
+fn logged_path(root: &Path, path: &str) -> String {
+    let given = Path::new(path);
+    let candidate = if given.is_absolute() {
+        given.to_path_buf()
+    } else {
+        root.join(given)
+    };
+    relative_slug(root, &candidate).unwrap_or_else(|| file_name_only(path))
+}
+
+/// A path the host answered with, spelled from the served folder `root` down
+/// with forward slashes, or `None` for one the folder does not hold.
+///
+/// Every path a client is handed is one of these (AM-20): the folder this
+/// machine keeps its notes in is not the client's to know, and a model
+/// provider the client forwards the answer to would learn it too. A client
+/// hands the same spelling back, which every path argument accepts.
+fn in_folder(root: &Path, key: &str) -> Option<String> {
+    relative_slug(root, Path::new(key)).filter(|relative| !relative.is_empty())
+}
+
+/// [`in_folder`] for a path the host minted or resolved inside the folder, so
+/// it has a relative spelling; the file name stands in for one that somehow
+/// does not, rather than the absolute path.
+fn spelled_in(root: &Path, key: &str) -> String {
+    in_folder(root, key).unwrap_or_else(|| file_name_only(key))
+}
+
 /// The note a `create_note` call names, in the log's spelling.
 ///
 /// A refused call has no minted file to name, so the name is spelled the way
 /// the file would have been, in the format the mint would have used: the log
 /// says `Ship it.txt` whether the note was minted or turned down, rather than
-/// a path one time and a bare name the next. A name that sanitises to nothing
-/// is left as it was written.
+/// a path one time and a bare name the next. A name that spells its own text
+/// format keeps it, as the mint does. A name that sanitises to nothing is left
+/// as it was written.
 fn minted_slug(name: &str, extension: FileExtension) -> String {
-    writ_core::notes::sanitize_title(name)
-        .map(|stem| format!("{stem}.{}", extension.as_str()))
+    writ_core::notes::requested_note_name(name, extension.as_str())
+        .map(|(stem, extension)| format!("{stem}.{extension}"))
         .unwrap_or_else(|| name.to_string())
+}
+
+/// The folder `served` names now.
+fn served_root(served: &ServedRoot, app_folder: &dyn AppNotesFolder) -> Result<PathBuf, ToolError> {
+    match served {
+        ServedRoot::Pinned(root) => Ok(root.clone()),
+        ServedRoot::App => app_folder
+            .app_notes_root()
+            .ok_or(ToolError::NotesFolderMissing),
+    }
 }
 
 /// The format a note this server mints carries, read from `<writ_dir>/config.toml`.
 ///
-/// Read once at open, the way the gate reads `[mcp]`: a note a connected
-/// program makes is a file Writ mints and carries the format the person chose
-/// (ADR-041 §2). A config that is absent or unreadable leaves the default,
-/// which is what an install that has never been opened has.
+/// Read again whenever the file changes, the way the gate reads `[mcp]`: a
+/// note a connected program makes is a file Writ mints and carries the format
+/// the person chose (ADR-041 §2). A config that is absent or unreadable leaves
+/// the default, which is what an install that has never been opened has.
 fn read_default_extension(writ_dir: &Path) -> FileExtension {
     let text = std::fs::read_to_string(writ_dir.join("config.toml")).unwrap_or_default();
     FilesConfig::from_config_text(&text).default_extension
@@ -903,7 +1208,7 @@ fn read_default_extension(writ_dir: &Path) -> FileExtension {
 /// machine, and neither is in the answer: a conflict copy is spelled relative
 /// to `root`, the way the client spelled the note.
 ///
-/// A text that is not UTF-8 and a file that would not open are one sentence
+/// A file that is not text and a file that would not open are one sentence
 /// here, because they are one situation to a client: the note did not come
 /// back. `NotPermitted` is the gate's answer spelled the gate's way, which is
 /// the only way it can arise: a set is derived from a verdict and never from an
@@ -1089,9 +1394,16 @@ mod tests {
             .count()
     }
 
-    /// The path a tool takes back for a file on disk.
+    /// The index's key for a file on disk.
     fn key(path: &Path) -> String {
         notes_index::index_key(path)
+    }
+
+    /// The path a tool answers with for a file on disk: relative to the notes
+    /// folder, forward slashes.
+    fn rel(fixture: &Fixture, path: &Path) -> String {
+        let root = resolve_for_containment(&fixture.notes).expect("the notes folder");
+        relative_slug(&root, Path::new(&key(path))).expect("a file in the folder")
     }
 
     #[test]
@@ -1106,25 +1418,24 @@ mod tests {
         build_index(&fixture);
 
         let listed = host(&fixture)
-            .list_notes(&client(), None, 100)
-            .expect("list");
+            .list_notes(&client(), None, None, 100)
+            .expect("list")
+            .notes;
 
         let paths: Vec<&str> = listed.iter().map(|note| note.path.as_str()).collect();
-        let mut expected = [
-            key(&fixture.notes.join("Draft.markdown")),
-            key(&fixture.notes.join("Launch.md")),
-            key(&fixture.notes.join("Log.TEXT")),
-            key(&fixture.notes.join("Projects/Writ.md")),
-            key(&fixture.notes.join("notes.txt")),
-        ];
-        expected.sort();
         assert_eq!(
             paths,
-            expected.iter().map(String::as_str).collect::<Vec<_>>()
+            vec![
+                "Draft.markdown",
+                "Launch.md",
+                "Log.TEXT",
+                "Projects/Writ.md",
+                "notes.txt"
+            ]
         );
         let launch = listed
             .iter()
-            .position(|note| note.path == key(&fixture.notes.join("Launch.md")))
+            .position(|note| note.path == "Launch.md")
             .expect("Launch is listed");
         assert_eq!(listed[launch].name, "Launch");
         assert_eq!(listed[launch].bytes, "# Launch".len() as u64);
@@ -1138,9 +1449,12 @@ mod tests {
         let minted = host
             .create_note(&client(), "Ship it", "text\n")
             .expect("create");
-        let listed = host.list_notes(&client(), None, 100).expect("list");
+        let listed = host
+            .list_notes(&client(), None, None, 100)
+            .expect("list")
+            .notes;
 
-        assert!(minted.path.ends_with("Ship it.txt"), "{}", minted.path);
+        assert_eq!(minted.path, "Ship it.txt");
         assert_eq!(
             listed
                 .iter()
@@ -1159,20 +1473,23 @@ mod tests {
 
         let host = host(&fixture);
         let under = host
-            .list_notes(&client(), Some("Projects"), 100)
-            .expect("list");
+            .list_notes(&client(), Some("Projects"), None, 100)
+            .expect("list")
+            .notes;
         assert_eq!(under.len(), 2);
         assert!(under.iter().all(|note| note.path.contains("Projects")));
 
         let listed_prefix = under[0].path.clone();
         let by_listed_path = host
-            .list_notes(&client(), Some(&listed_prefix), 100)
-            .expect("list");
+            .list_notes(&client(), Some(&listed_prefix), None, 100)
+            .expect("list")
+            .notes;
         assert_eq!(by_listed_path.len(), 1);
         assert_eq!(by_listed_path[0].path, listed_prefix);
 
-        let capped = host.list_notes(&client(), None, 1).expect("list");
-        assert_eq!(capped.len(), 1);
+        let capped = host.list_notes(&client(), None, None, 1).expect("list");
+        assert_eq!(capped.notes.len(), 1);
+        assert_eq!(capped.next_cursor.as_deref(), Some("Launch.md"));
     }
 
     #[test]
@@ -1183,8 +1500,9 @@ mod tests {
         build_index(&fixture);
 
         let found = host(&fixture)
-            .search_notes(&client(), "rerank", 50)
-            .expect("search");
+            .search_notes(&client(), "rerank", None, 50)
+            .expect("search")
+            .hits;
 
         let index = NotesIndexStore::open_read_only(&fixture.db).expect("index");
         let expression = writ_core::search::to_prefix_match("rerank").expect("query");
@@ -1197,8 +1515,8 @@ mod tests {
             .iter()
             .map(|hit| hit.path.as_deref().expect("path"))
             .collect();
-        assert_eq!(found_paths, expected_paths);
-        assert_eq!(found_paths, vec![key(&fixture.notes.join("Launch.md"))]);
+        assert_eq!(expected_paths, vec![key(&fixture.notes.join("Launch.md"))]);
+        assert_eq!(found_paths, vec!["Launch.md"]);
     }
 
     #[test]
@@ -1209,8 +1527,9 @@ mod tests {
 
         assert_eq!(
             host(&fixture)
-                .search_notes(&client(), "  ", 50)
-                .expect("search"),
+                .search_notes(&client(), "  ", None, 50)
+                .expect("search")
+                .hits,
             Vec::new()
         );
     }
@@ -1228,7 +1547,7 @@ mod tests {
 
         assert_eq!(note.text, body);
         assert_eq!(note.bytes, body.len() as u64);
-        assert_eq!(note.path, key(&path));
+        assert_eq!(note.path, rel(&fixture, &path));
     }
 
     #[test]
@@ -1262,13 +1581,17 @@ mod tests {
 
         assert_eq!(links.len(), rows.len());
         assert_eq!(links[0].target, rows[0].to_target);
-        assert_eq!(links[0].resolved_path, rows[0].to_path);
+        assert_eq!(
+            rows[0].to_path.as_deref(),
+            Some(key(&fixture.notes.join("Target.md")).as_str())
+        );
         assert_eq!(links[0].kind, rows[0].kind);
         assert_eq!(links[0].line, rows[0].line);
         assert_eq!(links[0].column, rows[0].col);
         assert_eq!(
             links[0].resolved_path.as_deref(),
-            Some(key(&fixture.notes.join("Target.md")).as_str())
+            Some("Target.md"),
+            "the link resolves to the same note, spelled from the folder down"
         );
     }
 
@@ -1287,7 +1610,8 @@ mod tests {
         let rows = index.backlinks(&key(&target)).expect("rows");
 
         assert_eq!(backlinks.len(), rows.len());
-        assert_eq!(backlinks[0].from_path, rows[0].from_path);
+        assert_eq!(rows[0].from_path, key(&fixture.notes.join("Launch.md")));
+        assert_eq!(backlinks[0].from_path, "Launch.md");
         assert_eq!(backlinks[0].from_name, rows[0].from_name);
         assert_eq!(backlinks[0].certainty, "resolved");
         assert!(backlinks[0].candidates.is_empty());
@@ -1310,7 +1634,7 @@ mod tests {
         assert_eq!(backlinks[0].certainty, "ambiguous");
         assert!(backlinks[0]
             .candidates
-            .contains(&key(&fixture.notes.join("Archive/Launch.md"))));
+            .contains(&"Archive/Launch.md".to_string()));
 
         // The unambiguous link in the same note resolves, so the ambiguous one
         // carrying no path is the ambiguity and not an index that resolved
@@ -1329,7 +1653,7 @@ mod tests {
         assert_eq!(ambiguous.resolved_path, None);
         assert_eq!(
             resolved.resolved_path,
-            Some(key(&fixture.notes.join("Tessera.md")))
+            Some(rel(&fixture, &fixture.notes.join("Tessera.md")))
         );
     }
 
@@ -1379,7 +1703,7 @@ mod tests {
         .expect("host");
 
         let refusals = [
-            host.list_notes(&client(), None, 10).map(|_| ()),
+            host.list_notes(&client(), None, None, 10).map(|_| ()),
             host.read_note(&client(), "Launch.md").map(|_| ()),
             host.write_note(&client(), "Launch.md", "after\n", None, true)
                 .map(|_| ()),
@@ -1639,8 +1963,14 @@ mod tests {
         build_index(&fixture);
         let host = host(&fixture);
 
-        let listed = host.list_notes(&client(), None, 100).expect("list");
-        let found = host.search_notes(&client(), "rerank", 50).expect("search");
+        let listed = host
+            .list_notes(&client(), None, None, 100)
+            .expect("list")
+            .notes;
+        let found = host
+            .search_notes(&client(), "rerank", None, 50)
+            .expect("search")
+            .hits;
 
         assert_eq!(listed.len(), 1);
         assert_eq!(found.len(), 1);
@@ -1848,7 +2178,10 @@ mod tests {
         let named = path.to_str().expect("utf-8");
 
         assert_eq!(
-            host.list_notes(&client(), None, 100).expect("list").len(),
+            host.list_notes(&client(), None, None, 100)
+                .expect("list")
+                .notes
+                .len(),
             1
         );
         assert_eq!(
@@ -1857,7 +2190,7 @@ mod tests {
         );
 
         assert_eq!(
-            host.search_notes(&client(), "text", 50)
+            host.search_notes(&client(), "text", None, 50)
                 .expect_err("no index"),
             ToolError::IndexUnavailable
         );
@@ -1914,8 +2247,8 @@ mod tests {
         let named = path.to_str().expect("utf-8");
 
         let refusals = [
-            host.list_notes(&client(), None, 100).map(|_| ()),
-            host.search_notes(&client(), "text", 50).map(|_| ()),
+            host.list_notes(&client(), None, None, 100).map(|_| ()),
+            host.search_notes(&client(), "text", None, 50).map(|_| ()),
             host.read_note(&client(), named).map(|_| ()),
             host.note_links(&client(), named).map(|_| ()),
             host.note_backlinks(&client(), named).map(|_| ()),
@@ -1946,7 +2279,8 @@ mod tests {
         .expect("host");
 
         assert_eq!(
-            host.list_notes(&client(), None, 100).expect_err("refused"),
+            host.list_notes(&client(), None, None, 100)
+                .expect_err("refused"),
             ToolError::NotEnabled
         );
     }
@@ -1988,6 +2322,298 @@ mod tests {
         assert!(!fixture.db.exists());
     }
 
+    /// The app's notes folder as `[notes] root` in the fixture's settings
+    /// names it, read at every call the way `writ mcp`'s own resolver reads it.
+    struct RootFromSettings(PathBuf);
+
+    impl AppNotesFolder for RootFromSettings {
+        fn app_notes_root(&self) -> Option<PathBuf> {
+            let text = std::fs::read_to_string(self.0.join(CONFIG_FILE)).ok()?;
+            let value: toml::Value = toml::from_str(&text).ok()?;
+            value.get("notes")?.get("root")?.as_str().map(PathBuf::from)
+        }
+    }
+
+    /// Settings that grant the test client both directions, name `root` as
+    /// the notes folder and `extension` as the format a new note carries.
+    fn seed_rooted_settings(fixture: &Fixture, root: &Path, extension: &str) {
+        std::fs::write(
+            fixture.writ.join(CONFIG_FILE),
+            format!(
+                "[notes]\nroot = '{}'\n\n[files]\ndefault_extension = \"{extension}\"\n\n[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Test Client\"\nread = true\nwrite = true\n",
+                root.display()
+            ),
+        )
+        .expect("seed the settings file");
+    }
+
+    /// A host following the app's folder as the fixture's settings name it.
+    fn following_host(fixture: &Fixture) -> ToolHost {
+        ToolHost::open_following_app(
+            &fixture.db,
+            &fixture.writ,
+            Box::new(RootFromSettings(fixture.writ.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host")
+    }
+
+    #[test]
+    fn the_served_folder_follows_a_notes_folder_moved_in_the_settings() {
+        let fixture = fixture();
+        write_note(&fixture, "Old.md", "where the folder was\n");
+        let moved = fixture.writ.join("Moved notes");
+        std::fs::create_dir_all(&moved).expect("the new folder");
+        std::fs::write(moved.join("New.md"), "where the folder is\n").expect("a note");
+        seed_rooted_settings(&fixture, &fixture.notes, "md");
+        let host = following_host(&fixture);
+        let paths = |host: &ToolHost| -> Vec<String> {
+            host.list_notes(&client(), None, None, 100)
+                .expect("list")
+                .notes
+                .into_iter()
+                .map(|note| note.path)
+                .collect()
+        };
+        assert_eq!(paths(&host), vec!["Old.md"]);
+
+        seed_rooted_settings(&fixture, &moved, "txt");
+
+        assert_eq!(
+            paths(&host),
+            vec!["New.md"],
+            "the next listing is the new folder"
+        );
+        assert_eq!(
+            host.read_note(&client(), "New.md").expect("read").text,
+            "where the folder is\n"
+        );
+        host.read_note(&client(), "Old.md")
+            .expect_err("the old folder is not served");
+        host.create_note(&client(), "Plan", "text\n")
+            .expect("create in the new folder");
+        assert!(
+            moved.join("Plan.txt").is_file(),
+            "the format the settings now name is the one a note is minted in"
+        );
+        assert!(!fixture.notes.join("Plan.md").exists());
+    }
+
+    #[test]
+    fn a_folder_the_settings_name_that_is_not_there_is_refused_not_swapped_for_the_old_one() {
+        let fixture = fixture();
+        write_note(&fixture, "Old.md", "text\n");
+        seed_rooted_settings(&fixture, &fixture.notes, "md");
+        let host = following_host(&fixture);
+        host.list_notes(&client(), None, None, 100).expect("list");
+
+        let gone = fixture.writ.join("Not made yet");
+        seed_rooted_settings(&fixture, &gone, "md");
+
+        let refused = host
+            .list_notes(&client(), None, None, 100)
+            .expect_err("no folder to answer from");
+        assert_eq!(refused, ToolError::NotesFolderMissing);
+        assert!(
+            !refused
+                .to_string()
+                .contains(&*fixture.writ.to_string_lossy()),
+            "the message names no folder: {refused}"
+        );
+
+        std::fs::create_dir_all(&gone).expect("make the folder");
+        std::fs::write(gone.join("Here.md"), "text\n").expect("a note");
+        let listed = host
+            .list_notes(&client(), None, None, 100)
+            .expect("the folder is asked again at the next call")
+            .notes;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].path, "Here.md");
+    }
+
+    #[test]
+    fn search_becomes_available_once_the_index_appears_after_the_server_started() {
+        let fixture = fixture();
+        write_note(&fixture, "Launch.md", "the rerank pass ships on Monday");
+        let host = approved_host(&fixture, true, false);
+        assert_eq!(
+            host.search_notes(&client(), "rerank", None, 10)
+                .expect_err("no index yet"),
+            ToolError::IndexUnavailable
+        );
+
+        // The app builds the index while the server runs, and keeps its own
+        // connection open while it does.
+        let conn = writ_storage::database::connection::open_database(&fixture.db).expect("open");
+        writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+        NotesIndexStore::open(&fixture.db)
+            .expect("index")
+            .reconcile(&fixture.notes, &|| false, &|_| false)
+            .expect("reconcile");
+
+        let found = host
+            .search_notes(&client(), "rerank", None, 10)
+            .expect("search answers at the next call")
+            .hits;
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, "Launch.md");
+        assert!(host.has_index());
+        drop(conn);
+    }
+
+    #[test]
+    fn list_notes_pages_through_a_folder_by_cursor() {
+        let fixture = fixture();
+        for index in 0..7 {
+            write_note(&fixture, &format!("Note {index}.md"), "text\n");
+        }
+        let host = host(&fixture);
+
+        let mut seen = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut pages = 0;
+        loop {
+            let page = host
+                .list_notes(&client(), None, cursor.as_deref(), 3)
+                .expect("a page");
+            pages += 1;
+            assert!(page.notes.len() <= 3);
+            seen.extend(page.notes.into_iter().map(|note| note.path));
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!(pages, 3);
+        let expected: Vec<String> = (0..7).map(|index| format!("Note {index}.md")).collect();
+        assert_eq!(seen, expected, "every note once, in order");
+
+        // A note added before the cursor moves nothing after it.
+        let first = host
+            .list_notes(&client(), None, None, 3)
+            .expect("first page");
+        write_note(&fixture, "A first.md", "text\n");
+        let second = host
+            .list_notes(&client(), None, first.next_cursor.as_deref(), 3)
+            .expect("second page");
+        assert_eq!(second.notes[0].path, "Note 3.md");
+    }
+
+    #[test]
+    fn search_notes_pages_through_the_ranked_hits_by_cursor() {
+        let fixture = fixture();
+        for index in 0..5 {
+            write_note(&fixture, &format!("Note {index}.md"), "the kestrel flew\n");
+        }
+        build_index(&fixture);
+        let host = host(&fixture);
+
+        let whole: Vec<String> = host
+            .search_notes(&client(), "kestrel", None, 50)
+            .expect("all")
+            .hits
+            .into_iter()
+            .map(|hit| hit.path)
+            .collect();
+        assert_eq!(whole.len(), 5);
+
+        let mut paged = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let page = host
+                .search_notes(&client(), "kestrel", cursor.as_deref(), 2)
+                .expect("a page");
+            paged.extend(page.hits.into_iter().map(|hit| hit.path));
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+        assert_eq!(paged, whole, "the pages are the ranked list, once each");
+
+        assert_eq!(
+            host.search_notes(&client(), "kestrel", Some("not a cursor"), 2)
+                .expect_err("refused"),
+            ToolError::CursorNotUnderstood
+        );
+    }
+
+    #[test]
+    fn no_answer_names_the_folder_the_notes_are_kept_in() {
+        let fixture = fixture();
+        write_note(&fixture, "Target.md", "# Target\n");
+        write_note(
+            &fixture,
+            "Launch.md",
+            "see [[Target]] about the kestrel #plan\n",
+        );
+        write_note(&fixture, "Archive/Target.md", "an older one\n");
+        write_note(&fixture, "Other.md", "[[Target]] again\n");
+        build_index(&fixture);
+        let host = approved_host(&fixture, true, true);
+        let root = resolve_for_containment(&fixture.notes).expect("root");
+        let spellings = [
+            fixture.notes.to_string_lossy().into_owned(),
+            root.to_string_lossy().into_owned(),
+            fixture.writ.to_string_lossy().into_owned(),
+        ];
+        let read = host.read_note(&client(), "Launch.md").expect("read");
+
+        let answers = [
+            serde_json::to_string(&host.list_notes(&client(), None, None, 100).expect("list")),
+            serde_json::to_string(
+                &host
+                    .search_notes(&client(), "kestrel", None, 50)
+                    .expect("search"),
+            ),
+            serde_json::to_string(&read),
+            serde_json::to_string(&host.note_links(&client(), "Launch.md").expect("links")),
+            serde_json::to_string(&host.note_links(&client(), "Other.md").expect("links")),
+            serde_json::to_string(
+                &host
+                    .note_backlinks(&client(), "Target.md")
+                    .expect("backlinks"),
+            ),
+            serde_json::to_string(
+                &host
+                    .note_properties(&client(), "Launch.md")
+                    .expect("properties"),
+            ),
+            serde_json::to_string(&host.note_tags(&client(), "Launch.md").expect("tags")),
+            serde_json::to_string(&host.folder_tags(&client()).expect("folder tags")),
+            serde_json::to_string(
+                &host
+                    .write_note(
+                        &client(),
+                        "Launch.md",
+                        "new text\n",
+                        Some(&read.hash),
+                        false,
+                    )
+                    .expect("write"),
+            ),
+            serde_json::to_string(
+                &host
+                    .create_note(&client(), "Plan.md", "text\n")
+                    .expect("create"),
+            ),
+            serde_json::to_string(
+                &host
+                    .rename_note(&client(), "Plan.md", "Plans")
+                    .expect("rename"),
+            ),
+        ];
+        for answer in answers {
+            let answer = answer.expect("serialise");
+            for spelling in &spellings {
+                assert!(
+                    !answer.contains(spelling.as_str()),
+                    "{answer} names {spelling}"
+                );
+            }
+        }
+    }
+
     // The write half. Every test below names one acceptance criterion of the
     // unit that added the three write tools.
 
@@ -2004,7 +2630,7 @@ mod tests {
             .expect("the write is made");
 
         assert_eq!(std::fs::read(&note).expect("read back"), text.as_bytes());
-        assert_eq!(receipt.path, key(&note));
+        assert_eq!(receipt.path, rel(&fixture, &note));
         assert_eq!(receipt.bytes, text.len() as u64);
         assert_eq!(receipt.hash, writ_core::hash::sha256_hex(text.as_bytes()));
     }
@@ -2092,6 +2718,7 @@ mod tests {
                 origin: WriteOrigin::Editor,
                 on_conflict: ConflictPolicy::RefuseWithCopy,
                 history: Some(&keep as &dyn Fn(WriteCapture<'_>)),
+                lock: Some(&WriteLock::in_data_folder(&fixture.writ)),
             },
             None,
         )
@@ -2437,7 +3064,7 @@ mod tests {
         write_note(&fixture, "Launch.md", "before\n");
         let host = approved_host(&fixture, true, true);
 
-        host.list_notes(&client(), None, 10).expect("list");
+        host.list_notes(&client(), None, None, 10).expect("list");
         host.read_note(&client(), "Launch.md").expect("read");
 
         assert!(!fixture.writ.join("history.db").exists());
@@ -2654,7 +3281,7 @@ mod tests {
 
         let minted = fixture.notes.join("Ship it.md");
         assert!(minted.is_file());
-        assert_eq!(receipt.path, key(&minted));
+        assert_eq!(receipt.path, rel(&fixture, &minted));
         assert_eq!(
             std::fs::read_to_string(&minted).expect("read back"),
             "# Ship it\n"
@@ -2677,7 +3304,7 @@ mod tests {
             "the folder holds {:?}",
             notes_in(&fixture)
         );
-        assert_eq!(receipt.path, key(&minted));
+        assert_eq!(receipt.path, rel(&fixture, &minted));
 
         // The log spells a refused call the way the file would have been
         // written, in the same format.
@@ -2688,6 +3315,41 @@ mod tests {
             .filter_map(|record| Some(record.path?.to_string_lossy().into_owned()))
             .collect();
         assert_eq!(spelled, vec!["Ship it.txt", "Ship it.txt"]);
+    }
+
+    #[test]
+    fn a_name_that_spells_a_text_format_is_minted_in_it_whatever_the_config_names() {
+        for configured in ["md", "txt"] {
+            let fixture = fixture();
+            let host = approved_host_minting(&fixture, true, true, configured);
+
+            for (asked, minted) in [
+                ("Plan.md", "Plan.md".to_string()),
+                ("Notes.txt", "Notes.txt".to_string()),
+                ("Plan.2026", format!("Plan.2026.{configured}")),
+            ] {
+                host.create_note(&client(), asked, "text\n")
+                    .unwrap_or_else(|error| panic!("{asked} under {configured}: {error}"));
+                assert!(
+                    fixture.notes.join(&minted).is_file(),
+                    "{asked} under {configured} is {minted}"
+                );
+            }
+            let files = std::fs::read_dir(&fixture.notes)
+                .expect("read the folder")
+                .count();
+            assert_eq!(files, 3, "under {configured}");
+
+            // The log spells a refused call the way the mint would have.
+            host.create_note(&client(), "Plan.md", "again\n")
+                .expect_err("the name is taken");
+            let last = records_a_tool_wrote(&fixture)
+                .into_iter()
+                .next()
+                .and_then(|record| record.path)
+                .expect("the refused create is logged");
+            assert_eq!(last.to_string_lossy(), "Plan.md");
+        }
     }
 
     #[test]
@@ -2718,7 +3380,7 @@ mod tests {
             .create_note(&client(), "../../escaped", "text\n")
             .expect("minted");
 
-        assert!(receipt.path.starts_with(&key(&fixture.notes)));
+        assert_eq!(receipt.path, "escaped.md");
         assert!(!fixture.writ.join("escaped.md").exists());
     }
 
@@ -2737,8 +3399,8 @@ mod tests {
         let moved = fixture.notes.join("Ship.md");
         assert!(moved.is_file());
         assert!(!note.exists());
-        assert_eq!(receipt.path, key(&moved));
-        assert_eq!(receipt.previous_path, key(&note));
+        assert_eq!(receipt.path, rel(&fixture, &moved));
+        assert_eq!(receipt.previous_path, rel(&fixture, &note));
         assert_eq!(
             std::fs::read(&linking).expect("read it back"),
             before,
@@ -2777,9 +3439,10 @@ mod tests {
             .rename_note(&client(), "Launch.md", "../../escaped")
             .expect("renamed");
 
+        assert!(!receipt.path.contains(".."), "{receipt:?}");
         assert!(
-            receipt.path.starts_with(&key(&fixture.notes)),
-            "{receipt:?}"
+            fixture.notes.join(&receipt.path).is_file(),
+            "{receipt:?} is in the folder"
         );
         assert!(!fixture.writ.join("escaped.md").exists());
     }

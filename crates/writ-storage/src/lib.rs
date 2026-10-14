@@ -98,3 +98,5 @@ pub mod workspace_grep;
 pub mod workspace_search;
 /// Workspace directory listing with traversal safety.
 pub mod workspace_store;
+/// The lock Writ's processes hold around the compare and rename of a write.
+pub mod write_lock;

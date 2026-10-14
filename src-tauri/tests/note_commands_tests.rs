@@ -14,6 +14,7 @@ use writ_core::notes::guard::SF_DATALESS;
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::ChangeChoice;
 use writ_core::preview::ContentRendererRegistry;
+use writ_core::text_encoding::TextEncoding;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::change_event::ExternalChange;
 use writ_core::watcher::pending::hold_window;
@@ -2014,6 +2015,7 @@ fn a_file_that_is_not_downloaded_is_refused_without_being_read() {
         &path,
         Some(SF_DATALESS),
         LineEnding::Lf,
+        TextEncoding::utf8(),
         ChangeChoice::KeepMine,
         "what I typed, still",
     )

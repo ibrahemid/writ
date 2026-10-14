@@ -38,8 +38,17 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 
 import StatusBar from "../../components/Editor/StatusBar";
 
-function fileNamed(name: string): BufferDocument {
-  return { id: "tab-1", title: name, filename: name, source_path: `/w/${name}` } as BufferDocument;
+const openEncodingPicker = vi.hoisted(() => vi.fn());
+vi.mock("../../components/Editor/EncodingPicker", () => ({ openEncodingPicker }));
+
+function fileNamed(name: string, encoding: string | null = "UTF-8"): BufferDocument {
+  return {
+    id: "tab-1",
+    title: name,
+    filename: name,
+    source_path: `/w/${name}`,
+    encoding,
+  } as BufferDocument;
 }
 
 function right(container: HTMLElement): HTMLElement {
@@ -66,6 +75,44 @@ describe("StatusBar fields", () => {
       "Unsaved changes in draft.txt",
     );
     expect(right(container).querySelector(".layout-toggle")).toBeNull();
+  });
+
+  it("shows the file's own encoding as the control that reopens it in another", () => {
+    setBuffer(fileNamed("prices.csv", "windows-1252"));
+    const { container } = render(() => <StatusBar />);
+    const control = right(container).querySelector<HTMLButtonElement>(".statusbar-encoding")!;
+    expect(control.textContent).toBe("Windows-1252");
+    expect(right(container).textContent).not.toContain("UTF-8");
+    control.click();
+    expect(openEncodingPicker).toHaveBeenCalledTimes(1);
+  });
+
+  it("names a UTF-8 byte order mark and UTF-16's byte order", () => {
+    setBuffer(fileNamed("notes.txt", "UTF-8 BOM"));
+    const { container, unmount } = render(() => <StatusBar />);
+    expect(right(container).querySelector(".statusbar-encoding")!.textContent).toBe(
+      "UTF-8 with BOM",
+    );
+    unmount();
+    setBuffer(fileNamed("out.txt", "UTF-16LE BOM"));
+    const second = render(() => <StatusBar />);
+    expect(right(second.container).querySelector(".statusbar-encoding")!.textContent).toBe(
+      "UTF-16 LE",
+    );
+  });
+
+  it("shows a note with no file yet as UTF-8, with nothing to reopen", () => {
+    setBuffer({ ...fileNamed("draft.txt"), source_path: null });
+    const { container } = render(() => <StatusBar />);
+    expect(right(container).querySelector(".statusbar-encoding")).toBeNull();
+    expect(right(container).textContent).toContain("UTF-8");
+  });
+
+  it("shows no encoding for a file that has none", () => {
+    setBuffer(fileNamed("blob.bin", null));
+    const { container } = render(() => <StatusBar />);
+    expect(right(container).querySelector(".statusbar-encoding")).toBeNull();
+    expect(right(container).textContent).not.toContain("UTF-8");
   });
 
   it("adds the mode control for a .md buffer", () => {
@@ -104,7 +151,7 @@ describe("StatusBar fields", () => {
       "statusbar-field statusbar-field--cursor",
       "statusbar-field statusbar-field--words",
       "statusbar-tokens",
-      "statusbar-field",
+      "statusbar-field statusbar-encoding",
       "layout-toggle",
     ]);
   });

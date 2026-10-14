@@ -7,7 +7,9 @@
 //!
 //! The server reads `writ.db` read-only and creates nothing. Two processes do
 //! not write one SQLite file, so a folder Writ has never opened has no index
-//! and the index-derived tools say so.
+//! and the index-derived tools say so until the app builds one. The server
+//! serves the app's notes folder and follows it when the settings move it,
+//! unless `WRIT_NOTES_DIR` names another.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -85,6 +87,14 @@ pub fn help() -> String {
     .join("\n")
 }
 
+/// Whether `WRIT_NOTES_DIR`, as the environment holds it, pins the folder the
+/// server serves. Pinned, the server answers from that folder whatever the
+/// settings name; otherwise it follows the app's folder as the settings move
+/// it. A blank value names no folder, as the folder resolution reads it.
+pub fn notes_dir_is_pinned(env_value: Option<&str>) -> bool {
+    env_value.is_some_and(|value| !value.trim().is_empty())
+}
+
 /// Reads a `writ mcp` invocation off the front of `args`, or `None` when the
 /// first argument does not name this verb.
 pub fn parse(args: &[OsString]) -> Option<Result<Command, UsageError>> {
@@ -137,6 +147,14 @@ mod tests {
             .expect("write the settings");
 
         assert_eq!(folder.app_notes_root(), Some(moved));
+    }
+
+    #[test]
+    fn only_a_folder_named_in_the_environment_pins_the_server() {
+        assert!(notes_dir_is_pinned(Some("/tmp/Notes")));
+        assert!(!notes_dir_is_pinned(Some("  ")));
+        assert!(!notes_dir_is_pinned(Some("")));
+        assert!(!notes_dir_is_pinned(None));
     }
 
     #[test]

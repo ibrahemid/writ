@@ -57,8 +57,9 @@ pub enum FileOpenMode {
     /// A file of this size that is open is [`FileOpenMode::LargeFile`]
     /// ([`FileOpenMode::once_open`]).
     LargeFileConfirm,
-    /// NUL byte found in first [`BINARY_CHECK_BYTES`]. Opens as read-only
-    /// hex dump. Never FTS-indexed, never journaled, never saved back.
+    /// NUL byte found in first [`BINARY_CHECK_BYTES`], which declare no text
+    /// encoding ([`is_binary_bytes`]). Opens as read-only hex dump. Never
+    /// FTS-indexed, never journaled, never saved back.
     Binary,
     /// File exceeds [`THRESHOLD_MAX_BYTES`]. Nothing is read and no row is
     /// made.
@@ -176,8 +177,8 @@ pub fn classify_size(size_bytes: u64, is_binary: bool) -> FileOpenMode {
     classify_file(size_bytes, is_binary)
 }
 
-/// Returns `true` when the first [`BINARY_CHECK_BYTES`] of `path` contain a
-/// NUL byte.
+/// Returns `true` when the first [`BINARY_CHECK_BYTES`] of `path` are binary
+/// ([`is_binary_bytes`]).
 ///
 /// An empty file is never binary. Returns [`WritError::Io`] on read failure.
 fn sniff_binary(path: &Path, size_bytes: u64) -> WritResult<bool> {
@@ -190,7 +191,7 @@ fn sniff_binary(path: &Path, size_bytes: u64) -> WritResult<bool> {
     let read_len = BINARY_CHECK_BYTES.min(size_bytes as usize);
     let mut buf = vec![0u8; read_len];
     reader.read_exact(&mut buf)?;
-    Ok(buf.contains(&0u8))
+    Ok(is_binary_bytes(&buf))
 }
 
 /// Formats a byte count as a human-readable string ("1.2 MiB", "300 KiB", …).
@@ -347,7 +348,12 @@ pub fn extract_filename(path: &Path) -> String {
         .to_string()
 }
 
-/// `true` when the first [`BINARY_CHECK_BYTES`] of `data` contain a NUL byte.
+/// `true` when the first [`BINARY_CHECK_BYTES`] of `data` contain a NUL byte
+/// and declare no text encoding.
+///
+/// UTF-16 has a NUL in nearly every unit of Latin text, so a byte order mark
+/// or the shape of UTF-16 ([`crate::text_encoding::declared`]) is asked about
+/// before the NUL is (ADR-049).
 ///
 /// The in-memory half of the heuristic [`sniff_binary`] applies from a path:
 /// a caller that already holds the bytes (a read-only row's content, read
@@ -355,5 +361,7 @@ pub fn extract_filename(path: &Path) -> String {
 /// the file a second time. An empty slice is never binary.
 pub fn is_binary_bytes(data: &[u8]) -> bool {
     let checked = &data[..data.len().min(BINARY_CHECK_BYTES)];
-    !checked.is_empty() && checked.contains(&0u8)
+    !checked.is_empty()
+        && crate::text_encoding::declared(checked).is_none()
+        && checked.contains(&0u8)
 }

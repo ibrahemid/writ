@@ -97,6 +97,7 @@ fn make_doc(notes: &Path, idx: usize) -> BufferDocument {
         read_only: false,
         size_bytes: 0,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     }
 }
 
@@ -389,6 +390,7 @@ fn make_large_doc(notes: &Path, id: &str, size_bytes: u64) -> BufferDocument {
         read_only: false,
         size_bytes,
         line_ending: writ_core::notes::line_ending::LineEnding::Lf,
+        encoding: None,
     }
 }
 

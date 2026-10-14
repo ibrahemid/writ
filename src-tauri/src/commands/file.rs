@@ -15,6 +15,7 @@ use writ_core::events::bus::WritEvent;
 use writ_core::file_ops::{self, FileOpenMode};
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::materialise::{decide_open, OpenDecision};
+use writ_core::text_encoding::{decode_detected_owned, TextEncoding};
 use writ_core::watcher::change_event::ExternalChange;
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::paths::file_name_only;
@@ -386,23 +387,24 @@ fn open_file_classified_inner(
     // the point of the large-file tiers existing at all.
     //
     // A binary file is opened read-only as a hex dump, so there is no ending
-    // in it to keep; the row can never be written back either.
+    // or encoding in it to keep; the row can never be written back either.
     //
-    // `content` is `None` for a file whose bytes are not UTF-8. It opens all
-    // the same, and the tab's read fails with `ERR_READ_NOT_UTF8`, so the
-    // editor says why it cannot show the file instead of the open doing
-    // nothing. Its ending is counted from the bytes, so the row names the
-    // file's own ending from the open on.
+    // Text is read in the encoding detected from its bytes (ADR-049), which
+    // the row keeps beside the ending, both read off the decoded text so a
+    // UTF-16 file's CRLF counts as CRLF.
     let bytes = std::fs::read(file_path).map_err(|e| io_read_failure_message(&e))?;
     let digest = writ_core::hash::sha256_bytes(&bytes);
-    let (content, line_ending) = if is_binary {
+    let bytes_prefix = bytes[..bytes.len().min(file_ops::BINARY_CHECK_BYTES)].to_vec();
+    let (content, line_ending, encoding) = if is_binary {
         (
-            Some(file_ops::generate_hex_dump(&bytes, size_bytes as usize)),
+            file_ops::generate_hex_dump(&bytes, size_bytes as usize),
             LineEnding::default(),
+            None,
         )
     } else {
-        let line_ending = LineEnding::detect_bytes(&bytes);
-        (String::from_utf8(bytes).ok(), line_ending)
+        let (encoding, text) = decode_detected_owned(bytes);
+        let line_ending = LineEnding::detect(&text);
+        (text, line_ending, Some(encoding))
     };
 
     if let Some(history_buf) = store
@@ -410,9 +412,21 @@ fn open_file_classified_inner(
         .map_err(|e| e.to_string())?
     {
         store.restore(&history_buf.id).map_err(|e| e.to_string())?;
+        // A file the row keeps as a hex view because it opened as one before
+        // UTF-16 was text (ADR-049) opens as text now. A NUL is what made it
+        // binary then; a document Writ generated is read-only without one,
+        // and stays read-only.
+        if history_buf.read_only && !is_binary && bytes_prefix.contains(&0) {
+            store
+                .set_read_only(&history_buf.id, false)
+                .map_err(|e| e.to_string())?;
+        }
         if !is_binary {
             store
                 .set_line_ending(&history_buf.id, line_ending)
+                .map_err(|e| e.to_string())?;
+            store
+                .set_encoding(&history_buf.id, encoding)
                 .map_err(|e| e.to_string())?;
         }
         // Reopening reads the file; it never writes it back. The index is
@@ -442,15 +456,14 @@ fn open_file_classified_inner(
         read_only: is_binary,
         size_bytes,
         line_ending,
+        encoding,
         ..new_doc
     };
 
     // No stamp: opening a file writes nothing, so there is no write of Writ's
-    // own for a watcher to mistake for somebody else's. A file that is not
-    // UTF-8 indexes as empty, which is what the reindex and the launch
-    // reconcile record for it too.
+    // own for a watcher to mistake for somebody else's.
     store
-        .open_from_path(&new_doc, content.as_deref().unwrap_or(""))
+        .open_from_path(&new_doc, &content)
         .map_err(|e| e.to_string())?;
 
     state
@@ -658,11 +671,16 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
     let Ok(source) = store.read_source(&doc.id) else {
         return;
     };
+    // The tab's encoding stands: it is what the open detected or what Reopen
+    // with Encoding chose, and opening the file again chooses nothing.
+    let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
     if !doc.read_only {
-        let ending = LineEnding::detect_bytes(&source);
-        if ending != doc.line_ending {
-            if let Err(e) = store.set_line_ending(&doc.id, ending) {
-                tracing::debug!(buffer_id = %doc.id, error = %e, "the file's line ending could not be recorded");
+        if let Ok(text) = encoding.decode(&source) {
+            let ending = LineEnding::detect(&text);
+            if ending != doc.line_ending {
+                if let Err(e) = store.set_line_ending(&doc.id, ending) {
+                    tracing::debug!(buffer_id = %doc.id, error = %e, "the file's line ending could not be recorded");
+                }
             }
         }
     }
@@ -710,7 +728,7 @@ fn resync_open_buffer(state: &AppState, store: &BufferStore, doc: &BufferDocumen
             path: doc.source_path.clone().unwrap_or_default(),
             change: ExternalChange::Modified,
             new_path: None,
-            disk_hash: Some(writ_core::hash::comparison_digest_hex(&source)),
+            disk_hash: Some(encoding.comparison_digest_hex(&source)),
         });
     }
 }

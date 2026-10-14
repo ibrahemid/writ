@@ -59,6 +59,7 @@ pub fn create_note(
             origin,
             on_taken_name: TakenName::Dedupe,
             history: None,
+            lock: None,
         },
         before_write,
     )
@@ -92,6 +93,7 @@ pub fn save_copy(
             origin,
             on_taken_name: TakenName::Dedupe,
             history: None,
+            lock: None,
         },
         before_write,
     )
@@ -396,6 +398,7 @@ pub fn rewrite_links_in_file(
             history: keep
                 .as_ref()
                 .map(|hook| hook as &dyn Fn(crate::guarded::WriteCapture<'_>)),
+            lock: None,
         },
         before_write,
     )?;

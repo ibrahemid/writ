@@ -43,7 +43,7 @@ writ/
 │   ├── writ-storage/    # SQLite persistence, FTS5, migrations, file I/O
 │   ├── writ-plugin/     # Plugin boundary types and the text-transform runtime
 │   ├── writ-render/     # Markdown to HTML fragments for the preview pane
-│   ├── writ-lint/       # Spell check and mechanical-writing rules (Harper)
+│   ├── writ-lint/       # Spell check and mechanical-writing rules (spellbook)
 │   └── writ-cli/        # The `writ` command, bundled as a Tauri sidecar
 ├── src-tauri/           # Tauri adapter: IPC commands, app lifecycle, file watcher
 └── src/                 # SolidJS frontend: components, stores, services
