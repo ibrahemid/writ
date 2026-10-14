@@ -107,29 +107,29 @@ MINISIGN = find_minisign()
 class TestKey:
     """An Ed25519 key in minisign's format, made and used through OpenSSL."""
 
-    def __init__(self, directory: pathlib.Path, key_id: bytes) -> None:
+    def __init__(self, directory: pathlib.Path, id_bytes: bytes) -> None:
         assert OPENSSL is not None
         self.dir = directory
         self.dir.mkdir()
-        self.signing_key_pem = self.dir / "signing-key.pem"
+        self.pem_path = self.dir / "signing-key.pem"
         subprocess.run(
-            [OPENSSL, "genpkey", "-algorithm", "ed25519", "-out", str(self.signing_key_pem)],
+            [OPENSSL, "genpkey", "-algorithm", "ed25519", "-out", str(self.pem_path)],
             check=True,
             capture_output=True,
         )
         der = subprocess.run(
-            [OPENSSL, "pkey", "-in", str(self.signing_key_pem), "-pubout", "-outform", "DER"],
+            [OPENSSL, "pkey", "-in", str(self.pem_path), "-pubout", "-outform", "DER"],
             check=True,
             capture_output=True,
         ).stdout
-        self.key_id = key_id
-        self.public = base64.b64encode(b"Ed" + key_id + der[-32:]).decode()
+        self.id_bytes = id_bytes
+        self.public = base64.b64encode(b"Ed" + id_bytes + der[-32:]).decode()
 
     def raw_sign(self, message: bytes) -> bytes:
         message_path = self.dir / "message"
         message_path.write_bytes(message)
         return subprocess.run(
-            [OPENSSL, "pkeyutl", "-sign", "-inkey", str(self.signing_key_pem), "-rawin", "-in", str(message_path)],
+            [OPENSSL, "pkeyutl", "-sign", "-inkey", str(self.pem_path), "-rawin", "-in", str(message_path)],
             check=True,
             capture_output=True,
         ).stdout
@@ -140,7 +140,7 @@ class TestKey:
         global_signature = self.raw_sign(signature + trusted.encode())
         return (
             "untrusted comment: signature from a test key\n"
-            + base64.b64encode(b"ED" + self.key_id + signature).decode()
+            + base64.b64encode(b"ED" + self.id_bytes + signature).decode()
             + f"\ntrusted comment: {trusted}\n"
             + base64.b64encode(global_signature).decode()
             + "\n"
@@ -153,11 +153,11 @@ class InstallScriptTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="writ-install-sh-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
-        self.key = TestKey(self.root / "key", b"\x01\x02\x03\x04\x05\x06\x07\x08")
-        self.other_key = TestKey(self.root / "other-key", b"\x01\x02\x03\x04\x05\x06\x07\x08")
+        self.signer = TestKey(self.root / "key", b"\x01\x02\x03\x04\x05\x06\x07\x08")
+        self.other_signer = TestKey(self.root / "other-key", b"\x01\x02\x03\x04\x05\x06\x07\x08")
 
-        script = KEY_LINE.sub(f'MINISIGN_PUBKEY="{self.key.public}"', SCRIPT.read_text(), count=1)
-        self.assertIn(self.key.public, script)
+        script = KEY_LINE.sub(f'MINISIGN_PUBKEY="{self.signer.public}"', SCRIPT.read_text(), count=1)
+        self.assertIn(self.signer.public, script)
         self.script = self.root / "install.sh"
         self.script.write_text(script)
 
@@ -190,8 +190,8 @@ class InstallScriptTests(unittest.TestCase):
     def publish(
         self,
         appimage: bytes,
-        sums_key: TestKey | None = None,
-        asset_key: TestKey | None = None,
+        sums_signer: TestKey | None = None,
+        asset_signer: TestKey | None = None,
         listed_name: str = ASSET,
     ) -> None:
         """Writes a release: the AppImage, its .sig, the sums and their signature."""
@@ -199,9 +199,9 @@ class InstallScriptTests(unittest.TestCase):
         sums = f"{hashlib.sha256(appimage).hexdigest()}  {listed_name}\n".encode()
         (self.fixtures / "SHA256SUMS.txt").write_bytes(sums)
         (self.fixtures / "SHA256SUMS.txt.minisig").write_text(
-            (sums_key or self.key).minisig(sums, f"timestamp:1\tfile:SHA256SUMS.txt\tversion:{VERSION}")
+            (sums_signer or self.signer).minisig(sums, f"timestamp:1\tfile:SHA256SUMS.txt\tversion:{VERSION}")
         )
-        asset_sig = (asset_key or self.key).minisig(appimage, f"timestamp:1\tfile:{ASSET}\tversion:{VERSION}")
+        asset_sig = (asset_signer or self.signer).minisig(appimage, f"timestamp:1\tfile:{ASSET}\tversion:{VERSION}")
         (self.fixtures / f"{ASSET}.sig").write_text(base64.b64encode(asset_sig.encode()).decode())
 
     def use(self, tool: str, path: str) -> None:
@@ -253,7 +253,7 @@ class InstallScriptTests(unittest.TestCase):
     @unittest.skipIf(MINISIGN is None, "minisign is not installed")
     def test_minisign_refuses_sums_signed_by_another_key(self) -> None:
         self.use("minisign", MINISIGN)  # type: ignore[arg-type]
-        self.publish(FAKE_APPIMAGE.encode(), sums_key=self.other_key)
+        self.publish(FAKE_APPIMAGE.encode(), sums_signer=self.other_signer)
         self.assert_refused(self.run_install(), "the signature on SHA256SUMS.txt does not match")
 
     def test_refuses_a_download_whose_checksum_does_not_match(self) -> None:
@@ -268,7 +268,7 @@ class InstallScriptTests(unittest.TestCase):
 
     def test_refuses_sums_signed_by_another_key(self) -> None:
         self.use("openssl", OPENSSL)  # type: ignore[arg-type]
-        self.publish(FAKE_APPIMAGE.encode(), sums_key=self.other_key)
+        self.publish(FAKE_APPIMAGE.encode(), sums_signer=self.other_signer)
         self.assert_refused(self.run_install(), "the signature on SHA256SUMS.txt does not match")
         self.assertNotIn(f"{ASSET}.sig", self.downloads())
 
@@ -280,7 +280,7 @@ class InstallScriptTests(unittest.TestCase):
 
     def test_refuses_an_appimage_signed_by_another_key(self) -> None:
         self.use("openssl", OPENSSL)  # type: ignore[arg-type]
-        self.publish(FAKE_APPIMAGE.encode(), asset_key=self.other_key)
+        self.publish(FAKE_APPIMAGE.encode(), asset_signer=self.other_signer)
         self.assert_refused(self.run_install(), f"signature check failed for {ASSET}")
 
     def test_fails_closed_without_a_verifier(self) -> None:
