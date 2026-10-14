@@ -17,8 +17,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::hash::Sha256Digest;
-
 /// What the filesystem calls a file, independently of where it sits.
 ///
 /// The first two variants survive a rename, which is the whole point. The
@@ -111,8 +109,12 @@ pub enum FileIdentity {
         /// Modification time in milliseconds since the Unix epoch, when the
         /// filesystem reports one.
         mtime_ms: Option<i64>,
-        /// SHA-256 of the file's bytes.
-        hash: Sha256Digest,
+        /// Creation time in nanoseconds since the Unix epoch, when the
+        /// filesystem reports one. FAT, exFAT and SMB all keep one, and it is
+        /// read from the same metadata as the rest: describing a file never
+        /// reads its bytes, which on a memory card was a whole read per save
+        /// (TS-19).
+        birth_ns: Option<u128>,
     },
 }
 
@@ -377,7 +379,7 @@ mod tests {
             path: path.to_string(),
             size: 12,
             mtime_ms: Some(1_700_000_000_000),
-            hash: crate::hash::sha256_bytes(b"body"),
+            birth_ns: Some(1_600_000_000_000_000_000),
         }
     }
 

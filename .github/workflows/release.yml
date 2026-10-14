@@ -273,6 +273,20 @@ jobs:
           echo "$APPRUN_SHA256  $TOOLS_DIR/AppRun-x86_64" | sha256sum -c -
           chmod 0755 "$TOOLS_DIR/AppRun-x86_64"
 
+      # The release profile packs line tables into a file beside the binary and
+      # strips the binary (ADR-045). On Linux that leaves a .dwp the stripped
+      # binary no longer points at, so this leg keeps them in the binary until
+      # the split step below moves them to writ-tauri.debug.
+      - name: Keep the Linux line tables for the symbol split
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "CARGO_PROFILE_RELEASE_STRIP=false"
+            echo "CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=off"
+          } >> "$GITHUB_ENV"
+
       # Unsigned: updater signatures, Developer ID and Windows signing happen in
       # the sign-* jobs. The macOS bundle is ad-hoc signed until sign-macos
       # replaces that, and the bundler skips the dmg's Finder layout on CI
@@ -288,6 +302,28 @@ jobs:
           set -euo pipefail
           read -ra TARGET_ARGS <<< "$TAURI_ARGS"
           pnpm exec tauri build "${TARGET_ARGS[@]}" --bundles "$BUNDLES" --ci --config '{"bundle":{"createUpdaterArtifacts":false}}' -- --locked
+
+      # Moves the line tables into writ-tauri.debug, strips the binary as the
+      # release profile does on the other platforms, and bundles again from the
+      # stripped binary.
+      - name: Split off the Linux debug symbols and bundle again
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          TAURI_ARGS: ${{ matrix.tauri_args }}
+          BUNDLES: ${{ matrix.bundles }}
+        run: |
+          set -euo pipefail
+          BIN=target/x86_64-unknown-linux-gnu/release/writ-tauri
+          objcopy --only-keep-debug "$BIN" "$BIN.debug"
+          objcopy --strip-all "$BIN"
+          objcopy --add-gnu-debuglink="$BIN.debug" "$BIN"
+          if readelf -S "$BIN" | grep -q '\.debug_'; then
+            echo "$BIN still holds debug sections" >&2
+            exit 1
+          fi
+          read -ra TARGET_ARGS <<< "$TAURI_ARGS"
+          pnpm exec tauri bundle "${TARGET_ARGS[@]}" --bundles "$BUNDLES" --ci --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Require every AppImage file to be readable and runnable by any user
         if: matrix.os == 'ubuntu-22.04'
@@ -359,6 +395,42 @@ jobs:
           path: dist/build-windows-binaries/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Collect the debug symbols
+        shell: bash
+        env:
+          MATRIX_OS: ${{ matrix.os }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          OUT="dist/debug-symbols-$PLATFORM"
+          case "$MATRIX_OS" in
+            macos-latest)
+              python3 .github/scripts/debug_symbols.py dsym --out "$OUT" \
+                target/aarch64-apple-darwin/release/writ-tauri.dSYM \
+                target/x86_64-apple-darwin/release/writ-tauri.dSYM
+              ;;
+            windows-latest)
+              python .github/scripts/debug_symbols.py pdb --out "$OUT" \
+                --exe target/x86_64-pc-windows-msvc/release/writ-tauri.exe \
+                target/x86_64-pc-windows-msvc/release/writ_tauri.pdb
+              ;;
+            ubuntu-22.04)
+              python3 .github/scripts/debug_symbols.py elf --out "$OUT" \
+                --binary target/x86_64-unknown-linux-gnu/release/writ-tauri \
+                target/x86_64-unknown-linux-gnu/release/writ-tauri.debug
+              ;;
+          esac
+
+      # Kept with the run and never attached to the release. A crash report's
+      # build ID names the directory that holds its symbols (ADR-045).
+      - name: Upload the debug symbols
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: debug-symbols-${{ matrix.platform }}-${{ needs.plan.outputs.version }}
+          path: dist/debug-symbols-${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 90
 
   sbom:
     name: SBOMs

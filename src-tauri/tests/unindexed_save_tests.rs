@@ -1,6 +1,6 @@
-//! Storage contract behind `commands::buffer::save_buffer_content_unindexed`:
-//! generated content lands on disk without entering the search index, and the
-//! deferred reindex (ADR-020) is what puts a note's text there afterwards.
+//! Storage contract of an unindexed save: generated content lands on disk
+//! without entering the search index, and the deferred reindex (ADR-020) is
+//! what puts a note's text there afterwards.
 
 use tempfile::TempDir;
 use writ_core::buffer::manager::BufferManager;

@@ -27,10 +27,11 @@ use writ_tauri_lib::commands::buffer::{save_buffer_content_inner, ERR_FILE_CHANG
 use writ_tauri_lib::commands::notes::{
     count_links_to_inner, new_note_named_inner, rename_note_with_links_inner,
     undo_rename_with_links_inner, ERR_LINK_NAME_NOT_UNIQUE, ERR_LINK_NOT_FOUND,
+    NOT_IN_FOLDER_TO_RENAME, NO_RENAME_TO_UNDO,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
-use writ_tauri_lib::security::AuthorizedPaths;
+use writ_tauri_lib::security::{AuthorizedPaths, RenameUndo};
 use writ_tauri_lib::state::AppState;
 use writ_tauri_lib::watcher::handler::create_ignore_set;
 
@@ -516,9 +517,7 @@ fn undo_puts_the_links_back_with_the_note_gone_from_the_index() {
 
     let undone = undo_rename_with_links_inner(
         &state,
-        &renamed.renamed_path,
-        "Old note",
-        &renamed.updated_paths,
+        renamed.undo_token.as_deref().expect("an undo token"),
     )
     .expect("undo");
 
@@ -583,9 +582,7 @@ fn undo_puts_the_name_and_every_rewritten_link_back() {
 
     let undone = undo_rename_with_links_inner(
         &state,
-        &renamed.renamed_path,
-        "Old note",
-        &renamed.updated_paths,
+        renamed.undo_token.as_deref().expect("an undo token"),
     )
     .expect("undo");
 
@@ -610,9 +607,7 @@ fn undo_names_a_file_that_changed_since_the_rename() {
 
     let undone = undo_rename_with_links_inner(
         &state,
-        &renamed.renamed_path,
-        "Old note",
-        &renamed.updated_paths,
+        renamed.undo_token.as_deref().expect("an undo token"),
     )
     .expect("undo");
 
@@ -787,12 +782,9 @@ fn a_rename_and_its_undo_during_a_walk_leave_the_walk_running_and_the_note_index
             }
             RenameDuringWalk::Renamed(original, renamed) => {
                 let original = original.clone();
-                let stem = original.file_stem().expect("stem").to_string_lossy();
                 undo_rename_with_links_inner(
                     &state,
-                    &renamed.renamed_path,
-                    &stem,
-                    &renamed.updated_paths,
+                    renamed.undo_token.as_deref().expect("an undo token"),
                 )
                 .expect("undo during the walk");
                 *step = RenameDuringWalk::Undone(original);
@@ -843,4 +835,134 @@ fn a_rename_and_its_undo_during_a_walk_leave_the_walk_running_and_the_note_index
             .expect("resolve"),
         Resolution::Resolved(index_key(&original))
     );
+}
+
+/// The path comes from the webview, so a file outside the notes folder is
+/// refused before anything moves: a renamed `~/.zshrc` is the attack.
+#[test]
+fn a_rename_with_links_refuses_a_file_outside_the_notes_folder() {
+    let (dir, state) = seeded(&[("First.md", "see [[outside]]\n")]);
+    let outside = dir.path().join("outside.md");
+    std::fs::write(&outside, "not a note\n").expect("write");
+
+    let refused = rename_note_with_links_inner(&state, &outside.to_string_lossy(), "moved", true);
+
+    assert_eq!(refused, Err(NOT_IN_FOLDER_TO_RENAME.to_string()));
+    assert!(outside.exists(), "the file outside the folder was renamed");
+    assert!(!dir.path().join("moved.md").exists());
+    assert_eq!(read(&state, "First.md"), "see [[outside]]\n");
+}
+
+/// A link inside the folder that resolves outside it is the same file, and is
+/// refused the same way.
+#[cfg(unix)]
+#[test]
+fn a_rename_with_links_refuses_a_symlink_that_leaves_the_folder() {
+    let (dir, state) = seeded(&[]);
+    let outside = dir.path().join("target.md");
+    std::fs::write(&outside, "not a note\n").expect("write");
+    let link = note(&state, "Linked.md");
+    std::os::unix::fs::symlink(&outside, &link).expect("symlink");
+
+    let refused = rename_note_with_links_inner(&state, &link.to_string_lossy(), "moved", true);
+
+    assert_eq!(refused, Err(NOT_IN_FOLDER_TO_RENAME.to_string()));
+    assert!(link.exists());
+    assert_eq!(
+        std::fs::read_to_string(&outside).expect("read"),
+        "not a note\n"
+    );
+}
+
+/// The undo names no path: a token the rename did not hand out puts nothing
+/// back, and the one it did is spent by the first undo.
+#[test]
+fn an_undo_runs_once_and_only_for_the_token_its_rename_handed_out() {
+    let before_first = "see [[Old note]]\n";
+    let (_dir, state) = seeded(&[
+        ("Old note.md", "the note itself\n"),
+        ("First.md", before_first),
+    ]);
+    let renamed =
+        rename_note_with_links_inner(&state, &path_text(&state, "Old note.md"), "New note", true)
+            .expect("rename");
+    let token = renamed.undo_token.clone().expect("an undo token");
+
+    assert_eq!(
+        undo_rename_with_links_inner(&state, "forged"),
+        Err(NO_RENAME_TO_UNDO.to_string())
+    );
+    assert!(
+        note(&state, "New note.md").exists(),
+        "a forged token undid the rename"
+    );
+
+    let undone = undo_rename_with_links_inner(&state, &token).expect("undo");
+    assert_eq!(undone.undo_token, None);
+    assert_eq!(read(&state, "First.md"), before_first);
+    assert!(note(&state, "Old note.md").exists());
+
+    assert_eq!(
+        undo_rename_with_links_inner(&state, &token),
+        Err(NO_RENAME_TO_UNDO.to_string())
+    );
+}
+
+/// A rename that changed nothing has nothing to undo.
+#[test]
+fn a_rename_to_the_same_name_hands_out_no_undo() {
+    let (_dir, state) = seeded(&[("Note.md", "the note itself\n")]);
+
+    let outcome = rename_note_with_links_inner(&state, &path_text(&state, "Note.md"), "Note", true)
+        .expect("rename");
+
+    assert_eq!(outcome.undo_token, None);
+}
+
+/// What an undo holds was recorded inside the folder, and the folder can move
+/// before the undo runs. A held rename that no longer sits in it is refused.
+#[test]
+fn an_undo_refuses_a_held_rename_the_folder_no_longer_holds() {
+    let (dir, state) = seeded(&[]);
+    let outside = dir.path().join("Elsewhere.md");
+    std::fs::write(&outside, "kept\n").expect("write");
+    let token = state
+        .authorized_paths
+        .hold_rename_undo(RenameUndo {
+            renamed: outside.clone(),
+            previous_name: "Old.md".to_string(),
+            updated: Vec::new(),
+        })
+        .expect("a token");
+
+    assert_eq!(
+        undo_rename_with_links_inner(&state, &token),
+        Err(NOT_IN_FOLDER_TO_RENAME.to_string())
+    );
+    assert!(outside.exists());
+    assert!(!dir.path().join("Old.md").exists());
+}
+
+/// A rewritten file the folder no longer holds is left as it is, byte for
+/// byte, while the note itself still takes its name back.
+#[test]
+fn an_undo_leaves_a_rewritten_file_the_folder_no_longer_holds() {
+    let (dir, state) = seeded(&[("New note.md", "the note itself\n")]);
+    let outside = dir.path().join("Outside.md");
+    let before = "see [[New note]]\n";
+    std::fs::write(&outside, before).expect("write");
+    let token = state
+        .authorized_paths
+        .hold_rename_undo(RenameUndo {
+            renamed: note(&state, "New note.md"),
+            previous_name: "Old note.md".to_string(),
+            updated: vec![outside.to_string_lossy().into_owned()],
+        })
+        .expect("a token");
+
+    let undone = undo_rename_with_links_inner(&state, &token).expect("undo");
+
+    assert_eq!(std::fs::read_to_string(&outside).expect("read"), before);
+    assert_eq!(undone.updated, 0);
+    assert!(note(&state, "Old note.md").exists());
 }

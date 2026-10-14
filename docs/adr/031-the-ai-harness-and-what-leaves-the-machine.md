@@ -26,6 +26,10 @@ answered as not allowed, the server records one line per call with repeated read
 server that is off answers `NotEnabled`. Until then every refusal was `NotApproved` with one
 sentence, the gate recorded each call without its file, and a write that landed left a second line.
 
+Rule 3.8 added 2026-10-14: a grant of writing to a program is confirmed in a native dialog before
+it is stored, whether it comes from Settings or from undoing a Forget. Until then a call from the
+webview stored it, so a script running in Writ's window could hand a program write access.
+
 The rule numbers below are the contract the units that build the harness are reviewed against.
 Each rule names either the code that already satisfies it or the unit that will. Rules 3.1, 3.6,
 4.1 and 4.2 are the premises the rest are argued from rather than work an implementer does, so they
@@ -202,6 +206,11 @@ not already have.
 3.7. Every path argument from a client is canonicalised and checked against the notes root before
 anything opens it, reusing the containment rule at `src-tauri/src/commands/notes.rs:916`. A path
 outside the root is refused, and a symlink is refused after canonicalisation, not before (U4).
+
+3.8. Writing is granted only after the operating system's own dialog asks. `mcp_set_client_permission`
+and `mcp_restore_client` show it before they store an approval that gives a program writing it does
+not hold yet, with the program's name cut to one short line; turned down, nothing is stored. The
+webview can call both commands, and nothing it runs can draw or answer that dialog (U19).
 
 ### 4. Prompt injection is in the threat model
 

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, State};
+use writ_storage::paths::file_name_only;
 
 use crate::commands::file::{open_generated_document, FileOpenResult};
 use crate::state::AppState;
@@ -54,7 +55,11 @@ fn bundled_third_party_notices(app: &AppHandle) -> Result<String, String> {
         "Third-party licences are missing from this build.".to_string()
     })?;
     std::fs::read_to_string(path).map_err(|e| {
-        tracing::warn!(error = %e, path = %path.display(), "reading third-party notices failed");
+        tracing::warn!(
+            error = %e,
+            path = %file_name_only(&path.to_string_lossy()),
+            "reading third-party notices failed"
+        );
         "Could not read the third-party licences.".to_string()
     })
 }

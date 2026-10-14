@@ -26,12 +26,16 @@ fn directives(csp: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn frame_src(csp: &str) -> String {
+fn directive(csp: &str, wanted: &str) -> String {
     directives(csp)
         .into_iter()
-        .find(|(name, _)| name == "frame-src")
+        .find(|(name, _)| name == wanted)
         .map(|(_, sources)| sources)
-        .expect("frame-src present")
+        .unwrap_or_else(|| panic!("{wanted} present in {csp}"))
+}
+
+fn frame_src(csp: &str) -> String {
+    directive(csp, "frame-src")
 }
 
 #[test]
@@ -75,5 +79,34 @@ fn no_other_platform_file_overrides_the_policy() {
                 "{name} must not override the app CSP"
             );
         }
+    }
+}
+
+#[test]
+fn no_form_posts_anywhere() {
+    for windows in [false, true] {
+        assert_eq!(directive(&app_csp_for(windows), "form-action"), "'none'");
+    }
+}
+
+/// The frontend makes no fetch, XHR, WebSocket or EventSource request; the
+/// updater runs in Rust. The only connections are IPC, which WebView2 serves
+/// as `http://ipc.localhost`.
+#[test]
+fn connections_reach_only_the_ipc_origins() {
+    for windows in [false, true] {
+        assert_eq!(
+            directive(&app_csp_for(windows), "connect-src"),
+            "'self' ipc: http://ipc.localhost"
+        );
+    }
+}
+
+/// The asset protocol is not enabled, so `asset:` would only be a source an
+/// injected script could aim at later.
+#[test]
+fn images_come_from_the_app_or_inline_data_only() {
+    for windows in [false, true] {
+        assert_eq!(directive(&app_csp_for(windows), "img-src"), "'self' data:");
     }
 }

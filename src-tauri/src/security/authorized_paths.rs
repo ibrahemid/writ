@@ -10,6 +10,22 @@ use crate::poison::recover_poison;
 struct Inner {
     pending_open: HashSet<String>,
     blessed_sources: HashSet<String>,
+    rename_undo: Option<(String, RenameUndo)>,
+}
+
+/// What `Undo rename` may touch: the note's file as the rename left it, the
+/// name it had before, and the files the rename rewrote.
+///
+/// Held here and handed to the webview only as a token, so an undo writes the
+/// files Rust itself rewrote and no path the webview names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenameUndo {
+    /// Where the renamed note is now.
+    pub renamed: PathBuf,
+    /// The file name it had before the rename.
+    pub previous_name: String,
+    /// The files the rename rewrote, in the order it wrote them.
+    pub updated: Vec<String>,
 }
 
 #[derive(Default, Debug)]
@@ -77,6 +93,76 @@ impl AuthorizedPaths {
             "security::authorized_paths::is_blessed_source",
         );
         guard.blessed_sources.contains(canonical)
+    }
+
+    /// Blesses a stored source path and, when it resolves, its canonical form.
+    ///
+    /// The stored path is what a save presents; resolving can fail outright for
+    /// a file deleted while its tab was away, and refusing there would leave
+    /// that tab unable to recreate the file it came from.
+    pub fn bless_source_path(&self, stored: &str) {
+        if let Ok(canonical) = canonicalize_for_authorization(Path::new(stored)) {
+            self.record_blessed_source(canonical);
+        }
+        self.record_blessed_source(stored.to_string());
+    }
+
+    /// Takes a source's blessing away, in both forms it may have been recorded
+    /// under: the stored path and its resolved one.
+    pub fn revoke_blessed_source(&self, stored: &str) {
+        let resolved = canonicalize_for_authorization(Path::new(stored)).ok();
+        let mut guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::revoke_blessed_source",
+        );
+        guard.blessed_sources.remove(stored);
+        if let Some(resolved) = resolved {
+            guard.blessed_sources.remove(&resolved);
+        }
+    }
+
+    /// Holds the one rename `Undo rename` can put back, replacing any earlier
+    /// one, and answers the token the webview presents to undo it. `None` when
+    /// the system has no randomness to mint one with, which leaves the rename
+    /// without an undo rather than with a guessable one.
+    pub fn hold_rename_undo(&self, undo: RenameUndo) -> Option<String> {
+        let mut bytes = [0u8; 16];
+        let token = match getrandom::fill(&mut bytes) {
+            Ok(()) => bytes.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+            Err(error) => {
+                tracing::warn!(%error, "no undo token could be minted for a rename");
+                self.clear_rename_undo();
+                return None;
+            }
+        };
+        let mut guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::hold_rename_undo",
+        );
+        guard.rename_undo = Some((token.clone(), undo));
+        Some(token)
+    }
+
+    /// Spends `token`: the rename it stands for, once. A token that is not the
+    /// one held answers `None` and leaves the held rename where it is.
+    pub fn take_rename_undo(&self, token: &str) -> Option<RenameUndo> {
+        let mut guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::take_rename_undo",
+        );
+        match guard.rename_undo.as_ref() {
+            Some((held, _)) if held == token => guard.rename_undo.take().map(|(_, undo)| undo),
+            _ => None,
+        }
+    }
+
+    /// Drops the held rename, so no token undoes it.
+    pub fn clear_rename_undo(&self) {
+        let mut guard = recover_poison(
+            self.inner.lock(),
+            "security::authorized_paths::clear_rename_undo",
+        );
+        guard.rename_undo = None;
     }
 
     pub fn pending_open_len(&self) -> usize {
@@ -224,6 +310,50 @@ mod tests {
         assert_eq!(auth.pending_open_len(), 1);
         assert!(auth.consume_for_open(&canonical));
         assert!(!auth.consume_for_open(&canonical));
+    }
+
+    #[test]
+    fn revoking_a_source_takes_both_recorded_forms() {
+        let dir = TempDir::new().expect("tempdir");
+        let canonical = make_file(&dir, "revoke.txt");
+        let stored = dir.path().join("revoke.txt").to_string_lossy().into_owned();
+        let auth = AuthorizedPaths::new();
+        auth.record_blessed_source(stored.clone());
+        auth.record_blessed_source(canonical.clone());
+
+        auth.revoke_blessed_source(&stored);
+
+        assert!(!auth.is_blessed_source(&stored));
+        assert!(!auth.is_blessed_source(&canonical));
+    }
+
+    fn undo(name: &str) -> RenameUndo {
+        RenameUndo {
+            renamed: PathBuf::from(format!("/notes/{name}.md")),
+            previous_name: "Old.md".to_string(),
+            updated: vec!["/notes/First.md".to_string()],
+        }
+    }
+
+    #[test]
+    fn a_rename_undo_is_spent_once_and_only_with_its_token() {
+        let auth = AuthorizedPaths::new();
+        let token = auth.hold_rename_undo(undo("New")).expect("a token");
+
+        assert_eq!(auth.take_rename_undo("not-the-token"), None);
+        assert_eq!(auth.take_rename_undo(&token), Some(undo("New")));
+        assert_eq!(auth.take_rename_undo(&token), None);
+    }
+
+    #[test]
+    fn a_later_rename_replaces_the_undo_held_for_an_earlier_one() {
+        let auth = AuthorizedPaths::new();
+        let first = auth.hold_rename_undo(undo("First")).expect("a token");
+        let second = auth.hold_rename_undo(undo("Second")).expect("a token");
+
+        assert_ne!(first, second);
+        assert_eq!(auth.take_rename_undo(&first), None);
+        assert_eq!(auth.take_rename_undo(&second), Some(undo("Second")));
     }
 
     #[test]

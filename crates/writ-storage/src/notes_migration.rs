@@ -31,6 +31,7 @@ use crate::buffer_store::BufferStore;
 use crate::database::queries;
 use crate::errors::StorageResult;
 use crate::guarded::write_guarded_by_stamp;
+use crate::paths::file_name_only;
 use crate::recovery::journal::UnsavedJournal;
 use crate::rollback;
 use crate::schema_meta::{
@@ -537,7 +538,11 @@ fn migrate_source_backed_row(
                     }
                 }
                 Err(error) => {
-                    warn!(path = %destination.display(), %error, "could not write the recovered text");
+                    warn!(
+                        path = %file_name_only(&destination.to_string_lossy()),
+                        %error,
+                        "could not write the recovered text"
+                    );
                     RowOutcome::VerificationFailed {
                         path: path_text(&destination),
                         mirror: path_text(mirror),
@@ -565,7 +570,11 @@ fn migrate_source_backed_row(
             })
         }
         Err(error) => {
-            warn!(path = %destination.display(), %error, "could not write the recovered text");
+            warn!(
+                path = %file_name_only(&destination.to_string_lossy()),
+                %error,
+                "could not write the recovered text"
+            );
             Ok(RowOutcome::VerificationFailed {
                 path: path_text(&destination),
                 mirror: path_text(mirror),
@@ -623,7 +632,11 @@ fn migrate_row_without_a_file(
             })
         }
         Err(error) => {
-            warn!(path = %destination.display(), %error, "could not write the note");
+            warn!(
+                path = %file_name_only(&destination.to_string_lossy()),
+                %error,
+                "could not write the note"
+            );
             Ok(RowOutcome::VerificationFailed {
                 path: path_text(&destination),
                 mirror: path_text(mirror),
@@ -684,7 +697,11 @@ fn migrate_piped_files(
                 );
             }
             Err(error) => {
-                warn!(path = %destination.display(), %error, "could not write the piped text");
+                warn!(
+                    path = %file_name_only(&destination.to_string_lossy()),
+                    %error,
+                    "could not write the piped text"
+                );
                 report.record(
                     key,
                     RowOutcome::VerificationFailed {
@@ -824,7 +841,11 @@ fn recover_after_failure(recovered_dir: &mut DirNames, stem: &str, bytes: &[u8])
     match write_and_verify(&destination, bytes, recovered_dir) {
         Ok(()) => Some(path_text(&destination)),
         Err(error) => {
-            warn!(path = %destination.display(), %error, "could not place the text under Recovered either");
+            warn!(
+                path = %file_name_only(&destination.to_string_lossy()),
+                %error,
+                "could not place the text under Recovered either"
+            );
             None
         }
     }
@@ -835,7 +856,11 @@ fn recover_after_failure(recovered_dir: &mut DirNames, stem: &str, bytes: &[u8])
 fn remove_mirror(mirror: &Path) {
     if mirror.exists() {
         if let Err(error) = std::fs::remove_file(mirror) {
-            warn!(path = %mirror.display(), %error, "could not clear the copy");
+            warn!(
+                path = %file_name_only(&mirror.to_string_lossy()),
+                %error,
+                "could not clear the copy"
+            );
         }
     }
 }

@@ -192,3 +192,19 @@ fn waiting_for_completion_returns_at_once_when_it_is_already_complete() {
     assert!(quit.wait_until_complete(Duration::from_secs(5)));
     assert!(started.elapsed() < Duration::from_millis(500));
 }
+
+#[test]
+fn a_quit_or_a_final_shutdown_marks_the_process_as_leaving() {
+    let idle = QuitState::new();
+    assert!(!idle.has_begun());
+
+    let quitting = QuitState::new();
+    quitting.begin(None);
+    assert!(quitting.has_begun());
+    quitting.finish();
+    assert!(quitting.has_begun());
+
+    let terminated = QuitState::new();
+    assert!(terminated.claim_final_shutdown());
+    assert!(terminated.has_begun());
+}

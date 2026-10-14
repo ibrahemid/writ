@@ -16,8 +16,7 @@ import { previewScriptsStore } from "../global/preview-scripts";
 
 export type PreviewStore = ReturnType<typeof createPreviewStore>;
 
-export function createPreviewStore(deps: { windowId: number }) {
-  const { windowId } = deps;
+export function createPreviewStore() {
   const [forceRefreshToken, setForceRefreshToken] = createSignal(0);
   // The preview pane's search controller, registered only while a renderable
   // buffer is shown preview-only (the editor hidden). find-store routes to it
@@ -52,7 +51,7 @@ export function createPreviewStore(deps: { windowId: number }) {
     zoom: number,
   ): Promise<PreviewRenderResult> {
     const issuedAt = previewScriptsStore.issue();
-    const result = await previewForceRender(windowId, bufferId, contentType, text, theme, zoom);
+    const result = await previewForceRender(bufferId, contentType, text, theme, zoom);
     if (result.kind === "rendered") {
       previewScriptsStore.settle(bufferId, issuedAt, result.scripts_enabled);
     }

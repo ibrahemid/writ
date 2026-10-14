@@ -7,12 +7,16 @@ const REPO_ROOT = process.cwd();
 const SRC = resolve(REPO_ROOT, "src");
 
 // The one file allowed to import each specifier, as a path under the source
-// root. CLAUDE.md states both rules; this test is what enforces them.
+// root. CLAUDE.md states both rules; this test is what enforces them. Every
+// Tauri package, plugins included, belongs to services/tauri.ts; only the event
+// module has its own file.
 const API_AUTHORITY = "services/tauri.ts";
 const EVENT_AUTHORITY = "services/events.ts";
 
+const TAURI_SCOPE = "@tauri-apps/";
 const API_PACKAGE = "@tauri-apps/api";
 const EVENT_MODULE = "@tauri-apps/api/event";
+const PLUGIN_PACKAGE = "@tauri-apps/plugin-clipboard-manager";
 
 // Static imports, side-effect imports, dynamic imports, requires, and the two
 // re-export forms. A dynamic import of Tauri from a component is the same
@@ -49,7 +53,7 @@ function tauriImportOffenders(root: string): Offender[] {
     const text = readFileSync(file, "utf8");
     for (const match of text.matchAll(SPECIFIER_RE)) {
       const spec = match[1];
-      if (spec !== API_PACKAGE && !spec.startsWith(API_PACKAGE + "/")) continue;
+      if (!spec.startsWith(TAURI_SCOPE)) continue;
       const authority = spec === EVENT_MODULE ? EVENT_AUTHORITY : API_AUTHORITY;
       if (here === authority) continue;
       // Two forms can match the same line; one file naming one module is one
@@ -66,7 +70,7 @@ function describeOffenders(offenders: Offender[]): string {
 }
 
 describe("tauri import authority", () => {
-  it("only src/services/tauri.ts imports @tauri-apps/api", () => {
+  it("only src/services/tauri.ts imports @tauri-apps/*", () => {
     const offenders = tauriImportOffenders(SRC).filter((o) => o.spec !== EVENT_MODULE);
     expect(offenders, describeOffenders(offenders)).toEqual([]);
   });
@@ -111,6 +115,12 @@ describe("tauri import authority", () => {
         join(root, "components", "Widget", "Star.tsx"),
         `export * from "${EVENT_MODULE}";\n`,
       );
+      // A plugin is the same reach into Tauri as the API package.
+      mkdirSync(join(root, "stores"), { recursive: true });
+      writeFileSync(
+        join(root, "stores", "paste.ts"),
+        `import { readText } from "${PLUGIN_PACKAGE}";\nexport const paste = readText;\n`,
+      );
 
       const offenders = tauriImportOffenders(root);
       expect(offenders.map((o) => o.file).sort()).toEqual([
@@ -118,12 +128,14 @@ describe("tauri import authority", () => {
         join("components", "Widget", "Passthrough.tsx"),
         join("components", "Widget", "Star.tsx"),
         join("components", "Widget", "Widget.tsx"),
+        join("stores", "paste.ts"),
       ]);
       expect(offenders.find((o) => o.file.endsWith("Late.tsx"))?.authority).toBe(EVENT_AUTHORITY);
       expect(offenders.find((o) => o.file.endsWith("Star.tsx"))?.authority).toBe(EVENT_AUTHORITY);
       expect(offenders.find((o) => o.file.endsWith("Passthrough.tsx"))?.authority).toBe(
         API_AUTHORITY,
       );
+      expect(offenders.find((o) => o.file.endsWith("paste.ts"))?.authority).toBe(API_AUTHORITY);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -170,6 +170,7 @@ const TEST_PROVIDERS = [
 ];
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: mocks.writeClipboardText,
   getConfig: vi.fn().mockResolvedValue(undefined),
   updateConfig: vi.fn().mockResolvedValue(undefined),
   listActiveBuffers: vi.fn().mockResolvedValue([]),
@@ -233,9 +234,6 @@ vi.mock("../../stores/global/storage", () => ({
   copyStoragePath: mocks.copyStoragePath,
 }));
 
-vi.mock("../../services/clipboard", () => ({
-  writeClipboardText: mocks.writeClipboardText,
-}));
 
 vi.mock("../../stores/global/notices", () => ({
   THIRD_PARTY_NOTICES_TITLE: "Third-party licences",

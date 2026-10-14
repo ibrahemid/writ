@@ -17,6 +17,7 @@ use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::materialise::{decide_open, OpenDecision};
 use writ_core::watcher::change_event::ExternalChange;
 use writ_storage::buffer_store::BufferStore;
+use writ_storage::paths::file_name_only;
 
 const ERR_UNAUTHORIZED_PATH: &str =
     "Writ cannot open that file from here. Use File > Open File, or drop it onto the window.";
@@ -548,7 +549,11 @@ pub async fn pick_files_to_open(app: tauri::AppHandle) -> Result<Vec<String>, St
                 out.push(canonical);
             }
             Err(e) => {
-                tracing::warn!(error = %e, path = %pb.display(), "failed to canonicalize dialog path; skipping");
+                tracing::warn!(
+                    error = %e,
+                    path = %file_name_only(&pb.to_string_lossy()),
+                    "failed to canonicalize dialog path; skipping"
+                );
             }
         }
     }

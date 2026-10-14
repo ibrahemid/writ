@@ -3,7 +3,7 @@ import {
   revealStoragePath as ipcRevealStoragePath,
 } from "../../services/tauri";
 import type { StorageInfo } from "../../services/tauri";
-import { writeClipboardText } from "../../services/clipboard";
+import { writeClipboardText } from "../../services/tauri";
 
 export type { StorageInfo };
 

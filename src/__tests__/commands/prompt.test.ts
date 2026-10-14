@@ -1,13 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: vi.fn().mockResolvedValue(undefined),
   applyTransform: vi.fn(),
   promptScanPlaceholders: vi.fn(),
   promptFillPlaceholders: vi.fn(),
-}));
-
-vi.mock("../../services/clipboard", () => ({
-  writeClipboardText: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../components/Notifications/Toast", () => ({
@@ -32,12 +29,10 @@ vi.mock("../../stores/global/window-registry", () => ({
 import { registerPromptCommands } from "../../commands/prompt";
 import { getCommand } from "../../commands/registry";
 import * as tauriApi from "../../services/tauri";
-import * as clipboard from "../../services/clipboard";
 import { showToast } from "../../components/Notifications/Toast";
 import { requestPlaceholderFill } from "../../components/PromptFill/PromptFillModal";
 
 const mockedApi = vi.mocked(tauriApi);
-const mockedClipboard = vi.mocked(clipboard);
 const mockedToast = vi.mocked(showToast);
 const mockedFill = vi.mocked(requestPlaceholderFill);
 
@@ -71,7 +66,7 @@ describe("registerPromptCommands", () => {
       await flush();
 
       expect(mockedApi.applyTransform).toHaveBeenCalledWith("prepare_prompt", "raw text");
-      expect(mockedClipboard.writeClipboardText).toHaveBeenCalledWith("stripped text\n");
+      expect(mockedApi.writeClipboardText).toHaveBeenCalledWith("stripped text\n");
       expect(editorMock.applyEditToActiveBuffer).not.toHaveBeenCalled();
       expect(mockedToast).toHaveBeenCalledWith("Copied as prompt", "success");
     });
@@ -94,7 +89,7 @@ describe("registerPromptCommands", () => {
       getCommand("prompt.copyAsPrompt")!.execute();
       await flush();
 
-      expect(mockedClipboard.writeClipboardText).not.toHaveBeenCalled();
+      expect(mockedApi.writeClipboardText).not.toHaveBeenCalled();
       expect(mockedToast).toHaveBeenCalledWith("Could not copy as prompt", "error");
     });
 
@@ -105,7 +100,7 @@ describe("registerPromptCommands", () => {
       await flush();
 
       expect(mockedApi.applyTransform).not.toHaveBeenCalled();
-      expect(mockedClipboard.writeClipboardText).not.toHaveBeenCalled();
+      expect(mockedApi.writeClipboardText).not.toHaveBeenCalled();
     });
   });
 
@@ -122,7 +117,7 @@ describe("registerPromptCommands", () => {
       expect(mockedApi.promptScanPlaceholders).toHaveBeenCalledWith("hi {{name}}");
       expect(mockedFill).toHaveBeenCalledWith(["name"], "hi {{name}}");
       expect(mockedApi.promptFillPlaceholders).toHaveBeenCalledWith("hi {{name}}", { name: "Writ" });
-      expect(mockedClipboard.writeClipboardText).toHaveBeenCalledWith("hi Writ");
+      expect(mockedApi.writeClipboardText).toHaveBeenCalledWith("hi Writ");
       expect(editorMock.applyEditToActiveBuffer).not.toHaveBeenCalled();
       expect(mockedToast).toHaveBeenCalledWith("Filled prompt copied", "success");
     });
@@ -136,7 +131,7 @@ describe("registerPromptCommands", () => {
       await flush();
 
       expect(mockedApi.promptFillPlaceholders).not.toHaveBeenCalled();
-      expect(mockedClipboard.writeClipboardText).not.toHaveBeenCalled();
+      expect(mockedApi.writeClipboardText).not.toHaveBeenCalled();
     });
 
     it("shows an error toast when filling fails", async () => {
@@ -148,7 +143,7 @@ describe("registerPromptCommands", () => {
       getCommand("prompt.fillPlaceholders")!.execute();
       await flush();
 
-      expect(mockedClipboard.writeClipboardText).not.toHaveBeenCalled();
+      expect(mockedApi.writeClipboardText).not.toHaveBeenCalled();
       expect(mockedToast).toHaveBeenCalledWith("Could not fill the placeholders", "error");
     });
   });

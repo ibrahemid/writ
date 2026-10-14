@@ -18,6 +18,7 @@ use tracing::info;
 use writ_core::buffer::document::BufferDocument;
 use writ_core::config::{AppId, FileExtension};
 use writ_core::startup::{retitle_answer, RetitleAnswer, RetitleFacts};
+use writ_storage::paths::file_name_only;
 
 use crate::poison::recover_poison;
 use crate::state::AppState;
@@ -218,7 +219,7 @@ fn remember_the_launch(
     crate::commands::config::persist_config(state, &config).map_err(|error| {
         tracing::warn!(
             %error,
-            path = %state.config_store.path().display(),
+            path = %file_name_only(&state.config_store.path().to_string_lossy()),
             "first launch could not record the config"
         );
         error

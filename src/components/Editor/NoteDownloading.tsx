@@ -4,13 +4,13 @@ import "./NoteDownloading.css";
 import Button from "../Button/Button";
 
 // A failure the provider reported is about the file; the other two are about
-// Writ, and each says what the person can do next.
+// Writ.
 function failureLine(reason: DownloadFailure): string {
   switch (reason) {
     case "open":
-      return "The file downloaded but it did not open. Open it again.";
+      return "The file downloaded but it did not open.";
     case "listener":
-      return "Writ lost track of this download. Open the file again.";
+      return "Writ lost track of this download.";
     case "download":
       return "This file could not be downloaded.";
   }
@@ -18,6 +18,7 @@ function failureLine(reason: DownloadFailure): string {
 
 interface Props {
   download: PendingDownload;
+  onRetry: () => void;
   onDismiss: () => void;
 }
 
@@ -42,16 +43,22 @@ export default function NoteDownloading(props: Props) {
           <Show when={props.download.reason === "download" && props.download.message}>
             {(message) => <p class="note-downloading-detail">{message()}</p>}
           </Show>
-          <Button onClick={props.onDismiss}>Close</Button>
+          <div class="note-downloading-choices">
+            <Button onClick={props.onRetry}>Try again</Button>
+            <Button onClick={props.onDismiss}>Close</Button>
+          </div>
         </Match>
 
         <Match when={props.download.state === "timed_out"}>
           <p class="note-downloading-line">
             {provider()
-              ? `Still waiting for ${provider()}. Try again once the file has downloaded.`
-              : "Still waiting. Try again once the file has downloaded."}
+              ? `${provider()} has not finished downloading this file.`
+              : "This file has not finished downloading."}
           </p>
-          <Button onClick={props.onDismiss}>Close</Button>
+          <div class="note-downloading-choices">
+            <Button onClick={props.onRetry}>Try again</Button>
+            <Button onClick={props.onDismiss}>Close</Button>
+          </div>
         </Match>
       </Switch>
     </div>

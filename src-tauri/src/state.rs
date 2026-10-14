@@ -23,12 +23,13 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::notes_index::NotesIndexStore;
+use writ_storage::paths::file_name_only;
 
 use crate::fts_scheduler::FtsScheduler;
 use crate::poison::recover_poison;
 use crate::preview::handler::RenderCache;
 use crate::quit::QuitState;
-use crate::security::{canonicalize_for_authorization, canonicalize_root, AuthorizedPaths};
+use crate::security::{canonicalize_root, AuthorizedPaths};
 use crate::watcher::handler::{IgnoreSet, WatcherHandle};
 use crate::watcher::moves::FileTracking;
 use crate::watcher::open_files::{NoOpenNotes, OpenFileWatcher, OpenNotes};
@@ -266,7 +267,7 @@ impl AppState {
         let db_path = writ_dir.join("writ.db");
         let conn = open_database(&db_path)?;
         run_migrations(&conn)?;
-        info!(path = %db_path.display(), "database initialized");
+        info!(path = %file_name_only(&db_path.to_string_lossy()), "database initialized");
 
         // Second connection for layout-state persistence; migrations have
         // already created the table on the primary connection above.
@@ -301,7 +302,7 @@ impl AppState {
             },
             &writ_dir,
         )?;
-        info!(path = %notes_root.display(), "notes folder ready");
+        info!(path = %file_name_only(&notes_root.to_string_lossy()), "notes folder ready");
 
         // The half of the data-folder guard that needs both paths. The sync
         // provider half already ran in `run()`, before the database was
@@ -468,7 +469,10 @@ impl AppState {
             .and_then(|p| canonicalize_root(&p).ok())
             .filter(|p| p.is_dir());
         if let Some(root) = &workspace_root {
-            info!(root = %root.display(), "workspace root restored from config");
+            info!(
+                root = %file_name_only(&root.to_string_lossy()),
+                "workspace root restored from config"
+            );
         }
 
         let inbox_root = config
@@ -479,7 +483,10 @@ impl AppState {
             .and_then(|p| canonicalize_root(&p).ok())
             .filter(|p| p.is_dir());
         if let Some(root) = &inbox_root {
-            info!(root = %root.display(), "inbox folder restored from config");
+            info!(
+                root = %file_name_only(&root.to_string_lossy()),
+                "inbox folder restored from config"
+            );
         }
 
         let workspace_index = Arc::new(RwLock::new(crate::workspace_index::WorkspaceIndex::new(
@@ -1125,7 +1132,10 @@ fn restore_orphaned_text(
     };
     let copy = writ_storage::guarded::write_recovered_copy(&beside, text, now, None)
         .map_err(|e| e.to_string())?;
-    info!(recovered = %copy.display(), "text of a note removed from history was written to a file of its own");
+    info!(
+        recovered = %file_name_only(&copy.to_string_lossy()),
+        "text of a note removed from history was written to a file of its own"
+    );
     Ok(RecoveryLanding::Written(None))
 }
 
@@ -1279,38 +1289,28 @@ impl OpenNotes for OpenTabs<'_> {
     }
 }
 
-/// Re-blesses the source paths of every persisted buffer, returning how many.
+/// Re-blesses the source paths of every open tab, returning how many.
 ///
 /// Blessing normally happens when a file is opened, in memory. Tabs outlive
 /// the process, though, and a save writes the file the buffer came from, so a
 /// restored tab has to carry its permission across the restart or the first
 /// keystroke after a relaunch fails as an unauthorized write.
 ///
-/// Both the stored path and its resolved form are recorded. The stored path is
-/// what a save presents; resolving can fail outright for a file deleted while
-/// Writ was closed, and refusing there would leave that tab permanently
-/// unsavable instead of recreating the file it came from.
+/// Closed tabs are not blessed: a file the person put away is not one the
+/// webview may write, and reopening it from the history list blesses it again
+/// ([`crate::commands::history::restore_buffer_inner`]).
 pub fn bless_persisted_sources(store: &BufferStore, authorized_paths: &AuthorizedPaths) -> usize {
+    let Ok(buffers) = store.list_by_status(writ_core::buffer::document::BufferStatus::Active)
+    else {
+        return 0;
+    };
     let mut hydrated = 0usize;
-    for status in [
-        writ_core::buffer::document::BufferStatus::Active,
-        writ_core::buffer::document::BufferStatus::History,
-    ] {
-        let Ok(buffers) = store.list_by_status(status) else {
+    for doc in buffers {
+        let Some(source_path) = doc.source_path else {
             continue;
         };
-        for doc in buffers {
-            let Some(source_path) = doc.source_path else {
-                continue;
-            };
-            if let Ok(canonical) =
-                canonicalize_for_authorization(std::path::Path::new(&source_path))
-            {
-                authorized_paths.record_blessed_source(canonical);
-            }
-            authorized_paths.record_blessed_source(source_path);
-            hydrated += 1;
-        }
+        authorized_paths.bless_source_path(&source_path);
+        hydrated += 1;
     }
     hydrated
 }

@@ -28,6 +28,8 @@ pub enum StartupStage {
     DataDirectoryLocation,
     /// Opening the data directory, database, and settings.
     AppState,
+    /// Creating the window and the system web view it draws with.
+    Window,
 }
 
 impl StartupStage {
@@ -37,6 +39,7 @@ impl StartupStage {
             StartupStage::DataDirectory => "resolving the data directory",
             StartupStage::DataDirectoryLocation => "checking where Writ keeps its data",
             StartupStage::AppState => "opening the data directory, database and settings",
+            StartupStage::Window => "opening the window and its web view",
         }
     }
 
@@ -54,6 +57,11 @@ impl StartupStage {
                 "Writ keeps its buffers, settings and database in that directory. Make it \
                  readable and writable, or set WRIT_DATA_DIR to another directory, then start \
                  Writ again."
+            }
+            StartupStage::Window => {
+                "Writ draws its window with the system web view. On Windows, install or repair \
+                 the Microsoft Edge WebView2 Runtime. On Linux, install webkit2gtk-4.1. Then \
+                 start Writ again."
             }
         }
     }

@@ -23,6 +23,7 @@ use crate::buffer_store::BufferStore;
 use crate::database::queries;
 use crate::errors::{StorageError, StorageResult};
 use crate::notes_migration;
+use crate::paths::file_name_only;
 
 /// What a move of the notes folder did.
 ///
@@ -110,7 +111,11 @@ pub fn move_notes_folder_renaming(
 fn put_back(rename: Rename<'_>, done: &[(PathBuf, PathBuf)]) {
     for (was, is) in done.iter().rev() {
         if let Err(error) = move_entry(rename, is, was) {
-            warn!(path = %is.display(), %error, "an entry could not be put back after a failed move");
+            warn!(
+                path = %file_name_only(&is.to_string_lossy()),
+                %error,
+                "an entry could not be put back after a failed move"
+            );
         }
     }
 }
@@ -126,7 +131,11 @@ fn move_entry(rename: Rename<'_>, from: &Path, to: &Path) -> std::io::Result<()>
         Err(_) => {
             if let Err(error) = copy_tree(from, to) {
                 if let Err(cleanup) = remove_tree(to) {
-                    warn!(path = %to.display(), %cleanup, "a part-copied entry could not be cleared");
+                    warn!(
+                        path = %file_name_only(&to.to_string_lossy()),
+                        %cleanup,
+                        "a part-copied entry could not be cleared"
+                    );
                 }
                 return Err(error);
             }
@@ -293,7 +302,11 @@ pub fn move_archive_into_notes(
         let destination = notes.join(&name);
 
         if let Err(error) = move_entry(&|from, to| std::fs::rename(from, to), &file, &destination) {
-            warn!(path = %file.display(), %error, "an archived note could not be moved");
+            warn!(
+                path = %file_name_only(&file.to_string_lossy()),
+                %error,
+                "an archived note could not be moved"
+            );
             continue;
         }
         if name != was {

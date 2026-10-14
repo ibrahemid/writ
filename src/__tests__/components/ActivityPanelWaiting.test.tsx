@@ -29,6 +29,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 }));
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: h.writeClipboardText,
   activityRecent: h.activityRecent,
   activityClear: h.activityClear,
   mcpClients: h.mcpClients,
@@ -40,7 +41,6 @@ vi.mock("../../services/tauri", () => ({
   mcpServerCommand: h.mcpServerCommand,
 }));
 vi.mock("../../services/events", () => ({ onEvent: h.onEvent }));
-vi.mock("../../services/clipboard", () => ({ writeClipboardText: h.writeClipboardText }));
 
 import ActivityPanel, {
   openActivity,

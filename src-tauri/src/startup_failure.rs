@@ -1,10 +1,11 @@
 //! Surfaces a startup failure that happens before any window exists.
 //!
-//! Release builds abort on panic, the window starts hidden, and the dialog
-//! plugin is only registered once the Tauri builder runs, so a failure in
-//! [`crate::state::AppState::initialize`] would otherwise end the process
-//! with nothing on screen and nothing on disk. This module writes the
-//! report, shows a native dialog, and exits.
+//! The window starts hidden and the dialog plugin is only registered once the
+//! Tauri builder runs, so a failure in
+//! [`crate::state::AppState::initialize`], or in the builder itself when the
+//! system web view is missing or broken, would otherwise end the process with
+//! nothing on screen and nothing on disk. This module writes the report, shows
+//! a native dialog, and exits.
 //!
 //! Policy (what the report says, where it goes) lives in
 //! [`writ_core::startup`]; this module performs the writes and calls the
@@ -14,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 use writ_core::startup::{
-    choose_report_path, format_failure_dialog, format_failure_report, StartupFailure,
+    choose_report_path, format_failure_dialog, format_failure_report, StartupFailure, StartupStage,
     FAILURE_DIALOG_TITLE,
 };
 
@@ -28,17 +29,59 @@ pub fn timestamp() -> String {
 /// `logs_dir` is the preferred destination; pass `None` when the data
 /// directory itself could not be resolved.
 pub fn abort_with_report(failure: &StartupFailure, logs_dir: Option<&Path>) -> ! {
-    let report_path = write_report(failure, logs_dir, &std::env::temp_dir());
+    report_failure(
+        failure,
+        logs_dir,
+        &std::env::temp_dir(),
+        show_failure_dialog,
+    );
+    std::process::exit(1);
+}
+
+/// What the report says when the builder panicked. The panic's own message
+/// stays out of it (ADR-045); the crash file in the logs folder has its
+/// location.
+const WINDOW_PANICKED: &str =
+    "creating the window stopped on an internal error; the crash file in the logs folder says where";
+
+/// Runs the Tauri builder, turning its error or its panic into the failure
+/// the dialog reports.
+///
+/// A broken WebView2 runtime on Windows comes back as an error. A GTK that
+/// cannot start on Linux panics inside tao's event loop setup instead, on the
+/// main thread before any callback, where unwinding reaches this frame.
+pub fn build_window<T, E: std::fmt::Display>(
+    build: impl FnOnce() -> Result<T, E>,
+) -> Result<T, StartupFailure> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(build)) {
+        Ok(Ok(app)) => Ok(app),
+        Ok(Err(error)) => Err(window_failure(&error, timestamp())),
+        Err(_) => Err(window_failure(&WINDOW_PANICKED, timestamp())),
+    }
+}
+
+fn window_failure(error: &dyn std::fmt::Display, timestamp: String) -> StartupFailure {
+    StartupFailure::new(StartupStage::Window, error.to_string(), None, timestamp)
+}
+
+/// Writes the report, prints it, and hands the dialog to `show`. Returns where
+/// the report landed.
+fn report_failure(
+    failure: &StartupFailure,
+    logs_dir: Option<&Path>,
+    temp_dir: &Path,
+    show: impl FnOnce(&str, &str),
+) -> Option<PathBuf> {
+    let report_path = write_report(failure, logs_dir, temp_dir);
 
     // A desktop launch discards this, but a terminal launch does not.
     eprintln!("{}", format_failure_report(failure, report_path.as_deref()));
 
-    show_failure_dialog(
+    show(
         FAILURE_DIALOG_TITLE,
         &format_failure_dialog(failure, report_path.as_deref()),
     );
-
-    std::process::exit(1);
+    report_path
 }
 
 /// Writes the report to the logs directory, falling back to `temp_dir` when
@@ -137,6 +180,9 @@ fn dialog_candidates(title: &str, body: &str) -> [(&'static str, Vec<String>); 3
             vec![
                 "--error".to_string(),
                 "--no-wrap".to_string(),
+                // `--text` is Pango markup otherwise, and a path holding `&`
+                // or `<` would leave the dialog empty.
+                "--no-markup".to_string(),
                 format!("--title={title}"),
                 format!("--text={text}"),
             ],
@@ -172,7 +218,6 @@ fn show_first_working_dialog(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use writ_core::startup::StartupStage;
 
     fn failure() -> StartupFailure {
         StartupFailure::new(
@@ -291,6 +336,62 @@ mod tests {
                 temp.path().join("writ-crash-20260730-101500.txt"),
             ]
         );
+    }
+
+    #[test]
+    fn a_window_failure_reaches_the_dialog_and_the_logs_dir() {
+        let logs = tempfile::tempdir().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let error = std::io::Error::other("WebView2 runtime not found");
+        let failure = window_failure(&error, "20261014-101500".to_string());
+        let mut shown = None;
+
+        let written = report_failure(&failure, Some(logs.path()), temp.path(), |title, body| {
+            shown = Some((title.to_string(), body.to_string()));
+        });
+
+        let (title, body) = shown.expect("the dialog was shown");
+        assert_eq!(title, FAILURE_DIALOG_TITLE);
+        assert!(body.contains("Step: opening the window and its web view"));
+        assert!(body.contains("Error: WebView2 runtime not found"));
+        assert_eq!(
+            written,
+            Some(logs.path().join("writ-crash-20261014-101500.txt"))
+        );
+    }
+
+    #[test]
+    fn a_builder_error_becomes_a_window_failure() {
+        let failure =
+            build_window(|| Err::<(), _>(std::io::Error::other("WebView2 runtime not found")))
+                .unwrap_err();
+
+        assert_eq!(failure.stage, StartupStage::Window);
+        assert_eq!(failure.error, "WebView2 runtime not found");
+    }
+
+    #[test]
+    fn a_builder_panic_becomes_a_window_failure_without_its_message() {
+        let failure = build_window(|| -> Result<(), std::io::Error> {
+            panic!("Failed to initialize gtk backend! private note text")
+        })
+        .unwrap_err();
+
+        assert_eq!(failure.stage, StartupStage::Window);
+        assert_eq!(failure.error, WINDOW_PANICKED);
+    }
+
+    #[test]
+    fn a_builder_that_succeeds_passes_its_app_through() {
+        assert_eq!(build_window(|| Ok::<_, std::io::Error>(7)).unwrap(), 7);
+    }
+
+    #[test]
+    fn zenity_reads_the_dialog_text_as_plain_text() {
+        let [(program, args), ..] = dialog_candidates(FAILURE_DIALOG_TITLE, "Path: /a&b/<c>");
+
+        assert_eq!(program, "zenity");
+        assert!(args.iter().any(|arg| arg == "--no-markup"), "{args:?}");
     }
 
     #[test]

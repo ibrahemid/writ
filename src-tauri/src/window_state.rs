@@ -1,7 +1,7 @@
 //! Pure window-toggle state machine.
 //!
-//! The global hotkey and the menu-driven `toggle_window` command share the
-//! same intent: bring Writ into view when away, dismiss it when active.
+//! The global hotkey's intent: bring Writ into view when away, dismiss it
+//! when active.
 //! macOS minimization adds a fourth state that must be handled explicitly,
 //! since a minimized window is technically "visible" but invisible to the
 //! user.

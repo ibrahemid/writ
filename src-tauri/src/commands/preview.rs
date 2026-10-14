@@ -5,30 +5,28 @@
 //! - [`preview_open`] / [`preview_close`] — webview-slot assignment for a
 //!   `(window, buffer)` pair.
 //! - [`preview_render`] / [`preview_force_render`] — run the renderer over
-//!   the live buffer text, cache the HTML for the protocol handler, and
-//!   emit `preview:rendered` / `preview:error`. The frontend debounces
-//!   keystroke-driven renders; `force_render` is the Cmd+R path (identical
-//!   at the IPC boundary — the debounce gate is frontend-side).
+//!   the live buffer text and cache the HTML for the protocol handler. The
+//!   frontend debounces keystroke-driven renders; `force_render` is the Cmd+R
+//!   path (identical at the IPC boundary — the debounce gate is frontend-side).
 //!
 //! Phase 2b adds `preview_set_layout`, `preview_detach`, `preview_print`,
 //! `preview_export` alongside the layout surface.
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use tracing::{info, warn};
 use writ_core::hash::Sha256Digest;
 use writ_core::preview::{
-    inline_image_data_url, resolve_inline_image, size_within_inline_limit, AssetScope,
-    ContentTypeId, InlineImageRefusal, RenderError, RenderRequest, RendererCapabilities,
-    ThemePolarity,
+    inline_image_data_url, render_contained, resolve_inline_image, size_within_inline_limit,
+    AssetScope, ContentTypeId, InlineImageRefusal, RenderError, RenderRequest,
+    RendererCapabilities, ThemePolarity,
 };
 
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::StorageResult;
 use writ_storage::layout_state::LayoutStateRecord;
 
-use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
 use crate::preview::handler::{RenderCache, RenderedDoc};
 use crate::state::AppState;
@@ -45,17 +43,17 @@ pub struct RendererInfo {
 /// List every registered renderer.
 #[tauri::command]
 pub fn preview_list_renderers(state: State<'_, AppState>) -> Vec<RendererInfo> {
-    state
-        .preview_registry
-        .read()
-        .expect("preview registry rwlock poisoned")
-        .list()
-        .into_iter()
-        .map(|(id, capabilities)| RendererInfo {
-            content_type: id.as_str().to_string(),
-            capabilities,
-        })
-        .collect()
+    recover_poison(
+        state.preview_registry.read(),
+        "commands::preview::preview_list_renderers",
+    )
+    .list()
+    .into_iter()
+    .map(|(id, capabilities)| RendererInfo {
+        content_type: id.as_str().to_string(),
+        capabilities,
+    })
+    .collect()
 }
 
 /// Drop the cached render for a buffer when its preview pane closes.
@@ -235,18 +233,14 @@ pub fn preview_get_layout(
     }))
 }
 
-/// Persist a buffer's preview layout and broadcast the change.
+/// Persist a buffer's preview layout.
 ///
 /// `path` is the buffer's absolute source path, or `None` for a scratch
-/// buffer. Scratch buffers are not persisted (ADR-009) — they always reopen
-/// in the content-type default — but the `LayoutChanged` event still fires
-/// so other views in the window stay in sync.
+/// buffer. Scratch buffers are not persisted (ADR-009): they always reopen
+/// in the content-type default.
 #[tauri::command]
 pub fn preview_set_layout(
-    app: AppHandle,
     state: State<'_, AppState>,
-    window_id: u64,
-    buffer_id: String,
     path: Option<String>,
     layout: String,
     ratio: Option<f32>,
@@ -267,16 +261,6 @@ pub fn preview_set_layout(
             })
             .map_err(|e| e.to_string())?;
     }
-
-    let _ = emit_event(
-        &app,
-        WritFrontendEvent::LayoutChanged {
-            buffer_id,
-            window_id,
-            layout,
-            ratio,
-        },
-    );
     Ok(())
 }
 
@@ -362,15 +346,15 @@ pub fn render_into_cache(
     buffer_id: &str,
     request: RenderRequest,
 ) -> CachedRender {
-    let registry = state
-        .preview_registry
-        .read()
-        .expect("preview registry rwlock poisoned");
+    let registry = recover_poison(
+        state.preview_registry.read(),
+        "commands::preview::render_into_cache",
+    );
     let Some(renderer) = registry.get(&request.content_type) else {
         return CachedRender::NoRenderer;
     };
     let assets = request.assets.clone();
-    let result = renderer.render(request);
+    let result = render_contained(|| renderer.render(request));
     drop(registry);
 
     match result {
@@ -404,11 +388,8 @@ pub fn render_into_cache(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn run_render(
-    app: &AppHandle,
     state: &AppState,
-    window_id: u64,
     buffer_id: String,
     content_type: String,
     text: String,
@@ -428,34 +409,14 @@ fn run_render(
             used_fallback_stylesheet,
             parser_warnings,
             scripts_enabled,
-        } => {
-            let _ = emit_event(
-                app,
-                WritFrontendEvent::PreviewRendered {
-                    buffer_id,
-                    window_id,
-                    used_fallback_stylesheet,
-                    parser_warnings: parser_warnings.clone(),
-                },
-            );
-            PreviewRenderResult::Rendered {
-                used_fallback_stylesheet,
-                parser_warnings,
-                scripts_enabled,
-            }
-        }
-        CachedRender::Failed(err) => {
-            let message = render_error_message(&err);
-            let _ = emit_event(
-                app,
-                WritFrontendEvent::PreviewError {
-                    buffer_id,
-                    window_id,
-                    message: message.clone(),
-                },
-            );
-            PreviewRenderResult::Failed { message }
-        }
+        } => PreviewRenderResult::Rendered {
+            used_fallback_stylesheet,
+            parser_warnings,
+            scripts_enabled,
+        },
+        CachedRender::Failed(err) => PreviewRenderResult::Failed {
+            message: render_error_message(&err),
+        },
     }
 }
 
@@ -472,54 +433,30 @@ fn render_error_message(err: &RenderError) -> String {
 /// Render the live buffer text and cache the result for the protocol
 /// handler. Invoked by the frontend debouncer after a keystroke.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub fn preview_render(
-    app: AppHandle,
     state: State<'_, AppState>,
-    window_id: u64,
     buffer_id: String,
     content_type: String,
     text: String,
     theme: ThemePolarity,
     zoom: f64,
 ) -> PreviewRenderResult {
-    run_render(
-        &app,
-        &state,
-        window_id,
-        buffer_id,
-        content_type,
-        text,
-        theme,
-        zoom,
-    )
+    run_render(&state, buffer_id, content_type, text, theme, zoom)
 }
 
 /// Force a render regardless of frontend debounce gating (Cmd+R). Identical
 /// to [`preview_render`] at the IPC boundary; the debounce lives frontend-
 /// side.
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub fn preview_force_render(
-    app: AppHandle,
     state: State<'_, AppState>,
-    window_id: u64,
     buffer_id: String,
     content_type: String,
     text: String,
     theme: ThemePolarity,
     zoom: f64,
 ) -> PreviewRenderResult {
-    run_render(
-        &app,
-        &state,
-        window_id,
-        buffer_id,
-        content_type,
-        text,
-        theme,
-        zoom,
-    )
+    run_render(&state, buffer_id, content_type, text, theme, zoom)
 }
 
 /// Outcome of a request for one inline image.
@@ -566,15 +503,30 @@ pub fn preview_inline_image(
     note_path: Option<String>,
     reference: String,
 ) -> Result<InlineImageResult, String> {
-    let notes_root = state.notes_root();
-    let note_dir = note_path
-        .as_deref()
-        .map(std::path::Path::new)
-        .and_then(|path| path.parent())
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| notes_root.clone());
+    preview_inline_image_inner(&state, note_path.as_deref(), &reference)
+}
 
-    let path = match resolve_inline_image(&notes_root, &note_dir, &reference) {
+/// [`preview_inline_image`] without Tauri.
+///
+/// The folder a reference resolves against is the one holding the file of an
+/// open tab, read off that tab's row as [`asset_scope`] does. The path the
+/// webview sends only picks the tab: one no open tab holds is refused, so the
+/// containment root is never a folder the webview chose.
+pub fn preview_inline_image_inner(
+    state: &AppState,
+    note_path: Option<&str>,
+    reference: &str,
+) -> Result<InlineImageResult, String> {
+    let notes_root = state.notes_root();
+    let note_dir = match note_path {
+        None => notes_root.clone(),
+        Some(path) => match open_file_folder(state, path)? {
+            Some(dir) => dir,
+            None => return Ok(InlineImageResult::refused(InlineImageRefusal::OutsideRoot)),
+        },
+    };
+
+    let path = match resolve_inline_image(&notes_root, &note_dir, reference) {
         Ok(path) => path,
         Err(refusal) => return Ok(InlineImageResult::refused(refusal)),
     };
@@ -594,6 +546,24 @@ pub fn preview_inline_image(
         }),
         Err(refusal) => Ok(InlineImageResult::refused(refusal)),
     }
+}
+
+/// The folder holding the file an open tab shows, by that file's path, or
+/// `None` when no open tab holds it. The store is let go before any file is
+/// touched.
+fn open_file_folder(state: &AppState, path: &str) -> Result<Option<std::path::PathBuf>, String> {
+    let source_path = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store
+            .find_active_by_source_path(path)
+            .map_err(|e| e.to_string())?
+            .and_then(|doc| doc.source_path)
+    };
+    Ok(source_path.and_then(|source| {
+        std::path::Path::new(&source)
+            .parent()
+            .map(std::path::Path::to_path_buf)
+    }))
 }
 
 #[cfg(test)]

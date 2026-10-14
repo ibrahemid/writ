@@ -15,6 +15,7 @@ use writ_core::watcher::ignore::{IgnoreStamps, SuppressDecision, DEFAULT_IGNORE_
 use writ_core::watcher::pending::{hold_window, PendingRemovals};
 use writ_core::watcher::sighting::{FileSighting, LastSeen, DEFAULT_SIGHTING_TTL};
 use writ_core::workspace::WorkspaceKind;
+use writ_storage::paths::file_name_only;
 
 /// The window the notes watcher coalesces a burst of changes into, and what a
 /// removal's wait is measured in
@@ -60,6 +61,68 @@ pub(crate) fn look_at(path: &Path) -> Option<FileSighting> {
         len: metadata.len(),
         modified: metadata.modified().ok(),
     })
+}
+
+/// How a watcher reads a file it is classifying.
+///
+/// A change is read only when a stamp for its path says Writ may have written
+/// it, and a file whose bytes are not on this machine is never read: in an
+/// iCloud Drive folder under Optimize Mac Storage that read is a download of
+/// every file another device touched (TS-11). A test supplies its own to count
+/// the reads and to stand in for a placeholder, which nothing on a test
+/// machine can make.
+#[derive(Clone, Copy)]
+pub struct FileReads<'a> {
+    /// The file's bytes, or `None` when they cannot be read.
+    pub bytes: &'a dyn Fn(&Path) -> Option<Vec<u8>>,
+    /// Whether the file's bytes are somewhere else (`SF_DATALESS`).
+    pub dataless: &'a dyn Fn(&Path) -> bool,
+}
+
+impl FileReads<'static> {
+    /// The filesystem's own answers.
+    pub fn platform() -> Self {
+        FileReads {
+            bytes: &read_bytes,
+            dataless: &is_dataless,
+        }
+    }
+}
+
+fn read_bytes(path: &Path) -> Option<Vec<u8>> {
+    std::fs::read(path).ok()
+}
+
+fn is_dataless(path: &Path) -> bool {
+    writ_core::notes::guard::is_not_downloaded(writ_storage::buffer_store::dataless_flags(path))
+}
+
+/// Whether the change at `path` is a write Writ made, by the stamp keyed
+/// `key`.
+///
+/// The stamp is looked up before anything is read: with no stamp the answer is
+/// no, whatever the file holds. With one, the file is read to compare against
+/// the fingerprint, unless its bytes are somewhere else, which no write of
+/// Writ's leaves behind, so the change is reported and the stamp dropped.
+fn is_writs_own_write(
+    key: &str,
+    path: &Path,
+    ignore_set: &IgnoreSet,
+    ttl: Duration,
+    now: Instant,
+    reads: FileReads<'_>,
+) -> bool {
+    let stamped = recover_poison(ignore_set.lock(), "watcher::handler::stamped").contains(key);
+    if !stamped {
+        return false;
+    }
+    let bytes = if (reads.dataless)(path) {
+        None
+    } else {
+        (reads.bytes)(path)
+    };
+    let mut set = recover_poison(ignore_set.lock(), "watcher::handler::own_write");
+    set.decide(key, bytes.as_deref(), now, ttl) == SuppressDecision::Suppress
 }
 
 /// Opaque owner of the file watcher's debouncer.
@@ -122,7 +185,7 @@ pub fn start_file_watcher(
             .watch(&pending_folder, RecursiveMode::NonRecursive)?;
     }
 
-    info!(folder = %folder.display(), "config watcher started");
+    info!(folder = %file_name_only(&folder.to_string_lossy()), "config watcher started");
 
     std::thread::spawn(move || {
         let mut seen = LastSeen::new();
@@ -180,11 +243,19 @@ fn parent_of(path: &Path) -> Result<PathBuf, std::io::Error> {
 /// [`WritEvent::WorkspaceChanged`] for the paths the tree of a `kind` folder
 /// shows ([`classify_workspace_event`]).
 ///
+/// Two listeners hear it: the file-name index, which patches the one path, and
+/// the frontend, where each event is an IPC message and a directory reload.
+/// So the watcher has the notes watcher's [`EmissionBudget`]: a `pip install`
+/// or a build writing thousands of files inside one window names nine and then
+/// says once that the folder moved ([`WritEvent::WorkspaceSwept`]), and the
+/// tree and the index read it again instead (TS-12). A sweep that was owed
+/// when the folder fell quiet is sent then, so the last change is never lost.
+///
 /// Saving a buffer writes the file it was opened from, so Writ's own writes
-/// do land inside a watched workspace. They are not suppressed: the only
-/// consumer is the file index, which patches the one path in place, and an
-/// upsert of a path it already holds changes nothing. Fingerprinting every
-/// event to skip a no-op would cost a read of the file per keystroke burst.
+/// do land inside a watched workspace. They are not suppressed: the index
+/// patches the one path in place, and an upsert of a path it already holds
+/// changes nothing. Fingerprinting every event to skip a no-op would cost a
+/// read of the file per keystroke burst.
 pub fn start_workspace_watcher(
     bus: Arc<EventBus>,
     root: PathBuf,
@@ -195,18 +266,34 @@ pub fn start_workspace_watcher(
     let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
     debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
 
-    info!(root = %root.display(), "workspace watcher started");
+    info!(root = %file_name_only(&root.to_string_lossy()), "workspace watcher started");
 
     std::thread::spawn(move || {
-        while let Ok(result) = rx.recv() {
+        let mut budget = EmissionBudget::new();
+        loop {
+            let result = match budget.owed_sweep_at() {
+                Some(due) => match rx.recv_timeout(due.saturating_duration_since(Instant::now())) {
+                    Ok(result) => result,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {
+                        if budget.take_owed_sweep(Instant::now()) {
+                            bus.emit(workspace_swept(&root));
+                        }
+                        continue;
+                    }
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                },
+                None => match rx.recv() {
+                    Ok(result) => result,
+                    Err(_) => break,
+                },
+            };
             match result {
                 Ok(events) => {
-                    for event in events {
-                        if let Some(domain_event) =
-                            classify_workspace_event(&event.path, &root, kind)
-                        {
-                            bus.emit(domain_event);
-                        }
+                    let paths: Vec<PathBuf> = events.into_iter().map(|event| event.path).collect();
+                    for domain_event in
+                        report_workspace_batch(&paths, &root, kind, &mut budget, Instant::now())
+                    {
+                        bus.emit(domain_event);
                     }
                 }
                 Err(e) => {
@@ -220,6 +307,44 @@ pub fn start_workspace_watcher(
     Ok(WatcherHandle {
         _debouncer: debouncer,
     })
+}
+
+/// What one delivered batch of workspace events is worth saying, within
+/// `budget`: each change the tree shows, by name, until the window's budget is
+/// spent, then one [`WritEvent::WorkspaceSwept`].
+pub fn report_workspace_batch(
+    paths: &[PathBuf],
+    root: &Path,
+    kind: WorkspaceKind,
+    budget: &mut EmissionBudget,
+    now: Instant,
+) -> Vec<WritEvent> {
+    let mut said = Vec::new();
+    for path in paths {
+        let Some(domain_event) = classify_workspace_event(path, root, kind) else {
+            continue;
+        };
+        match budget.admit(now) {
+            Emission::Name => said.push(domain_event),
+            Emission::Sweep => {
+                info!(
+                    root = %file_name_only(&root.to_string_lossy()),
+                    "workspace folder changed faster than it can be listed; sweeping"
+                );
+                said.push(workspace_swept(root));
+            }
+            Emission::Drop => {}
+        }
+    }
+    said
+}
+
+/// The event that stands for "more changed in the workspace folder than is
+/// worth listing".
+pub fn workspace_swept(root: &Path) -> WritEvent {
+    WritEvent::WorkspaceSwept {
+        root: root.to_string_lossy().into_owned(),
+    }
 }
 
 /// Starts a recursive watcher on the inbox `root`, emitting
@@ -245,7 +370,11 @@ pub fn start_inbox_watcher(
     // nothing created after the scan can be missed.
     let preexisting = snapshot_files(&root);
 
-    info!(root = %root.display(), preexisting = preexisting.len(), "inbox watcher started");
+    info!(
+        root = %file_name_only(&root.to_string_lossy()),
+        preexisting = preexisting.len(),
+        "inbox watcher started"
+    );
 
     std::thread::spawn(move || {
         let mut seen = LastSeen::new();
@@ -350,6 +479,30 @@ pub fn classify_inbox_event(
     ttl: Duration,
     now: Instant,
 ) -> Option<WritEvent> {
+    classify_inbox_event_with(
+        path,
+        root,
+        preexisting,
+        ignore_set,
+        ttl,
+        now,
+        FileReads::platform(),
+    )
+}
+
+/// [`classify_inbox_event`] with the reads supplied.
+///
+/// A file whose bytes are not on this machine is not opened: opening it is the
+/// download, and an arrival nobody asked to download is left in the folder.
+pub fn classify_inbox_event_with(
+    path: &Path,
+    root: &Path,
+    preexisting: &std::collections::HashSet<PathBuf>,
+    ignore_set: &IgnoreSet,
+    ttl: Duration,
+    now: Instant,
+    reads: FileReads<'_>,
+) -> Option<WritEvent> {
     let metadata = std::fs::metadata(path).ok()?;
     if !metadata.is_file() {
         return None;
@@ -357,20 +510,19 @@ pub fn classify_inbox_event(
     if !writ_core::inbox::qualifies_for_auto_open(root, path, preexisting) {
         return None;
     }
+    if (reads.dataless)(path) {
+        info!(file = %file_name_only(&path.to_string_lossy()), "inbox file is not downloaded; left unopened");
+        return None;
+    }
     let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
-    let decision = {
-        let current_bytes = std::fs::read(path).ok();
-        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::inbox_event");
-        set.decide(&key, current_bytes.as_deref(), now, ttl)
-    };
-    if decision == SuppressDecision::Suppress {
+    if is_writs_own_write(&key, path, ignore_set, ttl, now, reads) {
         return None;
     }
     match writ_core::file_ops::classify_path(path) {
         Ok(c) if c.mode == writ_core::file_ops::FileOpenMode::Normal => {}
         _ => return None,
     }
-    info!(file = %path.display(), "inbox file arrived");
+    info!(file = %file_name_only(&path.to_string_lossy()), "inbox file arrived");
     Some(WritEvent::InboxFileArrived {
         path: path.to_string_lossy().into_owned(),
     })
@@ -418,7 +570,7 @@ pub fn start_notes_watcher(
     let mut debouncer = new_debouncer(NOTES_DEBOUNCE_WINDOW, tx)?;
     debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
 
-    info!(root = %root.display(), "notes watcher started");
+    info!(root = %file_name_only(&root.to_string_lossy()), "notes watcher started");
 
     std::thread::spawn(move || {
         let mut budget = EmissionBudget::new();
@@ -454,7 +606,7 @@ pub fn start_notes_watcher(
                         }
                         if budget.take_owed_sweep(now) {
                             info!(
-                                root = %root.display(),
+                                root = %file_name_only(&root.to_string_lossy()),
                                 "the notes folder fell quiet mid-sweep; sweeping once more"
                             );
                             bus.emit(notes_swept(&root));
@@ -530,7 +682,7 @@ pub fn start_notes_watcher(
                             Emission::Name => bus.emit(domain_event),
                             Emission::Sweep => {
                                 info!(
-                                    root = %root.display(),
+                                    root = %file_name_only(&root.to_string_lossy()),
                                     "notes folder changed faster than it can be listed; sweeping"
                                 );
                                 bus.emit(notes_swept(&root));
@@ -699,6 +851,21 @@ pub fn classify_notes_event(
     ttl: Duration,
     now: Instant,
 ) -> Option<WritEvent> {
+    classify_notes_event_with(path, root, ignore_set, ttl, now, FileReads::platform())
+}
+
+/// [`classify_notes_event`] with the reads supplied. A note is read only when a
+/// stamp says Writ may have written it and its bytes are on this machine
+/// ([`FileReads`]); the index skips a placeholder it is told about without
+/// reading it either.
+pub fn classify_notes_event_with(
+    path: &Path,
+    root: &Path,
+    ignore_set: &IgnoreSet,
+    ttl: Duration,
+    now: Instant,
+    reads: FileReads<'_>,
+) -> Option<WritEvent> {
     if !path.starts_with(root) {
         return None;
     }
@@ -715,12 +882,7 @@ pub fn classify_notes_event(
     }
 
     let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
-    let decision = {
-        let current_bytes = std::fs::read(path).ok();
-        let mut set = recover_poison(ignore_set.lock(), "watcher::handler::notes_event");
-        set.decide(&key, current_bytes.as_deref(), now, ttl)
-    };
-    if decision == SuppressDecision::Suppress {
+    if is_writs_own_write(&key, path, ignore_set, ttl, now, reads) {
         return None;
     }
 
@@ -1984,6 +2146,58 @@ mod tests {
     }
 
     #[test]
+    fn a_workspace_burst_stays_within_the_budget() {
+        // A `pip install` into a folder the tree shows: ten thousand paths in
+        // one window cost the webview ten messages, the last a sweep.
+        let root = Path::new("/repo");
+        let paths: Vec<PathBuf> = (0..10_000)
+            .map(|i| root.join(format!("env/lib/pkg{i}/mod.py")))
+            .collect();
+        let mut budget = EmissionBudget::new();
+
+        let said = report_workspace_batch(
+            &paths,
+            root,
+            WorkspaceKind::Code,
+            &mut budget,
+            Instant::now(),
+        );
+
+        assert_eq!(
+            said.len(),
+            writ_core::watcher::budget::DEFAULT_EVENTS_PER_WINDOW
+        );
+        assert_eq!(
+            said.iter()
+                .filter(|event| matches!(event, WritEvent::WorkspaceSwept { .. }))
+                .count(),
+            1
+        );
+        assert!(
+            matches!(said.last(), Some(WritEvent::WorkspaceSwept { root: named }) if named == "/repo")
+        );
+    }
+
+    #[test]
+    fn a_venv_install_inside_a_code_folder_says_nothing() {
+        let root = Path::new("/repo");
+        let paths: Vec<PathBuf> = (0..1_000)
+            .map(|i| root.join(format!(".venv/lib/python3.12/site-packages/p{i}.py")))
+            .collect();
+        let mut budget = EmissionBudget::new();
+
+        let said = report_workspace_batch(
+            &paths,
+            root,
+            WorkspaceKind::Code,
+            &mut budget,
+            Instant::now(),
+        );
+
+        assert!(said.is_empty(), "{said:?}");
+    }
+
+    #[test]
     fn workspace_event_outside_root_is_suppressed() {
         let dir = tempdir().unwrap();
         let other = tempdir().unwrap();
@@ -2101,6 +2315,127 @@ mod tests {
         fs::create_dir(&sub).unwrap();
 
         assert!(classify_inbox(&sub, dir.path(), &preexisting).is_none());
+    }
+
+    type ByteRead = Box<dyn Fn(&Path) -> Option<Vec<u8>>>;
+    type PlaceholderCheck = Box<dyn Fn(&Path) -> bool>;
+
+    /// Reads that count how often a file was opened, over a filesystem that
+    /// answers `dataless` for every path.
+    fn counting_reads(dataless: bool) -> (Arc<Mutex<usize>>, ByteRead, PlaceholderCheck) {
+        let count = Arc::new(Mutex::new(0usize));
+        let counter = count.clone();
+        let bytes = move |path: &Path| {
+            *counter.lock().unwrap() += 1;
+            fs::read(path).ok()
+        };
+        (count, Box::new(bytes), Box::new(move |_: &Path| dataless))
+    }
+
+    #[test]
+    fn a_note_with_no_stamp_is_reported_without_being_read() {
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("synced.md");
+        fs::write(&note, "from the phone").unwrap();
+        let (reads, bytes, dataless) = counting_reads(false);
+
+        let event = classify_notes_event_with(
+            &note,
+            dir.path(),
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+            FileReads {
+                bytes: &bytes,
+                dataless: &dataless,
+            },
+        );
+
+        assert!(matches!(
+            event,
+            Some(WritEvent::NotesChanged { removed: false, .. })
+        ));
+        assert_eq!(*reads.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_stamped_note_whose_bytes_are_elsewhere_is_reported_without_being_read() {
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("evicted.md");
+        fs::write(&note, "text").unwrap();
+        let set = make_set();
+        let now = Instant::now();
+        set.lock()
+            .unwrap()
+            .record(source_stamp_key(&note), b"text", now);
+        let (reads, bytes, dataless) = counting_reads(true);
+
+        let event = classify_notes_event_with(
+            &note,
+            dir.path(),
+            &set,
+            DEFAULT_IGNORE_TTL,
+            now,
+            FileReads {
+                bytes: &bytes,
+                dataless: &dataless,
+            },
+        );
+
+        assert!(event.is_some());
+        assert_eq!(*reads.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn a_stamped_note_is_read_once_to_recognise_writs_own_save() {
+        let dir = tempdir().unwrap();
+        let note = dir.path().join("saved.md");
+        fs::write(&note, "what writ wrote").unwrap();
+        let set = make_set();
+        let now = Instant::now();
+        set.lock()
+            .unwrap()
+            .record(source_stamp_key(&note), b"what writ wrote", now);
+        let (reads, bytes, dataless) = counting_reads(false);
+
+        let event = classify_notes_event_with(
+            &note,
+            dir.path(),
+            &set,
+            DEFAULT_IGNORE_TTL,
+            now,
+            FileReads {
+                bytes: &bytes,
+                dataless: &dataless,
+            },
+        );
+
+        assert!(event.is_none());
+        assert_eq!(*reads.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn an_inbox_arrival_whose_bytes_are_elsewhere_is_left_unopened_and_unread() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("arrived.md");
+        fs::write(&file, "text").unwrap();
+        let (reads, bytes, dataless) = counting_reads(true);
+
+        let event = classify_inbox_event_with(
+            &file,
+            dir.path(),
+            &std::collections::HashSet::new(),
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+            FileReads {
+                bytes: &bytes,
+                dataless: &dataless,
+            },
+        );
+
+        assert!(event.is_none());
+        assert_eq!(*reads.lock().unwrap(), 0);
     }
 
     #[test]

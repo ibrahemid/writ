@@ -2,31 +2,40 @@
 //!
 //! Holds one entry per workspace file: a relative-path `String` plus a `u32`
 //! offset to its file-name segment, so a 200k-file index costs one string per
-//! file rather than two. The index is built by a bounded walk (in
-//! `writ-storage`) on workspace open and maintained incrementally from the
-//! recursive workspace watcher: a changed path that still exists and passes the
-//! union ignore policy is upserted, a gone path is removed.
+//! file rather than two: the lookup table holds positions keyed by a hash of
+//! the path, never a second copy of it (TS-36). The index is built by a
+//! bounded walk (in `writ-storage`) on workspace open and maintained
+//! incrementally from the recursive workspace watcher: a changed path that
+//! still exists and passes the union ignore policy is upserted, a gone path is
+//! removed. The policy for one root is read once ([`WorkspaceIgnore`]) and
+//! asked before the write lock is taken (TS-12).
 //!
 //! ## Build-vs-watcher race
 //!
 //! The initial walk (up to [`MAX_INDEXED_FILES`] files) runs on a background
 //! thread and swaps its result into the shared index under the write lock. A
 //! watcher event that lands while a build is in flight cannot be applied as a
-//! patch (the entries are about to be replaced), so it sets `rebuild_needed`
-//! instead; the build thread checks that flag immediately after the swap and
-//! re-runs, so an update that arrived mid-walk is never discarded. A
-//! `build_epoch` supersedes any in-flight build when the root changes, so a
-//! stale walk can never clobber a newer one.
+//! patch (the entries are about to be replaced), so it is queued and replayed
+//! in arrival order after the swap (TS-13). A queue past
+//! [`MAX_PENDING_CHANGES`] is dropped for one more walk instead, so a tree
+//! that keeps changing costs at most two walks per build rather than a walk
+//! per write. A `build_epoch` supersedes any in-flight build when the root
+//! changes, so a stale walk can never clobber a newer one.
 
-use std::collections::HashMap;
+use std::hash::{BuildHasher, RandomState};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
+use hashbrown::HashTable;
 use writ_core::workspace::file_search::{rank_file_hits, FileHit};
-use writ_storage::workspace_search::{is_path_indexed, walk_index, IndexWalk};
+use writ_storage::workspace_search::{walk_index, IndexWalk, WorkspaceIgnore};
 
 /// Upper bound on indexed files; past it the index is marked truncated.
 pub const MAX_INDEXED_FILES: usize = 200_000;
+
+/// Upper bound on changes queued during one build; past it the build walks
+/// once more instead of replaying them.
+pub const MAX_PENDING_CHANGES: usize = 4_096;
 
 /// Shared handle to the workspace index, cloned into the watcher subscriber and
 /// the build thread.
@@ -68,20 +77,36 @@ pub struct IndexStatus {
     pub has_workspace: bool,
 }
 
+/// One change the watcher reported, as the index applies it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Change {
+    /// A file the index keeps exists at this relative path.
+    Upsert(String),
+    /// Nothing is at this relative path any more.
+    Remove(String),
+}
+
 /// The workspace file-name index.
 pub struct WorkspaceIndex {
     root: Option<PathBuf>,
+    /// The root's ignore rules, read once per root rather than per event.
+    ignore: Option<Arc<WorkspaceIgnore>>,
     entries: Vec<IndexedFile>,
-    /// Path to position in `entries`, for O(1) patch lookups.
-    positions: HashMap<String, usize>,
+    /// Position in `entries` of each path, keyed by the path's hash; the path
+    /// itself is only in `entries`.
+    positions: HashTable<usize>,
+    hasher: RandomState,
     truncated: bool,
     /// Bumped on every successful build swap; the file-name search uses it, and
     /// tests observe rebuilds through it.
     generation: u64,
     /// A background build is in flight.
     building: bool,
-    /// A watcher event arrived mid-build and must force a re-run after the swap.
+    /// The running build must walk again after its swap: a sweep or a rule
+    /// change arrived, or more changes than the queue holds.
     rebuild_needed: bool,
+    /// Changes that arrived during the build, replayed after its swap.
+    pending: Vec<Change>,
     /// Identifies the current build; a swap from a stale epoch is ignored.
     build_epoch: u64,
 }
@@ -89,14 +114,18 @@ pub struct WorkspaceIndex {
 impl WorkspaceIndex {
     /// Creates an empty index for `root` (which may be `None`).
     pub fn new(root: Option<PathBuf>) -> Self {
+        let ignore = root.as_deref().map(|r| Arc::new(WorkspaceIgnore::new(r)));
         Self {
             root,
+            ignore,
             entries: Vec::new(),
-            positions: HashMap::new(),
+            positions: HashTable::new(),
+            hasher: RandomState::new(),
             truncated: false,
             generation: 0,
             building: false,
             rebuild_needed: false,
+            pending: Vec::new(),
             build_epoch: 0,
         }
     }
@@ -104,12 +133,19 @@ impl WorkspaceIndex {
     /// Replaces the workspace root, clearing all entries and superseding any
     /// in-flight build.
     pub fn set_root(&mut self, root: Option<PathBuf>) {
+        let ignore = root.as_deref().map(|r| Arc::new(WorkspaceIgnore::new(r)));
+        self.set_root_with(root, ignore);
+    }
+
+    fn set_root_with(&mut self, root: Option<PathBuf>, ignore: Option<Arc<WorkspaceIgnore>>) {
         self.root = root;
+        self.ignore = ignore;
         self.entries.clear();
         self.positions.clear();
         self.truncated = false;
         self.building = false;
         self.rebuild_needed = false;
+        self.pending.clear();
         self.build_epoch += 1;
         self.generation += 1;
     }
@@ -137,6 +173,33 @@ impl WorkspaceIndex {
         self.generation
     }
 
+    /// Where `rel` sits in `entries`, if the index holds it.
+    fn position(&self, rel: &str) -> Option<usize> {
+        let hash = self.hasher.hash_one(rel);
+        self.positions
+            .find(hash, |&i| self.entries[i].path == rel)
+            .copied()
+    }
+
+    /// Rebuilds `positions` from `entries`.
+    fn reindex_positions(&mut self) {
+        let Self {
+            positions,
+            entries,
+            hasher,
+            ..
+        } = self;
+        positions.clear();
+        positions.reserve(entries.len(), |&i| {
+            hasher.hash_one(entries[i].path.as_str())
+        });
+        for (i, entry) in entries.iter().enumerate() {
+            positions.insert_unique(hasher.hash_one(entry.path.as_str()), i, |&j| {
+                hasher.hash_one(entries[j].path.as_str())
+            });
+        }
+    }
+
     /// Begins a build: returns `(root, epoch)` when the caller should walk, or
     /// `None` when there is no root or a build is already running (in which case
     /// `rebuild_needed` is set so the running build re-runs).
@@ -148,40 +211,61 @@ impl WorkspaceIndex {
         }
         self.building = true;
         self.rebuild_needed = false;
+        self.pending.clear();
         self.build_epoch += 1;
         Some((root, self.build_epoch))
     }
 
-    /// Applies a completed walk if `epoch` is still current. Returns `true` when
-    /// a mid-build event requires another walk (the build stays armed); returns
-    /// `false` when the build is done or was superseded.
+    /// Applies a completed walk if `epoch` is still current, then replays the
+    /// changes that arrived during it. Returns `true` when another walk is
+    /// required (the build stays armed); returns `false` when the build is done
+    /// or was superseded.
     fn apply_build(&mut self, epoch: u64, walk: IndexWalk) -> bool {
         if epoch != self.build_epoch {
             // Superseded by a newer build or a root change; drop this result.
             return false;
         }
         self.entries = walk.paths.into_iter().map(IndexedFile::new).collect();
-        self.positions = self
-            .entries
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (e.path.clone(), i))
-            .collect();
+        self.reindex_positions();
         self.truncated = walk.truncated;
         self.generation += 1;
 
         if self.rebuild_needed {
             self.rebuild_needed = false;
+            self.pending.clear();
             true
         } else {
+            for change in std::mem::take(&mut self.pending) {
+                self.apply_change(change);
+            }
             self.building = false;
             false
         }
     }
 
+    /// Holds `change` for the swap of the build in flight.
+    fn queue(&mut self, change: Change) {
+        if self.rebuild_needed {
+            return;
+        }
+        if self.pending.len() >= MAX_PENDING_CHANGES {
+            self.pending.clear();
+            self.rebuild_needed = true;
+            return;
+        }
+        self.pending.push(change);
+    }
+
+    fn apply_change(&mut self, change: Change) {
+        match change {
+            Change::Upsert(rel) => self.upsert(rel),
+            Change::Remove(rel) => self.remove(&rel),
+        }
+    }
+
     /// Adds `rel` to the index if absent (respecting the cap).
     fn upsert(&mut self, rel: String) {
-        if self.positions.contains_key(&rel) {
+        if self.position(&rel).is_some() {
             return;
         }
         if self.entries.len() >= MAX_INDEXED_FILES {
@@ -189,21 +273,38 @@ impl WorkspaceIndex {
             return;
         }
         let idx = self.entries.len();
-        self.positions.insert(rel.clone(), idx);
+        let hash = self.hasher.hash_one(rel.as_str());
         self.entries.push(IndexedFile::new(rel));
+        let Self {
+            positions,
+            entries,
+            hasher,
+            ..
+        } = self;
+        positions.insert_unique(hash, idx, |&j| hasher.hash_one(entries[j].path.as_str()));
     }
 
     /// Removes `rel` from the index if present.
     fn remove(&mut self, rel: &str) {
-        let Some(idx) = self.positions.remove(rel) else {
+        let hash = self.hasher.hash_one(rel);
+        let Self {
+            positions,
+            entries,
+            hasher,
+            ..
+        } = self;
+        let Ok(found) = positions.find_entry(hash, |&i| entries[i].path == rel) else {
             return;
         };
-        let last = self.entries.len() - 1;
-        self.entries.swap_remove(idx);
+        let (idx, _) = found.remove();
+        let last = entries.len() - 1;
+        entries.swap_remove(idx);
         if idx != last {
-            // The element that was at `last` now sits at `idx`; fix its position.
-            let moved = self.entries[idx].path.clone();
-            self.positions.insert(moved, idx);
+            // The element that was at `last` now sits at `idx`; repoint it.
+            let moved = hasher.hash_one(entries[idx].path.as_str());
+            if let Some(slot) = positions.find_mut(moved, |&i| i == last) {
+                *slot = idx;
+            }
         }
     }
 }
@@ -213,6 +314,17 @@ fn write(index: &SharedIndex) -> std::sync::RwLockWriteGuard<'_, WorkspaceIndex>
     index.write().unwrap_or_else(|e| {
         tracing::error!(
             location = "workspace_index::write",
+            "recovered poisoned RwLock"
+        );
+        e.into_inner()
+    })
+}
+
+/// Locks the shared index for reading, recovering from poisoning.
+fn read(index: &SharedIndex) -> std::sync::RwLockReadGuard<'_, WorkspaceIndex> {
+    index.read().unwrap_or_else(|e| {
+        tracing::error!(
+            location = "workspace_index::read",
             "recovered poisoned RwLock"
         );
         e.into_inner()
@@ -235,7 +347,7 @@ fn relative(root: &Path, path: &Path) -> Option<String> {
 /// Rebuilds `index` synchronously from a fresh walk, blocking until the swap is
 /// done. A no-op when there is no workspace root or a build is already running
 /// (in which case a re-run is armed for the running build). Re-walks once more
-/// when an event arrived mid-build.
+/// when a sweep, a rule change or an overflowing queue arrived mid-build.
 pub fn rebuild_blocking(index: &SharedIndex) {
     let Some((root, epoch)) = write(index).begin_build() else {
         return;
@@ -257,33 +369,84 @@ pub fn spawn_rebuild(index: SharedIndex) {
 /// Sets the workspace root and rebuilds the index from scratch.
 pub fn set_root_and_rebuild(index: &SharedIndex, root: Option<PathBuf>) {
     let has_root = root.is_some();
-    write(index).set_root(root);
+    // Read before the lock: it opens the root's rule files.
+    let ignore = root.as_deref().map(|r| Arc::new(WorkspaceIgnore::new(r)));
+    write(index).set_root_with(root, ignore);
     if has_root {
         spawn_rebuild(index.clone());
     }
 }
 
-/// Handles one `WorkspaceChanged` event against the index. During a build it
-/// only arms a rebuild; otherwise it patches the single path in place.
-pub fn on_workspace_changed(index: &SharedIndex, path: &str, removed: bool) {
-    let mut idx = write(index);
-    let Some(root) = idx.root.clone() else {
+/// Handles a `WorkspaceSwept` event: more changed than the watcher named,
+/// possibly the root's own ignore rules among it, so the rules are read again
+/// and the tree walked.
+pub fn on_workspace_swept(index: &SharedIndex) {
+    let Some(root) = read(index).root.clone() else {
         return;
     };
-    if idx.building {
-        idx.rebuild_needed = true;
-        return;
+    reread_rules_and_rebuild(index, &root);
+}
+
+/// Reads `root`'s ignore rules again, outside the lock, and walks the tree.
+fn reread_rules_and_rebuild(index: &SharedIndex, root: &Path) {
+    let reread = Arc::new(WorkspaceIgnore::new(root));
+    {
+        let mut idx = write(index);
+        if idx.root.as_deref() != Some(root) {
+            return;
+        }
+        idx.ignore = Some(reread);
     }
+    spawn_rebuild(index.clone());
+}
+
+/// Handles one `WorkspaceChanged` event against the index.
+///
+/// What the path is, and whether the index keeps it, is decided before the
+/// write lock is taken, against the root's policy read once. During a build
+/// the change is queued for the swap; otherwise the one path is patched in
+/// place. A change to the root's own `.gitignore` or `.ignore` reads the policy
+/// again and walks the tree, since it can change what every path answers.
+pub fn on_workspace_changed(index: &SharedIndex, path: &str, removed: bool) {
     let abs = Path::new(path);
+    let (root, ignore) = {
+        let idx = read(index);
+        match (idx.root.clone(), idx.ignore.clone()) {
+            (Some(root), Some(ignore)) => (root, ignore),
+            _ => return,
+        }
+    };
     let Some(rel) = relative(&root, abs) else {
         return;
     };
-    if removed || !abs.exists() {
-        idx.remove(&rel);
-    } else if abs.is_file() && is_path_indexed(&root, abs) {
+
+    if ignore.is_rules_file(abs) {
+        reread_rules_and_rebuild(index, &root);
+        return;
+    }
+
+    let change = if removed || !abs.exists() {
+        let idx = read(index);
+        if !idx.building && idx.position(&rel).is_none() {
+            return;
+        }
+        Change::Remove(rel)
+    } else if abs.is_file() && ignore.is_indexed(abs) {
         // The watcher fires for directory creation too and does not distinguish
         // it from a file; the index holds files only, matching the build walk.
-        idx.upsert(rel);
+        Change::Upsert(rel)
+    } else {
+        return;
+    };
+
+    let mut idx = write(index);
+    if idx.root.as_deref() != Some(root.as_path()) {
+        return;
+    }
+    if idx.building {
+        idx.queue(change);
+    } else {
+        idx.apply_change(change);
     }
 }
 
@@ -445,43 +608,165 @@ mod tests {
         );
     }
 
+    /// Starts a build and walks, leaving the swap to the test, which is the
+    /// window a watcher event can land in.
+    fn walk_in_flight(index: &SharedIndex) -> (u64, IndexWalk) {
+        let (root, epoch) = write(index).begin_build().expect("root set");
+        (epoch, walk_index(&root, MAX_INDEXED_FILES))
+    }
+
+    fn changed(index: &SharedIndex, dir: &Path, rel: &str, removed: bool) {
+        on_workspace_changed(index, dir.join(rel).to_str().unwrap(), removed);
+    }
+
     #[test]
-    fn event_arriving_mid_build_survives_the_swap() {
+    fn an_event_arriving_mid_build_is_replayed_after_the_swap_without_a_second_walk() {
         let dir = TempDir::new().unwrap();
         write_file(dir.path(), "a.rs", "x");
         let index: SharedIndex = Arc::new(RwLock::new(WorkspaceIndex::new(Some(
             dir.path().to_path_buf(),
         ))));
+        let (epoch, walk) = walk_in_flight(&index);
 
-        // Simulate: a build is in flight (begin_build taken, walk not yet
-        // applied).
-        let (root, epoch) = write(&index).begin_build().unwrap();
-        let walk = walk_index(&root, MAX_INDEXED_FILES);
-
-        // A watcher event lands during the build. It cannot patch (building), so
-        // it must arm a rebuild.
         write_file(dir.path(), "b.rs", "x");
-        on_workspace_changed(&index, dir.path().join("b.rs").to_str().unwrap(), false);
-        assert!(
-            write(&index).rebuild_needed,
-            "mid-build event must arm a rebuild"
-        );
+        changed(&index, dir.path(), "b.rs", false);
 
-        // The swap completes and reports that another walk is required.
         let again = write(&index).apply_build(epoch, walk);
-        assert!(again, "swap must re-arm because an event arrived mid-build");
         assert!(
-            !write(&index).rebuild_needed,
-            "rebuild_needed cleared after re-arm"
+            !again,
+            "a queued change is replayed, not walked for (TS-13)"
         );
-
-        // The re-run picks up the file added mid-build.
-        let walk2 = walk_index(&root, MAX_INDEXED_FILES);
-        write(&index).apply_build(epoch, walk2);
         assert_eq!(
             paths(&write(&index)),
             vec!["a.rs".to_string(), "b.rs".to_string()]
         );
+    }
+
+    #[test]
+    fn a_removal_during_a_build_is_replayed_after_the_swap() {
+        let dir = TempDir::new().unwrap();
+        write_file(dir.path(), "a.rs", "x");
+        write_file(dir.path(), "b.rs", "x");
+        let index: SharedIndex = Arc::new(RwLock::new(WorkspaceIndex::new(Some(
+            dir.path().to_path_buf(),
+        ))));
+        let (epoch, walk) = walk_in_flight(&index);
+
+        fs::remove_file(dir.path().join("a.rs")).unwrap();
+        changed(&index, dir.path(), "a.rs", true);
+
+        assert!(!write(&index).apply_build(epoch, walk));
+        assert_eq!(paths(&write(&index)), vec!["b.rs".to_string()]);
+    }
+
+    #[test]
+    fn an_ignored_path_during_a_build_causes_no_rewalk() {
+        let dir = TempDir::new().unwrap();
+        write_file(dir.path(), ".gitignore", "secret.txt\n");
+        write_file(dir.path(), "a.rs", "x");
+        let index: SharedIndex = Arc::new(RwLock::new(WorkspaceIndex::new(Some(
+            dir.path().to_path_buf(),
+        ))));
+        let (epoch, walk) = walk_in_flight(&index);
+
+        write_file(dir.path(), "node_modules/pkg/index.js", "x");
+        write_file(dir.path(), ".venv/lib/site.py", "x");
+        write_file(dir.path(), "secret.txt", "x");
+        changed(&index, dir.path(), "node_modules/pkg/index.js", false);
+        changed(&index, dir.path(), ".venv/lib/site.py", false);
+        changed(&index, dir.path(), "secret.txt", false);
+        assert!(write(&index).pending.is_empty());
+
+        assert!(!write(&index).apply_build(epoch, walk));
+        assert_eq!(
+            paths(&write(&index)),
+            vec![".gitignore".to_string(), "a.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn continuous_events_during_a_build_converge_within_two_walks() {
+        let dir = TempDir::new().unwrap();
+        write_file(dir.path(), "a.rs", "x");
+        let index: SharedIndex = Arc::new(RwLock::new(WorkspaceIndex::new(Some(
+            dir.path().to_path_buf(),
+        ))));
+        let (epoch, walk) = walk_in_flight(&index);
+
+        // One more change than the queue holds: the build walks once more,
+        // and the second swap has nothing left to replay.
+        write_file(dir.path(), "dev.log", "x");
+        for _ in 0..=MAX_PENDING_CHANGES {
+            changed(&index, dir.path(), "dev.log", false);
+        }
+        assert!(
+            write(&index).apply_build(epoch, walk),
+            "overflow walks once more"
+        );
+        let walk2 = walk_index(dir.path(), MAX_INDEXED_FILES);
+        assert!(!write(&index).apply_build(epoch, walk2), "and then stops");
+        assert_eq!(
+            paths(&write(&index)),
+            vec!["a.rs".to_string(), "dev.log".to_string()]
+        );
+    }
+
+    #[test]
+    fn a_change_to_the_roots_ignore_rules_is_read_again() {
+        let dir = TempDir::new().unwrap();
+        write_file(dir.path(), "keep.rs", "x");
+        let index: SharedIndex = Arc::new(RwLock::new(WorkspaceIndex::new(Some(
+            dir.path().to_path_buf(),
+        ))));
+        build_now(&index);
+
+        write_file(dir.path(), ".gitignore", "secret.txt\n");
+        changed(&index, dir.path(), ".gitignore", false);
+        write_file(dir.path(), "secret.txt", "x");
+        let ignore = write(&index).ignore.clone().expect("policy");
+        assert!(!ignore.is_indexed(&dir.path().join("secret.txt")));
+    }
+
+    #[test]
+    fn a_sweep_reads_the_roots_ignore_rules_again() {
+        // The rule file's own event may be one the budget folded into the
+        // sweep, so the sweep is what has to read it.
+        let dir = TempDir::new().unwrap();
+        write_file(dir.path(), "keep.rs", "x");
+        let index: SharedIndex = Arc::new(RwLock::new(WorkspaceIndex::new(Some(
+            dir.path().to_path_buf(),
+        ))));
+        build_now(&index);
+
+        write_file(dir.path(), ".gitignore", "secret.txt\n");
+        write_file(dir.path(), "secret.txt", "x");
+        on_workspace_swept(&index);
+        let ignore = write(&index).ignore.clone().expect("policy");
+        assert!(!ignore.is_indexed(&dir.path().join("secret.txt")));
+    }
+
+    #[test]
+    fn positions_follow_every_entry_through_removals() {
+        let dir = TempDir::new().unwrap();
+        for i in 0..50 {
+            write_file(dir.path(), &format!("f{i}.rs"), "x");
+        }
+        let index: SharedIndex = Arc::new(RwLock::new(WorkspaceIndex::new(Some(
+            dir.path().to_path_buf(),
+        ))));
+        build_now(&index);
+        for i in (0..50).step_by(3) {
+            let rel = format!("f{i}.rs");
+            fs::remove_file(dir.path().join(&rel)).unwrap();
+            changed(&index, dir.path(), &rel, true);
+        }
+
+        let idx = write(&index);
+        assert_eq!(idx.entries.len(), 33);
+        for (i, entry) in idx.entries.iter().enumerate() {
+            assert_eq!(idx.position(entry.path()), Some(i), "{}", entry.path());
+        }
+        assert_eq!(idx.position("f0.rs"), None);
     }
 
     #[test]

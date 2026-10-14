@@ -170,8 +170,12 @@ export function createBufferCommands(state: DemoState): CommandTable {
       state.writeNote(file, rewritten, "rename");
       updated.push(file);
     }
-    return { renamed_path: renamed, updated: updated.length, updated_paths: updated, skipped };
+    return { renamed_path: renamed, updated: updated.length, updated_paths: updated, skipped, undo_token: null };
   };
+
+  /** AuthorizedPaths::hold_rename_undo: the one rename an undo may put back, by its token. */
+  let heldUndo: { token: string; renamed: string; previousName: string; paths: string[] } | null = null;
+  let undoSerial = 0;
 
   const commands: CommandTable = {
     list_active_buffers: () =>
@@ -238,7 +242,6 @@ export function createBufferCommands(state: DemoState): CommandTable {
       state.emitNoteChanged(to);
       return { kind: "renamed", note: { ...doc } };
     },
-    save_buffer_content_unindexed: (args) => commands.save_buffer_content(args),
     close_buffer: (args) => commands.close_buffers({ ids: [args.id] }),
     close_buffers: (args) => {
       for (const id of args.ids as string[]) {
@@ -263,13 +266,6 @@ export function createBufferCommands(state: DemoState): CommandTable {
     },
     clear_history: () => {
       for (const doc of [...buffers.values()]) if (doc.status === "history") buffers.delete(doc.id);
-      return null;
-    },
-    update_tab_order: (args) => {
-      (args.ids as string[]).forEach((id, order) => {
-        const doc = buffers.get(id);
-        if (doc) doc.tab_order = order;
-      });
       return null;
     },
     todays_note: (): Answer<"todaysNote"> => {
@@ -346,12 +342,23 @@ export function createBufferCommands(state: DemoState): CommandTable {
       const linking = index
         .listLinkingNotes(from)
         .filter((note) => args.updateLinks === true || note === from);
-      return refuseOnThrow(() => renameAndPropagate(from, String(args.newName), linking, []), describeNoteFailure);
+      return refuseOnThrow(() => {
+        const outcome = renameAndPropagate(from, String(args.newName), linking, []);
+        if (outcome.updated === 0 && outcome.renamed_path === from) {
+          heldUndo = null;
+          return outcome;
+        }
+        const token = `undo-${++undoSerial}`;
+        heldUndo = { token, renamed: outcome.renamed_path, previousName: basename(from), paths: outcome.updated_paths };
+        return { ...outcome, undo_token: token };
+      }, describeNoteFailure);
     },
     undo_rename_with_links: (args) => {
-      const paths = (args.paths as string[]).map(String);
+      const held = heldUndo;
+      if (held === null || held.token !== String(args.token)) return refuse("There is no rename to undo.");
+      heldUndo = null;
       return refuseOnThrow(
-        () => renameAndPropagate(String(args.path), String(args.previousName), paths, paths),
+        () => renameAndPropagate(held.renamed, held.previousName, held.paths, held.paths),
         describeNoteFailure,
       );
     },

@@ -10,13 +10,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: vi.fn(),
   pickNotesFolder: mocks.pickNotesFolder,
   getNotesFolder: mocks.getNotesFolder,
   getNotesRoot: mocks.getNotesRoot,
   showNotesFolderInFinder: mocks.showNotesFolderInFinder,
 }));
 
-vi.mock("../../services/clipboard", () => ({ writeClipboardText: vi.fn() }));
 
 import { notesStore } from "../../stores/global/notes";
 

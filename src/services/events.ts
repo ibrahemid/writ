@@ -8,7 +8,6 @@ type PayloadFor<K extends EventKind> = Extract<WritEvent, { kind: K }>["payload"
 type EventHandler<K extends EventKind> = (payload: PayloadFor<K>) => void;
 
 const EVENT_MAP: Record<EventKind, string> = {
-  "buffer:opened": "writ://buffer-opened",
   "pending:opens": "writ://pending-opens",
   "files:dropped": "writ://files-dropped",
   "window:shown": "writ://window-shown",
@@ -17,6 +16,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "menu:action": "writ://menu-action",
   "hotkey:status": "writ://hotkey-status",
   "workspace:changed": "writ://workspace-changed",
+  "workspace:swept": "writ://workspace-swept",
   "notes:changed": "writ://notes-changed",
   "notes:swept": "writ://notes-swept",
   "notes:indexed": "writ://notes-indexed",
@@ -25,9 +25,6 @@ const EVENT_MAP: Record<EventKind, string> = {
   "update:status": "writ://update-status",
   "ai:rewrite": "writ://ai-rewrite",
   "ai:chat": "writ://ai-chat",
-  "preview:rendered": "writ://preview-rendered",
-  "preview:error": "writ://preview-error",
-  "preview:layout_changed": "writ://preview-layout-changed",
   "quit:flush": "writ://flush-before-quit",
   "activity:changed": "writ://activity",
   "mcp:pending": "writ://mcp-pending",

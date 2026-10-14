@@ -28,11 +28,17 @@ readme = "README.md"
 keywords = ["text-editor", "editor", "markdown", "tauri", "codemirror"]
 categories = ["text-editors", "gui"]
 
+# ADR-045: a panic unwinds so the renderers and the preview handler can catch
+# it. Line tables go to a separate symbol file (dSYM, PDB, or the .debug file
+# release.yml splits off on Linux), which CI keeps per build; the binary ships
+# without symbols.
 [profile.release]
 codegen-units = 1
 lto = true
-strip = true
-panic = "abort"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "symbols"
+panic = "unwind"
 
 # wry's macOS collect_paths() unwraps the propertyListForType read, which AppKit
 # returns as nil for some drag and trackpad gestures (Writ #113). The panic
