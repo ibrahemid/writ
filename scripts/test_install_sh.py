@@ -137,11 +137,11 @@ class TestKey:
     def minisig(self, data: bytes, trusted: str) -> str:
         digest = hashlib.blake2b(data, digest_size=64).digest()
         signature = self.raw_sign(digest)
-        global_signature = self.raw_sign(signature + trusted.encode())
+        global_signature = self.raw_sign(signature + comment.encode())
         return (
             "untrusted comment: signature from a test key\n"
             + base64.b64encode(b"ED" + self.id_bytes + signature).decode()
-            + f"\ntrusted comment: {trusted}\n"
+            + f"\ntrusted comment: {comment}\n"
             + base64.b64encode(global_signature).decode()
             + "\n"
         )
