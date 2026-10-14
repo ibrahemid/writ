@@ -136,6 +136,8 @@ describe("PreviewLayout — the pane slot stays mounted in every layout mode", (
     await waitFor(() =>
       expect(container.querySelector(".editor-empty")).not.toBeNull(),
     );
+    expect(container.querySelector(".start-surface")).not.toBeNull();
+    expect(container.textContent).not.toContain("No file open");
     expect(frame(container)).toBe(original);
   });
 });

@@ -53,7 +53,6 @@
 
 .link-picker-row:focus-visible {
   background: var(--writ-bg-selected);
-  font-weight: 500;
 }
 
 .link-picker-folder {

@@ -161,6 +161,7 @@ describe("EditorInstance: switching a Markdown file's layout keeps the caret lin
       L4: { kind: "source" },
     });
     const outgoing = viewIn(container);
+    const outgoingState = outgoing.state;
     const seen = recordTransactions(outgoing);
 
     setBuf(mockBuffer("L4", "rye.md", "/files/rye.md"));
@@ -168,7 +169,8 @@ describe("EditorInstance: switching a Markdown file's layout keeps the caret lin
     expect(container.querySelector(".cm-line-md-h1")).not.toBeNull();
     expect(seen.some((tr) => tr.scrollIntoView)).toBe(false);
     await flushMicrotasks();
-    expect(viewIn(container)).not.toBe(outgoing);
+    // One view serves every tab; the incoming tab brings its own state.
+    expect(viewIn(container).state).not.toBe(outgoingState);
     expect(container.querySelector(".cm-line-md-h1")).toBeNull();
   });
 });

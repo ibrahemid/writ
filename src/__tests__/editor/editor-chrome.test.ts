@@ -105,17 +105,17 @@ describe("codeChromeFor", () => {
 });
 
 describe("surfaceFollowsLanguage", () => {
-  it("lets a normal buffer follow its language", () => {
+  it("lets a normal or long-lined buffer follow its language", () => {
     expect(surfaceFollowsLanguage({ kind: "Normal" })).toBe(true);
+    expect(surfaceFollowsLanguage({ kind: "LongLines" })).toBe(true);
   });
 
-  it("pins the surface of every restricted mode", () => {
-    // A restricted buffer never gets its language detected, so a late detection
+  it("pins the surface of every large or binary mode", () => {
+    // A large buffer never gets its language detected, so a late detection
     // must not take the gutter off a file that does not wrap.
     const restricted: FileOpenMode[] = [
       { kind: "LargeFile" },
       { kind: "LargeFileConfirm" },
-      { kind: "LongLines" },
       { kind: "Binary" },
       { kind: "Refused", reason: "too big" },
     ];

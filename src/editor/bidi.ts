@@ -1,4 +1,5 @@
 import { RangeSetBuilder, type Extension } from "@codemirror/state";
+import { MAX_NORMAL_LINE_LENGTH } from "./large-file";
 import {
   EditorView,
   ViewPlugin,
@@ -19,7 +20,9 @@ const autoDirLine = Decoration.line({ attributes: { dir: "auto" } });
  * Builds one `dir="auto"` line decoration per rendered line.
  *
  * Only visible ranges are walked, so cost scales with the viewport rather than
- * the document. A line straddling two visible ranges is decorated once.
+ * the document. A line straddling two visible ranges is decorated once. A line
+ * over {@link MAX_NORMAL_LINE_LENGTH} keeps the editor's direction: the
+ * browser would read all of it to choose one.
  */
 export function buildAutoDirectionDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
@@ -29,7 +32,7 @@ export function buildAutoDirectionDecorations(view: EditorView): DecorationSet {
     for (let pos = from; pos <= to; ) {
       const line = doc.lineAt(pos);
       if (line.from > lastLineFrom) {
-        builder.add(line.from, line.from, autoDirLine);
+        if (line.length <= MAX_NORMAL_LINE_LENGTH) builder.add(line.from, line.from, autoDirLine);
         lastLineFrom = line.from;
       }
       pos = line.to + 1;

@@ -115,4 +115,29 @@ describe("PreviewPane size gate", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(mocks.render).not.toHaveBeenCalled();
   });
+
+  it("states the cap over a file past it and switches the file to Source", async () => {
+    const current = configStore.config();
+    await configStore.save({
+      ...current,
+      preview: { ...current.preview, live_render_threshold_mb: 1, render_refuse_threshold_mb: 1 },
+    });
+    const win = mount(9325, "P5");
+    win.layout.setLocal("P5", { kind: "preview" });
+    load(win, "P5", "x".repeat(1024 * 1024 + 1));
+
+    const overlay = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>(".preview-pane-overlay");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(overlay.textContent).toContain("This file is over 1 MB, so it isn't previewed.");
+    expect(mocks.render).not.toHaveBeenCalled();
+
+    const button = [...overlay.querySelectorAll("button")].find(
+      (el) => el.textContent === "Switch to Source",
+    )!;
+    button.click();
+    expect(win.layout.get("P5", "html")).toEqual({ kind: "source" });
+  });
 });

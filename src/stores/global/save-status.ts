@@ -43,6 +43,9 @@ function createSaveStatusStore() {
     new Set(),
   );
   const savedTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Notes whose next write the person asked for. Only such a write reports
+  // `saved`: an autosave landing every pause is not news.
+  const requestedSaves = new Set<string>();
   // Per note, the newest write generation whose failure says nothing about the
   // note any more ([`forgetWritesSoFar`]). Read only when a failure arrives.
   const answeredWrites = new Map<string, number>();
@@ -95,6 +98,7 @@ function createSaveStatusStore() {
   onAutosaveSuccess((id) => {
     removeFrom(setWriting, id);
     withoutId(setFailures, id);
+    if (!requestedSaves.delete(id)) return;
     clearSavedTimer(id);
     addTo(setJustSaved, id);
     savedTimers.set(
@@ -112,6 +116,7 @@ function createSaveStatusStore() {
     removeFrom(setWriting, id);
     clearSavedTimer(id);
     removeFrom(setJustSaved, id);
+    requestedSaves.delete(id);
     if (writeWasAnsweredFor(id, generation)) return;
     setFailures((current) =>
       new Map(current).set(id, describeSaveFailure(error)),
@@ -201,8 +206,14 @@ function createSaveStatusStore() {
     return failures().get(id);
   }
 
+  /** Marks the note's next write as one the person asked for. */
+  function noteRequestedSave(id: string) {
+    requestedSaves.add(id);
+  }
+
   /** Drops everything held for a note whose tab has gone. */
   function forgetNote(id: string) {
+    requestedSaves.delete(id);
     clearSavedTimer(id);
     withoutId(setFailures, id);
     removeFrom(setWriting, id);
@@ -224,6 +235,7 @@ function createSaveStatusStore() {
    */
   function forgetWritesSoFar(id: string) {
     answeredWrites.set(id, currentSaveGeneration(id));
+    requestedSaves.delete(id);
     clearSavedTimer(id);
     withoutId(setFailures, id);
     removeFrom(setWriting, id);
@@ -235,6 +247,7 @@ function createSaveStatusStore() {
     for (const timer of savedTimers.values()) clearTimeout(timer);
     savedTimers.clear();
     answeredWrites.clear();
+    requestedSaves.clear();
     setFailures(new Map<string, SaveFailureReason>());
     setWriting(new Set<string>());
     setJustSaved(new Set<string>());
@@ -244,6 +257,7 @@ function createSaveStatusStore() {
     stateOf,
     forNote,
     failureFor,
+    noteRequestedSave,
     forgetNote,
     forgetWritesSoFar,
     reset,

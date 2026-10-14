@@ -125,7 +125,10 @@ function answerFor(cmd: string, args: Record<string, unknown>): { value: unknown
     // and the digest stays the one the open recorded.
     case "save_buffer_content":
     case "save_buffer_content_unindexed":
+    case "save_buffer_changes":
       return { value: file.digest };
+    case "set_buffer_view_position":
+      return { value: null };
     case "auto_retitle_note":
       return { value: { kind: "skipped" } };
     case "close_buffer":
@@ -144,8 +147,9 @@ let emitEvent: ((event: string, payload: unknown) => void) | null = null;
 installIpc((bridge) => {
   emitEvent = (event, payload) => bridge.emit(event, payload);
   const backend = createBackend(bridge);
-  return (cmd, args) => {
-    chargeSend(cmd, args);
+  return (cmd, args, raw) => {
+    // A raw body goes to the host as it is; only JSON arguments are serialised.
+    if (!raw) chargeSend(cmd, args);
     if (cmd === "report_first_paint") {
       firstPaints.push({ mode: String(args?.mode), elapsedMs: Number(args?.elapsedMs) });
       return null;

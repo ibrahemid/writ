@@ -37,6 +37,8 @@ vi.mock("../../stores/global/window-registry", () => ({
   },
 }));
 
+import { EditorView } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
 import { saveStatusStore } from "../../stores/global/save-status";
 import { createEditorStore } from "../../stores/window/editor-store";
 import { createExternalEditDeps } from "../../lib/external-edit-deps";
@@ -85,9 +87,39 @@ describe("saveStatusStore", () => {
     expect(saveStatusStore.forNote("two").state).toBe("clean");
   });
 
-  it("shows saved after a write lands, then goes back to the note's own state", async () => {
+  it("says nothing about an autosave nobody asked for", async () => {
     vi.useFakeTimers();
 
+    debouncedSave("one", "hello", 0);
+    await flushAutosave("one");
+    expect(saveStatusStore.forNote("one").state).toBe("clean");
+  });
+
+  it("reads saved after a save from the keyboard, and clean after an autosave", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const view = new EditorView({ state: EditorState.create({ doc: "hello" }), parent: container });
+    const store = createEditorStore();
+    store.registerView(view);
+    store.setCurrentBufferId("one");
+    try {
+      await store.saveActiveBuffer();
+      expect(saveStatusStore.forNote("one").state).toBe("saved");
+
+      saveStatusStore.reset();
+      debouncedSave("one", "hello again", 0);
+      await flushAutosave("one");
+      expect(saveStatusStore.forNote("one").state).toBe("clean");
+    } finally {
+      view.destroy();
+      container.remove();
+    }
+  });
+
+  it("shows saved after a requested write lands, then goes back to the note's own state", async () => {
+    vi.useFakeTimers();
+
+    saveStatusStore.noteRequestedSave("one");
     debouncedSave("one", "hello", 0);
     await flushAutosave("one");
     expect(saveStatusStore.forNote("one").state).toBe("saved");
@@ -102,6 +134,7 @@ describe("saveStatusStore", () => {
   it("never reads saved over a document that differs from its file", async () => {
     vi.useFakeTimers();
 
+    saveStatusStore.noteRequestedSave("one");
     debouncedSave("one", "hello", 0);
     await flushAutosave("one");
     expect(saveStatusStore.forNote("one").state).toBe("saved");
@@ -133,6 +166,8 @@ describe("saveStatusStore", () => {
       return null;
     });
 
+    saveStatusStore.noteRequestedSave("one");
+    saveStatusStore.noteRequestedSave("two");
     debouncedSave("one", "oops", 0);
     debouncedSave("two", "fine", 0);
     await flushAutosave();
@@ -162,6 +197,7 @@ describe("saveStatusStore", () => {
     );
     expect(reason.retryable).toBe(true);
 
+    saveStatusStore.noteRequestedSave("one");
     await flushAutosave("one");
 
     expect(saveStatusStore.forNote("one").state).toBe("saved");

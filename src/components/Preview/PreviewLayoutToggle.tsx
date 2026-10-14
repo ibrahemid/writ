@@ -4,6 +4,8 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { useActiveBuffer } from "../../lib/use-active-buffer";
 import { contentTypeForBuffer } from "../../lib/content-type";
 import { defaultSplit, type LayoutKind, type LayoutMode } from "../../lib/preview-layout";
+import { withChord } from "../../lib/command-chord";
+import Tooltip from "../Tooltip/Tooltip";
 import "./preview-layout-toggle.css";
 
 // A segmented control for the active buffer's layout, per content type.
@@ -15,17 +17,17 @@ import "./preview-layout-toggle.css";
 // tabindex (only the active segment is tab-stoppable), arrow keys move the
 // selection.
 
-type Segment = { kind: LayoutKind; label: string; title?: string };
+type Segment = { kind: LayoutKind; label: string; tip: string };
 
 const SEGMENTS: Segment[] = [
-  { kind: "source", label: "Source", title: "Source only" },
-  { kind: "split", label: "Split", title: "Editor and preview side by side" },
-  { kind: "preview", label: "Preview", title: "Preview only" },
+  { kind: "source", label: "Source", tip: "Source only" },
+  { kind: "split", label: "Split", tip: "Editor and preview together" },
+  { kind: "preview", label: "Preview", tip: "Preview only" },
 ];
 
 const MARKDOWN_SEGMENTS: Segment[] = [
-  { kind: "inline", label: "Inline" },
-  { kind: "source", label: "Source" },
+  { kind: "inline", label: "Inline", tip: "Inline: Markdown formatted as you type" },
+  { kind: "source", label: "Source", tip: "Source: the raw Markdown" },
 ];
 
 function SegmentIcon(props: { kind: LayoutKind }) {
@@ -120,21 +122,22 @@ export default function PreviewLayoutToggle() {
           {(seg, index) => {
             const isActive = () => currentKind() === seg.kind;
             return (
-              <button
-                type="button"
-                class="layout-toggle-seg"
-                classList={{ "is-active": isActive() }}
-                role="radio"
-                aria-checked={isActive()}
-                aria-label={seg.label}
-                title={seg.title}
-                ref={(el) => (segmentRefs[index()] = el)}
-                tabIndex={isActive() ? 0 : -1}
-                onClick={() => select(seg.kind)}
-              >
-                <SegmentIcon kind={seg.kind} />
-                <span class="layout-toggle-label">{seg.label}</span>
-              </button>
+              <Tooltip label={withChord(seg.tip, "preview.cycleLayout")} anchorRole="none">
+                <button
+                  type="button"
+                  class="layout-toggle-seg"
+                  classList={{ "is-active": isActive() }}
+                  role="radio"
+                  aria-checked={isActive()}
+                  aria-label={seg.label}
+                  ref={(el) => (segmentRefs[index()] = el)}
+                  tabIndex={isActive() ? 0 : -1}
+                  onClick={() => select(seg.kind)}
+                >
+                  <SegmentIcon kind={seg.kind} />
+                  <span class="layout-toggle-label">{seg.label}</span>
+                </button>
+              </Tooltip>
             );
           }}
         </For>

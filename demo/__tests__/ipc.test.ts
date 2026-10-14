@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installIpc, type CommandHandler } from "../ipc";
-import { getConfig, searchWorkspaceContent } from "../../src/services/tauri";
+import { getConfig, saveBufferContent, searchWorkspaceContent } from "../../src/services/tauri";
 import { onEvent } from "../../src/services/events";
 
 interface Internals {
@@ -34,6 +34,13 @@ describe("installIpc", () => {
     installIpc(() => handle);
     await expect(getConfig()).resolves.toEqual({ theme: "light" });
     expect(handle.mock.calls.map(([cmd]) => cmd)).toEqual(["get_config"]);
+  });
+
+  it("reads a raw-body save the way the host does: the note from its header, the text from its bytes", async () => {
+    const handle = vi.fn<CommandHandler>(() => "digest");
+    installIpc(() => handle);
+    await expect(saveBufferContent("note-1", "café 😀\n")).resolves.toBe("digest");
+    expect(handle).toHaveBeenCalledWith("save_buffer_content", { id: "note-1", content: "café 😀\n" }, true);
   });
 
   it("passes a command's refusal to the app as the bare string", async () => {

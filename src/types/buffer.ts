@@ -7,6 +7,8 @@ export interface BufferDocument {
   status: "active" | "history";
   language: string | null;
   source_path: string | null;
+  // Where the tab was left, as CodeMirror positions (UTF-16 code units, line
+  // breaks counted as one): the caret, and the start of the top visible line.
   cursor_pos: number;
   scroll_pos: number;
   tab_order: number;

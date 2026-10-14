@@ -118,6 +118,7 @@ export function buildEditorMenuItems(
       label: "Open link",
       action: () => actions.openLink(link.range, link.text),
       separator: items.length > 0,
+      kbd: `${MOD}Click`,
     });
     items.push({ label: "Copy link", action: () => actions.copyLink(link.text) });
   }

@@ -142,7 +142,8 @@ describe("editorStore removed-on-disk", () => {
 
     store.scheduleAutosave("one", () => "text", 0);
 
-    expect(queued).toHaveBeenCalledWith("one", expect.any(Function), 0);
+    // A note that is not the one in front sends its whole text.
+    expect(queued).toHaveBeenCalledWith("one", expect.any(Function), 0, undefined);
   });
 
   it("puts the file back on an explicit save", async () => {

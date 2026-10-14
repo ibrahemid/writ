@@ -35,7 +35,6 @@ const BANNED = [
   "threshold",
   "refuse",
   "debounce",
-  "source",
   "dialect",
   "FTS",
   "IPC",

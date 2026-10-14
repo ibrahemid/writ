@@ -1,6 +1,8 @@
 import { createSignal, createEffect, onCleanup, Show, For } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { windowRegistry } from "../../stores/global/window-registry";
+import { notesStore } from "../../stores/global/notes";
+import { pathInRoots } from "../../lib/tab-labels";
 import "./LinkAmbiguityPicker.css";
 
 /** What the picker is being opened for. */
@@ -48,14 +50,31 @@ function fileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-/** The folder the note sits in, shown under its name to tell two apart. */
-function folder(path: string): string {
-  const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return at <= 0 ? "" : path.slice(0, at);
+/**
+ * The folder the note sits in, shown under its name to tell two apart: the
+ * part inside the notes folder, or the whole folder for a note outside it.
+ */
+export function pickerFolder(path: string, notesRoot: string | null): string {
+  const shown = pathInRoots(path, [notesRoot]);
+  const at = Math.max(shown.lastIndexOf("/"), shown.lastIndexOf("\\"));
+  return at <= 0 ? "" : shown.slice(0, at);
 }
 
 export default function LinkAmbiguityPicker() {
   let panelRef: HTMLDivElement | undefined;
+  let rowsRef: HTMLDivElement | undefined;
+
+  function onRowsKeyDown(event: KeyboardEvent) {
+    const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    if (step === 0 || !rowsRef) return;
+    const rows = [...rowsRef.children].filter(
+      (el): el is HTMLButtonElement => el instanceof HTMLButtonElement,
+    );
+    const at = rows.indexOf(event.target as HTMLButtonElement);
+    if (at === -1) return;
+    event.preventDefault();
+    rows[(at + step + rows.length) % rows.length]?.focus();
+  }
 
   function close() {
     setPicker(null);
@@ -96,7 +115,7 @@ export default function LinkAmbiguityPicker() {
                 More than one note is called “{state().target}”.
               </Show>
             </p>
-            <div class="link-picker-rows">
+            <div class="link-picker-rows" ref={rowsRef} onKeyDown={onRowsKeyDown}>
               <For each={state().candidates}>
                 {(path) => (
                   <button
@@ -109,8 +128,8 @@ export default function LinkAmbiguityPicker() {
                     }}
                   >
                     <span class="link-picker-name">{fileName(path)}</span>
-                    <Show when={folder(path)}>
-                      <span class="link-picker-folder">{folder(path)}</span>
+                    <Show when={pickerFolder(path, notesStore.root())}>
+                      {(shown) => <span class="link-picker-folder">{shown()}</span>}
                     </Show>
                   </button>
                 )}
