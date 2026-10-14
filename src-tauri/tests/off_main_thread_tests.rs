@@ -280,6 +280,10 @@ fn a_rename_reads_its_file_with_the_store_free() {
                 let_go.recv().unwrap();
             }
             writer.write_all(b"X\n").expect("feed the pipe");
+            drop(writer);
+            // The reader sees end-of-file only while no writer holds the pipe.
+            // Reopening at once can land between its reads and feed it twice.
+            std::thread::sleep(Duration::from_millis(200));
         }
     });
     let (done, renamed) = mpsc::channel();
