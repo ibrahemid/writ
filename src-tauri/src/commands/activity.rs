@@ -11,11 +11,12 @@
 //! tool name, a client name, a path and a length, and the record type has no
 //! field that could hold anything else (rule 5.1).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Instant;
 
 use tauri::{AppHandle, Manager};
 use writ_core::activity::{ActivityRecord, PendingClient};
+use writ_core::cli_install::{client_command, ClientCommandFacts, InstallTarget};
 use writ_core::config::mcp::{ClientApproval, McpConfig};
 
 use crate::events::emitter::{emit_event, WritFrontendEvent};
@@ -61,6 +62,12 @@ pub struct McpServerCommand {
     pub path: String,
     /// The whole line to paste into a client's configuration.
     pub command: String,
+    /// The command is the copy the install puts on the PATH, and it is not
+    /// there yet: an AppImage's own copy is gone once it quits.
+    pub needs_install: bool,
+    /// The app runs from a folder macOS made up for a quarantined download,
+    /// and a client handed that path loses it at the next launch.
+    pub needs_move: bool,
 }
 
 /// What an approved program can do, split the way the two grants are.
@@ -564,7 +571,7 @@ const SERVE_VERB: &str = "mcp";
 ///
 /// Quoted, because an app installed under a folder with a space in its name is
 /// the normal case on macOS. A client launched from the desktop inherits a
-/// short PATH, so [`resolved_cli_path`] hands this a full path wherever one is
+/// short PATH, so [`resolved_command`] hands this a full path wherever one is
 /// known; on Windows the installer puts `writ.exe` on the PATH itself and the
 /// bare name is what resolves.
 pub fn server_command_for(binary: &Path) -> McpServerCommand {
@@ -572,24 +579,44 @@ pub fn server_command_for(binary: &Path) -> McpServerCommand {
     McpServerCommand {
         command: format!("\"{path}\" {SERVE_VERB}"),
         path,
+        needs_install: false,
+        needs_move: false,
     }
 }
 
-/// IPC: the command to paste into a client's configuration.
+/// IPC: the command to paste into a client's configuration, off the main
+/// thread: finding it reads the folder the app runs from.
 #[tauri::command]
-pub fn mcp_server_command() -> McpServerCommand {
-    server_command_for(&resolved_cli_path())
+pub async fn mcp_server_command() -> Result<McpServerCommand, String> {
+    super::offload::run_detached(super::offload::ERR_COMMAND_STOPPED, || {
+        Ok(resolved_command())
+    })
+    .await
 }
 
-/// The `writ` binary this app would have a client launch.
-///
-/// The copy bundled beside the app executable is preferred: it is the build
-/// that matches the running app, and it is there whether or not the user ever
-/// asked for the command to be linked onto their PATH. The linked copy is the
-/// fallback for a development run, where nothing is bundled.
-fn resolved_cli_path() -> PathBuf {
-    super::cli::bundled_cli_path()
-        .unwrap_or_else(|| PathBuf::from(super::cli::path_command_fallback()))
+/// The `writ` this app would have a client launch
+/// ([`writ_core::cli_install::client_command`]): the copy bundled with the
+/// running build, the installed copy for an AppImage whose own copy is gone
+/// once it quits, and the install target for a development run.
+fn resolved_command() -> McpServerCommand {
+    let target = super::cli::install_target();
+    let exe = std::env::current_exe().ok();
+    let bundled = super::cli::bundled_cli_path();
+    let installed = match &target {
+        Some(InstallTarget::Copy(path) | InstallTarget::Link(path)) => path.metadata().is_ok(),
+        Some(InstallTarget::ByInstaller) | None => false,
+    };
+    let client = client_command(ClientCommandFacts {
+        exe: exe.as_deref(),
+        bundled: bundled.as_deref(),
+        target: target.as_ref(),
+        installed,
+    });
+    McpServerCommand {
+        needs_install: client.needs_install,
+        needs_move: client.needs_move,
+        ..server_command_for(&client.path)
+    }
 }
 
 #[cfg(test)]
@@ -863,21 +890,21 @@ mod tests {
     }
 
     #[test]
-    fn the_fallback_is_the_linked_command_off_windows_and_the_path_name_on_it() {
-        let fallback = super::super::cli::path_command_fallback();
-        if cfg!(windows) {
-            assert_eq!(fallback, "writ.exe");
-        } else {
-            assert_eq!(fallback, "/usr/local/bin/writ");
-        }
-    }
-
-    #[test]
     fn a_build_that_bundles_nothing_still_names_a_command() {
         // Under `cargo test` there is no bundled binary beside the test
         // executable, so this is the fallback path being selected.
-        let command = server_command_for(&resolved_cli_path());
+        let command = resolved_command();
         assert!(command.command.ends_with("\" mcp"));
         assert!(!command.path.is_empty());
+        assert!(!command.needs_move);
+    }
+
+    #[test]
+    fn the_flags_cross_ipc_beside_the_command() {
+        let json = serde_json::to_value(server_command_for(Path::new("/usr/local/bin/writ")))
+            .expect("serialise");
+        assert_eq!(json["needs_install"], false);
+        assert_eq!(json["needs_move"], false);
+        assert_eq!(json["command"], "\"/usr/local/bin/writ\" mcp");
     }
 }

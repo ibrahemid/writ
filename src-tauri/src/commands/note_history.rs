@@ -20,8 +20,10 @@ use std::time::SystemTime;
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-use tauri::State;
 use writ_core::activity::{ActivityRecord, Actor, Decision};
+use writ_core::diff::{line_diff, Hunk};
+use writ_core::hash::{digest_hex, Sha256Digest};
+use writ_core::note_history::{no_versions_reason, NoVersionsReason};
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::WriteOrigin;
 use writ_storage::buffer_store::BeforeWrite;
@@ -34,6 +36,7 @@ use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::paths::file_name_only;
 use writ_storage::write_lock::WriteLock;
 
+use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::state::AppState;
 
 /// One text a note held, as the panel lists it.
@@ -48,6 +51,15 @@ pub struct NoteVersion {
     pub bytes: u64,
 }
 
+/// A file's versions, and why it has none when it has none.
+#[derive(Debug, Clone, Serialize)]
+pub struct NoteVersions {
+    /// Newest first.
+    pub versions: Vec<NoteVersion>,
+    /// Why `versions` is empty, and `None` when it is not.
+    pub no_versions_reason: Option<NoVersionsReason>,
+}
+
 /// What a restore put back.
 #[derive(Debug, Clone, Serialize)]
 pub struct RestoredVersion {
@@ -55,6 +67,9 @@ pub struct RestoredVersion {
     pub note: String,
     /// What the file holds now.
     pub bytes: u64,
+    /// The version holding the text the restore replaced, which is what
+    /// restoring undoes to. `None` when the note had no file to replace.
+    pub replaced: Option<i64>,
     /// What the write left on the file, for the caller holding the tab: the
     /// tab's record of the file has to describe the restore the way it
     /// describes a save, or the next write reads Writ's own text as somebody
@@ -81,21 +96,24 @@ pub struct VersionCopy {
     pub path: PathBuf,
 }
 
-/// Every text the store holds for the note at `path`, newest first.
+/// Every text the store holds for the note at `path`, newest first, and why
+/// there are none when there are none.
 ///
 /// A file the notes folder does not hold has no entries rather than an error:
 /// the panel opens on whatever tab is in front, and a tab on a file somebody
-/// else owns is an empty list, not a failure.
+/// else owns is an empty list, not a failure. The reason is
+/// [`no_versions_reason`]'s, from the file's size as its metadata gives it.
 ///
 /// # Errors
 ///
 /// The index could not be read.
-pub fn note_versions_inner(
-    store: &NoteHistoryStore,
-    path: &Path,
-) -> Result<Vec<NoteVersion>, String> {
+pub fn note_versions_inner(store: &NoteHistoryStore, path: &Path) -> Result<NoteVersions, String> {
+    let size = std::fs::metadata(path).ok().map(|meta| meta.len());
     let Some(note) = store.key_for(path) else {
-        return Ok(Vec::new());
+        return Ok(NoteVersions {
+            versions: Vec::new(),
+            no_versions_reason: Some(no_versions_reason(size, false)),
+        });
     };
     let entries = store.versions(&note).map_err(|_| {
         format!(
@@ -103,14 +121,51 @@ pub fn note_versions_inner(
             file_name_only(&path.to_string_lossy())
         )
     })?;
-    Ok(entries
-        .into_iter()
-        .map(|entry| NoteVersion {
-            id: entry.id,
-            at_ms: millis(entry.at),
-            bytes: entry.bytes,
-        })
-        .collect())
+    let no_versions_reason = entries.is_empty().then(|| no_versions_reason(size, true));
+    Ok(NoteVersions {
+        versions: entries
+            .into_iter()
+            .map(|entry| NoteVersion {
+                id: entry.id,
+                at_ms: millis(entry.at),
+                bytes: entry.bytes,
+            })
+            .collect(),
+        no_versions_reason,
+    })
+}
+
+/// What changes between the note's file as it is now and one version of it,
+/// as the lines restoring that version would remove and add.
+///
+/// The file on disk is what a restore replaces, so it is what is compared.
+///
+/// # Errors
+///
+/// The entry is not in the index, its text or the file cannot be read, or
+/// one of them is too large to compare.
+pub fn compare_note_version_inner(
+    notes_root: &Path,
+    store: &NoteHistoryStore,
+    version_id: i64,
+) -> Result<Vec<Hunk>, String> {
+    let (file, note) = note_file_of(notes_root, store, version_id)?;
+    let version = store.content(version_id).map_err(|e| unreadable(&e))?;
+    let current = match std::fs::read(&file) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(_) => return Err(format!("{note} could not be read.")),
+    };
+    line_diff(&as_text(&current), &as_text(&version))
+        .map_err(|_| "This version is too large to compare.".to_string())
+}
+
+/// A file's bytes as the editor reads them (ADR-049).
+fn as_text(bytes: &[u8]) -> String {
+    match writ_core::text_encoding::decode_file(bytes) {
+        Some(decoded) => decoded.text.into_owned(),
+        None => String::from_utf8_lossy(bytes).into_owned(),
+    }
 }
 
 /// The text of one entry, for the panel to show.
@@ -125,10 +180,7 @@ pub fn note_version_content_inner(
     let bytes = store.content(version_id).map_err(|e| unreadable(&e))?;
     // A version keeps the file's bytes as they were, in the file's encoding,
     // and is read the way the file would be (ADR-049).
-    Ok(match writ_core::text_encoding::decode_file(&bytes) {
-        Some(decoded) => decoded.text.into_owned(),
-        None => String::from_utf8_lossy(&bytes).into_owned(),
-    })
+    Ok(as_text(&bytes))
 }
 
 /// Writes the text of one entry back to its note.
@@ -188,6 +240,9 @@ pub fn restore_note_version_inner(
             Ok(RestoredVersion {
                 note,
                 bytes: written.disk_state.size,
+                replaced: written
+                    .found
+                    .and_then(|found| version_holding(store, &file, found.hash)),
                 disk_state: written.disk_state,
                 content: bytes,
             })
@@ -252,6 +307,19 @@ pub fn copy_note_version_inner(
             Err(format!("The copy of {note} could not be written."))
         }
     }
+}
+
+/// The newest version of the note at `file` that holds the text with digest
+/// `hash`: where a restore's capture put the text it replaced.
+fn version_holding(store: &NoteHistoryStore, file: &Path, hash: Sha256Digest) -> Option<i64> {
+    let key = store.key_for(file)?;
+    let hash = digest_hex(hash);
+    store
+        .versions(&key)
+        .ok()?
+        .into_iter()
+        .find(|entry| entry.hash == hash)
+        .map(|entry| entry.id)
 }
 
 /// Appends one line to the activity log for a write this module made.
@@ -319,6 +387,9 @@ fn millis(at: SystemTime) -> i64 {
 fn unreadable(error: &StorageError) -> String {
     match error {
         StorageError::VersionMissing { .. } => "That version is not here any more.".to_string(),
+        StorageError::VersionDamaged { .. } => {
+            "That version is damaged and cannot be restored.".to_string()
+        }
         _ => "That version could not be read.".to_string(),
     }
 }
@@ -346,14 +417,38 @@ fn refusal(note: &str, error: &StorageError) -> String {
 
 /// IPC: [`note_versions_inner`].
 #[tauri::command]
-pub fn note_versions(state: State<'_, AppState>, path: String) -> Result<Vec<NoteVersion>, String> {
-    note_versions_inner(&state.note_history, Path::new(&path))
+pub async fn note_versions<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    path: String,
+) -> Result<NoteVersions, String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        note_versions_inner(&state.note_history, Path::new(&path))
+    })
+    .await
 }
 
 /// IPC: [`note_version_content_inner`].
 #[tauri::command]
-pub fn note_version_content(state: State<'_, AppState>, version_id: i64) -> Result<String, String> {
-    note_version_content_inner(&state.note_history, version_id)
+pub async fn note_version_content<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    version_id: i64,
+) -> Result<String, String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        note_version_content_inner(&state.note_history, version_id)
+    })
+    .await
+}
+
+/// IPC: [`compare_note_version_inner`] in the app's notes folder.
+#[tauri::command]
+pub async fn compare_note_version<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    version_id: i64,
+) -> Result<Vec<Hunk>, String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        compare_note_version_inner(&state.notes_root(), &state.note_history, version_id)
+    })
+    .await
 }
 
 /// [`restore_note_version_inner`] for the tab that has the note open.
@@ -464,9 +559,12 @@ pub fn copy_note_version_and_index(
 
 /// IPC: [`copy_note_version_and_index`].
 #[tauri::command]
-pub fn copy_note_version(
-    state: State<'_, AppState>,
+pub async fn copy_note_version<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     version_id: i64,
 ) -> Result<VersionCopy, String> {
-    copy_note_version_and_index(&state, version_id)
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        copy_note_version_and_index(state, version_id)
+    })
+    .await
 }

@@ -8,6 +8,7 @@ const h = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [records, setRecords] = createSignal<ActivityRecord[]>([]);
   const [pending, setPending] = createSignal<PendingClient[]>([]);
+  const [logFailed, setLogFailed] = createSignal(false);
   const [serverCommand, setServerCommand] = createSignal<{ path: string; command: string } | null>(
     null,
   );
@@ -16,6 +17,8 @@ const h = await vi.hoisted(async () => {
     setRecords,
     pending,
     setPending,
+    logFailed,
+    setLogFailed,
     serverCommand,
     setServerCommand,
     copyCommand: vi.fn().mockResolvedValue(undefined),
@@ -35,6 +38,7 @@ vi.mock("../../stores/global/activity", () => ({
   ACTIVITY_POLL_MS: 5_000,
   activityStore: {
     records: h.records,
+    logFailed: h.logFailed,
     pending: h.pending,
     serverCommand: h.serverCommand,
     copyCommand: h.copyCommand,
@@ -437,5 +441,20 @@ describe("ActivityPanel", () => {
     openActivity();
     render(() => <ActivityPanel />);
     expect(h.load).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the log could not be read, never that no program called, and tries again", async () => {
+    h.setRecords([]);
+    h.setLogFailed(true);
+    h.refresh.mockClear();
+
+    const { getByText, queryByText, getByRole } = render(() => <ActivityPanel />);
+    openActivity();
+
+    expect(getByText("Could not read the activity log.")).toBeTruthy();
+    expect(queryByText("No program has called yet.")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Try again" }));
+    expect(h.refresh).toHaveBeenCalled();
+    h.setLogFailed(false);
   });
 });

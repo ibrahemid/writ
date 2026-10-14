@@ -23,6 +23,19 @@ function charactersBySpread(text: string): number {
   return [...text].length;
 }
 
+const CJK = /[\u{1100}-\u{11FF}\u{3040}-\u{30FF}\u{3130}-\u{318F}\u{3400}-\u{4DBF}\u{4E00}-\u{9FFF}\u{AC00}-\u{D7AF}\u{F900}-\u{FAFF}\u{20000}-\u{2FFFF}]/u;
+const ARABIC = /[\u{0600}-\u{06FF}\u{0750}-\u{077F}\u{08A0}-\u{08FF}\u{FB50}-\u{FDFF}\u{FE70}-\u{FEFC}]/u;
+
+function bySpread(text: string) {
+  const points = [...text];
+  return {
+    words: wordsByRegExp(text),
+    characters: points.length,
+    cjk: points.filter((point) => CJK.test(point)).length,
+    arabic: points.filter((point) => ARABIC.test(point)).length,
+  };
+}
+
 function seeded(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -35,7 +48,7 @@ function seeded(seed: number): () => number {
 }
 
 const PIECES = [
-  "word", "Writ", "ب", "مرحبا", "日本語", "😀", "👩‍💻", "é", " ", "　", " ", "﻿",
+  "word", "Writ", "ب", "مرحبا", "مُلاحَظةٌ", "日本語", "한국어", "𠀀", "😀", "👩‍💻", "é", " ", "　", " ", "﻿",
   " ", "  ", "\t", "\n", "\n\n", "-", "x".repeat(40), "\ud83d", "\ude00",
 ];
 
@@ -75,26 +88,23 @@ describe("countText", () => {
   });
 
   it("is zero for an empty or blank document", () => {
-    expect(countText(doc(""))).toEqual({ words: 0, characters: 0 });
+    expect(countText(doc(""))).toEqual({ words: 0, characters: 0, cjk: 0, arabic: 0 });
     expect(countText(doc("   \n\t  ")).words).toBe(0);
   });
 
   it("counts a character outside the Basic Multilingual Plane once", () => {
-    expect(countText(doc("a😀b"))).toEqual({ words: 1, characters: 3 });
+    expect(countText(doc("a😀b"))).toEqual({ words: 1, characters: 3, cjk: 0, arabic: 0 });
   });
 
   it("counts a surrogate with no partner as one character", () => {
-    expect(countText(doc("\ud83d"))).toEqual({ words: 1, characters: 1 });
-    expect(countText(doc("\ud83d\n\ude00"))).toEqual({ words: 2, characters: 3 });
+    expect(countText(doc("\ud83d"))).toEqual({ words: 1, characters: 1, cjk: 0, arabic: 0 });
+    expect(countText(doc("\ud83d\n\ude00"))).toEqual({ words: 2, characters: 3, cjk: 0, arabic: 0 });
   });
 
   it("gives the numbers the regular expression and the spread gave, on mixed text", () => {
     for (let seed = 1; seed <= 40; seed++) {
       const text = generated(seed, 200 + seed * 150);
-      expect(countText(doc(text)), `seed ${seed}`).toEqual({
-        words: wordsByRegExp(text),
-        characters: charactersBySpread(text),
-      });
+      expect(countText(doc(text)), `seed ${seed}`).toEqual(bySpread(text));
     }
   });
 
@@ -102,7 +112,7 @@ describe("countText", () => {
     const text = generated(7, 60_000);
     const tree = doc(text);
     expect(tree.children).not.toBeNull();
-    expect(countText(tree)).toEqual({ words: wordsByRegExp(text), characters: charactersBySpread(text) });
+    expect(countText(tree)).toEqual(bySpread(text));
   });
 });
 
@@ -166,13 +176,13 @@ describe("TextCounter", () => {
 
 describe("projectCounts", () => {
   it("scales the counted part to the whole document", () => {
-    const progress: CountProgress = { words: 100, characters: 600, covered: 500, done: false };
-    expect(projectCounts(progress, 5_000)).toEqual({ words: 1_000, characters: 6_000 });
+    const progress: CountProgress = { words: 100, characters: 600, cjk: 20, arabic: 4, covered: 500, done: false };
+    expect(projectCounts(progress, 5_000)).toEqual({ words: 1_000, characters: 6_000, cjk: 200, arabic: 40 });
   });
 
   it("answers a finished count as it is", () => {
-    const progress: CountProgress = { words: 3, characters: 13, covered: 13, done: true };
-    expect(projectCounts(progress, 13)).toEqual({ words: 3, characters: 13 });
+    const progress: CountProgress = { words: 3, characters: 13, cjk: 0, arabic: 0, covered: 13, done: true };
+    expect(projectCounts(progress, 13)).toEqual({ words: 3, characters: 13, cjk: 0, arabic: 0 });
   });
 });
 

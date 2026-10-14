@@ -327,30 +327,6 @@ impl BufferStore {
         queries::list_buffers_by_status(&self.conn, status_str)
     }
 
-    /// [`Self::save_to_source`] for a caller holding no record of the file.
-    ///
-    /// Passing no record is not a way around the guard: its question is
-    /// whether the file changed since Writ last looked at it, and a caller
-    /// with no record has not looked. The one caller in the app that is
-    /// genuinely in that position is the relaunch, which holds the text the
-    /// unsaved-text journal kept and no record of the file it belongs to; it
-    /// does not come through here but through
-    /// [`Self::restore_recovered_content`], which compares against the file
-    /// itself and sets the text aside rather than writing over a version that
-    /// arrived while Writ was down. What is left here is the plain write
-    /// for callers with no watcher and nothing to lose: tests, benches and
-    /// one-shot tools.
-    pub fn save_content(&self, id: &str, content: &str) -> StorageResult<()> {
-        self.save_to_source(id, content, None, None).map(|_| ())
-    }
-
-    /// [`Self::save_to_source_without_index`] for a caller holding no record
-    /// of the file.
-    pub fn save_content_without_index(&self, id: &str, content: &str) -> StorageResult<()> {
-        self.save_to_source_without_index(id, content, None, None)
-            .map(|_| ())
-    }
-
     /// Refreshes the notes index for a single note from the file on disk (the
     /// reindex half of the deferred path, ADR-020).
     ///
@@ -363,7 +339,7 @@ impl BufferStore {
     /// scheduler's, and they are untouched.
     ///
     /// Large-file and binary buffers (`size_bytes > THRESHOLD_NORMAL_BYTES`)
-    /// are skipped, matching the write-time policy in [`Self::save_content`].
+    /// are skipped, matching the write-time policy in [`Self::save_to_source`].
     /// A read-only row indexes nothing: search is over what the user wrote, and
     /// neither a hex view nor a document Writ generated is that. Neither file
     /// is read ([`Self::reindex_target`]).

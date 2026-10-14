@@ -19,7 +19,9 @@ use std::time::{Duration, SystemTime};
 use tempfile::TempDir;
 use writ_core::activity::{Actor, Decision};
 use writ_core::config::WritConfig;
+use writ_core::diff::LineKind;
 use writ_core::events::bus::{EventBus, WritEvent};
+use writ_core::note_history::NoVersionsReason;
 use writ_core::notes::guard::DiskState;
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
@@ -36,8 +38,8 @@ use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{read_buffer_content_inner, save_buffer_content_inner};
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::note_history::{
-    copy_note_version_inner, note_version_content_inner, note_versions_inner,
-    restore_note_version_for_tab, restore_note_version_inner, NoteVersion,
+    compare_note_version_inner, copy_note_version_inner, note_version_content_inner,
+    note_versions_inner, restore_note_version_for_tab, restore_note_version_inner, NoteVersion,
 };
 use writ_tauri_lib::commands::preview::{preview_get_scripts_inner, preview_set_scripts_inner};
 use writ_tauri_lib::preview::handler::{RenderCache, RenderedDoc};
@@ -54,6 +56,7 @@ const COMMANDS: &[&str] = &[
     "commands::note_history::note_version_content",
     "commands::note_history::restore_note_version",
     "commands::note_history::copy_note_version",
+    "commands::note_history::compare_note_version",
 ];
 
 /// A notes folder and the store that keeps its versions, wired the way the app
@@ -104,7 +107,9 @@ impl Folder {
     }
 
     fn versions(&self, path: &Path) -> Vec<NoteVersion> {
-        note_versions_inner(&self.store, path).expect("versions")
+        note_versions_inner(&self.store, path)
+            .expect("versions")
+            .versions
     }
 
     fn text_of(&self, version: &NoteVersion) -> String {
@@ -335,9 +340,115 @@ fn a_file_the_notes_folder_does_not_hold_has_no_versions() {
     let outside = folder.dir.path().join("elsewhere.md");
     std::fs::write(&outside, "not a note\n").expect("write");
 
-    assert!(note_versions_inner(&folder.store, &outside)
-        .expect("an answer, not a failure")
-        .is_empty());
+    let answer = note_versions_inner(&folder.store, &outside).expect("an answer, not a failure");
+    assert!(answer.versions.is_empty());
+    assert_eq!(
+        answer.no_versions_reason,
+        Some(NoVersionsReason::OutsideFolder)
+    );
+}
+
+#[test]
+fn a_file_over_two_megabytes_says_why_it_has_no_versions() {
+    let folder = Folder::new();
+    let log = vec![b'x'; 3 * 1024 * 1024];
+    let outside = folder.dir.path().join("server.log");
+    std::fs::write(&outside, &log).expect("write");
+    let inside = folder.notes.join("server.log");
+    std::fs::write(&inside, &log).expect("write");
+
+    for path in [&outside, &inside] {
+        let answer = note_versions_inner(&folder.store, path).expect("an answer");
+        assert!(answer.versions.is_empty());
+        assert_eq!(answer.no_versions_reason, Some(NoVersionsReason::TooLarge));
+    }
+}
+
+#[test]
+fn a_note_nothing_was_kept_for_yet_says_so() {
+    let folder = Folder::new();
+    let path = folder.notes.join("Fresh.md");
+    std::fs::write(&path, "new\n").expect("write");
+
+    let answer = note_versions_inner(&folder.store, &path).expect("an answer");
+    assert!(answer.versions.is_empty());
+    assert_eq!(answer.no_versions_reason, Some(NoVersionsReason::NoneYet));
+
+    folder.keep(&path, b"new\n", 1);
+    let answer = note_versions_inner(&folder.store, &path).expect("an answer");
+    assert_eq!(answer.versions.len(), 1);
+    assert_eq!(answer.no_versions_reason, None);
+}
+
+#[test]
+fn a_restore_names_the_version_that_undoes_it() {
+    let folder = Folder::new();
+    let path = folder.note("Launch.md", b"the first\n", 60);
+    std::fs::write(&path, b"the second\n").expect("overwrite");
+    folder.keep(&path, b"the second\n", 30);
+    let first = folder.versions(&path)[1].id;
+
+    let restored =
+        restore_note_version_inner(&folder.notes, &folder.writ_dir, &folder.store, first, None)
+            .expect("restore");
+
+    let undo = restored
+        .replaced
+        .expect("the version holding what was replaced");
+    restore_note_version_inner(
+        &folder.notes,
+        &folder.writ_dir,
+        &folder.store,
+        undo,
+        Some(Folder::last_known(b"the first\n")),
+    )
+    .expect("undo");
+    assert_eq!(std::fs::read(&path).expect("read"), b"the second\n");
+}
+
+#[test]
+fn a_comparison_shows_what_restoring_a_version_would_change() {
+    let folder = Folder::new();
+    let path = folder.note("Launch.md", b"title\nold line\nend\n", 60);
+    std::fs::write(&path, b"title\nnew line\nend\n").expect("overwrite");
+    let old = folder.versions(&path)[0].id;
+
+    let hunks = compare_note_version_inner(&folder.notes, &folder.store, old).expect("compare");
+
+    let changed: Vec<(LineKind, &str)> = hunks
+        .iter()
+        .flat_map(|hunk| hunk.lines.iter())
+        .filter(|line| line.kind != LineKind::Context)
+        .map(|line| (line.kind, line.text.as_str()))
+        .collect();
+    assert_eq!(
+        changed,
+        vec![
+            (LineKind::Removed, "new line"),
+            (LineKind::Added, "old line")
+        ]
+    );
+}
+
+#[test]
+fn a_damaged_version_reads_as_damaged() {
+    let folder = Folder::new();
+    let path = folder.note("Launch.md", b"kept\n", 60);
+    let id = folder.versions(&path)[0].id;
+    let shard = folder.writ_dir.join("history");
+    let blob = std::fs::read_dir(&shard)
+        .expect("shards")
+        .flatten()
+        .flat_map(|dir| std::fs::read_dir(dir.path()).expect("blobs").flatten())
+        .next()
+        .expect("one text")
+        .path();
+    std::fs::write(&blob, b"changed\n").expect("damage");
+
+    assert_eq!(
+        note_version_content_inner(&folder.store, id),
+        Err("That version is damaged and cannot be restored.".to_string())
+    );
 }
 
 #[test]

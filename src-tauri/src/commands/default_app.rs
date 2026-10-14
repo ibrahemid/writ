@@ -1,9 +1,9 @@
-use tauri::State;
-#[cfg(target_os = "macos")]
+use tauri::AppHandle;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 use writ_core::default_app::aggregate_status;
 use writ_core::default_app::{claimable_type, claimable_types, ClaimableType, DefaultAppStatus};
 
-use crate::state::AppState;
+use crate::commands::offload::{run_detached, ERR_COMMAND_STOPPED};
 
 // The bundle id is stable for the lifetime of the process — look it up once.
 // Consumed by the macOS handler paths and the platform-independent tests.
@@ -12,60 +12,136 @@ fn our_bundle_id() -> &'static str {
     "com.writ.editor"
 }
 
+/// Why a default-app call did nothing.
+#[derive(Debug, thiserror::Error)]
+pub enum DefaultAppCommandError {
+    /// No claimable group has this id.
+    #[error("unknown type group: {0}")]
+    UnknownGroup(String),
+    /// This system offers Writ no way to become the default.
+    #[error("Writ cannot set default apps on this system.")]
+    Unsupported,
+    /// The system call that sets or reads the default failed.
+    #[error("{0}")]
+    System(String),
+}
+
+impl From<DefaultAppCommandError> for String {
+    fn from(error: DefaultAppCommandError) -> Self {
+        error.to_string()
+    }
+}
+
 /// IPC: the file-type groups the settings UI can offer to make Writ the default for.
 #[tauri::command]
 pub fn list_default_app_types() -> Vec<ClaimableType> {
     claimable_types().to_vec()
 }
 
-/// IPC: query whether Writ is the macOS default handler for every UTI in group `id`.
-///
-/// Returns `DefaultAppStatus::Unsupported` on every platform except macOS.
-#[tauri::command]
-pub fn get_default_app_status(
-    _state: State<'_, AppState>,
-    id: String,
-) -> Result<DefaultAppStatus, String> {
-    let group = claimable_type(&id).ok_or_else(|| format!("unknown type group: {id}"))?;
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut statuses = Vec::with_capacity(group.utis.len());
-        for uti in group.utis {
-            let handler_id = macos::query_default_handler(uti).map_err(|e| e.to_string())?;
-            let status = DefaultAppStatus::from_handler_id(handler_id.as_deref(), our_bundle_id());
-            statuses.push(enrich_with_display_name(status, handler_id.as_deref()));
-        }
-        Ok(aggregate_status(&statuses))
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = group;
-        Ok(DefaultAppStatus::Unsupported)
-    }
+fn group(id: &str) -> Result<&'static ClaimableType, DefaultAppCommandError> {
+    claimable_type(id).ok_or_else(|| DefaultAppCommandError::UnknownGroup(id.to_string()))
 }
 
-/// IPC: register Writ as the macOS default handler for every UTI in group `id`.
+/// IPC: whether Writ is the default handler for every type in group `id`.
 ///
-/// Returns `DefaultAppStatus::Unsupported` on every platform except macOS.
+/// macOS asks Launch Services per UTI, Linux asks `xdg-mime` per MIME type,
+/// Windows answers [`DefaultAppStatus::SystemSettings`] (only the user picks a
+/// default there), and any other system [`DefaultAppStatus::Unsupported`].
+/// Off the main thread: the answer comes from the system's own records.
 #[tauri::command]
-pub fn set_default_app(_state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let group = claimable_type(&id).ok_or_else(|| format!("unknown type group: {id}"))?;
+pub async fn get_default_app_status(id: String) -> Result<DefaultAppStatus, String> {
+    let group = group(&id)?;
+    run_detached(ERR_COMMAND_STOPPED, move || {
+        query_status(group).map_err(String::from)
+    })
+    .await
+}
 
-    #[cfg(target_os = "macos")]
-    {
-        for uti in group.utis {
-            macos::set_default_handler(uti, our_bundle_id()).map_err(|e| e.to_string())?;
+#[cfg(target_os = "macos")]
+fn query_status(group: &ClaimableType) -> Result<DefaultAppStatus, DefaultAppCommandError> {
+    let mut statuses = Vec::with_capacity(group.utis.len());
+    for uti in group.utis {
+        let handler_id = macos::query_default_handler(uti)
+            .map_err(|e| DefaultAppCommandError::System(e.to_string()))?;
+        let status = DefaultAppStatus::from_handler_id(handler_id.as_deref(), our_bundle_id());
+        statuses.push(enrich_with_display_name(status, handler_id.as_deref()));
+    }
+    Ok(aggregate_status(&statuses))
+}
+
+#[cfg(target_os = "linux")]
+fn query_status(group: &ClaimableType) -> Result<DefaultAppStatus, DefaultAppCommandError> {
+    let Some(entry) = linux::desktop_entry() else {
+        return Ok(DefaultAppStatus::Unsupported);
+    };
+    let mut statuses = Vec::with_capacity(group.mimes.len());
+    for mime in group.mimes {
+        match linux::query_default(mime, entry) {
+            Ok(status) => statuses.push(status),
+            Err(linux::XdgError::Missing) => return Ok(DefaultAppStatus::Unsupported),
+            Err(error) => return Err(DefaultAppCommandError::System(error.to_string())),
         }
-        Ok(())
     }
+    Ok(aggregate_status(&statuses))
+}
 
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = group;
-        Ok(())
+#[cfg(target_os = "windows")]
+fn query_status(_group: &ClaimableType) -> Result<DefaultAppStatus, DefaultAppCommandError> {
+    Ok(DefaultAppStatus::SystemSettings)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn query_status(_group: &ClaimableType) -> Result<DefaultAppStatus, DefaultAppCommandError> {
+    Ok(DefaultAppStatus::Unsupported)
+}
+
+/// IPC: make Writ the default handler for every type in group `id`.
+///
+/// macOS sets it through Launch Services and Linux through `xdg-mime default`.
+/// Windows lets no app make itself the default, so its Default apps page
+/// opens for the user to pick Writ there. Any other system, and a Linux
+/// install with no desktop entry, answers [`DefaultAppCommandError::Unsupported`].
+#[tauri::command]
+pub async fn set_default_app(app: AppHandle, id: String) -> Result<(), String> {
+    let group = group(&id)?;
+    run_detached(ERR_COMMAND_STOPPED, move || {
+        claim(&app, group).map_err(String::from)
+    })
+    .await
+}
+
+#[cfg(target_os = "macos")]
+fn claim(_app: &AppHandle, group: &ClaimableType) -> Result<(), DefaultAppCommandError> {
+    for uti in group.utis {
+        macos::set_default_handler(uti, our_bundle_id())
+            .map_err(|e| DefaultAppCommandError::System(e.to_string()))?;
     }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn claim(_app: &AppHandle, group: &ClaimableType) -> Result<(), DefaultAppCommandError> {
+    let entry = linux::desktop_entry().ok_or(DefaultAppCommandError::Unsupported)?;
+    linux::set_default(entry, group.mimes).map_err(|error| match error {
+        linux::XdgError::Missing => DefaultAppCommandError::Unsupported,
+        other => DefaultAppCommandError::System(other.to_string()),
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn claim(app: &AppHandle, _group: &ClaimableType) -> Result<(), DefaultAppCommandError> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(
+            writ_core::default_app::WINDOWS_DEFAULT_APPS_URI,
+            None::<&str>,
+        )
+        .map_err(|e| DefaultAppCommandError::System(e.to_string()))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn claim(_app: &AppHandle, _group: &ClaimableType) -> Result<(), DefaultAppCommandError> {
+    Err(DefaultAppCommandError::Unsupported)
 }
 
 /// Attempt to resolve a bundle id to its display name for richer status messages.
@@ -85,6 +161,63 @@ fn enrich_with_display_name(
         }
     }
     status
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use std::process::Command;
+
+    use writ_core::default_app::{
+        application_dirs, desktop_entry_status, find_desktop_entry, DefaultAppStatus,
+    };
+
+    /// Why `xdg-mime` gave no answer.
+    #[derive(Debug, thiserror::Error)]
+    pub enum XdgError {
+        /// `xdg-mime` is not installed.
+        #[error("xdg-mime is not installed")]
+        Missing,
+        /// It ran and failed.
+        #[error("xdg-mime failed: {0}")]
+        Failed(String),
+    }
+
+    /// Writ's desktop entry, when the system has one.
+    pub fn desktop_entry() -> Option<&'static str> {
+        let data_home = std::env::var("XDG_DATA_HOME").ok();
+        let data_dirs = std::env::var("XDG_DATA_DIRS").ok();
+        let home = dirs::home_dir();
+        let dirs = application_dirs(data_home.as_deref(), data_dirs.as_deref(), home.as_deref());
+        find_desktop_entry(&dirs, std::path::Path::is_file)
+    }
+
+    fn run(args: &[&str]) -> Result<String, XdgError> {
+        let output = Command::new("xdg-mime")
+            .args(args)
+            .output()
+            .map_err(|error| match error.kind() {
+                std::io::ErrorKind::NotFound => XdgError::Missing,
+                _ => XdgError::Failed(error.to_string()),
+            })?;
+        if !output.status.success() {
+            return Err(XdgError::Failed(
+                String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            ));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    /// `xdg-mime query default <mime>`, read against Writ's `entry`.
+    pub fn query_default(mime: &str, entry: &str) -> Result<DefaultAppStatus, XdgError> {
+        run(&["query", "default", mime]).map(|answer| desktop_entry_status(&answer, entry))
+    }
+
+    /// `xdg-mime default <entry> <mime>...`.
+    pub fn set_default(entry: &str, mimes: &[&str]) -> Result<(), XdgError> {
+        let mut args = vec!["default", entry];
+        args.extend_from_slice(mimes);
+        run(&args).map(|_| ())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -263,6 +396,115 @@ mod tests {
                 );
             }
         }
+    }
+
+    // Every MIME type a group claims on Linux must be one the desktop entry
+    // declares, or `xdg-mime default` records a default the file manager never
+    // offers Writ for.
+    #[test]
+    fn every_claimable_mime_type_is_declared_in_the_bundle() {
+        let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
+            .expect("read tauri.conf.json");
+        let conf: serde_json::Value = serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        let declared: std::collections::HashSet<&str> = conf["bundle"]["fileAssociations"]
+            .as_array()
+            .expect("fileAssociations array")
+            .iter()
+            .filter_map(|a| a["mimeType"].as_str())
+            .collect();
+        for group in claimable_types() {
+            for mime in group.mimes {
+                assert!(
+                    declared.contains(mime),
+                    "claimable MIME type `{mime}` (group `{}`) is not declared in tauri.conf.json",
+                    group.id
+                );
+            }
+        }
+    }
+
+    fn bundle_associations() -> Vec<serde_json::Value> {
+        let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
+            .expect("read tauri.conf.json");
+        let conf: serde_json::Value = serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        conf["bundle"]["fileAssociations"]
+            .as_array()
+            .expect("fileAssociations array")
+            .clone()
+    }
+
+    // An extension never matches a file whose name has none: `ext:
+    // ["dockerfile"]` reaches `x.dockerfile` and never `Dockerfile`. Such a
+    // name is matched by a MIME type whose glob is the name (Linux), or not
+    // at all.
+    #[test]
+    fn no_association_declares_an_extension_for_an_extensionless_name() {
+        const EXTENSIONLESS: &[&str] = &["dockerfile", "makefile", "procfile", "gemfile"];
+        for association in bundle_associations() {
+            let name = association["name"]
+                .as_str()
+                .unwrap_or_default()
+                .to_lowercase();
+            let exts: Vec<String> = association["ext"]
+                .as_array()
+                .expect("ext array")
+                .iter()
+                .filter_map(|ext| ext.as_str().map(str::to_lowercase))
+                .collect();
+            for ext in &exts {
+                assert!(
+                    !EXTENSIONLESS.contains(&ext.as_str()),
+                    "association `{name}` declares `.{ext}`, a name with no extension"
+                );
+            }
+            if EXTENSIONLESS.contains(&name.as_str()) {
+                assert!(
+                    association["mimeType"]
+                        .as_str()
+                        .is_some_and(|mime| mime != "text/plain"),
+                    "association `{name}` matches nothing by name"
+                );
+            }
+        }
+    }
+
+    // Writ owns the com.writ.* types and imports every other one: exporting
+    // `net.daringfireball.markdown` competes with the type's owner in Launch
+    // Services.
+    #[test]
+    fn writ_exports_only_its_own_types_and_imports_markdown() {
+        for association in bundle_associations() {
+            if let Some(id) = association["exportedType"]["identifier"].as_str() {
+                assert!(id.starts_with("com.writ."), "Writ exports `{id}`");
+            }
+        }
+        let plist = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Info.plist"))
+            .expect("read Info.plist");
+        let imports = plist
+            .split("<key>UTImportedTypeDeclarations</key>")
+            .nth(1)
+            .expect("Info.plist imports types");
+        assert!(imports.contains("<string>net.daringfireball.markdown</string>"));
+    }
+
+    #[test]
+    fn a_system_without_a_way_to_set_defaults_says_so() {
+        let message = DefaultAppCommandError::Unsupported.to_string();
+        assert_eq!(message, "Writ cannot set default apps on this system.");
+        assert_eq!(
+            String::from(DefaultAppCommandError::UnknownGroup("x".into())),
+            "unknown type group: x"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_answers_that_the_user_picks_defaults_in_settings() {
+        let group = claimable_type("markdown").expect("markdown");
+        assert_eq!(
+            query_status(group).expect("status"),
+            DefaultAppStatus::SystemSettings
+        );
     }
 
     #[test]

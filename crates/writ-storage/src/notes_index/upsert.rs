@@ -117,6 +117,7 @@ pub(crate) fn write_file<N: NameSource>(
         "INSERT INTO files_fts (rowid, name, content) VALUES (?1, ?2, ?3)",
         params![rowid, note.name, content],
     )?;
+    schema::write_folded(&tx, rowid, &note.name, content)?;
     names.read(|index| write_facts(&tx, &note.path, content, index))?;
 
     let added = names.insert(&note.path);
@@ -200,10 +201,11 @@ fn update_row(
 
 /// Removes `key` from the index.
 ///
-/// The text entry goes first, while the `files` row it joins on still exists;
-/// the row itself follows, and `links`, `properties`, `tags` and `headings`
-/// cascade with it. Losing the row without losing the text entry is what
-/// produces a hit nothing can open, so every step propagates its error.
+/// The text entries go first (`files_fts`, and `files_folded` for a note that
+/// has one), while the `files` row they join on still exists; the row itself
+/// follows, and `links`, `properties`, `tags` and `headings` cascade with it.
+/// Losing the row without losing the text entry is what produces a hit
+/// nothing can open, so every step propagates its error.
 ///
 /// The cascade only reaches the links written *in* the removed note. The
 /// links written in other notes that resolved *to* it are a plain column with
@@ -221,6 +223,11 @@ pub(crate) fn forget_file<N: NameSource>(
     let tx = begin_write(conn, names)?;
     tx.execute(
         "DELETE FROM files_fts
+         WHERE rowid = (SELECT rowid FROM files WHERE path = ?1)",
+        params![key],
+    )?;
+    tx.execute(
+        "DELETE FROM files_folded
          WHERE rowid = (SELECT rowid FROM files WHERE path = ?1)",
         params![key],
     )?;

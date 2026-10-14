@@ -192,6 +192,10 @@
   color: var(--writ-fg-muted);
 }
 
+.chat-empty-line {
+  margin: 0 0 var(--writ-space-2);
+}
+
 .chat-transcript {
   flex: 1;
   min-height: 0;

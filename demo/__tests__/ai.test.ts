@@ -120,6 +120,8 @@ describe("connected programs", () => {
     expect(getMcpServerCommand()).toEqual({
       path: "/Applications/Writ.app/Contents/MacOS/writ",
       command: '"/Applications/Writ.app/Contents/MacOS/writ" mcp',
+      needs_install: false,
+      needs_move: false,
     });
     expect(MCP_TOOLS.write).toEqual(["write_note", "create_note", "rename_note"]);
     expect(MCP_TOOLS.read).toContain("note_backlinks");

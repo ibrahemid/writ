@@ -597,3 +597,146 @@ fn a_rename_of_a_file_with_no_extension_leaves_it_with_none() {
     assert_eq!(to, root.path().join("COPYING"));
     assert_eq!(std::fs::read_to_string(&to).expect("read"), "the text");
 }
+
+/// The names `dir` holds, as the filesystem spells them.
+fn listed(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .expect("list")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn a_case_only_rename_reaches_the_disk() {
+    let root = TempDir::new().expect("temp dir");
+    let from = root.path().join("Notes.md");
+    std::fs::write(&from, "the text").expect("seed");
+
+    let to =
+        note_ops::rename_note(&from, "notes", None, WriteOrigin::Editor, None).expect("rename");
+
+    assert_eq!(to, root.path().join("notes.md"));
+    assert_eq!(listed(root.path()), vec!["notes.md".to_string()]);
+    assert_eq!(std::fs::read_to_string(&to).expect("read"), "the text");
+}
+
+#[test]
+fn a_normalisation_only_rename_reaches_the_disk() {
+    let root = TempDir::new().expect("temp dir");
+    let from = root.path().join("Cafe\u{301}.md");
+    std::fs::write(&from, "the text").expect("seed");
+
+    let to =
+        note_ops::rename_note(&from, "Caf\u{e9}", None, WriteOrigin::Editor, None).expect("rename");
+
+    assert_eq!(to, root.path().join("Caf\u{e9}.md"));
+    assert_eq!(listed(root.path()), vec!["Caf\u{e9}.md".to_string()]);
+}
+
+#[test]
+fn a_second_link_to_the_same_file_is_a_taken_name() {
+    let root = TempDir::new().expect("temp dir");
+    let from = root.path().join("First.md");
+    std::fs::write(&from, "the text").expect("seed");
+    std::fs::hard_link(&from, root.path().join("Second.md")).expect("link");
+
+    let error = note_ops::rename_note(&from, "Second", None, WriteOrigin::Editor, None)
+        .expect_err("the rename should stop");
+
+    assert!(
+        matches!(error, StorageError::NoteNameTaken { ref name, .. } if name == "Second.md"),
+        "expected a taken name, got {error:?}"
+    );
+    assert_eq!(
+        listed(root.path()),
+        vec!["First.md".to_string(), "Second.md".to_string()]
+    );
+}
+
+#[test]
+fn the_move_itself_refuses_a_file_already_at_the_new_name() {
+    let root = TempDir::new().expect("temp dir");
+    let from = root.path().join("Draft.md");
+    let to = root.path().join("Final.md");
+    std::fs::write(&from, "mine").expect("seed");
+    std::fs::write(&to, "somebody else's").expect("seed");
+
+    let error = note_ops::rename_file(&from, &to).expect_err("the move should stop");
+
+    assert!(
+        matches!(error, StorageError::NoteNameTaken { ref name, .. } if name == "Final.md"),
+        "expected a taken name, got {error:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&from).expect("read"), "mine");
+    assert_eq!(
+        std::fs::read_to_string(&to).expect("read"),
+        "somebody else's"
+    );
+}
+
+#[test]
+fn a_markdown_note_is_renamed_without_link_syntax_in_its_name() {
+    let root = TempDir::new().expect("temp dir");
+    let old = root.path().join("Old.md");
+    std::fs::write(&old, "").expect("seed");
+    let draft = root.path().join("Draft.md");
+    std::fs::write(&draft, "").expect("seed");
+
+    let renamed =
+        note_ops::rename_note(&old, "C# notes", None, WriteOrigin::Editor, None).expect("rename");
+    let bracketed = note_ops::rename_note(&draft, "Q3 [draft] ^1", None, WriteOrigin::Editor, None)
+        .expect("rename");
+
+    assert_eq!(renamed, root.path().join("C notes.md"));
+    assert_eq!(bracketed, root.path().join("Q3 draft 1.md"));
+}
+
+#[test]
+fn a_text_file_keeps_the_characters_no_link_reads() {
+    let root = TempDir::new().expect("temp dir");
+    let old = root.path().join("Old.txt");
+    std::fs::write(&old, "").expect("seed");
+
+    let renamed =
+        note_ops::rename_note(&old, "C# notes", None, WriteOrigin::Editor, None).expect("rename");
+
+    assert_eq!(renamed, root.path().join("C# notes.txt"));
+}
+
+#[test]
+fn a_text_file_renamed_into_markdown_takes_the_markdown_name() {
+    let root = TempDir::new().expect("temp dir");
+    let old = root.path().join("Old.txt");
+    std::fs::write(&old, "").expect("seed");
+
+    let renamed = note_ops::rename_note(&old, "C# notes.md", None, WriteOrigin::Editor, None)
+        .expect("rename");
+
+    assert_eq!(renamed, root.path().join("C notes.md"));
+}
+
+#[test]
+fn a_new_note_is_minted_under_the_one_name_policy() {
+    let root = TempDir::new().expect("temp dir");
+
+    let markdown = note_ops::create_note(root.path(), "C# notes", "md", WriteOrigin::Editor, None)
+        .expect("create");
+    let text = note_ops::create_note(root.path(), "C# notes", "txt", WriteOrigin::Editor, None)
+        .expect("create");
+    let nothing = note_ops::create_note(root.path(), "# ^ []", "md", WriteOrigin::Editor, None);
+
+    assert_eq!(markdown, root.path().join("C notes.md"));
+    assert_eq!(text, root.path().join("C# notes.txt"));
+    assert!(
+        matches!(nothing, Err(StorageError::NoteNameEmpty)),
+        "expected an empty name, got {nothing:?}"
+    );
+}

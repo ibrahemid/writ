@@ -32,7 +32,9 @@ vi.mock("../../services/tauri", () => ({
   searchBuffers: vi.fn().mockResolvedValue([]),
   getConfig: vi.fn(),
   updateConfig: vi.fn().mockResolvedValue(undefined),
-  noteVersions: vi.fn().mockResolvedValue([{ id: 1, at_ms: Date.now(), bytes: 12 }]),
+  noteVersions: vi
+    .fn()
+    .mockResolvedValue({ versions: [{ id: 1, at_ms: Date.now(), bytes: 12 }], no_versions_reason: null }),
   noteVersionContent: vi.fn().mockResolvedValue("what the note said\n"),
   restoreNoteVersion: vi.fn(),
   copyNoteVersion: vi.fn(),

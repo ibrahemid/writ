@@ -5,18 +5,29 @@ const CHAR_RULE_WEIGHT = 0.6;
 const WORD_RULE_WEIGHT = 0.4;
 const CHARS_PER_TOKEN = 4;
 const TOKENS_PER_WORD = 4 / 3;
+const TOKENS_PER_CJK_CHAR = 1;
+const TOKENS_PER_ARABIC_CHAR = 0.5;
 
 export interface TokenEstimateInput {
   words: number;
   characters: number;
+  /** Han, kana and Hangul code points among `characters`. */
+  cjk?: number;
+  /** Arabic-script code points among `characters`. */
+  arabic?: number;
 }
 
 /** The LLM token estimate for a text with these counts; 0 for a text with no words. */
 export function estimateTokens(counts: TokenEstimateInput): number {
   if (counts.words === 0) return 0;
+  const cjk = counts.cjk ?? 0;
+  const arabic = counts.arabic ?? 0;
+  const other = Math.max(0, counts.characters - (cjk + arabic));
   const blended =
-    CHAR_RULE_WEIGHT * (counts.characters / CHARS_PER_TOKEN) +
-    WORD_RULE_WEIGHT * (counts.words * TOKENS_PER_WORD);
+    CHAR_RULE_WEIGHT * (other / CHARS_PER_TOKEN) +
+    WORD_RULE_WEIGHT * (counts.words * TOKENS_PER_WORD) +
+    TOKENS_PER_CJK_CHAR * cjk +
+    TOKENS_PER_ARABIC_CHAR * arabic;
   return Math.max(1, Math.round(blended));
 }
 

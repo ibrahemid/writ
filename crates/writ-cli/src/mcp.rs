@@ -11,41 +11,25 @@
 //! serves the app's notes folder and follows it when the settings move it,
 //! unless `WRIT_NOTES_DIR` names another.
 
-use std::ffi::OsString;
 use std::path::PathBuf;
 
 use writ_mcp::tools::AppNotesFolder;
 
 use crate::resolve_app_notes_dir;
 
-/// The verb this module answers to.
-pub const VERB: &str = "mcp";
+/// What `writ mcp --help` says beneath the usage line.
+pub const LONG_ABOUT: &str = "\
+Serves your folder to an MCP client over stdin and stdout.
+The client launches this command; it opens no port.
 
-/// What the command line asked for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Command {
-    /// Serve on stdio.
-    Serve,
-    /// Print the help text.
-    Help,
-}
+Turn it on in Writ's settings, under Connected programs, and
+approve the program there. Until then no tool call is answered.";
 
-/// Why a `writ mcp` command line could not be read.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum UsageError {
-    /// A flag the command does not take.
-    #[error("writ mcp does not take {flag}")]
-    UnknownFlag {
-        /// The flag as it was written.
-        flag: String,
-    },
-    /// A positional argument the command does not take.
-    #[error("writ mcp takes no arguments")]
-    TooManyArguments,
-    /// An argument that is not valid text.
-    #[error("writ mcp was given an argument that is not text")]
-    NotText,
-}
+/// The environment `writ mcp` reads, printed after its help.
+pub const ENV_HELP: &str = "\
+Environment:
+  WRIT_NOTES_DIR  The folder to read, overriding the setting.
+  WRIT_DATA_DIR   The folder holding writ.db and config.toml.";
 
 /// The app's notes folder, resolved from its settings at every write the
 /// server keeps a version of ([`resolve_app_notes_dir`]).
@@ -69,24 +53,6 @@ impl AppNotesFolder for ConfiguredAppFolder {
     }
 }
 
-/// The help text, printed for `writ mcp --help`.
-pub fn help() -> String {
-    [
-        "Usage: writ mcp",
-        "",
-        "Serves your folder to an MCP client over stdin and stdout.",
-        "The client launches this command; it opens no port.",
-        "",
-        "Turn it on in Writ's settings, under Connected programs, and",
-        "approve the program there. Until then no tool call is answered.",
-        "",
-        "Environment:",
-        "  WRIT_NOTES_DIR  The folder to read, overriding the setting.",
-        "  WRIT_DATA_DIR   The folder holding writ.db and config.toml.",
-    ]
-    .join("\n")
-}
-
 /// Whether `WRIT_NOTES_DIR`, as the environment holds it, pins the folder the
 /// server serves. Pinned, the server answers from that folder whatever the
 /// settings name; otherwise it follows the app's folder as the settings move
@@ -95,41 +61,9 @@ pub fn notes_dir_is_pinned(env_value: Option<&str>) -> bool {
     env_value.is_some_and(|value| !value.trim().is_empty())
 }
 
-/// Reads a `writ mcp` invocation off the front of `args`, or `None` when the
-/// first argument does not name this verb.
-pub fn parse(args: &[OsString]) -> Option<Result<Command, UsageError>> {
-    if args.first()?.to_str()? != VERB {
-        return None;
-    }
-    Some(parse_rest(&args[1..]))
-}
-
-fn parse_rest(rest: &[OsString]) -> Result<Command, UsageError> {
-    let mut command = Command::Serve;
-    for arg in rest {
-        let Some(text) = arg.to_str() else {
-            return Err(UsageError::NotText);
-        };
-        match text {
-            "--help" | "-h" => command = Command::Help,
-            flag if flag.starts_with('-') => {
-                return Err(UsageError::UnknownFlag {
-                    flag: flag.to_string(),
-                })
-            }
-            _ => return Err(UsageError::TooManyArguments),
-        }
-    }
-    Ok(command)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn args(parts: &[&str]) -> Vec<OsString> {
-        parts.iter().map(OsString::from).collect()
-    }
 
     #[test]
     fn the_app_folder_is_read_from_the_settings_at_every_ask() {
@@ -155,48 +89,5 @@ mod tests {
         assert!(!notes_dir_is_pinned(Some("  ")));
         assert!(!notes_dir_is_pinned(Some("")));
         assert!(!notes_dir_is_pinned(None));
-    }
-
-    #[test]
-    fn another_verb_is_not_this_one() {
-        assert!(parse(&args(&["links", "Launch"])).is_none());
-        assert!(parse(&args(&[])).is_none());
-    }
-
-    #[test]
-    fn the_bare_verb_serves() {
-        assert_eq!(parse(&args(&["mcp"])), Some(Ok(Command::Serve)));
-    }
-
-    #[test]
-    fn help_is_asked_for_by_either_spelling() {
-        assert_eq!(parse(&args(&["mcp", "--help"])), Some(Ok(Command::Help)));
-        assert_eq!(parse(&args(&["mcp", "-h"])), Some(Ok(Command::Help)));
-    }
-
-    #[test]
-    fn an_unknown_flag_is_a_typed_error_naming_the_flag() {
-        assert_eq!(
-            parse(&args(&["mcp", "--port=3000"])),
-            Some(Err(UsageError::UnknownFlag {
-                flag: "--port=3000".to_string()
-            }))
-        );
-    }
-
-    #[test]
-    fn an_argument_the_command_does_not_take_is_refused() {
-        assert_eq!(
-            parse(&args(&["mcp", "serve"])),
-            Some(Err(UsageError::TooManyArguments))
-        );
-    }
-
-    #[test]
-    fn the_help_text_names_the_command_and_where_it_is_turned_on() {
-        let help = help();
-        assert!(help.contains("writ mcp"));
-        assert!(help.contains("Connected programs"));
-        assert!(help.contains("stdin and stdout"));
     }
 }

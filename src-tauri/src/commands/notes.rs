@@ -28,7 +28,7 @@ use writ_storage::paths::file_name_only;
 use writ_storage::workspace_store;
 
 use crate::commands::buffer::{ignore_stamper, save_failure_message, ERR_WRITE_FAILED};
-use crate::commands::note_index::{announce_indexed, announce_walk, holds_own_write, index_copy};
+use crate::commands::note_index::{announce_indexed, holds_own_write, index_copy};
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::security::{
     canonicalize_for_authorization, resolve_for_containment, RenameUndo, TrashUndo,
@@ -537,7 +537,7 @@ fn undo_rename(
     let bytes = std::fs::read(to).unwrap_or_default();
     stamp(to, &bytes);
     stamp(from, &bytes);
-    match std::fs::rename(to, from) {
+    match note_ops::rename_file(to, from) {
         Ok(()) => {
             tracing::warn!(
                 path = %file_name_only(&to.to_string_lossy()),
@@ -915,7 +915,7 @@ fn rename_and_propagate(
         }
     }
 
-    reindex_after_rename(state, from, &renamed, &updated_paths);
+    reindex_after_rename(state, &from_key, &renamed, &updated_paths);
     Ok(RenamePropagationDto {
         renamed_path: path_text(&renamed),
         updated: updated_paths.len() as u32,
@@ -978,13 +978,12 @@ fn recorded_disk_state(state: &AppState, path: &Path) -> Option<DiskState> {
 /// The rename and every note it rewrote are then announced as one event, the
 /// old name first: however many links it carried, a rename is one change to
 /// what the graph, the backlinks and the tags show.
-fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[String]) {
+fn reindex_after_rename(state: &AppState, from_key: &str, to: &Path, updated: &[String]) {
     let index = &state.notes_index;
-    let from_key = notes_index::index_key(from);
-    if from != to {
-        if let Err(error) = index.forget_path(from) {
+    if from_key != notes_index::index_key(to) {
+        if let Err(error) = index.forget_key(from_key) {
             warn!(
-                path = %file_name_only(&from.to_string_lossy()),
+                path = %file_name_only(from_key),
                 error = %error,
                 "the notes index kept a renamed note's old path"
             );
@@ -1004,7 +1003,7 @@ fn reindex_after_rename(state: &AppState, from: &Path, to: &Path, updated: &[Str
     }
     announce_indexed(
         &state.event_bus,
-        std::iter::once(from_key)
+        std::iter::once(from_key.to_string())
             .chain(std::iter::once(notes_index::index_key(to)))
             .chain(
                 updated
@@ -1374,6 +1373,9 @@ pub struct MoveNotesOutcome {
     pub moved: usize,
     /// Names the destination already held.
     pub collided: Vec<String>,
+    /// Entries copied to another disk whose originals could not all be
+    /// removed from the old folder.
+    pub left_behind: Vec<String>,
 }
 
 /// What Writ says when the folder picked would swallow its own data folder.
@@ -1417,6 +1419,11 @@ fn refuse_destination(state: &AppState, from: &Path, candidate: &Path) -> Result
 /// row that named a file under the old folder is rewritten. A move that
 /// collides moves nothing and says which names clashed.
 ///
+/// While the files move, every open note's turn is held, so no save lands in
+/// the old folder behind the move, and the old folder's watcher is stopped, so
+/// the notes leaving it are not read as notes somebody deleted. A move that
+/// does not happen starts that watcher again on the old folder.
+///
 /// What is re-recorded is the write guard's memory of each open note: its key
 /// is the note, but the record describes a file at a path that no longer
 /// exists, so it is dropped and taken again from the file in its new home.
@@ -1424,6 +1431,9 @@ pub fn move_notes_folder_to(
     state: &AppState,
     destination: &Path,
 ) -> Result<MoveNotesOutcome, String> {
+    let _one_move = NOTES_MOVE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let from = state.notes_root();
 
     // Asked first of the folder the pick will resolve to, so a pick Writ turns
@@ -1446,16 +1456,22 @@ pub fn move_notes_folder_to(
             new_root: path_text(&from),
             moved: 0,
             collided: Vec::new(),
+            left_behind: Vec::new(),
         });
     }
     refuse_destination(state, &from, &to)?;
 
-    let outcome = notes_move::move_notes_folder(&from, &to).map_err(|e| e.to_string())?;
+    let _turns = open_note_turns(state)?;
+    let watcher = PausedNotesWatcher::stop(state, &from);
+    stamp_moving_notes(state, &from, &to);
+
+    let outcome = notes_move::move_notes_folder(&from, &to).map_err(|e| move_failure(&e))?;
     if !outcome.collided.is_empty() {
         return Ok(MoveNotesOutcome {
             new_root: path_text(&from),
             moved: 0,
             collided: outcome.collided,
+            left_behind: Vec::new(),
         });
     }
 
@@ -1466,6 +1482,7 @@ pub fn move_notes_folder_to(
 
     let text = path_text(&to);
     adopt_notes_root(state, &to, &text)?;
+    watcher.moved();
     repoint_notes(state, &from, &to)?;
     follow_notes_root(state, &from, &to);
 
@@ -1473,7 +1490,140 @@ pub fn move_notes_folder_to(
         new_root: text,
         moved: outcome.moved,
         collided: Vec::new(),
+        left_behind: outcome.left_behind,
     })
+}
+
+/// One move of the notes folder at a time: two would each hold open notes'
+/// turns and each stop the other's watcher.
+// Singleton state — Writ is single-window
+static NOTES_MOVE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// What Settings shows for a move that did not happen.
+fn move_failure(error: &StorageError) -> String {
+    match error {
+        StorageError::FolderNotDownloaded { count, .. } => format!(
+            "{count} files in your folder are not downloaded yet. Download them, then move the folder."
+        ),
+        StorageError::NotEnoughSpace { .. } => {
+            "The new location does not have enough free space for your files.".to_string()
+        }
+        other => other.to_string(),
+    }
+}
+
+/// Every open note's turn, taken one at a time in one order
+/// ([`crate::commands::buffer::close_buffers_inner`] takes them the same way),
+/// with the store let go first.
+fn open_note_turns(state: &AppState) -> Result<Vec<writ_core::serial::Turn>, String> {
+    let mut ids: Vec<String> = {
+        let store = state.store.lock().map_err(|e| e.to_string())?;
+        store
+            .list_by_status(writ_core::buffer::document::BufferStatus::Active)
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(|doc| doc.id)
+            .collect()
+    };
+    ids.sort();
+    ids.dedup();
+    Ok(ids.iter().map(|id| state.buffer_writes.turn(id)).collect())
+}
+
+/// The old folder's watcher, stopped for a move and started again on the old
+/// folder unless the move happened.
+struct PausedNotesWatcher<'a> {
+    state: &'a AppState,
+    from: PathBuf,
+    moved: bool,
+}
+
+impl<'a> PausedNotesWatcher<'a> {
+    /// Stops the watcher. Dropping its handle ends the stream, so nothing the
+    /// move does to the old folder reaches a tab as a deletion.
+    fn stop(state: &'a AppState, from: &Path) -> Self {
+        let handle = state
+            .notes_watcher
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        drop(handle);
+        Self {
+            state,
+            from: from.to_path_buf(),
+            moved: false,
+        }
+    }
+
+    /// The notes are in the new folder, whose watcher [`follow_notes_root`]
+    /// starts.
+    fn moved(mut self) {
+        self.moved = true;
+    }
+}
+
+impl Drop for PausedNotesWatcher<'_> {
+    fn drop(&mut self) {
+        if !self.moved {
+            start_notes_watcher_at(self.state, &self.from);
+        }
+    }
+}
+
+/// Starts the notes watcher on `root`, replacing any running one.
+fn start_notes_watcher_at(state: &AppState, root: &Path) {
+    match crate::watcher::handler::start_notes_watcher(
+        state.event_bus.clone(),
+        root.to_path_buf(),
+        state.watcher_ignore.clone(),
+        state.open_notes(),
+        state.file_tracking(),
+    ) {
+        Ok(handle) => {
+            let mut slot = state
+                .notes_watcher
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            // Assigning drops the old handle, which closes its channel and
+            // ends the thread watching the folder Writ left.
+            *slot = Some(handle);
+        }
+        Err(e) => warn!(error = %e, "notes watcher could not start"),
+    }
+}
+
+/// Stamps where each open note's file lands with what Writ last recorded it
+/// holding, so a watcher still covering the destination reads the arrival as
+/// Writ's own. Only notes Writ holds a record of: reading a file to stamp it
+/// would download it.
+fn stamp_moving_notes(state: &AppState, from: &Path, to: &Path) {
+    let docs = match state.store.lock() {
+        Ok(store) => store.list_by_status(writ_core::buffer::document::BufferStatus::Active),
+        Err(_) => return,
+    };
+    let Ok(docs) = docs else {
+        return;
+    };
+    let now = std::time::Instant::now();
+    let mut ignore = state
+        .watcher_ignore
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    for doc in docs {
+        let Some(source) = doc.source_path.as_deref() else {
+            continue;
+        };
+        let Ok(inside) = Path::new(source).strip_prefix(from) else {
+            continue;
+        };
+        let Some(disk) = state.disk_state(&doc.id) else {
+            continue;
+        };
+        let key = writ_core::watcher::ignore::source_key(
+            &crate::watcher::handler::ignore_key_path(&to.join(inside)),
+        );
+        ignore.record_digest(key, disk.hash, now);
+    }
 }
 
 /// Writes the new folder into the config and into this process.
@@ -1526,49 +1676,19 @@ fn follow_notes_root(state: &AppState, from: &Path, to: &Path) {
     // each file in it.
     announce_indexed(&state.event_bus, [notes_index::index_key(to)]);
 
-    match crate::watcher::handler::start_notes_watcher(
-        state.event_bus.clone(),
-        to.to_path_buf(),
-        state.watcher_ignore.clone(),
-        state.open_notes(),
-        state.file_tracking(),
-    ) {
-        Ok(handle) => {
-            let mut slot = state
-                .notes_watcher
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            // Assigning drops the old handle, which closes its channel and
-            // ends the thread watching the folder Writ left.
-            *slot = Some(handle);
-        }
-        Err(e) => warn!(error = %e, "notes watcher could not follow the folder"),
-    }
+    start_notes_watcher_at(state, to);
     crate::commands::workspace::rewatch_workspace(state);
 
-    let index = state.notes_index.clone();
-    let cancel = state.notes_index_cancel.clone();
-    let bus = state.event_bus.clone();
-    let generation = index.generation();
-    let root = to.to_path_buf();
-    std::thread::spawn(move || {
-        let cancelled = || {
-            cancel.load(std::sync::atomic::Ordering::Relaxed) || index.generation() != generation
-        };
-        match index.reconcile(&root, &cancelled, &writ_storage::notes_index::is_dataless) {
-            Ok(outcome) => {
-                info!(
-                    added = outcome.added,
-                    updated = outcome.updated,
-                    removed = outcome.removed,
-                    cancelled = outcome.cancelled,
-                    "notes index reconciled after the move"
-                );
-                announce_walk(&bus, &root, &outcome);
-            }
-            Err(e) => warn!(error = %e, "notes index reconcile after the move failed"),
-        }
-    });
+    // The walk goes through the gate every other walk of the notes folder
+    // takes (`crate::spawn_notes_reconcile`), which reads the folder Writ
+    // holds now when it starts. A walk still running against the old folder
+    // retires on the generation bumped above, and the one it owes reads this
+    // one.
+    state
+        .event_bus
+        .emit(writ_core::events::bus::WritEvent::NotesSwept {
+            root: path_text(to),
+        });
 }
 
 /// Points every open tab at the file its row now names.

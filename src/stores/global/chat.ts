@@ -341,6 +341,9 @@ function newRequestId(): string {
 // arriving into the conversation it was sent from.
 function createChatStore() {
   const [conversations, setConversations] = createSignal<ChatConversationSummary[]>([]);
+  // Whether the last read of the list failed, so the pane can say so rather
+  // than show an empty list as if there were no chats.
+  const [listFailed, setListFailed] = createSignal(false);
   const [current, setCurrent] = createSignal<ChatConversation | null>(null);
   const [exchanges, setExchanges] = createSignal<Record<string, Exchange>>({});
   const [attachments, setAttachments] = createSignal<Attachment[]>([]);
@@ -952,8 +955,10 @@ function createChatStore() {
   async function refreshList() {
     try {
       setConversations(await chatList());
+      setListFailed(false);
     } catch {
       setConversations([]);
+      setListFailed(true);
     }
   }
 
@@ -1578,6 +1583,7 @@ function createChatStore() {
 
   return {
     conversations,
+    listFailed,
     current,
     messages,
     liveModels,

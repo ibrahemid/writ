@@ -3,7 +3,7 @@ import { render, cleanup } from "@solidjs/testing-library";
 import type { DocumentCounts } from "../../stores/window/counts-store";
 
 const h = vi.hoisted(() => ({
-  counts: vi.fn((): DocumentCounts | null => ({ words: 1000, characters: 4400, exact: true })),
+  counts: vi.fn((): DocumentCounts | null => ({ words: 1000, characters: 4400, cjk: 0, arabic: 0, exact: true })),
   watch: vi.fn(() => () => {}),
 }));
 
@@ -35,7 +35,7 @@ describe("the token estimate", () => {
   });
 
   it("shows nothing for a document with no words, or before the counts are in", () => {
-    h.counts.mockReturnValueOnce({ words: 0, characters: 5, exact: true });
+    h.counts.mockReturnValueOnce({ words: 0, characters: 5, cjk: 0, arabic: 0, exact: true });
     const empty = render(() => <TokenEstimate />);
     expect(empty.container.querySelector(".statusbar-tokens")).toBeNull();
     cleanup();

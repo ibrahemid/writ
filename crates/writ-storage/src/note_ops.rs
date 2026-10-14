@@ -121,11 +121,20 @@ pub fn save_copy(
 /// second, and an unstamped pair reads as somebody else deleting a note and
 /// somebody else adding one.
 ///
-/// The move itself is [`std::fs::rename`], which is atomic within one volume.
-/// A note inside the notes folder is renamed inside that folder, so the
-/// cross-volume case this does not cover cannot arise here; a caller that
-/// wants to move a note to another volume needs a copy-then-trash, which is
-/// [`save_copy`] plus [`trash_note`].
+/// The move itself is [`rename_file`]: a rename that refuses to replace a
+/// file already at the new name, atomic within one volume. A note inside the
+/// notes folder is renamed inside that folder, so the cross-volume case this
+/// does not cover cannot arise here; a caller that wants to move a note to
+/// another volume needs a copy-then-trash, which is [`save_copy`] plus
+/// [`trash_note`].
+///
+/// A name that differs from the current one only by case or by Unicode
+/// normalisation is a rename like any other. APFS and NTFS hold `Notes.md`
+/// and `notes.md` as one file, so the move is made in place rather than
+/// refused as a taken name, and the new spelling reaches the disk.
+///
+/// The stem is [`writ_core::notes::note_stem_for`] the extension it ends up
+/// with, so a Markdown note renamed to `C# notes` is `C notes.md`.
 ///
 /// # Errors
 ///
@@ -189,9 +198,8 @@ impl PreparedRename {
 
     /// Moves the file. Only the two names are touched, never the bytes.
     ///
-    /// The new name is checked again first: [`std::fs::rename`] replaces a
-    /// file already at the destination, and one can arrive there between the
-    /// checks and the move.
+    /// The move refuses a file that arrived at the new name between the checks
+    /// and the move ([`rename_file`]).
     ///
     /// # Errors
     ///
@@ -201,17 +209,7 @@ impl PreparedRename {
         if !self.moves {
             return Ok(self.to);
         }
-        if self.to.exists() {
-            return Err(StorageError::NoteNameTaken {
-                name: self
-                    .to
-                    .file_name()
-                    .map(|name| name.to_string_lossy().into_owned())
-                    .unwrap_or_default(),
-                folder: self.to.parent().map(Path::to_path_buf).unwrap_or_default(),
-            });
-        }
-        std::fs::rename(&self.from, &self.to)?;
+        rename_file(&self.from, &self.to)?;
         Ok(self.to)
     }
 }
@@ -247,17 +245,28 @@ fn prepare_rename_probed(
                 .unwrap_or_default(),
         ),
     };
-    let name = join_name(new_stem, &extension);
+    let new_stem =
+        writ_core::notes::note_stem_for(new_stem, &extension).ok_or(StorageError::NoteNameEmpty)?;
+    let name = join_name(&new_stem, &extension);
     let to = folder.join(&name);
 
     if is_same_file(from, &to) {
-        return Ok(PreparedRename {
-            from: from.to_path_buf(),
-            to,
-            moves: false,
-        });
-    }
-    if to.exists() {
+        if from.file_name() == to.file_name() {
+            return Ok(PreparedRename {
+                from: from.to_path_buf(),
+                to,
+                moves: false,
+            });
+        }
+        // The same file under a spelling that is not a case or normalisation
+        // of its own name is a second hard link to it, which is a taken name.
+        if !is_respelling(from, &to) {
+            return Err(StorageError::NoteNameTaken {
+                name,
+                folder: folder.to_path_buf(),
+            });
+        }
+    } else if to.symlink_metadata().is_ok() {
         return Err(StorageError::NoteNameTaken {
             name,
             folder: folder.to_path_buf(),
@@ -315,11 +324,17 @@ pub enum LinkRewrite {
 /// the renamed one is [`crate::notes_index::index_key`]'s question, which
 /// canonicalises.
 ///
-/// `keys` are folded name keys ([`links::candidate_name_keys`]).
+/// `keys` are folded name keys ([`links::candidate_name_keys`]). The name is
+/// compared before the note test, which can read a file's bytes, so the walk
+/// reads nothing but the folder listing for a file of any other name.
 pub fn files_named(root: &Path, keys: &[String]) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for entry in build_notes_walk(root).build().flatten() {
         let path = entry.path();
+        let names = links::candidate_name_keys(&path.to_string_lossy());
+        if !names.iter().any(|name| keys.contains(name)) {
+            continue;
+        }
         let Some(kind) = entry.file_type() else {
             continue;
         };
@@ -331,11 +346,7 @@ pub fn files_named(root: &Path, keys: &[String]) -> Vec<PathBuf> {
             true => names_a_note(root, path),
             false => indexes_as_note(root, path),
         };
-        if !is_note {
-            continue;
-        }
-        let names = links::candidate_name_keys(&path.to_string_lossy());
-        if names.iter().any(|name| keys.contains(name)) {
+        if is_note {
             found.push(path.to_path_buf());
         }
     }
@@ -576,6 +587,162 @@ fn trash_context() -> trash::TrashContext {
 #[cfg(not(target_os = "macos"))]
 fn trash_context() -> trash::TrashContext {
     trash::TrashContext::new()
+}
+
+/// Moves the file at `from` to `to` without replacing a file already at `to`.
+///
+/// `renamex_np(RENAME_EXCL)` on macOS, `renameat2(RENAME_NOREPLACE)` on Linux
+/// and `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING` on Windows: the
+/// filesystem itself refuses the move when the name is taken, so a file
+/// another process creates there between a check and the move is never
+/// replaced. A filesystem that does not support the flag gets a check and a
+/// plain rename.
+///
+/// A `to` that is `from` spelled with another case or normalisation
+/// ([`is_respelling`]) names the same file on APFS and NTFS, so the new
+/// spelling is written in place: by a plain rename where the filesystem
+/// renames a file onto itself, and through a temporary name on Windows.
+///
+/// # Errors
+///
+/// [`StorageError::NoteNameTaken`] when `to` holds another file, and
+/// [`StorageError::Io`] when the move fails.
+pub fn rename_file(from: &Path, to: &Path) -> StorageResult<()> {
+    let taken = || StorageError::NoteNameTaken {
+        name: to
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        folder: to.parent().map(Path::to_path_buf).unwrap_or_default(),
+    };
+    if is_same_file(from, to) && from != to && is_respelling(from, to) {
+        return respell(from, to).map_err(StorageError::from);
+    }
+    match rename_no_replace(from, to) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(taken()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Whether `to` is `from` in the same folder with its name spelled in another
+/// case or another Unicode normalisation.
+fn is_respelling(from: &Path, to: &Path) -> bool {
+    match (from.file_name(), to.file_name()) {
+        (Some(a), Some(b)) => {
+            from.parent() == to.parent()
+                && links::name_key(&a.to_string_lossy()) == links::name_key(&b.to_string_lossy())
+        }
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let from_c = std::ffi::CString::new(from.as_os_str().as_bytes())?;
+    let to_c = std::ffi::CString::new(to.as_os_str().as_bytes())?;
+    // SAFETY: both arguments are NUL-terminated strings that outlive the call.
+    let status = unsafe { libc::renamex_np(from_c.as_ptr(), to_c.as_ptr(), libc::RENAME_EXCL) };
+    if status == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    // exFAT, FAT and some network volumes do not take the flag.
+    match error.raw_os_error() {
+        Some(libc::ENOTSUP | libc::EINVAL) => checked_rename(from, to),
+        _ => Err(error),
+    }
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[allow(unsafe_code)]
+pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let from_c = std::ffi::CString::new(from.as_os_str().as_bytes())?;
+    let to_c = std::ffi::CString::new(to.as_os_str().as_bytes())?;
+    // SAFETY: both paths are NUL-terminated strings that outlive the call, and
+    // AT_FDCWD resolves them as given.
+    let status = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            from_c.as_ptr(),
+            libc::AT_FDCWD,
+            to_c.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if status == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(libc::EINVAL | libc::ENOSYS) => checked_rename(from, to),
+        _ => Err(error),
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{MoveFileExW, MOVE_FILE_FLAGS};
+    let wide = |path: &Path| -> Vec<u16> {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    };
+    let (from, to) = (wide(from), wide(to));
+    // SAFETY: both buffers are NUL-terminated UTF-16 that outlive the call.
+    unsafe {
+        MoveFileExW(
+            PCWSTR(from.as_ptr()),
+            PCWSTR(to.as_ptr()),
+            MOVE_FILE_FLAGS(0),
+        )
+    }
+    .map_err(|error| std::io::Error::from_raw_os_error(error.code().0 & 0xFFFF))
+}
+
+#[cfg(not(any(
+    target_os = "macos",
+    all(target_os = "linux", target_env = "gnu"),
+    windows
+)))]
+pub(crate) fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    checked_rename(from, to)
+}
+
+/// A check, then a plain rename, for a filesystem with no exclusive rename.
+#[cfg(not(windows))]
+fn checked_rename(from: &Path, to: &Path) -> std::io::Result<()> {
+    if to.symlink_metadata().is_ok() {
+        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+    }
+    std::fs::rename(from, to)
+}
+
+/// Writes the new spelling of a file's own name.
+#[cfg(not(windows))]
+fn respell(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::rename(from, to)
+}
+
+/// Writes the new spelling of a file's own name through a temporary name, so
+/// the directory entry is replaced rather than renamed onto itself.
+#[cfg(windows)]
+fn respell(from: &Path, to: &Path) -> std::io::Result<()> {
+    let folder = to.parent().unwrap_or_else(|| Path::new("."));
+    let through = folder.join(format!(".writ-rename-{}", uuid::Uuid::new_v4().simple()));
+    rename_no_replace(from, &through)?;
+    if let Err(error) = rename_no_replace(&through, to) {
+        let _ = rename_no_replace(&through, from);
+        return Err(error);
+    }
+    Ok(())
 }
 
 /// Whether both paths name the same file, which a rename that only changes

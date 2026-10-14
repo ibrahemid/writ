@@ -1,4 +1,8 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use writ_core::cli_install::{
+    self, carries_cli_signature, may_replace, InstallFacts, InstallTarget, InstalledEntry,
+};
 
 use crate::commands::offload::{run_detached, ERR_COMMAND_STOPPED};
 
@@ -12,6 +16,12 @@ pub struct InstallCliResult {
 pub struct CliStatus {
     pub installed: bool,
     pub path: String,
+    /// Whether the app installs the command itself. On Windows the installer
+    /// puts it on the PATH, so there is nothing to offer.
+    pub can_install: bool,
+    /// The app runs from a folder macOS made up for a quarantined download,
+    /// and has to be moved before anything may point at it.
+    pub needs_move: bool,
 }
 
 /// Whether the `writ` command is present at the install target *and* runnable.
@@ -23,57 +33,85 @@ fn is_installed(target: &Path) -> bool {
     target.metadata().is_ok()
 }
 
-/// Whether this platform has somewhere for the app to put the command.
-///
-/// A runtime test rather than a `cfg`, so the install path is compiled on every
-/// platform and nothing in this module falls out of the build as dead code.
-fn install_supported() -> bool {
-    !cfg!(windows)
+/// Whether the running app is an AppImage: its runtime names the image in
+/// `APPIMAGE`, and the folder it runs from is gone once it quits.
+fn runs_from_appimage() -> bool {
+    cfg!(target_os = "linux") && std::env::var_os("APPIMAGE").is_some_and(|value| !value.is_empty())
 }
 
-/// IPC: report whether the `writ` command is already installed.
+/// Where this app puts the `writ` command ([`cli_install::install_target`]).
+pub(crate) fn install_target() -> Option<InstallTarget> {
+    let home = dirs::home_dir();
+    cli_install::install_target(InstallFacts {
+        windows: cfg!(windows),
+        in_appimage: runs_from_appimage(),
+        home: home.as_deref(),
+    })
+}
+
+/// Whether the running app has to be moved before the command can point at it.
+pub(crate) fn needs_move() -> bool {
+    std::env::current_exe().is_ok_and(|exe| cli_install::is_translocated(&exe))
+}
+
+/// IPC: [`cli_status_blocking`], off the main thread.
 #[tauri::command]
-pub fn cli_status() -> CliStatus {
-    if !install_supported() {
-        return CliStatus {
+pub async fn cli_status() -> Result<CliStatus, String> {
+    run_detached(ERR_COMMAND_STOPPED, || Ok(cli_status_blocking())).await
+}
+
+/// Whether the `writ` command is installed, and where it is or goes.
+///
+/// On Windows the installer puts the folder holding `writ.exe` on the PATH, so
+/// the command bundled beside the app is the installed one.
+pub fn cli_status_blocking() -> CliStatus {
+    match install_target() {
+        Some(InstallTarget::ByInstaller) => {
+            let bundled = bundled_cli_path();
+            CliStatus {
+                installed: bundled.is_some(),
+                path: bundled
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default(),
+                can_install: false,
+                needs_move: false,
+            }
+        }
+        Some(InstallTarget::Link(path) | InstallTarget::Copy(path)) => CliStatus {
+            installed: is_installed(&path),
+            path: path.display().to_string(),
+            can_install: true,
+            needs_move: needs_move(),
+        },
+        None => CliStatus {
             installed: false,
             path: String::new(),
-        };
-    }
-    let target = std::path::PathBuf::from(INSTALL_TARGET);
-    CliStatus {
-        installed: is_installed(&target),
-        path: INSTALL_TARGET.to_string(),
+            can_install: false,
+            needs_move: false,
+        },
     }
 }
 
 const SIDECAR_NOT_FOUND: &str = "The writ command line tool could not be located.";
 
-/// Where the app puts the `writ` command.
-///
-/// Unix only. The Windows installer puts `writ.exe` on the PATH itself, so
-/// there is nothing for the app to do and no directory that is the equivalent
-/// of `/usr/local/bin`; [`cli_status`] reports the platform as unsupported and
-/// the settings row is hidden rather than offering an install that would land
-/// nowhere on the user's PATH.
-const INSTALL_TARGET: &str = "/usr/local/bin/writ";
-
-/// The `writ` command a client is pointed at when this build bundles none.
-///
-/// Unix takes the linked copy, which is where [`install_cli`] puts it. Windows
-/// has no such directory: the installer puts `writ.exe` on the PATH itself, so
-/// the bare name is what resolves there.
-pub(crate) fn path_command_fallback() -> &'static str {
-    if cfg!(windows) {
-        "writ.exe"
-    } else {
-        INSTALL_TARGET
-    }
-}
-
 /// What [`install_cli`] answers on a platform with nowhere to put the command.
 const INSTALL_UNSUPPORTED: &str =
     "The writ command is already on your PATH; Writ's installer puts it there.";
+
+/// What [`install_cli`] answers for an app macOS runs from a translocated folder.
+const MOVE_APP_FIRST: &str =
+    "Move Writ to your Applications folder and open it from there, then install the writ command.";
+
+/// What [`install_cli`] answers when there is no home folder to copy into.
+const NO_HOME: &str = "Writ could not find your home folder to install the writ command in.";
+
+/// What [`install_cli`] answers when the path holds another program's `writ`.
+fn another_command_there(path: &Path) -> String {
+    format!(
+        "Another program named writ is already at {}, so Writ left it in place.",
+        path.display()
+    )
+}
 
 /// Name of the bundled CLI sidecar as it sits next to the app executable.
 fn sidecar_name() -> &'static str {
@@ -86,7 +124,7 @@ fn sidecar_name() -> &'static str {
 
 /// The sidecar is bundled in the same directory as the running app executable
 /// (`Contents/MacOS/` inside a macOS `.app`, next to the `.exe` on Windows).
-fn sidecar_candidate(exe_dir: &Path) -> std::path::PathBuf {
+fn sidecar_candidate(exe_dir: &Path) -> PathBuf {
     exe_dir.join(sidecar_name())
 }
 
@@ -94,18 +132,68 @@ fn sidecar_candidate(exe_dir: &Path) -> std::path::PathBuf {
 ///
 /// Anchored on the running executable rather than the resource directory: Tauri
 /// places sidecars beside the main binary, while `resource_dir()` points at a
-/// sibling `Resources/` folder that does not contain it. Also what the
-/// connected-programs row hands a client, so the command it is given names the
-/// build that is running.
-pub(crate) fn bundled_cli_path() -> Option<std::path::PathBuf> {
+/// sibling `Resources/` folder that does not contain it.
+pub(crate) fn bundled_cli_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let candidate = sidecar_candidate(exe.parent()?);
     candidate.exists().then_some(candidate)
 }
 
+/// What sits at `path`, read without following a link.
+///
+/// A link's target is read as written and resolved against the link's folder;
+/// whether the app binary sits beside it is what marks a Linux package's own
+/// `writ`. A file is read to look for the command's signature.
+fn inspect_entry(path: &Path, app_binary_name: Option<&std::ffi::OsStr>) -> InstalledEntry {
+    let metadata = match path.symlink_metadata() {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return InstalledEntry::Absent
+        }
+        Err(_) => return InstalledEntry::Other,
+    };
+    if metadata.file_type().is_symlink() {
+        let Ok(raw) = std::fs::read_link(path) else {
+            return InstalledEntry::Other;
+        };
+        let target = match path.parent() {
+            Some(folder) if raw.is_relative() => folder.join(raw),
+            _ => raw,
+        };
+        let beside_app = app_binary_name.is_some_and(|name| target.with_file_name(name).exists());
+        return InstalledEntry::Link { target, beside_app };
+    }
+    if metadata.is_file() {
+        let is_writ_command = std::fs::read(path).is_ok_and(|bytes| carries_cli_signature(&bytes));
+        return InstalledEntry::File { is_writ_command };
+    }
+    InstalledEntry::Other
+}
+
+/// Refuses, as [`std::io::ErrorKind::AlreadyExists`], to touch `target` when
+/// it holds anything but Writ's own command.
+fn refuse_another_command(target: &Path) -> std::io::Result<()> {
+    let app_binary = std::env::current_exe().ok();
+    let app_binary_name = app_binary.as_deref().and_then(Path::file_name);
+    if may_replace(&inspect_entry(target, app_binary_name)) {
+        Ok(())
+    } else {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            another_command_there(target),
+        ))
+    }
+}
+
 /// Create the symlink directly, as the current user.
+///
+/// Only Writ's own command is replaced: a link into a Writ bundle, including
+/// one whose bundle is gone, or a copy carrying the command's signature.
+/// Anything else at the path is refused with
+/// [`std::io::ErrorKind::AlreadyExists`] and left in place.
 fn link_directly(sidecar: &Path, target: &Path) -> std::io::Result<()> {
-    if target.exists() || target.symlink_metadata().is_ok() {
+    refuse_another_command(target)?;
+    if target.symlink_metadata().is_ok() {
         std::fs::remove_file(target)?;
     }
     if let Some(parent) = target.parent() {
@@ -120,6 +208,36 @@ fn link_directly(sidecar: &Path, target: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     std::os::windows::fs::symlink_file(sidecar, target)?;
 
+    Ok(())
+}
+
+/// Copies the command to `target`, for an app whose own copy is gone once it
+/// quits. The copy lands under a staging name beside the target and is
+/// renamed over it, so a failed copy never leaves half a binary on the PATH.
+fn copy_command(sidecar: &Path, target: &Path) -> std::io::Result<()> {
+    refuse_another_command(target)?;
+    let folder = target
+        .parent()
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    std::fs::create_dir_all(folder)?;
+    let staging = folder.join(format!(".writ-install-{}", std::process::id()));
+    let placed = std::fs::copy(sidecar, &staging)
+        .and_then(|_| make_executable(&staging))
+        .and_then(|()| std::fs::rename(&staging, target));
+    if placed.is_err() {
+        let _ = std::fs::remove_file(&staging);
+    }
+    placed
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+}
+
+#[cfg(not(unix))]
+fn make_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
@@ -196,21 +314,49 @@ pub async fn install_cli() -> Result<InstallCliResult, String> {
     run_detached(ERR_COMMAND_STOPPED, install_cli_blocking).await
 }
 
-/// Links the bundled `writ` binary into `/usr/local/bin`, asking for an
-/// administrator's password when the folder is not writable.
+/// Puts the bundled `writ` command on the PATH: a link in `/usr/local/bin`,
+/// asking for an administrator's password when the folder is not writable, or
+/// a copy in `~/.local/bin` for an AppImage.
 pub fn install_cli_blocking() -> Result<InstallCliResult, String> {
-    if !install_supported() {
-        return Err(INSTALL_UNSUPPORTED.to_string());
+    let target = match install_target() {
+        Some(InstallTarget::ByInstaller) => return Err(INSTALL_UNSUPPORTED.to_string()),
+        None => return Err(NO_HOME.to_string()),
+        Some(target) => target,
+    };
+    if needs_move() {
+        return Err(MOVE_APP_FIRST.to_string());
     }
-    let target = std::path::PathBuf::from(INSTALL_TARGET);
     let sidecar = bundled_cli_path().ok_or_else(|| SIDECAR_NOT_FOUND.to_string())?;
+    match target {
+        InstallTarget::Copy(path) => install_copy(&sidecar, &path),
+        InstallTarget::Link(path) => install_link(&sidecar, &path),
+        InstallTarget::ByInstaller => Err(INSTALL_UNSUPPORTED.to_string()),
+    }
+}
+
+fn install_copy(sidecar: &Path, target: &Path) -> Result<InstallCliResult, String> {
+    let manual = format!("cp \"{}\" \"{}\"", sidecar.display(), target.display());
+    match copy_command(sidecar, target) {
+        Ok(()) => Ok(InstallCliResult {
+            symlink_path: target.to_string_lossy().into_owned(),
+            manual_command: manual,
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(e.to_string()),
+        Err(e) => Err(format!(
+            "Could not install the writ command: {e}. Run this in Terminal: {manual}"
+        )),
+    }
+}
+
+fn install_link(sidecar: &Path, target: &Path) -> Result<InstallCliResult, String> {
     let manual = format!("ln -sf \"{}\" \"{}\"", sidecar.display(), target.display());
 
-    match link_directly(&sidecar, &target) {
+    match link_directly(sidecar, target) {
         Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Err(e.to_string()),
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
             #[cfg(target_os = "macos")]
-            link_with_privileges(&sidecar, &target)?;
+            link_with_privileges(sidecar, target)?;
 
             #[cfg(not(target_os = "macos"))]
             return Err(format!(
@@ -249,32 +395,30 @@ mod tests {
     }
 
     #[test]
-    fn a_platform_with_nowhere_to_install_reports_no_target() {
-        let status = cli_status();
-        if install_supported() {
+    fn the_status_names_where_the_command_is_or_goes() {
+        let status = cli_status_blocking();
+        assert_eq!(status.can_install, !cfg!(windows));
+        if status.can_install {
             assert!(!status.path.is_empty());
-        } else {
-            assert!(status.path.is_empty());
-            assert!(!status.installed);
         }
-    }
-
-    #[test]
-    fn only_windows_has_nowhere_to_install() {
-        assert_eq!(install_supported(), !cfg!(windows));
     }
 
     #[cfg(windows)]
     #[test]
-    fn installing_where_there_is_nowhere_to_install_is_refused() {
+    fn windows_leaves_the_install_to_the_installer() {
         assert_eq!(install_cli_blocking().unwrap_err(), INSTALL_UNSUPPORTED);
+        assert_eq!(install_target(), Some(InstallTarget::ByInstaller));
     }
 
     #[test]
     fn user_facing_strings_have_no_developer_internals() {
+        let another = another_command_there(Path::new("/usr/local/bin/writ"));
         for msg in [
             SIDECAR_NOT_FOUND,
             INSTALL_UNSUPPORTED,
+            MOVE_APP_FIRST,
+            NO_HOME,
+            another.as_str(),
             "Installation was cancelled.",
         ] {
             let lower = msg.to_ascii_lowercase();
@@ -361,6 +505,118 @@ mod tests {
 
         std::fs::remove_file(&sidecar).unwrap();
         assert!(!is_installed(&link));
+    }
+
+    /// A sidecar stand-in carrying the command's signature, as a real build does.
+    #[cfg(unix)]
+    fn signed_sidecar(dir: &Path) -> PathBuf {
+        let bundle = dir.join("Writ.app/Contents/MacOS");
+        std::fs::create_dir_all(&bundle).unwrap();
+        let sidecar = bundle.join("writ");
+        let mut bytes = b"\x7fELF".to_vec();
+        bytes.extend_from_slice(cli_install::CLI_SIGNATURE);
+        std::fs::write(&sidecar, bytes).unwrap();
+        sidecar
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn another_programs_writ_is_never_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = signed_sidecar(dir.path());
+        let target = dir.path().join("bin/writ");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, "#!/bin/sh\necho another writ\n").unwrap();
+
+        let refused = link_directly(&sidecar, &target).unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "#!/bin/sh\necho another writ\n"
+        );
+        let refused = copy_command(&sidecar, &target).unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::AlreadyExists);
+
+        let tool = dir.path().join("tools/writ");
+        std::fs::create_dir_all(tool.parent().unwrap()).unwrap();
+        std::fs::write(&tool, "").unwrap();
+        let link = dir.path().join("bin/linked");
+        std::os::unix::fs::symlink(&tool, &link).unwrap();
+        assert_eq!(
+            link_directly(&sidecar, &link).unwrap_err().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(std::fs::read_link(&link).unwrap(), tool);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_into_a_writ_bundle_is_replaced_even_when_the_bundle_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = signed_sidecar(dir.path());
+        let target = dir.path().join("bin/writ");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let old = dir.path().join("Old Writ.app/Contents/MacOS/writ");
+        std::os::unix::fs::symlink(&old, &target).unwrap();
+
+        link_directly(&sidecar, &target).expect("a stale Writ link is replaced");
+        assert_eq!(std::fs::read_link(&target).unwrap(), sidecar);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_appimage_copy_is_executable_and_replaces_only_a_writ_copy() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = signed_sidecar(dir.path());
+        let target = dir.path().join("home/.local/bin/writ");
+
+        copy_command(&sidecar, &target).expect("copied");
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            std::fs::read(&sidecar).unwrap()
+        );
+        let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o111, 0o111, "the copy is not executable");
+
+        // An update copies over the copy an earlier version made.
+        copy_command(&sidecar, &target).expect("a Writ copy is replaced");
+        let left: Vec<_> = std::fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name())
+            .collect();
+        assert_eq!(left, ["writ"], "the staging copy was left behind");
+    }
+
+    // The MSI puts the folder holding writ.exe on the PATH through a WiX
+    // fragment. Only a release build compiles it, so its wiring is checked
+    // here: the component the config references is the one the fragment
+    // defines, under the install folder, setting PATH machine-wide.
+    #[test]
+    fn the_windows_installer_puts_the_command_on_the_path() {
+        let raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.conf.json"))
+            .expect("read tauri.conf.json");
+        let conf: serde_json::Value = serde_json::from_str(&raw).expect("parse tauri.conf.json");
+        let wix = &conf["bundle"]["windows"]["wix"];
+        let fragment_path = wix["fragmentPaths"][0].as_str().expect("a WiX fragment");
+        let component = wix["componentRefs"][0].as_str().expect("a component ref");
+        let fragment =
+            std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(fragment_path))
+                .expect("read the fragment");
+
+        assert!(fragment.contains(&format!("<Component Id=\"{component}\"")));
+        assert!(fragment.contains("<DirectoryRef Id=\"INSTALLDIR\">"));
+        assert!(fragment.contains("Name=\"PATH\""));
+        assert!(fragment.contains("Value=\"[INSTALLDIR]\""));
+        assert!(fragment.contains("System=\"yes\""));
+        assert!(fragment.contains("Part=\"last\""));
+        assert!(fragment.contains("KeyPath=\"yes\""));
+        assert!(
+            !fragment.contains("Guid=\"*\""),
+            "a component without a file needs a fixed GUID"
+        );
     }
 
     #[test]

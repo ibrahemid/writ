@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use writ_core::notes::{
     conflict_file_name, date_stem, dedupe_file_name, display_path, is_minted_title, minted_stem,
-    note_file_stem, recovered_file_name, refuse_notes_root, resolve_notes_root,
-    resolve_notes_root_from, sanitize_title, sanitize_title_or, NotesRootError, NotesRootRefusal,
-    NotesRootSources, DEFAULT_NOTES_FOLDER,
+    note_file_stem, note_stem_for, recovered_file_name, refuse_notes_root, requested_note_name,
+    resolve_notes_root, resolve_notes_root_from, sanitize_title, sanitize_title_or, NotesRootError,
+    NotesRootRefusal, NotesRootSources, DEFAULT_NOTES_FOLDER,
 };
 
 /// Absolute paths in these fixtures are spelled the Unix way; on Windows an
@@ -537,5 +537,65 @@ fn the_default_folder_under_the_data_folder_is_accepted() {
         ),
         Some(NotesRootRefusal::HoldsWritData),
         "and so does a folder under the accepted one"
+    );
+}
+
+#[test]
+fn a_markdown_name_replaces_what_a_wikilink_reads_as_syntax() {
+    assert_eq!(note_stem_for("C# notes", "md").as_deref(), Some("C notes"));
+    assert_eq!(
+        note_stem_for("Q3 [draft]", "md").as_deref(),
+        Some("Q3 draft")
+    );
+    assert_eq!(
+        note_stem_for("block^ref", "markdown").as_deref(),
+        Some("block ref")
+    );
+    assert_eq!(note_stem_for("a#b", "MD").as_deref(), Some("a b"));
+    assert_eq!(note_stem_for("### ^ []", "md"), None);
+}
+
+#[test]
+fn any_other_name_keeps_what_no_link_reads() {
+    assert_eq!(
+        note_stem_for("C# notes", "txt").as_deref(),
+        Some("C# notes")
+    );
+    assert_eq!(
+        note_stem_for("Q3 [draft]", "").as_deref(),
+        Some("Q3 [draft]")
+    );
+    assert_eq!(sanitize_title("C# [x] ^y").as_deref(), Some("C# [x] ^y"));
+    assert_eq!(note_stem_for("a:b", "txt").as_deref(), Some("a b"));
+}
+
+#[test]
+fn a_requested_name_takes_the_policy_of_the_format_it_lands_in() {
+    assert_eq!(
+        requested_note_name("C# notes.md", "txt"),
+        Some(("C notes".to_string(), "md"))
+    );
+    assert_eq!(
+        requested_note_name("C# notes", "txt"),
+        Some(("C# notes".to_string(), "txt"))
+    );
+    assert_eq!(
+        requested_note_name("C# notes", "md"),
+        Some(("C notes".to_string(), "md"))
+    );
+    assert_eq!(requested_note_name("#.md", "txt"), None);
+}
+
+#[test]
+fn the_windows_console_and_superscript_device_names_are_suffixed() {
+    assert_eq!(sanitize_title("CONIN$").as_deref(), Some("CONIN$_"));
+    assert_eq!(sanitize_title("conout$.md").as_deref(), Some("conout$_.md"));
+    assert_eq!(
+        sanitize_title("COM\u{00B9}").as_deref(),
+        Some("COM\u{00B9}_")
+    );
+    assert_eq!(
+        sanitize_title("LPT\u{00B3}").as_deref(),
+        Some("LPT\u{00B3}_")
     );
 }

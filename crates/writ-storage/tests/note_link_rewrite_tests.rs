@@ -490,3 +490,40 @@ fn the_walk_finds_a_note_behind_a_symlink() {
 
     assert_eq!(found, vec![link]);
 }
+
+#[test]
+fn a_rename_to_a_name_with_link_syntax_keeps_every_backlink_resolving() {
+    use writ_core::notes::links::{parse_wikilink, resolve, Resolution};
+    use writ_core::notes::WriteOrigin;
+
+    let (root, path) = seeded("see [[Old note]] and [[Old note#Plan|the plan]]\n");
+    let old = root.path().join("Old note.md");
+    std::fs::write(&old, "# Plan\n").expect("seed");
+    let target = index_key(&old);
+
+    let renamed =
+        note_ops::rename_note(&old, "C# notes", None, WriteOrigin::Editor, None).expect("rename");
+    let new_name = writ_core::notes::note_display_name(&renamed.to_string_lossy());
+    let all = vec![target.clone(), index_key(&path)];
+    note_ops::rewrite_links_in_file(
+        &path,
+        &renaming(&target, &new_name, &all),
+        None,
+        None,
+        None,
+        None,
+    )
+    .expect("the rewrite should land");
+
+    let text = std::fs::read_to_string(&path).expect("read");
+    assert_eq!(text, "see [[C notes]] and [[C notes#Plan|the plan]]\n");
+    let candidates = vec![index_key(&renamed), index_key(&path)];
+    for inner in ["C notes", "C notes#Plan|the plan"] {
+        let link = parse_wikilink(inner);
+        assert_eq!(
+            resolve(&link, &index_key(&path), &candidates),
+            Resolution::Resolved(index_key(&renamed)),
+            "{inner} no longer reaches the renamed note"
+        );
+    }
+}

@@ -47,6 +47,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     ),
     (49, include_str!("../../migrations/049_command_usage.sql")),
     (50, include_str!("../../migrations/050_buffer_encoding.sql")),
+    (51, include_str!("../../migrations/051_files_folded.sql")),
 ];
 
 /// Work a migration needs that its SQL cannot do, run inside the same
@@ -54,6 +55,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
 fn migrate_rows(version: i32, conn: &Connection) -> StorageResult<()> {
     match version {
         45 => add_link_name_keys(conn),
+        51 => crate::notes_index::backfill_folded(conn).map(|_| ()),
         _ => Ok(()),
     }
 }

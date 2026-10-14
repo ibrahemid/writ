@@ -7,7 +7,7 @@ import type { BufferDocument } from "../../types/buffer";
 
 const mocks = vi.hoisted(() => ({
   config: vi.fn(),
-  counts: vi.fn(() => ({ words: 3, characters: 13, exact: true })),
+  counts: vi.fn(() => ({ words: 3, characters: 13, cjk: 0, arabic: 0, exact: true })),
   activeBuffer: (() => ({ id: "b1" }) as unknown as BufferDocument | null) as Accessor<
     BufferDocument | null
   >,

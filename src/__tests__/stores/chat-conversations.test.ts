@@ -915,3 +915,17 @@ describe("the conversation list", () => {
     expect(chatStore.messages()).toHaveLength(0);
   });
 });
+
+describe("a chat list that could not be read", () => {
+  it("is a failure of its own until a read succeeds", async () => {
+    mocks.chatList.mockRejectedValueOnce("the chats folder is locked");
+    await chatStore.refreshList();
+    expect(chatStore.listFailed()).toBe(true);
+    expect(chatStore.conversations()).toEqual([]);
+
+    mocks.chatList.mockResolvedValueOnce([summary("c-1", "Launch", "2026-09-15T10:00:00+00:00")]);
+    await chatStore.refreshList();
+    expect(chatStore.listFailed()).toBe(false);
+    expect(chatStore.conversations()).toHaveLength(1);
+  });
+});

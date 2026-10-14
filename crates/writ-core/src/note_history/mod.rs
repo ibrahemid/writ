@@ -30,7 +30,18 @@ pub use prune::{prune_plan, PrunePlan, VersionFacts};
 pub const RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// How many entries one note keeps.
+///
+/// A note over it is thinned rather than cut from the oldest end
+/// ([`prune_plan`]): a long session of autosaves is what fills it, and the
+/// text from before that session is the one a person most often wants back.
 pub const MAX_VERSIONS_PER_NOTE: usize = 200;
+
+/// How long a note's entries have to pause for the next one to start a new
+/// session.
+///
+/// Autosave makes an entry every [`MERGE_WINDOW`] while somebody types, so a
+/// pause this long is a person who stopped, not one who is thinking.
+pub const SESSION_GAP: Duration = Duration::from_secs(15 * 60);
 
 /// How large the store may grow, counting the bytes of every entry it holds.
 pub const MAX_STORE_BYTES: u64 = 250 * 1024 * 1024;
@@ -99,6 +110,35 @@ impl VersionKey {
 /// any other and simply keeps no history. Nothing is refused for being large.
 pub fn is_versionable(bytes_len: u64) -> bool {
     bytes_len <= MAX_NOTE_BYTES
+}
+
+/// Why a file has no versions to list, so the panel can say so instead of
+/// promising one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoVersionsReason {
+    /// The file is over [`MAX_NOTE_BYTES`], so none is ever kept.
+    TooLarge,
+    /// The notes folder does not hold the file, and only its files are kept.
+    OutsideFolder,
+    /// Nothing has been kept for it yet.
+    NoneYet,
+}
+
+/// Why a file with no versions has none.
+///
+/// `size` is the file's size when it could be read, and `inside_folder`
+/// whether the notes folder holds it. Size is asked first: a file over the
+/// ceiling has none wherever it is, and that is the reason that holds after
+/// it is moved into the folder too.
+pub fn no_versions_reason(size: Option<u64>, inside_folder: bool) -> NoVersionsReason {
+    if size.is_some_and(|size| !is_versionable(size)) {
+        NoVersionsReason::TooLarge
+    } else if !inside_folder {
+        NoVersionsReason::OutsideFolder
+    } else {
+        NoVersionsReason::NoneYet
+    }
 }
 
 /// Whether a text the store has just been handed earns an entry of its own.
@@ -257,6 +297,32 @@ mod tests {
         assert!(is_versionable(MAX_NOTE_BYTES));
         assert!(!is_versionable(MAX_NOTE_BYTES + 1));
         assert!(!is_versionable(3 * 1024 * 1024));
+    }
+
+    #[test]
+    fn a_file_with_no_versions_says_why() {
+        let three_mb = Some(3 * 1024 * 1024);
+        assert_eq!(
+            no_versions_reason(three_mb, false),
+            NoVersionsReason::TooLarge
+        );
+        assert_eq!(
+            no_versions_reason(three_mb, true),
+            NoVersionsReason::TooLarge
+        );
+        assert_eq!(
+            no_versions_reason(Some(1024), false),
+            NoVersionsReason::OutsideFolder
+        );
+        assert_eq!(
+            no_versions_reason(None, false),
+            NoVersionsReason::OutsideFolder
+        );
+        assert_eq!(
+            no_versions_reason(Some(1024), true),
+            NoVersionsReason::NoneYet
+        );
+        assert_eq!(no_versions_reason(None, true), NoVersionsReason::NoneYet);
     }
 
     #[test]

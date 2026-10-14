@@ -29,16 +29,12 @@ describe("setting availability", () => {
     vi.clearAllMocks();
   });
 
-  it("offers the command-line row where the app can put the command", () => {
-    for (const platform of ["mac", "linux"] as const) {
+  // Windows shows the command the installer put on the PATH, and where it is.
+  it("offers the command-line row on every platform", () => {
+    for (const platform of ["mac", "linux", "win"] as const) {
       mocks.detectPlatform.mockReturnValue(platform);
-      expect(isSettingAvailable("files.cli")).toBe(true);
+      expect(isSettingAvailable("files.cli"), platform).toBe(true);
     }
-  });
-
-  it("hides the command-line row on Windows, where the installer puts it on the PATH", () => {
-    mocks.detectPlatform.mockReturnValue("win");
-    expect(isSettingAvailable("files.cli")).toBe(false);
   });
 
   it("leaves every other row alone on Windows", () => {
@@ -59,9 +55,14 @@ describe("setting availability", () => {
     expect(mocks.detectPlatform).not.toHaveBeenCalled();
   });
 
-  it("hides the file-types row off macOS, where nothing can be claimed", () => {
-    for (const platform of ["win", "linux"] as const) {
+  // Linux sets defaults through xdg-mime and Windows opens Default apps, so
+  // the row follows what the platform answered, not the platform's name.
+  it("offers the file-types row on any platform that supports a type", () => {
+    for (const platform of ["mac", "win", "linux"] as const) {
       mocks.detectPlatform.mockReturnValue(platform);
+      mocks.hasSupportedDefaultAppTypes.mockReturnValue(true);
+      expect(isSettingAvailable("files.default_app"), platform).toBe(true);
+      mocks.hasSupportedDefaultAppTypes.mockReturnValue(false);
       expect(isSettingAvailable("files.default_app"), platform).toBe(false);
     }
   });

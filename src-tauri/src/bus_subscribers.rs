@@ -125,13 +125,13 @@ pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
             // live rather than captured: moving the notes folder restarts the
             // watcher, and the walk has to follow.
             if let WritEvent::NotesSwept { .. } = event {
-                let state = host.app_state();
+                let root_host = host.clone();
                 crate::spawn_notes_reconcile(
                     index.clone(),
                     cancel.clone(),
                     reconcile_gate.clone(),
-                    state.notes_root(),
-                    state.event_bus.clone(),
+                    move || root_host.app_state().notes_root(),
+                    host.app_state().event_bus.clone(),
                 );
             }
         });

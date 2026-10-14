@@ -388,7 +388,9 @@ fn reopen_from_history_restores_and_updates_content() {
         .unwrap()
         .unwrap();
     store.restore(&history_buf.id).unwrap();
-    store.save_content(&history_buf.id, "# Version 2").unwrap();
+    store
+        .save_to_source(&history_buf.id, "# Version 2", None, None)
+        .unwrap();
 
     let restored = store.get("reopen-1").unwrap();
     assert_eq!(restored.status, BufferStatus::Active);

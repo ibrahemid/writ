@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   stop: vi.fn(),
   open: vi.fn(),
   rename: vi.fn(),
+  listFailed: vi.fn(),
+  refreshList: vi.fn(),
 }));
 
 vi.mock("../../stores/global/chat", async () => {
@@ -27,6 +29,8 @@ vi.mock("../../stores/global/chat", async () => {
       open: mocks.open,
       rename: mocks.rename,
       remove: vi.fn(),
+      listFailed: mocks.listFailed,
+      refreshList: mocks.refreshList,
     },
   };
 });
@@ -50,6 +54,8 @@ beforeEach(() => {
   mocks.stop.mockReset();
   mocks.open.mockReset();
   mocks.rename.mockReset().mockResolvedValue(undefined);
+  mocks.listFailed.mockReset().mockReturnValue(false);
+  mocks.refreshList.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -99,5 +105,17 @@ describe("the chat list", () => {
     fireEvent.keyDown(field, { key: "Escape" });
     fireEvent.blur(field);
     expect(mocks.rename).not.toHaveBeenCalled();
+  });
+
+  it("says the chats could not be read, never that there are none, and tries again", () => {
+    mocks.conversations.mockReturnValue([]);
+    mocks.listFailed.mockReturnValue(true);
+
+    const { getByText, queryByText, getByRole } = render(() => <ConversationList onPick={() => undefined} />);
+
+    expect(getByText("Could not read your chats.")).toBeTruthy();
+    expect(queryByText("No chats yet.")).toBeNull();
+    fireEvent.click(getByRole("button", { name: "Try again" }));
+    expect(mocks.refreshList).toHaveBeenCalledTimes(1);
   });
 });

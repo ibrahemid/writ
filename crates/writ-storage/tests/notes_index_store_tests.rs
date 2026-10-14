@@ -430,11 +430,54 @@ fn a_save_through_a_buffer_store_wired_to_the_index_is_in_its_names() {
     store
         .attach_source_path(&doc.id, launch.to_str().expect("path"))
         .expect("attach");
-    store.save_content(&doc.id, "launch day\n").expect("save");
+    store
+        .save_to_source(&doc.id, "launch day\n", None, None)
+        .expect("save");
 
     assert_eq!(
         index.resolve_link(&key(&home), "Launch").expect("resolve"),
         Resolution::Resolved(key(&launch))
     );
     assert_eq!(index.backlinks(&key(&launch)).expect("backlinks").len(), 1);
+}
+
+#[test]
+fn the_store_answers_a_planned_search_from_the_index_the_plan_names() {
+    let (_dir, db_path, notes) = fixture();
+    let index = NotesIndexStore::open(&db_path).expect("index");
+    write(&notes, "diary.md", "第一行\n我喜欢写作\n");
+    write(&notes, "arabic.md", "هذه مُلاحَظةٌ مهمة\n");
+    write(&notes, "latin.md", "plain words\n");
+    walk(&index, &notes);
+
+    for (raw, expected) in [
+        ("写作", "diary.md"),
+        ("喜欢写", "diary.md"),
+        ("ملاحظة", "arabic.md"),
+        ("plain", "latin.md"),
+    ] {
+        let query = writ_core::search::plan_search(raw).expect("query");
+        let hits = index.search(&query, 0, 10).expect("search");
+        let titles: Vec<&str> = hits.iter().map(|hit| hit.title.as_str()).collect();
+        assert_eq!(titles, vec![expected], "{raw}");
+        assert!(hits[0].path.is_some(), "{raw}");
+        assert_eq!(index.search_count(&query).expect("count"), 1, "{raw}");
+        assert!(
+            index.search(&query, 1, 10).expect("page").is_empty(),
+            "{raw}"
+        );
+    }
+}
+
+#[test]
+fn a_row_is_forgotten_by_the_key_it_was_written_under() {
+    let (_dir, db_path, notes) = fixture();
+    let index = NotesIndexStore::open(&db_path).expect("index");
+    let kept = write(&notes, "Kept.md", "stays\n");
+    let gone = write(&notes, "Gone.md", "goes\n");
+    walk(&index, &notes);
+
+    index.forget_key(&key(&gone)).expect("forget");
+
+    assert_eq!(index.note_paths().expect("paths"), vec![key(&kept)]);
 }

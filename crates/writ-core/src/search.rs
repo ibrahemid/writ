@@ -16,7 +16,10 @@
 //! returned as pre-split segments rather than embedded markup so the renderer
 //! never has to parse HTML.
 
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
+use unicode_normalization::UnicodeNormalization;
 
 /// A run of snippet text, flagged whether it is part of a search match. The
 /// frontend renders `matched` runs highlighted and the rest plain, with no
@@ -238,6 +241,23 @@ impl MarkedFragment {
         }
     }
 
+    /// A fragment of `text` with every occurrence of `terms` marked, for a
+    /// stretch the index found without marking it: a run too short for its
+    /// trigrams is found by a scan, which marks nothing.
+    ///
+    /// `cut_before` and `cut_after` say the note goes on past that end of
+    /// `text`.
+    pub fn found_in(text: String, terms: &[String], cut_before: bool, cut_after: bool) -> Self {
+        let chars: Vec<char> = text.chars().collect();
+        let spans = match_spans(&chars, terms);
+        Self {
+            text,
+            spans,
+            cut_before,
+            cut_after,
+        }
+    }
+
     /// Character offset of the first match in [`MarkedFragment::text`], or
     /// `None` when nothing in the fragment matched (the query matched the
     /// note's name only).
@@ -409,11 +429,129 @@ pub const MIN_TOKEN_LEN: usize = 2;
 /// query construction: runs of alphanumeric characters are tokens, every
 /// other character is a separator. This strips all FTS5 syntax, so the
 /// result can never be a query operator or an unbalanced quote.
+///
+/// The input is [`fold_for_search`]ed first, the fold the notes index applies
+/// to the text it holds, so a query spelled with harakat or in a decomposed
+/// form is the same query as one spelled without.
 fn tokenize(raw: &str) -> Vec<String> {
-    raw.split(|c: char| !c.is_alphanumeric())
+    fold_for_search(raw)
+        .split(|c: char| !c.is_alphanumeric())
         .filter(|t| t.chars().count() >= MIN_TOKEN_LEN)
         .map(|t| t.to_lowercase())
         .collect()
+}
+
+/// `text` as the folded search index holds it, and as a query is read before
+/// it reaches that index.
+///
+/// NFC first, so a decomposed name and a composed query are one spelling.
+/// Then Arabic is reduced to its letters: the harakat (U+064B to U+065F and
+/// the superscript alef U+0670), the Quranic marks (U+06D6 to U+06ED) and the
+/// tatweel (U+0640) are dropped, and the letter variants a writer picks between
+/// are read as one letter: أ إ آ ٱ as ا, ة as ه, ى as ي. Case and Latin
+/// diacritics are left to the index's tokenizer, which folds both.
+///
+/// The same function runs on the note and on the query, which is the whole of
+/// the rule: a note written with harakat and a query typed without them meet
+/// in the middle.
+pub fn fold_for_search(text: &str) -> Cow<'_, str> {
+    if text.is_ascii() {
+        return Cow::Borrowed(text);
+    }
+    let composed: String = text.nfc().collect();
+    let mut folded = String::with_capacity(composed.len());
+    for c in composed.chars() {
+        match c {
+            '\u{064B}'..='\u{065F}' | '\u{0670}' | '\u{06D6}'..='\u{06ED}' | '\u{0640}' => {}
+            '\u{0623}' | '\u{0625}' | '\u{0622}' | '\u{0671}' => folded.push('\u{0627}'),
+            '\u{0629}' => folded.push('\u{0647}'),
+            '\u{0649}' => folded.push('\u{064A}'),
+            other => folded.push(other),
+        }
+    }
+    if folded == text {
+        Cow::Borrowed(text)
+    } else {
+        Cow::Owned(folded)
+    }
+}
+
+/// Whether `text` holds a character the folded index is for: a Han, kana or
+/// Hangul character, which the word index reads as one word per run, or an
+/// Arabic one, whose harakat and letter variants the word index keeps apart.
+///
+/// Only a note that holds one is written to the folded index, and only a
+/// query that holds one is answered from it: a query word in one of these
+/// scripts can only match a note written in it.
+pub fn needs_folded_index(text: &str) -> bool {
+    text.chars()
+        .any(|c| crate::prompt::estimate::dense_script(c).is_some())
+}
+
+/// Characters a run needs before the folded index can look it up by its own
+/// trigrams. A shorter run is found by a scan of the notes that index holds.
+pub const TRIGRAM_LEN: usize = 3;
+
+/// Which index answers a query, and what it is asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchPlan {
+    /// The word index, through the prefix `MATCH` expression
+    /// [`to_prefix_match`] builds.
+    Words(String),
+    /// The folded index, where every run is found as a substring of the
+    /// [`fold_for_search`]ed text.
+    Folded {
+        /// A `MATCH` expression over the runs of [`TRIGRAM_LEN`] characters
+        /// or more, each a quoted string, joined by `AND`. `None` when every
+        /// run is shorter.
+        expression: Option<String>,
+        /// The runs shorter than [`TRIGRAM_LEN`], each to be found with
+        /// `LIKE '%run%'`. A run is alphanumeric only, so it carries no `LIKE`
+        /// wildcard.
+        short: Vec<String>,
+    },
+}
+
+/// A search as the notes index runs it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchQuery {
+    /// Which index answers, and what it is asked.
+    pub plan: SearchPlan,
+    /// The folded, lowercased terms a hit's snippet highlights.
+    pub terms: Vec<String>,
+}
+
+/// The search `raw` asks for, or `None` when no token survives the
+/// minimum-length filter.
+///
+/// A query holding a Han, kana, Hangul or Arabic character
+/// ([`needs_folded_index`]) goes to the folded index, because the word index
+/// cannot find "写作" inside "我喜欢写作" or "ملاحظة" inside "مُلاحَظةٌ". Every
+/// other query goes to the word index exactly as before. A query is answered by
+/// one index or the other, never both, so its count and its pages come from
+/// one ranking.
+pub fn plan_search(raw: &str) -> Option<SearchQuery> {
+    let terms = tokenize(raw);
+    if terms.is_empty() {
+        return None;
+    }
+    let plan = if needs_folded_index(raw) {
+        let (long, short): (Vec<&String>, Vec<&String>) = terms
+            .iter()
+            .partition(|term| term.chars().count() >= TRIGRAM_LEN);
+        SearchPlan::Folded {
+            expression: (!long.is_empty()).then(|| {
+                long.iter()
+                    .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+                    .collect::<Vec<_>>()
+                    .join(" AND ")
+            }),
+            short: short.into_iter().cloned().collect(),
+        }
+    } else {
+        SearchPlan::Words(to_prefix_match(raw)?)
+    };
+    Some(SearchQuery { plan, terms })
 }
 
 /// Builds a prefix `MATCH` expression from raw user input, or `None` when no
@@ -669,6 +807,91 @@ mod tests {
     #[test]
     fn unicode_alphanumerics_are_preserved() {
         assert_eq!(to_prefix_match("café").as_deref(), Some("\"café\"*"));
+    }
+
+    #[test]
+    fn arabic_folds_to_its_letters() {
+        assert_eq!(fold_for_search("مُلاحَظةٌ"), "ملاحظه");
+        assert_eq!(fold_for_search("ملاحظة"), "ملاحظه");
+        assert_eq!(fold_for_search("أحمد إلى آخر"), "احمد الي اخر");
+        assert_eq!(fold_for_search("مـــرحبا"), "مرحبا");
+        assert_eq!(fold_for_search("ٱلْقُرْآن"), "القران");
+    }
+
+    #[test]
+    fn a_decomposed_spelling_folds_to_the_composed_one() {
+        assert_eq!(fold_for_search("Cafe\u{301}"), "Caf\u{e9}");
+        assert!(matches!(fold_for_search("plain"), Cow::Borrowed("plain")));
+        assert!(matches!(fold_for_search("日本語"), Cow::Borrowed("日本語")));
+    }
+
+    #[test]
+    fn arabic_and_cjk_mark_a_text_for_the_folded_index() {
+        assert!(needs_folded_index("我喜欢写作"));
+        assert!(needs_folded_index("see ملاحظة"));
+        assert!(needs_folded_index("한국어"));
+        assert!(!needs_folded_index("Émile café привет"));
+    }
+
+    #[test]
+    fn a_query_with_or_without_harakat_is_one_query() {
+        let with = plan_search("مُلاحَظةٌ").expect("query");
+        let without = plan_search("ملاحظة").expect("query");
+        assert_eq!(with, without);
+        assert_eq!(
+            with.plan,
+            SearchPlan::Folded {
+                expression: Some("\"ملاحظه\"".to_string()),
+                short: Vec::new(),
+            }
+        );
+        assert_eq!(with.terms, vec!["ملاحظه"]);
+    }
+
+    #[test]
+    fn a_two_character_cjk_word_is_a_short_run() {
+        let query = plan_search("写作").expect("query");
+        assert_eq!(
+            query.plan,
+            SearchPlan::Folded {
+                expression: None,
+                short: vec!["写作".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_mixed_query_asks_the_folded_index_for_every_run() {
+        let query = plan_search("ملاحظة Plan 写作").expect("query");
+        assert_eq!(
+            query.plan,
+            SearchPlan::Folded {
+                expression: Some("\"ملاحظه\" AND \"plan\"".to_string()),
+                short: vec!["写作".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn a_latin_query_stays_with_the_word_index() {
+        let query = plan_search("Émile notes").expect("query");
+        assert_eq!(
+            query.plan,
+            SearchPlan::Words("\"émile\"* \"notes\"*".to_string())
+        );
+        assert_eq!(plan_search("a ."), None);
+    }
+
+    #[test]
+    fn a_found_fragment_marks_every_term() {
+        let fragment = MarkedFragment::found_in(
+            "我喜欢写作和写作".to_string(),
+            &["写作".to_string()],
+            false,
+            true,
+        );
+        assert_eq!(fragment.spans, vec![(3, 5), (6, 8)]);
+        assert!(fragment.cut_after);
     }
 
     fn snippet_str(segs: &[SnippetSegment]) -> String {

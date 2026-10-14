@@ -276,6 +276,8 @@ export interface MoveNotesOutcome {
   new_root: string;
   moved: number;
   collided: string[];
+  /** Entries copied to another disk whose originals stayed in the old folder. */
+  left_behind: string[];
 }
 
 /** Asks for a folder and moves the notes into it. `null` if nothing was picked. */
@@ -621,12 +623,26 @@ export interface NoteVersion {
   bytes: number;
 }
 
+/** Why a file has no versions to list. */
+export type NoVersionsReason = "too_large" | "outside_folder" | "none_yet";
+
+/** A file's versions, and why it has none when it has none. */
+export interface NoteVersions {
+  /** Newest first. */
+  versions: NoteVersion[];
+  /** Why `versions` is empty, and `null` when it is not. */
+  no_versions_reason: NoVersionsReason | null;
+}
+
 /** What a restore put back. */
 export interface RestoredVersion {
   /** The note, relative to the notes folder. */
   note: string;
   /** What the file holds now, in bytes. */
   bytes: number;
+  /** The version holding the text the restore replaced: restoring it undoes
+   * the restore. `null` when there was no file to replace. */
+  replaced: number | null;
 }
 
 /** The file a copy left beside the note. */
@@ -636,8 +652,13 @@ export interface VersionCopy {
 }
 
 /** Every text kept for the note at `path`, newest first. */
-export async function noteVersions(path: string): Promise<NoteVersion[]> {
+export async function noteVersions(path: string): Promise<NoteVersions> {
   return invoke("note_versions", { path });
+}
+
+/** What restoring one version would change in the note's file as it is now. */
+export async function compareNoteVersion(versionId: number): Promise<DiffHunk[]> {
+  return invoke("compare_note_version", { versionId });
 }
 
 /** The text one version holds. */
@@ -1417,6 +1438,10 @@ export interface InstallCliResult {
 export interface CliStatus {
   installed: boolean;
   path: string;
+  /** False on Windows, where the installer puts the command on the PATH. */
+  can_install: boolean;
+  /** The app runs from a folder macOS made up for a quarantined download. */
+  needs_move: boolean;
 }
 
 export async function cliStatus(): Promise<CliStatus> {
@@ -1427,13 +1452,15 @@ export async function installCli(): Promise<InstallCliResult> {
   return invoke("install_cli");
 }
 
-// --- Default app (macOS only) ---
+// --- Default app ---
 
 export type DefaultAppStatus =
   | { status: "is_default" }
   | { status: "other_app"; name: string | null }
   | { status: "no_handler" }
-  | { status: "unsupported" };
+  | { status: "unsupported" }
+  /** Windows: only the user picks a default app, in Settings, Default apps. */
+  | { status: "system_settings" };
 
 export interface ClaimableType {
   id: string;
@@ -2077,6 +2104,10 @@ export async function mcpRestoreClient(approval: ClientApproval): Promise<McpCli
 export interface McpServerCommand {
   path: string;
   command: string;
+  /** The command is the copy the install puts on the PATH, and it is not there yet. */
+  needs_install: boolean;
+  /** The app runs from a folder macOS made up for a quarantined download. */
+  needs_move: boolean;
 }
 
 export async function mcpServerCommand(): Promise<McpServerCommand> {

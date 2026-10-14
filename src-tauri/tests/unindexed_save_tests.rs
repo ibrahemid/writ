@@ -61,7 +61,7 @@ fn unindexed_save_keeps_generated_content_out_of_search() {
     let id = persist_titled(&dir, &store, NOTICES_TITLE);
 
     store
-        .save_content_without_index(&id, NOTICES_BODY)
+        .save_to_source_without_index(&id, NOTICES_BODY, None, None)
         .expect("unindexed save");
 
     assert_eq!(store.read_content(&id).expect("read back"), NOTICES_BODY);
@@ -77,7 +77,7 @@ fn the_deferred_reindex_is_what_makes_an_unindexed_save_searchable() {
     let id = persist_titled(&dir, &store, NOTICES_TITLE);
 
     store
-        .save_content_without_index(&id, NOTICES_BODY)
+        .save_to_source_without_index(&id, NOTICES_BODY, None, None)
         .expect("unindexed save");
     assert!(search(&index, "Marquart").is_empty());
 
@@ -93,7 +93,9 @@ fn the_indexing_save_is_what_makes_content_searchable() {
     let (dir, store, index) = setup();
     let id = persist_titled(&dir, &store, NOTICES_TITLE);
 
-    store.save_content(&id, NOTICES_BODY).expect("indexed save");
+    store
+        .save_to_source(&id, NOTICES_BODY, None, None)
+        .expect("indexed save");
 
     assert_eq!(search(&index, "Marquart").len(), 1);
 }
@@ -102,7 +104,9 @@ fn the_indexing_save_is_what_makes_content_searchable() {
 fn a_saved_note_is_findable_by_its_file_name() {
     let (dir, store, index) = setup();
     let id = persist_titled(&dir, &store, NOTICES_TITLE);
-    store.save_content(&id, NOTICES_BODY).expect("indexed save");
+    store
+        .save_to_source(&id, NOTICES_BODY, None, None)
+        .expect("indexed save");
 
     let hits = index
         .search_names("licences", &dir.path().join("notes"), 10)
@@ -121,7 +125,7 @@ fn unindexed_save_refuses_a_read_only_buffer() {
     store.insert(&doc).expect("insert");
 
     let err = store
-        .save_content_without_index(&doc.id, NOTICES_BODY)
+        .save_to_source_without_index(&doc.id, NOTICES_BODY, None, None)
         .expect_err("read-only buffer must not be written");
     assert!(err.to_string().contains("read-only"), "got: {err}");
 }

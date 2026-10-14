@@ -34,8 +34,9 @@
 
 // Denied rather than forbidden: `atomic::metadata` lifts it for the handful
 // of `libc` calls that carry a file's extended attributes and creation date
-// across the rename a save performs, and `identity` for the one Windows call
-// that reads a file's id. Nothing else in the crate may.
+// across the rename a save performs, `identity` for the one Windows call
+// that reads a file's id, and `note_ops` for the rename that refuses to
+// replace a file. Nothing else in the crate may.
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 #![warn(rustdoc::broken_intra_doc_links)]
