@@ -6,7 +6,9 @@ import { loadGrammar } from "../../editor/languages";
 import WindowProvider, { useWindow } from "../../components/WindowProvider/WindowProvider";
 import { configStore } from "../../stores/global/config";
 import type { LayoutMode } from "../../lib/preview-layout";
-import { getCommand } from "../../commands/registry";
+import { getCommand, registerCommand, unregisterCommand } from "../../commands/registry";
+import { formatKeybinding } from "../../lib/keybinding-format";
+import { MARKDOWN_PLACEHOLDER } from "../../editor/placeholder";
 import { WIKILINK_CLASS } from "../../editor/wikilink-decorations";
 
 // The Markdown extensions load for a Markdown file, keyed on the file's
@@ -82,6 +84,46 @@ async function mount(buffer: BufferDocument, layout: LayoutMode | null = { kind:
   await flushMicrotasks();
   return result;
 }
+
+describe("EditorInstance: an empty file says how to start", () => {
+  beforeAll(async () => {
+    await loadGrammar("markdown");
+  });
+
+  beforeEach(() => {
+    bufferContent.clear();
+    registerCommand({
+      id: "palette.open",
+      label: "Command palette",
+      keybinding: "Shift+Shift",
+      scope: "app",
+      execute: () => {},
+    });
+  });
+
+  afterEach(() => {
+    unregisterCommand("palette.open");
+    cleanup();
+  });
+
+  it("shows the Markdown placeholder in an empty .md file", async () => {
+    const { container } = await mount(mockBuffer("P1", "new.md", "/files/new.md"));
+    expect(container.querySelector(".cm-placeholder")?.textContent).toBe(MARKDOWN_PLACEHOLDER);
+  });
+
+  it("names the palette chord in an empty .txt file", async () => {
+    const { container } = await mount(mockBuffer("P2", "new.txt", "/files/new.txt"));
+    expect(container.querySelector(".cm-placeholder")?.textContent).toBe(
+      `Press ${formatKeybinding("Shift+Shift")} for the command palette`,
+    );
+  });
+
+  it("shows no placeholder once the file has text", async () => {
+    bufferContent.set("P3", "hello");
+    const { container } = await mount(mockBuffer("P3", "new.md", "/files/new.md"));
+    expect(container.querySelector(".cm-placeholder")).toBeNull();
+  });
+});
 
 describe("EditorInstance: the markdown extensions load for a markdown file", () => {
   // The app has the Markdown grammar loaded before a .md file opens

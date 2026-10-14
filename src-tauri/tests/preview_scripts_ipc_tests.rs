@@ -16,6 +16,7 @@ use tempfile::TempDir;
 use writ_core::buffer::document::{BufferDocument, BufferStatus};
 use writ_core::config::WritConfig;
 use writ_core::events::bus::EventBus;
+use writ_core::notes::materialise::DownloadOutcome;
 use writ_core::preview::{ContentRendererRegistry, RenderRequest};
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::reconcile::ReconcileGate;
@@ -27,8 +28,9 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::preview::{
-    preview_get_scripts_inner, preview_inline_image_inner, preview_set_scripts_inner,
-    render_into_cache, CachedRender, InlineImageResult,
+    preview_get_scripts_inner, preview_inline_image_download_inner, preview_inline_image_inner,
+    preview_set_scripts_inner, preview_url_prefix, render_into_cache, CachedRender,
+    InlineImageResult,
 };
 use writ_tauri_lib::preview::csp::build_document_csp;
 use writ_tauri_lib::preview::handler::{resolve_cached, RenderCache};
@@ -44,6 +46,8 @@ const COMMANDS: &[&str] = &[
     "commands::preview::preview_url_prefix",
     "commands::preview::preview_get_scripts",
     "commands::preview::preview_set_scripts",
+    "commands::preview::preview_inline_image",
+    "commands::preview::preview_inline_image_download",
 ];
 
 fn make_state(dir: &TempDir) -> AppState {
@@ -360,32 +364,58 @@ fn the_navigation_guard_is_installed_on_the_app() {
     );
 }
 
+const PNG_BYTES: &[u8] = b"\x89PNG\r\n\x1a\nrest";
+
+fn never_dataless(_: &Path) -> bool {
+    false
+}
+
+fn refusal_of(answer: InlineImageResult) -> String {
+    match answer {
+        InlineImageResult::Refused { reason } => reason,
+        InlineImageResult::Ready { url, .. } => panic!("expected a refusal, got {url}"),
+    }
+}
+
+fn ready_of(answer: InlineImageResult) -> (String, String) {
+    match answer {
+        InlineImageResult::Ready { url, mime, .. } => (url, mime),
+        InlineImageResult::Refused { reason } => panic!("the image was refused: {reason}"),
+    }
+}
+
 /// A file in a folder of its own beside an image, outside the notes folder.
 fn image_beside_a_file(dir: &TempDir) -> std::path::PathBuf {
     let folder = dir.path().join("elsewhere");
     std::fs::create_dir_all(&folder).expect("folder");
-    std::fs::write(folder.join("pic.png"), b"\x89PNG\r\n\x1a\nrest").expect("image");
+    std::fs::write(folder.join("pic.png"), PNG_BYTES).expect("image");
     let file = folder.join("note.md");
     std::fs::write(&file, "![](pic.png)\n").expect("file");
     file
 }
 
-/// The webview names the file a reference was written in, and that folder
-/// becomes a root images are read from. A file no open tab holds is refused,
-/// or any folder on disk could be named and read.
+/// The webview names a buffer, and the folder holding that buffer's file
+/// becomes a root images are read from. An id no open tab holds is refused,
+/// or a folder Writ was never asked to show could become a root.
 #[test]
-fn an_inline_image_for_a_file_no_open_tab_holds_is_refused() {
+fn an_inline_image_for_a_buffer_no_open_tab_holds_is_refused() {
     let dir = TempDir::new().expect("temp dir");
     let file = image_beside_a_file(&dir);
-    let state = state_with(&dir, "buf-1", None);
+    let state = state_with(&dir, "buf-1", Some(&file));
 
-    let answer = preview_inline_image_inner(&state, Some(&file.to_string_lossy()), "pic.png")
-        .expect("an answer");
+    let unknown =
+        preview_inline_image_inner(&state, "buf-2", "pic.png", &never_dataless).expect("answer");
+    assert_eq!(refusal_of(unknown), "outside_root");
 
-    match answer {
-        InlineImageResult::Refused { reason } => assert_eq!(reason, "outside_root"),
-        InlineImageResult::Ready { .. } => panic!("an image was read beside a file no tab holds"),
-    }
+    state
+        .store
+        .lock()
+        .expect("store")
+        .close("buf-1")
+        .expect("close");
+    let closed =
+        preview_inline_image_inner(&state, "buf-1", "pic.png", &never_dataless).expect("answer");
+    assert_eq!(refusal_of(closed), "outside_root");
 }
 
 #[test]
@@ -394,13 +424,149 @@ fn an_inline_image_resolves_against_the_open_tabs_folder() {
     let file = image_beside_a_file(&dir);
     let state = state_with(&dir, "buf-1", Some(&file));
 
-    let answer = preview_inline_image_inner(&state, Some(&file.to_string_lossy()), "pic.png")
-        .expect("an answer");
+    let answer =
+        preview_inline_image_inner(&state, "buf-1", "pic.png", &never_dataless).expect("answer");
 
-    match answer {
-        InlineImageResult::Ready { mime, .. } => assert_eq!(mime, "image/png"),
-        InlineImageResult::Refused { reason } => {
-            panic!("the open tab's image was refused: {reason}")
-        }
-    }
+    let (url, mime) = ready_of(answer);
+    assert_eq!(mime, "image/png");
+    assert!(
+        url.starts_with(&format!(
+            "{}document/_note-asset/buf-1/",
+            preview_url_prefix()
+        )),
+        "{url}"
+    );
+    assert!(url.ends_with("/d/pic.png"), "{url}");
+}
+
+#[test]
+fn an_inline_image_of_a_buffer_with_no_file_resolves_against_the_notes_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = state_with(&dir, "buf-1", None);
+    std::fs::write(state.notes_root().join("pic.png"), PNG_BYTES).expect("image");
+
+    let answer =
+        preview_inline_image_inner(&state, "buf-1", "pic.png", &never_dataless).expect("answer");
+
+    assert!(ready_of(answer).0.ends_with("/n/pic.png"));
+}
+
+#[test]
+fn an_inline_image_outside_both_roots_is_refused() {
+    let dir = TempDir::new().expect("temp dir");
+    let file = image_beside_a_file(&dir);
+    std::fs::write(dir.path().join("outside.png"), PNG_BYTES).expect("image");
+    let state = state_with(&dir, "buf-1", Some(&file));
+
+    let answer = preview_inline_image_inner(&state, "buf-1", "../outside.png", &never_dataless)
+        .expect("answer");
+
+    assert_eq!(refusal_of(answer), "outside_root");
+}
+
+/// A Retina screenshot is answered with a URL, and the scheme serves the
+/// whole file from it with no preview rendered. Refused as too large when the
+/// editor carried base64 under a 2 MB cap.
+#[test]
+fn an_eight_megabyte_image_is_answered_with_a_url_the_scheme_serves() {
+    let dir = TempDir::new().expect("temp dir");
+    let file = image_beside_a_file(&dir);
+    let mut shot = PNG_BYTES.to_vec();
+    shot.resize(8 * 1024 * 1024, 0);
+    std::fs::write(file.with_file_name("shot.png"), &shot).expect("image");
+    let state = state_with(&dir, "buf-1", Some(&file));
+
+    let answer =
+        preview_inline_image_inner(&state, "buf-1", "shot.png", &never_dataless).expect("answer");
+    let (url, _) = ready_of(answer);
+
+    // The handler receives the native form on every platform: WebView2's
+    // `http://writ-preview.` requests reach it rewritten.
+    let route = url
+        .strip_prefix(&format!("{}document/", preview_url_prefix()))
+        .expect("a document-scope URL");
+    let served = resolve_cached(
+        &format!("writ-preview://document/{route}"),
+        &state.preview_render_cache,
+        &|_: &Path| false,
+    );
+    assert_eq!(served.status, 200);
+    assert_eq!(served.body.len(), shot.len());
+}
+
+/// An evicted image is named from its stat. The file holds markup, so a read
+/// would have answered `not_an_image`: `not_downloaded` means nothing read it.
+#[test]
+fn a_dataless_image_is_refused_as_not_downloaded_without_being_read() {
+    let dir = TempDir::new().expect("temp dir");
+    let file = image_beside_a_file(&dir);
+    std::fs::write(file.with_file_name("cloud.png"), b"<!doctype html>").expect("file");
+    let state = state_with(&dir, "buf-1", Some(&file));
+
+    let answer =
+        preview_inline_image_inner(&state, "buf-1", "cloud.png", &|_: &Path| true).expect("answer");
+
+    assert_eq!(refusal_of(answer), "not_downloaded");
+}
+
+#[test]
+fn downloading_an_evicted_image_answers_with_its_url_once_the_bytes_land() {
+    let dir = TempDir::new().expect("temp dir");
+    let file = image_beside_a_file(&dir);
+    let state = state_with(&dir, "buf-1", Some(&file));
+    let evicted = std::cell::Cell::new(true);
+    let downloads = std::cell::Cell::new(0);
+    let download = |_: &Path| {
+        downloads.set(downloads.get() + 1);
+        evicted.set(false);
+        DownloadOutcome::Done
+    };
+
+    let answer = preview_inline_image_download_inner(
+        &state,
+        "buf-1",
+        "pic.png",
+        &|_: &Path| evicted.get(),
+        &download,
+    )
+    .expect("answer");
+
+    assert_eq!(downloads.get(), 1);
+    assert_eq!(ready_of(answer).1, "image/png");
+}
+
+#[test]
+fn a_download_that_ends_without_the_bytes_stays_not_downloaded() {
+    let dir = TempDir::new().expect("temp dir");
+    let file = image_beside_a_file(&dir);
+    let state = state_with(&dir, "buf-1", Some(&file));
+
+    let answer = preview_inline_image_download_inner(
+        &state,
+        "buf-1",
+        "pic.png",
+        &|_: &Path| true,
+        &|_: &Path| DownloadOutcome::TimedOut,
+    )
+    .expect("answer");
+
+    assert_eq!(refusal_of(answer), "not_downloaded");
+}
+
+#[test]
+fn an_image_already_here_is_not_downloaded_again() {
+    let dir = TempDir::new().expect("temp dir");
+    let file = image_beside_a_file(&dir);
+    let state = state_with(&dir, "buf-1", Some(&file));
+
+    let answer = preview_inline_image_download_inner(
+        &state,
+        "buf-1",
+        "pic.png",
+        &never_dataless,
+        &|_: &Path| panic!("a file on this machine was downloaded"),
+    )
+    .expect("answer");
+
+    assert_eq!(ready_of(answer).1, "image/png");
 }

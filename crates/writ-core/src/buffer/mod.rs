@@ -4,6 +4,8 @@
 //! (active as a tab, then moved to history on close), a stable id, and
 //! optional linkage to a source file on disk.
 
+/// Edits in CodeMirror's form, applied to the text they were made against.
+pub mod change_set;
 /// Document-level buffer model.
 pub mod document;
 /// The language chosen for a buffer.

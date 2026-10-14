@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use tauri::http::{HeaderMap, HeaderValue};
 use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponse, InvokeResponseBody};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
@@ -32,6 +33,7 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
+use writ_tauri_lib::commands::buffer::NOTE_ID_HEADER;
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -139,6 +141,7 @@ fn mock_app(state: AppState) -> (tauri::App<MockRuntime>, WebviewWindow<MockRunt
             writ_tauri_lib::commands::file::open_file_confirmed,
             writ_tauri_lib::commands::buffer::read_buffer_content,
             writ_tauri_lib::commands::buffer::save_buffer_content,
+            writ_tauri_lib::commands::buffer::save_buffer_changes,
             writ_tauri_lib::commands::preview::preview_render,
             writ_tauri_lib::commands::workspace::search_workspace_files,
         ])
@@ -180,6 +183,28 @@ impl Dispatched {
 /// does: the time `on_message` holds that thread is what the main thread
 /// would be held for.
 fn dispatch(window: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Dispatched {
+    send(window, cmd, InvokeBody::Json(args), HeaderMap::new())
+}
+
+/// Sends a save of note `id` the way the editor does: the text as the raw
+/// body, the note in a header.
+fn dispatch_save(window: &WebviewWindow<MockRuntime>, id: &str, text: &str) -> Dispatched {
+    let mut headers = HeaderMap::new();
+    headers.insert(NOTE_ID_HEADER, HeaderValue::from_str(id).expect("ascii id"));
+    send(
+        window,
+        "save_buffer_content",
+        InvokeBody::Raw(text.as_bytes().to_vec()),
+        headers,
+    )
+}
+
+fn send(
+    window: &WebviewWindow<MockRuntime>,
+    cmd: &str,
+    body: InvokeBody,
+    headers: HeaderMap,
+) -> Dispatched {
     let (held_tx, held) = mpsc::channel();
     let (answer_tx, answer) = mpsc::channel();
     let webview = window.as_ref().clone();
@@ -194,8 +219,8 @@ fn dispatch(window: &WebviewWindow<MockRuntime>, cmd: &str, args: Value) -> Disp
         }
         .parse()
         .expect("url"),
-        body: InvokeBody::Json(args),
-        headers: Default::default(),
+        body,
+        headers,
         invoke_key: INVOKE_KEY.to_string(),
     };
     std::thread::spawn(move || {
@@ -293,10 +318,27 @@ fn save_buffer_content_returns_its_thread_while_its_work_waits() {
     let id = open(&app, &path);
 
     let turn = app.state::<AppState>().buffer_writes.turn(&id);
+    let sent = dispatch_save(&window, &id, "saved\n");
+    sent.held();
+    drop(turn);
+    assert!(sent.answer().is_ok());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "saved\n");
+}
+
+#[test]
+fn save_buffer_changes_returns_its_thread_while_its_work_waits() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let path = dir.path().join("a.md");
+    std::fs::write(&path, "text\n").unwrap();
+    let id = open(&app, &path);
+    let base = writ_core::hash::comparison_digest_hex(b"text\n");
+
+    let turn = app.state::<AppState>().buffer_writes.turn(&id);
     let sent = dispatch(
         &window,
-        "save_buffer_content",
-        json!({ "id": id, "content": "saved\n" }),
+        "save_buffer_changes",
+        json!({ "id": id, "base": base, "changes": [[4, "saved"], 1], "length": 6 }),
     );
     sent.held();
     drop(turn);
@@ -362,11 +404,7 @@ fn saves_to_one_note_land_in_the_order_they_were_sent() {
     let earlier = state.buffer_writes.turn(&id);
     let mut sent = Vec::new();
     for (n, text) in ["one\n", "two\n", "three\n"].into_iter().enumerate() {
-        sent.push(dispatch(
-            &window,
-            "save_buffer_content",
-            json!({ "id": id, "content": text }),
-        ));
+        sent.push(dispatch_save(&window, &id, text));
         let deadline = Instant::now() + DISPATCH_PATIENCE;
         while state.buffer_writes.outstanding(&id) < n as u64 + 2 {
             assert!(Instant::now() < deadline, "save {n} never took its place");
@@ -413,26 +451,41 @@ fn shell_budget_of_open_read_and_save_at_300_mb() {
 
     let mut text = String::from_utf8(bytes).expect("utf-8");
     text.replace_range(0..1, "3");
-    let args = json!({ "id": id, "content": text });
     let start = Instant::now();
-    let sent = dispatch(&window, "save_buffer_content", args);
+    let sent = dispatch_save(&window, &id, &text);
     let save_held = sent.held();
-    sent.answer().expect("save");
+    let Ok(InvokeResponseBody::Json(digest)) = sent.answer() else {
+        panic!("the save failed");
+    };
     let save_work = start.elapsed();
 
+    let base: String = serde_json::from_str(&digest).expect("a digest");
+    let start = Instant::now();
+    let sent = dispatch(
+        &window,
+        "save_buffer_changes",
+        json!({ "id": id, "base": base, "changes": [[1, "4"], text.len() - 1], "length": text.len() }),
+    );
+    let changes_held = sent.held();
+    sent.answer().expect("changes");
+    let changes_work = start.elapsed();
+
     eprintln!(
-        "shell budget at 300 MB (held / work): open_file_confirmed {} / {} ms, read_buffer_content {} / {} ms, save_buffer_content {} / {} ms",
+        "shell budget at 300 MB (held / work): open_file_confirmed {} / {} ms, read_buffer_content {} / {} ms, save_buffer_content {} / {} ms, save_buffer_changes {} / {} ms",
         millis(open_held),
         millis(open_work),
         millis(read_held),
         millis(read_work),
         millis(save_held),
-        millis(save_work)
+        millis(save_work),
+        millis(changes_held),
+        millis(changes_work)
     );
     for (command, held) in [
         ("open_file_confirmed", open_held),
         ("read_buffer_content", read_held),
         ("save_buffer_content", save_held),
+        ("save_buffer_changes", changes_held),
     ] {
         assert!(
             millis(held) <= SHELL_BUDGET_MS,

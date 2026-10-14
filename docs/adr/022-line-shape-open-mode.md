@@ -1,6 +1,6 @@
 # ADR-022: Line-shape editor open mode for responsive large-file opens
 
-**Status:** Accepted. Amended 2026-10-13: the editor publishes a version, not its text, and every reader takes the document in its own idle work ("Amended: no text is published per keystroke").
+**Status:** Accepted. Amended 2026-10-13: the editor publishes a version, not its text, and every reader takes the document in its own idle work ("Amended: no text is published per keystroke"). Amended 2026-10-14: limits per capability, tab states kept across switches, saves without the whole text ("Amended: tiers per capability").
 **Date:** 2026-06-25
 
 ## Context
@@ -41,6 +41,10 @@ Before this amendment every tier still paid for the whole text as it was edited 
 - **Preview** measures the document's UTF-8 length from its strings, stopping past the refusal limit, skips a render of a document equal to the last one rendered, and reads the text only when it renders. A tab with no document in the editor (its open has not answered) renders as empty, as it did when the editor published an empty text for it.
 - **Frontmatter.** The end of the frontmatter block is a state field mapped through changes; an unclosed block checks only the changed lines for a closing fence.
 - **Right-click** looks for `{{placeholders}}` line by line, and not at all in the large tiers.
+
+### Amended: tiers per capability
+
+`LongLines` no longer turns everything off. `featuresFor(mode, longestLine, overrides)` (`src/editor/large-file.ts`) is the one record the extensions and the status-bar chip read. Per-line decorations (Markdown rendering, links, wikilinks, direction) skip only lines over 10,000 characters (`rangesWithinLineLimit`); wrapping and highlighting stay on while the longest line is within 1,000,000 characters, set from the editor-perf audit's one data point (a 5 MiB line: 1.3 s one-time wrap measure, about 0.25 µs a character, so the limit budgets about 250 ms; highlighting added 17 ms a keystroke, about 3 ms at the limit). Spell check stays off for the file. The byte tiers are kept (O-5). The chip opens a menu that lists what is off and why and turns wrapping and highlighting on or off for the file; those choices last for the session, as the buffer row has no column for them. With the status bar hidden, the tab tooltip names the tier. One view serves every tab: each tab's `EditorState` is kept with a scroll snapshot and restored with `view.setState` when the text the load decides on equals it, within a 64 Mi code unit budget that drops large-tier states first; `cursor_pos` and `scroll_pos` hold where a tab was left for a later session. A transaction moving 64 KiB or more re-reads the tier from the document (UTF-8 length, longest line) and the chip offers the switch, which reconfigures the view in place. `save_buffer_content` takes the text as a raw body; the large tiers and `LongLines` send the change set since the last landed write (`save_buffer_changes`), which Rust applies to the file's text after checking its digest against the one that write returned, then saves through the same encode, guard and journal path. A refused change set is sent again whole. `size_bytes` follows every write.
 
 ## Consequences
 

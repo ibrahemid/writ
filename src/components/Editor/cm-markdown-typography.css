@@ -228,12 +228,21 @@
   height: auto;
   border-radius: var(--writ-r-media);
 }
-.cm-editor .cm-md-image[data-status="failed"] {
+.cm-editor .cm-md-image[data-status="pending"],
+.cm-editor .cm-md-image[data-loaded="false"] {
+  background: var(--writ-bg-sunken);
+  border-radius: var(--writ-r-media);
+}
+.cm-editor .cm-md-image[data-status="failed"],
+.cm-editor .cm-md-image[data-status="downloading"] {
   min-height: 0;
 }
 .cm-editor .cm-md-image-caption {
   color: var(--writ-fg-muted);
   font-size: 0.875em;
+}
+.cm-editor .cm-md-image-download {
+  margin-inline-start: var(--writ-space-3);
 }
 
 /* Tables and html blocks are styled where they are written, never rendered.

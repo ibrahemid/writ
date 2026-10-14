@@ -9,11 +9,13 @@ import {
   indentationFor,
   lineWrappingFor,
 } from "../../editor/editor-settings";
+import { featuresFor } from "../../editor/large-file";
 import type { FileOpenMode } from "../../types/buffer";
 
-function wrapsIn(mode: FileOpenMode, wordWrap: boolean): boolean {
+function wrapsIn(mode: FileOpenMode, wordWrap: boolean, longest = 0): boolean {
+  const allowed = featuresFor(mode, longest).wrap;
   const view = new EditorView({
-    state: EditorState.create({ doc: "x", extensions: [lineWrappingFor(wordWrap, mode)] }),
+    state: EditorState.create({ doc: "x", extensions: [lineWrappingFor(wordWrap, allowed)] }),
   });
   const wraps = view.contentDOM.classList.contains("cm-lineWrapping");
   view.destroy();
@@ -29,10 +31,24 @@ describe("lineWrappingFor", () => {
   it.each<FileOpenMode>([
     { kind: "LargeFile" },
     { kind: "LargeFileConfirm" },
-    { kind: "LongLines" },
     { kind: "Binary" },
-  ])("never wraps a $kind file", (mode) => {
+  ])("does not wrap a $kind file", (mode) => {
     expect(wrapsIn(mode, true)).toBe(false);
+  });
+
+  it("wraps a long-lined file while its longest line is within the wrap limit", () => {
+    expect(wrapsIn({ kind: "LongLines" }, true, 50_000)).toBe(true);
+    expect(wrapsIn({ kind: "LongLines" }, true, 5_000_000)).toBe(false);
+    expect(wrapsIn({ kind: "LongLines" }, false, 50_000)).toBe(false);
+  });
+
+  it("wraps a file the person turned wrapping on for, whatever its tier", () => {
+    const allowed = featuresFor({ kind: "LargeFile" }, 0, { wrap: true }).wrap;
+    const view = new EditorView({
+      state: EditorState.create({ doc: "x", extensions: [lineWrappingFor(true, allowed)] }),
+    });
+    expect(view.contentDOM.classList.contains("cm-lineWrapping")).toBe(true);
+    view.destroy();
   });
 });
 

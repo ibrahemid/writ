@@ -102,3 +102,25 @@
 :root[data-platform="linux"] .context-menu-item:focus-visible {
   background: color-mix(in srgb, var(--writ-fg) 10%, transparent);
 }
+
+/* An unchecked choice keeps its label where a checked one's is. */
+.context-menu-check-space {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+/* A sentence of explanation: it wraps, and it is not an action. */
+.context-menu-item.context-menu-note,
+.context-menu-item.context-menu-note:hover {
+  min-height: 0;
+  padding-block: var(--writ-space-1);
+  color: var(--writ-fg-muted);
+  background: none;
+  cursor: default;
+}
+
+.context-menu-note .context-menu-label {
+  white-space: normal;
+  overflow: visible;
+}

@@ -715,7 +715,7 @@ impl BufferStore {
     ) -> StorageResult<DiskState> {
         let (doc, state) = self.write_source_guarded(id, content, last_known, before_write)?;
 
-        queries::update_timestamp(&self.conn, id)?;
+        queries::update_size_and_timestamp(&self.conn, id, state.size)?;
         self.index_note(&doc, content)?;
         Ok(state)
     }
@@ -734,7 +734,7 @@ impl BufferStore {
         before_write: BeforeWrite<'_>,
     ) -> StorageResult<DiskState> {
         let (_doc, state) = self.write_source_guarded(id, content, last_known, before_write)?;
-        queries::update_timestamp(&self.conn, id)?;
+        queries::update_size_and_timestamp(&self.conn, id, state.size)?;
         Ok(state)
     }
 
@@ -836,10 +836,13 @@ impl BufferStore {
     }
 
     /// What follows a [`SourceWrite`] that landed: the preview-scripts opt-in
-    /// follows the bytes or lapses, and the row's `updated_at` moves.
+    /// follows the bytes or lapses, and the row's `size_bytes` and
+    /// `updated_at` move to the file as written. The size is what the index
+    /// and the editor's tiers read, so a note that grew past the normal tier
+    /// stops being indexed whole at its next save.
     pub fn settle_source_write(&self, id: &str, outcome: &WriteOutcome) -> StorageResult<()> {
         self.settle_preview_scripts(id, outcome);
-        queries::update_timestamp(&self.conn, id)
+        queries::update_size_and_timestamp(&self.conn, id, outcome.disk_state.size)
     }
 
     /// Writes text the unsaved-text journal kept into the note's file, unless
@@ -1160,6 +1163,18 @@ impl BufferStore {
     /// `None`. Leaves `updated_at` alone.
     pub fn update_language(&self, id: &str, language: Option<&str>) -> StorageResult<()> {
         queries::update_language(&self.conn, id, language)
+    }
+
+    /// Records where the buffer was left: the caret and the top of the view,
+    /// as offsets into its document. Leaves `updated_at` alone: moving
+    /// through a note is not a change to it.
+    pub fn set_view_position(
+        &self,
+        id: &str,
+        cursor_pos: u64,
+        scroll_pos: u64,
+    ) -> StorageResult<()> {
+        queries::update_view_position(&self.conn, id, cursor_pos, scroll_pos)
     }
 
     /// Normalizes every buffer's mirror `filename` to `{id}.txt` and then

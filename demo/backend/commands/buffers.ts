@@ -1,3 +1,4 @@
+import { ChangeSet, Text } from "@codemirror/state";
 import type { BufferDocument, FileOpenResult } from "../../../src/types/buffer";
 import type { RenamePropagation, SkippedFile } from "../../../src/services/tauri";
 import { countUtf8Bytes } from "../history";
@@ -394,6 +395,35 @@ export function createBufferCommands(state: DemoState): CommandTable {
       const path = doc.source_path;
       if (!path) return refuse(`${ERR_READ_FILE_MISSING}: file ${doc.id} is on disk nowhere`);
       return refuseOnThrow((): Answer<"reopenWithEncoding"> => reopenWithEncoding(doc, path, chosen), describeReadRefusal);
+    },
+    // commands::buffer::save_buffer_changes: the changes applied to the text
+    // the file holds while it is the text they were made against, then saved
+    // the way every save is.
+    save_buffer_changes: async (args) => {
+      const doc = state.getBuffer(args.id);
+      if (!doc.source_path || doc.read_only) return refuse("ERR_CHANGES_STALE: the note has no text to apply changes to");
+      const path = doc.source_path;
+      let text: string;
+      try {
+        text = state.readTextIn(path, doc.encoding ?? UTF_8).replace(/\r\n?/g, "\n");
+      } catch {
+        return refuse("ERR_CHANGES_STALE: the file could not be read");
+      }
+      if ((await digestText(text)) !== args.base) return refuse("ERR_CHANGES_STALE: the file moved on");
+      let content: string;
+      try {
+        content = ChangeSet.fromJSON(args.changes).apply(Text.of(text.split("\n"))).toString();
+      } catch {
+        return refuse("ERR_CHANGES_INVALID: the changes do not fit the file's text");
+      }
+      if (content.length !== Number(args.length)) return refuse("ERR_CHANGES_INVALID: the changes give another length");
+      return commands.save_buffer_content({ id: args.id, content });
+    },
+    // commands::buffer::set_buffer_view_position: where the tab was left.
+    set_buffer_view_position: (args): Answer<"setBufferViewPosition"> => {
+      const doc = state.getBuffer(args.id);
+      doc.cursor_pos = Number(args.cursorPos);
+      doc.scroll_pos = Number(args.scrollPos);
     },
     set_buffer_language: (args): Answer<"setBufferLanguage"> => {
       const doc = state.getBuffer(args.id);

@@ -75,15 +75,6 @@
   color: var(--writ-status-error);
 }
 
-.statusbar-save.is-dirty {
-  color: var(--writ-fg-muted);
-}
-
-.statusbar-save.is-dirty .statusbar-dot {
-  background: none;
-  border: 1px solid var(--writ-fg-muted);
-}
-
 .statusbar-dot {
   width: 6px;
   height: 6px;
@@ -140,6 +131,35 @@
   background: var(--writ-bg-raised);
   color: var(--writ-fg-muted);
   border: 1px solid var(--writ-border-soft);
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--writ-motion), background var(--writ-motion);
+}
+
+.statusbar-chip--largefile:hover,
+.statusbar-chip--largefile[aria-expanded="true"] {
+  color: var(--writ-fg);
+  background: var(--writ-bg-hover);
+}
+
+.statusbar-chip--spelling {
+  margin-left: var(--writ-space-3);
+  border: 0;
+  background: transparent;
+  color: var(--writ-fg-muted);
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--writ-motion), background var(--writ-motion);
+}
+
+.statusbar-chip--spelling:hover {
+  color: var(--writ-fg);
+  background: var(--writ-bg-hover);
+}
+
+.statusbar-chip--spelling:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset, 2px);
 }
 
 .statusbar-field {

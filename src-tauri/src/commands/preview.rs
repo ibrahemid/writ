@@ -12,21 +12,29 @@
 //! Phase 2b adds `preview_set_layout`, `preview_detach`, `preview_print`,
 //! `preview_export` alongside the layout surface.
 
+use std::io::Read;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime, State};
 
 use tracing::{info, warn};
+use writ_core::buffer::BufferStatus;
 use writ_core::hash::Sha256Digest;
+use writ_core::notes::materialise::{DownloadOutcome, DOWNLOAD_TIMEOUT};
+use writ_core::preview::protocol::SNIFF_BYTES;
 use writ_core::preview::{
-    inline_image_data_url, render_contained, resolve_inline_image, size_within_inline_limit,
-    AssetScope, ContentTypeId, InlineImageRefusal, RenderError, RenderRequest,
-    RendererCapabilities, ThemePolarity,
+    check_inline_image_head, check_inline_image_stat, inline_image_route, render_contained,
+    resolve_inline_image, AssetReference, AssetScope, ContentTypeId, InlineImageRefusal,
+    RenderError, RenderRequest, RendererCapabilities, ThemePolarity,
 };
 
 use writ_storage::buffer_store::BufferStore;
 use writ_storage::errors::StorageResult;
 use writ_storage::layout_state::LayoutStateRecord;
 
+use crate::commands::materialise::{materialise_with, read_and_verify_with};
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::poison::recover_poison;
 use crate::preview::handler::{RenderCache, RenderedDoc};
@@ -303,10 +311,9 @@ fn asset_scope(state: &AppState, buffer_id: &str) -> Option<AssetScope> {
         let store = state.store.lock().ok()?;
         store.get(buffer_id).ok()?.source_path?
     };
-    // The previous render's scope is handed to core so its token survives a
-    // re-render of the same note; core decides when a token may be kept.
-    Some(AssetScope::for_render(
-        state.preview_render_cache.scope(buffer_id).as_ref(),
+    // The buffer's recorded scope keeps its token across re-renders and the
+    // editor's image requests; core decides when a token may be kept.
+    Some(state.preview_render_cache.scope_for(
         buffer_id,
         state.notes_root(),
         std::path::Path::new(&source_path).parent()?.to_path_buf(),
@@ -495,24 +502,25 @@ async fn render_in_order<R: Runtime>(
 /// Outcome of a request for one inline image.
 ///
 /// A refusal is an outcome the editor draws as a caption, not an error: the
-/// file being missing or oversized is ordinary, and a toast for each one
+/// file being missing or not downloaded is ordinary, and a toast for each one
 /// while scrolling would be noise. The `Err` arm is kept for the cases that
 /// mean the request itself could not be answered.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum InlineImageResult {
-    /// The bytes, encoded for an `img` element.
+    /// The image, served read-only from the note-asset route (ADR-035).
     Ready {
-        /// `data:<mime>;base64,…`.
-        data_url: String,
+        /// The route URL in the form this platform's webview loads.
+        url: String,
         /// MIME type decided by the leading bytes.
         mime: String,
-        /// Length of the file the URL holds.
+        /// Length of the file.
         byte_len: u64,
     },
-    /// The image is not carried inline, and why.
+    /// The image is not drawn, and why.
     Refused {
-        /// One of `outside_root`, `not_found`, `too_large`, `not_an_image`.
+        /// One of `outside_root`, `not_found`, `not_downloaded`, `too_large`,
+        /// `not_an_image`.
         reason: String,
     },
 }
@@ -525,81 +533,199 @@ impl InlineImageResult {
     }
 }
 
-/// Read one image referenced by an open file and answer with a data URL.
+/// Answer one image reference written in an open buffer with the URL the
+/// editor draws it from.
 ///
-/// `note_path` is the file the reference was written in; a buffer with no
-/// file resolves against the notes folder alone. The size refusal is decided
-/// on the metadata, so a file over the cap is never read.
+/// No bytes cross IPC: the webview loads the image from the preview scheme,
+/// which re-resolves the URL against the same scope. A file a sync provider
+/// has not downloaded is refused from its stat and never read here.
 #[tauri::command]
 pub async fn preview_inline_image<R: Runtime>(
     app: AppHandle<R>,
-    note_path: Option<String>,
+    buffer_id: String,
     reference: String,
 ) -> Result<InlineImageResult, String> {
     run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
-        preview_inline_image_inner(state, note_path.as_deref(), &reference)
+        preview_inline_image_inner(
+            state,
+            &buffer_id,
+            &reference,
+            &writ_storage::notes_index::is_dataless,
+        )
     })
     .await
 }
 
-/// [`preview_inline_image`] without Tauri.
+/// Download one image a sync provider holds, then answer as
+/// [`preview_inline_image`] does.
 ///
-/// The folder a reference resolves against is the one holding the file of an
-/// open tab, read off that tab's row as [`asset_scope`] does. The path the
-/// webview sends only picks the tab: one no open tab holds is refused, so the
-/// containment root is never a folder the webview chose.
+/// Reading the file is what asks the provider for it, so the read runs on a
+/// thread of its own while a pool thread waits on it, bounded by
+/// [`DOWNLOAD_TIMEOUT`]. A download that ends without the bytes answers
+/// `not_downloaded` again.
+#[tauri::command]
+pub async fn preview_inline_image_download<R: Runtime>(
+    app: AppHandle<R>,
+    buffer_id: String,
+    reference: String,
+) -> Result<InlineImageResult, String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        preview_inline_image_download_inner(
+            state,
+            &buffer_id,
+            &reference,
+            &writ_storage::notes_index::is_dataless,
+            &download_from_provider,
+        )
+    })
+    .await
+}
+
+/// [`preview_inline_image`] without Tauri, with the eviction probe injected.
+///
+/// The roots a reference resolves under are read off the buffer's row, as
+/// [`asset_scope`] reads them for a render: the folder holding its file, or
+/// the notes folder for a buffer with none. An id no open tab holds is
+/// refused, so a root is never a folder the webview chose.
 pub fn preview_inline_image_inner(
     state: &AppState,
-    note_path: Option<&str>,
+    buffer_id: &str,
     reference: &str,
+    is_dataless: &dyn Fn(&std::path::Path) -> bool,
 ) -> Result<InlineImageResult, String> {
-    let notes_root = state.notes_root();
-    let note_dir = match note_path {
-        None => notes_root.clone(),
-        Some(path) => match open_file_folder(state, path)? {
-            Some(dir) => dir,
-            None => return Ok(InlineImageResult::refused(InlineImageRefusal::OutsideRoot)),
-        },
-    };
-
-    let path = match resolve_inline_image(&notes_root, &note_dir, reference) {
-        Ok(path) => path,
+    let (scope, found) = match inline_image_target(state, buffer_id, reference)? {
+        Ok(target) => target,
         Err(refusal) => return Ok(InlineImageResult::refused(refusal)),
     };
-    let metadata = std::fs::metadata(&path).map_err(|err| err.to_string())?;
+    Ok(inline_image_answer(&scope, &found, is_dataless))
+}
+
+/// [`preview_inline_image_download`] without Tauri: `download` stands in for
+/// the provider.
+pub fn preview_inline_image_download_inner(
+    state: &AppState,
+    buffer_id: &str,
+    reference: &str,
+    is_dataless: &dyn Fn(&std::path::Path) -> bool,
+    download: &dyn Fn(&std::path::Path) -> DownloadOutcome,
+) -> Result<InlineImageResult, String> {
+    let (scope, found) = match inline_image_target(state, buffer_id, reference)? {
+        Ok(target) => target,
+        Err(refusal) => return Ok(InlineImageResult::refused(refusal)),
+    };
+    if is_dataless(&found.path) {
+        let outcome = download(&found.path);
+        if outcome != DownloadOutcome::Done {
+            warn!(
+                buffer_id,
+                outcome = ?outcome,
+                "inline image download ended without the file"
+            );
+            return Ok(InlineImageResult::refused(
+                InlineImageRefusal::NotDownloaded,
+            ));
+        }
+    }
+    Ok(inline_image_answer(&scope, &found, is_dataless))
+}
+
+/// Read `path` through its provider and wait for the outcome. The cancel flag
+/// is never raised: the wait is ended by the bytes landing or the timeout.
+fn download_from_provider(path: &std::path::Path) -> DownloadOutcome {
+    let mut outcome = None;
+    materialise_with(
+        path.to_path_buf(),
+        Arc::new(AtomicBool::new(false)),
+        DOWNLOAD_TIMEOUT,
+        |file| read_and_verify_with(file, writ_storage::notes_index::is_dataless),
+        |ended| outcome = Some(ended),
+    );
+    outcome.unwrap_or_else(|| DownloadOutcome::Failed("the download did not report".to_string()))
+}
+
+/// The scope `buffer_id`'s images resolve under and the file `reference`
+/// names inside it, or the refusal. The scope is recorded for the route,
+/// keeping the token the buffer already has.
+fn inline_image_target(
+    state: &AppState,
+    buffer_id: &str,
+    reference: &str,
+) -> Result<Result<(AssetScope, AssetReference), InlineImageRefusal>, String> {
+    let Some(note_dir) = open_buffer_folder(state, buffer_id)? else {
+        return Ok(Err(InlineImageRefusal::OutsideRoot));
+    };
+    let scope = state
+        .preview_render_cache
+        .scope_for(buffer_id, state.notes_root(), note_dir);
+    Ok(
+        resolve_inline_image(&scope.notes_root, &scope.note_dir, reference)
+            .map(|found| (scope, found)),
+    )
+}
+
+/// Decide a resolved file from its stat and its leading bytes, and mint its
+/// URL. A placeholder is refused before anything opens it.
+fn inline_image_answer(
+    scope: &AssetScope,
+    found: &AssetReference,
+    is_dataless: &dyn Fn(&std::path::Path) -> bool,
+) -> InlineImageResult {
+    let Ok(metadata) = std::fs::metadata(&found.path) else {
+        return InlineImageResult::refused(InlineImageRefusal::NotFound);
+    };
     if !metadata.is_file() {
-        return Ok(InlineImageResult::refused(InlineImageRefusal::NotFound));
+        return InlineImageResult::refused(InlineImageRefusal::NotFound);
     }
-    if let Err(refusal) = size_within_inline_limit(metadata.len()) {
-        return Ok(InlineImageResult::refused(refusal));
+    if let Err(refusal) = check_inline_image_stat(metadata.len(), is_dataless(&found.path)) {
+        return InlineImageResult::refused(refusal);
     }
-    let bytes = std::fs::read(&path).map_err(|err| err.to_string())?;
-    match inline_image_data_url(&bytes) {
-        Ok(image) => Ok(InlineImageResult::Ready {
-            data_url: image.data_url,
-            mime: image.mime,
-            byte_len: image.byte_len,
-        }),
-        Err(refusal) => Ok(InlineImageResult::refused(refusal)),
+    let head = match read_head(&found.path) {
+        Ok(head) => head,
+        Err(_) => return InlineImageResult::refused(InlineImageRefusal::NotFound),
+    };
+    let mime = match check_inline_image_head(&head) {
+        Ok(mime) => mime,
+        Err(refusal) => return InlineImageResult::refused(refusal),
+    };
+    let Some(route) = inline_image_route(scope, found) else {
+        return InlineImageResult::refused(InlineImageRefusal::OutsideRoot);
+    };
+    InlineImageResult::Ready {
+        url: format!("{}document/{route}", preview_url_prefix()),
+        mime: mime.to_string(),
+        byte_len: metadata.len(),
     }
 }
 
-/// The folder holding the file an open tab shows, by that file's path, or
-/// `None` when no open tab holds it. The store is let go before any file is
-/// touched.
-fn open_file_folder(state: &AppState, path: &str) -> Result<Option<std::path::PathBuf>, String> {
-    let source_path = {
+/// The first [`SNIFF_BYTES`] of a file, enough to decide its type.
+fn read_head(path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+    let mut head = Vec::with_capacity(SNIFF_BYTES);
+    std::fs::File::open(path)?
+        .take(SNIFF_BYTES as u64)
+        .read_to_end(&mut head)?;
+    Ok(head)
+}
+
+/// The folder an open buffer's images resolve against: the one holding its
+/// file, or the notes folder for a buffer with none. `None` when no open tab
+/// is that buffer. The store is let go before any file is touched.
+fn open_buffer_folder(
+    state: &AppState,
+    buffer_id: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let row = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
-        store
-            .find_active_by_source_path(path)
-            .map_err(|e| e.to_string())?
-            .and_then(|doc| doc.source_path)
+        store.find(buffer_id).map_err(|e| e.to_string())?
     };
-    Ok(source_path.and_then(|source| {
-        std::path::Path::new(&source)
+    let Some(row) = row.filter(|row| row.status == BufferStatus::Active) else {
+        return Ok(None);
+    };
+    Ok(match row.source_path {
+        Some(source) => std::path::Path::new(&source)
             .parent()
-            .map(std::path::Path::to_path_buf)
-    }))
+            .map(std::path::Path::to_path_buf),
+        None => Some(state.notes_root()),
+    })
 }
 
 #[cfg(test)]

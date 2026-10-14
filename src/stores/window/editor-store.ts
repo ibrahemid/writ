@@ -4,6 +4,7 @@ import type { EditorView } from "@codemirror/view";
 import type { FileOpenMode } from "../../types/buffer";
 import {
   debouncedSave,
+  forgetLandedText,
   cancelAutosave as cancelAutosaveService,
   currentSaveGeneration,
   flushAutosave as flushAutosaveService,
@@ -16,6 +17,7 @@ import {
   releaseUnsavedContent,
   saveNow as saveNowService,
   materializeContent,
+  type ChangeEncoder,
   type ContentSource,
   type DocumentSnapshot,
   type HeldContent,
@@ -26,10 +28,15 @@ import {
   noteDiskState,
   restoreNoteFile,
   saveNoteTo,
+  setBufferViewPosition,
   type NoteDiskAnswer,
   type UnmadeFile,
 } from "../../services/tauri";
 import { applyExternalDocument } from "../../editor/external-reload";
+import { encodeChangesSince } from "../../editor/change-diff";
+import { savesAsChanges, type FileOverrides } from "../../editor/large-file";
+import { logFailure } from "../../lib/log";
+import { saveStatusStore } from "../global/save-status";
 import { sameDocument } from "../../editor/same-document";
 import { readFailureOf, type ReadFailure } from "../../lib/read-failure";
 import {
@@ -168,6 +175,20 @@ function sameTextAtAGlance(a: Text, b: Text): boolean | null {
  */
 export type NoteFileState = "present" | "changed" | "removed";
 
+/** Where a note was left: the caret, and the first position on the top line of the view. */
+export interface ViewPosition {
+  cursor: number;
+  top: number;
+}
+
+/** A tier the note in front could move to, and the request to move it there. */
+export interface TierChange {
+  bufferId: string;
+  mode: FileOpenMode;
+}
+
+const NO_OVERRIDES: FileOverrides = {};
+
 /**
  * What reached the tab about its file: the three changes the watcher reports
  * (`buffer:external`), and the two ways a hold ends, which are a write of the
@@ -226,6 +247,24 @@ export function createEditorStore() {
   const [largeFileMode, setLargeFileMode] = createSignal<FileOpenMode | null>(
     null,
   );
+  // The longest line of the note in front as it was loaded, which decides
+  // whether a LongLines file wraps and highlights ([`featuresFor`]).
+  const [longestLine, setLongestLine] = createSignal(0);
+  // What the person turned on or off per file from the tier chip, for this
+  // session. Kept by buffer id, so switching away and back keeps it.
+  const [overrides, setOverrides] = createSignal<ReadonlyMap<string, FileOverrides>>(new Map());
+  // The tier of each note loaded this session, which the tab tooltip names
+  // when the status bar is hidden.
+  const [tiers, setTiers] = createSignal<ReadonlyMap<string, FileOpenMode>>(new Map());
+  // A tier the document in front calls for after a large edit, which the chip
+  // offers; and the switch, once accepted, for the editor to carry out.
+  const [tierOffer, setTierOffer] = createSignal<TierChange | null>(null);
+  const [tierSwitch, setTierSwitch] = createSignal<(TierChange & { seq: number }) | null>(null);
+  let tierSeq = 0;
+  // Where each note was last left in this window, so a tab whose cached
+  // editor state is gone still reopens where it was.
+  const viewPositions = new Map<string, ViewPosition>();
+  const closeListeners = new Set<(id: string) => void>();
   // Bumped on every change to the document in the view and whenever the view
   // takes another document. Nothing reads the text through it: a reader that
   // needs the text fetches it from the view ([`liveDoc`]) when it does its
@@ -739,6 +778,7 @@ export function createEditorStore() {
   async function restoreRemovedFile(id: string): Promise<SaveResult> {
     const text = liveTextOfRemoved(id);
     if (text === undefined) return NOTHING_TO_SAVE;
+    saveStatusStore.noteRequestedSave(id);
     const written = saveNowService(id, text, restoreNoteFile);
     noteWriteOfCurrentText(id);
     const result = await written;
@@ -757,6 +797,7 @@ export function createEditorStore() {
   async function saveRemovedNoteTo(id: string, path: string): Promise<SaveResult> {
     const text = liveTextOfRemoved(id);
     if (text === undefined) return NOTHING_TO_SAVE;
+    saveStatusStore.noteRequestedSave(id);
     const written = saveNowService(id, text, (bufferId, content) =>
       saveNoteTo(bufferId, content, path),
     );
@@ -1002,7 +1043,18 @@ export function createEditorStore() {
     forgetHashes(id);
     forgetFileState(id);
     clearUpdatedFromDisk(id);
+    forgetLandedText(id);
+    if (tierOffer()?.bufferId === id) setTierOffer(null);
     if (viewed?.id === id) viewed = null;
+    for (const listener of closeListeners) listener(id);
+  }
+
+  /** Hears every note whose tab closes; answers the call that stops it. */
+  function onNoteClosed(listener: (id: string) => void): () => void {
+    closeListeners.add(listener);
+    return () => {
+      closeListeners.delete(listener);
+    };
   }
 
   /**
@@ -1170,6 +1222,83 @@ export function createEditorStore() {
     };
   }
 
+  /** The person's choices for one file, over what its tier gives it. */
+  function overridesOf(id: string): FileOverrides {
+    return overrides().get(id) ?? NO_OVERRIDES;
+  }
+
+  function setOverride(id: string, feature: keyof FileOverrides, on: boolean) {
+    setOverrides((current) => {
+      const next = new Map(current);
+      next.set(id, { ...(current.get(id) ?? NO_OVERRIDES), [feature]: on });
+      return next;
+    });
+  }
+
+  /** The tier a note opened in this session, or null for one not loaded yet. */
+  function tierOf(id: string): FileOpenMode | null {
+    return tiers().get(id) ?? null;
+  }
+
+  function recordTier(id: string, mode: FileOpenMode) {
+    if (tiers().get(id)?.kind === mode.kind) return;
+    setTiers((current) => new Map(current).set(id, mode));
+  }
+
+  /** Offers `change` from the chip, or withdraws the offer with null. */
+  function offerTier(change: TierChange | null) {
+    const current = tierOffer();
+    if (change === null ? current === null : current?.bufferId === change.bufferId && current.mode.kind === change.mode.kind) return;
+    setTierOffer(change);
+  }
+
+  /** Takes the offered tier: the editor moves the note in front to it. */
+  function acceptTierOffer() {
+    const offer = tierOffer();
+    if (offer === null) return;
+    setTierOffer(null);
+    setTierSwitch({ ...offer, seq: ++tierSeq });
+  }
+
+  /**
+   * Records where note `id` was left. `persist` also writes it to the note's
+   * row, so a tab opened on it in a later session starts there.
+   */
+  function rememberViewPosition(id: string, position: ViewPosition, persist: boolean) {
+    const last = viewPositions.get(id);
+    viewPositions.set(id, position);
+    if (!persist || (last?.cursor === position.cursor && last.top === position.top)) return;
+    // Where a note was left is a convenience: nothing about it may stop a tab
+    // switch or a close, so a failure of any kind is a log line.
+    const fail = () => logFailure("the place a file was left could not be kept");
+    try {
+      void setBufferViewPosition(id, position.cursor, position.top).catch(fail);
+    } catch {
+      fail();
+    }
+  }
+
+  function viewPositionOf(id: string): ViewPosition | undefined {
+    return viewPositions.get(id);
+  }
+
+  /**
+   * Lets go of the document a note's last write landed with, for a note whose
+   * editor state the window no longer keeps: its next save sends the whole
+   * text.
+   */
+  function releaseDocument(id: string) {
+    forgetLandedText(id);
+  }
+
+  // The large tiers save by sending their changes (ADR-022). Only the note in
+  // front has a tier here, and only its view schedules saves through this.
+  function changeEncoderFor(bufferId: string): ChangeEncoder | undefined {
+    return bufferId === currentBufferId() && savesAsChanges(largeFileMode())
+      ? encodeChangesSince
+      : undefined;
+  }
+
   // Autosave and language detection are services; the editor component routes
   // through these so it only ever talks to its store (layering rule).
   function scheduleAutosave(
@@ -1207,7 +1336,7 @@ export function createEditorStore() {
       holdText(bufferId, typeof content === "function" ? content() : content, current, delayMs);
       return;
     }
-    debouncedSave(bufferId, content, delayMs);
+    debouncedSave(bufferId, content, delayMs, changeEncoderFor(bufferId));
     if (current) noteWriteOfCurrentText(bufferId);
   }
 
@@ -1275,7 +1404,8 @@ export function createEditorStore() {
     if (largeFileMode()?.kind === "Binary")
       return Promise.resolve(NOTHING_TO_SAVE);
     if (isRemovedOnDisk(bufferId)) return restoreRemovedFile(bufferId);
-    const written = saveNowService(bufferId, view.state.doc);
+    saveStatusStore.noteRequestedSave(bufferId);
+    const written = saveNowService(bufferId, view.state.doc, undefined, changeEncoderFor(bufferId));
     noteWriteOfCurrentText(bufferId);
     return written;
   }
@@ -1306,6 +1436,7 @@ export function createEditorStore() {
     const unsaved = peekUnsavedText(id);
     if (unsaved === undefined) return Promise.resolve(NOTHING_TO_SAVE);
     const current = isCurrentText(id, unsaved);
+    saveStatusStore.noteRequestedSave(id);
     const written = saveNowService(id, unsaved.content);
     if (current) noteWriteOfCurrentText(id);
     return written;
@@ -1333,6 +1464,11 @@ export function createEditorStore() {
     externalReload, requestExternalReload,
     pendingReveal, requestReveal, clearReveal,
     largeFileMode, setLargeFileMode,
+    longestLine, setLongestLine,
+    overridesOf, setOverride,
+    tierOf, recordTier,
+    tierOffer, offerTier, acceptTierOffer, tierSwitch,
+    rememberViewPosition, viewPositionOf, releaseDocument,
     registerView, getView, focusEditor,
     getActiveText,
     getSelectionRange,
@@ -1355,6 +1491,7 @@ export function createEditorStore() {
     noteEdited,
     noteSaved,
     noteClosed,
+    onNoteClosed,
     isDirty,
     isTracked,
     noteFileStates,

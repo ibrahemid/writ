@@ -527,6 +527,24 @@ pub fn update_size_and_timestamp(
     Ok(())
 }
 
+/// Records a buffer's caret and top-of-view offsets.
+pub fn update_view_position(
+    conn: &Connection,
+    id: &str,
+    cursor_pos: u64,
+    scroll_pos: u64,
+) -> StorageResult<()> {
+    conn.execute(
+        "UPDATE buffers SET cursor_pos = ?1, scroll_pos = ?2 WHERE id = ?3",
+        params![
+            i64::try_from(cursor_pos).unwrap_or(i64::MAX),
+            i64::try_from(scroll_pos).unwrap_or(i64::MAX),
+            id
+        ],
+    )?;
+    Ok(())
+}
+
 /// Stamps a buffer's `updated_at` to now without changing any other
 /// fields.
 pub fn update_timestamp(conn: &Connection, id: &str) -> StorageResult<()> {

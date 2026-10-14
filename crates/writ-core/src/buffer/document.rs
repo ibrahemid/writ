@@ -43,9 +43,11 @@ pub struct BufferDocument {
     pub language: Option<String>,
     /// Absolute path to the originating file, if the buffer mirrors one.
     pub source_path: Option<String>,
-    /// Cursor offset in bytes from the start of the buffer.
+    /// Where the caret was left, in UTF-16 code units from the start of the
+    /// editor's document (CodeMirror's positions, line breaks counted as one).
     pub cursor_pos: u64,
-    /// Scroll offset in bytes from the start of the buffer.
+    /// Where the line at the top of the view starts, counted as `cursor_pos`
+    /// is.
     pub scroll_pos: u64,
     /// Position of the tab in the visible tab strip; lower is earlier.
     pub tab_order: u32,

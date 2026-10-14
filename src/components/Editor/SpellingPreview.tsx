@@ -2,6 +2,7 @@ import { createSignal, Show, For, createEffect, createMemo, onCleanup } from "so
 import { spellingStore, entryKey } from "../../stores/global/spelling";
 import type { SpellingEntry } from "../../editor/spelling";
 import Button from "../Button/Button";
+import { showToast } from "../Notifications/Toast";
 import "./SpellingPreview.css";
 
 // Non-modal overlay listing every flagged range as `wrong → fix`, with
@@ -56,8 +57,9 @@ export default function SpellingPreview() {
 
   function apply() {
     const chosen = rows().filter((e) => isFixable(e) && selected().has(entryKey(e)));
-    spellingStore.applyEntries(chosen);
+    const fixed = spellingStore.applyEntries(chosen);
     closeSpellingPreview();
+    if (fixed > 0) showToast(`Fixed ${fixed} word${fixed === 1 ? "" : "s"}`, "info");
   }
 
   async function ignore(entry: SpellingEntry) {
@@ -156,31 +158,34 @@ export default function SpellingPreview() {
           <ul class="spelling-preview-list">
             <For each={rows()}>
               {(entry) => (
-                <li class="spelling-preview-row" onClick={() => spellingStore.reveal(entry)}>
+                <li class="spelling-preview-row">
                   <input
                     type="checkbox"
                     class="spelling-preview-check"
                     checked={selected().has(entryKey(entry))}
                     disabled={!isFixable(entry)}
-                    onClick={(e) => e.stopPropagation()}
                     onChange={(e) => toggleRow(entry, e.currentTarget.checked)}
                     aria-label={`Fix ${entry.word}`}
                   />
-                  <span class="spelling-preview-word">{entry.word}</span>
-                  <Show when={entry.suggestions.length > 0}>
-                    <span class="spelling-preview-arrow" aria-hidden="true">→</span>
-                    <span class="spelling-preview-fix">
-                      {entry.suggestions[0] === "" ? "(remove)" : entry.suggestions[0]}
-                    </span>
-                  </Show>
+                  <button
+                    type="button"
+                    class="spelling-preview-reveal"
+                    aria-label={`Show ${entry.word} in the file`}
+                    onClick={() => spellingStore.reveal(entry)}
+                  >
+                    <span class="spelling-preview-word">{entry.word}</span>
+                    <Show when={entry.suggestions.length > 0}>
+                      <span class="spelling-preview-arrow" aria-hidden="true">→</span>
+                      <span class="spelling-preview-fix">
+                        {entry.suggestions[0] === "" ? "(remove)" : entry.suggestions[0]}
+                      </span>
+                    </Show>
+                  </button>
                   <Show when={entry.kind === "Spelling"}>
                     <button
                       type="button"
                       class="spelling-preview-ignore"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void ignore(entry);
-                      }}
+                      onClick={() => void ignore(entry)}
                     >
                       Ignore
                     </button>

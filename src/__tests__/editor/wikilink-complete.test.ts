@@ -3,6 +3,7 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, runScopeHandlers } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import {
+  closeBrackets,
   completionStatus,
   currentCompletions,
   type Completion,
@@ -69,13 +70,22 @@ describe("wikilinkCompletionSource", () => {
     expect(candidates).not.toHaveBeenCalled();
   });
 
-  it("waits for a character before opening the list on its own", async () => {
+  // OD-10: the brackets alone open the list, with what the caller offers for
+  // an empty query (recent and nearby files first).
+  it("opens the list on a bare [[ with the files offered for an empty query", async () => {
     const candidates = vi.fn(async () => notes);
     const source = wikilinkCompletionSource({ candidates });
-    expect(await source(contextAt("[[]]", 2))).toBeNull();
-    expect(candidates).not.toHaveBeenCalled();
+    const result = await source(contextAt("[[]]", 2));
 
-    expect(await source(contextAt("[[]]", 2, true))).not.toBeNull();
+    expect(candidates).toHaveBeenCalledWith("");
+    expect(result?.from).toBe(2);
+    expect(result?.to).toBe(2);
+    expect(result?.options.map((o) => o.label)).toEqual(["Grocery list", "Growth"]);
+  });
+
+  it("stays closed on a bare [[ when there is nothing to offer", async () => {
+    const source = wikilinkCompletionSource({ candidates: async () => [] });
+    expect(await source(contextAt("[[]]", 2))).toBeNull();
   });
 
   it("offers nothing when the index knows no such name", async () => {
@@ -200,6 +210,44 @@ describe("the file-type gate", () => {
 
     expect(completionStatus(view.state)).toBeNull();
     expect(currentCompletions(view.state)).toEqual([]);
+    view.destroy();
+  });
+
+  it("opens the list when [[ is typed through bracket closing", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const candidates = vi.fn(async (query: string) => (query === "" ? notes : []));
+    const view = new EditorView({
+      state: EditorState.create({
+        extensions: [
+          markdown({ base: markdownLanguage }),
+          closeBrackets(),
+          wikilinkCompletionForFile,
+          wikilinkCompletion({ candidates }),
+        ],
+      }),
+      parent: document.body,
+    });
+    const typeChar = (ch: string) => {
+      const { from, to } = view.state.selection.main;
+      const insert = () =>
+        view.state.update({
+          changes: { from, to, insert: ch },
+          selection: { anchor: from + ch.length },
+          userEvent: "input.type",
+        });
+      const handled = view.state
+        .facet(EditorView.inputHandler)
+        .some((handler) => handler(view, from, to, ch, insert));
+      if (!handled) view.dispatch(insert());
+    };
+
+    typeChar("[");
+    typeChar("[");
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(view.state.doc.toString()).toBe("[[]]");
+    expect(candidates).toHaveBeenCalledWith("");
+    expect(currentCompletions(view.state).map((c) => c.label)).toEqual(["Grocery list", "Growth"]);
     view.destroy();
   });
 

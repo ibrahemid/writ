@@ -16,6 +16,7 @@ import {
   BLANK_PREVIEW_SRC,
 } from "../../stores/global/preview-url";
 import PreviewStatusChip, { type PreviewState } from "./PreviewStatusChip";
+import Button from "../Button/Button";
 import LinkConfirm, { type LinkRequest } from "./LinkConfirm";
 import "./preview-chrome.css";
 
@@ -185,6 +186,11 @@ export default function PreviewPane(props: Props) {
     setLinkRequest(request);
   }
 
+  function showSourceOnly() {
+    const buffer = props.buffer;
+    if (buffer) win.layout.set(buffer.id, buffer.source_path, { kind: "source" });
+  }
+
   async function doRender(force: boolean) {
     const buffer = props.buffer;
     const contentType = props.contentType;
@@ -251,7 +257,7 @@ export default function PreviewPane(props: Props) {
         setRenderedSrc(`${previewUrl("document", bufferId)}?v=${v}`);
       } else if (result.kind === "no_renderer") {
         setState("error");
-        setMessage(`no renderer for ${result.content_type}`);
+        setMessage("No preview for this file type.");
       } else {
         setState("error");
         setMessage(result.message);
@@ -433,7 +439,13 @@ export default function PreviewPane(props: Props) {
         sandbox="allow-scripts allow-same-origin"
       />
       <Show when={state() === "too_large"}>
-        <div class="preview-pane-overlay">Use the source view.</div>
+        <div class="preview-pane-overlay">
+          <p class="preview-pane-overlay-line">
+            This file is over {configStore.config().preview.render_refuse_threshold_mb} MB, so it
+            isn't previewed.
+          </p>
+          <Button onClick={showSourceOnly}>Switch to Source</Button>
+        </div>
       </Show>
       <PreviewStatusChip state={state()} warnings={warnings()} message={message()} />
       {/* A sibling of the iframe, never a wrapper: the frame element must stay
