@@ -31,9 +31,9 @@ const hosted = (consented: boolean): AiConfig => ({
 });
 
 describe("the provider table and endpoint rules", () => {
-  it("carries the thirteen rows writ-core serialises", () => {
+  it("carries the sixteen rows writ-core serialises", () => {
     expect(PROVIDERS.map((row) => row.id)).toEqual([
-      "ollama", "lmstudio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom",
+      "ollama", "lmstudio", "llamacpp", "jan", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom", "apple",
     ]);
   });
 
@@ -49,10 +49,12 @@ describe("the provider table and endpoint rules", () => {
       host: "localhost",
       host_port: "localhost:11434",
       is_hosted: false,
+      is_private_network: false,
       is_allowed: true,
       is_consented: true,
       provider: "ollama",
       key_state: NO_KEY,
+      is_on_device: false,
     });
     expect(getChatState(base(), NO_KEY)).toMatchObject({ enabled: false, model: "", is_consented: true });
   });

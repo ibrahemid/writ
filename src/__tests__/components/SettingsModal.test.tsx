@@ -169,6 +169,15 @@ const TEST_PROVIDERS = [
     needs_key: false,
     probe_port: null,
   }),
+  providerRow({
+    id: "apple",
+    label: "Apple Intelligence",
+    group: "on_device",
+    base_url: "",
+    models_url: "",
+    needs_key: false,
+    probe_port: null,
+  }),
 ];
 
 vi.mock("../../services/tauri", () => ({
@@ -1340,15 +1349,19 @@ describe("AI section", () => {
 
   // The table is data `writ-core` owns, so the picker never spells a provider
   // out itself: a row added in Rust appears here with no frontend change.
-  it("groups the providers the table names, running-on-this-machine first", async () => {
+  it("groups the providers the table names, what runs on this machine first", async () => {
     const { container } = await openAiSection();
     const groups = [...container.querySelectorAll('[data-setting="ai_provider"] optgroup')];
     expect(groups.map((g) => g.getAttribute("label"))).toEqual([
+      "Built into macOS",
       "Running on this machine",
       "Hosted",
       "Custom (OpenAI-compatible)",
     ]);
     expect([...groups[0].querySelectorAll("option")].map((o) => o.textContent)).toEqual([
+      "Apple Intelligence",
+    ]);
+    expect([...groups[1].querySelectorAll("option")].map((o) => o.textContent)).toEqual([
       "Ollama",
       "LM Studio",
     ]);
@@ -1615,6 +1628,63 @@ describe("AI section", () => {
       "Requests go to localhost:11434 on this machine. Nothing leaves it.",
     );
     expect(container.querySelector(".settings-ai-consent")).toBeNull();
+  });
+
+  it("asks consent for an address on the local network without naming a key", async () => {
+    mocks.aiEndpointState.mockResolvedValue(
+      hostedEndpoint({
+        host: "192.168.1.20",
+        host_port: "192.168.1.20:11434",
+        is_private_network: true,
+        provider: "custom",
+        key_state: { is_set: false, memory_only: false },
+      }),
+    );
+    const { container } = await openAiSection({
+      provider: "custom",
+      base_url: "http://192.168.1.20:11434/v1",
+    });
+    await waitFor(() => expect(container.querySelector(".settings-ai-consent")).not.toBeNull());
+    const text = collapse(container.querySelector(".settings-ai-consent-text")!.textContent);
+    expect(text).toContain("sent to 192.168.1.20:11434 on your local network");
+    expect(text).not.toContain("API key");
+  });
+
+  it("shows the on-device row with no model to choose and says chat needs another provider", async () => {
+    mocks.aiEndpointState.mockResolvedValue(
+      hostedEndpoint({
+        host: null,
+        host_port: null,
+        is_hosted: false,
+        is_allowed: false,
+        is_consented: false,
+        provider: "apple",
+        is_on_device: true,
+        key_state: { is_set: false, memory_only: false },
+      }),
+    );
+    mocks.aiCheckConnection.mockResolvedValue({
+      reachable: false,
+      model_listed: null,
+      kind: "on_device_unavailable",
+      detail: "apple_intelligence_off",
+      models: [],
+    });
+    const { container } = await openAiSection({ provider: "apple", model: "" });
+    await waitFor(() =>
+      expect(container.querySelector('[data-note="on-device"]')).not.toBeNull(),
+    );
+    expect(collapse(container.querySelector('[data-note="on-device"]')!.textContent)).toBe(
+      "Rewrite runs on this Mac. Nothing leaves it. Chat needs another provider.",
+    );
+    expect(container.querySelector('[data-setting="ai_model"]')).toBeNull();
+    expect(container.querySelector('[data-setting="ai_api_key"]')).toBeNull();
+    expect(container.querySelector(".settings-ai-consent")).toBeNull();
+    await waitFor(() =>
+      expect(container.querySelector(".settings-ai-connection-status")?.textContent).toBe(
+        "Turn on Apple Intelligence in System Settings.",
+      ),
+    );
   });
 
   // The check carries the API key, so an unconsented hosted endpoint is not

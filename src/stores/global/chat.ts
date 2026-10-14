@@ -1,18 +1,11 @@
 import { createSignal, createMemo, createRoot } from "solid-js";
 import {
   chatState,
-  chatAttachedSizes,
   chatList,
   chatOpen,
-  chatNew,
   chatRename,
   chatDelete,
-  chatRenderReply,
-  chatSend,
   chatStop,
-  chatApplyProposal,
-  chatDiscardProposal,
-  type ChatAttachedSize,
   type ChatDroppedProposal,
   type ChatEndpointState,
   type ChatAttachmentRef,
@@ -25,18 +18,16 @@ import {
   type DiffLine,
   type RequestIdentity,
 } from "../../services/tauri";
-import { onEvent, type UnlistenFn } from "../../services/events";
 import { aiConnectionStore } from "./ai-connection";
-import { aiProvidersStore } from "./ai-providers";
-import { bufferRegistry } from "./buffer-registry";
+import { aiProvidersStore, ON_DEVICE_PROVIDER, REWRITE_ONLY_MESSAGE } from "./ai-providers";
 import { configStore } from "./config";
-import { linkStore } from "./link";
-import { notesStore } from "./notes";
-import { saveStatusStore } from "./save-status";
-import { windowRegistry } from "./window-registry";
 import { showToast } from "./notifications";
 import { writeClipboardText } from "../../services/tauri";
-import type { WritEvent } from "../../types/events";
+import { createAttachments, noteName } from "./chat/attachments";
+import { createEntries, createExchange, type ChatView, type Message } from "./chat/exchange";
+import { createProposals } from "./chat/proposals";
+import { createRender } from "./chat/render";
+import { readableError } from "./chat/errors";
 
 export type {
   ChatAttachmentRef,
@@ -50,206 +41,28 @@ export type {
   RequestIdentity,
 };
 
-type ChatPayload = Extract<WritEvent, { kind: "ai:chat" }>["payload"];
-
-export type ChatStatus = "idle" | "thinking" | "streaming" | "done" | "stopped" | "error";
-
-/** How often a live reply is re-rendered while it streams (ADR-040 section 9). */
-export const RENDER_THROTTLE_MS = 120;
-
-/** Whether a chip's note can be read, and why not when it cannot. */
-export type AttachmentState = "ok" | "unreadable";
-
-/** A note the conversation carries, as the pane lists it. */
-export interface Attachment {
-  /** Absolute path, which is what the send names. */
-  path: string;
-  /** The file's name, which is what the row shows. */
-  name: string;
-  /** The note's size on disk. */
-  bytes: number;
-  /** What the folder calls this file, where one has been read: the
-   * folder-relative slug for a note inside the notes folder, and the whole
-   * absolute path for a file that is only reachable because a tab has it
-   * open. Two paths with the same key are the same file. */
-  key?: string;
-  /** Added by the tab in front rather than by a person. One such chip at a
-   * time: whichever tab comes forward next replaces it. */
-  auto?: boolean;
-  /** The folder whose chip carries this note, for a note attached by picking
-   * a folder. The note still travels on its own, one per file. */
-  viaFolder?: string;
-  /** Whether the note could be read. Unknown until a read has been tried. */
-  state?: AttachmentState;
-  /** Why the note could not be read, in Rust's words. */
-  reason?: string;
-  /** The tab holding this note has unsaved text, so the send carries the
-   * saved version rather than what is on screen (ADR-031 containment). */
-  dirty?: boolean;
-}
-
-/** The tab the editor is showing, as the chip row follows it. */
-export interface FrontTab {
-  /** The tab's own id, which a removal is remembered against. */
-  id: string;
-  /** The note it holds, or null for a tab with no file yet. */
-  note: Attachment | null;
-}
-
-/** What attaching a folder did, or the words it was refused in. */
-export type AttachFolderResult = { ok: true; notes: number } | { ok: false; reason: string };
-
-/** Why attaching the note in front was refused. */
-export type AddOpenNoteRefusal = "unsaved" | "none";
-
-export type AddOpenNoteResult =
-  | { ok: true; path: string }
-  | { ok: false; reason: AddOpenNoteRefusal };
-
-/** One turn on screen, at the index the stored conversation holds it. */
-export interface Message {
-  /** Where this turn sits in the stored conversation, which is the number
-   * `chat_apply_proposal` takes. */
-  turn: number;
-  role: "user" | "assistant";
-  content: string;
-  /** The reply as a rendered fragment, empty until it has been rendered. */
-  html: string;
-  attachments: ChatAttachmentRef[];
-  proposals: ChatProposal[];
-  /** Blocks the reply wrote that could not become a proposal. */
-  dropped: ChatDroppedProposal[];
-  /** The reply stopped at the model's token ceiling. */
-  truncated: boolean;
-  /** Which connection wrote this reply, where the frame said so. */
-  identity: RequestIdentity | null;
-}
-
-/** One conversation's session state: the send in flight, what it has shown,
- * and what each of its turns has been rendered to.
- *
- * There is one of these per conversation rather than one for the pane, so a
- * reply keeps arriving into the conversation it belongs to while the pane
- * shows another (R4 section 3).
- *
- * `renderGeneration` and `renderTimer` are stable mutable holders: they are
- * created with the entry and carried unchanged through every replacement of
- * it, so a spread never leaves a timer nobody can cancel.
- */
-interface Exchange {
-  /** The send in flight, or empty when nothing is. */
-  requestId: string;
-  user: Message | null;
-  reply: Message | null;
-  status: ChatStatus;
-  errorMessage: string;
-  /** The typed failure's kind, for the recovery action. Empty for an untyped
-   * frame. */
-  errorKind: string;
-  /** Which connection refused, where the failure named one. */
-  errorIdentity: RequestIdentity | null;
-  lastSend: { turn: number; text: string; paths: string[] } | null;
-  htmlByTurn: Record<number, string>;
-  /** Which connection wrote each reply of this conversation. The file records
-   * no such thing, so a turn read back off disk has none. */
-  identityByTurn: Record<number, RequestIdentity>;
-  renderGeneration: Map<number, number>;
-  renderTimer: { handle: ReturnType<typeof setTimeout> | null };
-}
-
-function blankExchange(): Exchange {
-  return {
-    requestId: "",
-    user: null,
-    reply: null,
-    status: "idle",
-    errorMessage: "",
-    errorKind: "",
-    errorIdentity: null,
-    lastSend: null,
-    htmlByTurn: {},
-    identityByTurn: {},
-    renderGeneration: new Map(),
-    renderTimer: { handle: null },
-  };
-}
-
-/** How the conversation reads a note's size for the send dialog. */
-export function totalBytes(attachments: readonly Attachment[]): number {
-  return attachments.reduce((sum, note) => sum + note.bytes, 0);
-}
-
-/** The note's own name, which is what a chip shows. */
-export function noteName(path: string): string {
-  const parts = path.split(/[\\/]/);
-  return parts[parts.length - 1] || path;
-}
-
-/** Whether a path is the whole of where a file is, rather than a key the notes
- * folder gives it. A file outside the folder is known by nothing else. */
-export function isAbsolutePath(path: string): boolean {
-  return path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
-}
-
-/** What a proposal's line reads: the key a note is filed under, and the file's
- * own name for a file outside the folder, whose whole path is in the title. */
-export function proposalLabel(path: string): string {
-  return isAbsolutePath(path) ? noteName(path) : path;
-}
-
-/** What a chip reads: the note's own name. Two notes of the same name are told
- * apart by the folder in the chip's title, which is what `key` carries. */
-export function chipLabel(note: Attachment): string {
-  return note.name.length > 0 ? note.name : noteName(note.path);
-}
-
-/** The whole of what the folder calls a note, for a line that has to tell two
- * notes of one name apart where no folder is shown beside it. */
-export function noteKeyLabel(note: Attachment): string {
-  return note.key ?? note.path;
-}
-
-/** What a folder's chip reads: the folder's own name, the slash saying it is
- * one. The folders above it are in the chip's title. */
-export function folderChipLabel(folder: string): string {
-  const parts = folder.split(/[\\/]/).filter((part) => part.length > 0);
-  return `${parts[parts.length - 1] ?? folder}/`;
-}
-
-/** One row of the chip line: a note, or a folder with the notes it carries. */
-export type ChipRow =
-  | { kind: "note"; note: Attachment }
-  | { kind: "folder"; folder: string; notes: Attachment[]; bytes: number };
-
-/** The chip line, as the set reads: a note picked on its own is its own chip,
- * and the notes one folder brought are that folder's chip. The set stays flat,
- * so what the request carries is still one note per file. */
-export function chipRows(attachments: readonly Attachment[]): ChipRow[] {
-  const rows: ChipRow[] = [];
-  const folders = new Map<string, Extract<ChipRow, { kind: "folder" }>>();
-  for (const note of attachments) {
-    const folder = note.viaFolder;
-    if (folder === undefined) {
-      rows.push({ kind: "note", note });
-      continue;
-    }
-    const held = folders.get(folder);
-    if (held === undefined) {
-      const row: Extract<ChipRow, { kind: "folder" }> = {
-        kind: "folder",
-        folder,
-        notes: [note],
-        bytes: note.bytes,
-      };
-      folders.set(folder, row);
-      rows.push(row);
-      continue;
-    }
-    held.notes.push(note);
-    held.bytes += note.bytes;
-  }
-  return rows;
-}
+export {
+  chipLabel,
+  chipRows,
+  folderChipLabel,
+  isAbsolutePath,
+  noteKeyLabel,
+  noteName,
+  proposalLabel,
+  totalBytes,
+} from "./chat/attachments";
+export type {
+  AddOpenNoteRefusal,
+  AddOpenNoteResult,
+  AttachFolderResult,
+  Attachment,
+  AttachmentState,
+  ChipRow,
+  FrontTab,
+} from "./chat/attachments";
+export type { ChatStatus, Message } from "./chat/exchange";
+export type { ProposalVerdict } from "./chat/proposals";
+export { RENDER_THROTTLE_MS } from "./chat/render";
 
 /** Whether a rebuilt turn shows anything the last one did not. A reload hands
  * back turns that are equal in new arrays, so this reads the fields rather
@@ -261,6 +74,7 @@ function sameMessage(held: Message, next: Message): boolean {
     held.html === next.html &&
     held.truncated === next.truncated &&
     held.identity === next.identity &&
+    held.writing === next.writing &&
     sameLength(held.dropped, next.dropped) &&
     held.dropped.every(
       (drop, index) =>
@@ -318,7 +132,8 @@ export type ReadinessState =
   | "no_key"
   | "offline_local"
   | "model_unavailable"
-  | "unconsented";
+  | "unconsented"
+  | "rewrite_only";
 
 /** What pressing the readiness line does. */
 export type ReadinessAction =
@@ -329,13 +144,6 @@ export type Readiness =
   | { state: "ready" }
   | { state: Exclude<ReadinessState, "ready">; message: string; action: ReadinessAction };
 
-function newRequestId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 // Singleton state — Writ is single-window. One conversation is on screen at a
 // time; the entries behind it are per conversation, because a reply keeps
 // arriving into the conversation it was sent from.
@@ -345,85 +153,45 @@ function createChatStore() {
   // than show an empty list as if there were no chats.
   const [listFailed, setListFailed] = createSignal(false);
   const [current, setCurrent] = createSignal<ChatConversation | null>(null);
-  const [exchanges, setExchanges] = createSignal<Record<string, Exchange>>({});
-  const [attachments, setAttachments] = createSignal<Attachment[]>([]);
   // A failure that belongs to the pane rather than to any one conversation:
   // opening, renaming and deleting all end here, and none of them may write
   // over the status of an exchange that is still streaming.
   const [paneError, setPaneError] = createSignal("");
   const [draft, setDraft] = createSignal("");
   const [editing, setEditing] = createSignal<number | null>(null);
-  const [refusals, setRefusals] = createSignal<Record<string, string>>({});
-  // Counts the times the chip set was emptied for a conversation, which is
-  // what the pane watches to offer the tab in front again.
-  const [attachGeneration, setAttachGeneration] = createSignal(0);
-  // The tab the automatic chip is following, the tab whose automatic chip was
-  // sent away, and the ticket the latest follow holds. Plain fields rather
-  // than signals: the pane calls `followTab` from an effect, and an effect
-  // that read these would re-run on its own writes.
-  let autoTabId: string | null = null;
-  let suppressedTabId: string | null = null;
-  let followTicket = 0;
-  // The note the last settled follow answered for, which is not always a chip:
-  // a note already on the list by hand is answered by leaving it alone. Read
-  // rather than the chip row, so a rebuilt tab list does not read disk again
-  // for a tab that has already been answered.
-  let followedPath: string | null = null;
   // True while a stored conversation is being read and rendered, so the pane
   // shows nothing rather than the copy that belongs to a chat with no turns.
   const [loading, setLoading] = createSignal(false);
 
-  // What each turn has been asked to render and what came back, keyed by
-  // conversation and turn. A settle renders the finished reply and the reload
-  // behind it walks the same turns, so without this one ending is two renders.
-  // A null fragment is a render still in flight.
-  const renderAsked = new Map<string, { markdown: string; html: string | null }>();
-  // Proposals whose write is in flight, keyed `${turn}:${path}`. Applying is
-  // one-shot: a second press while the first write runs does nothing. It is a
-  // signal rather than a plain set because the card's disabled state is read
-  // from it, and a card that cannot see the write end stays dead.
-  const [applying, setApplying] = createSignal<Record<string, true>>({});
-  // Held for as long as a send is between the draft and the status that says
-  // the pane is busy. Retry takes it too, because it is the other way in.
-  let sending = false;
-  let notesSubscription: Promise<UnlistenFn> | null = null;
+  const view: ChatView = {
+    current,
+    setCurrent,
+    draft,
+    setDraft: (text) => setDraft(text),
+    editing,
+    setEditing: (turn) => setEditing(turn),
+    setPaneError: (message) => setPaneError(message),
+  };
+  const entries = createEntries();
+  const render = createRender(entries);
+  const chips = createAttachments();
+  const proposals = createProposals(view, {
+    refreshAttachedSizes: () => chips.refreshAttachedSizes(),
+  });
+  const exchange = createExchange(view, entries, render, {
+    attachedOnDisk: () => chips.attachedOnDisk(),
+    refreshList: () => refreshList(),
+    clearView: () => clearView(),
+    failWith: (message) => failWith(message),
+  });
 
-  function entryOf(id: string | undefined | null): Exchange | undefined {
-    return id ? exchanges()[id] : undefined;
-  }
-
-  const currentEntry = (): Exchange | undefined => entryOf(current()?.id);
-
-  /** Makes sure a conversation has session state, and answers it. */
-  function ensureEntry(id: string): Exchange {
-    const held = exchanges()[id];
-    if (held) return held;
-    const made = blankExchange();
-    setExchanges((all) => ({ ...all, [id]: made }));
-    return made;
-  }
-
-  /** Replaces part of one conversation's entry, leaving every other alone. */
-  function patchEntry(id: string, change: Partial<Exchange>): void {
-    setExchanges((all) => {
-      const held = all[id];
-      if (!held) return all;
-      return { ...all, [id]: { ...held, ...change } };
-    });
-  }
+  const currentEntry = exchange.currentEntry;
 
   function dropEntry(id: string): void {
-    const held = exchanges()[id];
-    if (held) cancelScheduledRender(held);
-    setExchanges((all) => {
-      if (!(id in all)) return all;
-      const next = { ...all };
-      delete next[id];
-      return next;
-    });
-    for (const key of [...renderAsked.keys()]) {
-      if (key.startsWith(`${id}:`)) renderAsked.delete(key);
-    }
+    const held = entries.entryOf(id);
+    if (held) render.cancelScheduledRender(held);
+    entries.removeEntry(id);
+    render.forgetConversation(id);
   }
 
   function toMessage(
@@ -517,23 +285,7 @@ function createChatStore() {
     return shown;
   });
 
-  /** Whether a reply is still arriving into that conversation, on screen or
-   * not. */
-  function isLive(id: string): boolean {
-    const held = entryOf(id)?.status;
-    return held === "thinking" || held === "streaming";
-  }
-
-  /** Every conversation with a reply still arriving. */
-  function liveConversations(): string[] {
-    return Object.keys(exchanges()).filter((id) => isLive(id));
-  }
-
-  function statusOf(id: string): ChatStatus {
-    return entryOf(id)?.status ?? "idle";
-  }
-
-  function status(): ChatStatus {
+  function status() {
     const held = currentEntry()?.status ?? "idle";
     if (held !== "idle") return held;
     return paneError() ? "error" : held;
@@ -554,32 +306,9 @@ function createChatStore() {
     return currentEntry()?.errorIdentity ?? null;
   }
 
-  function isBusy(): boolean {
-    const id = current()?.id;
-    return id ? isLive(id) : false;
-  }
-
-  /** The send Retry would repeat, from this session or from the file.
-   *
-   * Nothing is live after a relaunch, and a conversation whose last turn is a
-   * person's is exactly a send whose reply never arrived, so it is offered
-   * again from the file rather than from session state nothing kept. */
-  function retryable(): { turn: number; text: string; paths: string[] } | null {
-    const entry = currentEntry();
-    if (entry?.lastSend) return entry.lastSend;
-    const turns = current()?.turns ?? [];
-    const last = turns[turns.length - 1];
-    if (!last || last.role !== "user") return null;
-    return {
-      turn: turns.length - 1,
-      text: last.content,
-      paths: last.attachments.map((note) => note.path),
-    };
-  }
-
   /** Whether the pane holds a message it could send again. */
   function canRetry(): boolean {
-    return retryable() !== null;
+    return exchange.retryable() !== null;
   }
 
   /** Shows a failure that belongs to the pane and to no conversation. */
@@ -587,284 +316,30 @@ function createChatStore() {
     setPaneError(message);
   }
 
-  /** Clears the view without touching any conversation's entry or the chips. */
+  /** Clears the view without touching any conversation's entry or the chips.
+   *
+   * The draft stays: a question typed before New chat, or before opening
+   * another chat, is still the question (CH-24). A turn being edited is the
+   * exception, because its words belong to the conversation it came from. */
   function clearView() {
     setCurrent(null);
-    setRefusals({});
+    proposals.clearRefusals();
     setPaneError("");
-    setEditing(null);
-    setDraft("");
+    if (editing() !== null) {
+      setEditing(null);
+      setDraft("");
+    }
   }
 
   /** Puts the pane back to holding nothing: no conversation on screen and no
    * session state behind one. The chips are left alone, because they are
    * cleared where a conversation changes (R5 design item 7). */
   function reset() {
-    for (const id of Object.keys(exchanges())) dropEntry(id);
+    for (const id of Object.keys(entries.exchanges())) dropEntry(id);
     clearView();
-    autoTabId = null;
-    suppressedTabId = null;
-    followedPath = null;
-  }
-
-  /** Empties the chip set and asks the pane for the tab in front again.
-   *
-   * The notes belong to the conversation they were attached in (R5 design
-   * item 7), so a conversation change takes the whole set with it, a removal
-   * included: the next conversation starts from what the editor is showing. */
-  function clearChips() {
-    setAttachments([]);
-    autoTabId = null;
-    suppressedTabId = null;
-    followedPath = null;
-    setAttachGeneration((count) => count + 1);
-  }
-
-  /** Adds a note to what the request carries. Attaching is a user's action and
-   * nothing else adds one, so the list the pane shows is the whole of what
-   * leaves the machine (ADR-031 rule 2.5). */
-  function attach(note: Attachment) {
-    setAttachments((held) =>
-      held.some((other) => other.path === note.path) ? held : [...held, note],
-    );
-  }
-
-  /** Takes a note back out of what the request carries. Sending the automatic
-   * chip away is remembered against the tab it came from, so it does not
-   * return while that tab is still the one in front. */
-  function detach(path: string) {
-    const held = attachments().find((note) => note.path === path);
-    if (held?.auto === true) suppressedTabId = autoTabId;
-    setAttachments((all) => all.filter((note) => note.path !== path));
-  }
-
-  function isAttached(path: string): boolean {
-    return attachments().some((note) => note.path === path);
-  }
-
-  /** What the folder calls each of these notes, and how big each one is now,
-   * keyed by the path that was asked about. A folder that refuses the read
-   * answers nothing rather than failing the caller: a chip states what was
-   * last read of it until a send reads it again. */
-  async function readKeys(paths: string[]): Promise<Map<string, ChatAttachedSize>> {
-    const rows = await chatAttachedSizes(paths).catch(() => []);
-    return new Map(rows.map((row) => [row.path, row]));
-  }
-
-  /** Adds notes, each of them once, with the key the folder knows them by.
-   *
-   * A conversation file names a note by its folder-relative key and the pane
-   * holds absolute paths, so one note reaches the list by two spellings. The
-   * keys are read for the notes arriving and the held ones in one call, so a
-   * note already on the list is recognised whichever spelling arrives. Every
-   * writer that does not already know a note's key comes through here. */
-  async function attachAll(notes: Attachment[]) {
-    const held = attachments();
-    const wanted = notes.filter(
-      (note, index) =>
-        !held.some((other) => other.path === note.path) &&
-        notes.findIndex((other) => other.path === note.path) === index,
-    );
-    if (wanted.length === 0) return;
-    const byPath = await readKeys([
-      ...wanted.map((note) => note.path),
-      ...held.map((note) => note.path),
-    ]);
-    const taken = new Set<string>();
-    for (const note of held) {
-      const key = byPath.get(note.path)?.key ?? note.key;
-      if (key !== undefined) taken.add(key);
-    }
-    for (const note of wanted) {
-      const found = byPath.get(note.path);
-      const key = found?.key ?? note.key;
-      if (key !== undefined) {
-        if (taken.has(key)) continue;
-        taken.add(key);
-      }
-      attach({ ...note, bytes: found?.bytes ?? note.bytes, key });
-    }
-  }
-
-  /** Attaches every note one folder holds, the subfolders included.
-   *
-   * The folder is how the notes were chosen and how they are shown, not a
-   * second kind of thing that travels: the request carries them one per file,
-   * exactly as the folder's chip lists them (ADR-031 rule 2.5). The paths come
-   * from the notes index, never from a directory walk.
-   *
-   * The limits are Rust's and so are the sentences they are refused in. The
-   * sizes of the notes arriving and of the notes already held are read in one
-   * call, which is the call that refuses a note over the per-note ceiling and
-   * a conversation over the note count, so a folder that would go over attaches
-   * nothing rather than as much of itself as fits. */
-  async function attachFolder(folder: string): Promise<AttachFolderResult> {
-    const paths = await linkStore.notePathsInFolder(folder);
-    if (paths.length === 0) return { ok: false, reason: "That folder holds no files." };
-    const held = attachments();
-    const wanted = paths.filter(
-      (path, index) =>
-        paths.indexOf(path) === index && !held.some((note) => note.path === path),
-    );
-    // Every note under it is already a chip, so the folder adds nothing and
-    // refuses nothing.
-    if (wanted.length === 0) return { ok: true, notes: 0 };
-    let rows: ChatAttachedSize[];
-    try {
-      rows = await chatAttachedSizes([...wanted, ...held.map((note) => note.path)]);
-    } catch (error) {
-      return { ok: false, reason: readableError(error) };
-    }
-    const byPath = new Map(rows.map((row) => [row.path, row]));
-    const taken = new Set(
-      held
-        .map((note) => byPath.get(note.path)?.key ?? note.key)
-        .filter((key): key is string => key !== undefined),
-    );
-    let added = 0;
-    for (const path of wanted) {
-      const found = byPath.get(path);
-      const key = found?.key;
-      if (key !== undefined) {
-        if (taken.has(key)) continue;
-        taken.add(key);
-      }
-      attach({ path, name: noteName(path), bytes: found?.bytes ?? 0, key, viaFolder: folder });
-      added += 1;
-    }
-    return { ok: true, notes: added };
-  }
-
-  /** Takes a folder's chip back out, and with it every note it carried: the
-   * chip was one choice, so undoing it undoes the whole of it. */
-  function detachFolder(folder: string) {
-    setAttachments((all) => all.filter((note) => note.viaFolder !== folder));
-  }
-
-  /** Attaches a note the pane knows only a path for, reading its size from
-   * disk so the chip and the send dialog state the same number. */
-  async function attachByPath(path: string) {
-    await attachAll([{ path, name: noteName(path), bytes: 0 }]);
-  }
-
-  /** Points the automatic chip at the tab the editor is showing.
-   *
-   * The note in front follows the editor: the tab that comes forward replaces
-   * the chip the last one left, so the row states what the next message will
-   * carry rather than what was in front when the pane opened. A chip a person
-   * added is never the one replaced. A tab with no file gets no chip, and a
-   * chip sent away stays away until another tab is focused, which is what
-   * `detach` remembers.
-   *
-   * The read that resolves the note happens before the list is touched, and a
-   * later call retires this one's ticket: holding Cmd+] cannot leave two
-   * automatic chips or the chip of a tab that is no longer in front. */
-  async function followTab(front: FrontTab | null): Promise<void> {
-    const id = front?.id ?? null;
-    const previous = autoTabId;
-    if (id !== previous) {
-      autoTabId = id;
-      // Focusing another tab forgets a removal, the tab it was removed from
-      // included: the offer is about what is in front, not about history.
-      if (suppressedTabId !== null && suppressedTabId !== id) suppressedTabId = null;
-    }
-    const wanted = suppressedTabId !== null && suppressedTabId === id ? null : front?.note ?? null;
-    if (id === previous && followedPath === (wanted?.path ?? null)) return;
-    const ticket = (followTicket += 1);
-    if (!wanted) {
-      followedPath = null;
-      setAttachments((held) => held.filter((note) => note.auto !== true));
-      return;
-    }
-    const held = attachments().filter((note) => note.auto !== true);
-    const byPath = await readKeys([wanted.path, ...held.map((note) => note.path)]);
-    if (ticket !== followTicket) return;
-    followedPath = wanted.path;
-    const found = byPath.get(wanted.path);
-    const key = found?.key ?? wanted.key;
-    // One note is one chip however each spelling reached the list, so the
-    // note in front is dropped where a person already picked it.
-    const taken = new Set(
-      held.map((note) => byPath.get(note.path)?.key ?? note.key).filter((one) => one !== undefined),
-    );
-    setAttachments((all) => {
-      const kept = all.filter((note) => note.auto !== true);
-      if (kept.some((note) => note.path === wanted.path)) return kept;
-      if (key !== undefined && taken.has(key)) return kept;
-      return [...kept, { ...wanted, bytes: found?.bytes ?? wanted.bytes, key, auto: true }];
-    });
-  }
-
-  /** The tab in front, when it holds a note on disk. */
-  function frontTab(): { id: string; path: string; bytes: number } | null {
-    const activeId = windowRegistry.getActive()?.tabs.activeTabId();
-    if (!activeId) return null;
-    const doc = bufferRegistry.activeTabs().find((tab) => tab.id === activeId);
-    if (!doc || doc.source_path === null) return null;
-    return { id: doc.id, path: doc.source_path, bytes: doc.size_bytes };
-  }
-
-  /** Attaches the note in front, or says why it cannot be attached.
-   *
-   * A tab with no file has no path to name and nothing on disk to read, so it
-   * is refused in words rather than silently skipped (R5 M2). */
-  async function addOpenNote(): Promise<AddOpenNoteResult> {
-    const activeId = windowRegistry.getActive()?.tabs.activeTabId();
-    if (!activeId) return { ok: false, reason: "none" };
-    const front = frontTab();
-    if (!front) return { ok: false, reason: "unsaved" };
-    await attachAll([{ path: front.path, name: noteName(front.path), bytes: front.bytes }]);
-    return { ok: true, path: front.path };
-  }
-
-  /** Whether a tab holding this note has text the file does not.
-   *
-   * Never throws: the comparison lives in a window store reached through the
-   * registry, and a pane rendered before one exists must still list its
-   * chips. */
-  function noteIsDirty(path: string): boolean {
-    try {
-      // An absolute key names one file, so it matches one tab or none: the
-      // suffix is there for a folder-relative key and would otherwise be a
-      // second way to land on the wrong tab.
-      const whole = isAbsolutePath(path);
-      const doc = bufferRegistry
-        .activeTabs()
-        .find(
-          (tab) =>
-            tab.source_path === path ||
-            (!whole && tab.source_path !== null && tab.source_path.endsWith(`/${path}`)),
-        );
-      return doc ? saveStatusStore.stateOf(doc.id) === "dirty" : false;
-    } catch {
-      return false;
-    }
-  }
-
-  /** The files open in a tab that the notes index does not already offer, for
-   * the `@` list: a tab outside the notes folder is context because the user
-   * opened it, and nothing else in the pane knows about it.
-   *
-   * With no notes root read yet every open file is offered, and the key each
-   * one attaches under takes the duplicate back out. */
-  function openTabCandidates(query: string, limit: number): { path: string; name: string }[] {
-    const wanted = query.trim().toLowerCase();
-    const found: { path: string; name: string }[] = [];
-    try {
-      const seen = new Set<string>();
-      for (const tab of bufferRegistry.activeTabs()) {
-        const path = tab.source_path;
-        if (path === null || seen.has(path) || notesStore.contains(path)) continue;
-        const name = noteName(path);
-        if (wanted.length > 0 && !name.toLowerCase().includes(wanted)) continue;
-        seen.add(path);
-        found.push({ path, name });
-        if (found.length === limit) break;
-      }
-    } catch {
-      return [];
-    }
-    return found;
+    setDraft("");
+    proposals.reset();
+    chips.forgetFollow();
   }
 
   /** The models the connection's provider lists, for the picker.
@@ -896,6 +371,13 @@ function createChatStore() {
         state: "off",
         message: "Chat is turned off.",
         action: { kind: "settings", section: "apps", setting: "ai.chat.enabled" },
+      };
+    }
+    if (ai.provider === ON_DEVICE_PROVIDER) {
+      return {
+        state: "rewrite_only",
+        message: REWRITE_ONLY_MESSAGE,
+        action: { kind: "settings", section: "apps", setting: "ai.provider" },
       };
     }
     const model = chatModel().trim();
@@ -962,36 +444,22 @@ function createChatStore() {
     }
   }
 
-  /** Follows the notes folder, so a chip states the size the next send will
-   * carry rather than the size read when it was attached. Subscribed once; a
-   * host with no event bus leaves the chips as they are rather than failing
-   * the pane. */
-  function watchNotes() {
-    if (notesSubscription) return;
-    try {
-      notesSubscription = onEvent("notes:changed", (payload) => {
-        if (!payload) return;
-        const touched = attachments().some(
-          (note) => note.path === payload.path || payload.path.endsWith(`/${note.path}`),
-        );
-        if (touched) void refreshAttachedSizes();
-      });
-      void notesSubscription.catch(() => undefined);
-    } catch {
-      notesSubscription = null;
-    }
-  }
-
   /** Loads the list and shows the conversation last written to.
    *
    * The file is the conversation (ADR-040 decision 1), so opening the pane
    * reads one rather than starting one: a chat closed yesterday is on screen
-   * where it was left. */
+   * where it was left. The connection is checked as the pane opens, so the
+   * readiness line states what a send would meet rather than waiting for one
+   * to fail (CH-22). */
   async function openPane() {
     aiConnectionStore.watch();
-    watchNotes();
+    if (aiConnectionStore.status() === null && !aiConnectionStore.checking()) {
+      void aiConnectionStore.check();
+    }
+    chips.watchNotes();
+    proposals.watchOfferedNotes();
     await refreshList();
-    if (current() || isBusy()) return;
+    if (current() || exchange.isBusy()) return;
     const recent = conversations()[0];
     if (recent) await open(recent.id);
   }
@@ -1011,10 +479,10 @@ function createChatStore() {
     try {
       clearView();
       // The notes belong to the chat they were attached in (R5 design item 7).
-      clearChips();
-      ensureEntry(id);
+      chips.clearChips();
+      entries.ensureEntry(id);
       setCurrent(conversation);
-      await renderStoredReplies(conversation);
+      await render.renderStoredReplies(conversation);
     } finally {
       setLoading(false);
     }
@@ -1026,7 +494,7 @@ function createChatStore() {
     clearView();
     // A new chat starts with the note in front and nothing the last chat
     // carried.
-    clearChips();
+    chips.clearChips();
   }
 
   async function rename(id: string, title: string) {
@@ -1042,8 +510,8 @@ function createChatStore() {
   /** Deletes a conversation, stopping its reply first: the file is about to
    * go, and a task still writing to it could only warn. */
   async function remove(id: string) {
-    const entry = entryOf(id);
-    if (entry && isLive(id)) await chatStop(id, entry.requestId).catch(() => undefined);
+    const entry = entries.entryOf(id);
+    if (entry && entries.isLive(id)) await chatStop(id, entry.requestId).catch(() => undefined);
     try {
       await chatDelete(id);
     } catch (error) {
@@ -1053,176 +521,22 @@ function createChatStore() {
     dropEntry(id);
     if (current()?.id === id) {
       clearView();
-      clearChips();
+      chips.clearChips();
     }
     await refreshList();
-  }
-
-  /** Sends the draft. The caller has already cleared the blockers, so this
-   * only names the conversation and hands the message over.
-   *
-   * `resolved` is the list the send dialog counted. It is passed in rather
-   * than read again, so the bytes a person agreed to are the bytes that leave
-   * the machine (R5 M5). */
-  async function send(resolved?: Attachment[]) {
-    const text = draft().trim();
-    // The status says nothing until the notes have been read off disk, so the
-    // latch is what a second Send before that meets.
-    if (!text || isBusy() || sending) return;
-    sending = true;
-    try {
-      await sendTyped(text, resolved);
-    } finally {
-      sending = false;
-    }
-  }
-
-  async function sendTyped(text: string, resolved?: Attachment[]) {
-    let conversation = current();
-    if (!conversation) {
-      try {
-        conversation = await chatNew();
-      } catch (error) {
-        failWith(readableError(error));
-        return;
-      }
-      const started = conversation;
-      clearView();
-      ensureEntry(started.id);
-      setCurrent(started);
-      void refreshList();
-    }
-
-    // The paths come from the list the dialog counted, so one note is one path
-    // in the request however each writer of the list spelled it.
-    const notes = resolved ?? (await attachedOnDisk());
-    const paths = notes.map((note) => note.path);
-    const truncateTo = editing();
-    const kept = truncateTo === null ? conversation.turns : conversation.turns.slice(0, truncateTo);
-    if (truncateTo !== null) setCurrent({ ...conversation, turns: kept });
-    const id = conversation.id;
-    const requestId = beginExchange(id, kept.length, text, paths);
-
-    try {
-      await chatSend(id, text, paths, truncateTo ?? undefined, requestId);
-    } catch (error) {
-      // A send that was never accepted leaves nothing on screen and the words
-      // back in the composer, to send again or edit. The turns an edit would
-      // have replaced are still in the file, so they are still shown and the
-      // next send still replaces them rather than being added after them.
-      // Only the exchange this call opened is cleared: a newer one on the same
-      // conversation is still streaming.
-      if (entryOf(id)?.requestId !== requestId) return;
-      failSend(id, readableError(error));
-      if (current()?.id === id) {
-        setCurrent(conversation);
-        setEditing(truncateTo);
-        setDraft(text);
-      }
-    }
-  }
-
-  /** Sends the last message again, in place of the turn that failed. */
-  async function retry() {
-    const again = retryable();
-    const conversation = current();
-    // Retry takes the same latch Send holds, so the two cannot both open an
-    // exchange on one conversation.
-    if (!again || !conversation || isBusy() || sending) return;
-    sending = true;
-    const typed = draft();
-    const id = conversation.id;
-    try {
-      setCurrent({ ...conversation, turns: conversation.turns.slice(0, again.turn) });
-      const requestId = beginExchange(id, again.turn, again.text, again.paths);
-      try {
-        await chatSend(id, again.text, again.paths, again.turn, requestId);
-      } catch (error) {
-        // The retry was never accepted, so the turn it would have replaced is
-        // still in the file and stays on screen, and anything half-typed is
-        // still in the composer.
-        if (entryOf(id)?.requestId !== requestId) return;
-        failSend(id, readableError(error));
-        if (current()?.id === id) {
-          setCurrent(conversation);
-          setDraft(typed);
-        }
-      }
-    } finally {
-      sending = false;
-    }
-  }
-
-  function failSend(id: string, message: string) {
-    patchEntry(id, {
-      requestId: "",
-      user: null,
-      reply: null,
-      status: "error",
-      errorMessage: message,
-      errorKind: "",
-      errorIdentity: null,
-    });
-  }
-
-  /** Opens one exchange on a conversation and answers the id it was minted
-   * with, which is what every frame of it must carry. */
-  function beginExchange(id: string, userTurn: number, text: string, paths: string[]): string {
-    const entry = ensureEntry(id);
-    // A resend reuses the index the failed reply held, so its fragment goes
-    // with it rather than sitting under the new one.
-    const html = { ...entry.htmlByTurn };
-    delete html[userTurn + 1];
-    renderAsked.delete(`${id}:${userTurn + 1}`);
-    const requestId = newRequestId();
-    patchEntry(id, {
-      requestId,
-      htmlByTurn: html,
-      user: {
-        turn: userTurn,
-        role: "user",
-        content: text,
-        html: "",
-        attachments: paths.map((path) => ({ path, bytes: 0, hash: "" })),
-        proposals: [],
-        dropped: [],
-        truncated: false,
-        identity: null,
-      },
-      reply: {
-        turn: userTurn + 1,
-        role: "assistant",
-        content: "",
-        html: "",
-        attachments: [],
-        proposals: [],
-        dropped: [],
-        truncated: false,
-        identity: null,
-      },
-      lastSend: { turn: userTurn, text, paths },
-      status: "thinking",
-      errorMessage: "",
-      errorKind: "",
-      errorIdentity: null,
-    });
-    setPaneError("");
-    setDraft("");
-    setEditing(null);
-    return requestId;
   }
 
   /** Puts a sent turn back in the composer. Sending it again replaces it and
    * everything after it, which is what the file then holds. */
   async function beginEdit(turn: number) {
     const stored = current()?.turns[turn];
-    if (!stored || stored.role !== "user" || isBusy()) return;
+    if (!stored || stored.role !== "user" || exchange.isBusy()) return;
     // The draft first: the composer moves its caret to the end of the field
     // when the turn is named, and the field has to hold the turn by then.
     setDraft(stored.content);
     setEditing(turn);
-    setAttachments([]);
-    await attachAll(
+    chips.replaceWithNothing();
+    await chips.attachAll(
       stored.attachments.map((note) => ({
         path: note.path,
         name: noteName(note.path),
@@ -1236,351 +550,6 @@ function createChatStore() {
     setDraft("");
   }
 
-  /** Stops a live reply, by the request id that is streaming rather than by
-   * whatever the pane happens to show. The text already on screen stays, and
-   * the reply it came from produced no proposal, so there is nothing to
-   * apply. */
-  function stop(id: string | undefined = current()?.id) {
-    if (!id) return;
-    const entry = entryOf(id);
-    if (!entry || !isLive(id)) return;
-    void chatStop(id, entry.requestId).catch(() => undefined);
-  }
-
-  /** Routes one frame to the exchange it belongs to.
-   *
-   * The pair (conversation id, request id) is the whole of the routing: a
-   * frame for a conversation nobody is waiting on, or for a send that has
-   * been superseded, is a leftover and changes nothing. */
-  function handleStreamEvent(payload: ChatPayload) {
-    if (!payload) return;
-    const id = payload.conversation_id;
-    const entry = entryOf(id);
-    if (!entry || !entry.requestId || entry.requestId !== payload.request_id) return;
-    if (payload.kind === "chunk") {
-      if (entry.status !== "thinking" && entry.status !== "streaming") return;
-      appendToReply(id, payload.text ?? "");
-      patchEntry(id, { status: "streaming" });
-    } else if (payload.kind === "done") {
-      if (entry.reply) {
-        const identity = payload.identity ?? null;
-        patchEntry(id, {
-          reply: {
-            ...entry.reply,
-            proposals: payload.proposals ?? [],
-            dropped: payload.dropped ?? [],
-            truncated: payload.truncated ?? false,
-            identity,
-          },
-          // Kept past the fold into the file, which records the turns and not
-          // the connection that wrote them.
-          identityByTurn: identity
-            ? { ...entry.identityByTurn, [entry.reply.turn]: identity }
-            : entry.identityByTurn,
-        });
-      }
-      settle(id, "done");
-    } else if (payload.kind === "stopped") {
-      settle(id, "stopped");
-    } else if (payload.kind === "error") {
-      const typed = payload.error;
-      patchEntry(id, {
-        errorMessage: typed?.message ?? payload.text ?? "The reply did not arrive.",
-        errorKind: typed?.kind ?? "",
-        errorIdentity: typed ? { provider: typed.provider, model: typed.model, host: "" } : null,
-      });
-      settle(id, "error");
-    }
-  }
-
-  function appendToReply(id: string, text: string) {
-    const entry = entryOf(id);
-    if (!entry?.reply) return;
-    patchEntry(id, { reply: { ...entry.reply, content: entry.reply.content + text } });
-    scheduleRender(id);
-  }
-
-  /** The stream is over, so the turns are in the file. The local fold keeps
-   * the reply on screen at the indices Rust used; the reload that follows
-   * replaces it with what the file actually holds.
-   *
-   * A conversation the pane is not showing has nothing to fold into: its file
-   * already holds the reply, so the list is read again and its row says so. */
-  function settle(id: string, ending: ChatStatus) {
-    const entry = entryOf(id);
-    if (!entry) return;
-    cancelScheduledRender(entry);
-    const { user, reply } = entry;
-    const wrote = reply !== null && reply.content.length > 0;
-    const onScreen = current()?.id === id;
-    const conversation = current();
-    if (onScreen && user && conversation) {
-      // Rust appends a reply only when it holds text, so an ending with
-      // nothing shown leaves the user turn last in the file. A turn the file
-      // already holds is not folded in a second time.
-      const turns = [...conversation.turns];
-      if (turns.length <= user.turn) turns.push(storedTurn(user));
-      if (wrote && reply && turns.length <= reply.turn) turns.push(storedTurn(reply));
-      setCurrent({ ...conversation, turns });
-    }
-    patchEntry(id, { status: ending, requestId: "", user: null, reply: null });
-    if (wrote && reply) void renderTurn(id, reply.turn, reply.content);
-    if (onScreen) void reload(id);
-    else void refreshList();
-  }
-
-  function storedTurn(message: Message): ChatStoredTurn {
-    return {
-      role: message.role,
-      content: message.content,
-      attachments: message.attachments,
-      proposals: message.proposals,
-      dropped: message.dropped,
-      truncated: message.truncated,
-    };
-  }
-
-  /** Reads the conversation back from the file it was written to. */
-  async function reload(id: string) {
-    let conversation: ChatConversation;
-    try {
-      conversation = await chatOpen(id);
-    } catch {
-      return;
-    }
-    if (current()?.id !== id) return;
-    setCurrent(conversation);
-    await renderStoredReplies(conversation);
-    await refreshList();
-  }
-
-  async function renderStoredReplies(conversation: ChatConversation) {
-    for (const [index, turn] of conversation.turns.entries()) {
-      if (turn.role !== "assistant" || turn.content.length === 0) continue;
-      await renderTurn(conversation.id, index, turn.content);
-    }
-  }
-
-  function scheduleRender(id: string) {
-    const entry = entryOf(id);
-    if (!entry || entry.renderTimer.handle !== null) return;
-    entry.renderTimer.handle = setTimeout(() => {
-      entry.renderTimer.handle = null;
-      const reply = entryOf(id)?.reply;
-      if (!reply) return;
-      void renderTurn(id, reply.turn, reply.content);
-    }, RENDER_THROTTLE_MS);
-  }
-
-  function cancelScheduledRender(entry: Exchange) {
-    if (entry.renderTimer.handle === null) return;
-    clearTimeout(entry.renderTimer.handle);
-    entry.renderTimer.handle = null;
-  }
-
-  /** Drops a record of a render that painted nothing, and only that record: a
-   * newer render for the same turn keeps what it wrote. */
-  function forgetRender(asked: string, markdown: string) {
-    const held = renderAsked.get(asked);
-    if (held?.markdown === markdown && held.html === null) renderAsked.delete(asked);
-  }
-
-  /** Renders one reply to a fragment, into the conversation that asked for
-   * it. A result a newer render has already overtaken is dropped rather than
-   * painted, and a conversation the pane has left still gets its fragment. */
-  async function renderTurn(id: string, turn: number, markdown: string) {
-    const entry = entryOf(id);
-    if (!entry) return;
-    const asked = `${id}:${turn}`;
-    const held = renderAsked.get(asked);
-    if (
-      held?.markdown === markdown &&
-      (held.html === null || entry.htmlByTurn[turn] === held.html)
-    ) {
-      return;
-    }
-    renderAsked.set(asked, { markdown, html: null });
-    const generation = (entry.renderGeneration.get(turn) ?? 0) + 1;
-    entry.renderGeneration.set(turn, generation);
-    let html: string;
-    try {
-      html = await chatRenderReply(markdown);
-    } catch {
-      // Nothing was painted, so the next ask for this text is a fresh one.
-      forgetRender(asked, markdown);
-      return;
-    }
-    const still = entryOf(id);
-    if (!still || still.renderGeneration.get(turn) !== generation) {
-      forgetRender(asked, markdown);
-      return;
-    }
-    renderAsked.set(asked, { markdown, html });
-    patchEntry(id, { htmlByTurn: { ...still.htmlByTurn, [turn]: html } });
-  }
-
-  /** Why applying was refused, for the proposal it was refused for. */
-  function refusalFor(turn: number, path: string): string | undefined {
-    return refusals()[`${turn}:${path}`];
-  }
-
-  /** Whether that proposal's write is in flight. */
-  function isApplying(turn: number, path: string): boolean {
-    return applying()[`${turn}:${path}`] === true;
-  }
-
-  function endApplying(key: string) {
-    setApplying(({ [key]: _done, ...rest }) => rest);
-  }
-
-  function setProposalStatus(turn: number, path: string, next: ChatProposal["status"]) {
-    setCurrent((held) => {
-      if (!held) return held;
-      return {
-        ...held,
-        turns: held.turns.map((stored, index) =>
-          index === turn
-            ? {
-                ...stored,
-                proposals: stored.proposals.map((proposal) =>
-                  proposal.path === path ? { ...proposal, status: next } : proposal,
-                ),
-              }
-            : stored,
-        ),
-      };
-    });
-  }
-
-  function refuse(turn: number, path: string, why: string) {
-    setRefusals((held) => ({ ...held, [`${turn}:${path}`]: why }));
-  }
-
-  /** Writes one proposal, through the guarded facade and nothing else.
-   *
-   * A note that changed since the proposal was made is refused there, and the
-   * refusal is what the card then shows: the note is as its last writer left
-   * it, and the proposed text is still in the conversation. */
-  async function apply(turn: number, proposal: ChatProposal): Promise<ChatProposalOutcome | null> {
-    const id = current()?.id;
-    const key = `${turn}:${proposal.path}`;
-    if (!id) {
-      refuse(turn, proposal.path, "This chat is no longer open.");
-      return null;
-    }
-    // Applying is one-shot: a second press while the write runs does nothing.
-    if (isApplying(turn, proposal.path)) return null;
-    setApplying((held) => ({ ...held, [key]: true }));
-    // A retry answers the refusal it was pressed under, so that refusal goes
-    // before the write rather than after it.
-    setRefusals(({ [key]: _gone, ...rest }) => rest);
-    try {
-      const outcome = await chatApplyProposal(
-        id,
-        turn,
-        proposal.path,
-        proposal.new_content,
-        proposal.before_hash,
-      );
-      // The write is over before anything says so: the card reads both, and a
-      // status written first would leave it holding a write that has ended.
-      endApplying(key);
-      setProposalStatus(turn, proposal.path, "applied");
-      // The note is a different size now, and a chip for it must state the
-      // size the next message will carry.
-      if (outcome.changed) void refreshAttachedSizes();
-      return outcome;
-    } catch (error) {
-      endApplying(key);
-      refuse(turn, proposal.path, readableError(error));
-      setProposalStatus(turn, proposal.path, "refused");
-      return null;
-    }
-  }
-
-  /** Puts a proposal aside. The file records the verdict, so the pane says so
-   * once the record is written and not before. */
-  async function discard(turn: number, proposal: ChatProposal) {
-    const id = current()?.id;
-    if (!id) {
-      refuse(turn, proposal.path, "This chat is no longer open.");
-      return;
-    }
-    try {
-      await chatDiscardProposal(id, turn, proposal.path);
-    } catch (error) {
-      refuse(turn, proposal.path, readableError(error));
-      return;
-    }
-    setProposalStatus(turn, proposal.path, "discarded");
-  }
-
-  /** The attached notes with the sizes the files hold now, one note per note.
-   *
-   * A tab records a note's size when it reads it, and another program can
-   * rewrite the file after that. The dialog asking to send it must state the
-   * bytes the send will carry, so it asks disk rather than the tab. Two
-   * spellings of one note are one line in that sentence and one path in the
-   * request, which is why the send reads this list rather than the chips.
-   *
-   * It resolves whatever happens: a note that cannot be read is one chip
-   * marked `unreadable` carrying Rust's reason, not a failed list that names
-   * nothing (R5 M3). */
-  async function attachedOnDisk(): Promise<Attachment[]> {
-    const held = attachments();
-    if (held.length === 0) return [];
-    const sizes = await chatAttachedSizes(held.map((note) => note.path)).catch(() => null);
-    // Keyed by the path that was asked about, which is the spelling these
-    // attachments hold. The command's own folder-relative key names the same
-    // note in a different shape and would miss every row.
-    const byPath = new Map((sizes ?? []).map((note) => [note.path, note]));
-    const reasons = new Map<string, string>();
-    if (sizes === null) {
-      // One unreadable note refuses the whole batch, so each is asked about on
-      // its own: which note it is, and what Rust says about it.
-      for (const note of held) {
-        const one = await chatAttachedSizes([note.path]).catch((error: unknown) => {
-          reasons.set(note.path, readableError(error));
-          return [];
-        });
-        for (const row of one) byPath.set(row.path, row);
-      }
-    }
-    const counted = new Set<string>();
-    const shown: Attachment[] = [];
-    for (const note of held) {
-      const found = byPath.get(note.path);
-      const key = found?.key ?? note.key;
-      if (key !== undefined) {
-        if (counted.has(key)) continue;
-        counted.add(key);
-      }
-      const why = reasons.get(note.path);
-      shown.push({
-        ...note,
-        bytes: found?.bytes ?? note.bytes,
-        key,
-        state: why === undefined ? "ok" : "unreadable",
-        ...(why === undefined ? {} : { reason: why }),
-        dirty: noteIsDirty(note.path),
-      });
-    }
-    return shown;
-  }
-
-  /** Reads the chips' sizes again and writes them back, so a chip states the
-   * note as it stands rather than as it stood when it was attached. */
-  async function refreshAttachedSizes(): Promise<void> {
-    if (attachments().length === 0) return;
-    setAttachments(await attachedOnDisk());
-  }
-
-  /** Shows a list `attachedOnDisk()` already resolved, so the send reads disk
-   * once and the chips still carry what that read found. */
-  function setAttachedList(list: Attachment[]): void {
-    setAttachments(list);
-  }
-
   return {
     conversations,
     listFailed,
@@ -1590,12 +559,14 @@ function createChatStore() {
     readiness,
     loading,
     copyCode,
-    attachments,
-    attachGeneration,
+    attachments: chips.attachments,
+    attachGeneration: chips.attachGeneration,
+    /** Why the chip set as a whole cannot be sent, when no one note is why. */
+    attachRefusal: chips.setRefusal,
     status,
-    statusOf,
-    isLive,
-    liveConversations,
+    statusOf: entries.statusOf,
+    isLive: entries.isLive,
+    liveConversations: entries.liveConversations,
     errorMessage,
     errorKind,
     errorIdentity,
@@ -1603,45 +574,42 @@ function createChatStore() {
     draft,
     setDraft,
     editing,
-    refusalFor,
-    isApplying,
-    attach,
-    attachAll,
-    attachByPath,
-    attachFolder,
-    detachFolder,
-    openTabCandidates,
-    followTab,
-    addOpenNote,
-    detach,
-    isAttached,
+    refusalFor: proposals.refusalFor,
+    isApplying: proposals.isApplying,
+    verdictFor: proposals.verdictFor,
+    attach: chips.attach,
+    attachAll: chips.attachAll,
+    attachByPath: chips.attachByPath,
+    attachFolder: chips.attachFolder,
+    detachFolder: chips.detachFolder,
+    openTabCandidates: chips.openTabCandidates,
+    followTab: chips.followTab,
+    addOpenNote: chips.addOpenNote,
+    detach: chips.detach,
+    isAttached: chips.isAttached,
     openPane,
     refreshList,
     open,
     newChat,
     rename,
     remove,
-    send,
-    retry,
-    stop,
+    send: exchange.send,
+    retry: exchange.retry,
+    stop: exchange.stop,
     beginEdit,
     cancelEdit,
-    apply,
-    discard,
+    apply: proposals.apply,
+    undo: proposals.undo,
+    openTarget: proposals.openTarget,
+    discard: proposals.discard,
     reset,
-    handleStreamEvent,
+    handleStreamEvent: exchange.handleStreamEvent,
     /** Where the chat endpoint points and what it still needs. */
     endpointState: (): Promise<ChatEndpointState> => chatState(),
-    attachedOnDisk,
-    refreshAttachedSizes,
-    setAttachedList,
+    attachedOnDisk: chips.attachedOnDisk,
+    refreshAttachedSizes: chips.refreshAttachedSizes,
+    setAttachedList: chips.setAttachedList,
   };
-}
-
-function readableError(error: unknown): string {
-  if (typeof error === "string") return error;
-  if (error instanceof Error) return error.message;
-  return "The reply did not arrive.";
 }
 
 export type ChatStore = ReturnType<typeof createChatStore>;

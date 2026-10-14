@@ -15,6 +15,7 @@ vi.mock("../../stores/global/ai-rewrite", () => ({
   aiRewriteStore: {
     isOpen: () => true,
     status: h.status,
+    changes: () => null,
     actionLabel: () => "Rewrite",
     original: () => "before",
     result: () => "after",

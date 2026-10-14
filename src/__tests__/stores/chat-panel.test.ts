@@ -117,3 +117,33 @@ describe("the chat column", () => {
     });
   });
 });
+
+describe("opening the column asks for the composer's focus", () => {
+  beforeEach(() => {
+    h.chatPanel = { open: false, width: 380 };
+  });
+
+  it("counts an open by toggle or show, and not a close", () => {
+    withStore((store) => {
+      expect(store.focusRequests()).toBe(0);
+      store.toggle();
+      expect(store.isOpen()).toBe(true);
+      expect(store.focusRequests()).toBe(1);
+      store.toggle();
+      expect(store.isOpen()).toBe(false);
+      expect(store.focusRequests()).toBe(1);
+      store.show();
+      expect(store.focusRequests()).toBe(2);
+      store.hide();
+      expect(store.focusRequests()).toBe(2);
+    });
+  });
+
+  it("asks nothing for a column the stored settings open at launch", () => {
+    h.chatPanel = { open: true, width: 380 };
+    withStore((store) => {
+      expect(store.isOpen()).toBe(true);
+      expect(store.focusRequests()).toBe(0);
+    });
+  });
+});

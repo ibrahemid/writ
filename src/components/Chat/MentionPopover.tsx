@@ -36,6 +36,9 @@ export default function MentionPopover(props: {
   rows: MentionRow[];
   active: number;
   onPick: (row: MentionRow) => void;
+  /** Whether a lookup has answered since the list opened. Until one has, an
+   * empty list is a list still being read, not a name nothing matches. */
+  answered: boolean;
 }) {
   const rows: HTMLElement[] = [];
 
@@ -93,7 +96,7 @@ export default function MentionPopover(props: {
           )}
         </For>
       </div>
-      <Show when={props.rows.length === 0}>
+      <Show when={props.answered && props.rows.length === 0}>
         <p class="chat-empty">No file by that name.</p>
       </Show>
     </div>

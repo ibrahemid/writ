@@ -58,7 +58,8 @@ vi.mock("../../stores/global/config", () => ({
   },
 }));
 
-vi.mock("../../stores/global/ai-providers", () => ({
+vi.mock("../../stores/global/ai-providers", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../stores/global/ai-providers")>()),
   aiProvidersStore: {
     groupOf: mocks.groupOf,
     byId: (id: string) => (id === "ollama" ? { id, label: "Ollama" } : null),
@@ -222,5 +223,14 @@ describe("what the pane says about the connection", () => {
   it("reports chat being switched off", () => {
     setConfig(ai("ollama", "qwen2.5", false));
     expect(chatStore.readiness()).toMatchObject({ state: "off" });
+  });
+
+  it("says the on-device model serves Rewrite only and points at the provider", () => {
+    setConfig(ai("apple", ""));
+    expect(chatStore.readiness()).toEqual({
+      state: "rewrite_only",
+      message: "Apple's on-device model works with Rewrite only. Choose another provider for chat.",
+      action: { kind: "settings", section: "apps", setting: "ai.provider" },
+    });
   });
 });

@@ -56,3 +56,7 @@ src-tauri/binaries/writ-*
 # Release artifacts downloaded by workflows (never committed)
 /artifacts/
 AGENTS.md
+
+# SwiftPM output when the on-device bridge package is built on its own
+src-tauri/swift/*/.build/
+src-tauri/swift/*/.swiftpm/

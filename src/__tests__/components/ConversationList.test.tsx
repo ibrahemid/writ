@@ -13,7 +13,11 @@ const mocks = vi.hoisted(() => ({
   rename: vi.fn(),
   listFailed: vi.fn(),
   refreshList: vi.fn(),
+  requestConfirm: vi.fn(),
+  remove: vi.fn(),
 }));
+
+vi.mock("../../stores/global/dialogs", () => ({ requestConfirm: mocks.requestConfirm }));
 
 vi.mock("../../stores/global/chat", async () => {
   const actual = await vi.importActual<typeof import("../../stores/global/chat")>(
@@ -28,7 +32,7 @@ vi.mock("../../stores/global/chat", async () => {
       stop: mocks.stop,
       open: mocks.open,
       rename: mocks.rename,
-      remove: vi.fn(),
+      remove: mocks.remove,
       listFailed: mocks.listFailed,
       refreshList: mocks.refreshList,
     },
@@ -56,6 +60,8 @@ beforeEach(() => {
   mocks.rename.mockReset().mockResolvedValue(undefined);
   mocks.listFailed.mockReset().mockReturnValue(false);
   mocks.refreshList.mockReset().mockResolvedValue(undefined);
+  mocks.requestConfirm.mockReset().mockResolvedValue(true);
+  mocks.remove.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -63,6 +69,24 @@ afterEach(() => {
 });
 
 describe("the chat list", () => {
+  it("says deleting a chat leaves the files alone", async () => {
+    const { getByRole } = render(() => <ConversationList onPick={() => undefined} />);
+    fireEvent.click(getByRole("button", { name: "Delete Notes" }));
+    await vi.waitFor(() => expect(mocks.remove).toHaveBeenCalledWith("c-2"));
+    const asked = mocks.requestConfirm.mock.calls[0][0];
+    expect(asked.message).toBe("The conversation is deleted. Your files are not changed.");
+    expect(asked.message).not.toContain("file goes");
+  });
+
+  it("names every icon in a row under the pointer", () => {
+    const { container } = render(() => <ConversationList onPick={() => undefined} />);
+    const live = container.querySelector(".chat-chats-row") as HTMLElement;
+    const tipped = [...live.querySelectorAll(".writ-tooltip-anchor button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+    expect(tipped).toEqual(["Stop Launch", "Rename Launch", "Delete Launch"]);
+  });
+
   it("marks a chat that is still answering and stops it from its row", () => {
     const { container, getByRole } = render(() => <ConversationList onPick={() => undefined} />);
 

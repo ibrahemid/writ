@@ -88,6 +88,7 @@ function providerRow(id: string, group: "local" | "hosted" | "custom") {
 async function loadTable() {
   hoisted.aiProviders.mockResolvedValue([
     providerRow("ollama", "local"),
+    { ...providerRow("jan", "local"), label: "Jan" },
     providerRow("groq", "hosted"),
   ]);
   await aiProvidersStore.load();
@@ -267,6 +268,13 @@ describe("connectionDisplay", () => {
       "",
     );
     expect(refusedHosted.text.toLowerCase()).not.toContain("ollama");
+
+    hoisted.ai.provider = "jan";
+    const refusedJan = connectionDisplay(
+      { reachable: false, model_listed: null, kind: "refused", detail: "localhost:1337", models: [] },
+      "",
+    );
+    expect(refusedJan.text).toBe("Jan is not running at localhost:1337");
   });
 
   // A hosted endpoint is not probed before consent, so this state means "no

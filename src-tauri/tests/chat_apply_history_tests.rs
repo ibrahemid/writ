@@ -3,7 +3,7 @@
 
 use tempfile::TempDir;
 use writ_storage::note_history::NoteHistoryStore;
-use writ_tauri_lib::commands::chat::apply_proposal_inner;
+use writ_tauri_lib::commands::chat::{apply_proposal_inner, undo_proposal_inner};
 use writ_tauri_lib::watcher::open_files::NoOpenNotes;
 
 #[test]
@@ -121,5 +121,145 @@ fn a_stale_proposal_is_refused_with_a_copy() {
         beside.len(),
         1,
         "the proposed text landed beside: {beside:?}"
+    );
+}
+
+/// A notes folder holding `Launch.md` with `text`, its data folder, and a
+/// history store pointed at the folder.
+fn versioned(
+    text: &str,
+) -> (
+    TempDir,
+    std::path::PathBuf,
+    std::path::PathBuf,
+    NoteHistoryStore,
+) {
+    let dir = TempDir::new().expect("temp dir");
+    let notes = std::fs::canonicalize(dir.path()).expect("canonical root");
+    let writ = notes.join(".writ");
+    std::fs::create_dir_all(&writ).expect("writ folder");
+    std::fs::write(notes.join("Launch.md"), text).expect("seed a note");
+    let store = NoteHistoryStore::open(&writ).expect("history store");
+    store.set_notes_root(notes.clone());
+    (dir, notes, writ, store)
+}
+
+/// Applies `after` over `before` and answers what the apply did.
+fn apply_over(
+    notes: &std::path::Path,
+    writ: &std::path::Path,
+    store: &NoteHistoryStore,
+    before: &str,
+    after: &str,
+) -> writ_tauri_lib::commands::chat::ProposalOutcome {
+    apply_proposal_inner(
+        notes,
+        &NoOpenNotes,
+        writ,
+        "probe-host",
+        "Launch.md",
+        after,
+        &writ_core::hash::sha256_hex(before.as_bytes()),
+        Some(store),
+        |_, _, _| unreachable!("a note in the folder is not written through a tab"),
+    )
+    .expect("applied")
+}
+
+#[test]
+fn undo_after_apply_puts_back_what_the_note_held() {
+    let (_dir, notes, writ, store) = versioned("before\n");
+    let applied = apply_over(&notes, &writ, &store, "before\n", "after\n");
+    assert!(applied.changed);
+    assert!(applied.undoable, "the apply kept the text it replaced");
+
+    let undone = undo_proposal_inner(
+        &notes,
+        &NoOpenNotes,
+        &writ,
+        "probe-host",
+        "Launch.md",
+        &writ_core::hash::sha256_hex(b"before\n"),
+        &applied.hash,
+        Some(&store),
+    )
+    .expect("undone");
+
+    assert!(undone.changed);
+    assert_eq!(
+        std::fs::read_to_string(notes.join("Launch.md")).expect("read"),
+        "before\n"
+    );
+    let log = writ_storage::activity_log::read_recent(&writ, 10);
+    assert!(
+        log.iter().any(|record| record.action == "undo_proposal"),
+        "the undo is its own line in the log"
+    );
+}
+
+#[test]
+fn undo_refuses_a_note_that_changed_after_the_apply() {
+    let (_dir, notes, writ, store) = versioned("before\n");
+    let applied = apply_over(&notes, &writ, &store, "before\n", "after\n");
+    std::fs::write(notes.join("Launch.md"), "somebody kept writing\n").expect("write");
+
+    let error = undo_proposal_inner(
+        &notes,
+        &NoOpenNotes,
+        &writ,
+        "probe-host",
+        "Launch.md",
+        &writ_core::hash::sha256_hex(b"before\n"),
+        &applied.hash,
+        Some(&store),
+    )
+    .expect_err("refused");
+
+    assert!(
+        error.starts_with("Launch.md changed since the change was applied."),
+        "got: {error}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(notes.join("Launch.md")).expect("read"),
+        "somebody kept writing\n",
+        "the later change is not overwritten"
+    );
+}
+
+#[test]
+fn a_write_without_versions_offers_no_undo() {
+    let (_dir, notes, writ, store) = versioned("before\n");
+    let unkept = apply_proposal_inner(
+        &notes,
+        &NoOpenNotes,
+        &writ,
+        "probe-host",
+        "Launch.md",
+        "after\n",
+        &writ_core::hash::sha256_hex(b"before\n"),
+        None,
+        |_, _, _| unreachable!(),
+    )
+    .expect("applied");
+    assert!(!unkept.undoable);
+
+    let error = undo_proposal_inner(
+        &notes,
+        &NoOpenNotes,
+        &writ,
+        "probe-host",
+        "Launch.md",
+        &writ_core::hash::sha256_hex(b"before\n"),
+        &unkept.hash,
+        Some(&store),
+    )
+    .expect_err("nothing to put back");
+    assert_eq!(error, "The earlier text of Launch.md is not kept.");
+
+    let same = apply_over(&notes, &writ, &store, "after\n", "after\n");
+    assert!(!same.changed);
+    assert!(
+        !same.undoable,
+        "a write that moved nothing has nothing to undo"
     );
 }

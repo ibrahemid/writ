@@ -117,6 +117,65 @@ pub fn line_diff_exact(before: &str, after: &str) -> Result<Vec<Hunk>, DiffError
     Ok(hunks(&edit_script(&before, &after)))
 }
 
+/// One run of a word diff: text both sides hold, or text only one side does.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WordSpan {
+    /// Whether the run is shared, taken out, or put in.
+    pub kind: LineKind,
+    /// The run's text, whitespace included, so the shared and added runs in
+    /// order read as the second text and the shared and removed runs as the
+    /// first.
+    pub text: String,
+}
+
+/// Compares two texts word by word, for a passage read in place.
+///
+/// What a rewrite of a paragraph changes is a few words, which a line diff
+/// shows as the whole paragraph taken out and put back. Words and the
+/// whitespace between them are the units, so a change of spacing shows too,
+/// and adjacent runs of one kind are joined. The limits are the line diff's.
+pub fn word_diff(before: &str, after: &str) -> Result<Vec<WordSpan>, DiffError> {
+    let bytes = before.len().max(after.len());
+    if bytes > MAX_DIFF_BYTES {
+        return Err(DiffError::TooLarge {
+            bytes,
+            limit: MAX_DIFF_BYTES,
+        });
+    }
+    let before = words(before);
+    let after = words(after);
+    let mut spans: Vec<WordSpan> = Vec::new();
+    for entry in edit_script(&before, &after) {
+        match spans.last_mut() {
+            Some(last) if last.kind == entry.kind => last.text.push_str(entry.text),
+            _ => spans.push(WordSpan {
+                kind: entry.kind,
+                text: entry.text.to_string(),
+            }),
+        }
+    }
+    Ok(spans)
+}
+
+/// A text as runs of whitespace and runs of everything else, in order.
+fn words(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut in_space: Option<bool> = None;
+    for (index, character) in text.char_indices() {
+        let space = character.is_whitespace();
+        if in_space.is_some_and(|held| held != space) {
+            out.push(&text[start..index]);
+            start = index;
+        }
+        in_space = Some(space);
+    }
+    if start < text.len() {
+        out.push(&text[start..]);
+    }
+    out
+}
+
 /// A line without the `\n` or `\r\n` that ends it.
 fn without_ending(line: &str) -> &str {
     match line.strip_suffix('\n') {

@@ -23,6 +23,8 @@ interface ButtonProps {
   "aria-label"?: string;
   /** Set while the click's work is still running. */
   "aria-busy"?: boolean;
+  /** The chord that does what the button does, for a label that shows it. */
+  "aria-keyshortcuts"?: string;
   /** Test and automation handle for a button that carries no stable label. */
   "data-action"?: string;
   class?: string;
@@ -50,6 +52,7 @@ export default function Button(props: ButtonProps) {
       disabled={props.disabled}
       aria-label={props["aria-label"]}
       aria-busy={props["aria-busy"]}
+      aria-keyshortcuts={props["aria-keyshortcuts"]}
       aria-pressed={props.pressed}
       aria-expanded={props["aria-expanded"]}
       data-action={props["data-action"]}

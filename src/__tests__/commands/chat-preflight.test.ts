@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   config: vi.fn(),
   registerCommand: vi.fn(),
   unregisterCommand: vi.fn(),
+  attachRefusal: vi.fn<() => string | null>(() => null),
 }));
 
 vi.mock("../../stores/global/dialogs", () => ({
@@ -56,6 +57,7 @@ vi.mock("../../stores/global/chat", async (importOriginal) => {
       draft: mocks.draft,
       send: mocks.send,
       setAttachedList: mocks.setAttachedList,
+      attachRefusal: mocks.attachRefusal,
     },
   };
 });
@@ -135,6 +137,7 @@ beforeEach(() => {
   mocks.catalog.mockReset().mockReturnValue(null);
   mocks.registerCommand.mockReset();
   mocks.unregisterCommand.mockReset();
+  mocks.attachRefusal.mockReset().mockReturnValue(null);
 });
 
 describe("what the send dialog says", () => {
@@ -166,6 +169,21 @@ describe("what the send dialog says", () => {
     expect(notice.message).toContain("2 files (10 KB)");
   });
 
+  it("says only that the message goes when no file is attached", () => {
+    const notice = sendNotice("api.example.com", []);
+    expect(notice.title).toBe("Send this message to api.example.com?");
+    expect(notice.message).toBe("This message goes to api.example.com with your API key.");
+    expect(notice.message).not.toContain("0 files");
+  });
+
+  it("names the local network rather than a key for an address on it", () => {
+    const notice = sendNotice("192.168.1.20:11434", [NOTES[0]], true);
+    expect(notice.message).toBe(
+      "Launch.md (8 KB) and this message go to 192.168.1.20:11434 on your local network.",
+    );
+    expect(sendNotice("192.168.1.20", [], true).message).not.toContain("API key");
+  });
+
   it("says a size in the unit that reads", () => {
     expect(byteLabel(512)).toBe("512 bytes");
     expect(byteLabel(2048)).toBe("2 KB");
@@ -174,6 +192,43 @@ describe("what the send dialog says", () => {
 });
 
 describe("the blockers before a send", () => {
+  it("sends nothing on the on-device row and points at the provider", async () => {
+    mocks.endpointState.mockResolvedValue(
+      endpoint({
+        provider: "apple",
+        host: null,
+        host_port: null,
+        is_hosted: false,
+        is_allowed: false,
+        is_on_device: true,
+      }),
+    );
+    expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
+    const asked = mocks.requestConfirm.mock.calls[0][0];
+    expect(asked.title).toBe("Chat needs another provider");
+    expect(asked.message).toContain("Rewrite only");
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.provider");
+    expect(mocks.consentHost).not.toHaveBeenCalled();
+  });
+
+  it("asks once for an address on the local network and wants no key", async () => {
+    const lan = {
+      provider: "custom",
+      host: "192.168.1.20",
+      host_port: "192.168.1.20:11434",
+      is_private_network: true,
+      key_state: { is_set: false, memory_only: false },
+    };
+    mocks.endpointState.mockResolvedValue(endpoint({ ...lan, is_consented: false }));
+    expect(await clearBlockersBeforeSending(NOTES)).toBe(true);
+    expect(mocks.requestConfirm).toHaveBeenCalledTimes(1);
+    const asked = mocks.requestConfirm.mock.calls[0][0];
+    expect(asked.title).toBe("Send files to 192.168.1.20:11434?");
+    expect(asked.message).toContain("on your local network");
+    expect(mocks.consentHost).toHaveBeenCalledTimes(1);
+    expect(mocks.openSettings).not.toHaveBeenCalled();
+  });
+
   it("asks about the host once and records the answer for that host", async () => {
     mocks.endpointState
       .mockResolvedValueOnce(endpoint({ is_consented: false }))
@@ -220,6 +275,30 @@ describe("the blockers before a send", () => {
     );
     expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
     expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.api_key");
+  });
+
+  it("asks for the key before asking to send, in one sheet", async () => {
+    // A first send to a hosted provider with no key: agreeing to send and then
+    // learning nothing went is the failure this order prevents.
+    mocks.endpointState.mockResolvedValue(
+      endpoint({ is_consented: false, key_state: { is_set: false, memory_only: false } }),
+    );
+    expect(await clearBlockersBeforeSending(NOTES)).toBe(false);
+    expect(mocks.requestConfirm).toHaveBeenCalledTimes(1);
+    expect(mocks.requestConfirm.mock.calls[0][0].title).toBe("Add an API key for api.example.com");
+    expect(mocks.consentHost).not.toHaveBeenCalled();
+    expect(mocks.openSettings).toHaveBeenCalledWith("apps", "ai.api_key");
+  });
+
+  it("sends nothing when the set is refused though every note reads", async () => {
+    mocks.attachRefusal.mockReturnValue("Attached files can hold at most 4 MB between them.");
+    await sendChatMessage();
+    expect(mocks.requestConfirm).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(
+      "Attached files can hold at most 4 MB between them.",
+      "error",
+    );
   });
 
   it("asks nothing of a local endpoint", async () => {

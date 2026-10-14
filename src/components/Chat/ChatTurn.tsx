@@ -7,6 +7,7 @@ import { providerLabel } from "./ChatTranscript";
 import {
   chatStore,
   noteName,
+  proposalLabel,
   type ChatDroppedProposal,
   type Message,
 } from "../../stores/global/chat";
@@ -195,6 +196,18 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
         <Show when={props.message.html.length > 0} fallback={<RawReply text={props.message.content} />}>
           <div class="chat-reply" ref={reply} onClick={onReplyClick} />
         </Show>
+        {/* A change the reply is writing is withheld until it ends, so the line
+            says which file rather than leaving the turn to read as stalled. */}
+        <Show when={props.message.writing !== undefined}>
+          <p class="chat-thinking" role="status">
+            <span class="chat-thinking-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+            {writingLine(props.message.writing ?? "")}
+          </p>
+        </Show>
         {/* By position, so a card keeps what its own write answered when the
             conversation is rebuilt around it. */}
         <Index each={props.message.proposals}>
@@ -225,6 +238,11 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
       </Show>
     </article>
   );
+}
+
+/** What a turn writing a change says, naming the file where the reply did. */
+export function writingLine(path: string): string {
+  return path.length > 0 ? `Writing a change to ${proposalLabel(path)}` : "Writing a change";
 }
 
 /** The reply as it arrives, before the first render comes back. */

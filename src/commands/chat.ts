@@ -6,12 +6,16 @@ import {
   chatStore,
   isAbsolutePath,
   noteName,
+  proposalLabel,
   totalBytes,
   type Attachment,
+  type ChatProposal,
 } from "../stores/global/chat";
 import { configStore } from "../stores/global/config";
+import { REWRITE_ONLY_MESSAGE } from "../stores/global/ai-providers";
 import { windowRegistry } from "../stores/global/window-registry";
 import type { ChatEndpointState } from "../services/tauri";
+import { BASE_URL_RULE } from "./ai";
 
 export const CHAT_TOGGLE_COMMAND_ID = "chat.toggle";
 
@@ -31,19 +35,32 @@ export function noteCount(count: number): string {
 /** What the dialog says is being sent, and where.
  *
  * One file is named, because a person agreeing to send a file wants to know
- * which one. A set is counted. */
-export function sendNotice(host: string, attachments: readonly Attachment[]) {
+ * which one. A set is counted, and a message with no file says only that the
+ * message goes. A host on a private network is named as one, since no key
+ * has to go with it. */
+export function sendNotice(
+  host: string,
+  attachments: readonly Attachment[],
+  privateNetwork = false,
+) {
+  const how = privateNetwork ? "on your local network" : "with your API key";
+  if (attachments.length === 0) {
+    return {
+      title: `Send this message to ${host}?`,
+      message: `This message goes to ${host} ${how}.`,
+    };
+  }
   const bytes = byteLabel(totalBytes(attachments));
   if (attachments.length === 1) {
     const name = noteName(attachments[0].key ?? attachments[0].path);
     return {
       title: `Send ${name} to ${host}?`,
-      message: `${name} (${bytes}) and this message go to ${host} with your API key.`,
+      message: `${name} (${bytes}) and this message go to ${host} ${how}.`,
     };
   }
   return {
     title: `Send files to ${host}?`,
-    message: `${attachments.length} files (${bytes}) and this message go to ${host} with your API key.`,
+    message: `${attachments.length} files (${bytes}) and this message go to ${host} ${how}.`,
   };
 }
 
@@ -52,8 +69,10 @@ export function sendNotice(host: string, attachments: readonly Attachment[]) {
  * leaves the machine.
  *
  * The endpoint is resolved in Rust by the same code the send guard uses, so
- * consent is recorded under the exact host the guard later checks. Consent and
- * key are handled together, so a person who has neither is not stopped twice.
+ * consent is recorded under the exact host the guard later checks. The key is
+ * asked for before consent: a sheet asking to send is shown only when a send
+ * can follow it, so nobody agrees to send and then learns nothing went
+ * (CH-05).
  *
  * Returns `true` when the send may proceed.
  */
@@ -78,10 +97,20 @@ export async function clearBlockersBeforeSending(
     return false;
   }
 
+  if (endpoint.is_on_device) {
+    const open = await requestConfirm({
+      title: "Chat needs another provider",
+      message: REWRITE_ONLY_MESSAGE,
+      confirmLabel: "Open settings",
+    });
+    if (open) openSettings("apps", "ai.provider");
+    return false;
+  }
+
   if (!endpoint.is_allowed || !endpoint.host) {
     const open = await requestConfirm({
       title: "This base URL cannot be used",
-      message: "Use https, or http only for a server on this machine.",
+      message: BASE_URL_RULE,
       confirmLabel: "Open settings",
     });
     if (open) openSettings("apps", "ai.provider");
@@ -112,24 +141,7 @@ export async function clearBlockersBeforeSending(
     return false;
   }
 
-  if (endpoint.is_hosted && !endpoint.is_consented) {
-    const host = endpoint.host_port ?? endpoint.host;
-    const confirmed = await requestConfirm({
-      ...sendNotice(host, attachments),
-      confirmLabel: "Send",
-      defaultAction: "cancel",
-    });
-    if (!confirmed) return false;
-    try {
-      await aiConnectionStore.consentHost();
-      endpoint = await chatStore.endpointState();
-    } catch {
-      showToast("Could not record the choice.", "error");
-      return false;
-    }
-  }
-
-  if (endpoint.is_hosted && !endpoint.key_state.is_set) {
+  if (endpoint.is_hosted && !endpoint.is_private_network && !endpoint.key_state.is_set) {
     const open = await requestConfirm({
       title: `Add an API key for ${endpoint.host}`,
       message:
@@ -138,6 +150,22 @@ export async function clearBlockersBeforeSending(
     });
     if (open) openSettings("apps", "ai.api_key");
     return false;
+  }
+
+  if (endpoint.is_hosted && !endpoint.is_consented) {
+    const host = endpoint.host_port ?? endpoint.host;
+    const confirmed = await requestConfirm({
+      ...sendNotice(host, attachments, endpoint.is_private_network),
+      confirmLabel: "Send",
+      defaultAction: "cancel",
+    });
+    if (!confirmed) return false;
+    try {
+      await aiConnectionStore.consentHost();
+    } catch {
+      showToast("Could not record the choice.", "error");
+      return false;
+    }
   }
 
   return true;
@@ -158,8 +186,29 @@ export async function sendChatMessage() {
     showToast(unreadable.reason ?? `${unreadable.name} could not be read.`, "error");
     return;
   }
+  // Every note reads on its own and the set is still refused: too many notes,
+  // or too many bytes between them.
+  const refused = chatStore.attachRefusal();
+  if (refused) {
+    showToast(refused, "error");
+    return;
+  }
   if (!(await clearBlockersBeforeSending(attachments))) return;
   await chatStore.send(attachments);
+}
+
+/** Readies a question about a proposal the file has moved past: the file is
+ * attached as it stands now, the composer holds the question unless it
+ * already holds the person's own words, and the caret is in it. Nothing is
+ * sent until the person sends it, through the same blockers as any message. */
+export async function askAgain(proposal: ChatProposal): Promise<void> {
+  await chatStore.attachByPath(proposal.path);
+  if (!chatStore.draft().trim()) {
+    chatStore.setDraft(
+      `${proposalLabel(proposal.path)} changed since your last proposal. Propose the change again against its current text.`,
+    );
+  }
+  windowRegistry.getActive()?.chatPanel.show();
 }
 
 /** Shows the pane, or hides it when it is already showing. */

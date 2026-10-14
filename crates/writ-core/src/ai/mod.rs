@@ -7,8 +7,11 @@
 //! response body, so every wire family is tested against a recorded answer
 //! without a network. The connect flow's pure half ([`pkce`]) is the same
 //! shape: the verifier, the challenge, the authorization URL and the callback
-//! parser, with the socket left in the Tauri crate.
+//! parser, with the socket left in the Tauri crate. Apple's on-device model
+//! ([`on_device`]) is reached through a bridge the Tauri crate holds; what its
+//! answers mean is decided here.
 
 pub mod models;
+pub mod on_device;
 pub mod pkce;
 pub mod providers;

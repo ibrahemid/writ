@@ -6,8 +6,10 @@ const focusEditor = vi.fn();
 const aiRewrite = vi.fn();
 const aiCancel = vi.fn();
 const showToast = vi.fn();
+const aiWordDiff = vi.fn();
 
 vi.mock("../../services/tauri", () => ({
+  aiWordDiff: (...args: unknown[]) => aiWordDiff(...args),
   aiRewrite: (...args: unknown[]) => aiRewrite(...args),
   aiCancel: (...args: unknown[]) => aiCancel(...args),
   aiHasApiKey: vi.fn().mockResolvedValue({ is_set: false, memory_only: false }),
@@ -52,6 +54,7 @@ const range = { from: 10, to: 15, text: "hello", usedSelection: true, bufferId: 
 describe("aiRewriteStore streaming state machine", () => {
   beforeEach(() => {
     aiRewrite.mockReset().mockResolvedValue("req-1");
+    aiWordDiff.mockReset().mockResolvedValue([]);
     aiCancel.mockReset();
     replaceRange.mockReset();
     showToast.mockReset();
@@ -81,6 +84,37 @@ describe("aiRewriteStore streaming state machine", () => {
     aiRewriteStore.apply();
     expect(replaceRange).toHaveBeenCalledWith(10, 15, "Hello");
     expect(aiRewriteStore.isOpen()).toBe(false);
+  });
+
+  it("reads a finished result against the original, word by word", async () => {
+    const spans = [
+      { kind: "removed", text: "hello" },
+      { kind: "added", text: "Hello" },
+    ];
+    aiWordDiff.mockResolvedValue(spans);
+    aiRewriteStore.start("proofread", range);
+    const id = lastRequestId();
+    aiRewriteStore.handleStreamEvent({ request_id: id, kind: "chunk", text: "Hello" });
+    expect(aiRewriteStore.changes()).toBeNull();
+
+    aiRewriteStore.handleStreamEvent({ request_id: id, kind: "done" });
+    expect(aiWordDiff).toHaveBeenCalledWith("hello", "Hello");
+    await vi.waitFor(() => expect(aiRewriteStore.changes()).toEqual(spans));
+
+    aiRewriteStore.discard();
+    expect(aiRewriteStore.changes()).toBeNull();
+  });
+
+  it("keeps the two texts when the comparison is refused", async () => {
+    aiWordDiff.mockRejectedValue("this text is too large to compare");
+    aiRewriteStore.start("proofread", range);
+    const id = lastRequestId();
+    aiRewriteStore.handleStreamEvent({ request_id: id, kind: "chunk", text: "Hello" });
+    aiRewriteStore.handleStreamEvent({ request_id: id, kind: "done" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(aiRewriteStore.changes()).toBeNull();
+    expect(aiRewriteStore.status()).toBe("done");
   });
 
   it("ignores events for a stale request id", () => {

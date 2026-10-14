@@ -21,7 +21,9 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::chat::{announce_applied_note, apply_proposal_inner};
+use writ_tauri_lib::commands::chat::{
+    announce_applied_note, apply_proposal_inner, undo_proposal_to_state,
+};
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::AuthorizedPaths;
@@ -244,6 +246,48 @@ fn an_applied_note_that_is_open_gets_one_external_change_for_its_tab() {
     assert!(
         !modification_is_news(Some(recorded.hash), Some(sha256_bytes(applied)), false),
         "the watcher's own delivery would reach the tab a second time"
+    );
+}
+
+#[test]
+fn an_undo_puts_the_text_back_and_tells_the_tab_holding_the_note() {
+    let dir = TempDir::new().expect("temp dir");
+    let (state, events) = watching_state(&dir);
+    state.note_history.set_notes_root(state.notes_root());
+    let (file, before) = seed_note(&state, "Launch.md", "before\n");
+    state.follow_note_path("note-1", &file);
+
+    let applied = apply_proposal_inner(
+        &state.notes_root(),
+        &NoOpenNotes,
+        &state.writ_dir,
+        "probe-host",
+        "Launch.md",
+        "after\n",
+        &before,
+        Some(&state.note_history),
+        |_, _, _| unreachable!(),
+    )
+    .expect("applied");
+    assert!(applied.undoable);
+    while events.try_recv().is_ok() {}
+
+    let undone = undo_proposal_to_state(&state, "probe-host", "Launch.md", &before, &applied.hash)
+        .expect("undone");
+
+    assert!(undone.changed);
+    assert_eq!(std::fs::read_to_string(&file).expect("read"), "before\n");
+    let told = std::iter::from_fn(|| events.try_recv().ok()).any(|event| {
+        matches!(
+            event,
+            WritEvent::BufferExternal { ref buffer_id, change: ExternalChange::Modified, .. }
+                if buffer_id == "note-1"
+        )
+    });
+    assert!(told, "the tab holding the note was not told");
+    assert_eq!(
+        state.disk_state("note-1").expect("on record").hash,
+        sha256_bytes(b"before\n")
     );
 }
 

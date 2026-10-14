@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
+import Tooltip from "../Tooltip/Tooltip";
 import { requestConfirm } from "../../stores/global/dialogs";
 import { chatStore, type ChatConversationSummary } from "../../stores/global/chat";
 import { isImeComposing } from "../../lib/ime";
@@ -27,7 +28,7 @@ export default function ConversationList(props: { onPick: () => void }) {
   async function remove(row: ChatConversationSummary) {
     const confirmed = await requestConfirm({
       title: `Delete ${row.title}?`,
-      message: "The file goes with it.",
+      message: "The conversation is deleted. Your files are not changed.",
       confirmLabel: "Delete",
       danger: true,
       defaultAction: "cancel",
@@ -97,28 +98,34 @@ export default function ConversationList(props: { onPick: () => void }) {
                       </button>
                       <Show when={chatStore.isLive(row.id)}>
                         <span class="chat-chats-live" aria-hidden="true" />
+                        <Tooltip label="Stop reply">
+                          <Button
+                            variant="ghost"
+                            icon="square"
+                            iconSize={10}
+                            aria-label={`Stop ${row.title}`}
+                            onClick={() => chatStore.stop(row.id)}
+                          />
+                        </Tooltip>
+                      </Show>
+                      <Tooltip label="Rename">
                         <Button
                           variant="ghost"
-                          icon="square"
-                          iconSize={10}
-                          aria-label={`Stop ${row.title}`}
-                          onClick={() => chatStore.stop(row.id)}
+                          icon="pencil-simple"
+                          iconSize={12}
+                          aria-label={`Rename ${row.title}`}
+                          onClick={() => setRenaming(row.id)}
                         />
-                      </Show>
-                      <Button
-                        variant="ghost"
-                        icon="pencil-simple"
-                        iconSize={12}
-                        aria-label={`Rename ${row.title}`}
-                        onClick={() => setRenaming(row.id)}
-                      />
-                      <Button
-                        variant="ghost"
-                        icon="trash"
-                        iconSize={12}
-                        aria-label={`Delete ${row.title}`}
-                        onClick={() => void remove(row)}
-                      />
+                      </Tooltip>
+                      <Tooltip label="Delete">
+                        <Button
+                          variant="ghost"
+                          icon="trash"
+                          iconSize={12}
+                          aria-label={`Delete ${row.title}`}
+                          onClick={() => void remove(row)}
+                        />
+                      </Tooltip>
                     </div>
                   }
                 >

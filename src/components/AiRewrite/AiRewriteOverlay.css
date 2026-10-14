@@ -15,6 +15,22 @@
   border-radius: var(--writ-r-popover);
   box-shadow: var(--writ-shadow-popover);
   font-family: var(--writ-font-ui);
+  animation: ai-overlay-in var(--writ-motion-fast) var(--writ-ease);
+}
+
+/* The entrance the other popovers make: a short rise into place. The
+   horizontal centring is part of the transform, so it is carried through. */
+@keyframes ai-overlay-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-overlay {
+    animation: none;
+  }
 }
 
 .ai-overlay-header {
@@ -133,6 +149,27 @@
 
 .ai-overlay-error {
   color: var(--writ-status-error);
+}
+
+/* What the rewrite took out and put in, marked where it happened. */
+.ai-overlay-removed {
+  background: color-mix(in srgb, var(--writ-status-error) 18%, transparent);
+  color: var(--writ-fg-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.ai-overlay-added {
+  background: color-mix(in srgb, var(--writ-status-success) 20%, transparent);
+  color: var(--writ-fg);
+  text-decoration: none;
+}
+
+/* The chord on a footer button, quieter than its label. */
+.ai-overlay-chord {
+  margin-left: var(--writ-space-1);
+  opacity: 0.7;
+  font-size: var(--writ-ui-xs);
 }
 
 .ai-overlay-footer {

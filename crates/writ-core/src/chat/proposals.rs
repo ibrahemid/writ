@@ -97,6 +97,15 @@ pub(super) fn header_info(line: &str) -> Option<&str> {
         .then_some(info)
 }
 
+/// The path a proposal's opening line names, in either form: a fence whose
+/// info string carries it, or the header line under a bare fence.
+pub(super) fn opening_path(line: &str) -> Option<String> {
+    let info = open_proposal(line)
+        .map(|(_, info)| info)
+        .or_else(|| header_info(line))?;
+    attribute(info, "path")
+}
+
 /// What opens a proposal: the fence, the attributes, and where the body starts.
 struct Opening<'a> {
     /// The fence the block was opened with, which its close has to match.
