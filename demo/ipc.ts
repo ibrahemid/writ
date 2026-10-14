@@ -2,7 +2,32 @@
 // surface the app's tests install, answered by the in-memory backend.
 
 export type CommandArgs = Record<string, unknown> | undefined;
-export type CommandHandler = (cmd: string, args: CommandArgs) => unknown;
+/**
+ * Answers a command. `raw` says its body arrived as bytes rather than JSON,
+ * which a handler measuring what the page sends needs to know.
+ */
+export type CommandHandler = (cmd: string, args: CommandArgs, raw?: boolean) => unknown;
+
+/** What `invoke` passes beside a command's arguments. */
+interface InvokeOptions {
+  headers?: Record<string, string> | Headers;
+}
+
+/** The request header a raw-body save names its note in (`NOTE_ID_HEADER` in Rust). */
+const NOTE_ID_HEADER = "writ-note-id";
+
+/**
+ * A command's arguments as the host reads them. A save sends the note's text
+ * as a raw UTF-8 body and names the note in a header; the host reads both,
+ * and the handlers take the result as the arguments they always had.
+ */
+function argsOf(body: unknown, options: InvokeOptions | undefined): CommandArgs {
+  if (!ArrayBuffer.isView(body) && !(body instanceof ArrayBuffer)) return body as CommandArgs;
+  const headers = options?.headers;
+  const id = headers instanceof Headers ? headers.get(NOTE_ID_HEADER) : headers?.[NOTE_ID_HEADER];
+  const bytes = body instanceof ArrayBuffer ? new Uint8Array(body) : new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+  return { id, content: new TextDecoder().decode(bytes) };
+}
 
 type Callback = (data: unknown) => void;
 
@@ -67,8 +92,10 @@ export function installIpc(handle: (bridge: IpcBridge) => CommandHandler): IpcBr
       currentWindow: { label: "main" },
       currentWebview: { windowLabel: "main", label: "main" },
     },
-    invoke: async (cmd: string, args?: Record<string, unknown>) =>
-      cmd.startsWith("plugin:event|") ? eventPlugin(cmd, args ?? {}) : commands(cmd, args),
+    invoke: async (cmd: string, args?: unknown, options?: InvokeOptions) =>
+      cmd.startsWith("plugin:event|")
+        ? eventPlugin(cmd, (args as Record<string, unknown> | undefined) ?? {})
+        : commands(cmd, argsOf(args, options), ArrayBuffer.isView(args) || args instanceof ArrayBuffer),
     transformCallback: (callback?: Callback, once = false): number => {
       const id = window.crypto.getRandomValues(new Uint32Array(1))[0];
       callbacks.set(id, (data) => {

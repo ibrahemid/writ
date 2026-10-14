@@ -157,6 +157,17 @@ function codeOf(error: unknown, messages: Record<string, string>): string | unde
   );
 }
 
+// Codes a change-set save carries when the whole text has to go instead: the
+// file no longer holds the text the changes were made against, or the changes
+// do not fit it. Neither is a failed write.
+const CHANGES_RESENT_WHOLE = ["ERR_CHANGES_STALE", "ERR_CHANGES_INVALID"];
+
+/** Whether a change-set save was refused in favour of the whole text. */
+export function isChangesRefusal(error: unknown): boolean {
+  const text = rawMessage(error);
+  return CHANGES_RESENT_WHOLE.some((code) => text === code || text.startsWith(`${code}:`));
+}
+
 // False when writing the same text again would fail the same way, so the
 // caller drops it and waits for the document to change.
 export function isRetryableSaveError(error: unknown): boolean {

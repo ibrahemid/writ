@@ -218,6 +218,11 @@ pub const ASSET_PREFIX: &str = "_note-asset";
 /// reference does not resolve beside the note itself.
 pub const ATTACHMENTS_DIR: &str = "attachments";
 
+/// Largest embedded file the route serves, in the preview and in the editor
+/// alike. Past it a placeholder is drawn instead of pushing tens of megabytes
+/// into a webview.
+pub const ASSET_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
 /// Which containment root an asset path is expressed relative to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AssetRoot {
@@ -509,6 +514,10 @@ fn strip_unc_prefix(path: PathBuf) -> PathBuf {
     path
 }
 
+/// The most leading bytes [`sniff_image_mime`] looks at; reading this many is
+/// enough to decide a file's type.
+pub const SNIFF_BYTES: usize = 1024;
+
 /// MIME type of an image, decided by the leading bytes rather than the file
 /// name. A `.png` holding markup is served as nothing at all: the extension
 /// is what an attacker controls, the magic number is not.
@@ -548,7 +557,7 @@ pub fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
 /// further down, which is what keeps an HTML file named `.png` from being
 /// served as an image.
 fn is_svg(bytes: &[u8]) -> bool {
-    let prefix = &bytes[..bytes.len().min(1024)];
+    let prefix = &bytes[..bytes.len().min(SNIFF_BYTES)];
     // A multi-byte character truncated by the window edge is not a decoding
     // failure of the document, so the largest valid slice is examined.
     let text = match std::str::from_utf8(prefix) {

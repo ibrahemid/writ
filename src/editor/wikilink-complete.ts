@@ -8,6 +8,7 @@ import {
 import { keymap, type EditorView } from "@codemirror/view";
 import { Facet, Prec, type Extension } from "@codemirror/state";
 import { isInsideCode, isInsideFrontmatter } from "./link-layer";
+import { MAX_NORMAL_LINE_LENGTH } from "./large-file";
 
 /** One note a completion can offer. */
 export interface NoteName {
@@ -18,7 +19,7 @@ export interface NoteName {
 
 /**
  * Where the names come from, injected so this file reaches no store and no
- * service.
+ * service. An empty query asks for the files to offer on a bare `[[`.
  */
 export interface WikilinkCompleteDeps {
   candidates(query: string): Promise<NoteName[]>;
@@ -51,6 +52,8 @@ export function wikilinkQueryAt(line: string, column: number): string | null {
 export function wikilinkCompletionSource(deps: WikilinkCompleteDeps) {
   return async (context: CompletionContext): Promise<CompletionResult | null> => {
     const line = context.state.doc.lineAt(context.pos);
+    // A line past the per-line limit is drawn without links, so it offers none.
+    if (line.length > MAX_NORMAL_LINE_LENGTH) return null;
     const query = wikilinkQueryAt(line.text, context.pos - line.from);
     if (query === null) return null;
     // A wikilink written inside code is an example of the syntax, and one in
@@ -58,9 +61,6 @@ export function wikilinkCompletionSource(deps: WikilinkCompleteDeps) {
     // note names in either puts a list over text that is not a destination.
     if (isInsideCode(context.state, context.pos)) return null;
     if (isInsideFrontmatter(context.state, context.pos)) return null;
-    // An empty `[[` opens the list only when the user asked for it, so typing
-    // the brackets does not put a panel over what is being written.
-    if (query.trim() === "" && !context.explicit) return null;
 
     const hits = await deps.candidates(query);
     if (hits.length === 0) return null;

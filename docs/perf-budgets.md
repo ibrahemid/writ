@@ -437,6 +437,8 @@ the whole of its work.
 | `open_file_confirmed` | 300 MB log | 311 ms | 0 ms | 313 ms |
 | `read_buffer_content` | the same file | 315 ms | 0 ms | 300 ms |
 | `save_buffer_content` | the same file, one byte changed | 1,107 ms | 0 ms | 960 ms |
+| `save_buffer_content` (raw body) | the same file, one byte changed | not measured yet | | |
+| `save_buffer_changes` | the same file, one byte changed as a change set | not measured yet | | |
 | `preview_render` | 5 MB note, 54,359 wikilinks to 200 notes | 287 ms | 0 ms | 143 ms |
 | `search_workspace_files` | 200,000 files, slowest of six keystrokes | 104 ms | 0 ms | 104 ms |
 | `install_cli` | administrator password dialog | the whole dialog | 0 ms | the person |
@@ -450,14 +452,17 @@ Notes:
   where it runs.
 - The render's work halved because a note's wikilinks are resolved in one
   lookup before it renders.
-- Not covered: the JSON body of a large save is parsed on the main thread
-  before dispatch (EP-13), so a 300 MB autosave still costs that parse there.
 - `prompt_context_pack` (a file and the files it links to, up to 100, as one
   prompt) was `async` from its first version, so it has no "before". Its
   always-on test holds its work; its timed test packs 100 files of 40 KB.
 - `list_workspace_dir` (one folder of the sidebar's tree) runs on the
   blocking pool since ADR-047. Its always-on test holds the open folder's
   root; its timed test lists one folder of 20,000 entries.
+- `save_buffer_content` takes the text as a raw body with the note in the
+  `writ-note-id` header (EP-13): nothing is serialised to JSON or parsed on
+  either side. The large tiers send `save_buffer_changes` once one write has
+  landed. Both rows are in the 300 MB timed test; the release numbers are
+  taken by the next `scripts/perf-gate.sh` run.
 
 ### Re-baselining
 

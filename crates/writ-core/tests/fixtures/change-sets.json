@@ -1,0 +1,386 @@
+{
+  "cases": [
+    {
+      "name": "a word replaced in ASCII",
+      "base": "hello world\n",
+      "specs": [
+        {
+          "from": 6,
+          "to": 11,
+          "insert": "there"
+        }
+      ],
+      "changes": [
+        6,
+        [
+          5,
+          "there"
+        ],
+        1
+      ],
+      "result": "hello there\n"
+    },
+    {
+      "name": "insert at the start",
+      "base": "body\n",
+      "specs": [
+        {
+          "from": 0,
+          "insert": "# Title\n\n"
+        }
+      ],
+      "changes": [
+        [
+          0,
+          "# Title",
+          "",
+          ""
+        ],
+        5
+      ],
+      "result": "# Title\n\nbody\n"
+    },
+    {
+      "name": "insert at the end",
+      "base": "one\ntwo",
+      "specs": [
+        {
+          "from": 7,
+          "insert": "\nthree\n"
+        }
+      ],
+      "changes": [
+        7,
+        [
+          0,
+          "",
+          "three",
+          ""
+        ]
+      ],
+      "result": "one\ntwo\nthree\n"
+    },
+    {
+      "name": "delete everything",
+      "base": "gone\nall of it\n",
+      "specs": [
+        {
+          "from": 0,
+          "to": 15
+        }
+      ],
+      "changes": [
+        [
+          15
+        ]
+      ],
+      "result": ""
+    },
+    {
+      "name": "type into an empty document",
+      "base": "",
+      "specs": [
+        {
+          "from": 0,
+          "insert": "first words"
+        }
+      ],
+      "changes": [
+        [
+          0,
+          "first words"
+        ]
+      ],
+      "result": "first words"
+    },
+    {
+      "name": "no change",
+      "base": "unchanged\n",
+      "specs": [],
+      "changes": [
+        10
+      ],
+      "result": "unchanged\n"
+    },
+    {
+      "name": "edits near the top and the bottom",
+      "base": "a\nb\nc\nd\ne\nf\n",
+      "specs": [
+        {
+          "from": 0,
+          "to": 1,
+          "insert": "A"
+        },
+        {
+          "from": 10,
+          "to": 11,
+          "insert": "F"
+        }
+      ],
+      "changes": [
+        [
+          1,
+          "A"
+        ],
+        9,
+        [
+          1,
+          "F"
+        ],
+        1
+      ],
+      "result": "A\nb\nc\nd\ne\nF\n"
+    },
+    {
+      "name": "a line joined across a break",
+      "base": "first\nsecond\n",
+      "specs": [
+        {
+          "from": 5,
+          "to": 6,
+          "insert": " "
+        }
+      ],
+      "changes": [
+        5,
+        [
+          1,
+          " "
+        ],
+        7
+      ],
+      "result": "first second\n"
+    },
+    {
+      "name": "emoji kept around an edit",
+      "base": "a😀b😀c",
+      "specs": [
+        {
+          "from": 3,
+          "to": 4,
+          "insert": "B"
+        }
+      ],
+      "changes": [
+        3,
+        [
+          1,
+          "B"
+        ],
+        3
+      ],
+      "result": "a😀B😀c"
+    },
+    {
+      "name": "an emoji replaced whole",
+      "base": "x😀y",
+      "specs": [
+        {
+          "from": 1,
+          "to": 3,
+          "insert": "🎉🎉"
+        }
+      ],
+      "changes": [
+        1,
+        [
+          2,
+          "🎉🎉"
+        ],
+        1
+      ],
+      "result": "x🎉🎉y"
+    },
+    {
+      "name": "an emoji inserted after another",
+      "base": "😀",
+      "specs": [
+        {
+          "from": 2,
+          "insert": "👍🏽"
+        }
+      ],
+      "changes": [
+        2,
+        [
+          0,
+          "👍🏽"
+        ]
+      ],
+      "result": "😀👍🏽"
+    },
+    {
+      "name": "CJK edited in place",
+      "base": "中文文本\n日本語",
+      "specs": [
+        {
+          "from": 2,
+          "to": 4,
+          "insert": "字"
+        },
+        {
+          "from": 5,
+          "to": 8,
+          "insert": "にほんご"
+        }
+      ],
+      "changes": [
+        2,
+        [
+          2,
+          "字"
+        ],
+        1,
+        [
+          3,
+          "にほんご"
+        ]
+      ],
+      "result": "中文字\nにほんご"
+    },
+    {
+      "name": "combining marks",
+      "base": "café ok",
+      "specs": [
+        {
+          "from": 6,
+          "to": 8,
+          "insert": "fine"
+        }
+      ],
+      "changes": [
+        6,
+        [
+          2,
+          "fine"
+        ]
+      ],
+      "result": "café fine"
+    },
+    {
+      "name": "Arabic and Latin",
+      "base": "مرحبا hello",
+      "specs": [
+        {
+          "from": 0,
+          "to": 5,
+          "insert": "سلام"
+        },
+        {
+          "from": 6,
+          "to": 11,
+          "insert": "world"
+        }
+      ],
+      "changes": [
+        [
+          5,
+          "سلام"
+        ],
+        1,
+        [
+          5,
+          "world"
+        ]
+      ],
+      "result": "سلام world"
+    },
+    {
+      "name": "lines inserted in the middle",
+      "base": "top\nbottom\n",
+      "specs": [
+        {
+          "from": 4,
+          "insert": "one\ntwo\n\nthree\n"
+        }
+      ],
+      "changes": [
+        4,
+        [
+          0,
+          "one",
+          "two",
+          "",
+          "three",
+          ""
+        ],
+        7
+      ],
+      "result": "top\none\ntwo\n\nthree\nbottom\n"
+    },
+    {
+      "name": "the whole document replaced",
+      "base": "old text\nold lines\n",
+      "specs": [
+        {
+          "from": 0,
+          "to": 19,
+          "insert": "new text 😀\n"
+        }
+      ],
+      "changes": [
+        [
+          19,
+          "new text 😀",
+          ""
+        ]
+      ],
+      "result": "new text 😀\n"
+    },
+    {
+      "name": "many small edits",
+      "base": "0123456789\n0123456789\n",
+      "specs": [
+        {
+          "from": 1,
+          "to": 2,
+          "insert": "x"
+        },
+        {
+          "from": 4,
+          "insert": "yy"
+        },
+        {
+          "from": 9,
+          "to": 12
+        },
+        {
+          "from": 15,
+          "to": 16,
+          "insert": "é"
+        },
+        {
+          "from": 22,
+          "insert": "end"
+        }
+      ],
+      "changes": [
+        1,
+        [
+          1,
+          "x"
+        ],
+        2,
+        [
+          0,
+          "yy"
+        ],
+        5,
+        [
+          3
+        ],
+        3,
+        [
+          1,
+          "é"
+        ],
+        6,
+        [
+          0,
+          "end"
+        ]
+      ],
+      "result": "0x23yy45678123é56789\nend"
+    }
+  ]
+}

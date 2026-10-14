@@ -1,6 +1,11 @@
-import { isRetryableSaveError } from "../lib/save-error";
+import { isChangesRefusal, isRetryableSaveError } from "../lib/save-error";
 import { logFailure } from "../lib/log";
-import { discardUnsavedText, recordUnsavedNotes, saveBufferContent } from "./tauri";
+import {
+  discardUnsavedText,
+  recordUnsavedNotes,
+  saveBufferChanges,
+  saveBufferContent,
+} from "./tauri";
 
 // `generation` is the failed write's own generation, not the note's current
 // one, so a listener can tell a refusal about a write it still cares about from
@@ -97,10 +102,34 @@ interface QueuedContent {
    * backend will refuse again.
    */
   writer?: SaveWriter;
+  /**
+   * Set for a note in the editor's large tiers: a snapshot is then sent as the
+   * changes since the document the note's last write landed with, when one
+   * is known ([`landedTexts`]), instead of as the whole text.
+   */
+  encodeChanges?: ChangeEncoder;
 }
 
 /** Writes a note's text and reports what its file holds afterwards. */
 export type SaveWriter = (bufferId: string, content: string) => Promise<string | null>;
+
+/** A change set and the length of the document it produces, as the save command takes them. */
+export interface EncodedChanges {
+  changes: unknown;
+  length: number;
+}
+
+/**
+ * The changes from `base` to `doc`, or null when they cannot be put that way
+ * (either is not a document the encoder knows).
+ */
+export type ChangeEncoder = (base: DocumentSnapshot, doc: DocumentSnapshot) => EncodedChanges | null;
+
+/** The document a note's last landed write carried, and the digest Rust answered it with. */
+interface LandedText {
+  doc: DocumentSnapshot;
+  digest: string;
+}
 
 interface InFlightWrite {
   promise: Promise<SaveResult>;
@@ -143,7 +172,22 @@ const startListeners = new Set<AutosaveStartListener>();
 const lastFailedContent = new Map<string, UnsavedText>();
 // The text of each write still out, so a close that stops waiting on a write
 // to a stalled share can still hand that text to the unsaved-text journal.
-const inFlightContent = new Map<string, string>();
+const inFlightContent = new Map<string, () => string>();
+// Per note, the snapshot its last landed write carried and the digest of what
+// that write put on the file. Only a snapshot is kept: the change set a
+// large-tier save sends is made against exactly this document, and Rust
+// applies it only while the file's text still has this digest. A write that
+// lands carrying anything else, or through a writer of its own, drops it.
+const landedTexts = new Map<string, LandedText>();
+
+/**
+ * Forgets the document a note's last write landed with, so its next write
+ * sends the whole text. For a document the editor no longer holds: keeping
+ * it here would keep it in memory.
+ */
+export function forgetLandedText(bufferId: string) {
+  landedTexts.delete(bufferId);
+}
 
 export function onAutosaveError(listener: AutosaveErrorListener): () => void {
   errorListeners.add(listener);
@@ -353,7 +397,7 @@ export function collectUnsavedContent(): Array<{ id: string; content: string }> 
   ]);
   const notes: Array<{ id: string; content: string }> = [];
   for (const id of ids) {
-    const content = peekUnsavedContent(id) ?? inFlightContent.get(id);
+    const content = peekUnsavedContent(id) ?? inFlightContent.get(id)?.();
     if (content !== undefined) notes.push({ id, content });
   }
   return notes;
@@ -385,7 +429,12 @@ function clearTimer(bufferId: string) {
   }
 }
 
-function queueContent(bufferId: string, content: ContentSource, writer?: SaveWriter) {
+function queueContent(
+  bufferId: string,
+  content: ContentSource,
+  writer?: SaveWriter,
+  encodeChanges?: ChangeEncoder,
+) {
   // The note is writing again, so the queue is the newer record of its text
   // and anything held for it is the older one. The write answers to the
   // journal from here: it clears the tab's entry when it lands and records
@@ -398,12 +447,18 @@ function queueContent(bufferId: string, content: ContentSource, writer?: SaveWri
     source: content,
     generation: bumpGeneration(bufferId),
     writer,
+    encodeChanges,
   });
 }
 
-export function debouncedSave(bufferId: string, content: ContentSource, delayMs: number = 1000) {
+export function debouncedSave(
+  bufferId: string,
+  content: ContentSource,
+  delayMs: number = 1000,
+  encodeChanges?: ChangeEncoder,
+) {
   clearTimer(bufferId);
-  queueContent(bufferId, content);
+  queueContent(bufferId, content, undefined, encodeChanges);
 
   armTimer(bufferId, delayMs);
 }
@@ -498,6 +553,7 @@ export function cancelAutosave(bufferId: string) {
   lastFailedContent.delete(bufferId);
   inFlightContent.delete(bufferId);
   retryAttempts.delete(bufferId);
+  landedTexts.delete(bufferId);
   // Retire the current generation so a write already in flight cannot put the
   // discarded text back on the queue when it fails.
   bumpGeneration(bufferId);
@@ -521,6 +577,7 @@ export function resetAutosave() {
   inFlightContent.clear();
   retryAttempts.clear();
   lastFailedContent.clear();
+  landedTexts.clear();
 }
 
 export async function flushAutosave(bufferId?: string): Promise<SaveResult> {
@@ -548,9 +605,10 @@ export async function saveNow(
   bufferId: string,
   content: ContentSource,
   writer?: SaveWriter,
+  encodeChanges?: ChangeEncoder,
 ): Promise<SaveResult> {
   clearTimer(bufferId);
-  queueContent(bufferId, content, writer);
+  queueContent(bufferId, content, writer, encodeChanges);
   return runPendingSave(bufferId);
 }
 
@@ -585,30 +643,85 @@ async function startWrite(bufferId: string): Promise<SaveResult> {
   }
 }
 
-async function writeQueued(bufferId: string, queued: QueuedContent): Promise<SaveResult> {
-  let content: string;
+/**
+ * The change set a queued snapshot can be sent as: made against the document
+ * the note's last write landed with, for a note whose writes may go that way.
+ */
+function changesToSend(
+  bufferId: string,
+  queued: QueuedContent,
+): (EncodedChanges & { base: string }) | null {
+  if (queued.writer !== undefined || queued.encodeChanges === undefined) return null;
+  if (typeof queued.source !== "object") return null;
+  const landed = landedTexts.get(bufferId);
+  if (landed === undefined) return null;
   try {
-    content = materializeContent(queued.source);
-  } catch (error) {
-    // The live document is gone (e.g. the view was torn down between schedule
-    // and fire). Nothing to save; surface it like any other autosave failure.
-    for (const listener of errorListeners) {
-      listener(bufferId, error, queued.generation);
-    }
-    return saveFailed(bufferId, error);
+    const encoded = queued.encodeChanges(landed.doc, queued.source);
+    return encoded === null ? null : { ...encoded, base: landed.digest };
+  } catch {
+    logFailure("the changes since the last save could not be worked out");
+    return null;
   }
+}
+
+/**
+ * Writes the queued text as a change set. A change set Rust will not apply
+ * (the file moved on, or it does not fit) is the same write sent again
+ * whole, so the person sees one save either way.
+ */
+async function sendChanges(
+  bufferId: string,
+  queued: QueuedContent,
+  changes: EncodedChanges & { base: string },
+  whole: () => string,
+): Promise<string | null> {
+  try {
+    return await saveBufferChanges(bufferId, changes.base, changes.changes, changes.length);
+  } catch (error) {
+    if (!isChangesRefusal(error)) throw error;
+    landedTexts.delete(bufferId);
+  }
+  return (queued.writer ?? saveBufferContent)(bufferId, whole());
+}
+
+async function writeQueued(bufferId: string, queued: QueuedContent): Promise<SaveResult> {
+  // A snapshot that may go as a change set is turned into a string only if
+  // the whole text has to go after all; anything else is read now, while the
+  // reader it may be still reads the note it was queued for.
+  let content: string | undefined;
+  const changes = changesToSend(bufferId, queued);
+  if (changes === null) {
+    try {
+      content = materializeContent(queued.source);
+    } catch (error) {
+      // The live document is gone (e.g. the view was torn down between schedule
+      // and fire). Nothing to save; surface it like any other autosave failure.
+      for (const listener of errorListeners) {
+        listener(bufferId, error, queued.generation);
+      }
+      return saveFailed(bufferId, error);
+    }
+  }
+  const whole = () => (content ??= materializeContent(queued.source));
 
   lastWriteAt.set(bufferId, Date.now());
   for (const listener of startListeners) {
     listener(bufferId);
   }
-  inFlightContent.set(bufferId, content);
+  inFlightContent.set(bufferId, whole);
   try {
-    const diskHash = await (queued.writer ?? saveBufferContent)(bufferId, content);
+    const diskHash = await (changes === null
+      ? (queued.writer ?? saveBufferContent)(bufferId, whole())
+      : sendChanges(bufferId, queued, changes, whole));
     lastFailedContent.delete(bufferId);
     retryAttempts.delete(bufferId);
+    if (typeof queued.source === "object" && queued.writer === undefined && diskHash !== null) {
+      landedTexts.set(bufferId, { doc: queued.source, digest: diskHash });
+    } else {
+      landedTexts.delete(bufferId);
+    }
     const write: LandedWrite = {
-      source: typeof queued.source === "object" ? queued.source : content,
+      source: typeof queued.source === "object" ? queued.source : whole(),
       generation: queued.generation,
     };
     for (const listener of successListeners) {
@@ -625,12 +738,14 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // the same way, and a stopped save lands another dated copy beside the
     // note each time, so this text leaves the queue and the next keystroke —
     // which queues a new generation — is what writes again.
+    const text = whole();
     const isNewest = generations.get(bufferId) === queued.generation;
     if (isNewest && isRetryableSaveError(error)) {
       pendingContent.set(bufferId, {
-        source: typeof queued.source === "object" ? queued.source : content,
+        source: typeof queued.source === "object" ? queued.source : text,
         generation: queued.generation,
         writer: queued.writer,
+        encodeChanges: queued.encodeChanges,
       });
       // A keystroke or flush in the meantime writes it sooner; this is for
       // the note nobody touches again.
@@ -647,7 +762,7 @@ async function writeQueued(bufferId: string, queued: QueuedContent): Promise<Sav
     // through [`peekUnsavedContent`] into the unsaved-text journal, and the
     // next launch would put the version they answered against back beside the
     // note.
-    if (isNewest) lastFailedContent.set(bufferId, { content, generation: queued.generation });
+    if (isNewest) lastFailedContent.set(bufferId, { content: text, generation: queued.generation });
     for (const listener of errorListeners) {
       listener(bufferId, error, queued.generation);
     }

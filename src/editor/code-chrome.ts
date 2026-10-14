@@ -32,11 +32,10 @@ export function codeChromeFor(lang: string | null): Extension {
 /**
  * Whether a language change may re-dress the surface.
  *
- * A restricted buffer (large, long-lined or binary) mounts with the surface it
- * needs and keeps it: its language is never detected, it does not wrap, and
- * taking the gutter off it would leave nothing to navigate by. Normal buffers
- * follow their language.
+ * A large or binary buffer mounts with the surface it needs and keeps it:
+ * taking the gutter off it would leave nothing to navigate by. Normal and
+ * long-lined buffers follow their language.
  */
 export function surfaceFollowsLanguage(mode: FileOpenMode): boolean {
-  return mode.kind === "Normal";
+  return mode.kind === "Normal" || mode.kind === "LongLines";
 }

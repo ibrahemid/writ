@@ -3,11 +3,11 @@
 //!
 //! The preview frame is `writ-preview://<scope>/…` on macOS and Linux and
 //! `http://writ-preview.<scope>/…` on Windows, where WebView2 serves a custom
-//! scheme only in that form. `frame-src` has to name the form each platform
-//! loads and only that form: on macOS and Linux `http://writ-preview.document`
-//! is an ordinary HTTP host the resolver would look up. The Windows file
-//! replaces the whole policy string, so the last test is what keeps the two
-//! copies from drifting apart.
+//! scheme only in that form. `frame-src` and `img-src` have to name the form
+//! each platform loads and only that form: on macOS and Linux
+//! `http://writ-preview.document` is an ordinary HTTP host the resolver would
+//! look up. The Windows file replaces the whole policy string, so the third
+//! test is what keeps the two copies from drifting apart.
 
 #[path = "support/app_csp.rs"]
 mod app_csp;
@@ -57,16 +57,16 @@ fn windows_frames_the_webview2_preview_origins() {
 }
 
 #[test]
-fn the_windows_policy_differs_from_the_base_only_in_frame_src() {
-    let without_frame_src = |csp: String| -> Vec<(String, String)> {
+fn the_windows_policy_differs_from_the_base_only_in_the_preview_origins() {
+    let without_preview_sources = |csp: String| -> Vec<(String, String)> {
         directives(&csp)
             .into_iter()
-            .filter(|(name, _)| name != "frame-src")
+            .filter(|(name, _)| name != "frame-src" && name != "img-src")
             .collect()
     };
     assert_eq!(
-        without_frame_src(app_csp_for(true)),
-        without_frame_src(app_csp_for(false))
+        without_preview_sources(app_csp_for(true)),
+        without_preview_sources(app_csp_for(false))
     );
 }
 
@@ -102,11 +102,18 @@ fn connections_reach_only_the_ipc_origins() {
     }
 }
 
-/// The asset protocol is not enabled, so `asset:` would only be a source an
-/// injected script could aim at later.
+/// Images come from the app, inline data, and the preview scheme's document
+/// scope, which serves the editor's images read-only (ADR-035). The asset
+/// protocol is not enabled, so `asset:` would only be a source an injected
+/// script could aim at later.
 #[test]
-fn images_come_from_the_app_or_inline_data_only() {
-    for windows in [false, true] {
-        assert_eq!(directive(&app_csp_for(windows), "img-src"), "'self' data:");
-    }
+fn images_come_from_the_app_inline_data_or_the_preview_scheme_only() {
+    assert_eq!(
+        directive(&app_csp_for(false), "img-src"),
+        "'self' data: writ-preview:"
+    );
+    assert_eq!(
+        directive(&app_csp_for(true), "img-src"),
+        "'self' data: http://writ-preview.document"
+    );
 }

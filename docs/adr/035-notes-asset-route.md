@@ -140,3 +140,19 @@ in one named function in `writ-render`. The general link policy lands later in
 `RenderRequest` gained an `assets` field. It is plain data, not a closure, so
 the renderer registry keeps holding trait objects and the request type keeps its
 serde shape.
+
+## Amendment (2026-10-14): the editor draws its images from the route
+
+The editor's inline images moved off base64 over IPC, which refused anything
+over 2 MB and read an evicted file to answer. `preview_inline_image` now takes
+a buffer id, reads the roots off that buffer's row, records the buffer's scope
+in the render cache beside its document, and answers with a `_note-asset` URL;
+the webview loads the bytes from the scheme. Scopes are kept apart from
+documents so the route serves a buffer with no preview open, and one token
+serves both surfaces. A buffer with no file gets a notes-folder scope from the
+editor, the root it resolved against before; the preview still records none. Every refusal is decided before a read: a provider
+placeholder is `not_downloaded` from its stat, and the editor offers a
+download (`preview_inline_image_download`, bounded by the note download
+timeout). One cap, `ASSET_MAX_BYTES` (16 MB), covers both surfaces. This
+reverses "No CSP change" for the app window: its `img-src` adds `writ-preview:`
+(`http://writ-preview.document` on Windows); the document policy is unchanged.

@@ -4278,7 +4278,7 @@ THE SOFTWARE.
 
 ### MIT
 
-hyper-rustls 0.27.10, rustls 0.23.45, rustls-native-certs 0.8.4
+hyper-rustls 0.27.10, rustls 0.23.46, rustls-native-certs 0.8.4
 
 ```
 Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>

@@ -174,10 +174,14 @@ describe("tab strip visibility", () => {
     expect(labels(container).map((el) => el.textContent)).toEqual(["note-1"]);
   });
 
-  it("is hidden with no open file", () => {
+  // The strip and its + stay when the last file closes: the start surface
+  // below offers the next steps, and the + is where a new file starts.
+  it("stays with its + when no file is open", () => {
     open(0);
     const { container } = render(() => <TabBar />);
-    expect(container.querySelector(".tabbar")).toBeNull();
+    expect(container.querySelector(".tabbar")).not.toBeNull();
+    expect(container.querySelectorAll('[role="tab"]').length).toBe(0);
+    expect(container.querySelector(".tab-add")).not.toBeNull();
   });
 
   it("is shown with two open files", () => {
@@ -297,7 +301,7 @@ describe("tab strip accessibility", () => {
     const tab = labels(container)[0];
     const close = container.querySelector<HTMLButtonElement>(".tab-close")!;
     expect(close.tagName).toBe("BUTTON");
-    expect(close.parentElement).toBe(tab.parentElement);
+    expect(close.closest(".tab")).toBe(tab.closest(".tab"));
     expect(tab.querySelector(".tab-close")).toBeNull();
     expect(close.getAttribute("aria-label")).toBe("Close note-1.md");
   });
@@ -393,7 +397,7 @@ describe("closing a tab from the keyboard", () => {
     fireEvent.keyDown(close, { key: " " });
     await settle();
     expect(h.closeTab).toHaveBeenCalledWith("buf-1");
-    expect(container.querySelector(".tabbar")).toBeNull();
+    expect(container.querySelectorAll('[role="tab"]').length).toBe(0);
     expect(h.focusEditor).toHaveBeenCalledTimes(1);
   });
 });

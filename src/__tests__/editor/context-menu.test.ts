@@ -260,6 +260,14 @@ describe("link group", () => {
     expect(labels(items)).toEqual(expect.arrayContaining(["Open link", "Copy link"]));
   });
 
+  it("shows the click that opens a link without the menu", () => {
+    const items = buildEditorMenuItems(
+      context({ link: { range: { from: 0, to: 5, kind: "url" }, text: "https://x.dev" } }),
+      actions(),
+    );
+    expect(items.find((item) => item.label === "Open link")!.kbd).toMatch(/^(⌘|Ctrl\+)Click$/);
+  });
+
   it("is absent when the pointer is not on a link", () => {
     const items = buildEditorMenuItems(context(), actions());
     expect(labels(items)).not.toContain("Open link");

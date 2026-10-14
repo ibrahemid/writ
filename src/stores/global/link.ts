@@ -5,7 +5,11 @@ import * as tauri from "../../services/tauri";
 import { writeClipboardText } from "../../services/tauri";
 import { indexCacheStore } from "./index-cache";
 import { showToast } from "./notifications";
-import { resolveWithinRoot } from "../../lib/path";
+import { dirname, resolveWithinRoot } from "../../lib/path";
+import { bufferRegistry } from "./buffer-registry";
+import { notesStore } from "./notes";
+import { emptyQueryLinks, type LinkCandidate } from "../../lib/link-suggestions";
+import { pathInRoots } from "../../lib/tab-labels";
 import { noteLinkHeading, noteLinkPath } from "../../lib/wikilink";
 import type { LinkVerdict } from "../../types/link";
 import type { BufferDocument } from "../../types/buffer";
@@ -124,6 +128,26 @@ async function noteNameCandidates(query: string, limit?: number): Promise<NoteNa
   }
 }
 
+function recentPaths(): string[] {
+  const closedAt = (doc: BufferDocument) => doc.closed_at ?? doc.updated_at ?? doc.created_at;
+  const open = bufferRegistry.activeTabs().map((doc) => doc.source_path);
+  const closed = bufferRegistry
+    .historyList()
+    .slice()
+    .sort((a, b) => closedAt(b).localeCompare(closedAt(a)))
+    .map((doc) => doc.source_path);
+  return [...open, ...closed].filter((path): path is string => path !== null && path !== "");
+}
+
+async function linkCandidates(query: string, fromPath: string | null): Promise<LinkCandidate[]> {
+  if (query.trim() !== "") return noteNameCandidates(query);
+  const recent = recentPaths();
+  const root = notesStore.root();
+  const folder = fromPath && root ? pathInRoots(dirname(fromPath), [root]) : null;
+  const nearby = folder && folder !== dirname(fromPath ?? "") ? await notePathsInFolder(folder) : [];
+  return emptyQueryLinks(recent, nearby, fromPath, root);
+}
+
 /** The folders a query names, for the rows an `@` offers beside the notes. */
 async function noteFolderCandidates(query: string, limit?: number): Promise<NoteFolderHit[]> {
   try {
@@ -169,21 +193,27 @@ async function createNote(target: string): Promise<BufferDocument | null> {
 }
 
 /**
- * Image bytes for one reference written in a file, for the editor to draw.
+ * The URL one image reference written in a buffer is drawn from.
  *
- * A pass-through: the refusal and the size cap are the host's, and the
+ * A pass-through: the refusals and the size cap are the host's, and the
  * caller decides what a refusal looks like.
  */
-async function inlineImage(
-  notePath: string | null,
+async function inlineImage(bufferId: string, reference: string): Promise<{ src: string }> {
+  return tauri.previewInlineImage(bufferId, reference);
+}
+
+/** Download an image a sync provider holds, then answer as `inlineImage` does. */
+async function downloadInlineImage(
+  bufferId: string,
   reference: string,
-): Promise<{ dataUrl: string }> {
-  return tauri.previewInlineImage(notePath, reference);
+): Promise<{ src: string }> {
+  return tauri.previewInlineImageDownload(bufferId, reference);
 }
 
 export const linkStore = {
   openExternal,
   inlineImage,
+  downloadInlineImage,
   classify,
   copyLink,
   resolveNoteLink,
@@ -192,6 +222,7 @@ export const linkStore = {
   notePathFromPreview,
   noteOpenFromPreview,
   noteNameCandidates,
+  linkCandidates,
   noteFolderCandidates,
   notePathsInFolder,
   createNote,

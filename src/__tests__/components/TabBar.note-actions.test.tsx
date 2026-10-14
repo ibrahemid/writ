@@ -92,6 +92,7 @@ vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: {
     activeTabs: mocks.buffers,
     buffers: mocks.buffers,
+    historyList: () => [],
   },
 }));
 

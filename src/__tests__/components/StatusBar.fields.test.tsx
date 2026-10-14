@@ -7,13 +7,20 @@ const [counts, setCounts] = createSignal(false);
 const [buffer, setBuffer] = createSignal<BufferDocument | null>(null);
 const [cursorLine, setCursorLine] = createSignal(1);
 const [cursorCol, setCursorCol] = createSignal(1);
+const [spellingOn, setSpellingOn] = createSignal(false);
+const [flagged, setFlagged] = createSignal(0);
 
 vi.mock("../../stores/global/save-status", () => ({
-  saveStatusStore: { forNote: () => ({ state: "dirty" as const, fileName: "draft.txt" }) },
+  saveStatusStore: { forNote: () => ({ state: "saved" as const, fileName: "draft.txt" }) },
 }));
 vi.mock("../../stores/global/config", () => ({
-  configStore: { config: () => ({ editor: { status_bar_counts: counts() } }) },
+  configStore: {
+    config: () => ({ editor: { status_bar_counts: counts() }, spelling: { enabled: spellingOn() } }),
+  },
 }));
+vi.mock("../../stores/global/spelling", () => ({ spellingStore: { count: () => flagged() } }));
+const openSpellingPreview = vi.hoisted(() => vi.fn());
+vi.mock("../../components/Editor/SpellingPreview", () => ({ openSpellingPreview }));
 vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: { getActive: () => null },
 }));
@@ -26,6 +33,10 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
     editor: {
       largeFileMode: () => null,
+      currentBufferId: () => "tab-1",
+      tierOffer: () => null,
+      longestLine: () => 0,
+      overridesOf: () => ({}),
       cursorLine,
       cursorCol,
       isUpdatedFromDisk: () => false,
@@ -60,6 +71,9 @@ afterEach(() => {
   setBuffer(null);
   setCursorLine(1);
   setCursorCol(1);
+  setSpellingOn(false);
+  setFlagged(0);
+  openSpellingPreview.mockClear();
   cleanup();
 });
 
@@ -71,9 +85,7 @@ describe("StatusBar fields", () => {
     const { container } = render(() => <StatusBar />);
     expect(right(container).textContent).toContain("Ln 12, Col 4");
     expect(right(container).textContent).toContain("UTF-8");
-    expect(container.querySelector(".statusbar-live")!.textContent).toContain(
-      "Unsaved changes in draft.txt",
-    );
+    expect(container.querySelector(".statusbar-live")!.textContent).toContain("Saved draft.txt");
     expect(right(container).querySelector(".layout-toggle")).toBeNull();
   });
 
@@ -146,7 +158,11 @@ describe("StatusBar fields", () => {
     setCounts(true);
     setBuffer(fileNamed("draft.md"));
     const { container } = render(() => <StatusBar />);
-    const classes = [...right(container).children].map((el) => el.className);
+    const classes = [
+      ...right(container).querySelectorAll(
+        ".statusbar-field--cursor, .statusbar-field--words, .statusbar-tokens, .statusbar-encoding, .layout-toggle",
+      ),
+    ].map((el) => el.className);
     expect(classes).toEqual([
       "statusbar-field statusbar-field--cursor",
       "statusbar-field statusbar-field--words",
@@ -156,11 +172,39 @@ describe("StatusBar fields", () => {
     ]);
   });
 
-  it("shows no folder button, language label, spelling chip, rewrite chip, scripts toggle or palette hint", () => {
+  it("shows no spelling chip while spell check is off, whatever it counted", () => {
+    setFlagged(4);
+    setBuffer(fileNamed("draft.md"));
+    const { container } = render(() => <StatusBar />);
+    expect(container.querySelector(".statusbar-chip--spelling")).toBeNull();
+  });
+
+  it("shows no spelling chip while spell check is on and nothing is flagged", () => {
+    setSpellingOn(true);
+    setBuffer(fileNamed("draft.md"));
+    const { container } = render(() => <StatusBar />);
+    expect(container.querySelector(".statusbar-chip--spelling")).toBeNull();
+  });
+
+  it("counts what spell check flagged and opens the review from the chip", () => {
+    setSpellingOn(true);
+    setFlagged(14);
+    setBuffer(fileNamed("draft.md"));
+    const { container } = render(() => <StatusBar />);
+    const chip = container.querySelector<HTMLButtonElement>(".statusbar-chip--spelling")!;
+    expect(chip.textContent).toBe("14 flagged");
+    chip.click();
+    expect(openSpellingPreview).toHaveBeenCalledTimes(1);
+
+    setFlagged(0);
+    expect(container.querySelector(".statusbar-chip--spelling")).toBeNull();
+  });
+
+  it("shows no folder button, language label, rewrite chip, scripts toggle or palette hint", () => {
     setCounts(true);
     setBuffer(fileNamed("draft.md"));
     const { container } = render(() => <StatusBar />);
-    for (const selector of [".statusbar-folder", ".spelling-chip", ".scripts-toggle", ".kbd-chord"]) {
+    for (const selector of [".statusbar-folder", ".scripts-toggle", ".kbd-chord"]) {
       expect(container.querySelector(selector), selector).toBeNull();
     }
     for (const word of ["Rewrite", "Command palette", "Markdown", "Plain Text"]) {
