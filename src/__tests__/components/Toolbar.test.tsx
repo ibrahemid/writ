@@ -29,7 +29,13 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       setSearchQuery: h.setSearchQuery,
       searchHits: () => [],
       searchTotal: () => 0,
-      searchMs: () => null,
+      searchStatus: () => "idle",
+      searchedFolder: () => null,
+      folderHits: () => [],
+      folderStatus: () => "idle",
+      activeResult: () => -1,
+      setActiveResult: vi.fn(),
+      retrySearch: vi.fn(),
     },
     tabs: {
       activeTabId: () => null,
@@ -55,7 +61,7 @@ vi.mock("../../components/Sidebar/SearchResults", () => ({ default: () => null }
 vi.mock("../../components/Sidebar/SidebarEmpty", () => ({ default: () => null }));
 
 import Toolbar from "../../components/Toolbar/Toolbar";
-import Sidebar from "../../components/Sidebar/Sidebar";
+import Sidebar, { focusIsOutsideSidebar } from "../../components/Sidebar/Sidebar";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
 import { configStore } from "../../stores/global/config";
 
@@ -250,6 +256,26 @@ describe("Toolbar search", () => {
     on("linux");
     const linux = render(() => <Sidebar />);
     expect(linux.container.querySelector(".search-bar")).not.toBeNull();
+  });
+});
+
+describe("focus when the sidebar closes", () => {
+  it("is outside the sidebar only while a control elsewhere holds it", () => {
+    on("linux");
+    const { container } = render(() => (
+      <>
+        <Sidebar />
+        <button type="button" class="elsewhere">Elsewhere</button>
+      </>
+    ));
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(focusIsOutsideSidebar()).toBe(false);
+
+    container.querySelector<HTMLInputElement>(".sidebar input.search-input")!.focus();
+    expect(focusIsOutsideSidebar()).toBe(false);
+
+    container.querySelector<HTMLButtonElement>(".elsewhere")!.focus();
+    expect(focusIsOutsideSidebar()).toBe(true);
   });
 });
 

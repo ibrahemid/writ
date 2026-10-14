@@ -19,7 +19,7 @@ const AREA = [
   "src/components/UpdateBanner/UpdateBanner.css",
   "src/components/PromptFill/PromptFillModal.css",
   "src/components/AiRewrite/AiRewriteOverlay.css",
-  "src/components/ErrorBoundary/ErrorBoundary.css",
+  "src/components/FailureScreen/FailureScreen.css",
 ] as const;
 
 const sheets = AREA.map((rel) => [rel, readFileSync(resolve(process.cwd(), rel), "utf8")] as const);

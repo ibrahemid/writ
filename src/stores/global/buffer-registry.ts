@@ -99,9 +99,13 @@ function createBufferRegistry() {
   const activeTabs = createMemo(() =>
     buffers().filter((b) => b.status === "active"),
   );
-  const historyList = createMemo(() =>
-    buffers().filter((b) => b.status === "history"),
-  );
+  // Rows taken out of Recent while their Undo is still on screen. They are
+  // deleted when the Undo goes, and shown again if it is taken.
+  const [hiddenHistory, setHiddenHistory] = createSignal<ReadonlySet<string>>(new Set());
+  const historyList = createMemo(() => {
+    const hidden = hiddenHistory();
+    return buffers().filter((b) => b.status === "history" && !hidden.has(b.id));
+  });
 
   async function load() {
     const [active, history] = await Promise.all([
@@ -146,6 +150,14 @@ function createBufferRegistry() {
     return doc;
   }
 
+  /** [`newNote`] in a folder of the notes folder: the tree's New file. */
+  async function newNoteInFolder(folder: string): Promise<BufferDocument> {
+    await flushAutosave();
+    const doc = await api.newNoteInFolder(folder);
+    hold(doc);
+    return doc;
+  }
+
   // A note another call already minted, taken into the set the tab bar reads.
   // The first launch is the one caller: `finish_first_run` writes the file and
   // answers with its row, so there is nothing left here but to hold it.
@@ -169,15 +181,21 @@ function createBufferRegistry() {
     return registerOpenResult(today.opened, today.path);
   }
 
-  // Trashing is not undoable from inside Writ, so the pending write is dropped
-  // rather than flushed: writing text into a file that is about to leave would
-  // put it in the Trash too.
-  async function deleteNote(id: string): Promise<void> {
+  // The pending write is dropped rather than flushed: writing text into a
+  // file that is about to leave would put it in the Trash too. Answers the
+  // token `undoDeleteNote` takes to put the file back as it was on disk.
+  async function deleteNote(id: string): Promise<string | null> {
     cancelAutosave(id);
-    await api.deleteNote(id);
+    const undo = await api.deleteNote(id);
     void api.previewClose(id).catch(() => {});
     setBuffers((prev) => prev.filter((b) => b.id !== id));
     unreadTabs.clear(id);
+    return undo ?? null;
+  }
+
+  /** Puts the trashed note back and answers its path, for the caller to open. */
+  async function undoDeleteNote(token: string): Promise<string> {
+    return api.undoDeleteNote(token);
   }
 
   // Returns the path the copy was written to, which the caller opens as a note
@@ -330,6 +348,37 @@ function createBufferRegistry() {
   async function clearAllHistory(): Promise<void> {
     await api.clearHistory();
     setBuffers((prev) => prev.filter((b) => b.status !== "history"));
+  }
+
+  /** Takes rows out of Recent on screen only; see `dropHiddenHistory`. */
+  function hideHistory(ids: readonly string[]): void {
+    setHiddenHistory((prev) => new Set([...prev, ...ids]));
+  }
+
+  /** Shows hidden rows in Recent again. */
+  function unhideHistory(ids: readonly string[]): void {
+    const back = new Set(ids);
+    setHiddenHistory((prev) => new Set([...prev].filter((id) => !back.has(id))));
+  }
+
+  /**
+   * Deletes hidden rows for good. The whole of Recent goes in one call when
+   * nothing else is in it; otherwise row by row, so a tab closed since the
+   * rows were hidden stays.
+   */
+  async function dropHiddenHistory(ids: readonly string[]): Promise<void> {
+    const dropping = new Set(ids);
+    const history = buffers().filter((b) => b.status === "history");
+    try {
+      if (history.length > 0 && history.every((b) => dropping.has(b.id))) {
+        await api.clearHistory();
+      } else {
+        for (const id of ids) await api.deleteBuffer(id);
+      }
+      setBuffers((prev) => prev.filter((b) => !(b.status === "history" && dropping.has(b.id))));
+    } finally {
+      unhideHistory(ids);
+    }
   }
 
   // Renaming a note renames its file, so the row that comes back is the only
@@ -500,6 +549,7 @@ function createBufferRegistry() {
     loadSession,
     createBuffer,
     newNote,
+    newNoteInFolder,
     adoptDocument,
     todaysNote,
     deleteNote,
@@ -510,6 +560,10 @@ function createBufferRegistry() {
     openUnreadTab,
     deleteFromHistory,
     clearAllHistory,
+    hideHistory,
+    unhideHistory,
+    dropHiddenHistory,
+    undoDeleteNote,
     renameBuffer,
     setLanguage,
     reopenWithEncoding,

@@ -29,6 +29,10 @@ vi.mock("../../stores/global/notes-tree", () => ({
     root: () => "/notes",
     entriesFor: (path: string) => h.entries.get(path),
     loadDir: vi.fn(),
+    errorFor: () => null,
+    unreadableFor: () => 0,
+    isLoading: () => false,
+    revealEntry: vi.fn(async () => {}),
   },
 }));
 
@@ -41,6 +45,10 @@ vi.mock("../../stores/global/workspace", async () => {
       root,
       entriesFor: (path: string) => h.entries.get(path),
       loadDir: vi.fn(),
+      errorFor: () => null,
+      unreadableFor: () => 0,
+      isLoading: () => false,
+      revealEntry: vi.fn(async () => {}),
     },
   };
 });

@@ -7,12 +7,21 @@ const h = await vi.hoisted(async () => {
   const [files, setFiles] = createSignal<
     { name: string; path: string; size_bytes: number }[]
   >([]);
-  return { path, setPath, files, setFiles, openFile: vi.fn(), stopWatching: vi.fn() };
+  return {
+    path,
+    setPath,
+    files,
+    setFiles,
+    openFile: vi.fn(),
+    stopWatching: vi.fn(async () => {}),
+    showToast: vi.fn(),
+  };
 });
 
 vi.mock("../../stores/global/inbox", () => ({
   inboxStore: { path: h.path, files: h.files, stopWatching: h.stopWatching },
 }));
+vi.mock("../../stores/global/notifications", () => ({ showToast: h.showToast }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({ tabs: { openFile: h.openFile } }),
 }));
@@ -31,6 +40,8 @@ afterEach(() => {
   h.setFiles([]);
   h.openFile.mockReset();
   h.stopWatching.mockReset();
+  h.stopWatching.mockResolvedValue(undefined);
+  h.showToast.mockReset();
   cleanup();
 });
 
@@ -93,5 +104,16 @@ describe("InboxSection", () => {
     const { container } = render(() => <InboxSection />);
     fireEvent.click(container.querySelector(".sidebar-section-action")!);
     expect(h.stopWatching).toHaveBeenCalled();
+  });
+
+  it("says so when the folder could not stop being watched (NV-32)", async () => {
+    h.setPath("/inbox");
+    h.setFiles([{ name: "a.md", path: "/inbox/a.md", size_bytes: 1 }]);
+    h.stopWatching.mockRejectedValueOnce(new Error("config write failed"));
+    const { container } = render(() => <InboxSection />);
+    fireEvent.click(container.querySelector(".sidebar-section-action")!);
+    await vi.waitFor(() =>
+      expect(h.showToast).toHaveBeenCalledWith("Couldn't stop watching the folder.", "error"),
+    );
   });
 });

@@ -87,6 +87,16 @@ describe("the chat list", () => {
     expect(mocks.rename).toHaveBeenCalledWith("c-1", "Launch plan");
   });
 
+  it("renames nothing on the Enter that confirms an input method's conversion", () => {
+    const { getByRole } = render(() => <ConversationList onPick={() => undefined} />);
+    fireEvent.click(getByRole("button", { name: "Rename Launch" }));
+    const field = getByRole("textbox", { name: "Rename Launch" }) as HTMLInputElement;
+    field.value = "ローンチ";
+    fireEvent.keyDown(field, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(field, { key: "Enter", keyCode: 229 });
+    expect(mocks.rename).not.toHaveBeenCalled();
+  });
+
   it("renames nothing on Escape, whatever the blur that follows carries", () => {
     const { getByRole } = render(() => <ConversationList onPick={() => undefined} />);
     fireEvent.click(getByRole("button", { name: "Rename Launch" }));

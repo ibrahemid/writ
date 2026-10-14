@@ -1,37 +1,22 @@
 import { ErrorBoundary as SolidErrorBoundary, type ParentProps } from "solid-js";
-import Button from "../Button/Button";
-import { clipboardStore } from "../../stores/global/clipboard";
-import { showToast } from "../Notifications/Toast";
-import "./ErrorBoundary.css";
+import FailureScreen from "../FailureScreen/FailureScreen";
+import { failureDetails } from "../../lib/app-info";
+import { logFailure } from "../../lib/log";
 
 export default function ErrorBoundary(props: ParentProps) {
   return (
     <SolidErrorBoundary
       fallback={(err, reset) => {
-        const details = String(err);
-
-        async function onCopy() {
-          try {
-            await clipboardStore.copyText(details);
-            showToast("Copied the details", "success");
-          } catch {
-            showToast("Could not copy the details", "error");
-          }
-        }
-
+        logFailure("the window could not be drawn");
         return (
-          <div class="error-boundary">
-            <div class="error-boundary-title">Something went wrong</div>
-            <pre class="error-boundary-message">{details}</pre>
-            <div class="error-boundary-actions">
-              <Button variant="primary" onClick={reset}>
-                Try again
-              </Button>
-              <Button data-action="copy-crash-details" onClick={() => void onCopy()}>
-                Copy the details
-              </Button>
-            </div>
-          </div>
+          <FailureScreen
+            heading="Writ couldn't draw this window"
+            message="Saved files are unchanged on disk. Try again draws the window again."
+            details={failureDetails(String(err))}
+            retryLabel="Try again"
+            onRetry={reset}
+            withWindowControls
+          />
         );
       }}
     >

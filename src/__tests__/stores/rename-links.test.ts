@@ -68,13 +68,13 @@ vi.mock("../../services/autosave", () => ({
 }));
 
 const chose = vi.fn();
-vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+vi.mock("../../stores/global/dialogs", () => ({
   requestChoice: (options: unknown) => chose(options),
   requestConfirm: (options: unknown) =>
     chose(options).then((answer: string) => answer === "confirm"),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
@@ -100,7 +100,7 @@ vi.mock("../../stores/global/notes", () => ({
 }));
 
 import { bufferRegistry } from "../../stores/global/buffer-registry";
-import { renameLinksStore } from "../../stores/global/rename-links";
+import { lineOfLinkTo, renameLinksStore } from "../../stores/global/rename-links";
 import { renameNoteAndLinks } from "../../lib/note-actions";
 import * as api from "../../services/tauri";
 
@@ -238,10 +238,15 @@ describe("a rename that carries the links", () => {
 
     await renameNoteAndLinks("n-1", "New note");
 
-    expect(renameLinksStore.skippedNotes()).toEqual([
+    expect(renameLinksStore.skippedNotes()).toMatchObject([
       { name: "Second.md", reason: "has not finished downloading." },
       { name: "Third.md", reason: "is read-only." },
     ]);
+    // Each row opens its file at the link that still names the old note.
+    expect(renameLinksStore.skippedNotes()[0]).toMatchObject({
+      path: "/notes/Second.md",
+      linkName: "Old note",
+    });
   });
 
   it("says why a note it could not rewrite was left, in words", async () => {
@@ -268,7 +273,7 @@ describe("a rename that carries the links", () => {
 
     await renameNoteAndLinks("n-1", "New note");
 
-    expect(renameLinksStore.skippedNotes()).toEqual([
+    expect(renameLinksStore.skippedNotes()).toMatchObject([
       { name: "First.md", reason: "holds no link to this note." },
       {
         name: "Second.md",
@@ -296,7 +301,7 @@ describe("a rename that carries the links", () => {
 
     await renameNoteAndLinks("n-1", "Renamed");
 
-    expect(renameLinksStore.skippedNotes()).toEqual([
+    expect(renameLinksStore.skippedNotes()).toMatchObject([
       {
         name: "Reader.md",
         reason: "could be linking to Note.md, which Writ does not list.",
@@ -356,3 +361,14 @@ describe("a rename that carries the links", () => {
     expect(renameLinksStore.canUndo()).toBe(false);
   });
 });
+
+describe("where a stale link is", () => {
+  it("is the first line naming the old note, whatever its case", () => {
+    expect(lineOfLinkTo("# Plan\n\nsee [[old Note|the old one]]\n[[Old note]]", "Old note")).toBe(3);
+  });
+
+  it("is nowhere when no line names it", () => {
+    expect(lineOfLinkTo("no links here", "Old note")).toBeNull();
+  });
+});
+

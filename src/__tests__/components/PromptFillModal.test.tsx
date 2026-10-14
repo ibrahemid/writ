@@ -114,6 +114,33 @@ describe("PromptFillModal", () => {
     await expect(promise).resolves.toBeNull();
   });
 
+  // CH-14: a click beside the dialog threw away what had been typed.
+  it("keeps typed values when the scrim is clicked", async () => {
+    const container = mountShell();
+    render(() => <PromptFillModal />, { container });
+    const promise = requestPlaceholderFill(["name"]);
+    await flush();
+    const user = userEvent.setup();
+    await user.type(document.querySelector<HTMLInputElement>(".placeholders-input")!, "Ada");
+
+    document.querySelector<HTMLElement>(".placeholders-overlay")!.click();
+    await flush();
+    expect(document.querySelector(".placeholders-dialog")).not.toBeNull();
+
+    document.querySelector<HTMLButtonElement>(".placeholders-confirm")!.click();
+    await expect(promise).resolves.toEqual({ name: "Ada" });
+  });
+
+  it("closes on a scrim click while nothing is typed", async () => {
+    const container = mountShell();
+    render(() => <PromptFillModal />, { container });
+    const promise = requestPlaceholderFill(["name"]);
+    await flush();
+
+    document.querySelector<HTMLElement>(".placeholders-overlay")!.click();
+    await expect(promise).resolves.toBeNull();
+  });
+
   it("shows the empty state with a close button when no placeholders exist", async () => {
     const container = mountShell();
     render(() => <PromptFillModal />, { container });
@@ -121,8 +148,9 @@ describe("PromptFillModal", () => {
     const promise = requestPlaceholderFill([]);
     await flush();
 
+    // CH-14: the empty state teaches the syntax rather than reporting absence.
     expect(document.querySelector(".placeholders-empty")?.textContent).toBe(
-      "No placeholders found.",
+      "Write {{name}} in the file to make a placeholder.",
     );
     expect(document.querySelectorAll(".placeholders-input")).toHaveLength(0);
 

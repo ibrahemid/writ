@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, afterEach, beforeAll } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import userEvent from "@testing-library/user-event";
 
 beforeAll(() => {
@@ -14,10 +16,8 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   }),
 }));
 
-import ConfirmDialog, {
-  requestChoice,
-  requestConfirm,
-} from "../../components/ConfirmDialog/ConfirmDialog";
+import ConfirmDialog from "../../components/ConfirmDialog/ConfirmDialog";
+import { requestChoice, requestConfirm } from "../../stores/global/dialogs";
 
 function mountShell() {
   while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
@@ -147,4 +147,51 @@ describe("ConfirmDialog", () => {
     expect(accept?.classList.contains("writ-btn-danger")).toBe(true);
     expect(accept?.classList.contains("writ-btn-primary")).toBe(true);
   });
+
+  it("focuses Cancel for a danger dialog that names no default (PR-06)", async () => {
+    const container = mountShell();
+    render(() => <ConfirmDialog />, { container });
+
+    requestConfirm({
+      title: "Clear Recent?",
+      message: "This removes 4 files from Recent.",
+      confirmLabel: "Clear Recent",
+      danger: true,
+    });
+    await new Promise<void>((r) => setTimeout(r, 50));
+
+    expect(document.activeElement).toBe(document.querySelector(".confirm-cancel"));
+  });
+
+  it("still focuses the confirm button for a plain question", async () => {
+    const container = mountShell();
+    render(() => <ConfirmDialog />, { container });
+
+    requestConfirm({ title: "Close all tabs?", message: "They move to Recent.", confirmLabel: "Close all" });
+    await new Promise<void>((r) => setTimeout(r, 50));
+
+    expect(document.activeElement).toBe(document.querySelector(".confirm-accept"));
+  });
+
+  it("lets a danger dialog that asks for the confirm button have it", async () => {
+    const container = mountShell();
+    render(() => <ConfirmDialog />, { container });
+
+    requestConfirm({ title: "Wipe", message: "irreversible", danger: true, defaultAction: "confirm" });
+    await new Promise<void>((r) => setTimeout(r, 50));
+
+    expect(document.activeElement).toBe(document.querySelector(".confirm-accept"));
+  });
 });
+
+describe("the dialog's message", () => {
+  it("keeps the line breaks a caller puts in it (PR-24)", () => {
+    const css = readFileSync(
+      resolve(process.cwd(), "src/components/ConfirmDialog/ConfirmDialog.css"),
+      "utf8",
+    );
+    const rule = css.match(/^\.confirm-message\s*\{([^}]*)\}/m)?.[1] ?? "";
+    expect(rule).toMatch(/white-space:\s*pre-line/);
+  });
+});
+

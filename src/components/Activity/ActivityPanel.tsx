@@ -15,8 +15,8 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
 import { foldActivity, type ActivityRow } from "../../lib/activity-rows";
 import { describeCall } from "../../lib/tool-phrases";
-import { requestConfirm } from "../ConfirmDialog/ConfirmDialog";
-import { showToast } from "../Notifications/Toast";
+import { requestConfirm } from "../../stores/global/dialogs";
+import { showToast } from "../../stores/global/notifications";
 import { activityStore, ACTIVITY_POLL_MS, type ActivityRecord } from "../../stores/global/activity";
 import { programName, timeOf, WaitingList } from "./WaitingProgram";
 import "./ActivityPanel.css";
@@ -173,7 +173,7 @@ function ActivityDialog() {
                 Clear
               </Button>
             </Show>
-            <Tooltip label="Close program activity">
+            <Tooltip label="Close program activity" chord="Escape">
               <Button
                 variant="ghost"
                 icon="x"

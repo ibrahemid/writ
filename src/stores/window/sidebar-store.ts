@@ -1,38 +1,63 @@
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
-import { searchBuffers, type SearchHit } from "../../services/tauri";
-import { flushAutosave } from "../../services/autosave";
 import { bufferRegistry } from "../global/buffer-registry";
 import { configStore } from "../global/config";
 import { indexCacheStore } from "../global/index-cache";
+import { notesStore } from "../global/notes";
+import { paletteSearch } from "../global/palette-search";
 import { workspaceStore } from "../global/workspace";
+import { workspaceSearchStore } from "../global/workspace-search";
+import { isSameOrInside, joinPath } from "../../lib/path";
+import type { ContentHit, GrepOutcome, SearchHit } from "../../types/search";
+
+/** Where one part of a sidebar search stands. */
+export type SearchStatus = "idle" | "running" | "done" | "failed";
+
+/** Matches the sidebar draws from the folder opened by hand; the rest are counted. */
+export const FOLDER_HIT_CAP = 100;
+
+const SEARCH_DEBOUNCE_MS = 200;
 
 export type SidebarStore = ReturnType<typeof createSidebarStore>;
 
 export function createSidebarStore() {
   // Read from the config rather than copied out of it, so a hand edit of
   // config.toml opens or closes the sidebar and a toggle never writes back a
-  // stale value. Closed until the stored settings have loaded.
-  const isOpen = (): boolean => configStore.loaded() && configStore.config().sidebar.open;
+  // stale value. Closed until the stored settings have loaded. A search typed
+  // with the sidebar closed holds it open on the results until the query is
+  // cleared, without writing that to the config (NV-04).
+  const [heldBySearch, setHeldBySearch] = createSignal(false);
+  const isOpen = (): boolean =>
+    (configStore.loaded() && configStore.config().sidebar.open) || heldBySearch();
   const [searchQuery, setSearchQuery] = createSignal("");
   const [searchHits, setSearchHits] = createSignal<SearchHit[]>([]);
   const [searchTotal, setSearchTotal] = createSignal(0);
-  const [searchMs, setSearchMs] = createSignal<number | null>(null);
+  const [searchStatus, setSearchStatus] = createSignal<SearchStatus>("idle");
+  const [folderHits, setFolderHits] = createSignal<ContentHit[]>([]);
+  const [folderOutcome, setFolderOutcome] = createSignal<GrepOutcome | null>(null);
+  const [folderStatus, setFolderStatus] = createSignal<SearchStatus>("idle");
+  const [searchedFolder, setSearchedFolder] = createSignal<string | null>(null);
+  const [activeResult, setActiveResult] = createSignal(-1);
   const [selectedTag, setSelectedTag] = createSignal<string | null>(null);
   const [recentRequest, setRecentRequest] = createSignal(0);
 
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let searchGeneration = 0;
+  let folderSearch: AbortController | null = null;
 
   function show() {
+    setHeldBySearch(false);
     configStore.setSidebarOpen(true);
   }
 
   function hide() {
+    setHeldBySearch(false);
     configStore.setSidebarOpen(false);
   }
 
   function toggle() {
-    configStore.setSidebarOpen(!isOpen());
+    const open = isOpen();
+    setHeldBySearch(false);
+    configStore.setSidebarOpen(!open);
   }
 
   /**
@@ -94,9 +119,96 @@ export function createSidebarStore() {
   });
 
   function clearResults() {
+    folderSearch?.abort();
+    folderSearch = null;
     setSearchHits([]);
     setSearchTotal(0);
-    setSearchMs(null);
+    setSearchStatus("idle");
+    setFolderHits([]);
+    setFolderOutcome(null);
+    setFolderStatus("idle");
+    setSearchedFolder(null);
+    setActiveResult(-1);
+  }
+
+  /**
+   * The folder opened by hand, when it holds text the notes index does not:
+   * one inside the notes folder, or the notes folder itself, is searched
+   * through the index alone.
+   */
+  function folderToSearch(): string | null {
+    const root = workspaceStore.root();
+    if (root === null) return null;
+    const notes = notesStore.root();
+    if (notes !== null && isSameOrInside(root, notes)) return null;
+    return root;
+  }
+
+  // The notes folder through its index, and the folder opened by hand through
+  // the palette's text search, each with its own answer: one failing leaves
+  // the other's results on screen (NV-03, NV-05).
+  function runSearch(query: string, requested: number) {
+    const current = () => requested === searchGeneration;
+    setActiveResult(-1);
+
+    setSearchStatus("running");
+    paletteSearch.text(query).then(
+      (results) => {
+        if (!current()) return;
+        setSearchHits(results.hits);
+        setSearchTotal(results.total);
+        setSearchStatus("done");
+      },
+      () => {
+        if (!current()) return;
+        setSearchHits([]);
+        setSearchTotal(0);
+        setSearchStatus("failed");
+      },
+    );
+
+    folderSearch?.abort();
+    folderSearch = null;
+    const folder = folderToSearch();
+    setSearchedFolder(folder);
+    setFolderHits([]);
+    setFolderOutcome(null);
+    if (folder === null) {
+      setFolderStatus("idle");
+      return;
+    }
+    const controller = new AbortController();
+    folderSearch = controller;
+    setFolderStatus("running");
+    const notes = notesStore.root();
+    void (async () => {
+      try {
+        await workspaceSearchStore.refreshIndexStatus();
+        if (!current()) return;
+        await workspaceSearchStore.streamContent(
+          query,
+          (batch) => {
+            if (!current()) return;
+            if (batch.outcome) setFolderOutcome(batch.outcome);
+            // A file of the notes folder inside this one is the index's to
+            // answer for, with its unsaved text.
+            const fresh = batch.hits.filter(
+              (hit) => notes === null || !isSameOrInside(joinPath(folder, hit.path), notes),
+            );
+            if (fresh.length === 0) return;
+            setFolderHits((held) =>
+              held.length >= FOLDER_HIT_CAP
+                ? held
+                : [...held, ...fresh].slice(0, FOLDER_HIT_CAP),
+            );
+          },
+          controller.signal,
+        );
+        if (current()) setFolderStatus("done");
+      } catch {
+        if (current()) setFolderStatus("failed");
+      }
+    })();
   }
 
   function updateSearchQuery(query: string) {
@@ -107,23 +219,21 @@ export function createSidebarStore() {
 
     if (!query.trim()) {
       clearResults();
+      setHeldBySearch(false);
       return;
     }
 
-    searchTimer = setTimeout(async () => {
-      const started = performance.now();
-      try {
-        await flushAutosave();
-        const results = await searchBuffers(query);
-        if (requested !== searchGeneration) return;
-        setSearchHits(results.hits);
-        setSearchTotal(results.total);
-        setSearchMs(Math.round(performance.now() - started));
-      } catch {
-        if (requested !== searchGeneration) return;
-        clearResults();
-      }
-    }, 200);
+    if (!isOpen()) setHeldBySearch(true);
+    setActiveResult(-1);
+    searchTimer = setTimeout(() => runSearch(query, requested), SEARCH_DEBOUNCE_MS);
+  }
+
+  /** Runs the current query again now: the Try again under a failed search. */
+  function retrySearch() {
+    const query = searchQuery();
+    if (!query.trim()) return;
+    if (searchTimer) clearTimeout(searchTimer);
+    runSearch(query, ++searchGeneration);
   }
 
   return {
@@ -133,9 +243,16 @@ export function createSidebarStore() {
     toggle,
     searchQuery,
     setSearchQuery: updateSearchQuery,
+    retrySearch,
     searchHits,
     searchTotal,
-    searchMs,
+    searchStatus,
+    folderHits,
+    folderOutcome,
+    folderStatus,
+    searchedFolder,
+    activeResult,
+    setActiveResult,
     selectedTag,
     selectTag,
     recentRequest,

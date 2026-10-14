@@ -37,6 +37,7 @@ import {
 } from "../../editor/clipboard-commands";
 import { showContextMenu, showAnchoredMenu } from "../ContextMenu/ContextMenu";
 import { REWRITE_ACTIONS } from "../../commands/rewrite-actions";
+import { transformMenuEntries } from "../../commands/transforms";
 import { runRewriteAction, type AiAction } from "../../commands/ai";
 import { openSearchPalette } from "../SearchPalette/SearchPalette";
 import { spellingStore } from "../../stores/global/spelling";
@@ -318,6 +319,9 @@ export default function EditorInstance(props: Props) {
       copyLink: (text) => void linkStore.copyLink(text),
       fillPlaceholders: () => executeCommand("prompt.fillPlaceholders"),
       searchWorkspace: (query) => openSearchPalette(query),
+      copyAsPrompt: () => executeCommand("prompt.copyAsPrompt"),
+      transformActions: transformMenuEntries,
+      runTransform: (commandId) => executeCommand(commandId),
     },
   });
 
@@ -1063,7 +1067,7 @@ export default function EditorInstance(props: Props) {
 
     registerCommand({
       id: "editor.addCursorUp",
-      label: "Add Cursor Above",
+      label: "Add cursor above",
       keybinding: "Alt+ArrowUp",
       scope: "editor",
       execute: () => { if (view) addCursorUp(view); },
@@ -1071,7 +1075,7 @@ export default function EditorInstance(props: Props) {
 
     registerCommand({
       id: "editor.addCursorDown",
-      label: "Add Cursor Below",
+      label: "Add cursor below",
       keybinding: "Alt+ArrowDown",
       scope: "editor",
       execute: () => { if (view) addCursorDown(view); },
@@ -1079,7 +1083,7 @@ export default function EditorInstance(props: Props) {
 
     registerCommand({
       id: "spelling.toggle",
-      label: "Toggle Spell Check",
+      label: "Toggle spell check",
       scope: "app",
       execute: () => {
         const cur = configStore.config();
@@ -1274,13 +1278,13 @@ export default function EditorInstance(props: Props) {
     if (active) {
       registerCommand({
         id: "spelling.fixAll",
-        label: "Fix All Spelling",
+        label: "Fix all spelling",
         scope: "editor",
         execute: () => { spellingStore.fixAll(); },
       });
       registerCommand({
         id: "spelling.preview",
-        label: "Preview Spelling Fixes",
+        label: "Review spelling fixes…",
         scope: "editor",
         execute: () => openSpellingPreview(),
       });

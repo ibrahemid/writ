@@ -2,10 +2,11 @@ import { Show, Switch, Match, createEffect, onCleanup } from "solid-js";
 import Button from "../Button/Button";
 import { updateStore } from "../../stores/global/update";
 import { formatBytes } from "../../lib/format-bytes";
+import { FOCUS_TRAP_EXEMPT } from "../../lib/focus-trap";
 import "./UpdateBanner.css";
 
 const UP_TO_DATE_VISIBLE_MS = 2500;
-const UNREACHABLE_COPY = "Couldn't reach the update server. Try again later.";
+const UNREACHABLE_COPY = "Couldn't reach the update server.";
 
 export default function UpdateBanner() {
   const phase = updateStore.phase;
@@ -34,9 +35,14 @@ export default function UpdateBanner() {
   });
 
   return (
-    <div class="update-banner-live" role="status" aria-live="polite">
+    <div
+      class="update-banner-live"
+      role="status"
+      aria-live="polite"
+      {...{ [FOCUS_TRAP_EXEMPT]: "" }}
+    >
       <Show when={phase().status !== "idle"}>
-        <div class="update-banner">
+        <div class="update-banner" classList={{ "is-failed": failure() !== undefined }}>
           <Switch>
           <Match when={phase().status === "checking"}>
             <span class="update-banner-spinner" aria-hidden="true" />
@@ -54,6 +60,9 @@ export default function UpdateBanner() {
                   Update available: <strong>v{p().version}</strong>
                 </span>
                 <div class="update-banner-actions">
+                  <Button variant="ghost" onClick={() => void updateStore.openReleaseNotes(p().version)}>
+                    What's new
+                  </Button>
                   <Button variant="ghost" onClick={() => void updateStore.dismiss()}>
                     Later
                   </Button>
@@ -72,6 +81,9 @@ export default function UpdateBanner() {
                   <strong>v{p().version}</strong> is available. Update with your package manager.
                 </span>
                 <div class="update-banner-actions">
+                  <Button variant="ghost" onClick={() => void updateStore.openReleaseNotes(p().version)}>
+                    What's new
+                  </Button>
                   <Button variant="ghost" onClick={() => void updateStore.dismiss()}>
                     Later
                   </Button>

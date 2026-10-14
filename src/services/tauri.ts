@@ -49,6 +49,35 @@ export async function promptFillPlaceholders(
   return invoke("prompt_fill_placeholders", { text, values });
 }
 
+/** The files a context pack is made of. Paths are paths on disk. */
+export type PackSource =
+  | { kind: "linked"; path: string }
+  | { kind: "tag"; tag: string }
+  | { kind: "folder"; path: string };
+
+/** Why a file a pack named is not in it. */
+export type PackSkipReason = "too_large" | "not_text" | "not_downloaded" | "unreadable";
+
+/** Several files as one prompt, with an account of what went in. */
+export interface ContextPack {
+  /** What Copy puts on the clipboard. */
+  text: string;
+  tokens: number;
+  /** Paths relative to the folder, in the prompt's order. */
+  files: { path: string; tokens: number }[];
+  skipped: { path: string; reason: PackSkipReason }[];
+  /** Files left out to stay under the pack's limits. */
+  omitted: number;
+}
+
+/** The pack `source` names, with the open tabs' `live` text in place of their files'. */
+export async function promptContextPack(
+  source: PackSource,
+  live: { path: string; text: string }[],
+): Promise<ContextPack> {
+  return invoke("prompt_context_pack", { source, live });
+}
+
 import type { SpellingLint } from "../types/spelling";
 export type { SpellingLint };
 
@@ -72,6 +101,11 @@ export async function getBuffer(id: string): Promise<BufferDocument> {
 
 export async function newNote(): Promise<BufferDocument> {
   return invoke("new_note");
+}
+
+/** A new note in `folder`, a folder inside the notes folder. */
+export async function newNoteInFolder(folder: string): Promise<BufferDocument> {
+  return invoke("new_note_in_folder", { folder });
 }
 
 /**
@@ -124,8 +158,17 @@ export async function undoRenameWithLinks(token: string): Promise<RenamePropagat
   return invoke("undo_rename_with_links", { token });
 }
 
-export async function deleteNote(id: string): Promise<void> {
+/**
+ * Moves a note to the Trash and drops its row. Answers the token
+ * [`undoDeleteNote`] takes, or null when there is nothing to put back.
+ */
+export async function deleteNote(id: string): Promise<string | null> {
   return invoke("delete_note", { id });
+}
+
+/** Puts the last trashed note back at its path and answers that path. */
+export async function undoDeleteNote(token: string): Promise<string> {
+  return invoke("undo_delete_note", { token });
 }
 
 /** Writes a copy into the notes folder and returns the path it was written to. */
@@ -1323,8 +1366,8 @@ export async function previewInlineImageDownload(
 }
 
 
-import type { WorkspaceEntry } from "../types/workspace";
-export type { WorkspaceEntry };
+import type { DirListing, WorkspaceEntry } from "../types/workspace";
+export type { DirListing, WorkspaceEntry };
 
 export async function pickWorkspaceFolder(): Promise<string | null> {
   return invoke("pick_workspace_folder");
@@ -1334,13 +1377,18 @@ export async function clearWorkspaceRoot(): Promise<void> {
   return invoke("clear_workspace_root");
 }
 
-export async function listWorkspaceDir(dirPath: string): Promise<WorkspaceEntry[]> {
+export async function listWorkspaceDir(dirPath: string): Promise<DirListing> {
   return invoke("list_workspace_dir", { dirPath });
 }
 
 /** The entries of a folder inside the notes folder, folders first. */
-export async function listNotesDir(dirPath: string): Promise<WorkspaceEntry[]> {
+export async function listNotesDir(dirPath: string): Promise<DirListing> {
   return invoke("list_notes_dir", { dirPath });
+}
+
+/** Shows an entry of the folder opened by hand in the file manager. */
+export async function showWorkspaceEntryInFileManager(path: string): Promise<void> {
+  return invoke("show_workspace_entry_in_file_manager", { path });
 }
 
 export async function getWorkspaceRoot(): Promise<string | null> {

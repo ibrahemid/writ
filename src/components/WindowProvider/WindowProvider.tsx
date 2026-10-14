@@ -15,6 +15,9 @@ export default function WindowProvider(props: WindowProviderProps) {
   onMount(() => {
     const off = windowRegistry.register(state);
     onCleanup(off);
+    // A window drawn again after a crash builds a new editor store; the old
+    // one stops answering saves with it.
+    onCleanup(() => state.editor.stopSaveListener());
 
     // A window with no event bridge behind it still renders; a listener that
     // never attaches is the whole loss, and it must not surface as a rejection.

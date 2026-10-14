@@ -30,7 +30,9 @@ use writ_storage::workspace_store;
 use crate::commands::buffer::{ignore_stamper, save_failure_message, ERR_WRITE_FAILED};
 use crate::commands::note_index::{announce_indexed, holds_own_write, index_copy};
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
-use crate::security::{canonicalize_for_authorization, resolve_for_containment, RenameUndo};
+use crate::security::{
+    canonicalize_for_authorization, resolve_for_containment, RenameUndo, TrashUndo,
+};
 use crate::state::{AppState, NotesRootFallback};
 
 /// The name a note is known by: the file's own name, extension included, which
@@ -114,6 +116,39 @@ pub fn new_note_named_inner(state: &AppState, name: &str) -> Result<BufferDocume
         watch_for_retitle(state, &doc);
     }
     Ok(doc)
+}
+
+/// Creates a note in `folder`, a folder inside the notes folder, and opens it:
+/// the file tree's New file on a folder row.
+///
+/// The note is named as an unnamed new note is, a minted name its first line
+/// may replace (ADR-041 §3), in the configured format. A folder the notes
+/// folder does not hold, or a path that is not a folder, answers
+/// [`ERR_NOT_A_NOTE`]: the entry is drawn only on the notes folder's own
+/// folders.
+pub fn new_note_in_folder_inner(state: &AppState, folder: &str) -> Result<BufferDocument, String> {
+    let resolved = crate::security::resolve_for_containment(Path::new(folder))
+        .ok_or_else(|| ERR_NOT_A_NOTE.to_string())?;
+    let target = PathBuf::from(&resolved);
+    if !state.is_within_notes(&resolved) || !target.is_dir() {
+        return Err(ERR_NOT_A_NOTE.to_string());
+    }
+    let stem = writ_core::notes::minted_stem(Utc::now());
+    let doc = create_note_at_in(state, &target, &stem, state.default_extension().as_str())?;
+    watch_for_retitle(state, &doc);
+    Ok(doc)
+}
+
+/// IPC: [`new_note_in_folder_inner`].
+#[tauri::command]
+pub async fn new_note_in_folder<R: Runtime>(
+    app: AppHandle<R>,
+    folder: String,
+) -> Result<BufferDocument, String> {
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        new_note_in_folder_inner(state, &folder)
+    })
+    .await
 }
 
 /// Creates the note named for today, file first, and opens it.
@@ -981,6 +1016,8 @@ fn reindex_after_rename(state: &AppState, from_key: &str, to: &Path, updated: &[
 /// What the editor says when a delete names a file the notes folder does not
 /// hold.
 const NOT_YOURS_TO_DELETE: &str = "Only files in your folder can be moved to the Trash from here.";
+const NOTHING_TO_PUT_BACK: &str = "There is nothing to put back.";
+const FOLDER_MOVED_SINCE: &str = "Your folder has moved since, so the file stays in the Trash.";
 
 /// Moves a note to the operating system's trash and drops its row.
 ///
@@ -991,6 +1028,10 @@ const NOT_YOURS_TO_DELETE: &str = "Only files in your folder can be moved to the
 /// closed rather than deleted; the containment check is the same resolution
 /// the write gate runs, so a symlink cannot carry a delete out of the folder.
 ///
+/// The largest file the Undo after Move to Trash keeps the bytes of. A note is
+/// text; a file past this goes to the Trash without an Undo.
+pub const TRASH_UNDO_MAX_BYTES: u64 = 8 * 1024 * 1024;
+
 /// The row goes only after the file has gone, so a platform that will not take
 /// the file leaves the note both on disk and in Writ rather than leaving a row
 /// pointing at a file nobody can reach. A note with no file yet has nothing to
@@ -998,7 +1039,12 @@ const NOT_YOURS_TO_DELETE: &str = "Only files in your folder can be moved to the
 ///
 /// Runs in the note's turn, so a save still landing cannot put the file back
 /// after it went to the Trash.
-pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
+///
+/// Answers the token [`undo_delete_note_inner`] takes to put the file back:
+/// the bytes are read in the same turn, before the file goes. `None` for a
+/// note with no file, and for a file over [`TRASH_UNDO_MAX_BYTES`] or one
+/// that could not be read, which go to the Trash without an Undo.
+pub fn delete_note_inner(state: &AppState, id: &str) -> Result<Option<String>, String> {
     let turn = state.buffer_writes.turn(id);
     let source_path = {
         let store = state.store.lock().map_err(|e| e.to_string())?;
@@ -1007,14 +1053,22 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
     };
 
     let mut trashed = None;
+    let mut undo = None;
     if let Some(path) = source_path.as_deref() {
         if !path_is_inside_notes(state, path) {
             return Err(NOT_YOURS_TO_DELETE.to_string());
         }
         let path = Path::new(path);
         let key = notes_index::index_key(path);
+        let kept = bytes_for_undo(path);
         note_ops::trash_note(path)
             .map_err(|_| format!("Couldn't move \"{}\" to the Trash.", note_name(path)))?;
+        undo = kept.and_then(|bytes| {
+            state.authorized_paths.hold_trash_undo(TrashUndo {
+                path: path.to_path_buf(),
+                bytes,
+            })
+        });
         // The index forgets the file here rather than when the watcher reports
         // it, so the announcement below is never read against a row for a file
         // that is already in the Trash.
@@ -1032,14 +1086,60 @@ pub fn delete_note_inner(state: &AppState, id: &str) -> Result<(), String> {
     if let Some(key) = trashed {
         announce_indexed(&state.event_bus, [key]);
     }
-    deleted
+    deleted.map(|()| undo)
+}
+
+/// The bytes of a file small enough for the Undo to keep, read once.
+fn bytes_for_undo(path: &Path) -> Option<Vec<u8>> {
+    let size = std::fs::metadata(path).ok()?.len();
+    if size > TRASH_UNDO_MAX_BYTES {
+        return None;
+    }
+    std::fs::read(path).ok()
 }
 
 /// IPC: [`delete_note_inner`].
 #[tauri::command]
-pub async fn delete_note<R: Runtime>(app: AppHandle<R>, id: String) -> Result<(), String> {
+pub async fn delete_note<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<Option<String>, String> {
     run_blocking(app, ERR_WRITE_FAILED, move |state| {
         delete_note_inner(state, &id)
+    })
+    .await
+}
+
+/// Puts back the note the last Move to Trash took, at the path it had, and
+/// answers that path for the caller to open.
+///
+/// `token` is what [`delete_note_inner`] answered. A token that is not the one
+/// held, a path no longer inside the notes folder, and a path something else
+/// now holds are each refused, and the file there is left alone.
+pub fn undo_delete_note_inner(state: &AppState, token: &str) -> Result<String, String> {
+    let undo = state
+        .authorized_paths
+        .take_trash_undo(token)
+        .ok_or_else(|| NOTHING_TO_PUT_BACK.to_string())?;
+    let text = path_text(&undo.path);
+    if !path_is_inside_notes(state, &text) {
+        return Err(FOLDER_MOVED_SINCE.to_string());
+    }
+    let stamp = ignore_stamper(state);
+    note_ops::restore_trashed(&undo.path, &undo.bytes, Some(&stamp))
+        .map_err(|error| note_failure_message(&error))?;
+    announce_indexed(&state.event_bus, index_copy(state, &undo.path));
+    Ok(text)
+}
+
+/// IPC: [`undo_delete_note_inner`].
+#[tauri::command]
+pub async fn undo_delete_note<R: Runtime>(
+    app: AppHandle<R>,
+    token: String,
+) -> Result<String, String> {
+    run_blocking(app, ERR_WRITE_FAILED, move |state| {
+        undo_delete_note_inner(state, &token)
     })
     .await
 }
@@ -1130,7 +1230,7 @@ pub fn get_notes_root(state: State<'_, AppState>) -> String {
 
 /// The entries of `dir_path`, a folder inside the notes folder, for the tree
 /// the sidebar shows when no other folder is open: folders first, then files,
-/// each group by name.
+/// each group by name, with a count of the entries that could not be read.
 ///
 /// The notes folder is the boundary, the way the folder opened by hand is the
 /// boundary of [`workspace_store::list_dir`]: a folder outside it, or a
@@ -1140,7 +1240,7 @@ pub fn get_notes_root(state: State<'_, AppState>) -> String {
 pub fn list_notes_dir_inner(
     state: &AppState,
     dir_path: &str,
-) -> Result<Vec<writ_core::workspace::WorkspaceEntry>, String> {
+) -> Result<writ_core::workspace::DirListing, String> {
     workspace_store::list_notes_dir(&state.notes_root(), Path::new(dir_path))
         .map_err(|e| e.to_string())
 }
@@ -1150,7 +1250,7 @@ pub fn list_notes_dir_inner(
 pub async fn list_notes_dir<R: Runtime>(
     app: AppHandle<R>,
     dir_path: String,
-) -> Result<Vec<writ_core::workspace::WorkspaceEntry>, String> {
+) -> Result<writ_core::workspace::DirListing, String> {
     run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
         list_notes_dir_inner(state, &dir_path)
     })

@@ -3,9 +3,15 @@ import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 
 const h = vi.hoisted(() => ({ executeCommand: vi.fn(() => true) }));
 
-vi.mock("../../commands/registry", () => ({ executeCommand: h.executeCommand }));
+vi.mock("../../commands/registry", () => ({
+  executeCommand: h.executeCommand,
+  getCommand: (id: string) =>
+    id === "note.new" ? { id, label: "New file", keybinding: "CmdOrCtrl+N" } : undefined,
+  registryVersion: () => 0,
+}));
 
 import SidebarEmpty from "../../components/Sidebar/SidebarEmpty";
+import { setKeybindingOverrides } from "../../commands/effective-bindings";
 
 function buttonNamed(container: HTMLElement, text: string): HTMLButtonElement {
   const found = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
@@ -17,6 +23,7 @@ function buttonNamed(container: HTMLElement, text: string): HTMLButtonElement {
 
 afterEach(() => {
   h.executeCommand.mockClear();
+  setKeybindingOverrides({});
   cleanup();
 });
 
@@ -34,7 +41,15 @@ describe("SidebarEmpty", () => {
     const caps = Array.from(container.querySelectorAll(".kbd-chord")).map((el) =>
       el.getAttribute("aria-label"),
     );
-    expect(caps).toEqual(["CmdOrCtrl+N"]);
+    expect(caps).toEqual(["Control N"]);
+  });
+
+  it("shows the chord New file answers to now, not the shipped one", () => {
+    setKeybindingOverrides({ "note.new": "CmdOrCtrl+Shift+N" });
+    const { container } = render(() => <SidebarEmpty />);
+    expect(container.querySelector(".kbd-chord")!.getAttribute("aria-label")).toBe(
+      "Control Shift N",
+    );
   });
 
   it("New file runs the note.new command", () => {

@@ -1,9 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
-import ToastContainer, {
-  showToast,
-  dismissToast,
-} from "../../components/Notifications/Toast";
+import ToastContainer from "../../components/Notifications/Toast";
+import { showToast, dismissToast } from "../../stores/global/notifications";
 
 describe("Toast dismiss button (#48)", () => {
   afterEach(() => {

@@ -2,7 +2,7 @@ import { createSignal, Show, For, createEffect, createMemo, onCleanup } from "so
 import { spellingStore, entryKey } from "../../stores/global/spelling";
 import type { SpellingEntry } from "../../editor/spelling";
 import Button from "../Button/Button";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import "./SpellingPreview.css";
 
 // Non-modal overlay listing every flagged range as `wrong → fix`, with

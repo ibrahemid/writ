@@ -2,15 +2,17 @@ import { bufferRegistry } from "../stores/global/buffer-registry";
 import { notesStore } from "../stores/global/notes";
 import { saveStatusStore } from "../stores/global/save-status";
 import { windowRegistry } from "../stores/global/window-registry";
-import { requestChoice, requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
+import { requestChoice, requestConfirm } from "../stores/global/dialogs";
 import { renameLinksStore } from "../stores/global/rename-links";
+import { reportOpenOutcome } from "../stores/global/open-report";
 import { linkCountQuestion } from "./rename-copy";
-import { showToast } from "../components/Notifications/Toast";
+import { showToast } from "../stores/global/notifications";
 import { logFailure } from "./log";
 import { noteName } from "./note-name";
+import { basename } from "./path";
 import { formatSaveError } from "./save-error";
 import { detectPlatform } from "./platform";
-import * as api from "../services/tauri";
+import { noteFiles } from "../stores/global/note-files";
 import type { ChangeChoice, ResolveOutcome } from "../types/buffer";
 
 export { noteName };
@@ -50,7 +52,27 @@ export async function renameNoteAndLinks(id: string, title: string): Promise<voi
     if (answer === "dismissed") return;
     updateLinks = answer === "confirm";
   }
-  await renameLinksStore.renameWithLinks(id, title, updateLinks);
+  const outcome = await renameLinksStore.renameWithLinks(id, title, updateLinks);
+  const updated = outcome?.updated_paths.length ?? 0;
+  if (outcome === null || updated === 0) return;
+  const token = outcome.undo_token;
+  showToast({
+    text: updated === 1 ? "Updated links in 1 file" : `Updated links in ${updated} files`,
+    type: "success",
+    action:
+      token === null
+        ? undefined
+        : { label: "Undo", run: () => undoRenameFromToast(token) },
+  });
+}
+
+async function undoRenameFromToast(token: string): Promise<void> {
+  try {
+    await renameLinksStore.undoRename(token);
+  } catch (error) {
+    logFailure("a rename could not be undone");
+    showToast(`Couldn't undo the rename: ${formatSaveError(error)}`, "error");
+  }
 }
 
 /**
@@ -82,10 +104,8 @@ export function showInFileManagerLabel(): string {
 }
 
 /**
- * Asks, then moves the note to the Trash and closes its tab.
- *
- * The confirmation is not ceremony: the note leaves Writ entirely, and getting
- * it back means going to the Trash for it.
+ * Asks, then moves the note to the Trash and closes its tab. The toast that
+ * follows carries an Undo that writes the file back where it was and opens it.
  */
 export async function confirmAndDeleteNote(id: string): Promise<void> {
   const name = noteName(id);
@@ -102,16 +122,34 @@ export async function confirmAndDeleteNote(id: string): Promise<void> {
   if (!confirmed) return;
 
   const win = windowRegistry.getActive();
+  let undo: string | null;
   try {
-    if (win) {
-      await win.tabs.deleteNote(id);
-    } else {
-      await bufferRegistry.deleteNote(id);
-    }
+    undo = win ? await win.tabs.deleteNote(id) : await bufferRegistry.deleteNote(id);
   } catch {
     logFailure("a note could not be moved to the trash");
     showToast(`Couldn't move "${name}" to the Trash.`, "error");
+    return;
   }
+  showToast({
+    text: `Moved "${name}" to the Trash`,
+    type: "success",
+    action: undo === null ? undefined : { label: "Undo", run: () => putBackFromTrash(undo, name) },
+  });
+}
+
+/** Puts a trashed note back at its path and opens it again. */
+async function putBackFromTrash(token: string, name: string): Promise<void> {
+  let path: string;
+  try {
+    path = await bufferRegistry.undoDeleteNote(token);
+  } catch (error) {
+    logFailure("a trashed note could not be put back");
+    showToast(`Couldn't put "${name}" back. ${String(error)}`, "error");
+    return;
+  }
+  const win = windowRegistry.getActive();
+  if (!win) return;
+  reportOpenOutcome(await win.tabs.openPath(path));
 }
 
 /**
@@ -153,7 +191,7 @@ export async function saveNoteAs(id: string): Promise<void> {
 
   let path: string | null;
   try {
-    path = await api.pickNoteSavePath(id);
+    path = await noteFiles.pickSavePath(id);
   } catch {
     logFailure("the save panel for a note with no file could not be shown");
     showToast(`Couldn't save "${noteName(id)}"`, "error");
@@ -173,8 +211,9 @@ export async function saveNoteAs(id: string): Promise<void> {
  * next: take the file's text, or keep its own and stop reading dirty against
  * a file it has just been written to.
  *
- * `Show both` opens the copy as an ordinary note in a second tab. There is no
+ * `Keep both` opens the copy as an ordinary note in a second tab. There is no
  * diff view and no third state: two tabs, two files, and the person decides.
+ * The other two answers name the copy in a toast that opens it.
  *
  * Nothing happens unless the editor is holding the note being answered about.
  * A tab that is still loading has its text nowhere but its file, and the file
@@ -199,7 +238,7 @@ export async function resolveNoteChange(
 
   let outcome: ResolveOutcome;
   try {
-    outcome = await api.resolveExternalChange(id, choice, content);
+    outcome = await noteFiles.resolveExternalChange(id, choice, content);
   } catch (error) {
     logFailure("a change outside Writ could not be resolved");
     showToast(`Couldn't update "${noteName(id)}": ${formatSaveError(error)}`, "error");
@@ -250,20 +289,34 @@ export async function resolveNoteChange(
       win.editor.scheduleAutosave(id, typedSince.content, 0, typedSince.current);
     }
   }
-  if (choice === "keep_both" && outcome.conflict_copy_path !== null) {
-    try {
-      await win.tabs.openFile(outcome.conflict_copy_path);
-    } catch {
-      logFailure("the copy beside a note could not be opened");
-      showToast("Couldn't open the copy.", "error");
-    }
+  const copy = outcome.conflict_copy_path;
+  if (copy === null) return;
+  if (choice === "keep_both") {
+    await openCopy(copy);
+    return;
+  }
+  showToast({
+    text: `The other version is saved as "${basename(copy)}"`,
+    type: "success",
+    action: { label: "Open", run: () => openCopy(copy) },
+  });
+}
+
+async function openCopy(path: string): Promise<void> {
+  const win = windowRegistry.getActive();
+  if (!win) return;
+  try {
+    await win.tabs.openFile(path);
+  } catch {
+    logFailure("the copy beside a note could not be opened");
+    showToast("Couldn't open the copy.", "error");
   }
 }
 
 /** Opens the platform's file manager with the note selected. */
 export async function showNoteInFileManager(id: string): Promise<void> {
   try {
-    await api.showNoteInFileManager(id);
+    await noteFiles.showInFileManager(id);
   } catch {
     logFailure("a note could not be shown in the file manager");
     showToast("Could not open the file manager.", "error");
@@ -273,7 +326,7 @@ export async function showNoteInFileManager(id: string): Promise<void> {
 /** [`showNoteInFileManager`] for a row the sidebar names by path. */
 export async function showNotesFileInFileManager(path: string): Promise<void> {
   try {
-    await api.showNotesFileInFileManager(path);
+    await noteFiles.showPathInFileManager(path);
   } catch {
     logFailure("a note could not be shown in the file manager");
     showToast("Could not open the file manager.", "error");

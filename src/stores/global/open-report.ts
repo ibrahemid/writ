@@ -1,4 +1,4 @@
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "./notifications";
 import { basename } from "../../lib/path";
 import { logFailure } from "../../lib/log";
 import type { OpenOutcome } from "./buffer-registry";

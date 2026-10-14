@@ -62,11 +62,11 @@ vi.mock("../../services/autosave", () => ({
 }));
 
 const confirmed = vi.fn();
-vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+vi.mock("../../stores/global/dialogs", () => ({
   requestConfirm: (options: unknown) => confirmed(options),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
@@ -121,7 +121,7 @@ describe("note operations", () => {
     expect(asked.title).toBe('Move "2026-08-29.md" to the Trash?');
 
     confirmed.mockResolvedValueOnce(true);
-    mockedApi.deleteNote.mockResolvedValue(undefined);
+    mockedApi.deleteNote.mockResolvedValue(null);
     await confirmAndDeleteNote("n-1");
 
     expect(mockedApi.deleteNote).toHaveBeenCalledWith("n-1");

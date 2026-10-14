@@ -26,6 +26,9 @@ pub enum PollOutcome {
     Reindex,
     /// A newer edit arrived; wait another window against this generation.
     Wait(u64),
+    /// The buffer settled, and a search already took it and reindexed it
+    /// ([`FtsScheduler::take_pending`]); stop without reindexing it again.
+    Taken,
 }
 
 #[derive(Default)]
@@ -75,7 +78,11 @@ impl FtsScheduler {
     pub fn poll(&self, id: &str, seen: u64) -> PollOutcome {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         let current = inner.generation.get(id).copied().unwrap_or(0);
-        if current == seen {
+        if current == seen && !inner.pending.contains(id) {
+            inner.has_worker.remove(id);
+            inner.generation.remove(id);
+            PollOutcome::Taken
+        } else if current == seen {
             // Settled: retire the worker and forget the buffer entirely so the
             // maps stay bounded over a long session. A later edit re-inserts at
             // generation 1 and spawns a fresh worker (a missing entry reads as
@@ -87,6 +94,18 @@ impl FtsScheduler {
         } else {
             PollOutcome::Wait(current)
         }
+    }
+
+    /// Takes every buffer still awaiting a reindex, for a caller about to
+    /// reindex them itself: a search, which has to answer with what was typed
+    /// a moment ago rather than with the index as the last window left it.
+    ///
+    /// Workers stay where they are. One that wakes to find its buffer taken
+    /// retires without a second reindex; an edit that lands after the take is
+    /// pending again, and still that worker's.
+    pub fn take_pending(&self) -> Vec<String> {
+        let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        inner.pending.drain().collect()
     }
 
     /// Drains every buffer still awaiting a reindex, retiring all workers.
@@ -170,5 +189,33 @@ mod tests {
         assert_eq!(s.poll("a", gen), PollOutcome::Reindex);
         // The settled buffer was cleared from pending, so nothing to flush.
         assert!(s.drain_pending().is_empty());
+    }
+
+    #[test]
+    fn a_taken_buffer_is_not_reindexed_again_by_its_worker() {
+        let s = FtsScheduler::new();
+        let gen = s.on_edit("a").expect("worker");
+        assert_eq!(s.take_pending(), vec!["a".to_string()]);
+        assert_eq!(s.poll("a", gen), PollOutcome::Taken);
+        // The worker retired, so the next edit spawns a fresh one.
+        assert_eq!(s.on_edit("a"), Some(1));
+    }
+
+    #[test]
+    fn an_edit_after_a_take_stays_with_the_running_worker() {
+        let s = FtsScheduler::new();
+        let gen = s.on_edit("a").expect("worker");
+        assert_eq!(s.take_pending(), vec!["a".to_string()]);
+        assert_eq!(s.on_edit("a"), None, "the worker still owns the buffer");
+        assert_eq!(s.poll("a", gen), PollOutcome::Wait(2));
+        assert_eq!(s.poll("a", 2), PollOutcome::Reindex);
+    }
+
+    #[test]
+    fn a_take_with_nothing_pending_is_empty() {
+        let s = FtsScheduler::new();
+        let gen = s.on_edit("a").expect("worker");
+        assert_eq!(s.poll("a", gen), PollOutcome::Reindex);
+        assert!(s.take_pending().is_empty());
     }
 }

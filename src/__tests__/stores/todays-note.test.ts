@@ -71,11 +71,11 @@ vi.mock("../../services/autosave", () => ({
   onAutosaveError: vi.fn(() => () => {}),
 }));
 
-vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+vi.mock("../../stores/global/dialogs", () => ({
   requestConfirm: vi.fn(),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
@@ -98,7 +98,7 @@ import {
   executeCommand,
 } from "../../commands/registry";
 import * as api from "../../services/tauri";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { largeFileOpen } from "../../stores/global/large-file-open";
 import { createTabStore } from "../../stores/window/tab-store";
 import type { DownloadStore } from "../../stores/window/download-store";

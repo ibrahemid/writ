@@ -7,6 +7,10 @@ import {
   restartApp,
 } from "../../services/tauri";
 import type { UpdatePhase } from "../../types/update";
+import { linkStore } from "./link";
+
+/** The site's changelog, with an anchor per version. */
+export const CHANGELOG_URL = "https://writ.ibrahemid.com/changelog/";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // The Rust UpdatePhase is the source of truth; this store mirrors it from
@@ -52,11 +56,25 @@ function createUpdateStore() {
     await restartApp();
   }
 
+  /** Opens the changelog at the version on offer. */
+  async function openReleaseNotes(version: string): Promise<void> {
+    await linkStore.openExternal(`${CHANGELOG_URL}#v${version}`);
+  }
+
   async function subscribe(): Promise<UnlistenFn> {
     return onEvent("update:status", (next) => applyPhase(next));
   }
 
-  return { phase, applyPhase, checkForUpdate, install, dismiss, restart, subscribe };
+  return {
+    phase,
+    applyPhase,
+    checkForUpdate,
+    install,
+    dismiss,
+    restart,
+    openReleaseNotes,
+    subscribe,
+  };
 }
 
 export const updateStore = createRoot(createUpdateStore);

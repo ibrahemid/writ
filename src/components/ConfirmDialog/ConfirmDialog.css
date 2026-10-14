@@ -32,6 +32,8 @@
   font-size: var(--writ-ui-sm);
   color: var(--writ-fg-muted);
   line-height: 1.5;
+  /* A caller that breaks its message into lines keeps them. */
+  white-space: pre-line;
 }
 
 .confirm-actions {

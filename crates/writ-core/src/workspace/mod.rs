@@ -44,6 +44,32 @@ impl WorkspaceEntry {
     }
 }
 
+/// One folder's listing: the entries it holds, and how many entries the read
+/// handed over that could not be described.
+///
+/// An entry the directory read fails on is left out rather than failing the
+/// folder, so one bad entry never hides the rest; the count lets the tree say
+/// that something is missing.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DirListing {
+    /// The entries, in [`sort_entries`] order.
+    pub entries: Vec<WorkspaceEntry>,
+    /// Entries left out because they could not be read.
+    pub unreadable: u32,
+}
+
+impl DirListing {
+    /// A listing of `entries` with `unreadable` entries left out, sorted for
+    /// display.
+    pub fn new(mut entries: Vec<WorkspaceEntry>, unreadable: u32) -> Self {
+        sort_entries(&mut entries);
+        Self {
+            entries,
+            unreadable,
+        }
+    }
+}
+
 /// Who wrote a second copy of a file beside the original.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -357,11 +383,7 @@ pub fn path_has_ignored_name(root: &Path, path: &Path) -> bool {
 /// Sorts `entries` in-place: directories first, then files, each group
 /// ordered case-insensitively by name.
 pub fn sort_entries(entries: &mut [WorkspaceEntry]) {
-    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
+    entries.sort_by_cached_key(|entry| (!entry.is_dir, entry.name.to_lowercase()));
 }
 
 #[cfg(test)]
@@ -793,5 +815,44 @@ mod tests {
         assert_eq!(entries[1].name, "m");
         assert_eq!(entries[2].name, "a.rs");
         assert_eq!(entries[3].name, "z.rs");
+    }
+
+    #[test]
+    fn sort_keeps_names_that_differ_only_in_case_in_listed_order() {
+        let mut entries = vec![
+            WorkspaceEntry::new("Readme.md".into(), "/p/Readme.md".into(), false),
+            WorkspaceEntry::new("README.md".into(), "/p/README.md".into(), false),
+            WorkspaceEntry::new("apple.md".into(), "/p/apple.md".into(), false),
+        ];
+        sort_entries(&mut entries);
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["apple.md", "Readme.md", "README.md"]);
+    }
+
+    #[test]
+    fn a_listing_sorts_its_entries_and_keeps_the_unreadable_count() {
+        let listing = DirListing::new(
+            vec![
+                WorkspaceEntry::new("b.md".into(), "/p/b.md".into(), false),
+                WorkspaceEntry::new("src".into(), "/p/src".into(), true),
+                WorkspaceEntry::new("A.md".into(), "/p/A.md".into(), false),
+            ],
+            2,
+        );
+        let names: Vec<&str> = listing.entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["src", "A.md", "b.md"]);
+        assert_eq!(listing.unreadable, 2);
+    }
+
+    #[test]
+    fn a_listing_crosses_ipc_as_entries_and_an_unreadable_count() {
+        let listing = DirListing::new(
+            vec![WorkspaceEntry::new("a.md".into(), "/p/a.md".into(), false)],
+            1,
+        );
+        let json = serde_json::to_value(&listing).expect("serialise");
+        assert_eq!(json["unreadable"], 1);
+        assert_eq!(json["entries"][0]["name"], "a.md");
+        assert_eq!(json["entries"][0]["is_dir"], false);
     }
 }

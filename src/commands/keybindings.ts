@@ -3,27 +3,20 @@ import {
   getAllCommands,
   getCommand,
   notifyRegistryChanged,
-  registryVersion,
 } from "./registry";
+import { effectiveBinding } from "./effective-bindings";
 import { isModalOpen } from "../lib/modal-stack";
+import { canonicalChord, chordFromKey, chordFromPosition } from "../lib/chord";
+import { isImeComposing } from "../lib/ime";
+import { detectPlatform, type Platform } from "../lib/platform";
 import { firstRunStore } from "../stores/global/first-run";
 
-let keybindingOverrides: Readonly<Record<string, string>> = {};
-
-export function setKeybindingOverrides(overrides: Readonly<Record<string, string>>) {
-  keybindingOverrides = overrides;
-}
-
-export function effectiveBinding(commandId: string, fallback?: string): string | undefined {
-  const override = keybindingOverrides[commandId];
-  if (override !== undefined) return override === "" ? undefined : override;
-  return fallback;
-}
-
-export function useEffectiveBinding(commandId: string, fallback?: string): string | undefined {
-  registryVersion();
-  return effectiveBinding(commandId, fallback);
-}
+export {
+  effectiveBinding,
+  setKeybindingOverrides,
+  useCommandBinding,
+  useEffectiveBinding,
+} from "./effective-bindings";
 
 const LEGACY_DEFAULT_BINDINGS: ReadonlyMap<string, string> = new Map([
   ["buffer.new", "CmdOrCtrl+N"],
@@ -48,21 +41,24 @@ export function pruneLegacyDefaultOverrides(
   return changed ? result : { ...loaded };
 }
 
-export function normalizeKey(e: KeyboardEvent): string {
-  const parts: string[] = [];
-  if (e.metaKey || e.ctrlKey) parts.push("CmdOrCtrl");
-  if (e.shiftKey && e.key !== "Shift") parts.push("Shift");
-  if (e.altKey) parts.push("Alt");
-
-  let key = e.key;
-  if (key === " ") key = "Space";
-  if (key.length === 1) key = key.toUpperCase();
-  parts.push(key);
-
-  return parts.join("+");
+/** The chord a keystroke spells from the character it produced. */
+export function normalizeKey(e: KeyboardEvent, platform: Platform = detectPlatform()): string {
+  return chordFromKey(e, platform);
 }
 
 const keyBindingMap = new Map<string, string>();
+
+/**
+ * The command a keystroke names: by the character first, then by the key's
+ * position, so Ctrl+N on an Arabic layout (character "ى", position KeyN) still
+ * makes a file while punctuation chords keep their character.
+ */
+function commandForKey(e: KeyboardEvent, platform: Platform): string | undefined {
+  const byKey = keyBindingMap.get(chordFromKey(e, platform));
+  if (byKey) return byKey;
+  const byPosition = chordFromPosition(e, platform);
+  return byPosition === null ? undefined : keyBindingMap.get(byPosition);
+}
 
 let lastShiftTime = 0;
 let shiftCommandId: string | null = null;
@@ -70,6 +66,7 @@ let shiftCommandId: string | null = null;
 export function rebuildKeyMap() {
   keyBindingMap.clear();
   shiftCommandId = null;
+  const platform = detectPlatform();
 
   for (const cmd of getAllCommands()) {
     const primary = effectiveBinding(cmd.id, cmd.keybinding);
@@ -81,7 +78,7 @@ export function rebuildKeyMap() {
         shiftCommandId = cmd.id;
         continue;
       }
-      keyBindingMap.set(binding, cmd.id);
+      keyBindingMap.set(canonicalChord(binding, platform), cmd.id);
     }
   }
 
@@ -122,10 +119,8 @@ export function handleKeyDown(e: KeyboardEvent): boolean {
   // rather than a check in each command.
   if (firstRunStore.step() !== null) return false;
   if (isModalOpen()) return false;
-  // Composition and dead keys never match a chord: while an IME is composing,
-  // the browser reports keyCode 229 and sets isComposing, and the pending key
-  // is meant for the input method, not the command map.
-  if (e.isComposing || e.keyCode === 229) return false;
+  // The pending key is meant for the input method, not the command map.
+  if (isImeComposing(e)) return false;
   if (e.key === "Shift" && shiftCommandId) {
     const now = Date.now();
     if (now - lastShiftTime < 400) {
@@ -143,8 +138,7 @@ export function handleKeyDown(e: KeyboardEvent): boolean {
     lastShiftTime = 0;
   }
 
-  const normalized = normalizeKey(e);
-  const commandId = keyBindingMap.get(normalized);
+  const commandId = commandForKey(e, detectPlatform());
   if (!commandId) return false;
   const cmd = getCommand(commandId);
   if (!cmd) return false;

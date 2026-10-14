@@ -20,6 +20,13 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("../../../services/tauri", () => ({
+  // The window controls the crash screen draws.
+  showWindow: vi.fn(async () => {}),
+  hideWindow: vi.fn(async () => {}),
+  minimizeWindow: vi.fn(async () => {}),
+  maximizeWindow: vi.fn(async () => {}),
+  toggleFullscreenWindow: vi.fn(async () => {}),
+  startDraggingWindow: vi.fn(async () => {}),
   readBufferContent: vi.fn(async (id: string) => {
     const gate = h.gates.get(id);
     if (gate) await gate;

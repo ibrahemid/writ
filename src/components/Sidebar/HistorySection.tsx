@@ -4,6 +4,8 @@ import SidebarSection from "./SidebarSection";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { showContextMenu } from "../ContextMenu/ContextMenu";
+import { removeOneFromRecent } from "../../stores/global/recent-removal";
+import { executeCommand } from "../../commands/registry";
 import { bucketHistoryByTime } from "./grouping";
 import {
   flattenBuckets,
@@ -102,14 +104,10 @@ function HistoryList(props: HistoryListProps) {
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
       { label: "Reopen", action: () => void win.tabs.restoreFromHistory(id) },
-      {
-        label: "Delete",
-        action: () => void bufferRegistry.deleteFromHistory(id),
-        danger: true,
-      },
+      { label: "Remove from Recent", action: () => removeOneFromRecent(id) },
       {
         label: "Clear Recent",
-        action: () => void bufferRegistry.clearAllHistory(),
+        action: () => executeCommand("history.clear"),
         separator: true,
         danger: true,
       },
@@ -117,19 +115,21 @@ function HistoryList(props: HistoryListProps) {
   }
 
   return (
-    <div class="history-list" ref={listRef!}>
+    <div class="history-list" role="list" ref={listRef!}>
       <div style={{ height: `${slice().padTop}px` }} />
       <For each={visibleRows()}>
         {(row) =>
           row.kind === "header" ? (
             <div
               class="history-group-title"
+              role="presentation"
               ref={(el) => queueMicrotask(() => measure(el, headerHeight, setHeaderHeight))}
             >
               {row.label}
             </div>
           ) : (
             <div
+              role="none"
               onContextMenu={(e) => handleContextMenu(e, row.item.id)}
               ref={(el) => queueMicrotask(() => measure(el, itemHeight, setItemHeight))}
             >
@@ -139,7 +139,7 @@ function HistoryList(props: HistoryListProps) {
                 trailing={row.trailing}
                 onClick={() => void win.tabs.restoreFromHistory(row.item.id)}
                 onRestore={() => void win.tabs.restoreFromHistory(row.item.id)}
-                onClose={() => void bufferRegistry.deleteFromHistory(row.item.id)}
+                onClose={() => removeOneFromRecent(row.item.id)}
               />
             </div>
           )

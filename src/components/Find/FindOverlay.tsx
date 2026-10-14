@@ -1,8 +1,5 @@
 import { Show, For, createMemo, createEffect, onCleanup } from "solid-js";
 import { findStore, type FindController } from "../../stores/global/find-store";
-import { useCommand } from "../../commands/registry";
-import { useEffectiveBinding } from "../../commands/keybindings";
-import { formatKeybinding } from "../../lib/keybinding-format";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import "./FindOverlay.css";
@@ -41,6 +38,8 @@ export default function FindOverlay(props: Props) {
     if (!counted()) return "";
     if (invalid) return "Invalid pattern";
     if (failed) return "Pattern too complex";
+    const replaced = find.lastReplaced();
+    if (total === 0 && replaced !== null) return `${replaced.count}${replaced.more ? "+" : ""} replaced`;
     if (total === 0) return pending ? "" : "No results";
     const more = capped || pending;
     const suffix = more ? "+" : "";
@@ -48,17 +47,9 @@ export default function FindOverlay(props: Props) {
     return `${total}${suffix} ${total === 1 && !more ? "match" : "matches"}`;
   });
 
-  // The row's own control for the command the app registers as Replace, so it
-  // carries that name and that key rather than a second name for one action.
-  const replaceTitle = createMemo(() => {
-    const key = formatKeybinding(
-      useEffectiveBinding("editor.replace", useCommand("editor.replace")?.keybinding),
-    );
-    return key ? `Replace (${key})` : "Replace";
-  });
-
   const noResults = createMemo(() => {
     const { total, pending, invalid, failed } = find.matches();
+    if (find.lastReplaced() !== null && total === 0) return false;
     return counted() && (invalid === true || failed === true || (total === 0 && !pending));
   });
   const currentTick = createMemo(() => find.matches().current);
@@ -164,7 +155,7 @@ export default function FindOverlay(props: Props) {
           </div>
 
           <div class="find-nav">
-            <Tooltip label="Previous match (Shift+Enter)">
+            <Tooltip label="Previous match" chord="Shift+Enter">
               <Button
                 variant="ghost"
                 class="find-icon-btn"
@@ -175,7 +166,7 @@ export default function FindOverlay(props: Props) {
                 onClick={() => find.previous()}
               />
             </Tooltip>
-            <Tooltip label="Next match (Enter)">
+            <Tooltip label="Next match" chord="Enter">
               <Button
                 variant="ghost"
                 class="find-icon-btn"
@@ -189,7 +180,7 @@ export default function FindOverlay(props: Props) {
           </div>
 
           <Show when={find.canReplace()}>
-            <Tooltip label={replaceTitle()}>
+            <Tooltip label="Replace" kbd="editor.replace">
               <Button
                 variant="ghost"
                 class={`find-icon-btn find-replace-toggle${find.replaceOpen() ? " is-on" : ""}`}
@@ -201,7 +192,7 @@ export default function FindOverlay(props: Props) {
               />
             </Tooltip>
           </Show>
-          <Tooltip label="Close (Esc)">
+          <Tooltip label="Close" chord="Escape">
             <Button
               variant="ghost"
               class="find-icon-btn"
@@ -227,7 +218,7 @@ export default function FindOverlay(props: Props) {
               onInput={(e) => find.setReplaceText(e.currentTarget.value)}
               onKeyDown={onReplaceKeyDown}
             />
-            <Tooltip label="Replace (Enter)">
+            <Tooltip label="Replace" chord="Enter">
               <Button
                 class="find-text-btn"
                 disabled={!hasQuery()}
@@ -236,7 +227,7 @@ export default function FindOverlay(props: Props) {
                 Replace
               </Button>
             </Tooltip>
-            <Tooltip label="Replace all (Shift+Enter)">
+            <Tooltip label="Replace all" chord="Shift+Enter">
               <Button
                 class="find-text-btn"
                 aria-label="Replace all"

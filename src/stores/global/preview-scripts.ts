@@ -1,7 +1,6 @@
 import { createRoot, createSignal } from "solid-js";
 import * as api from "../../services/tauri";
 import { logFailure } from "../../lib/log";
-import { togglePreviewScripts } from "../../lib/preview-actions";
 import { windowRegistry } from "./window-registry";
 
 // Singleton state — Writ is single-window. Each file's preview-scripts opt-in
@@ -56,7 +55,9 @@ export function createPreviewScriptsStore() {
    */
   async function toggle(bufferId: string): Promise<boolean> {
     const issuedAt = issue();
-    const next = await togglePreviewScripts(bufferId, enabled(bufferId));
+    const shown = enabled(bufferId);
+    const next = !(shown ?? (await api.previewGetScripts(bufferId)));
+    await api.previewSetScripts(bufferId, next);
     settle(bufferId, issuedAt, next);
     return next;
   }

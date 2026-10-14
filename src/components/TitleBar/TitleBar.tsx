@@ -8,6 +8,7 @@ import { resolvePlatform } from "../../lib/platform";
 import { resolveChromeLayout } from "../../lib/window-chrome";
 import { executeCommand } from "../../commands/registry";
 import { configStore } from "../../stores/global/config";
+import { hotkeyStore } from "../../stores/global/hotkey";
 import { osWindowStore } from "../../stores/global/os-window";
 import "./TitleBar.css";
 
@@ -78,7 +79,7 @@ export default function TitleBar() {
         <div class="titlebar-end">
           <Tooltip label="Toggle Writ from anywhere">
             <div class="titlebar-right" data-no-drag>
-              <Kbd binding={configStore.config().hotkey.toggle} />
+              <Kbd binding={hotkeyStore.chord() || configStore.config().hotkey.toggle} />
             </div>
           </Tooltip>
           <CaptionButtons kind={layout.caption} maximized={osWindowStore.maximized()} />

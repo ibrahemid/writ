@@ -7,16 +7,9 @@ import { executeCommand } from "../../commands/registry";
 import { CHAT_TOGGLE_COMMAND_ID } from "../../commands/chat";
 import { configStore } from "../../stores/global/config";
 import { activityStore } from "../../stores/global/activity";
-import { useEffectiveBinding } from "../../commands/keybindings";
-import { formatKeybinding } from "../../lib/keybinding-format";
 import { resolvePlatform } from "../../lib/platform";
 import { resolveChromeLayout, toolbarLeadsLights } from "../../lib/window-chrome";
 import "./Toolbar.css";
-
-function tip(label: string, binding: string | undefined): string {
-  const chord = formatKeybinding(binding);
-  return chord ? `${label} ${chord}` : label;
-}
 
 export default function Toolbar() {
   const win = useWindow();
@@ -94,7 +87,7 @@ export default function Toolbar() {
       data-tauri-drag-region={platform === "mac" ? "deep" : undefined}
       onKeyDown={handleKeyDown}
     >
-      <Tooltip label={tip("Toggle sidebar", useEffectiveBinding("sidebar.toggle", "CmdOrCtrl+\\"))}>
+      <Tooltip label="Toggle sidebar" kbd="sidebar.toggle">
         <Button
           variant="ghost"
           class="writ-toolbar-btn"
@@ -106,7 +99,7 @@ export default function Toolbar() {
 
       {/* GNOME merges compose into the header bar with the window title. */}
       <Show when={!layout.composeInChrome}>
-        <Tooltip label={tip("New file", useEffectiveBinding("note.new", "CmdOrCtrl+N"))}>
+        <Tooltip label="New file" kbd="note.new">
           <Button
             variant="ghost"
             class="writ-toolbar-compose"
@@ -121,7 +114,7 @@ export default function Toolbar() {
       </Show>
 
       <Show when={configStore.isAppOn("connections")}>
-        <Tooltip label={tip("Connections", useEffectiveBinding("panel.toggle", "CmdOrCtrl+Shift+\\"))}>
+        <Tooltip label="Connections" kbd="panel.toggle">
           <Button
             variant="ghost"
             class="writ-toolbar-btn"
@@ -135,7 +128,7 @@ export default function Toolbar() {
 
       {/* Each button is here only while its app is on (ADR-042 section 3). */}
       <Show when={configStore.isAppOn("chat")}>
-        <Tooltip label={tip("Chat", useEffectiveBinding(CHAT_TOGGLE_COMMAND_ID, undefined))}>
+        <Tooltip label="Chat" kbd={CHAT_TOGGLE_COMMAND_ID}>
           <Button
             variant="ghost"
             class="writ-toolbar-btn"

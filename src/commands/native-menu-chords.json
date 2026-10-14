@@ -1,0 +1,12 @@
+[
+  { "chord": "CmdOrCtrl+Q", "label": "Quit Writ" },
+  { "chord": "CmdOrCtrl+H", "label": "Hide Writ" },
+  { "chord": "CmdOrCtrl+Alt+H", "label": "Hide Others" },
+  { "chord": "CmdOrCtrl+M", "label": "Minimize" },
+  { "chord": "CmdOrCtrl+Z", "label": "Undo" },
+  { "chord": "CmdOrCtrl+Shift+Z", "label": "Redo" },
+  { "chord": "CmdOrCtrl+X", "label": "Cut" },
+  { "chord": "CmdOrCtrl+C", "label": "Copy" },
+  { "chord": "CmdOrCtrl+V", "label": "Paste" },
+  { "chord": "CmdOrCtrl+A", "label": "Select All" }
+]

@@ -67,7 +67,7 @@ vi.mock("../../../services/tauri", () => ({
   updateConfig: vi.fn(async () => {}),
 }));
 
-vi.mock("../../../components/Notifications/Toast", () => ({
+vi.mock("../../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 

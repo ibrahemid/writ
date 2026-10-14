@@ -9,10 +9,11 @@
 //! `AppMenu.tsx` carries the same list into the titlebar menu button — so
 //! gating this off those platforms removes chrome, never an action.
 //!
-//! The bar holds only the items of the apps that are on, and is built again
-//! whenever that set changes (ADR-042 section 3). [`sync`] is what every path
-//! that changes the config calls; it is a no-op off macOS and when the set is
-//! the one already drawn.
+//! The bar holds only the items of the apps that are on, each with the chord
+//! the shortcut editor saved for it, and is built again whenever either
+//! changes (ADR-042 section 3). [`sync`] is what every path that changes the
+//! config calls; it is a no-op off macOS and when the plan is the one already
+//! drawn.
 
 use tauri::AppHandle;
 
@@ -44,7 +45,8 @@ pub fn install(app: &AppHandle) {
     imp::redraw(app);
 }
 
-/// Draws the bar again if the apps that are on differ from the ones it shows.
+/// Draws the bar again if the apps that are on, or the chords saved for its
+/// items, differ from the ones it shows.
 ///
 /// The build runs on the main thread, where AppKit wants its menus touched;
 /// the watcher's reload calls this from a thread of its own.
@@ -62,13 +64,13 @@ pub fn sync(app: &AppHandle) {
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use crate::menu::{self, MenuPlatform, MenuSection};
+    use crate::menu::{MenuPlan, MenuPlatform, MenuSection, PlannedItem};
     use crate::poison::recover_poison;
     use crate::state::AppState;
-    use std::collections::BTreeSet;
-    use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+    use tauri::menu::{
+        Menu, MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+    };
     use tauri::{AppHandle, Manager, Wry};
-    use writ_core::config::AppId;
 
     /// The Quit item's id. Not in the shared command list: quitting is the
     /// exit path's own business, not an action forwarded to the frontend.
@@ -76,50 +78,74 @@ mod imp {
 
     type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-    /// Builds and sets the bar when the apps that are on have changed since
-    /// the last one was set.
+    /// Builds and sets the bar when its plan has changed since the last one
+    /// was set.
     pub(super) fn redraw(app: &AppHandle) {
         let state = app.state::<AppState>();
-        let apps = recover_poison(state.config.lock(), "app_menu::redraw").apps_on();
+        let plan = {
+            let config = recover_poison(state.config.lock(), "app_menu::redraw");
+            MenuPlan::new(MenuPlatform::Mac, &config.apps_on(), &config.keybindings)
+        };
         let mut drawn = recover_poison(state.menu_apps.lock(), "app_menu::redraw");
-        if drawn.as_ref() == Some(&apps) {
+        if drawn.as_ref() == Some(&plan) {
             return;
         }
-        match build(app, &apps).and_then(|bar| app.set_menu(bar).map_err(Into::into)) {
+        match build(app, &plan).and_then(|bar| app.set_menu(bar).map_err(Into::into)) {
             Ok(_) => {
-                tracing::info!(apps = ?apps, "menu bar drawn");
-                *drawn = Some(apps);
+                tracing::info!("menu bar drawn");
+                *drawn = Some(plan);
             }
             Err(error) => tracing::warn!(%error, "failed to build application menu"),
         }
     }
 
+    fn menu_item(app: &AppHandle, planned: &PlannedItem) -> Result<MenuItem<Wry>> {
+        let mut item = MenuItemBuilder::with_id(planned.id.clone(), &planned.label);
+        if let Some(accelerator) = &planned.accelerator {
+            item = item.accelerator(accelerator);
+        }
+        Ok(item.build(app)?)
+    }
+
     /// Adds one menu's commands from the shared list, with a separator
-    /// between groups.
+    /// between groups. A run of items naming one submenu is drawn as that
+    /// submenu, where its first item sits.
     fn fill_section<'m>(
         app: &'m AppHandle,
         builder: SubmenuBuilder<'m, Wry, AppHandle>,
         section: MenuSection,
-        apps: &BTreeSet<AppId>,
+        plan: &MenuPlan,
     ) -> Result<SubmenuBuilder<'m, Wry, AppHandle>> {
         let mut builder = builder;
         let mut last_group: Option<u8> = None;
-        for command in menu::commands_in(section, MenuPlatform::Mac, apps) {
-            if last_group.is_some_and(|group| group != command.group) {
+        let items: Vec<&PlannedItem> = plan.section(section).collect();
+        let mut at = 0;
+        while let Some(planned) = items.get(at).copied() {
+            if last_group.is_some_and(|group| group != planned.group) {
                 builder = builder.separator();
             }
-            last_group = Some(command.group);
+            last_group = Some(planned.group);
 
-            let mut item = MenuItemBuilder::with_id(command.id.clone(), &command.label);
-            if let Some(accelerator) = &command.accelerator {
-                item = item.accelerator(accelerator);
+            let Some(name) = &planned.submenu else {
+                builder = builder.item(&menu_item(app, planned)?);
+                at += 1;
+                continue;
+            };
+            let mut submenu = SubmenuBuilder::new(app, name);
+            while let Some(inner) = items
+                .get(at)
+                .copied()
+                .filter(|inner| inner.submenu.as_ref() == Some(name))
+            {
+                submenu = submenu.item(&menu_item(app, inner)?);
+                at += 1;
             }
-            builder = builder.item(&item.build(app)?);
+            builder = builder.item(&submenu.build()?);
         }
         Ok(builder)
     }
 
-    fn build(app: &AppHandle, apps: &BTreeSet<AppId>) -> Result<Menu<Wry>> {
+    fn build(app: &AppHandle, plan: &MenuPlan) -> Result<Menu<Wry>> {
         // Not `PredefinedMenuItem::quit`: muda maps that to AppKit's
         // `terminate:`, which tears the process down without ever reaching
         // the event loop, so no exit request is raised and nothing gets a
@@ -137,7 +163,11 @@ mod imp {
             Some("About Writ"),
             None,
         )?);
-        let app_menu = fill_section(app, app_menu, MenuSection::App, apps)?
+        let app_menu = fill_section(app, app_menu, MenuSection::App, plan)?
+            .separator()
+            .hide_with_text("Hide Writ")
+            .hide_others()
+            .show_all()
             .separator()
             .item(&quit_item)
             .build()?;
@@ -146,7 +176,7 @@ mod imp {
             app,
             SubmenuBuilder::new(app, "File"),
             MenuSection::File,
-            apps,
+            plan,
         )?
         .build()?;
 
@@ -159,28 +189,33 @@ mod imp {
             .paste()
             .select_all()
             .separator();
-        let edit_menu = fill_section(app, edit_menu, MenuSection::Edit, apps)?.build()?;
+        let edit_menu = fill_section(app, edit_menu, MenuSection::Edit, plan)?.build()?;
 
         let view_menu = fill_section(
             app,
             SubmenuBuilder::new(app, "View"),
             MenuSection::View,
-            apps,
+            plan,
         )?
         .build()?;
 
-        // Chrome macOS expects of every app, built from the predefined item
-        // rather than from the shared list: minimizing is a window operation
-        // the OS performs, not a Writ command, and there is nothing for the
-        // Windows and Linux menu to carry in its place — those titlebars have
-        // their own minimize button.
-        let window_menu = SubmenuBuilder::new(app, "Window").minimize().build()?;
+        // Chrome macOS expects of every app, built from the predefined items
+        // rather than from the shared list: these are window operations the
+        // OS performs, not Writ commands, and there is nothing for the
+        // Windows and Linux menu to carry in their place — those titlebars
+        // have their own window buttons.
+        let window_menu = SubmenuBuilder::new(app, "Window")
+            .minimize()
+            .maximize()
+            .separator()
+            .bring_all_to_front()
+            .build()?;
 
         let help_menu = fill_section(
             app,
             SubmenuBuilder::new(app, "Help"),
             MenuSection::Help,
-            apps,
+            plan,
         )?
         .build()?;
 

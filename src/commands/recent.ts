@@ -1,5 +1,5 @@
 import { windowRegistry } from "../stores/global/window-registry";
-import { showToast } from "../components/Notifications/Toast";
+import { showToast } from "../stores/global/notifications";
 
 /** What Open Recent says when no file has been closed yet. */
 export const NOTHING_CLOSED = "Nothing closed yet.";

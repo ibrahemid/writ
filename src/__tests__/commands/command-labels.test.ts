@@ -53,6 +53,15 @@ function field(literal: string, name: string): string {
   return match ? match[2].trim() : "";
 }
 
+/**
+ * A label written as a field, or as a getter: a label that names what the
+ * command does for the file in front (`preview.cycleLayout`) is read when the
+ * palette lists it. The getter's strings are checked where it is tested.
+ */
+function labelOf(literal: string): string {
+  return field(literal, "label") || (/\bget label\(\)/.test(literal) ? "get label()" : "");
+}
+
 function registrations(): Registration[] {
   const found: Registration[] = [];
   for (const file of walk(SRC)) {
@@ -64,7 +73,7 @@ function registrations(): Registration[] {
       found.push({
         file: relative(ROOT, file),
         id: field(literal, "id"),
-        label: field(literal, "label"),
+        label: labelOf(literal),
       });
       at = text.indexOf(marker, at + marker.length);
     }
@@ -83,7 +92,7 @@ function registrations(): Registration[] {
           found.push({
             file: relative(ROOT, file),
             id: field(literal, "id"),
-            label: field(literal, "label"),
+            label: labelOf(literal),
           });
           i += literal.length + 1;
         }
@@ -147,7 +156,12 @@ describe("command labels", () => {
     const menuIds = MENU_COMMANDS.map((entry) => entry.id);
     expect(menuIds.length).toBeGreaterThan(0);
     const registeredIds = new Set(REGISTRATIONS.map((r) => literalText(r.id)).filter(Boolean));
-    const missing = menuIds.filter((id) => !registeredIds.has(id));
+    // A template id (`transform.${descriptor.id}`) registers a family.
+    const families = REGISTRATIONS.map((r) => r.id.match(/^`([a-z.]+)\$\{[^}]+\}`$/)?.[1])
+      .filter((prefix): prefix is string => Boolean(prefix));
+    const missing = menuIds.filter(
+      (id) => !registeredIds.has(id) && !families.some((prefix) => id.startsWith(prefix)),
+    );
     expect(missing, `menu ids with no registration: ${missing.join(", ")}`).toEqual([]);
   });
 });

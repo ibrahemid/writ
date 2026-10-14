@@ -3,7 +3,7 @@ import { bufferRegistry } from "../stores/global/buffer-registry";
 import { windowRegistry } from "../stores/global/window-registry";
 import { contentTypeForBuffer } from "../lib/content-type";
 import { previewScriptsStore } from "../stores/global/preview-scripts";
-import { showToast } from "../components/Notifications/Toast";
+import { showToast } from "../stores/global/notifications";
 import {
   DEFAULT_RATIO,
   defaultSplit,
@@ -11,9 +11,8 @@ import {
   type LayoutMode,
 } from "../lib/preview-layout";
 
-// Preview keymap (lean scope). Detach is cut, so its binding is gone. The
-// ADR-009 force-render binding (Cmd+R) is taken by note.rename today; L2
-// ships preview-refresh on F5 and the rename rebind is a follow-up.
+// Preview keymap (lean scope). Detach is cut, so its binding is gone; a
+// fresh render answers F5.
 
 function activeWindow() {
   return windowRegistry.getActive();
@@ -41,15 +40,54 @@ function hasSplitLayouts(bufferId: string): boolean {
   return contentTypeOf(bufferId) !== "markdown";
 }
 
+/** The active file's preview type, or null when nothing previewable is open. */
+function activeContentType(): string | null {
+  const id = activeBufferId();
+  return id ? contentTypeOf(id) : null;
+}
+
+// What the palette offers, by the active file's type. Availability gates the
+// palette only: a chord still reaches its command, which does nothing where
+// it has nothing to act on, and Escape still falls through to the editor.
+
+/** A file with any preview: Markdown's Inline view, or a split. */
+function previewable(): boolean {
+  return activeContentType() !== null;
+}
+
+/** A file with a preview pane beside or instead of the text. */
+function splits(): boolean {
+  const type = activeContentType();
+  return type !== null && type !== "markdown";
+}
+
+/** A document whose own scripts the preview can run. */
+function runsScripts(): boolean {
+  const type = activeContentType();
+  return type === "html" || type === "markdown";
+}
+
 /** Register the preview keymap and the per-file scripts toggle. */
 export function registerPreviewKeymap(): void {
   registerCommand({
     id: "preview.cycleLayout",
-    label: "Preview: Cycle layout",
-    description: "Switch how the file is shown",
+    // A Markdown file has no preview pane: the chord switches its two views,
+    // and the palette row says so while one is active.
+    get label() {
+      return activeContentType() === "markdown"
+        ? "Switch between Inline and Source"
+        : "Preview: Cycle layout";
+    },
+    get description() {
+      return activeContentType() === "markdown"
+        ? "Show the Markdown formatted in place, or as plain text"
+        : "Switch between the text, the text beside its preview, and the preview";
+    },
+    keywords: ["preview", "layout", "markdown", "inline", "source", "split"],
     keybinding: "CmdOrCtrl+Shift+V",
     scope: "app",
     global: true,
+    isAvailable: previewable,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -67,6 +105,7 @@ export function registerPreviewKeymap(): void {
     keybinding: "F5",
     scope: "app",
     global: true,
+    isAvailable: splits,
     execute: () => activeWindow()?.preview.requestForceRefresh(),
   });
 
@@ -77,6 +116,7 @@ export function registerPreviewKeymap(): void {
     keybinding: "CmdOrCtrl+Shift+R",
     scope: "app",
     global: true,
+    isAvailable: splits,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -98,6 +138,12 @@ export function registerPreviewKeymap(): void {
     keybinding: "Escape",
     scope: "app",
     global: true,
+    isAvailable: () => {
+      const w = activeWindow();
+      const id = activeBufferId();
+      if (!w || !id || !hasSplitLayouts(id)) return false;
+      return w.layout.get(id, contentTypeOf(id)).kind === "preview";
+    },
     // With no fullscreen preview to leave, Escape declines so it reaches the
     // focused editor, where Escape then Tab moves focus out (tab focus mode).
     execute: () => {
@@ -118,6 +164,7 @@ export function registerPreviewKeymap(): void {
     keybinding: "CmdOrCtrl+Shift+H",
     scope: "app",
     global: true,
+    isAvailable: splits,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -141,6 +188,7 @@ export function registerPreviewKeymap(): void {
     keybinding: "CmdOrCtrl+Shift+0",
     scope: "app",
     global: true,
+    isAvailable: splits,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();
@@ -161,6 +209,7 @@ export function registerPreviewKeymap(): void {
       "Run or stop this file's own scripts in the preview, remembered for the file. Turn on only for a file you trust.",
     scope: "app",
     global: true,
+    isAvailable: runsScripts,
     execute: () => {
       const w = activeWindow();
       const id = activeBufferId();

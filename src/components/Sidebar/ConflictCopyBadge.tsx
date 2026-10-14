@@ -10,6 +10,8 @@ import "./ConflictCopyBadge.css";
  * side by side with nothing to say which one is the extra. Naming the service
  * that made it is what tells the user where to look.
  */
+const NEXT_STEP = "Compare it with the original and delete the one you don't need.";
+
 export function ConflictCopyBadge(props: {
   kind: ConflictCopyKind | null;
   provider?: string | null;
@@ -18,10 +20,10 @@ export function ConflictCopyBadge(props: {
 
   const explanation = () => {
     if (props.kind === "writ") {
-      return "Writ kept this copy when the file changed on disk while it was open.";
+      return `Writ kept this copy when the file changed on disk while it was open. ${NEXT_STEP}`;
     }
     const service = props.provider ?? "Your sync service";
-    return `${service} kept this copy when the file was edited in two places.`;
+    return `${service} kept this copy when the file was edited in two places. ${NEXT_STEP}`;
   };
 
   return (

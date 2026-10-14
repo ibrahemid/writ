@@ -1,13 +1,20 @@
-import { searchNotesByName } from "../../services/tauri";
+import { paletteSearch } from "../../stores/global/palette-search";
 import { pathKey } from "../../lib/path";
 import { bufferPathKeys, bufferTargets, openTarget } from "./open-target";
-import type { PaletteResult, ResultProvider } from "../../components/Palette/types";
+import type {
+  PaletteMode,
+  PaletteResult,
+  ResultProvider,
+} from "../../components/Palette/types";
 
 export const NOTES_DEBOUNCE_MS = 120;
 
 export interface NotesProviderOptions {
   order?: number;
   cap?: number;
+  // Defaults to the `@` route alone; the command palette also answers an
+  // unprefixed name with it, under `cap`.
+  modes?: readonly PaletteMode[];
 }
 
 // Notes by name, from the path-keyed index (ADR-028 section 7). A note that is
@@ -19,7 +26,7 @@ export function createNotesProvider(options: NotesProviderOptions = {}): ResultP
     section: "Files",
     order: options.order ?? 1,
     cap: options.cap ?? 12,
-    modes: ["notes"],
+    modes: options.modes ?? ["notes"],
     debounceMs: NOTES_DEBOUNCE_MS,
     async query(q: string): Promise<PaletteResult[]> {
       if (!q) return [];
@@ -32,7 +39,7 @@ export function createNotesProvider(options: NotesProviderOptions = {}): ResultP
       );
       const taken = bufferPathKeys(targets);
 
-      const hits = await searchNotesByName(q);
+      const hits = await paletteSearch.notesByName(q);
       const results: PaletteResult[] = [];
       for (const hit of hits) {
         const key = pathKey(hit.path);

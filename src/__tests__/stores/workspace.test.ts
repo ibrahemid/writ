@@ -62,7 +62,7 @@ describe("workspaceStore", () => {
     mockedPick.mockResolvedValue("/ws");
     await workspaceStore.openFolder();
 
-    mockedList.mockResolvedValue([entry("src", "/ws", true), entry("a.md", "/ws")]);
+    mockedList.mockResolvedValue({ entries: [entry("src", "/ws", true), entry("a.md", "/ws")], unreadable: 0 });
     await workspaceStore.loadDir("/ws");
 
     expect(workspaceStore.entriesFor("/ws")).toHaveLength(2);
@@ -72,7 +72,7 @@ describe("workspaceStore", () => {
   it("closeFolder clears root and cached listings", async () => {
     mockedPick.mockResolvedValue("/ws");
     await workspaceStore.openFolder();
-    mockedList.mockResolvedValue([entry("a.md", "/ws")]);
+    mockedList.mockResolvedValue({ entries: [entry("a.md", "/ws")], unreadable: 0 });
     await workspaceStore.loadDir("/ws");
 
     await workspaceStore.closeFolder();
@@ -85,10 +85,10 @@ describe("workspaceStore", () => {
   it("handleChanged reloads the parent dir when cached", async () => {
     mockedPick.mockResolvedValue("/ws");
     await workspaceStore.openFolder();
-    mockedList.mockResolvedValue([entry("a.md", "/ws")]);
+    mockedList.mockResolvedValue({ entries: [entry("a.md", "/ws")], unreadable: 0 });
     await workspaceStore.loadDir("/ws");
 
-    mockedList.mockResolvedValue([entry("a.md", "/ws"), entry("b.md", "/ws")]);
+    mockedList.mockResolvedValue({ entries: [entry("a.md", "/ws"), entry("b.md", "/ws")], unreadable: 0 });
     workspaceStore.handleChanged("/ws/b.md", false);
     await vi.waitFor(() => {
       expect(workspaceStore.entriesFor("/ws")).toHaveLength(2);
@@ -106,7 +106,7 @@ describe("workspaceStore", () => {
   it("handleChanged drops the cached listing of a removed directory", async () => {
     mockedPick.mockResolvedValue("/ws");
     await workspaceStore.openFolder();
-    mockedList.mockResolvedValue([entry("x.md", "/ws/sub")]);
+    mockedList.mockResolvedValue({ entries: [entry("x.md", "/ws/sub")], unreadable: 0 });
     await workspaceStore.loadDir("/ws/sub");
 
     workspaceStore.handleChanged("/ws/sub", true);
@@ -116,7 +116,7 @@ describe("workspaceStore", () => {
   it("handleSwept reads every loaded folder again, once", async () => {
     mockedPick.mockResolvedValue("/ws");
     await workspaceStore.openFolder();
-    mockedList.mockResolvedValue([entry("a.md", "/ws")]);
+    mockedList.mockResolvedValue({ entries: [entry("a.md", "/ws")], unreadable: 0 });
     await workspaceStore.loadDir("/ws");
     await workspaceStore.loadDir("/ws/sub");
     mockedList.mockClear();
@@ -125,6 +125,57 @@ describe("workspaceStore", () => {
 
     await vi.waitFor(() => expect(mockedList).toHaveBeenCalledTimes(2));
     expect(mockedList.mock.calls.map(([dir]) => dir).sort()).toEqual(["/ws", "/ws/sub"]);
+  });
+
+  it("counts the entries a listing could not read", async () => {
+    mockedPick.mockResolvedValue("/ws");
+    await workspaceStore.openFolder();
+    mockedList.mockResolvedValue({ entries: [entry("a.md", "/ws")], unreadable: 2 });
+
+    await workspaceStore.loadDir("/ws");
+
+    expect(workspaceStore.entriesFor("/ws")).toHaveLength(1);
+    expect(workspaceStore.unreadableFor("/ws")).toBe(2);
+  });
+
+  it("is loading while a listing runs, and only then (NV-16)", async () => {
+    mockedPick.mockResolvedValue("/ws");
+    await workspaceStore.openFolder();
+    let finish!: () => void;
+    mockedList.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = () => resolve({ entries: [], unreadable: 0 });
+      }),
+    );
+
+    const running = workspaceStore.loadDir("/ws");
+    expect(workspaceStore.isLoading("/ws")).toBe(true);
+    expect(workspaceStore.entriesFor("/ws")).toBeUndefined();
+    finish();
+    await running;
+
+    expect(workspaceStore.isLoading("/ws")).toBe(false);
+    expect(workspaceStore.entriesFor("/ws")).toEqual([]);
+  });
+
+  it("says a folder it could not list could not be read, and keeps what it listed (NV-16)", async () => {
+    mockedPick.mockResolvedValue("/ws");
+    await workspaceStore.openFolder();
+    mockedList.mockRejectedValueOnce(new Error("EACCES"));
+
+    await workspaceStore.loadDir("/ws");
+
+    expect(workspaceStore.entriesFor("/ws")).toBeUndefined();
+    expect(workspaceStore.errorFor("/ws")).toBe("Could not read this folder.");
+
+    mockedList.mockResolvedValue({ entries: [entry("a.md", "/ws")], unreadable: 0 });
+    await workspaceStore.loadDir("/ws");
+    expect(workspaceStore.errorFor("/ws")).toBeNull();
+
+    mockedList.mockRejectedValueOnce(new Error("EACCES"));
+    await workspaceStore.loadDir("/ws");
+    expect(workspaceStore.entriesFor("/ws")).toHaveLength(1);
+    expect(workspaceStore.errorFor("/ws")).toBe("Could not read this folder.");
   });
 
   it("handleSwept reads nothing with no folder open", () => {

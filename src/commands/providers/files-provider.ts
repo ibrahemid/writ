@@ -29,6 +29,8 @@ export function createFilesProvider(options: FilesProviderOptions = {}): ResultP
     section: "Files",
     order: options.order ?? 2,
     cap: options.cap ?? 8,
+    // `@` narrows the list to file names, as it does in the command palette.
+    modes: ["all", "notes"],
     debounceMs: FILES_DEBOUNCE_MS,
     async query(q: string): Promise<PaletteResult[]> {
       const needle = q.toLowerCase();

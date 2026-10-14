@@ -55,6 +55,8 @@ pub mod command_usage;
 pub mod config_store;
 /// Startup consistency checker reconciling the database with the files.
 pub mod consistency;
+/// Finding and reading the files of a context pack.
+pub mod context_pack;
 /// Raw connection management, migrations, and query primitives.
 pub mod database;
 /// Crate-wide error and result types.

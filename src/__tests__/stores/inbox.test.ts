@@ -16,7 +16,7 @@ vi.mock("../../stores/global/config", () => ({
   configStore: { config: vi.fn() },
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
@@ -30,7 +30,7 @@ import {
 } from "../../services/tauri";
 import { windowRegistry } from "../../stores/global/window-registry";
 import { configStore } from "../../stores/global/config";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import type { WritConfig } from "../../types/config";
 
 const mockedPick = vi.mocked(pickInboxFolder);

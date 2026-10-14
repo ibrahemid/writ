@@ -20,6 +20,7 @@ import {
   type ChipRow,
 } from "../../stores/global/chat";
 import { byteLabel, noteCount, sendChatMessage } from "../../commands/chat";
+import { isImeComposing } from "../../lib/ime";
 
 /** How long typing settles before the note list is asked again. */
 const MENTION_DEBOUNCE_MS = 120;
@@ -251,6 +252,7 @@ export default function ChatComposer(props: {
   }
 
   function onKeyDown(event: KeyboardEvent) {
+    if (isImeComposing(event)) return;
     if (isOpen()) {
       if (event.key === "ArrowDown") {
         event.preventDefault();

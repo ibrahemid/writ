@@ -27,8 +27,8 @@ vi.mock("../../services/tauri", () => ({
   listActiveBuffers: vi.fn().mockResolvedValue([]),
   listHistory: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("../../components/Notifications/Toast", () => ({ showToast: vi.fn() }));
-vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+vi.mock("../../stores/global/notifications", () => ({ showToast: vi.fn() }));
+vi.mock("../../stores/global/dialogs", () => ({
   requestConfirm: vi.fn(),
 }));
 vi.mock("../../lib/log", () => ({ logFailure: vi.fn() }));

@@ -2,7 +2,6 @@
   display: flex;
   align-items: center;
   padding: 0 var(--writ-space-3-5);
-  cursor: pointer;
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg);
@@ -17,6 +16,29 @@
   opacity: var(--writ-icon-opacity-hover);
 }
 
+/* The control that opens the row fills it; the row's own gap spaces what it
+   holds, so the column lines up with the tree's. */
+.tab-item-main {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  column-gap: inherit;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.tab-item:has(.tab-item-main:focus-visible) {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset-inset, -2px);
+}
+
 .tab-item-title {
   flex: 1;
   min-width: 0;
@@ -25,7 +47,7 @@
   white-space: nowrap;
 }
 
-.tab-item > .writ-tooltip-anchor {
+.tab-item-main > .writ-tooltip-anchor {
   flex: 1;
   min-width: 0;
   display: block;
@@ -54,23 +76,15 @@
   visibility: hidden;
 }
 
+/* The targets' 3px overhang on each side meets in the gap, never overlaps. */
 .tab-item-actions {
   display: flex;
-  gap: var(--writ-space-2);
+  gap: var(--writ-space-2-5);
   opacity: 0;
 }
 
-.tab-item-actions:not(:first-child) {
-  margin-left: 0;
-}
-
-.tab-item-title + .tab-item-actions,
-.tab-item-trailing + .tab-item-actions,
-.writ-tooltip-anchor + .tab-item-actions {
-  margin-left: auto;
-}
-
-.tab-item-trailing ~ .tab-item-actions {
+/* Over the time it replaces, so the name keeps the row's width. */
+.tab-item.has-trailing .tab-item-actions {
   position: absolute;
   right: var(--writ-space-3);
 }
@@ -80,12 +94,15 @@
   opacity: 1;
 }
 
+/* A 24px target around the 14px glyph (WCAG 2.5.8, NV-31); the negative
+   margin keeps the row laid out as it was for an 18px control. */
 .tab-item-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
+  margin: -3px;
   padding: 0;
   border: none;
   background: transparent;
@@ -116,7 +133,7 @@
   padding: 0 var(--writ-space-4) 0 0;
 }
 
-:root[data-platform="win"] .tab-item > .writ-icon {
+:root[data-platform="win"] .tab-item-main > .writ-icon {
   margin: 0 var(--writ-space-4);
 }
 

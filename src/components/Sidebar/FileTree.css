@@ -75,19 +75,55 @@
   white-space: nowrap;
 }
 
-.file-tree-children {
+/* The list is as tall as every row it holds; only the rows on screen are
+   drawn, each at its own offset. */
+.file-tree-rows {
   position: relative;
 }
 
-.file-tree-children::before {
-  content: "";
+.file-tree-slot {
   position: absolute;
-  left: var(--tree-connector-left, var(--writ-space-4-5));
+  left: 0;
+  right: 0;
+}
+
+/* One line per ancestor, so the lines run through a folder's rows the way a
+   nested list drew them. */
+.file-tree-guide {
+  position: absolute;
   top: 0;
-  bottom: var(--writ-space-2);
+  bottom: 0;
   width: 1px;
   background: var(--writ-border-soft);
   pointer-events: none;
+}
+
+.file-tree-status {
+  color: var(--writ-fg-faint);
+  cursor: default;
+}
+
+.file-tree-status-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-tree-retry {
+  flex: none;
+  color: var(--writ-accent);
+  cursor: pointer;
+}
+
+.file-tree-rename-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--writ-fg);
+  font: inherit;
 }
 
 .file-tree-empty {
@@ -95,4 +131,26 @@
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg-faint);
+}
+
+.file-tree-failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--writ-space-3);
+}
+
+.file-tree-retry-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--writ-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.file-tree-retry-button:focus-visible {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: 1px;
+  border-radius: var(--writ-r-control);
 }

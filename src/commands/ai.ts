@@ -1,6 +1,6 @@
 import { windowRegistry } from "../stores/global/window-registry";
-import { requestConfirm } from "../components/ConfirmDialog/ConfirmDialog";
-import { showToast } from "../components/Notifications/Toast";
+import { requestConfirm } from "../stores/global/dialogs";
+import { showToast } from "../stores/global/notifications";
 import { openSettings } from "../components/SettingsModal/SettingsModal";
 import { aiRewriteStore, type AnchoredRange } from "../stores/global/ai-rewrite";
 import { aiConnectionStore } from "../stores/global/ai-connection";
@@ -48,6 +48,7 @@ async function clearBlockersBeforeSending(): Promise<boolean> {
       message:
         "The text you rewrite is sent with your API key. Writ also sends the key on its own to check the host is reachable. The check sends no text.",
       confirmLabel: "Send",
+      defaultAction: "cancel",
     });
     if (!confirmed) return false;
     try {

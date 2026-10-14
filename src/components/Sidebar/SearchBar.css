@@ -58,12 +58,3 @@
   color: var(--writ-fg-faint);
   text-overflow: ellipsis;
 }
-
-.search-count {
-  flex-shrink: 0;
-  font-size: var(--writ-ui-xs);
-  line-height: var(--writ-ui-xs-lh);
-  color: var(--writ-fg-faint);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}

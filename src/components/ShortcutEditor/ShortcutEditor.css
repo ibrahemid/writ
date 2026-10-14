@@ -129,3 +129,55 @@
   display: flex;
   gap: var(--writ-space-2);
 }
+
+.shortcut-editor-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--writ-space-3);
+  margin: var(--writ-space-3) var(--writ-space-5) var(--writ-space-1);
+  padding: 0 var(--writ-space-4);
+  min-height: 36px;
+  flex-shrink: 0;
+  background: var(--writ-bg-sunken);
+  border-radius: var(--writ-r-control);
+}
+
+.shortcut-editor-filter:focus-within {
+  outline: var(--writ-focus-outline, 2px solid var(--writ-accent));
+  outline-offset: var(--writ-focus-offset, 2px);
+}
+
+.shortcut-editor-filter-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--writ-fg-faint);
+}
+
+.shortcut-editor-filter-input {
+  flex: 1;
+  align-self: stretch;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+  color: var(--writ-fg);
+  font-family: inherit;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+}
+
+.shortcut-editor-filter-input::placeholder {
+  color: var(--writ-fg-faint);
+}
+
+.shortcut-row-changed {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--writ-space-2);
+  vertical-align: middle;
+  border-radius: 50%;
+  background: var(--writ-fg-muted);
+}

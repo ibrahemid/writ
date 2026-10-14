@@ -10,7 +10,7 @@ import type {
   WritConfig,
 } from "../../types/config";
 import * as api from "../../services/tauri";
-import { dismissToast, showToast } from "../../components/Notifications/Toast";
+import { dismissToast, showToast } from "./notifications";
 import { logFailure } from "../../lib/log";
 import { knownSidebarSections, withSidebarSection } from "../../lib/sidebar-sections";
 import { SIDEBAR } from "../../styles/generated/tokens";

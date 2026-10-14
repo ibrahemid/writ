@@ -3,7 +3,7 @@ import { createSignal } from "solid-js";
 import * as tauri from "../../services/tauri";
 import { configStore } from "./config";
 import { windowRegistry } from "./window-registry";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "./notifications";
 import { basename } from "../../lib/path";
 import { logFailure } from "../../lib/log";
 

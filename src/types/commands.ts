@@ -6,6 +6,13 @@ export type CommandScope = "app" | "editor";
 export interface Command {
   id: string;
   label: string;
+  /**
+   * The label under a menu heading that already names the family, for a
+   * command whose palette label carries that family as a prefix
+   * ("Transform: Trim trailing spaces" sits as "Trim trailing spaces" under
+   * Transform). Omitted means the menus show `label`.
+   */
+  menuLabel?: string;
   description?: string;
   /**
    * Extra search terms for the palette, for words a user would reasonably type

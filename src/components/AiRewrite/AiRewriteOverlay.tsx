@@ -3,6 +3,7 @@ import { aiRewriteStore } from "../../stores/global/ai-rewrite";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import "./AiRewriteOverlay.css";
+import { isImeComposing } from "../../lib/ime";
 
 const STATUS_LABELS: Record<string, string> = {
   streaming: "Streaming…",
@@ -20,6 +21,7 @@ export default function AiRewriteOverlay() {
   createEffect(() => {
     if (!store.isOpen()) return;
     function onKeyDown(e: KeyboardEvent) {
+      if (isImeComposing(e)) return;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -42,6 +44,7 @@ export default function AiRewriteOverlay() {
   });
 
   function onInstructionKeyDown(e: KeyboardEvent) {
+    if (isImeComposing(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       store.submitInstruction();
@@ -59,7 +62,7 @@ export default function AiRewriteOverlay() {
           <span class="ai-overlay-status" data-status={store.status()} aria-live="polite">
             {STATUS_LABELS[store.status()] ?? ""}
           </span>
-          <Tooltip label="Discard rewrite (Esc)">
+          <Tooltip label="Discard rewrite" chord="Escape">
             <Button
               variant="ghost"
               icon="x"

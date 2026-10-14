@@ -3,7 +3,7 @@ import { themeStore } from "../../stores/global/theme";
 import { configStore } from "../../stores/global/config";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
-import { requestChoice, requestConfirm } from "../ConfirmDialog/ConfirmDialog";
+import { requestChoice, requestConfirm } from "../../stores/global/dialogs";
 import {
   GROUP_LABELS,
   NON_EDITABLE_TOKENS,
@@ -15,7 +15,7 @@ import type { TokenGroup, Theme, ThemeConfig } from "../../types/theme";
 import type { AppearanceConfig } from "../../types/config";
 import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import "./ThemeEditor.css";
 
 // Singleton state — Writ is single-window
@@ -159,7 +159,7 @@ export default function ThemeEditor() {
               <Button variant="primary" data-action="save-theme" onClick={handleSave}>
                 Save
               </Button>
-              <Tooltip label="Close theme editor">
+              <Tooltip label="Close theme editor" chord="Escape">
                 <Button
                   variant="ghost"
                   icon="x"

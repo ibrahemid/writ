@@ -7,10 +7,19 @@ import {
   onCleanup,
   type JSX,
 } from "solid-js";
+import { useCommandBinding } from "../../commands/effective-bindings";
+import { formatKeybinding } from "../../lib/keybinding-format";
 import "./Tooltip.css";
 
 interface TooltipProps {
   label: string;
+  /**
+   * A command id. The tip shows the chord that command answers to now, so a
+   * rebound shortcut reads the same here as in the menus and the palette.
+   */
+  kbd?: string;
+  /** A key the control answers to that is no command, such as Escape. */
+  chord?: string;
   placement?: "top" | "bottom";
   /**
    * Role for the anchor itself. A composite widget that owns its children —
@@ -60,6 +69,8 @@ export default function Tooltip(props: TooltipProps) {
   const [reason, setReason] = createSignal<OpenReason | null>(null);
   const [size, setSize] = createSignal({ width: 0, height: 0 });
   const visible = () => reason() !== null;
+  const shortcut = () =>
+    formatKeybinding(props.kbd !== undefined ? useCommandBinding(props.kbd) : props.chord);
   const resolved = resolveChildren(() => props.children);
   let anchorRef: HTMLSpanElement | undefined;
   let tipRef: HTMLDivElement | undefined;
@@ -190,6 +201,10 @@ export default function Tooltip(props: TooltipProps) {
           style={positionStyle()}
         >
           {props.label}
+          <Show when={shortcut()}>
+            {" "}
+            <span class="writ-tooltip-kbd">{shortcut()}</span>
+          </Show>
         </div>
       </Show>
     </span>

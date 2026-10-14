@@ -84,6 +84,11 @@ export function createFindController(
   const [ticks, setTicks] = createSignal<MatchTick[]>([], { equals: sameTicks });
   const [focusNonce, setFocusNonce] = createSignal(0);
   const [canReplaceSignal, setCanReplace] = createSignal(true);
+  // How many matches the last Replace all replaced, for the query it ran on.
+  // A count that says "No results" right after a replace reads as a failure.
+  const [replaced, setReplaced] = createSignal<{ query: string; count: number; more: boolean } | null>(
+    null,
+  );
 
   function currentTerm(): SearchTerm {
     return {
@@ -115,6 +120,7 @@ export function createFindController(
   }
 
   function apply() {
+    setReplaced(null);
     send(getSurface());
     refresh();
   }
@@ -213,8 +219,23 @@ export function createFindController(
     const surface = getSurface();
     if (!surface) return;
     send(surface);
+    const before = matches();
     surface.replaceAll();
     refresh();
+    if (before.total > 0) {
+      setReplaced({
+        query: appliedQuery(),
+        count: before.total,
+        more: before.capped === true || before.pending === true,
+      });
+    }
+  }
+
+  /** What the last Replace all replaced, while the query it ran on stands. */
+  function lastReplaced(): { count: number; more: boolean } | null {
+    const last = replaced();
+    if (last === null || last.query !== appliedQuery()) return null;
+    return { count: last.count, more: last.more };
   }
 
   // Called when the find target changes (a layout flip into or out of
@@ -262,6 +283,7 @@ export function createFindController(
     previous,
     replaceCurrent,
     replaceAll,
+    lastReplaced,
     findNextCmd,
     findPrevCmd,
     refresh,

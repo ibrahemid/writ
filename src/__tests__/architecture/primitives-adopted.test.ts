@@ -128,14 +128,15 @@ describe("migrated surfaces use the primitives", () => {
     for (const name of ["caret-up", "caret-down", "caret-right", "x"]) {
       expect(source, name).toContain(`icon="${name}"`);
     }
-    for (const label of [
-      "Previous match (Shift+Enter)",
-      "Next match (Enter)",
-      "Close (Esc)",
-      "Replace (Enter)",
-      "Replace all (Shift+Enter)",
+    for (const tip of [
+      'label="Previous match" chord="Shift+Enter"',
+      'label="Next match" chord="Enter"',
+      'label="Close" chord="Escape"',
+      'label="Replace" chord="Enter"',
+      'label="Replace all" chord="Shift+Enter"',
+      'label="Replace" kbd="editor.replace"',
     ]) {
-      expect(source, label).toContain(`<Tooltip label="${label}">`);
+      expect(source, tip).toContain(`<Tooltip ${tip}>`);
     }
   });
 
@@ -146,7 +147,7 @@ describe("migrated surfaces use the primitives", () => {
 
   it("the sidebar's icon-only controls carry a name and a tip", () => {
     const cases = [
-      ["src/components/Sidebar/TabItem.tsx", ["Close tab", "Restore tab"]],
+      ["src/components/Sidebar/TabItem.tsx", ["Remove from Recent", "Restore tab"]],
       ["src/components/Sidebar/FilesSection.tsx", ["Close folder"]],
       ["src/components/Sidebar/InboxSection.tsx", ["Stop watching folder"]],
     ] as const;

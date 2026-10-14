@@ -32,9 +32,9 @@ export function flattenBuckets(
 
 /// Prefix-sum of row heights: `offsets[i]` is the top edge of row `i`,
 /// `offsets[n]` the total content height.
-export function buildOffsets(
-  rows: readonly HistoryRow[],
-  heightFor: (row: HistoryRow) => number,
+export function buildOffsets<Row>(
+  rows: readonly Row[],
+  heightFor: (row: Row) => number,
 ): number[] {
   const offsets = new Array<number>(rows.length + 1);
   offsets[0] = 0;
@@ -73,10 +73,10 @@ export function sliceWindow(
   const top = Math.max(0, scrollTop - overscan);
   const bottom = Math.min(total, scrollTop + viewportHeight + overscan);
 
-  let start = 0;
-  while (start < n && offsets[start + 1] <= top) start++;
-  let end = start;
-  while (end < n && offsets[end] < bottom) end++;
+  // Binary searches over the prefix sums, so a list of 20,000 rows costs a
+  // handful of steps per scroll frame rather than a walk from the top.
+  const start = firstIndex(0, n, (i) => offsets[i + 1] > top);
+  let end = firstIndex(start, n, (i) => offsets[i] >= bottom);
   if (end <= start) end = Math.min(start + 1, n);
 
   return {
@@ -85,4 +85,15 @@ export function sliceWindow(
     padTop: offsets[start],
     padBottom: total - offsets[end],
   };
+}
+
+/** The first index in `[lo, hi)` where `holds` is true, or `hi`; `holds` must
+ *  be false then true along the range. */
+function firstIndex(lo: number, hi: number, holds: (i: number) => boolean): number {
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (holds(mid)) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
 }

@@ -508,6 +508,7 @@ pub fn run() {
             commands::buffer::set_buffer_view_position,
             commands::buffer::reopen_with_encoding,
             commands::notes::new_note,
+            commands::notes::new_note_in_folder,
             commands::notes::todays_note,
             commands::notes::new_note_from_link,
             commands::notes::rename_note,
@@ -515,6 +516,7 @@ pub fn run() {
             commands::notes::rename_note_with_links,
             commands::notes::undo_rename_with_links,
             commands::notes::delete_note,
+            commands::notes::undo_delete_note,
             commands::notes::save_note_copy,
             commands::notes::show_note_in_file_manager,
             commands::notes::show_notes_file_in_file_manager,
@@ -573,6 +575,7 @@ pub fn run() {
             commands::prompt::prompt_estimate_tokens,
             commands::prompt::prompt_scan_placeholders,
             commands::prompt::prompt_fill_placeholders,
+            commands::prompt::prompt_context_pack,
             commands::spelling::check_spelling,
             commands::spelling::spelling_add_ignored_word,
             commands::perf::report_first_paint,
@@ -595,6 +598,7 @@ pub fn run() {
             commands::workspace::pick_workspace_folder,
             commands::workspace::clear_workspace_root,
             commands::workspace::list_workspace_dir,
+            commands::workspace::show_workspace_entry_in_file_manager,
             commands::workspace::get_workspace_root,
             commands::workspace::search_workspace_files,
             commands::workspace::workspace_index_status,
@@ -717,16 +721,8 @@ pub fn run() {
                 let ready_handle = handle.clone();
                 app.listen("frontend-ready", move |_event| {
                     let state = ready_handle.state::<AppState>();
-                    state
-                        .frontend_ready
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                    let drained: Vec<String> = {
-                        let mut pending = recover_poison(
-                            state.pending_opens.lock(),
-                            "lib::setup:frontend_ready_drain",
-                        );
-                        std::mem::take(&mut *pending)
-                    };
+                    let drained =
+                        startup::mark_ready_and_drain(&state.pending_opens, &state.frontend_ready);
                     info!(
                         count = drained.len(),
                         "frontend-ready: draining pending opens"
@@ -1071,21 +1067,15 @@ pub fn run() {
                     if !files.is_empty() {
                         info!(count = files.len(), "files opened from OS");
 
-                        let ready = state
-                            .frontend_ready
-                            .load(std::sync::atomic::Ordering::SeqCst);
-
-                        if ready {
+                        if let Some(files) = startup::park_or_pass_opens(
+                            &state.pending_opens,
+                            &state.frontend_ready,
+                            files,
+                        ) {
                             let _ = emit_event(
                                 app_handle,
                                 WritFrontendEvent::PendingOpens { paths: files },
                             );
-                        } else {
-                            let mut pending = recover_poison(
-                                state.pending_opens.lock(),
-                                "lib::run_event:opened_files",
-                            );
-                            pending.extend(files);
                         }
                     }
 

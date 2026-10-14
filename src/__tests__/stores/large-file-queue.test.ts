@@ -57,7 +57,7 @@ vi.mock("../../services/autosave", () => ({
   onAutosaveError: vi.fn(() => () => {}),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 

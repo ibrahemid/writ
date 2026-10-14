@@ -1,7 +1,7 @@
 import { createSignal, createRoot, createEffect } from "solid-js";
 import type { ChangeSet } from "@codemirror/state";
 import { windowRegistry } from "./window-registry";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "./notifications";
 import {
   aiRewrite,
   aiCancel,

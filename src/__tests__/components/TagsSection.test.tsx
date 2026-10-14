@@ -252,10 +252,32 @@ describe("the tags section", () => {
     expect(tree.getAttribute("aria-label")).toBe("Tags");
     const all = rows(container);
     expect(all).toHaveLength(3);
-    for (const row of all) {
-      expect(row.getAttribute("role")).toBe("treeitem");
-      expect(row.tabIndex).toBe(0);
-    }
+    for (const row of all) expect(row.getAttribute("role")).toBe("treeitem");
+    // One Tab stop for the whole tree (NV-17).
+    expect(all.map((row) => row.tabIndex)).toEqual([0, -1, -1]);
+  });
+
+  it("moves its one Tab stop with Home, End, Left to the parent and the letters typed (NV-17)", async () => {
+    const { container } = await mount(tags(["project/alpha", 2], ["idea", 1], ["inbox", 1]));
+    const stop = () => rows(container).filter((row) => row.tabIndex === 0);
+    rowNamed(container, "project").focus();
+
+    fireEvent.keyDown(document.activeElement!, { key: "End" });
+    expect(document.activeElement).toBe(rowNamed(container, "inbox"));
+    expect(stop()).toEqual([rowNamed(container, "inbox")]);
+
+    fireEvent.keyDown(document.activeElement!, { key: "Home" });
+    expect(document.activeElement).toBe(rowNamed(container, "project"));
+
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(rowNamed(container, "alpha"));
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" });
+    expect(document.activeElement).toBe(rowNamed(container, "project"));
+
+    fireEvent.keyDown(document.activeElement!, { key: "i" });
+    expect(document.activeElement).toBe(rowNamed(container, "idea"));
+    fireEvent.keyDown(document.activeElement!, { key: "i" });
+    expect(document.activeElement).toBe(rowNamed(container, "inbox"));
   });
 });
 

@@ -13,11 +13,11 @@ const mocks = vi.hoisted(() => ({
   currentBufferId: vi.fn(() => "buf-1"),
 }));
 
-vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+vi.mock("../../stores/global/dialogs", () => ({
   requestConfirm: mocks.requestConfirm,
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: mocks.showToast,
 }));
 
@@ -95,6 +95,7 @@ describe("nothing is sent until every blocker is cleared", () => {
     await runRewriteAction("polish");
     const request = mocks.requestConfirm.mock.calls[0][0];
     expect(request.title).toContain("api.deepseek.com");
+    expect(request.defaultAction).toBe("cancel");
     expect(mocks.consentHost).toHaveBeenCalledTimes(1);
     expect(mocks.start).toHaveBeenCalledTimes(1);
   });

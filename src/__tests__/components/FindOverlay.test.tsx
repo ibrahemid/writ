@@ -6,6 +6,7 @@ import { EditorState } from "@codemirror/state";
 import { search } from "@codemirror/search";
 import FindOverlay from "../../components/Find/FindOverlay";
 import { registerCommand, unregisterCommand } from "../../commands/registry";
+import { formatKeybinding } from "../../lib/keybinding-format";
 import {
   createFindController,
   createEditorSurface,
@@ -101,6 +102,24 @@ describe("FindOverlay", () => {
     find.open();
     find.setQueryText("zzz");
     expect(getByText("No results")).toBeTruthy();
+  });
+
+  it("says how many it replaced after Replace all, until the query changes (PR-22)", () => {
+    const view = makeView("foo bar foo baz foo");
+    const find = makeStore(view);
+    const { getByText, container, queryByText } = render(() => <FindOverlay store={find} />);
+    find.open();
+    find.setQueryText("foo");
+    find.setReplaceText("qux");
+    find.replaceAll();
+
+    expect(view.state.doc.toString()).toBe("qux bar qux baz qux");
+    expect(getByText("3 replaced")).toBeTruthy();
+    expect(queryByText("No results")).toBeNull();
+    expect(container.querySelector(".find-count.is-empty")).toBeNull();
+
+    find.setQueryText("bar");
+    expect(queryByText("3 replaced")).toBeNull();
   });
 
   it("says nothing about a first query until the debounce has applied it", () => {
@@ -266,7 +285,7 @@ describe("the find bar's names", () => {
     try {
       const { getByLabelText, container } = openBar();
       const toggle = getByLabelText("Replace");
-      expect(tipFor(container, toggle)).toMatch(/^Replace \(.+\)$/);
+      expect(tipFor(container, toggle)).toBe(`Replace ${formatKeybinding("CmdOrCtrl+Alt+F")}`);
     } finally {
       unregisterCommand("editor.replace");
     }

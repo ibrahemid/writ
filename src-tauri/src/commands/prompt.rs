@@ -1,4 +1,12 @@
 use std::collections::HashMap;
+use std::path::Path;
+
+use tauri::{AppHandle, Runtime};
+use writ_core::prompt::pack::ContextPack;
+use writ_storage::context_pack::{build_context_pack, LiveText, PackSource};
+use writ_storage::notes_index::NotesIndexStore;
+
+use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 
 /// Off the main thread: the estimate walks the whole document, which can be a
 /// file in the large tiers (EP-14).
@@ -15,6 +23,31 @@ pub fn prompt_scan_placeholders(text: String) -> Vec<String> {
 #[tauri::command]
 pub fn prompt_fill_placeholders(text: String, values: HashMap<String, String>) -> String {
     writ_core::prompt::fill_placeholders(&text, &values)
+}
+
+/// Several files as one prompt (a context pack): `source`'s files, with the
+/// text the open tabs in `live` hold in place of what their files hold. Off
+/// the main thread: it reads up to a hundred files.
+#[tauri::command]
+pub async fn prompt_context_pack<R: Runtime>(
+    app: AppHandle<R>,
+    source: PackSource,
+    live: Vec<LiveText>,
+) -> Result<ContextPack, String> {
+    run_blocking(app, ERR_COMMAND_STOPPED, move |state| {
+        prompt_context_pack_inner(&state.notes_index, &state.notes_root(), &source, &live)
+    })
+    .await
+}
+
+/// [`prompt_context_pack`]'s work, for the tests and the shell budget.
+pub fn prompt_context_pack_inner(
+    index: &NotesIndexStore,
+    notes_root: &Path,
+    source: &PackSource,
+    live: &[LiveText],
+) -> Result<ContextPack, String> {
+    build_context_pack(index, notes_root, source, live).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

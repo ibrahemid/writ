@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use writ_core::file_ops::arg_paths_from_iter;
@@ -48,6 +49,41 @@ where
     };
     guard.extend(to_push);
     count
+}
+
+/// Marks the frontend ready and takes the files parked until it was.
+///
+/// The flag is flipped under the `pending` lock, the same lock
+/// [`park_or_pass_opens`] reads it under, so a file opened from the OS while
+/// the frontend reports ready is either in what this returns or passed on by
+/// the caller that brought it, never parked after the drain.
+pub fn mark_ready_and_drain(pending: &Mutex<Vec<String>>, ready: &AtomicBool) -> Vec<String> {
+    let mut parked = match pending.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    ready.store(true, Ordering::SeqCst);
+    std::mem::take(&mut *parked)
+}
+
+/// Parks `files` until the frontend is ready, or hands them back for the
+/// caller to send now when it already is.
+///
+/// Reads the flag under the `pending` lock (see [`mark_ready_and_drain`]).
+pub fn park_or_pass_opens(
+    pending: &Mutex<Vec<String>>,
+    ready: &AtomicBool,
+    files: Vec<String>,
+) -> Option<Vec<String>> {
+    let mut parked = match pending.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if ready.load(Ordering::SeqCst) {
+        return Some(files);
+    }
+    parked.extend(files);
+    None
 }
 
 pub fn authorize_and_canonicalize(

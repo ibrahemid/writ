@@ -7,12 +7,17 @@ export interface ParsedPaletteQuery {
   prefix: string;
 }
 
-const PREFIX_MODES: ReadonlyMap<string, PaletteMode> = new Map([
-  [">", "commands"],
-  ["#", "content"],
-  [":", "line"],
-  ["@", "notes"],
-]);
+/** The routing prefixes, in the order the palettes' footers list them. */
+export const PALETTE_PREFIXES: readonly { prefix: string; mode: PaletteMode; label: string }[] = [
+  { prefix: ">", mode: "commands", label: "Commands" },
+  { prefix: "@", mode: "notes", label: "File names" },
+  { prefix: "#", mode: "content", label: "Text" },
+  { prefix: ":", mode: "line", label: "Go to line" },
+];
+
+const PREFIX_MODES: ReadonlyMap<string, PaletteMode> = new Map(
+  PALETTE_PREFIXES.map((entry) => [entry.prefix, entry.mode]),
+);
 
 // Splits a raw palette query into its routing prefix and the remaining terms.
 // An unprefixed query runs every provider; a prefixed one runs only the

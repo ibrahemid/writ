@@ -21,9 +21,16 @@ describe("Kbd", () => {
     expect(container.querySelector(".kbd-key-empty")?.textContent).toBe("—");
   });
 
-  it("names the chord for assistive tech", () => {
-    const { container } = render(() => <Kbd binding="CmdOrCtrl+S" />);
-    expect(container.querySelector(".kbd-chord")?.getAttribute("aria-label")).toBe("CmdOrCtrl+S");
+  it("names the chord in words for assistive tech", () => {
+    const { container } = render(() => <Kbd binding="CmdOrCtrl+Shift+S" />);
+    const chord = container.querySelector(".kbd-chord")!;
+    expect(chord.getAttribute("role")).toBe("img");
+    expect(chord.getAttribute("aria-label")).toBe("Control Shift S");
+  });
+
+  it("names a missing chord too", () => {
+    const { container } = render(() => <Kbd />);
+    expect(container.querySelector(".kbd-chord")?.getAttribute("aria-label")).toBe("No shortcut");
   });
 
   it("takes the UI face at the caption step", () => {

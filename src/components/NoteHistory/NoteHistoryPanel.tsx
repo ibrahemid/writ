@@ -13,7 +13,7 @@ import Button from "../Button/Button";
 import Tooltip from "../Tooltip/Tooltip";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { installFocusTrap } from "../../lib/focus-trap";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { formatBytes } from "../../lib/format-bytes";
 import { hunkRows } from "../../lib/diff-rows";
 import { noteVersionsStore, type NoteVersion } from "../../stores/global/note-versions";
@@ -272,7 +272,7 @@ function VersionsDialog() {
             {(path) => <span class="note-versions-note">{nameOf(path())}</span>}
           </Show>
           <span class="note-versions-header-controls">
-            <Tooltip label="Close versions">
+            <Tooltip label="Close versions" chord="Escape">
               <Button
                 variant="ghost"
                 icon="x"

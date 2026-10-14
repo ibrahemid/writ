@@ -5,7 +5,7 @@ import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { windowRegistry } from "../../stores/global/window-registry";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { isMenuOpenFor, showAnchoredMenu, showContextMenu, type MenuItem } from "../ContextMenu/ContextMenu";
-import { showToast } from "../Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import { abbreviateTitle } from "../../lib/buffer-name";
 import { tierName } from "../../lib/tier-explainer";
 import { configStore } from "../../stores/global/config";
@@ -427,7 +427,7 @@ export default function TabBar() {
           </button>
         </Tooltip>
       </Show>
-      <Tooltip label={withChord("New file", "note.new")}>
+      <Tooltip label="New file" kbd="note.new">
         <button
           type="button"
           class="tab-add"

@@ -4,6 +4,11 @@
   width: auto;
   min-width: 196px;
   max-width: min(360px, calc(100vw - 16px));
+  /* A long menu (the Windows and Linux app menu, a selection with its
+     Transform and Rewrite groups) scrolls inside the window. */
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--writ-bg-raised);
   border: 0;
   border-radius: var(--writ-r-popover);
@@ -72,6 +77,12 @@
 .context-menu-danger,
 .context-menu-danger:hover {
   color: var(--writ-danger);
+}
+
+.context-menu-heading {
+  padding: var(--writ-space-1) var(--writ-space-3-5) var(--writ-space-1);
+  font-size: var(--writ-ui-xs);
+  color: var(--writ-fg-faint);
 }
 
 .context-menu-separator {

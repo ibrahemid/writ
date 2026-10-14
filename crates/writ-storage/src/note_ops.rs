@@ -507,6 +507,64 @@ pub fn trash_note(path: &Path) -> StorageResult<()> {
         })
 }
 
+/// Puts a note Writ moved to the Trash back at `path`, from the bytes the file
+/// held when it went.
+///
+/// The bytes are written as they were, encoding and line endings included.
+/// The Trash keeps its own copy: taking that one back needs the place the
+/// platform moved it to, which the `trash` crate does not report on macOS.
+/// Nothing at `path` is ever replaced.
+///
+/// # Errors
+///
+/// [`StorageError::NoteNameTaken`] when something is at `path` now, and
+/// [`StorageError::Io`] when the folder cannot be created or the file cannot
+/// be written.
+pub fn restore_trashed(
+    path: &Path,
+    bytes: &[u8],
+    before_write: BeforeWrite<'_>,
+) -> StorageResult<()> {
+    let folder = path.parent().ok_or_else(|| {
+        StorageError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "a file path with no folder",
+        ))
+    })?;
+    let taken = || StorageError::NoteNameTaken {
+        name: path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+        folder: folder.to_path_buf(),
+    };
+    std::fs::create_dir_all(folder)?;
+    // `symlink_metadata`, so a link left at the path counts as taken rather
+    // than being followed and written through.
+    if path.symlink_metadata().is_ok() {
+        return Err(taken());
+    }
+    write_note_guarded(
+        GuardedWrite {
+            target: path,
+            bytes,
+            last_known: None,
+            on_disk: DiskRead::Read(None),
+            dataless: None,
+            origin: WriteOrigin::Editor,
+            on_conflict: ConflictPolicy::RefuseOnly,
+            history: None,
+            lock: None,
+        },
+        before_write,
+    )
+    .map_err(|error| match error {
+        StorageError::SourceChangedOnDisk { .. } => taken(),
+        other => other,
+    })?;
+    Ok(())
+}
+
 /// The trash the delete goes through, configured for the platform.
 ///
 /// On macOS the crate defaults to driving Finder over `osascript`, which sends

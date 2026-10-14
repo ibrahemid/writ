@@ -9,7 +9,7 @@ import type { AppId, FileExtension } from "../../types/config";
 import type { BufferDocument } from "../../types/buffer";
 import { logFailure } from "../../lib/log";
 import { APPS } from "../../lib/apps";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "./notifications";
 
 /** What the first launch is asking, in order. Null once it has nothing left
  * to ask. The Apps step is also opened later from Settings, Apps. */
@@ -43,6 +43,10 @@ export function createFirstRunStore() {
   // The Apps step opened from Settings writes the switches and opens nothing;
   // the one a first launch reaches finishes that launch.
   const [revisiting, setRevisiting] = createSignal(false);
+  // Whether the revisit began at the format step (Help, Show Setup Again), so
+  // its last Continue writes the format too. A revisit of the Apps step alone
+  // never touches the format.
+  let revisitingFormat = false;
   let loaded = false;
   const asked = new Set<string>();
 
@@ -85,13 +89,29 @@ export function createFirstRunStore() {
   function showApps(): void {
     if (step() !== null) return;
     setApps(new Set(APP_IDS.filter((app) => configStore.isAppOn(app))));
+    revisitingFormat = false;
     setRevisiting(true);
     setStep("apps");
   }
 
-  /** Leaves the Apps step opened from Settings without writing. */
+  /**
+   * Opens the setup again at its first step (Help, Show Setup Again), with
+   * each answer where it is now. Its last Continue writes the answers and
+   * opens nothing: no first launch is finished, so no file is made.
+   */
+  function showSetup(): void {
+    if (step() !== null) return;
+    setFormat(configStore.config().files.default_extension);
+    setApps(new Set(APP_IDS.filter((app) => configStore.isAppOn(app))));
+    revisitingFormat = true;
+    setRevisiting(true);
+    setStep("format");
+  }
+
+  /** Leaves a revisited setup without writing. */
   function cancelApps(): void {
     if (!revisiting()) return;
+    revisitingFormat = false;
     setRevisiting(false);
     setStep(null);
   }
@@ -111,19 +131,24 @@ export function createFirstRunStore() {
     if (busy()) return;
     setBusy(true);
     const chosen = apps();
+    const current = configStore.config();
+    const base = revisitingFormat
+      ? { ...current, files: { ...current.files, default_extension: format() } }
+      : current;
     try {
-      const next = APP_IDS.reduce(
-        (config, app) => withApp(config, app, chosen.has(app)),
-        configStore.config(),
-      );
+      const next = APP_IDS.reduce((config, app) => withApp(config, app, chosen.has(app)), base);
       await configStore.save(next);
     } catch {
       logFailure("the apps could not be saved");
-      showToast("Could not save the app switches", "error");
+      showToast(
+        revisitingFormat ? "Could not save the setup" : "Could not save the app switches",
+        "error",
+      );
       return;
     } finally {
       setBusy(false);
     }
+    revisitingFormat = false;
     setRevisiting(false);
     setStep(null);
   }
@@ -233,6 +258,7 @@ export function createFirstRunStore() {
     isAppChosen,
     toggleApp,
     showApps,
+    showSetup,
     continueApps,
     cancelApps,
     revisiting,

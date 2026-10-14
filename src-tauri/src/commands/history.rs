@@ -219,6 +219,10 @@ pub async fn search_buffers<R: Runtime>(
 }
 
 /// [`search_buffers`] as everything but the IPC boundary sees it.
+///
+/// Notes saved in the last debounce window are reindexed first
+/// ([`crate::commands::buffer::reindex_pending_now`]), so the text typed a
+/// moment ago is found.
 pub fn search_buffers_inner(state: &AppState, query: &str) -> Result<SearchResults, String> {
     let Some(planned) = writ_core::search::plan_search(query) else {
         return Ok(SearchResults {
@@ -226,6 +230,7 @@ pub fn search_buffers_inner(state: &AppState, query: &str) -> Result<SearchResul
             total: 0,
         });
     };
+    crate::commands::buffer::reindex_pending_now(state);
     let mut hits = state
         .notes_index
         .search(&planned, 0, SEARCH_RESULT_LIMIT)

@@ -50,16 +50,22 @@ export default function FileChangedBar(props: { noteId: string | null }) {
           class="editor-bar file-changed-bar"
           role="alertdialog"
           aria-labelledby="file-changed-bar-text"
+          aria-describedby="file-changed-bar-detail"
         >
-          <p class="editor-bar-text" id="file-changed-bar-text">
-            This file changed on disk.
-          </p>
+          <div class="editor-bar-text">
+            <p class="editor-bar-heading" id="file-changed-bar-text">
+              This file changed on disk.
+            </p>
+            <p class="editor-bar-heading editor-bar-note" id="file-changed-bar-detail">
+              Whichever you don't keep is saved beside it as a copy.
+            </p>
+          </div>
           <div class="editor-bar-actions">
             <Button ref={firstAction} onClick={() => void answer(id(), "keep_mine")}>
               Keep mine
             </Button>
             <Button onClick={() => void answer(id(), "use_disk")}>Use the file on disk</Button>
-            <Button onClick={() => void answer(id(), "keep_both")}>Show both</Button>
+            <Button onClick={() => void answer(id(), "keep_both")}>Keep both</Button>
           </div>
         </div>
       )}

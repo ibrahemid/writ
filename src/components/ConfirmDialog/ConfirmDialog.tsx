@@ -1,57 +1,13 @@
-import { createSignal, Show, createEffect, onCleanup } from "solid-js";
+import { Show, createEffect, onCleanup } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
+import {
+  initialFocus,
+  pendingConfirm,
+  settleConfirm,
+} from "../../stores/global/dialogs";
 import Button from "../Button/Button";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import "./ConfirmDialog.css";
-
-export interface ConfirmRequest {
-  title: string;
-  message: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  danger?: boolean;
-  // Which button takes focus when the dialog opens. Cancel for a choice whose
-  // confirm side destroys something the user cannot get back.
-  defaultAction?: "confirm" | "cancel";
-}
-
-/**
- * Which of the three ways out the person took.
- *
- * `cancel` is the labelled button; `dismissed` is Escape, a click outside, or
- * another dialog taking the screen. They are the same answer only where the
- * cancel side does nothing — a caller whose cancel side still changes
- * something has to read `dismissed` as "stop", never as a choice.
- */
-export type ConfirmOutcome = "confirm" | "cancel" | "dismissed";
-
-interface PendingConfirm extends ConfirmRequest {
-  resolve: (outcome: ConfirmOutcome) => void;
-}
-
-// Singleton state — Writ is single-window
-const [pending, setPending] = createSignal<PendingConfirm | null>(null);
-
-/** The dialog's full answer. See [`ConfirmOutcome`]. */
-export function requestChoice(request: ConfirmRequest): Promise<ConfirmOutcome> {
-  return new Promise<ConfirmOutcome>((resolve) => {
-    setPending((prev) => {
-      if (prev) prev.resolve("dismissed");
-      return { ...request, resolve };
-    });
-  });
-}
-
-export function requestConfirm(request: ConfirmRequest): Promise<boolean> {
-  return requestChoice(request).then((outcome) => outcome === "confirm");
-}
-
-function settle(outcome: ConfirmOutcome) {
-  const current = pending();
-  if (!current) return;
-  current.resolve(outcome);
-  setPending(null);
-}
 
 export default function ConfirmDialog() {
   const win = useWindow();
@@ -60,25 +16,24 @@ export default function ConfirmDialog() {
   let cancelRef: HTMLButtonElement | undefined;
 
   createEffect(() => {
-    const current = pending();
+    const current = pendingConfirm();
     if (!current || !dialogRef) return;
     const teardown = installFocusTrap(dialogRef, {
-      onEscape: () => settle("dismissed"),
+      onEscape: () => settleConfirm("dismissed"),
       fallbackRestore: () => {
         win.editor.focusEditor();
         return null;
       },
     });
-    const focusTarget = () =>
-      current.defaultAction === "cancel" ? cancelRef : confirmRef;
+    const focusTarget = () => (initialFocus(current) === "cancel" ? cancelRef : confirmRef);
     requestAnimationFrame(() => focusTarget()?.focus());
     onCleanup(teardown);
   });
 
   return (
-    <Show when={pending()}>
+    <Show when={pendingConfirm()}>
       {(req) => (
-        <div class="confirm-overlay" onClick={() => settle("dismissed")}>
+        <div class="confirm-overlay" onClick={() => settleConfirm("dismissed")}>
           <div
             ref={dialogRef}
             class="confirm-dialog"
@@ -99,7 +54,7 @@ export default function ConfirmDialog() {
                 ref={cancelRef}
                 variant="secondary"
                 class="confirm-cancel"
-                onClick={() => settle("cancel")}
+                onClick={() => settleConfirm("cancel")}
               >
                 {req().cancelLabel ?? "Cancel"}
               </Button>
@@ -108,7 +63,7 @@ export default function ConfirmDialog() {
                 variant="primary"
                 danger={req().danger}
                 class="confirm-accept"
-                onClick={() => settle("confirm")}
+                onClick={() => settleConfirm("confirm")}
               >
                 {req().confirmLabel ?? "Confirm"}
               </Button>

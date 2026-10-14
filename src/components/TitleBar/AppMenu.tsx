@@ -3,6 +3,7 @@ import { getCommand, executeCommand } from "../../commands/registry";
 import { isCommandOffered } from "../../commands/app-commands";
 import { showAnchoredMenu, type MenuItem } from "../ContextMenu/ContextMenu";
 import { formatKeybinding } from "../../lib/keybinding-format";
+import { effectiveBinding } from "../../commands/effective-bindings";
 import { MENU_SECTIONS, menuCommandsFor } from "../../commands/menu-commands";
 import { resolvePlatform } from "../../lib/platform";
 
@@ -12,9 +13,9 @@ import { resolvePlatform } from "../../lib/platform";
  *
  * The order, the grouping and the membership all come from the shared list
  * (`src/commands/menu-commands.json`), which is the same file the macOS menu
- * bar is built from. Labels and shortcuts are read from the command registry
- * rather than that list, so a label that names the platform's file manager
- * says the word this platform uses.
+ * bar is built from. Labels are read from the command registry rather than
+ * that list, so a label that names the platform's file manager says the word
+ * this platform uses; shortcuts are the chord the command answers to now.
  */
 export function appMenuItems(): MenuItem[] {
   const items: MenuItem[] = [];
@@ -23,6 +24,7 @@ export function appMenuItems(): MenuItem[] {
   for (const section of MENU_SECTIONS) {
     const entries = available.filter((entry) => entry.menu === section);
     let lastGroup: number | null = null;
+    let lastSubmenu: string | undefined;
 
     for (const entry of entries) {
       const command = getCommand(entry.id);
@@ -31,10 +33,14 @@ export function appMenuItems(): MenuItem[] {
       // above it as a group change does.
       const dividesFromPrevious = lastGroup === null || lastGroup !== entry.group;
       lastGroup = entry.group;
+      // A run the macOS bar draws as a submenu is a headed group here.
+      const opensSubmenu = entry.submenu !== undefined && entry.submenu !== lastSubmenu;
+      lastSubmenu = entry.submenu;
       items.push({
-        label: command.label,
-        kbd: formatKeybinding(command.keybinding) || undefined,
-        separator: items.length > 0 && dividesFromPrevious,
+        label: entry.submenu ? (command.menuLabel ?? command.label) : command.label,
+        kbd: formatKeybinding(effectiveBinding(entry.id, command.keybinding)) || undefined,
+        separator: items.length > 0 && (dividesFromPrevious || opensSubmenu),
+        heading: opensSubmenu ? entry.submenu : undefined,
         // Deferred so the command runs after `ContextMenu.close()` has put
         // focus back on the button: a surface that takes focus synchronously
         // would otherwise have it taken straight back.

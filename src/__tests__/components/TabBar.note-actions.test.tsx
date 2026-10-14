@@ -121,7 +121,7 @@ vi.mock("../../components/ContextMenu/ContextMenu", () => ({
   showContextMenu: mocks.showContextMenu,
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: mocks.showToast,
 }));
 
@@ -130,7 +130,7 @@ vi.mock("../../services/tauri", () => ({
   showNotesFileInFileManager: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../../components/ConfirmDialog/ConfirmDialog", () => ({
+vi.mock("../../stores/global/dialogs", () => ({
   requestConfirm: vi.fn().mockResolvedValue(false),
 }));
 

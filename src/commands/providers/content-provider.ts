@@ -1,15 +1,22 @@
-import { searchBuffers } from "../../services/tauri";
+import { paletteSearch } from "../../stores/global/palette-search";
 import { workspaceStore } from "../../stores/global/workspace";
 import { workspaceSearchStore } from "../../stores/global/workspace-search";
 import { basename, joinPath, pathKey } from "../../lib/path";
 import { bufferPathKeys, bufferTargets, openTarget } from "./open-target";
-import type { PaletteResult, ResultProvider } from "../../components/Palette/types";
+import type {
+  PaletteMode,
+  PaletteResult,
+  ResultProvider,
+} from "../../components/Palette/types";
 
 export const CONTENT_DEBOUNCE_MS = 120;
 
 export interface ContentProviderOptions {
   order?: number;
   cap?: number;
+  // Defaults to unprefixed queries and `#`. The command palette answers `#`
+  // alone, so typing a command name never searches the folder's text.
+  modes?: readonly PaletteMode[];
 }
 
 // Buffer content comes from the buffer index (`search_buffers`); workspace
@@ -22,7 +29,7 @@ export function createContentProvider(options: ContentProviderOptions = {}): Res
     section: "Text",
     order: options.order ?? 3,
     cap: options.cap ?? 12,
-    modes: ["all", "content"],
+    modes: options.modes ?? ["all", "content"],
     debounceMs: CONTENT_DEBOUNCE_MS,
     async query(q: string): Promise<PaletteResult[]> {
       if (!q) return [];
@@ -30,7 +37,7 @@ export function createContentProvider(options: ContentProviderOptions = {}): Res
       const kindById = new Map(targets.map((t) => [t.doc.id, t.kind]));
       // A rejection travels to the palette, which is the surface that can tell
       // the user this section is missing rather than empty.
-      const results = await searchBuffers(q);
+      const results = await paletteSearch.text(q);
       return results.hits
         .filter((hit) => kindById.has(hit.buffer_id) || Boolean(hit.path))
         .map((hit) => {

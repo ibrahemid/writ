@@ -12,6 +12,10 @@ vi.mock("../../stores/global/workspace", () => ({
     root: () => h.root,
     entriesFor: (path: string) => h.entries.get(path),
     loadDir: vi.fn(),
+    errorFor: () => null,
+    unreadableFor: () => 0,
+    isLoading: () => false,
+    revealEntry: vi.fn(async () => {}),
   },
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
@@ -23,12 +27,15 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 
 import FileTree from "../../components/Sidebar/FileTree";
 import { workspaceStore } from "../../stores/global/workspace";
+import { treeExpansionStore } from "../../stores/global/tree-expansion";
 
 function entry(name: string, isDir: boolean): WorkspaceEntry {
   return { name, path: `/notes/${name}`, is_dir: isDir, conflict_copy: null };
 }
 
 afterEach(() => {
+  // A folder stays open across launches, so each test folds what it opened.
+  treeExpansionStore.setExpanded("/notes", "/notes/Drafts", false);
   h.entries = new Map();
   h.root = "/notes";
   cleanup();

@@ -8,7 +8,8 @@ import type { UpdatePhase } from "../../types/update";
 const fixtures = await vi.hoisted(async () => {
   const { createSignal } = await import("solid-js");
   const [phase, setPhase] = createSignal<UpdatePhase>({ status: "idle" });
-  return { phase, setPhase };
+  const { vi: hoistedVi } = await import("vitest");
+  return { phase, setPhase, openReleaseNotes: hoistedVi.fn() };
 });
 
 vi.mock("../../stores/global/update", () => ({
@@ -18,12 +19,13 @@ vi.mock("../../stores/global/update", () => ({
     install: vi.fn(),
     restart: vi.fn(),
     checkForUpdate: vi.fn(),
+    openReleaseNotes: fixtures.openReleaseNotes,
   },
 }));
 
 import UpdateBanner from "../../components/UpdateBanner/UpdateBanner";
 
-const UNREACHABLE = "Couldn't reach the update server. Try again later.";
+const UNREACHABLE = "Couldn't reach the update server.";
 
 afterEach(() => {
   fixtures.setPhase({ status: "idle" });
@@ -45,6 +47,25 @@ describe("what the banner says a failure was", () => {
     fixtures.setPhase({ status: "failed", message: "" });
 
     expect(container.querySelector(".update-banner-error")!.textContent).toContain(UNREACHABLE);
+  });
+});
+
+describe("a failure reads as one", () => {
+  it("carries the error rail, not the accent", () => {
+    const { container } = render(() => <UpdateBanner />);
+    fixtures.setPhase({ status: "failed", message: "network down" });
+    expect(container.querySelector(".update-banner")!.classList.contains("is-failed")).toBe(true);
+    fixtures.setPhase({ status: "available", version: "0.7.0" });
+    expect(container.querySelector(".update-banner")!.classList.contains("is-failed")).toBe(false);
+  });
+});
+
+describe("what changed in the version on offer", () => {
+  it("opens the changelog at that version", () => {
+    const { getByRole } = render(() => <UpdateBanner />);
+    fixtures.setPhase({ status: "available", version: "0.7.0" });
+    getByRole("button", { name: "What's new" }).click();
+    expect(fixtures.openReleaseNotes).toHaveBeenCalledWith("0.7.0");
   });
 });
 
@@ -80,7 +101,10 @@ describe("the banner's own controls", () => {
       { status: "failed", message: "no" },
     ] as UpdatePhase[]) {
       fixtures.setPhase(phase);
-      labels.push(container.querySelector(".writ-btn-ghost")!.textContent!.trim());
+      const ghosts = [...container.querySelectorAll(".writ-btn-ghost")].map((b) =>
+        b.textContent!.trim(),
+      );
+      labels.push(ghosts.filter((label) => label !== "What's new").join("|"));
     }
     expect(new Set(labels)).toEqual(new Set(["Later"]));
   });
@@ -89,7 +113,7 @@ describe("the banner's own controls", () => {
     const { container } = render(() => <UpdateBanner />);
     fixtures.setPhase({ status: "available", version: "0.3.5" });
 
-    expect(container.querySelectorAll(".writ-btn")).toHaveLength(2);
+    expect(container.querySelectorAll(".writ-btn")).toHaveLength(3);
     expect(container.textContent).toContain("Update available: v0.3.5");
     expect(container.textContent).not.toContain("—");
   });
@@ -101,7 +125,10 @@ describe("an install a package manager owns", () => {
     fixtures.setPhase({ status: "managed", version: "0.7.0" });
 
     expect(container.textContent).toContain("v0.7.0 is available. Update with your package manager.");
-    expect(container.querySelectorAll(".writ-btn")).toHaveLength(1);
+    expect([...container.querySelectorAll(".writ-btn")].map((b) => b.textContent!.trim())).toEqual([
+      "What's new",
+      "Later",
+    ]);
     expect(container.querySelector(".writ-btn-primary")).toBeNull();
   });
 });

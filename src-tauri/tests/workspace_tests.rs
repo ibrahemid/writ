@@ -17,6 +17,7 @@ use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::notes::move_notes_folder_to;
 use writ_tauri_lib::commands::workspace::{
     clear_workspace_root_inner, list_workspace_dir_inner, set_workspace_root_from_path,
+    workspace_reveal_target, ERR_NOT_IN_FOLDER,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -181,7 +182,9 @@ fn list_dir_inside_root_returns_sorted_entries() {
 
     let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
 
-    let entries = list_workspace_dir_inner(&state, &root).expect("list");
+    let entries = list_workspace_dir_inner(&state, &root)
+        .expect("list")
+        .entries;
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["src", "a.md"]);
 }
@@ -200,7 +203,9 @@ fn a_listed_entry_carries_the_conflict_flag_over_the_wire() {
     std::fs::write(ws.path().join(".a.md.icloud"), "").unwrap();
 
     let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
-    let entries = list_workspace_dir_inner(&state, &root).expect("list");
+    let entries = list_workspace_dir_inner(&state, &root)
+        .expect("list")
+        .entries;
 
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["a.md", "a.sync-conflict-20260822-120000-ABCD.md"]);
@@ -220,6 +225,48 @@ fn list_dir_outside_root_is_rejected() {
     set_workspace_root_from_path(&state, ws.path()).expect("set root");
 
     assert!(list_workspace_dir_inner(&state, &outside.path().to_string_lossy()).is_err());
+}
+
+#[test]
+fn a_reveal_names_an_entry_of_the_open_folder_and_nothing_else() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let ws = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    std::fs::create_dir(ws.path().join("src")).unwrap();
+    std::fs::write(ws.path().join("src").join("main.rs"), "").unwrap();
+    std::fs::write(outside.path().join("secret.txt"), "").unwrap();
+
+    assert_eq!(
+        workspace_reveal_target(&state, &ws.path().join("src").to_string_lossy()),
+        Err(ERR_NOT_IN_FOLDER.to_string()),
+        "no folder is open yet"
+    );
+
+    let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
+    let (folder, folder_is_dir) =
+        workspace_reveal_target(&state, &format!("{root}/src")).expect("a folder in it");
+    assert!(folder_is_dir);
+    assert!(folder.ends_with("src"));
+    let (file, file_is_dir) =
+        workspace_reveal_target(&state, &format!("{root}/src/main.rs")).expect("a file in it");
+    assert!(!file_is_dir);
+    assert!(file.ends_with("main.rs"));
+
+    for refused in [
+        outside
+            .path()
+            .join("secret.txt")
+            .to_string_lossy()
+            .into_owned(),
+        format!("{root}/../"),
+    ] {
+        assert_eq!(
+            workspace_reveal_target(&state, &refused),
+            Err(ERR_NOT_IN_FOLDER.to_string()),
+            "{refused} is not in the open folder"
+        );
+    }
 }
 
 #[test]
@@ -275,11 +322,15 @@ fn the_notes_folder_as_the_workspace_lists_the_notes_under_vendor() {
 
     let root = set_workspace_root_from_path(&state, &notes).expect("set root");
 
-    let entries = list_workspace_dir_inner(&state, &root).expect("list");
+    let entries = list_workspace_dir_inner(&state, &root)
+        .expect("list")
+        .entries;
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["build", "vendor", "Home.md"]);
     let vendor = &entries[1].path;
-    let entries = list_workspace_dir_inner(&state, vendor).expect("list vendor");
+    let entries = list_workspace_dir_inner(&state, vendor)
+        .expect("list vendor")
+        .entries;
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["Acme.md"]);
 }
@@ -296,7 +347,9 @@ fn a_code_workspace_still_hides_vendor() {
 
     let root = set_workspace_root_from_path(&state, ws.path()).expect("set root");
 
-    let entries = list_workspace_dir_inner(&state, &root).expect("list");
+    let entries = list_workspace_dir_inner(&state, &root)
+        .expect("list")
+        .entries;
     let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
     assert_eq!(names, ["main.rs"]);
 }
@@ -353,6 +406,7 @@ fn the_workspace_the_notes_folder_moves_into_lists_and_hears_vendor() {
     let names = |state: &AppState| -> Vec<String> {
         list_workspace_dir_inner(state, &root)
             .expect("list")
+            .entries
             .into_iter()
             .map(|e| e.name)
             .collect()

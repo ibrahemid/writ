@@ -2,11 +2,22 @@ import { For, Show } from "solid-js";
 import { inboxStore } from "../../stores/global/inbox";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { formatBytes } from "../../lib/format-bytes";
+import { showToast } from "../../stores/global/notifications";
 import { basename } from "../../lib/path";
+import { logFailure } from "../../lib/log";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
 import SidebarSection from "./SidebarSection";
 import "./InboxSection.css";
+
+// A failed stop leaves the section on screen, so the click has to say it did
+// nothing (NV-32).
+function stopWatching() {
+  inboxStore.stopWatching().catch(() => {
+    logFailure("the watched folder could not be released");
+    showToast("Couldn't stop watching the folder.", "error");
+  });
+}
 
 // A watched folder with nothing in it yet is a setting, not a list, so the
 // section waits for its first file the way every section waits for a row.
@@ -30,7 +41,7 @@ export default function InboxSection() {
                 type="button"
                 class="sidebar-section-action inbox-section-action"
                 aria-label="Stop watching folder"
-                onClick={() => void inboxStore.stopWatching()}
+                onClick={stopWatching}
               >
                 <Icon name="x" size={16} />
               </button>

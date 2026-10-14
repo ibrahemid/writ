@@ -90,7 +90,7 @@ vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: { getActive: () => ({ tabs: { activeTabId: () => h.activeId() } }) },
 }));
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({ showContextMenu: vi.fn() }));
-vi.mock("../../components/Notifications/Toast", () => ({ showToast: h.showToast }));
+vi.mock("../../stores/global/notifications", () => ({ showToast: h.showToast }));
 
 import TabBar from "../../components/Editor/TabBar";
 

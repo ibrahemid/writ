@@ -30,7 +30,7 @@ vi.mock("../../stores/global/notes", () => ({
   notesStore: { folder: mocks.folder, loadFolder: mocks.loadFolder },
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: mocks.showToast,
   default: () => null,
 }));

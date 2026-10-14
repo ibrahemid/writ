@@ -1,0 +1,7 @@
+/* Over the panes and under the lights, which come after it in the row. */
+.boot-error {
+  position: absolute;
+  inset: 0;
+  z-index: var(--writ-z-chrome);
+  display: flex;
+}

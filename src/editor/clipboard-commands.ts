@@ -1,3 +1,4 @@
+import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { readClipboardText, writeClipboardText } from "../services/tauri";
 
@@ -11,10 +12,16 @@ import { readClipboardText, writeClipboardText } from "../services/tauri";
  * platforms.
  */
 
-/** Text of the primary selection, or "" when nothing is selected. */
+/**
+ * Text of every non-empty selection range, joined by line breaks the way
+ * CodeMirror's own copy joins them, or "" when nothing is selected.
+ */
 function selectedText(view: EditorView): string {
-  const { from, to } = view.state.selection.main;
-  return from === to ? "" : view.state.doc.sliceString(from, to);
+  const { state } = view;
+  return state.selection.ranges
+    .filter((range) => !range.empty)
+    .map((range) => state.doc.sliceString(range.from, range.to))
+    .join(state.lineBreak);
 }
 
 export async function copySelection(view: EditorView): Promise<void> {
@@ -27,11 +34,18 @@ export async function cutSelection(view: EditorView): Promise<void> {
   const text = selectedText(view);
   if (!text || view.state.readOnly) return;
   await writeClipboardText(text);
-  const { from, to } = view.state.selection.main;
+  // Every range goes, each leaving a caret where it started, as Cmd+X does.
   view.dispatch({
-    changes: { from, to, insert: "" },
-    selection: { anchor: from },
+    ...view.state.changeByRange((range) =>
+      range.empty
+        ? { range }
+        : {
+            changes: { from: range.from, to: range.to },
+            range: EditorSelection.cursor(range.from),
+          },
+    ),
     scrollIntoView: true,
+    userEvent: "delete.cut",
   });
   view.focus();
 }

@@ -4,7 +4,7 @@
 import * as tauri from "../../services/tauri";
 import { writeClipboardText } from "../../services/tauri";
 import { indexCacheStore } from "./index-cache";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "./notifications";
 import { dirname, resolveWithinRoot } from "../../lib/path";
 import { bufferRegistry } from "./buffer-registry";
 import { notesStore } from "./notes";

@@ -1,4 +1,4 @@
-import { writeClipboardText } from "../../services/tauri";
+import { readClipboardText, writeClipboardText } from "../../services/tauri";
 
 /**
  * The clipboard as a component reaches it.
@@ -10,5 +10,8 @@ import { writeClipboardText } from "../../services/tauri";
 export const clipboardStore = {
   copyText(text: string): Promise<void> {
     return writeClipboardText(text);
+  },
+  readText(): Promise<string> {
+    return readClipboardText();
   },
 };

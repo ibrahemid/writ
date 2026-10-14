@@ -452,6 +452,12 @@ Notes:
   where it runs.
 - The render's work halved because a note's wikilinks are resolved in one
   lookup before it renders.
+- `prompt_context_pack` (a file and the files it links to, up to 100, as one
+  prompt) was `async` from its first version, so it has no "before". Its
+  always-on test holds its work; its timed test packs 100 files of 40 KB.
+- `list_workspace_dir` (one folder of the sidebar's tree) runs on the
+  blocking pool since ADR-047. Its always-on test holds the open folder's
+  root; its timed test lists one folder of 20,000 entries.
 - `save_buffer_content` takes the text as a raw body with the note in the
   `writ-note-id` header (EP-13): nothing is serialised to JSON or parsed on
   either side. The large tiers send `save_buffer_changes` once one write has

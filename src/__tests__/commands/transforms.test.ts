@@ -10,6 +10,9 @@ const editorMock = vi.hoisted(() => ({
   registerView: vi.fn(),
 }));
 
+const toast = vi.hoisted(() => vi.fn());
+vi.mock("../../stores/global/notifications", () => ({ showToast: toast }));
+
 vi.mock("../../stores/global/window-registry", () => ({
   windowRegistry: {
     getActive: () => ({ editor: editorMock }),
@@ -34,7 +37,7 @@ describe("registerTransformCommands", () => {
     clearRegistry();
   });
 
-  it("registers one transform.<id> command per descriptor with the 'Text: ' prefix", async () => {
+  it("registers one transform.<id> command per descriptor under the Transform prefix", async () => {
     mockedApi.listTransforms.mockResolvedValue([
       {
         id: "trim_leading_whitespace",
@@ -60,11 +63,12 @@ describe("registerTransformCommands", () => {
     const dedent = getCommand("transform.dedent");
 
     expect(trim).toBeDefined();
-    expect(trim!.label).toBe("Text: Trim Leading Whitespace");
+    expect(trim!.label).toBe("Transform: Trim Leading Whitespace");
+    expect(trim!.menuLabel).toBe("Trim Leading Whitespace");
     expect(trim!.scope).toBe("app");
 
     expect(dedent).toBeDefined();
-    expect(dedent!.label).toBe("Text: Dedent");
+    expect(dedent!.label).toBe("Transform: Dedent");
     expect(dedent!.scope).toBe("app");
   });
 
@@ -94,5 +98,43 @@ describe("registerTransformCommands", () => {
 
     await call.transform("input");
     expect(mockedApi.applyTransform).toHaveBeenCalledWith("smart_to_straight_quotes", "input");
+  });
+
+  it("says why a run replaced nothing", async () => {
+    mockedApi.listTransforms.mockResolvedValue([
+      {
+        id: "dedent",
+        metadata: { label: "Dedent", description: "", category: "indentation" },
+      },
+    ]);
+    editorMock.applyEditToActiveBuffer.mockResolvedValueOnce({
+      applied: false,
+      reason: "document-changed",
+    });
+
+    await registerTransformCommands();
+    getCommand("transform.dedent")!.execute();
+    await vi.waitFor(() => expect(toast).toHaveBeenCalledTimes(1));
+
+    expect(toast).toHaveBeenCalledWith(
+      "The text changed before the transform finished, so nothing was replaced.",
+      "error",
+    );
+  });
+
+  it("stays quiet when there is no file to act on", async () => {
+    mockedApi.listTransforms.mockResolvedValue([
+      {
+        id: "dedent",
+        metadata: { label: "Dedent", description: "", category: "indentation" },
+      },
+    ]);
+
+    await registerTransformCommands();
+    getCommand("transform.dedent")!.execute();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(toast).not.toHaveBeenCalled();
   });
 });

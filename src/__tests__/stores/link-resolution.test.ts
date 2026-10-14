@@ -11,7 +11,7 @@ vi.mock("../../services/events", () => ({
   onEvent: vi.fn().mockResolvedValue(() => {}),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
@@ -19,7 +19,7 @@ import { linkStore, type LinkResolution } from "../../stores/global/link";
 import { indexCacheStore } from "../../stores/global/index-cache";
 import * as api from "../../services/tauri";
 import * as events from "../../services/events";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 
 const mockedApi = vi.mocked(api);
 const mockedEvents = vi.mocked(events);

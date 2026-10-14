@@ -66,3 +66,10 @@
   min-width: 24px;
   padding: 0;
 }
+
+.toast-action {
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 0 var(--writ-space-3);
+  font-weight: 600;
+}

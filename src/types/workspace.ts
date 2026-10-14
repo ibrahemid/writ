@@ -12,3 +12,9 @@ export interface WorkspaceEntry {
    */
   conflict_copy: ConflictCopyKind | null;
 }
+
+/** One folder's listing, and how many entries in it could not be read. */
+export interface DirListing {
+  entries: WorkspaceEntry[];
+  unreadable: number;
+}

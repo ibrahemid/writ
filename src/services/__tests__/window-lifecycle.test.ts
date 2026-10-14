@@ -11,8 +11,8 @@ vi.mock("../autosave", () => ({
 }));
 
 import { installCloseFlush } from "../window-lifecycle";
-import { onWindowCloseRequested } from "../tauri";
-import { flushAutosave } from "../autosave";
+import { onWindowCloseRequested, recordUnsavedNotes } from "../tauri";
+import { collectUnsavedContent, flushAutosave } from "../autosave";
 
 const mockedOnClose = vi.mocked(onWindowCloseRequested);
 const mockedFlush = vi.mocked(flushAutosave);
@@ -72,4 +72,32 @@ describe("installCloseFlush", () => {
     expect(order).toEqual(["autosave", "geometry"]);
     expect(geometryFlush).toHaveBeenCalledOnce();
   });
+
+  it("closes past the deadline when a save never answers, keeping the text that was out", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let captured: (() => Promise<void> | void) | undefined;
+    mockedOnClose.mockImplementationOnce(async (handler) => {
+      captured = handler;
+      return () => {};
+    });
+    mockedFlush.mockImplementationOnce(() => new Promise(() => {}));
+    vi.mocked(collectUnsavedContent).mockReturnValueOnce([{ id: "n-1", content: "stalled" }]);
+    const extra = vi.fn();
+
+    await installCloseFlush([extra], 100);
+    let closed = false;
+    void Promise.resolve(captured!()).then(() => {
+      closed = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(99);
+    expect(closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(closed).toBe(true);
+    expect(vi.mocked(recordUnsavedNotes)).toHaveBeenCalledWith([{ id: "n-1", content: "stalled" }]);
+    expect(extra).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
 });
+

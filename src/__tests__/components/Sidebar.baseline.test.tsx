@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, cleanup } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent } from "@solidjs/testing-library";
 import type { BufferDocument } from "../../types/buffer";
 
 // The sidebar on the accepted baseline: sentence-case section headers named as
@@ -10,7 +10,11 @@ import type { BufferDocument } from "../../types/buffer";
 const h = vi.hoisted(() => ({
   history: [] as BufferDocument[],
   root: null as string | null,
+  closeFolder: vi.fn(async () => {}),
+  showToast: vi.fn(),
 }));
+
+vi.mock("../../stores/global/notifications", () => ({ showToast: h.showToast }));
 
 vi.mock("../../stores/global/buffer-registry", () => ({
   bufferRegistry: {
@@ -29,7 +33,14 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       setSearchQuery: vi.fn(),
       searchHits: () => [],
       searchTotal: () => 0,
-      searchMs: () => null,
+      searchStatus: () => "idle",
+      folderHits: () => [],
+      folderOutcome: () => null,
+      folderStatus: () => "idle",
+      searchedFolder: () => null,
+      activeResult: () => -1,
+      setActiveResult: () => undefined,
+      retrySearch: () => undefined,
       selectedTag: () => null,
       recentRequest: () => 0,
     },
@@ -47,9 +58,13 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
 vi.mock("../../stores/global/workspace", () => ({
   workspaceStore: {
     root: () => h.root,
-    closeFolder: vi.fn(),
+    closeFolder: h.closeFolder,
     entriesFor: () => [],
     loadDir: vi.fn(),
+    errorFor: () => null,
+    unreadableFor: () => 0,
+    isLoading: () => false,
+    revealEntry: vi.fn(async () => {}),
   },
 }));
 vi.mock("../../components/ContextMenu/ContextMenu", () => ({ showContextMenu: vi.fn() }));
@@ -210,5 +225,35 @@ describe("sidebar rows", () => {
     h.history = [doc("h1", "Meeting notes", null)];
     const { container } = render(() => <HistorySection />);
     expect(container.querySelector(".tab-item use")!.getAttribute("href")).toBe("#ph-file-text");
+  });
+});
+
+describe("sidebar lists and their controls", () => {
+  it("lists Recent as a list of items, each with its own buttons (NV-30)", () => {
+    h.history = [doc("h1", "Meeting notes", null), doc("h2", "Budget", null)];
+    const { container } = render(() => <HistorySection />);
+    const list = container.querySelector(".history-list")!;
+    expect(list.getAttribute("role")).toBe("list");
+    expect(list.querySelectorAll('[role="listitem"]')).toHaveLength(2);
+    expect(list.querySelector('[role="button"]')).toBeNull();
+  });
+
+  it("gives the heading and row actions a 24px target (NV-31)", () => {
+    const section = ruleFor(SIDEBAR_CSS, ".sidebar-section-action");
+    expect(section.get("width")).toBe("24px");
+    expect(section.get("height")).toBe("24px");
+    const row = ruleFor(TAB_ITEM_CSS, ".tab-item-action");
+    expect(row.get("width")).toBe("24px");
+    expect(row.get("height")).toBe("24px");
+  });
+
+  it("says so when the folder could not be closed (NV-32)", async () => {
+    h.root = "/proj";
+    h.closeFolder.mockRejectedValueOnce(new Error("config write failed"));
+    const { container } = render(() => <FilesSection />);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[aria-label="Close folder"]')!);
+    await vi.waitFor(() =>
+      expect(h.showToast).toHaveBeenCalledWith("Couldn't close the folder.", "error"),
+    );
   });
 });

@@ -21,7 +21,9 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
-use writ_tauri_lib::commands::buffer::{close_buffers_inner, save_in_turn};
+use writ_tauri_lib::commands::buffer::{
+    close_buffers_inner, save_buffer_content_inner, save_in_turn,
+};
 use writ_tauri_lib::commands::chat::apply_proposal_to_state;
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::history::search_buffers_inner;
@@ -173,6 +175,64 @@ fn the_note_search_names_the_tab_that_shows_a_hit() {
     assert_eq!(found.total, 1);
     assert_eq!(found.hits[0].buffer_id, id);
     assert_eq!(search_buffers_inner(&state, "").expect("empty").total, 0);
+}
+
+#[test]
+fn the_note_search_finds_text_saved_a_moment_ago() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let path = state.notes_root().join("Plan.md");
+    std::fs::write(&path, "# Plan\n\nThe launch checklist.\n").unwrap();
+    state
+        .notes_index
+        .reconcile(&state.notes_root(), &|| false, &|_| false)
+        .expect("reconcile");
+    let id = open(&state, &path);
+
+    // What the save IPC does: the write lands and the reindex is deferred to
+    // the end of a debounce window that has not passed yet.
+    save_buffer_content_inner(&state, &id, "# Plan\n\nThe launch checklist.\nmarzipan\n")
+        .expect("the save lands");
+    assert!(state.fts_scheduler.on_edit(&id).is_some());
+
+    let found = search_buffers_inner(&state, "marzip").expect("search");
+    assert_eq!(found.total, 1, "the text saved a moment ago is searchable");
+    assert_eq!(found.hits[0].buffer_id, id);
+    assert!(state.fts_scheduler.take_pending().is_empty());
+}
+
+#[test]
+fn a_search_reads_a_note_saved_a_moment_ago_after_its_write_lands() {
+    let dir = TempDir::new().unwrap();
+    let state = Arc::new(make_state(&dir));
+    let path = state.notes_root().join("Plan.md");
+    std::fs::write(&path, "# Plan\n").unwrap();
+    state
+        .notes_index
+        .reconcile(&state.notes_root(), &|| false, &|_| false)
+        .expect("reconcile");
+    let id = open(&state, &path);
+    save_buffer_content_inner(&state, &id, "# Plan\nmarzipan\n").expect("the save lands");
+    assert!(state.fts_scheduler.on_edit(&id).is_some());
+
+    let held = state.buffer_writes.turn(&id);
+    let (done, searched) = mpsc::channel();
+    let searcher = Arc::clone(&state);
+    std::thread::spawn(move || {
+        done.send(search_buffers_inner(&searcher, "marzip"))
+            .unwrap();
+    });
+    assert!(
+        searched.recv_timeout(Duration::from_millis(100)).is_err(),
+        "the search read the note while a write of it held the turn"
+    );
+    drop(held);
+    let found = searched
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the search finished")
+        .expect("search");
+    assert_eq!(found.total, 1);
+    assert_eq!(state.buffer_writes.outstanding(&id), 0);
 }
 
 #[test]

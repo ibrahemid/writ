@@ -170,3 +170,60 @@ describe("the Apps step", () => {
     expect(configStore.isAppOn("connections")).toBe(false);
   });
 });
+
+// Help, Show Setup Again: the same two steps, from the first, as a revisit. It
+// writes the answers through the config and never finishes a first launch,
+// which would make a file.
+describe("Show Setup Again", () => {
+  function formatOption(container: Element, value: string): HTMLElement {
+    const el = container.querySelector<HTMLElement>(`[data-format='${value}']`);
+    if (!el) throw new Error(`no ${value} option`);
+    return el;
+  }
+
+  it("opens at the format step with the answers written now", () => {
+    configStore.noteDefaultExtension("txt");
+    firstRunStore.showSetup();
+    const { container } = mount();
+    expect(firstRunStore.step()).toBe("format");
+    expect(formatOption(container, "txt").getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("writes the format and the switches on its last Continue and opens no file", async () => {
+    mocks.updateConfig.mockClear();
+    mocks.finishFirstRun.mockClear();
+    const { container } = mount();
+    fireEvent.click(formatOption(container, "md"));
+    fireEvent.click(continueButton(container));
+    expect(firstRunStore.step()).toBe("apps");
+    cleanup();
+    const apps = mount();
+    fireEvent.click(continueButton(apps.container));
+    await waitFor(() => expect(firstRunStore.step()).toBeNull());
+    expect(mocks.finishFirstRun).not.toHaveBeenCalled();
+    expect(mocks.updateConfig).toHaveBeenCalledTimes(1);
+    expect(mocks.updateConfig.mock.calls[0][0].files.default_extension).toBe("md");
+    expect(configStore.config().files.default_extension).toBe("md");
+  });
+
+  it("leaves on Escape from the format step without writing", () => {
+    mocks.updateConfig.mockClear();
+    firstRunStore.showSetup();
+    const { container } = mount();
+    fireEvent.click(formatOption(container, "txt"));
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(firstRunStore.step()).toBeNull();
+    expect(mocks.updateConfig).not.toHaveBeenCalled();
+    expect(configStore.config().files.default_extension).toBe("md");
+  });
+
+  it("leaves the format alone when only the Apps step is opened again", async () => {
+    configStore.noteDefaultExtension("txt");
+    mocks.updateConfig.mockClear();
+    firstRunStore.showApps();
+    const { container } = mount();
+    fireEvent.click(continueButton(container));
+    await waitFor(() => expect(firstRunStore.step()).toBeNull());
+    expect(mocks.updateConfig.mock.calls[0][0].files.default_extension).toBe("txt");
+  });
+});

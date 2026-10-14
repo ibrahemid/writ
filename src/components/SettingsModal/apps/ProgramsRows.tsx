@@ -2,7 +2,7 @@ import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } f
 
 import Button from "../../Button/Button";
 import Tooltip from "../../Tooltip/Tooltip";
-import { showToast } from "../../Notifications/Toast";
+import { showToast } from "../../../stores/global/notifications";
 import { WaitingList } from "../../Activity/WaitingProgram";
 import { activityStore, type ClientApproval } from "../../../stores/global/activity";
 import { describeReadTools, describeWriteTools } from "../../../lib/tool-phrases";

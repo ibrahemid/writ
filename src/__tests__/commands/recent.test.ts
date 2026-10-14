@@ -11,12 +11,12 @@ vi.mock("../../stores/global/window-registry", () => ({
   },
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(),
 }));
 
 import { openRecent, NOTHING_CLOSED } from "../../commands/recent";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 
 const mockedToast = vi.mocked(showToast);
 

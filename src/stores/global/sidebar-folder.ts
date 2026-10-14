@@ -15,7 +15,13 @@ export interface FolderTree {
   entriesFor: (path: string) => WorkspaceEntry[] | undefined;
   loadDir: (path: string) => Promise<void>;
   /** Why a folder could not be listed, for a tree that says so. */
-  errorFor?: (path: string) => string | null;
+  errorFor: (path: string) => string | null;
+  /** How many entries of a folder its last listing could not read. */
+  unreadableFor: (path: string) => number;
+  /** Whether a listing of a folder is running. */
+  isLoading: (path: string) => boolean;
+  /** Shows an entry in the platform's file manager. */
+  revealEntry: (path: string) => Promise<void>;
 }
 
 export type FolderKind = "workspace" | "notes";

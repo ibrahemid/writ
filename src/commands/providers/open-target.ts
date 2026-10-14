@@ -2,7 +2,7 @@ import { windowRegistry } from "../../stores/global/window-registry";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { basename, pathKey } from "../../lib/path";
 import { logFailure } from "../../lib/log";
-import { showToast } from "../../components/Notifications/Toast";
+import { showToast } from "../../stores/global/notifications";
 import type { BufferDocument } from "../../types/buffer";
 
 export type OpenTarget =

@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { formatKeybinding, keybindingSegments } from "../../lib/keybinding-format";
+import {
+  formatKeybinding,
+  keybindingSegments,
+  spokenKeybinding,
+} from "../../lib/keybinding-format";
 
 describe("formatKeybinding", () => {
   it("formats CmdOrCtrl+K to ⌘K on darwin", () => {
@@ -44,8 +48,28 @@ describe("formatKeybinding", () => {
     expect(formatKeybinding("F2", { isMac: false })).toBe("F2");
   });
 
-  it("preserves single-key bindings unchanged", () => {
-    expect(formatKeybinding("Escape", { isMac: true })).toBe("Escape");
+  it("shortens Escape to the word printed on the key", () => {
+    expect(formatKeybinding("Escape", { isMac: true })).toBe("Esc");
+    expect(formatKeybinding("Escape", { isMac: false })).toBe("Esc");
+  });
+
+  it("draws arrows as arrows rather than their DOM names", () => {
+    expect(formatKeybinding("Shift+Alt+ArrowUp", { isMac: true })).toBe("⇧⌥↑");
+    expect(formatKeybinding("Shift+Alt+ArrowDown", { isMac: false })).toBe("Shift+Alt+↓");
+  });
+
+  it("draws Enter as the return glyph on macOS", () => {
+    expect(formatKeybinding("CmdOrCtrl+Enter", { isMac: true })).toBe("⌘↩");
+    expect(formatKeybinding("CmdOrCtrl+Enter", { isMac: false })).toBe("Ctrl+Enter");
+  });
+
+  it("keeps the plus key of a chord that ends in it", () => {
+    expect(formatKeybinding("CmdOrCtrl+Shift++", { isMac: true })).toBe("⌘⇧+");
+    expect(formatKeybinding("CmdOrCtrl+Shift++", { isMac: false })).toBe("Ctrl+Shift++");
+  });
+
+  it("draws a macOS Control chord with the Control glyph", () => {
+    expect(formatKeybinding("Ctrl+N", { isMac: true })).toBe("⌃N");
   });
 });
 
@@ -76,5 +100,24 @@ describe("keybindingSegments", () => {
 
   it("returns empty array for undefined", () => {
     expect(keybindingSegments(undefined)).toEqual([]);
+  });
+});
+
+describe("spokenKeybinding", () => {
+  it("says the modifiers by name for the platform", () => {
+    expect(spokenKeybinding("CmdOrCtrl+Shift+P", { isMac: true })).toBe("Command Shift P");
+    expect(spokenKeybinding("CmdOrCtrl+Shift+P", { isMac: false })).toBe("Control Shift P");
+    expect(spokenKeybinding("CmdOrCtrl+Alt+F", { isMac: true })).toBe("Command Option F");
+    expect(spokenKeybinding("Ctrl+N", { isMac: true })).toBe("Control N");
+  });
+
+  it("names arrows and punctuation", () => {
+    expect(spokenKeybinding("Shift+Alt+ArrowUp", { isMac: false })).toBe("Shift Alt Up Arrow");
+    expect(spokenKeybinding("CmdOrCtrl+\\", { isMac: true })).toBe("Command Backslash");
+    expect(spokenKeybinding("CmdOrCtrl+Shift++", { isMac: true })).toBe("Command Shift Plus");
+  });
+
+  it("says nothing for no chord", () => {
+    expect(spokenKeybinding(undefined)).toBe("");
   });
 });

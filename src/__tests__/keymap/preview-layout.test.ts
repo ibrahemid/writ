@@ -167,4 +167,50 @@ describe("preview layout keymap", () => {
     run("preview.resetRatio");
     expect(win.layout.get("K6", "html")).toEqual(defaultSplit());
   });
+
+  // MN-13: the palette offered seven preview rows on a .txt file, where each
+  // did nothing; ED-05: the Markdown switch was named for a preview it lacks.
+  describe("what the palette offers", () => {
+    const offered = () =>
+      COMMAND_IDS.filter((id) => getCommand(id)!.isAvailable?.() ?? true);
+
+    it("offers no preview command for a plain text file", () => {
+      activate(buffer("T1", "notes.txt"));
+      expect(offered()).toEqual([]);
+    });
+
+    it("offers no preview command with no file open", () => {
+      expect(offered()).toEqual([]);
+    });
+
+    it("offers the Inline and Source switch and the scripts toggle on a Markdown file", () => {
+      const win = activate(buffer("T2", "plan.md"));
+      win.layout.setLocal("T2", { kind: "inline" });
+      expect(offered()).toEqual(["preview.cycleLayout", "preview.toggleRunScripts"]);
+      expect(getCommand("preview.cycleLayout")!.label).toBe("Switch between Inline and Source");
+    });
+
+    it("offers the split commands on an HTML file, and leaving full screen only while in it", () => {
+      const win = activate(buffer("T3", "page.html"));
+      win.layout.setLocal("T3", defaultSplit());
+      expect(offered()).toEqual([
+        "preview.cycleLayout",
+        "preview.refresh",
+        "preview.toggleFullscreen",
+        "preview.swapOrientation",
+        "preview.resetRatio",
+        "preview.toggleRunScripts",
+      ]);
+      expect(getCommand("preview.cycleLayout")!.label).toBe("Preview: Cycle layout");
+
+      run("preview.toggleFullscreen");
+      expect(offered()).toContain("preview.exitFullscreen");
+    });
+
+    it("leaves a Mermaid file without the scripts toggle", () => {
+      activate(buffer("T4", "flow.mmd"));
+      expect(offered()).not.toContain("preview.toggleRunScripts");
+      expect(offered()).toContain("preview.refresh");
+    });
+  });
 });

@@ -2,7 +2,9 @@ import { Show } from "solid-js";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import { workspaceStore } from "../../stores/global/workspace";
 import { sidebarFolderStore, type FolderTree } from "../../stores/global/sidebar-folder";
+import { showToast } from "../../stores/global/notifications";
 import { basename } from "../../lib/path";
+import { logFailure } from "../../lib/log";
 import Icon from "../Icon/Icon";
 import Tooltip from "../Tooltip/Tooltip";
 import FileTree from "./FileTree";
@@ -15,6 +17,15 @@ import "./FilesSection.css";
  * folder otherwise (NV-01). The heading carries the tag the tree is filtered
  * by, so a filter stays visible with the Tags section folded (NV-08).
  */
+// A failed close leaves the folder on screen, so the click has to say it did
+// nothing (NV-32).
+function closeFolder() {
+  workspaceStore.closeFolder().catch(() => {
+    logFailure("the open folder could not be closed");
+    showToast("Couldn't close the folder.", "error");
+  });
+}
+
 export default function FilesSection() {
   const win = useWindow();
 
@@ -34,7 +45,12 @@ export default function FilesSection() {
         const isEmptyNotesFolder = () => {
           if (!isNotes || filterTag() !== null) return false;
           const listing = folder.entriesFor(root());
-          return listing !== undefined && listing.length === 0 && !folder.errorFor?.(root());
+          return (
+            listing !== undefined &&
+            listing.length === 0 &&
+            !folder.errorFor(root()) &&
+            folder.unreadableFor(root()) === 0
+          );
         };
         return (
           <SidebarSection
@@ -66,7 +82,7 @@ export default function FilesSection() {
                       type="button"
                       class="sidebar-section-action files-section-action"
                       aria-label="Close folder"
-                      onClick={() => void workspaceStore.closeFolder()}
+                      onClick={closeFolder}
                     >
                       <Icon name="x" size={16} />
                     </button>

@@ -6,14 +6,14 @@ vi.mock("../../services/tauri", () => ({
   getConfigDiagnostics: vi.fn(),
 }));
 
-vi.mock("../../components/Notifications/Toast", () => ({
+vi.mock("../../stores/global/notifications", () => ({
   showToast: vi.fn(() => 7),
   dismissToast: vi.fn(),
 }));
 
 import { configStore, unreadValuesNotice } from "../../stores/global/config";
 import { getConfigDiagnostics } from "../../services/tauri";
-import { dismissToast, showToast } from "../../components/Notifications/Toast";
+import { dismissToast, showToast } from "../../stores/global/notifications";
 
 const mockedDiagnostics = vi.mocked(getConfigDiagnostics);
 

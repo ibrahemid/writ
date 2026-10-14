@@ -37,9 +37,9 @@ use writ_tauri_lib::commands::buffer::{
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::note_index::resolve_note_link_inner;
 use writ_tauri_lib::commands::notes::{
-    delete_note_inner, move_notes_folder_to, new_note_from_link_inner, new_note_inner,
-    new_note_named_inner, note_path_for_id, notes_root_text, path_is_inside_notes,
-    rename_note_inner, rename_note_recording, save_note_copy_inner,
+    delete_note_inner, move_notes_folder_to, new_note_from_link_inner, new_note_in_folder_inner,
+    new_note_inner, new_note_named_inner, note_path_for_id, notes_root_text, path_is_inside_notes,
+    rename_note_inner, rename_note_recording, save_note_copy_inner, undo_delete_note_inner,
 };
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
@@ -398,6 +398,46 @@ fn a_name_that_sanitises_to_nothing_still_mints_a_note() {
 }
 
 #[test]
+fn a_new_note_in_a_folder_lands_in_that_folder() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let projects = state.notes_root().join("Projects");
+    std::fs::create_dir(&projects).expect("folder");
+
+    let doc = new_note_in_folder_inner(&state, &projects.to_string_lossy()).expect("new note");
+
+    let path = std::path::PathBuf::from(doc.source_path.expect("the note has a file"));
+    assert!(path.exists(), "{} was not created", path.display());
+    assert_eq!(
+        path.parent().map(|p| p.canonicalize().expect("canonical")),
+        Some(projects.canonicalize().expect("canonical"))
+    );
+    assert_eq!(path.extension().and_then(|e| e.to_str()), Some("txt"));
+}
+
+#[test]
+fn a_new_note_is_made_only_in_a_folder_the_notes_folder_holds() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let outside = TempDir::new().expect("outside");
+    let note = state.notes_root().join("Plan.md");
+    std::fs::write(&note, "x").expect("write");
+
+    for refused in [
+        outside.path().to_string_lossy().into_owned(),
+        note.to_string_lossy().into_owned(),
+        state.notes_root().join("..").to_string_lossy().into_owned(),
+    ] {
+        assert_eq!(
+            new_note_in_folder_inner(&state, &refused).map(|doc| doc.id),
+            Err("ERR_NOT_A_NOTE".to_string()),
+            "{refused}"
+        );
+    }
+    assert_eq!(std::fs::read_dir(outside.path()).expect("list").count(), 0);
+}
+
+#[test]
 fn new_note_produces_a_file_on_disk_before_the_app_quits() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
@@ -590,6 +630,61 @@ fn delete_moves_to_trash_and_closes_the_tab() {
 }
 
 #[test]
+fn undo_after_delete_puts_the_file_back_where_it_was() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "the text\r\nmore").expect("save");
+    let path = note_file(&state, &doc.id);
+    let before = std::fs::read(&path).expect("read");
+
+    let token = delete_note_inner(&state, &doc.id)
+        .expect("delete")
+        .expect("a note with a file has an undo");
+    assert!(!path.exists());
+
+    let restored = undo_delete_note_inner(&state, &token).expect("undo");
+
+    assert_eq!(std::path::PathBuf::from(&restored), path);
+    assert_eq!(std::fs::read(&path).expect("read back"), before);
+    assert!(
+        undo_delete_note_inner(&state, &token).is_err(),
+        "a token puts the file back once"
+    );
+}
+
+#[test]
+fn undo_after_delete_leaves_a_file_written_since() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "the old text").expect("save");
+    let path = note_file(&state, &doc.id);
+
+    let token = delete_note_inner(&state, &doc.id)
+        .expect("delete")
+        .expect("undo");
+    std::fs::write(&path, "written since").expect("write since");
+
+    assert!(undo_delete_note_inner(&state, &token).is_err());
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "written since"
+    );
+}
+
+#[test]
+fn undo_after_delete_refuses_a_token_it_did_not_hand_out() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "the text").expect("save");
+    delete_note_inner(&state, &doc.id).expect("delete");
+
+    assert!(undo_delete_note_inner(&state, "not-the-token").is_err());
+}
+
+#[test]
 fn save_copy_leaves_the_original_untouched() {
     let dir = TempDir::new().expect("temp dir");
     let state = make_state(&dir);
@@ -718,8 +813,9 @@ fn a_note_that_never_reached_a_file_only_loses_its_row() {
         doc.id
     };
 
-    delete_note_inner(&state, &id).expect("delete");
+    let token = delete_note_inner(&state, &id).expect("delete");
 
+    assert_eq!(token, None, "a note with no file has nothing to put back");
     let store = state.store.lock().expect("lock");
     assert!(store.get(&id).is_err(), "the row outlived the note");
 }
@@ -2842,9 +2938,11 @@ fn every_note_command_is_registered() {
 
     for command in [
         "commands::notes::new_note,",
+        "commands::notes::new_note_in_folder,",
         "commands::notes::new_note_from_link,",
         "commands::notes::rename_note,",
         "commands::notes::delete_note,",
+        "commands::notes::undo_delete_note,",
         "commands::notes::save_note_copy,",
         "commands::notes::show_note_in_file_manager,",
         "commands::notes::show_notes_file_in_file_manager,",

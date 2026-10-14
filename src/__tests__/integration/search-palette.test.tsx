@@ -101,6 +101,7 @@ import SearchPalette, {
   closeSearchPalette,
 } from "../../components/SearchPalette/SearchPalette";
 import CommandPalette, {
+  openCommandPalette,
   openNoteSearch,
   closeCommandPalette,
 } from "../../components/CommandPalette/CommandPalette";
@@ -293,6 +294,8 @@ describe("SearchPalette", () => {
     await open();
     await type("zebra");
     await waitFor(() => expect(sectionLabels("content")).toEqual(["early.rs"]));
+    // The buffer search starts once pending saves are written.
+    await waitFor(() => expect(h.searchBuffers).toHaveBeenCalled());
 
     resolveBuffers({
       hits: [{ buffer_id: "a", title: "zebra.md", line: 9, snippet: [] }],
@@ -466,6 +469,57 @@ describe("SearchPalette", () => {
     );
   });
 
+  // PR-02: `@` routed to a mode no provider answered here.
+  it("'@' lists file names alone", async () => {
+    h.searchFiles.mockResolvedValue([fileHit("docs/readme.md")]);
+    await open();
+    await type("@readme");
+    await waitFor(() => expect(labels()).toEqual(["readme"]));
+    expect(h.searchFiles).toHaveBeenCalledWith("readme");
+    expect(h.streamContent).not.toHaveBeenCalled();
+  });
+
+  // PR-03: the hint listed three prefixes of four and went whenever a cap
+  // notice showed.
+  describe("the prefix footer", () => {
+    function keycaps(): string[] {
+      return Array.from(document.querySelectorAll<HTMLElement>(".palette-prefix")).map(
+        (el) => el.dataset.prefix ?? "",
+      );
+    }
+
+    it("lists every prefix the providers answer", async () => {
+      await open();
+      expect(keycaps()).toEqual([">", "@", "#", ":"]);
+    });
+
+    it("stays beside a cap notice", async () => {
+      h.status = { file_count: 50000, truncated: true, has_workspace: true };
+      await open();
+      expect(document.querySelector(".palette-notice")?.textContent).toContain("capped");
+      expect(keycaps()).toEqual([">", "@", "#", ":"]);
+    });
+
+    it("routes what was typed when a keycap is clicked, and drops the route on a second click", async () => {
+      await open();
+      await type("zebra");
+      const files = document.querySelector<HTMLButtonElement>(".palette-prefix[data-prefix='@']")!;
+      fireEvent.click(files);
+      expect(input().value).toBe("@zebra");
+      expect(files.getAttribute("aria-pressed")).toBe("true");
+      expect(document.activeElement).toBe(input());
+      fireEvent.click(files);
+      expect(input().value).toBe("zebra");
+    });
+
+    it("moves a routed query to the prefix clicked", async () => {
+      await open();
+      await type(">zebra");
+      fireEvent.click(document.querySelector(".palette-prefix[data-prefix='#']")!);
+      expect(input().value).toBe("#zebra");
+    });
+  });
+
   describe("keyboard and ARIA", () => {
     beforeEach(() => {
       h.activeTabs = [doc("a", "zebra.md", "/repo/zebra.md")];
@@ -590,6 +644,43 @@ describe("quick open", () => {
 
     expect(h.openFile).toHaveBeenCalledWith("/notes/meeting-notes.md");
     expect(document.querySelector(".palette")).toBeNull();
+  });
+
+  // PR-01: the placeholder promised file names and the list held none.
+  it("finds a file by name with no prefix, under the commands, a few at most", async () => {
+    h.searchNotesByName.mockResolvedValue(
+      Array.from({ length: 7 }, (_, i) => fileHit(`/notes/meeting-${i}.md`)),
+    );
+    render(() => <CommandPalette />);
+    openCommandPalette();
+    await waitFor(() => expect(document.querySelector(".palette-input")).not.toBeNull());
+
+    await type("meeting");
+    await waitFor(() => expect(labels()).toContain("meeting-0"));
+    expect(h.searchNotesByName).toHaveBeenCalledWith("meeting");
+    expect(labels().filter((label) => label.startsWith("meeting-"))).toHaveLength(5);
+    expect(document.querySelector(".palette-section-more")?.textContent).toBe("Showing 5 of 7");
+    expect(h.searchBuffers).not.toHaveBeenCalled();
+  });
+
+  it("teaches every prefix it answers in its footer", async () => {
+    await openQuickOpen();
+    expect(
+      Array.from(document.querySelectorAll<HTMLElement>(".palette-prefix")).map(
+        (el) => el.dataset.prefix,
+      ),
+    ).toEqual([">", "@", "#", ":"]);
+  });
+
+  it("searches file text on '#'", async () => {
+    h.searchBuffers.mockResolvedValue({
+      hits: [{ buffer_id: "", path: "/notes/agenda.md", title: "agenda", snippet: [], line: 4 }],
+      total: 1,
+    });
+    await openQuickOpen();
+    await type("#budget");
+    await waitFor(() => expect(labels()).toEqual(["agenda"]));
+    expect(h.searchBuffers).toHaveBeenCalledWith("budget");
   });
 
   it("focuses the tab already showing a note rather than opening it twice", async () => {

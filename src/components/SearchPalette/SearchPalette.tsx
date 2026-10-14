@@ -45,9 +45,8 @@ const PROVIDERS: ResultProvider[] = [
   createContentProvider({ order: 3, cap: 12 }),
 ];
 
-const PREFIX_HINT = "> commands · # text · : line";
-
-// Caps are stated, never silent (ADR-026).
+// Caps are stated, never silent (ADR-026). The prefixes have a footer of
+// their own, so a notice never hides them.
 export function searchNotice(): string | null {
   const parts: string[] = [];
   const status = workspaceSearchStore.indexStatus();
@@ -62,7 +61,7 @@ export function searchNotice(): string | null {
   if (skipped > 0) {
     parts.push(`${skipped} ${skipped === 1 ? "file" : "files"} not downloaded, not searched`);
   }
-  if (parts.length === 0) return PREFIX_HINT;
+  if (parts.length === 0) return null;
   return parts.join(" · ");
 }
 

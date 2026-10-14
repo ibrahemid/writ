@@ -84,25 +84,34 @@ function registrationOf(literal: string): Registration {
   };
 }
 
-/** Every command `App.tsx` registers, by id, as written in the file. */
-function registrations(): Map<string, Registration> {
+/** Every command `text` registers, by id, as written in the file. */
+function registrations(text: string): Map<string, Registration> {
   const found = new Map<string, Registration>();
   const marker = "registerCommand({";
-  let at = APP_TSX.indexOf(marker);
+  let at = text.indexOf(marker);
   while (at !== -1) {
-    const literal = objectLiteral(APP_TSX, at + marker.length - 1);
+    const literal = objectLiteral(text, at + marker.length - 1);
     const id = literalText(field(literal, "id"));
     if (id) found.set(id, registrationOf(literal));
-    at = APP_TSX.indexOf(marker, at + marker.length);
+    at = text.indexOf(marker, at + marker.length);
   }
-  for (const literal of appCommandLiterals(APP_TSX)) {
+  for (const literal of appCommandLiterals(text)) {
     const id = literalText(field(literal, "id"));
     if (id) found.set(id, registrationOf(literal));
   }
   return found;
 }
 
-export const APP_REGISTRATIONS = registrations();
+export const APP_REGISTRATIONS = registrations(APP_TSX);
+
+/**
+ * The commands registered with a literal id in a file other than `App.tsx`,
+ * relative to the repository root: the prompt commands register beside their
+ * own code.
+ */
+export function registrationsIn(path: string): Map<string, Registration> {
+  return registrations(readFileSync(resolve(process.cwd(), path), "utf8"));
+}
 
 /**
  * The same three things counted straight off the file text. A walker that

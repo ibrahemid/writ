@@ -8,6 +8,7 @@
 //! documented accuracy band.
 
 pub(crate) mod estimate;
+pub mod pack;
 mod placeholder;
 pub mod strip;
 
