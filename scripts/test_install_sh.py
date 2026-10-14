@@ -134,7 +134,7 @@ class TestKey:
             capture_output=True,
         ).stdout
 
-    def minisig(self, data: bytes, trusted: str) -> str:
+    def minisig(self, data: bytes, comment: str) -> str:
         digest = hashlib.blake2b(data, digest_size=64).digest()
         signature = self.raw_sign(digest)
         global_signature = self.raw_sign(signature + comment.encode())
