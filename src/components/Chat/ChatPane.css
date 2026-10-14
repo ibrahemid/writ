@@ -245,6 +245,7 @@
 /* A person's turn carries a fill; a reply sits on the pane's own ground. The
    fill is the whole of the distinction — no name label, no avatar. */
 .chat-turn {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--writ-space-2);

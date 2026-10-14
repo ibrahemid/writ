@@ -147,3 +147,36 @@ fn source_key_is_case_insensitive_on_mac_and_windows() {
         assert_ne!(lower, upper, "Linux paths are byte-exact");
     }
 }
+
+#[test]
+fn an_unread_file_with_a_fresh_stamp_is_suppressed_and_the_stamp_kept() {
+    let mut stamps = IgnoreStamps::new();
+    let now = Instant::now();
+    stamps.record(String::from("big"), b"bytes", now);
+
+    assert_eq!(
+        stamps.decide_unread("big", now + Duration::from_secs(1), TTL),
+        SuppressDecision::Suppress
+    );
+    assert!(
+        stamps.contains("big"),
+        "every event a write fans out into is covered"
+    );
+}
+
+#[test]
+fn an_unread_file_with_no_stamp_or_an_expired_one_emits() {
+    let mut stamps = IgnoreStamps::new();
+    let now = Instant::now();
+    assert_eq!(
+        stamps.decide_unread("none", now, TTL),
+        SuppressDecision::Emit
+    );
+
+    stamps.record(String::from("old"), b"bytes", now);
+    assert_eq!(
+        stamps.decide_unread("old", now + TTL + Duration::from_millis(1), TTL),
+        SuppressDecision::Emit
+    );
+    assert!(!stamps.contains("old"));
+}

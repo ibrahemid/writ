@@ -27,21 +27,21 @@ describe("layout store: a buffer with no resolved layout", () => {
 
   it("reads a markdown buffer as inline when that is the configured default", () => {
     markdownDefault("inline");
-    const store = createLayoutStore({ windowId: 7001 });
+    const store = createLayoutStore();
 
     expect(store.get("L1", "markdown")).toEqual({ kind: "inline" });
   });
 
   it("reads a markdown buffer as source when that is the configured default", () => {
     markdownDefault("source");
-    const store = createLayoutStore({ windowId: 7002 });
+    const store = createLayoutStore();
 
     expect(store.get("L1", "markdown")).toEqual({ kind: "source" });
   });
 
   it("reads every other content type as source", () => {
     markdownDefault("inline");
-    const store = createLayoutStore({ windowId: 7003 });
+    const store = createLayoutStore();
 
     expect(store.get("L1", "html")).toEqual({ kind: "source" });
     expect(store.get("L2", null)).toEqual({ kind: "source" });
@@ -49,7 +49,7 @@ describe("layout store: a buffer with no resolved layout", () => {
 
   it("takes a resolved layout over the default", () => {
     markdownDefault("inline");
-    const store = createLayoutStore({ windowId: 7004 });
+    const store = createLayoutStore();
     store.setLocal("L1", { kind: "source" });
 
     expect(store.get("L1", "markdown")).toEqual({ kind: "source" });

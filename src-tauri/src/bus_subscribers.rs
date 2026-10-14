@@ -99,10 +99,14 @@ pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
     // WorkspaceChanged.
     {
         let index = host.app_state().workspace_index.clone();
-        bus.subscribe(move |event| {
-            if let WritEvent::WorkspaceChanged { path, removed } = event {
+        bus.subscribe(move |event| match event {
+            WritEvent::WorkspaceChanged { path, removed } => {
                 crate::workspace_index::on_workspace_changed(&index, path, *removed);
             }
+            WritEvent::WorkspaceSwept { .. } => {
+                crate::workspace_index::on_workspace_swept(&index);
+            }
+            _ => {}
         });
     }
 

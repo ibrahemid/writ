@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: vi.fn().mockResolvedValue(undefined),
   chatList: mocks.chatList,
   chatOpen: mocks.chatOpen,
   chatRenderReply: mocks.chatRenderReply,
@@ -57,9 +58,6 @@ vi.mock("../../commands/chat", async () => {
   };
 });
 
-vi.mock("../../services/clipboard", () => ({
-  writeClipboardText: vi.fn().mockResolvedValue(undefined),
-}));
 
 vi.spyOn(configStore, "config").mockImplementation(() => mocks.config());
 vi.spyOn(bufferRegistry, "activeTabs").mockImplementation(() => mocks.activeTabs());

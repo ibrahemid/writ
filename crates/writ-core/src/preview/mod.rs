@@ -39,7 +39,7 @@ pub use protocol::{
     parse as parse_preview_url, AssetReference, AssetRequest, AssetRoot, ParsedRequest,
     PreviewScope, RefusalReason,
 };
-pub use registry::{ContentRendererRegistry, RegisterError};
+pub use registry::{render_contained, ContentRendererRegistry, RegisterError, RENDERER_PANICKED};
 pub use types::{
     AssetScope, ContentRenderer, ContentTypeId, LayoutMode, RenderError, RenderOutput,
     RenderRequest, RendererCapabilities, ThemePolarity, ViewMode, WindowId,

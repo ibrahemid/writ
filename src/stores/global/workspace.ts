@@ -55,6 +55,15 @@ function handleChanged(path: string, removed: boolean): void {
   }
 }
 
+// More changed in the folder than the watcher listed: every folder the tree
+// has loaded is read again, once.
+function handleSwept(): void {
+  if (!root()) return;
+  for (const dirPath of Object.keys(dirs)) {
+    if (dirs[dirPath] !== undefined) void loadDir(dirPath);
+  }
+}
+
 export const workspaceStore = {
   root,
   hydrate,
@@ -63,4 +72,5 @@ export const workspaceStore = {
   loadDir,
   entriesFor,
   handleChanged,
+  handleSwept,
 };

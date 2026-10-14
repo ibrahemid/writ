@@ -312,6 +312,33 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertLess(script.index("cdxgen\" -t js"), script.index(check))
         self.assertLess(generate, upload)
 
+    def test_each_build_files_its_debug_symbols_in_an_artifact_no_other_job_reads(self) -> None:
+        steps = job_steps(self.jobs["build"])
+        collect = [step for step in steps if "debug_symbols.py" in step]
+        self.assertEqual(len(collect), 1)
+        script = step_script(collect[0])
+        for kind in ("dsym", "pdb", "elf"):
+            self.assertIn(f"debug_symbols.py {kind} --out", script)
+        uploads = [step for step in self.steps_using("build", "actions/upload-artifact") if "debug-symbols-" in step]
+        self.assertEqual(len(uploads), 1)
+        self.assertNotIn("if:", uploads[0], "every platform keeps its symbols")
+        self.assertLess(steps.index(collect[0]), steps.index(uploads[0]))
+        for name, job in self.jobs.items():
+            if name != "build":
+                with self.subTest(job=name):
+                    self.assertNotIn("debug-symbols", job)
+
+    def test_the_linux_leg_splits_its_symbols_before_anything_reads_the_bundles(self) -> None:
+        names = [step.splitlines()[0].strip().removeprefix("- name: ") for step in job_steps(self.jobs["build"])]
+        order = [
+            "Keep the Linux line tables for the symbol split",
+            "Build Tauri app",
+            "Split off the Linux debug symbols and bundle again",
+            "Require every AppImage file to be readable and runnable by any user",
+            "Stage the build for signing",
+        ]
+        self.assertEqual([name for name in names if name in order], order)
+
     def test_runs_for_one_tag_queue_instead_of_racing(self) -> None:
         block = re.search(r"(?m)^concurrency:\n((?:  .*\n)+)", self.text)
         self.assertIsNotNone(block, "release.yml has no workflow-level concurrency group")

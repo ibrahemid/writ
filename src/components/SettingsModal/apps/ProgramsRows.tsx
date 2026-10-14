@@ -66,7 +66,7 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
 
   async function onUndoForget(client: ClientApproval) {
     try {
-      await activityStore.restore(client);
+      if (!(await activityStore.restore(client))) return;
       setForgottenHere((list) => list.filter((entry) => entry.name !== client.name));
     } catch {
       showToast("Could not undo the change", "error");

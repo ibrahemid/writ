@@ -139,6 +139,31 @@ pub fn rename_note(
     origin: WriteOrigin,
     before_write: BeforeWrite<'_>,
 ) -> StorageResult<PathBuf> {
+    rename_note_probed(
+        from,
+        new_stem,
+        last_known,
+        origin,
+        before_write,
+        &dataless_flags,
+    )
+}
+
+/// [`rename_note`], with the filesystem flags read through `dataless` so a
+/// test can stand in for a file whose bytes are not on this machine.
+///
+/// Such a file is moved unread and unstamped: the stamp fingerprints the
+/// bytes, and reading them is the download the move must not cause. The
+/// watcher then reports the move as a change it cannot fingerprint, which the
+/// index answers without reading either.
+fn rename_note_probed(
+    from: &Path,
+    new_stem: &str,
+    last_known: Option<DiskState>,
+    origin: WriteOrigin,
+    before_write: BeforeWrite<'_>,
+    dataless: &dyn Fn(&Path) -> Option<u32>,
+) -> StorageResult<PathBuf> {
     let new_stem = new_stem.trim();
     if new_stem.is_empty() {
         return Err(StorageError::NoteNameEmpty);
@@ -172,9 +197,11 @@ pub fn rename_note(
     guard_rename(from, last_known, origin)?;
 
     if let Some(stamp) = before_write {
-        let bytes = std::fs::read(from).unwrap_or_default();
-        stamp(from, &bytes);
-        stamp(&to, &bytes);
+        if !is_not_downloaded(dataless(from)) {
+            let bytes = std::fs::read(from).unwrap_or_default();
+            stamp(from, &bytes);
+            stamp(&to, &bytes);
+        }
     }
     std::fs::rename(from, &to)?;
     Ok(to)
@@ -456,5 +483,56 @@ fn join_name(stem: &str, extension: &str) -> String {
         stem.to_string()
     } else {
         format!("{stem}.{extension}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use writ_core::notes::guard::SF_DATALESS;
+
+    #[test]
+    fn a_placeholder_is_renamed_without_being_stamped() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("Evicted.md");
+        std::fs::write(&from, "text the provider holds").expect("seed");
+        let stamped = RefCell::new(Vec::new());
+        let stamp = |path: &Path, _: &[u8]| stamped.borrow_mut().push(path.to_path_buf());
+
+        let to = rename_note_probed(
+            &from,
+            "Moved",
+            None,
+            WriteOrigin::Editor,
+            Some(&stamp),
+            &|_| Some(SF_DATALESS),
+        )
+        .expect("rename");
+
+        assert_eq!(to, dir.path().join("Moved.md"));
+        assert!(to.exists() && !from.exists());
+        assert!(stamped.borrow().is_empty(), "stamping reads the bytes");
+    }
+
+    #[test]
+    fn a_downloaded_file_is_stamped_at_both_names() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let from = dir.path().join("Here.md");
+        std::fs::write(&from, "local text").expect("seed");
+        let stamped = RefCell::new(Vec::new());
+        let stamp = |path: &Path, _: &[u8]| stamped.borrow_mut().push(path.to_path_buf());
+
+        let to = rename_note_probed(
+            &from,
+            "There",
+            None,
+            WriteOrigin::Editor,
+            Some(&stamp),
+            &|_| None,
+        )
+        .expect("rename");
+
+        assert_eq!(*stamped.borrow(), vec![from, to]);
     }
 }

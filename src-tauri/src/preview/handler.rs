@@ -21,11 +21,14 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::Mutex;
 
+use tauri::http::header::{CONTENT_SECURITY_POLICY, CONTENT_TYPE, X_CONTENT_TYPE_OPTIONS};
+use tauri::http::{HeaderValue, StatusCode};
 use tauri::{Manager, Runtime, UriSchemeContext};
-use tracing::warn;
+use tracing::{error, warn};
 use writ_core::preview::frames::disarm_frame_navigations;
 use writ_core::preview::hints::neutralize_resource_hints;
 use writ_core::preview::protocol::{
@@ -111,6 +114,24 @@ impl RenderCache {
     /// Drop the cached document for `buffer_id` (on preview close).
     pub fn evict(&self, buffer_id: &str) {
         recover_poison(self.docs.lock(), "preview::render_cache::evict").remove(buffer_id);
+    }
+
+    /// Whether the cached document for `buffer_id` may run its own scripts.
+    ///
+    /// Fails closed: a lock poisoned by a panic in another holder may hold a
+    /// document whose opt-in lapsed half-way, so it answers off rather than
+    /// trust what the lock recovered (ADR-045).
+    pub fn scripts_enabled(&self, buffer_id: &str) -> bool {
+        match self.docs.lock() {
+            Ok(docs) => docs.get(buffer_id).is_some_and(|doc| doc.scripts_enabled),
+            Err(_) => {
+                error!(
+                    location = "preview::render_cache::scripts_enabled",
+                    "render cache lock poisoned; serving scripts off"
+                );
+                false
+            }
+        }
     }
 
     /// Serve the cached document for `buffer_id`, if there is one, with its
@@ -511,15 +532,26 @@ pub fn serve<R: Runtime>(
     let url = request.uri().to_string();
     let state = ctx.app_handle().state::<AppState>();
 
-    let resolved = resolve_cached(
-        &url,
-        &state.preview_render_cache,
-        &writ_storage::notes_index::is_dataless,
-    );
+    respond_contained(|| {
+        let resolved = resolve_cached(
+            &url,
+            &state.preview_render_cache,
+            &writ_storage::notes_index::is_dataless,
+        );
+        record(record_for(&url, &resolved));
+        resolved
+    })
+}
 
-    record(record_for(&url, &resolved));
-
-    build_http_response(resolved)
+/// Resolves and serializes a response, answering 500 if either step panics.
+///
+/// The handler runs inside the web view's own callback, where a panic that
+/// escapes cannot unwind and ends the process (ADR-045).
+pub fn respond_contained(
+    resolve: impl FnOnce() -> ResolvedResponse,
+) -> tauri::http::Response<Cow<'static, [u8]>> {
+    catch_unwind(AssertUnwindSafe(|| build_http_response(resolve())))
+        .unwrap_or_else(|_| failure_response())
 }
 
 /// Resolve a request against the render cache, the way [`serve`] does: the
@@ -557,10 +589,7 @@ fn document_scripts_enabled(url: &str, cache: &RenderCache) -> bool {
         return false;
     }
     let buffer_id = parsed.path.split('/').next().unwrap_or("");
-    cache
-        .get(buffer_id)
-        .map(|doc| doc.scripts_enabled)
-        .unwrap_or(false)
+    cache.scripts_enabled(buffer_id)
 }
 
 /// Serialize a [`ResolvedResponse`] into the Tauri HTTP response the webview
@@ -574,9 +603,28 @@ pub fn build_http_response(
     for (key, value) in &resolved.headers {
         builder = builder.header(*key, value);
     }
-    builder
-        .body(resolved.body)
-        .expect("preview response is always well-formed")
+    builder.body(resolved.body).unwrap_or_else(|e| {
+        error!(error = %e, "preview response could not be built");
+        failure_response()
+    })
+}
+
+/// The 500 the handler answers when a response cannot be produced. Built from
+/// parts that cannot fail, and served as inert text.
+fn failure_response() -> tauri::http::Response<Cow<'static, [u8]>> {
+    let mut response = tauri::http::Response::new(Cow::Borrowed(&b"preview failed"[..]));
+    *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+    let headers = response.headers_mut();
+    headers.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(
+        CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'none'"),
+    );
+    response
 }
 
 #[cfg(test)]
@@ -1028,6 +1076,63 @@ mod tests {
         let off = resolve_cached("writ-preview://document/off?v=1", &cache, &never_dataless);
         assert_eq!(csp_of(&on), build_document_csp(true));
         assert_eq!(csp_of(&off), build_document_csp(false));
+    }
+
+    #[test]
+    fn a_poisoned_render_cache_serves_every_document_with_scripts_off() {
+        let cache = std::sync::Arc::new(RenderCache::new());
+        cache.put(
+            "on",
+            RenderedDoc {
+                html: "<p>on</p>".to_string(),
+                assets: None,
+                scripts_enabled: true,
+            },
+        );
+        let holder = cache.clone();
+        let poisoned = std::thread::spawn(move || {
+            let _docs = holder.docs.lock().unwrap();
+            panic!("a holder of the render cache lock panicked");
+        })
+        .join();
+        assert!(poisoned.is_err() && cache.docs.is_poisoned());
+
+        let served = resolve_cached("writ-preview://document/on?v=1", &cache, &|_: &Path| false);
+
+        assert!(!cache.scripts_enabled("on"));
+        assert_eq!(csp_of(&served), build_document_csp(false));
+        assert_eq!(served.body.as_ref(), b"<p>on</p>");
+    }
+
+    #[test]
+    fn a_panic_while_resolving_answers_500_instead_of_unwinding_out() {
+        let response = respond_contained(|| panic!("a renderer bug in the handler"));
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.body().as_ref(), b"preview failed");
+        assert_eq!(response.headers()[X_CONTENT_TYPE_OPTIONS], "nosniff");
+        assert_eq!(
+            response.headers()[CONTENT_SECURITY_POLICY],
+            "default-src 'none'"
+        );
+    }
+
+    #[test]
+    fn a_header_the_response_cannot_carry_answers_500_instead_of_panicking() {
+        let resolved = ResolvedResponse {
+            status: 200,
+            body: Cow::Borrowed(b"<p>x</p>"),
+            headers: vec![("Content-Type", "text/html\nX-Injected: 1".to_string())],
+            disposition: Disposition::Allowed,
+        };
+
+        let response = build_http_response(resolved);
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response.headers()[CONTENT_TYPE],
+            "text/plain; charset=utf-8"
+        );
     }
 
     #[test]

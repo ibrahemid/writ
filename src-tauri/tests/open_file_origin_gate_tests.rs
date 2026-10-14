@@ -19,6 +19,8 @@ use writ_tauri_lib::commands::buffer::{
     save_buffer_content_inner,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
+use writ_tauri_lib::commands::history::{clear_history_inner, restore_buffer_inner};
+use writ_tauri_lib::commands::notes::rename_note_inner;
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
@@ -944,4 +946,171 @@ fn deleting_a_note_forgets_what_its_file_held() {
         .disk_state(&opened.doc.as_ref().expect("the file opened").id)
         .is_none());
     assert!(file.exists(), "deleting the row never deletes the file");
+}
+
+/// Opens a file from outside the notes folder the way a dialog does, and
+/// answers its tab's id and canonical path.
+fn open_outside(state: &AppState, dir: &TempDir, name: &str) -> (String, String) {
+    let file = dir.path().join(name);
+    std::fs::write(&file, "outside the folder").unwrap();
+    let canonical = canonicalize_for_authorization(&file).unwrap();
+    state.authorized_paths.record_for_open(canonical.clone());
+    let opened = open_file_from_path(state, &canonical).expect("open");
+    (opened.doc.expect("the file opened").id, canonical)
+}
+
+#[test]
+fn closing_a_tab_takes_its_files_write_permission_away() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, canonical) = open_outside(&state, &dir, "closed.md");
+    assert!(state.authorized_paths.is_blessed_source(&canonical));
+
+    close_buffer_inner(&state, &id).expect("close");
+
+    assert!(!state.authorized_paths.is_blessed_source(&canonical));
+}
+
+#[test]
+fn a_closed_tab_is_not_blessed_again_after_a_restart() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, canonical) = open_outside(&state, &dir, "closed-then-restarted.md");
+    close_buffer_inner(&state, &id).expect("close");
+
+    let restarted = make_state(&dir);
+    let hydrated = {
+        let store = restarted.store.lock().unwrap();
+        writ_tauri_lib::state::bless_persisted_sources(&store, &restarted.authorized_paths)
+    };
+
+    assert_eq!(hydrated, 0);
+    assert!(!restarted.authorized_paths.is_blessed_source(&canonical));
+}
+
+#[test]
+fn reopening_a_closed_tab_blesses_its_file_again() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, canonical) = open_outside(&state, &dir, "reopened.md");
+    close_buffer_inner(&state, &id).expect("close");
+
+    restore_buffer_inner(&state, &id).expect("reopen");
+
+    assert!(state.authorized_paths.is_blessed_source(&canonical));
+    save_buffer_content_inner(&state, &id, "after the reopen").expect("save");
+    assert_eq!(
+        std::fs::read_to_string(&canonical).unwrap(),
+        "after the reopen"
+    );
+}
+
+/// Whatever left a closed file blessed, clearing the history list ends it: a
+/// file nobody can reopen from the list is not one the webview may write.
+#[test]
+fn clearing_history_revokes_the_blessings_of_the_files_it_forgets() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (closed_id, closed) = open_outside(&state, &dir, "in-history.md");
+    let (_open_id, open) = open_outside(&state, &dir, "still-open.md");
+    close_buffer_inner(&state, &closed_id).expect("close");
+    state.authorized_paths.bless_source_path(&closed);
+
+    clear_history_inner(&state).expect("clear");
+
+    assert!(!state.authorized_paths.is_blessed_source(&closed));
+    assert!(
+        state.authorized_paths.is_blessed_source(&open),
+        "an open tab lost its permission to a history clear"
+    );
+}
+
+/// A rename names the row by id, and a closed tab's row still names its file:
+/// the rename passes the same gate a save does, so only an open tab's file
+/// outside the folder can be moved.
+#[test]
+fn a_closed_tabs_file_outside_the_folder_cannot_be_renamed() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, canonical) = open_outside(&state, &dir, "keep-my-name.md");
+    close_buffer_inner(&state, &id).expect("close");
+
+    let refused = rename_note_inner(&state, &id, "moved");
+
+    assert!(refused.is_err(), "a closed tab's file was renamed");
+    assert!(std::path::Path::new(&canonical).exists());
+    assert!(!dir.path().join("moved.md").exists());
+}
+
+#[test]
+fn an_open_tabs_file_outside_the_folder_can_still_be_renamed() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, canonical) = open_outside(&state, &dir, "rename-me.md");
+
+    let renamed = rename_note_inner(&state, &id, "renamed").expect("rename");
+
+    assert!(!std::path::Path::new(&canonical).exists());
+    assert!(renamed
+        .source_path
+        .as_deref()
+        .is_some_and(|path| path.ends_with("renamed.md")));
+}
+
+/// A second launch's paths are authorized and resolved as launch arguments
+/// are, and wait with the launch's own opens until the frontend is ready.
+#[test]
+fn a_forwarded_path_is_authorized_and_parked_until_the_frontend_is_ready() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let elsewhere = TempDir::new().expect("some other folder");
+    let file = elsewhere.path().join("handed-over.md");
+    std::fs::write(&file, "from a second launch").expect("seed");
+    let canonical = canonicalize_for_authorization(&file).expect("canonical");
+
+    let now =
+        writ_tauri_lib::instance::route_forwarded(&state, &[file.to_string_lossy().into_owned()]);
+
+    assert_eq!(now, None, "nothing is sent before the frontend listens");
+    assert_eq!(
+        *state.pending_opens.lock().unwrap(),
+        vec![canonical.clone()]
+    );
+    assert!(state.authorized_paths.is_pending_open(&canonical));
+}
+
+#[test]
+fn a_forwarded_path_goes_straight_to_a_ready_frontend() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    state
+        .frontend_ready
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let elsewhere = TempDir::new().expect("some other folder");
+    let file = elsewhere.path().join("handed-over.md");
+    std::fs::write(&file, "from a second launch").expect("seed");
+    let canonical = canonicalize_for_authorization(&file).expect("canonical");
+
+    let now =
+        writ_tauri_lib::instance::route_forwarded(&state, &[file.to_string_lossy().into_owned()]);
+
+    assert_eq!(now, Some(vec![canonical.clone()]));
+    assert!(state.pending_opens.lock().unwrap().is_empty());
+    assert!(state.authorized_paths.is_pending_open(&canonical));
+}
+
+#[test]
+fn a_forwarded_path_that_holds_nothing_opens_nothing() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let missing = dir.path().join("never-written.md");
+
+    let now = writ_tauri_lib::instance::route_forwarded(
+        &state,
+        &[missing.to_string_lossy().into_owned()],
+    );
+
+    assert_eq!(now, None);
+    assert!(state.pending_opens.lock().unwrap().is_empty());
+    assert_eq!(state.authorized_paths.pending_open_len(), 0);
 }

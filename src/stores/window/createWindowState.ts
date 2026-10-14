@@ -1,4 +1,3 @@
-import { createFocusStore, type FocusStore } from "./focus-store";
 import { createSidebarStore, type SidebarStore } from "./sidebar-store";
 import { createRightPanelStore, type RightPanelStore } from "./right-panel-store";
 import { createChatPanelStore, type ChatPanelStore } from "./chat-panel-store";
@@ -13,7 +12,6 @@ import { bufferRegistry, OpenRefusedError } from "../global/buffer-registry";
 
 export interface WindowState {
   windowId: number;
-  focus: FocusStore;
   sidebar: SidebarStore;
   rightPanel: RightPanelStore;
   chatPanel: ChatPanelStore;
@@ -46,15 +44,14 @@ export function createWindowState(opts: CreateWindowStateOptions): WindowState {
 
   return {
     windowId: opts.windowId,
-    focus: createFocusStore(),
     sidebar: createSidebarStore(),
     rightPanel: createRightPanelStore(),
     chatPanel: createChatPanelStore(),
     editor,
     counts: createCountsStore(editor),
     tabs,
-    layout: createLayoutStore({ windowId: opts.windowId }),
-    preview: createPreviewStore({ windowId: opts.windowId }),
+    layout: createLayoutStore(),
+    preview: createPreviewStore(),
     folderGraph: createFolderGraphStore(),
     downloads,
   };

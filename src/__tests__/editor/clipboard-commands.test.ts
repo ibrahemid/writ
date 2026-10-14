@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(),
 }));
 
-vi.mock("../../services/clipboard", () => ({
+vi.mock("../../services/tauri", () => ({
   readClipboardText: mocks.readClipboardText,
   writeClipboardText: mocks.writeClipboardText,
 }));

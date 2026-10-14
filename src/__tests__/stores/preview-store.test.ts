@@ -33,7 +33,7 @@ describe("preview store render", () => {
   });
 
   it("hands the status bar each render's scripts verdict", async () => {
-    const store = createPreviewStore({ windowId: 900 });
+    const store = createPreviewStore();
 
     mocks.render.mockResolvedValue(rendered(true));
     await store.render("verdict-1", "html", "<p>x</p>", "light", 1);
@@ -45,7 +45,7 @@ describe("preview store render", () => {
   });
 
   it("says nothing about scripts for a render that did not happen", async () => {
-    const store = createPreviewStore({ windowId: 901 });
+    const store = createPreviewStore();
     mocks.render.mockResolvedValue({ kind: "failed", message: "document is too large" });
 
     await store.render("verdict-2", "html", "<p>x</p>", "light", 1);

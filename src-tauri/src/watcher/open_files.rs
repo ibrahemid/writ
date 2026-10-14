@@ -22,12 +22,17 @@
 //!
 //! Where the native backend cannot watch a folder at all — a network mount, a
 //! FileProvider tree, a folder whose contents are not readable — that one
-//! folder falls back to [`notify::PollWatcher`] with content comparison. The
-//! choice is per folder: one unwatchable share does not put the rest of the
-//! machine on a timer.
+//! folder falls back to polling each entry's size and modification time
+//! ([`super::poll::MetadataPollWatcher`]). The choice is per folder: one
+//! unwatchable share does not put the rest of the machine on a timer.
+//!
+//! On macOS the native backend is one FSEvents stream over every folder,
+//! rebuilt off the caller's thread ([`super::fsevents`]); `notify`'s own
+//! restarted its stream on the main thread for every open and close and lost
+//! what changed during the restart.
 
 use crate::poison::recover_poison;
-use notify::{Config as NotifyConfig, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Config as NotifyConfig, RecursiveMode, Watcher};
 use notify_debouncer_mini::{
     new_debouncer_opt, Config as DebounceConfig, DebounceEventResult, DebouncedEvent,
 };
@@ -38,11 +43,13 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use writ_core::events::bus::{EventBus, WritEvent};
+use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
 use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
 use writ_core::watcher::pending::{hold_window, HeldRemoval, HoldAnswer, PendingRemovals};
 use writ_core::watcher::sighting::{LastSeen, DEFAULT_SIGHTING_TTL};
+use writ_storage::paths::file_name_only;
 
 use super::handler::{ignore_key_path, IgnoreSet};
 use super::moves::{FileTracking, MoveOutcome};
@@ -54,17 +61,25 @@ pub const DEBOUNCE_WINDOW: Duration = Duration::from_millis(500);
 /// How often the fallback backend looks, when it is the one being used.
 ///
 /// Slower than the debounce window on purpose: polling is what a folder gets
-/// when nothing better works, and the cost of a pass is a `stat` and a read of
-/// every file in it.
+/// when nothing better works, and the cost of a pass is a `stat` of every
+/// entry in it.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(4);
+
+/// The platform's own backend for the folders of open files.
+#[cfg(target_os = "macos")]
+type NativeWatcher = super::fsevents::FsEventsWatcher;
+
+/// The platform's own backend for the folders of open files.
+#[cfg(not(target_os = "macos"))]
+type NativeWatcher = notify::RecommendedWatcher;
 
 /// Which backend is watching a folder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatcherKind {
     /// The platform's own: FSEvents, inotify, ReadDirectoryChangesW.
     Native,
-    /// Timed passes comparing contents, for a folder the native backend
-    /// refused.
+    /// Timed passes comparing each entry's size and modification time, for a
+    /// folder the native backend refused.
     Poll,
 }
 
@@ -311,7 +326,7 @@ impl OpenFileRegistry {
             Err(native_error) => match self.poll.watch_dir(dir) {
                 Ok(()) => {
                     info!(
-                        dir = %dir.display(),
+                        dir = %file_name_only(&dir.to_string_lossy()),
                         error = %native_error,
                         "folder cannot be watched natively; polling it instead"
                     );
@@ -319,7 +334,7 @@ impl OpenFileRegistry {
                 }
                 Err(poll_error) => {
                     warn!(
-                        dir = %dir.display(),
+                        dir = %file_name_only(&dir.to_string_lossy()),
                         native_error = %native_error,
                         poll_error = %poll_error,
                         "folder cannot be watched at all"
@@ -349,7 +364,11 @@ impl OpenFileRegistry {
         if let Err(e) = backend.unwatch_dir(dir) {
             // The folder being gone is the ordinary way this fails, and the
             // registry has already forgotten it either way.
-            info!(dir = %dir.display(), error = %e, "releasing a folder watch failed");
+            info!(
+                dir = %file_name_only(&dir.to_string_lossy()),
+                error = %e,
+                "releasing a folder watch failed"
+            );
         }
     }
 
@@ -458,23 +477,19 @@ pub fn start_open_file_watcher(
 ) -> Result<OpenFileWatcher, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
-    let native: notify_debouncer_mini::Debouncer<RecommendedWatcher> = new_debouncer_opt(
+    let native: notify_debouncer_mini::Debouncer<NativeWatcher> = new_debouncer_opt(
         DebounceConfig::default().with_timeout(DEBOUNCE_WINDOW),
         tx.clone(),
     )?;
-    // Content comparison, not timestamps: a network share and a sync provider
-    // are exactly the places an mtime is unreliable, and they are the reason
-    // this backend exists at all.
-    let poll: notify_debouncer_mini::Debouncer<PollWatcher> = new_debouncer_opt(
-        DebounceConfig::default()
-            .with_timeout(DEBOUNCE_WINDOW)
-            .with_notify_config(
-                NotifyConfig::default()
-                    .with_poll_interval(POLL_INTERVAL)
-                    .with_compare_contents(true),
-            ),
-        tx,
-    )?;
+    // Size and modification time, never contents: a pass that read every file
+    // in a folder on a share read the share every few seconds (TS-18).
+    let poll: notify_debouncer_mini::Debouncer<super::poll::MetadataPollWatcher> =
+        new_debouncer_opt(
+            DebounceConfig::default()
+                .with_timeout(DEBOUNCE_WINDOW)
+                .with_notify_config(NotifyConfig::default().with_poll_interval(POLL_INTERVAL)),
+            tx,
+        )?;
 
     let registry = Arc::new(Mutex::new(OpenFileRegistry::new(
         Box::new(DebouncedDirs { debouncer: native }),
@@ -677,20 +692,42 @@ pub fn classify_open_file_event(
     // A path holding a directory holds no note, the same as a path holding
     // nothing. Dropping the event instead left the tab on a dead id, saving
     // into `Is a directory` rather than saying the file is gone.
-    if !std::fs::metadata(path).is_ok_and(|m| m.is_file()) {
+    let Some(metadata) = std::fs::metadata(path).ok().filter(|m| m.is_file()) else {
         return open_note_vanished(note_id, path, vanished);
-    }
-
-    let current_bytes = readable_bytes(path);
-
-    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
-    let decision = {
-        let mut set = recover_poison(ignore_set.lock(), "watcher::open_files::classify");
-        set.decide(&key, current_bytes.as_deref(), now, ttl)
     };
-    if decision == SuppressDecision::Suppress {
+
+    // Size and modification time before any read: a file that still matches
+    // what Writ last read or wrote is that file, and a tab on a busy log would
+    // otherwise read it whole on every event (TS-11). A file marked deleted
+    // is one that came back, which is news whatever it holds.
+    let files = &vanished.tracking.files;
+    if !files.is_marked_removed(note_id)
+        && matches_last_look(files.last_disk_state(note_id).as_ref(), &metadata)
+    {
         return None;
     }
+
+    let key = writ_core::watcher::ignore::source_key(&ignore_key_path(path));
+    let current_bytes = if metadata.len() > WATCHER_READ_CAP_BYTES {
+        let decision = {
+            let mut set = recover_poison(ignore_set.lock(), "watcher::open_files::classify");
+            set.decide_unread(&key, now, ttl)
+        };
+        if decision == SuppressDecision::Suppress {
+            return None;
+        }
+        None
+    } else {
+        let bytes = readable_bytes(path);
+        let decision = {
+            let mut set = recover_poison(ignore_set.lock(), "watcher::open_files::classify");
+            set.decide(&key, bytes.as_deref(), now, ttl)
+        };
+        if decision == SuppressDecision::Suppress {
+            return None;
+        }
+        bytes
+    };
 
     let came_back = vanished.tracking.files.note_file_returned(note_id, path);
     open_note_modification(note_id, path, current_bytes.as_deref(), came_back, vanished)
@@ -728,13 +765,39 @@ fn open_note_modification(
     Some(open_note_modified(note_id, path, bytes))
 }
 
+/// The size past which the open-file watcher reports a change without
+/// reading the file: past it the tab opened the file in large-file mode at
+/// best, and a server appending to it would otherwise cost a whole read per
+/// debounce window.
+pub const WATCHER_READ_CAP_BYTES: u64 = writ_core::file_ops::THRESHOLD_LARGE_BYTES;
+
+/// Whether `metadata` still describes the file as Writ last read or wrote it.
+///
+/// Both the size and the modification time have to agree, and a record with
+/// no modification time matches nothing. An edit that keeps the size and
+/// lands inside one tick of the volume's clock is missed here; on APFS and
+/// ext4 that tick is a nanosecond, on FAT it is two seconds.
+pub fn matches_last_look(last: Option<&DiskState>, metadata: &std::fs::Metadata) -> bool {
+    let Some(last) = last else {
+        return false;
+    };
+    let Some(recorded) = last.mtime else {
+        return false;
+    };
+    last.size == metadata.len() && metadata.modified().ok() == Some(recorded)
+}
+
 /// The file's bytes, or `None` where reading them is the wrong thing to do.
 ///
 /// A file whose bytes are not on this machine is reported without being read:
-/// reading it would make the sync provider fetch it (ADR-028 §5).
+/// reading it would make the sync provider fetch it (ADR-028 §5). A file past
+/// [`WATCHER_READ_CAP_BYTES`] is reported without being read as well.
 fn readable_bytes(path: &Path) -> Option<Vec<u8>> {
     if writ_core::notes::guard::is_not_downloaded(writ_storage::buffer_store::dataless_flags(path))
     {
+        return None;
+    }
+    if std::fs::metadata(path).is_ok_and(|m| m.len() > WATCHER_READ_CAP_BYTES) {
         return None;
     }
     std::fs::read(path).ok()
@@ -1698,6 +1761,10 @@ mod tests {
             self.last
         }
 
+        fn is_marked_removed(&self, _note_id: &str) -> bool {
+            self.was_removed
+        }
+
         fn notes_root(&self) -> Option<PathBuf> {
             self.notes_root.clone()
         }
@@ -2268,7 +2335,7 @@ mod tests {
                 path: gone.to_string_lossy().into_owned(),
                 size: 4,
                 mtime_ms: None,
-                hash: writ_core::hash::sha256_bytes(b"body"),
+                birth_ns: None,
             }),
             ..RecordingFiles::default()
         });
@@ -2326,7 +2393,7 @@ mod tests {
                 path: gone.to_string_lossy().into_owned(),
                 size: 4,
                 mtime_ms: None,
-                hash: writ_core::hash::sha256_bytes(b"body"),
+                birth_ns: None,
             }),
             ..RecordingFiles::default()
         });
@@ -2809,6 +2876,180 @@ mod tests {
             .is_some(),
             "a file written again must reach its tab"
         );
+    }
+
+    /// What Writ would have recorded for `file` as it stands: its size and
+    /// modification time, and a digest the size-and-time check never needs.
+    fn recorded_as_it_stands(file: &Path) -> writ_core::notes::guard::DiskState {
+        let metadata = fs::metadata(file).unwrap();
+        writ_core::notes::guard::DiskState {
+            hash: writ_core::hash::sha256_bytes(b"not read"),
+            size: metadata.len(),
+            mtime: metadata.modified().ok(),
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_matching_its_recorded_size_and_time_is_not_read() {
+        // Unreadable, so a read would fail and the change would surface: the
+        // silence is the size-and-time check answering first (TS-11).
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("server.log");
+        fs::write(&file, b"line one\n").unwrap();
+        let (tracking, _) = tracking_with(RecordingFiles {
+            last: Some(recorded_as_it_stands(&file)),
+            ..Default::default()
+        });
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        let readable = fs::read(&file).is_ok();
+
+        let event = classify_open_file_event(
+            &file,
+            "note-1",
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+            &VanishedContext {
+                hold: &holding(),
+                batch: std::slice::from_ref(&file),
+                tracking: &tracking,
+            },
+        );
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        if readable {
+            return;
+        }
+        assert!(event.is_none(), "{event:?}");
+    }
+
+    #[test]
+    fn a_file_that_grew_since_it_was_recorded_is_read_and_reported() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("server.log");
+        fs::write(&file, b"line one\n").unwrap();
+        let recorded = recorded_as_it_stands(&file);
+        fs::write(&file, b"line one\nline two\n").unwrap();
+        let (tracking, _) = tracking_with(RecordingFiles {
+            last: Some(recorded),
+            ..Default::default()
+        });
+
+        let event = classify_open_file_event(
+            &file,
+            "note-1",
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+            &VanishedContext {
+                hold: &holding(),
+                batch: std::slice::from_ref(&file),
+                tracking: &tracking,
+            },
+        );
+        assert!(
+            matches!(
+                event,
+                Some(WritEvent::BufferExternal {
+                    change: ExternalChange::Modified,
+                    disk_hash: Some(_),
+                    ..
+                })
+            ),
+            "{event:?}"
+        );
+    }
+
+    #[test]
+    fn a_file_back_from_the_trash_is_news_even_unchanged() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("restored.md");
+        fs::write(&file, b"kept text\n").unwrap();
+        let (tracking, _) = tracking_with(RecordingFiles {
+            last: Some(recorded_as_it_stands(&file)),
+            was_removed: true,
+            ..Default::default()
+        });
+
+        let event = classify_open_file_event(
+            &file,
+            "note-1",
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+            &VanishedContext {
+                hold: &holding(),
+                batch: std::slice::from_ref(&file),
+                tracking: &tracking,
+            },
+        );
+        assert!(event.is_some(), "the tab was refusing to save to this file");
+    }
+
+    #[test]
+    fn a_file_past_the_read_cap_is_reported_without_a_digest() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("huge.log");
+        let handle = fs::File::create(&file).unwrap();
+        handle.set_len(WATCHER_READ_CAP_BYTES + 1).unwrap();
+        drop(handle);
+        let (batch, tracking) = nothing_tracked(&file);
+
+        let event = classify_open_file_event(
+            &file,
+            "note-1",
+            &make_set(),
+            DEFAULT_IGNORE_TTL,
+            Instant::now(),
+            &VanishedContext {
+                hold: &holding(),
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+        assert!(
+            matches!(
+                event,
+                Some(WritEvent::BufferExternal {
+                    change: ExternalChange::Modified,
+                    disk_hash: None,
+                    ..
+                })
+            ),
+            "{event:?}"
+        );
+    }
+
+    #[test]
+    fn a_save_writ_just_made_to_a_file_past_the_read_cap_stays_quiet() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("huge.log");
+        let handle = fs::File::create(&file).unwrap();
+        handle.set_len(WATCHER_READ_CAP_BYTES + 1).unwrap();
+        drop(handle);
+        let ignore = make_set();
+        let now = Instant::now();
+        ignore.lock().unwrap().record(
+            writ_core::watcher::ignore::source_key(&ignore_key_path(&file)),
+            b"what writ wrote",
+            now,
+        );
+        let (batch, tracking) = nothing_tracked(&file);
+
+        let event = classify_open_file_event(
+            &file,
+            "note-1",
+            &ignore,
+            DEFAULT_IGNORE_TTL,
+            now,
+            &VanishedContext {
+                hold: &holding(),
+                batch: &batch,
+                tracking: &tracking,
+            },
+        );
+        assert!(event.is_none(), "{event:?}");
     }
 
     #[test]

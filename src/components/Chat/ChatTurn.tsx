@@ -1,9 +1,9 @@
-import { For, Index, Show, createEffect, onCleanup } from "solid-js";
+import { For, Index, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import Button from "../Button/Button";
 import Icon from "../Icon/Icon";
+import LinkConfirm, { type LinkRequest } from "../Preview/LinkConfirm";
 import ProposalCard from "./ProposalCard";
 import { providerLabel } from "./ChatTranscript";
-import { linkStore } from "../../stores/global/link";
 import {
   chatStore,
   noteName,
@@ -41,7 +41,8 @@ const COPIED_MS = 1200;
 
 /** The schemes the renderer keeps in an untrusted reply (`WEB_SCHEMES` in
  * `writ-render`), which are the same three Writ's external path opens. A link
- * of any other scheme was already dropped, and a click on one does nothing. */
+ * of any other scheme was already dropped, and a click on one does nothing.
+ * A kept one opens only from the confirmation that shows its whole address. */
 function isExternal(href: string): boolean {
   return /^(https?|mailto):/i.test(href);
 }
@@ -56,6 +57,9 @@ function isExternal(href: string): boolean {
  */
 export default function ChatTurn(props: { message: Message; thinking: boolean }) {
   let reply: HTMLDivElement | undefined;
+  let turn: HTMLElement | undefined;
+  const [linkRequest, setLinkRequest] = createSignal<LinkRequest | null>(null);
+  let nextLinkId = 0;
   let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
   onCleanup(() => {
@@ -117,12 +121,23 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
 
     const link = target.closest<HTMLAnchorElement>("a[href]");
     if (!link) return;
-    // A reply is model output, so a click never navigates the window. A web
-    // target opens where every other external link opens, and anything else
-    // does nothing.
+    // A reply is model output, so a click never navigates the window, and a
+    // web target is shown in full before anything opens: text an attached note
+    // carried can make the reply end in a link that sends that note away.
     event.preventDefault();
     const href = link.getAttribute("href") ?? "";
-    if (isExternal(href)) void linkStore.openExternal(href);
+    if (!isExternal(href) || !turn) return;
+    const box = turn.getBoundingClientRect();
+    setLinkRequest({
+      id: nextLinkId++,
+      href,
+      x: event.clientX - box.left,
+      y: event.clientY - box.top,
+    });
+  }
+
+  function turnRect(): { width: number; height: number } {
+    return { width: turn?.clientWidth ?? 0, height: turn?.clientHeight ?? 0 };
   }
 
   function sayCopied(button: HTMLElement) {
@@ -137,7 +152,7 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
   const mine = () => props.message.role === "user";
 
   return (
-    <article class="chat-turn" classList={{ "is-mine": mine() }}>
+    <article ref={turn} class="chat-turn" classList={{ "is-mine": mine() }}>
       <Show when={mine()}>
         <div class="chat-turn-mine">
           <p class="chat-turn-text">{props.message.content}</p>
@@ -198,6 +213,15 @@ export default function ChatTurn(props: { message: Message; thinking: boolean })
             </p>
           )}
         </Show>
+      </Show>
+      <Show when={linkRequest()} keyed>
+        {(request) => (
+          <LinkConfirm
+            request={request}
+            frameRect={turnRect}
+            onDismiss={() => setLinkRequest(null)}
+          />
+        )}
       </Show>
     </article>
   );

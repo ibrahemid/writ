@@ -1,5 +1,5 @@
 import { showContextMenu, type MenuItem } from "../components/ContextMenu/ContextMenu";
-import { readClipboardText, writeClipboardText } from "../services/clipboard";
+import { readClipboardText, writeClipboardText } from "../services/tauri";
 import { IS_MAC } from "./platform";
 
 /**

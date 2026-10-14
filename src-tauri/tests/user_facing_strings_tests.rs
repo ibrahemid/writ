@@ -104,7 +104,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-core/src/startup.rs",
-        line: 54,
+        line: 57,
         word: "buffer",
         note: "startup failure remedy text, release 0.6",
     },
@@ -194,19 +194,19 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "src-tauri/src/commands/chat.rs",
-        line: 990,
+        line: 1002,
         word: "note",
         note: "debug_assert text, never rendered",
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 388,
+        line: 389,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 446,
+        line: 447,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },

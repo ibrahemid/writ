@@ -3,7 +3,7 @@ import * as api from "../../services/tauri";
 import type { RenamePropagation } from "../../services/tauri";
 import { bufferRegistry } from "./buffer-registry";
 import { windowRegistry } from "./window-registry";
-import { noteName } from "../../lib/note-name";
+import { notesStore } from "./notes";
 import { describeSkippedNote } from "../../lib/save-error";
 
 // Singleton — app-global, like the registry it renames rows in (ADR-009 E3).
@@ -20,12 +20,9 @@ export interface SkippedNote {
 export interface RenameUndo {
   /** The note that was renamed. */
   noteId: string;
-  /** Where its file is now. */
-  path: string;
-  /** The name it had before, without its extension. */
-  previousName: string;
-  /** The files the rename rewrote, and the only ones the undo touches. */
-  paths: string[];
+  /** What the backend handed out for this rename. The files the undo touches
+   * are the ones the rename rewrote, and the backend holds that list. */
+  token: string;
 }
 
 function createRenameLinksStore() {
@@ -44,7 +41,9 @@ function createRenameLinksStore() {
    * The row is re-read rather than reloaded wholesale: the file's new name is
    * what the tab bar shows and what the next save writes to. A note that has
    * no file yet has nothing linking to it and takes the plain rename, which is
-   * where the backend says so.
+   * where the backend says so. A file opened from outside the folder holds
+   * no links the index knows of and takes the plain rename too: the backend
+   * rewrites links only for files in the folder.
    */
   async function renameWithLinks(
     id: string,
@@ -52,23 +51,13 @@ function createRenameLinksStore() {
     updateLinks: boolean,
   ): Promise<RenamePropagation | null> {
     const path = sourcePath(id);
-    if (path === null) {
+    if (path === null || !notesStore.contains(path)) {
       await bufferRegistry.renameBuffer(id, title);
       return null;
     }
-    const previousName = noteName(id);
     const outcome = await api.renameNoteWithLinks(path, title, updateLinks);
     await settle(id, outcome);
-    setUndoable(
-      outcome.updated === 0 && outcome.renamed_path === path
-        ? null
-        : {
-            noteId: id,
-            path: outcome.renamed_path,
-            previousName: withoutExtension(previousName),
-            paths: outcome.updated_paths,
-          },
-    );
+    setUndoable(outcome.undo_token === null ? null : { noteId: id, token: outcome.undo_token });
     return outcome;
   }
 
@@ -88,11 +77,7 @@ function createRenameLinksStore() {
   async function undoRename(): Promise<RenamePropagation | null> {
     const last = undoable();
     if (last === null) return null;
-    const outcome = await api.undoRenameWithLinks(
-      last.path,
-      last.previousName,
-      last.paths,
-    );
+    const outcome = await api.undoRenameWithLinks(last.token);
     setUndoable(null);
     await settle(last.noteId, outcome);
     return outcome;
@@ -157,11 +142,6 @@ function createRenameLinksStore() {
 function fileName(path: string): string {
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] || path;
-}
-
-/** A note's name without the extension a link never writes. */
-function withoutExtension(name: string): string {
-  return name.replace(/\.(md|markdown)$/i, "");
 }
 
 export const renameLinksStore = createRoot(createRenameLinksStore);

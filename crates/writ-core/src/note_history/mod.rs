@@ -156,7 +156,7 @@ mod tests {
             path: path.to_string(),
             size: 12,
             mtime_ms: Some(1),
-            hash: sha256_bytes(b"a note"),
+            birth_ns: None,
         }
     }
 

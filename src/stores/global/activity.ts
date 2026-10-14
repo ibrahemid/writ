@@ -19,7 +19,7 @@ import {
   type McpTools,
   type PendingClient,
 } from "../../services/tauri";
-import { writeClipboardText } from "../../services/clipboard";
+import { writeClipboardText } from "../../services/tauri";
 import { logFailure } from "../../lib/log";
 
 export type { ActivityRecord, ClientApproval, McpServerCommand, McpTools, PendingClient };
@@ -182,7 +182,8 @@ async function clear(): Promise<void> {
  *
  * Writing carries reading with it: every write tool reads the note before it
  * replaces it, so a grant of one without the other would refuse calls the user
- * had just approved.
+ * had just approved. A grant of writing waits on a confirmation outside the
+ * window; turned down, the lists come back unchanged.
  */
 async function setPermission(name: string, read: boolean, write: boolean): Promise<void> {
   takeClients(await mcpSetClientPermission(name, read || write, write));
@@ -207,8 +208,14 @@ async function forget(name: string): Promise<void> {
   await refreshLog();
 }
 
-async function restore(approval: ClientApproval): Promise<void> {
+/**
+ * Puts a forgotten program back as it was, and answers whether it is back. An
+ * approval that carries writing waits on a confirmation outside the window,
+ * which the person can turn down.
+ */
+async function restore(approval: ClientApproval): Promise<boolean> {
   takeClients(await mcpRestoreClient(approval));
+  return clients().some((client) => client.name === approval.name);
 }
 
 export const activityStore = {

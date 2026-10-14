@@ -153,6 +153,7 @@ export default function PreviewLayout(props: Props) {
               {(download) => (
                 <NoteDownloading
                   download={download()}
+                  onRetry={() => void win.downloads.retry(download().path)}
                   onDismiss={() => void win.downloads.dismiss(download().path)}
                 />
               )}

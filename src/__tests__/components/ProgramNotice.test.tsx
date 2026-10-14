@@ -24,6 +24,7 @@ const h = await vi.hoisted(async () => {
 });
 
 vi.mock("../../services/tauri", () => ({
+  writeClipboardText: vi.fn(),
   activityRecent: h.activityRecent,
   mcpClients: h.mcpClients,
   mcpSetClientPermission: h.mcpSetClientPermission,
@@ -31,7 +32,6 @@ vi.mock("../../services/tauri", () => ({
   mcpReturnToWaiting: h.mcpReturnToWaiting,
 }));
 vi.mock("../../services/events", () => ({ onEvent: h.onEvent }));
-vi.mock("../../services/clipboard", () => ({ writeClipboardText: vi.fn() }));
 vi.mock("../../stores/global/config", () => ({
   configStore: { isAppOn: (id: string) => h.appsOn().includes(id) },
 }));

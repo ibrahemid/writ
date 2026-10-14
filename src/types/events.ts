@@ -8,7 +8,6 @@ import type {
 } from "../services/tauri";
 
 export type WritEvent =
-  | { kind: "buffer:opened"; payload: { id: string; title: string } }
   | { kind: "pending:opens"; payload: { paths: string[] } }
   | { kind: "files:dropped"; payload: { paths: string[] } }
   | { kind: "window:shown"; payload: { rust_elapsed_us: number } }
@@ -26,6 +25,7 @@ export type WritEvent =
   | { kind: "menu:action"; payload: { action: string } }
   | { kind: "hotkey:status"; payload: { chord: string; registered: boolean } }
   | { kind: "workspace:changed"; payload: { path: string; removed: boolean } }
+  | { kind: "workspace:swept"; payload: { root: string } }
   | { kind: "notes:changed"; payload: { path: string; removed: boolean } }
   | { kind: "notes:swept"; payload: { root: string } }
   | {
@@ -71,20 +71,6 @@ export type WritEvent =
         state: "started" | "done" | "failed" | "cancelled" | "timed_out";
         message?: string;
       };
-    }
-  | {
-      kind: "preview:rendered";
-      payload: {
-        buffer_id: string;
-        window_id: number;
-        used_fallback_stylesheet: boolean;
-        parser_warnings: string[];
-      };
-    }
-  | { kind: "preview:error"; payload: { buffer_id: string; window_id: number; message: string } }
-  | {
-      kind: "preview:layout_changed";
-      payload: { buffer_id: string; window_id: number; layout: string; ratio: number | null };
     }
   | { kind: "quit:flush"; payload: Record<string, never> }
   | { kind: "activity:changed"; payload: Record<string, never> }

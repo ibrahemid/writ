@@ -60,6 +60,14 @@ pub enum WritEvent {
         /// `true` when the entry no longer exists on disk.
         removed: bool,
     },
+    /// More changed in the open workspace folder in one window than was worth
+    /// listing ([`crate::watcher::budget::EmissionBudget`]), or the folder's
+    /// own ignore rules changed. Nothing is named: the tree reloads the
+    /// folders it has loaded and the file-name index walks again.
+    WorkspaceSwept {
+        /// Absolute path of the workspace folder.
+        root: String,
+    },
     /// A file inside the notes folder was created, changed or removed on
     /// disk by something other than Writ. Listeners refresh the notes tree
     /// and the index patches the one path; the event carries no content.
