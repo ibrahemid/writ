@@ -1,6 +1,6 @@
 pkgbase = writ-bin
 	pkgdesc = Light text editor for any text file, with full-text search and inline Markdown
-	pkgver = 0.6.0
+	pkgver = 0.7.0
 	pkgrel = 1
 	url = https://github.com/ibrahemid/writ
 	arch = x86_64
@@ -14,11 +14,11 @@ pkgbase = writ-bin
 	provides = writ
 	conflicts = writ
 	options = !strip
-	source = writ-0.6.0.AppImage::https://github.com/ibrahemid/writ/releases/download/v0.6.0/Writ_0.6.0_amd64.AppImage
-	source = writ-0.6.0.AppImage.minisign::https://github.com/ibrahemid/writ/releases/download/v0.6.0/Writ_0.6.0_amd64.AppImage.sig
-	source = LICENSE-0.6.0::https://github.com/ibrahemid/writ/raw/v0.6.0/LICENSE
-	noextract = writ-0.6.0.AppImage
-	sha256sums = 5ec54922f94e815e77227e65afb475121b17a638df474753d15e61f5419490b7
+	source = writ-0.7.0.AppImage::https://github.com/ibrahemid/writ/releases/download/v0.7.0/Writ_0.7.0_amd64.AppImage
+	source = writ-0.7.0.AppImage.minisign::https://github.com/ibrahemid/writ/releases/download/v0.7.0/Writ_0.7.0_amd64.AppImage.sig
+	source = LICENSE-0.7.0::https://github.com/ibrahemid/writ/raw/v0.7.0/LICENSE
+	noextract = writ-0.7.0.AppImage
+	sha256sums = 53d572eacab0df13a3a6cdd126463a4a11286dea8c8bdb0df12fa34b12eb3ae7
 	sha256sums = SKIP
 	sha256sums = e851ba857f3adab0dea5d16a71684a9f046cd7e413f12334d3dd13cff1f4f10f
 
