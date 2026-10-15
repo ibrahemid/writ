@@ -1,6 +1,7 @@
 import { LanguageDescription, type LanguageSupport } from "@codemirror/language";
 import { languages as LANGUAGE_DATA } from "@codemirror/language-data";
 import { extensionOf, namesPlainText } from "../services/language-detect";
+import { MARKDOWN_EXTENSIONS } from "./markdown-math";
 
 /**
  * The languages the editor highlights, and how a grammar is found and loaded.
@@ -8,8 +9,8 @@ import { extensionOf, namesPlainText } from "../services/language-detect";
  * Every grammar comes from CodeMirror's `@codemirror/language-data` table and
  * loads the first time a file needs it, so the main chunk carries no grammar
  * and a plain-text file never waits for one. Two descriptions are Writ's own:
- * Markdown, which Writ parses with the GitHub extensions and with every fence
- * highlighted in its language, and JavaScript, which Writ parses with JSX the
+ * Markdown, which Writ parses with the GitHub extensions, with math, and with
+ * every fence highlighted in its language, and JavaScript, which Writ parses with JSX the
  * way it always has, so a React file named `.js` keeps its tags highlighted.
  *
  * A language is named by an id: the description's name in lower case
@@ -47,7 +48,11 @@ function ownDescription(
 const WRIT_OWNED: readonly LanguageDescription[] = [
   ownDescription("Markdown", () =>
     import("@codemirror/lang-markdown").then((m) =>
-      m.markdown({ base: m.markdownLanguage, codeLanguages: LANGUAGE_CATALOG }),
+      m.markdown({
+        base: m.markdownLanguage,
+        codeLanguages: LANGUAGE_CATALOG,
+        extensions: MARKDOWN_EXTENSIONS,
+      }),
     ),
   ),
   ownDescription("JavaScript", () =>

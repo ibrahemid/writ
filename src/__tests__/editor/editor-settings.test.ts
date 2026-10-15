@@ -8,6 +8,8 @@ import {
   clampTabSize,
   indentationFor,
   lineWrappingFor,
+  readingMeasure,
+  readingWidthFor,
 } from "../../editor/editor-settings";
 import { featuresFor } from "../../editor/large-file";
 import type { FileOpenMode } from "../../types/buffer";
@@ -75,5 +77,30 @@ describe("clampTabSize", () => {
     expect(clampTabSize(-3)).toBe(TAB_SIZE_MIN);
     expect(clampTabSize(99)).toBe(TAB_SIZE_MAX);
     expect(clampTabSize(Number.NaN)).toBe(TAB_SIZE_MIN);
+  });
+});
+
+describe("readingWidthFor", () => {
+  function measureOf(enabled: boolean, code: boolean): string {
+    const view = new EditorView({
+      state: EditorState.create({ doc: "x", extensions: [readingWidthFor(enabled, code)] }),
+    });
+    const width = getComputedStyle(view.contentDOM).maxWidth;
+    view.destroy();
+    return width;
+  }
+
+  it("holds prose to the reading measure when the setting is on", () => {
+    expect(readingWidthFor(true, false)).toBe(readingMeasure);
+    expect(measureOf(true, false)).toBe("var(--writ-prose-measure)");
+  });
+
+  it("leaves prose at the pane's width when the setting is off", () => {
+    expect(readingWidthFor(false, false)).toEqual([]);
+    expect(measureOf(false, false)).not.toBe("var(--writ-prose-measure)");
+  });
+
+  it("leaves a source file at the pane's width either way", () => {
+    expect(readingWidthFor(true, true)).toEqual([]);
   });
 });

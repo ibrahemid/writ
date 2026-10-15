@@ -9904,7 +9904,7 @@ Fonts, libraries, dictionaries and ported code that ship inside the app rather t
    limitations under the License.
 ```
 
-### KaTeX 0.16.22 (MIT)
+### KaTeX 0.18.2 (MIT)
 
 - `src-tauri/assets/katex/fonts/KaTeX_AMS-Regular.woff2`
 - `src-tauri/assets/katex/fonts/KaTeX_Caligraphic-Bold.woff2`
@@ -9952,7 +9952,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Mermaid 11.15.0 (MIT)
+### Mermaid 11.16.1 (MIT)
 
 - `src-tauri/assets/mermaid/mermaid.min.js`
 

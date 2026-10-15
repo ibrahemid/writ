@@ -129,6 +129,10 @@ fn default_status_bar_counts() -> bool {
     false
 }
 
+fn default_reading_width() -> bool {
+    false
+}
+
 fn default_polarity() -> Polarity {
     Polarity::System
 }
@@ -465,6 +469,10 @@ pub struct EditorConfig {
     /// Whether the status bar carries the word, character and token counts.
     #[serde(default = "default_status_bar_counts")]
     pub status_bar_counts: bool,
+    /// Whether prose lines stop at the reading measure (`--writ-prose-measure`)
+    /// instead of running the width of the pane. Code keeps the full width.
+    #[serde(default = "default_reading_width")]
+    pub reading_width: bool,
 }
 
 impl Default for EditorConfig {
@@ -477,6 +485,7 @@ impl Default for EditorConfig {
             markdown_editing: default_markdown_editing(),
             status_bar: default_status_bar(),
             status_bar_counts: default_status_bar_counts(),
+            reading_width: default_reading_width(),
         }
     }
 }
@@ -917,6 +926,20 @@ mod tests {
     fn editor_status_bar_counts_reads_the_table() {
         let config: WritConfig = toml::from_str("[editor]\nstatus_bar_counts = true\n").unwrap();
         assert!(config.editor.status_bar_counts);
+    }
+
+    #[test]
+    fn editor_reading_width_is_off_when_the_file_does_not_name_it() {
+        let config: WritConfig = toml::from_str("[editor]\nfont_size = 15\n").unwrap();
+        assert!(!config.editor.reading_width);
+    }
+
+    #[test]
+    fn editor_reading_width_round_trips() {
+        let config: WritConfig = toml::from_str("[editor]\nreading_width = true\n").unwrap();
+        assert!(config.editor.reading_width);
+        let written: WritConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert!(written.editor.reading_width);
     }
 
     #[test]

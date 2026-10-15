@@ -89,7 +89,7 @@ sources = [
 ]
 
 [[bundled]]
-name = "KaTeX 0.16.22"
+name = "KaTeX 0.18.2"
 licence = "MIT"
 file = "katex.txt"
 files = [
@@ -117,18 +117,18 @@ files = [
     "src-tauri/assets/katex/fonts/KaTeX_Typewriter-Regular.woff2",
 ]
 sources = [
-    "https://raw.githubusercontent.com/KaTeX/KaTeX/v0.16.22/LICENSE",
+    "https://raw.githubusercontent.com/KaTeX/KaTeX/v0.18.2/LICENSE",
 ]
 
 [[bundled]]
-name = "Mermaid 11.15.0"
+name = "Mermaid 11.16.1"
 licence = "MIT"
 file = "mermaid.txt"
 files = [
     "src-tauri/assets/mermaid/mermaid.min.js",
 ]
 sources = [
-    "https://raw.githubusercontent.com/mermaid-js/mermaid/v11.15.0/LICENSE",
+    "https://raw.githubusercontent.com/mermaid-js/mermaid/v11.16.1/LICENSE",
 ]
 
 [[bundled]]

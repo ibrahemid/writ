@@ -6,8 +6,11 @@ import { ensureSyntaxTree } from "@codemirror/language";
 import {
   activeLineStarts,
   buildMarkdownDecorations,
+  type BlockInput,
   type DecorationSpec,
 } from "../../editor/markdown-typography";
+import { MARKDOWN_EXTENSIONS } from "../../editor/markdown-math";
+import { mathKey } from "../../editor/markdown-blocks";
 import { buildMarkdownCorpus } from "./fixtures/markdown-corpus";
 import {
   InlineImageWidget,
@@ -672,6 +675,12 @@ describe("fenced code fences", () => {
     expect(fencesFor(single, 0)).toEqual([]);
   });
 
+  it("never takes a Mermaid fence off screen: its widget covers the whole block", () => {
+    const diagram = "intro\n```Mermaid\ngraph TD\n```\nafter\n";
+    expect(fencesFor(diagram, diagram.indexOf("after"))).toEqual([]);
+    expect(fencesFor(diagram, diagram.indexOf("graph"))).toEqual([]);
+  });
+
   it("moves the slab edges onto the content lines when the fences collapse", () => {
     const specs = buildForDoc(doc, [doc.indexOf("after")]);
     const slab = specs.filter((s) => classesOf(s).includes("cm-md-codeblock"));
@@ -811,17 +820,88 @@ describe("activeLineStarts", () => {
   });
 });
 
-// ─── Tables, html and math stay as source ─────────────────────────────────
+// ─── Tables, math, diagrams and html ──────────────────────────────────────
 
-describe("blocks that stay as styled source", () => {
-  it("keeps a table as styled source", () => {
-    // A table runs to the next blank line, which is where it ends here.
+/** The builder over `doc` with the math grammar, the drawings and the drawn blocks given. */
+function buildWithBlocks(
+  doc: string,
+  cursorPositions: number[],
+  blocks: BlockInput = { renders: new Map(), drawn: [] },
+): DecorationSpec[] {
+  const state = EditorState.create({
+    doc,
+    extensions: [markdown({ base: markdownLanguage, extensions: MARKDOWN_EXTENSIONS })] as never,
+  });
+  const tree = treeFor(state);
+  return buildMarkdownDecorations(
+    (from, to, cb) => tree.iterate({ from, to, enter: cb }),
+    (pos) => state.doc.lineAt(pos),
+    (from, to) => state.doc.sliceString(from, to),
+    activeLineStarts(
+      cursorPositions.map((pos) => ({ from: pos, to: pos })),
+      (pos) => state.doc.lineAt(pos),
+      0,
+      doc.length,
+    ),
+    0,
+    doc.length,
+    new Map(),
+    blocks,
+  );
+}
+
+describe("blocks as source, and what the block widgets cover", () => {
+  it("styles a table as source while the block layer does not draw it", () => {
+    // A table runs to the next blank line, which is where it ends here. The
+    // caret is in it, which is when its source is on screen.
     const doc = "| a | b |\n|---|---|\n| 1 | 2 |\n\ncursor\n";
-    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
+    const specs = buildForDoc(doc, [doc.indexOf("| 1")]);
     const lines = specs.filter((s) => classesOf(s).includes("cm-md-table"));
     expect(lines.map((s) => s.from)).toEqual([0, doc.indexOf("|---"), doc.indexOf("| 1")]);
     // Every pipe is still there to be edited.
     expect(specs.some((s) => isReplace(s))).toBe(false);
+  });
+
+  it("draws nothing of its own inside a block the widgets cover", () => {
+    const doc = "| **a** | [b](https://x.example) |\n|---|---|\n| 1 | 2 |\n\ncursor\n";
+    const table = { from: 0, to: doc.indexOf("\n\ncursor") };
+    const specs = buildWithBlocks(doc, [doc.indexOf("cursor")], { renders: new Map(), drawn: [table] });
+    expect(specs.filter((s) => s.from < table.to)).toEqual([]);
+  });
+
+  it("styles display math as mono source while it is not drawn", () => {
+    const doc = "intro\n\n$$\nx = 1\n$$\n\ncursor\n";
+    const specs = buildWithBlocks(doc, [doc.indexOf("x = 1")]);
+    const lines = specs.filter((s) => classesOf(s).includes("cm-md-math-source"));
+    expect(lines.map((s) => s.from)).toEqual([doc.indexOf("$$"), doc.indexOf("x = 1"), doc.lastIndexOf("$$")]);
+  });
+
+  it("draws inline math away from the caret, with the drawing once it arrives", () => {
+    const doc = "Area $\\pi r^2$ here.\ncursor\n";
+    const from = doc.indexOf("$");
+    const to = doc.indexOf("$", from + 1) + 1;
+    const markup = '<span class="katex">pi</span>';
+    const specs = buildWithBlocks(doc, [doc.indexOf("cursor")], {
+      renders: new Map([[mathKey("\\pi r^2", false), { status: "ready", markup }]]),
+      drawn: [],
+    });
+    const widget = specs.find((s) => s.from === from && s.to === to);
+    expect(widget).toBeDefined();
+    const dom = (widgetOf(widget!) as { toDOM(): HTMLElement }).toDOM();
+    expect(dom.innerHTML).toBe(markup);
+  });
+
+  it("shows inline math as mono source on the caret's line", () => {
+    const doc = "Area $\\pi r^2$ here.\ncursor\n";
+    const specs = buildWithBlocks(doc, [0]);
+    expect(specs.some((s) => isReplace(s))).toBe(false);
+    expect(specs.some((s) => classesOf(s).includes("cm-md-math-source"))).toBe(true);
+  });
+
+  it("leaves inline math that runs onto the next line as source", () => {
+    const doc = "Sum $a +\nb$ here.\n\ncursor\n";
+    const specs = buildWithBlocks(doc, [doc.indexOf("cursor")]);
+    expect(specs.some((s) => widgetOf(s) !== undefined)).toBe(false);
   });
 
   it("keeps an html block as styled source", () => {
@@ -835,19 +915,17 @@ describe("blocks that stay as styled source", () => {
     ]);
   });
 
-  it("keeps a display math block as styled source", () => {
-    // The grammar has no math node, so the block is prose to the tree and
-    // nothing touches it. Recognising it would take a second parser.
-    const doc = "intro\n\n$$\nx = 1\n$$\ncursor\n";
-    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
-    expect(specs.filter((s) => s.from >= doc.indexOf("$$") && s.to <= doc.lastIndexOf("$$") + 2))
-      .toEqual([]);
-  });
-
-  it("leaves a mermaid fence as a fenced block", () => {
+  it("keeps a mermaid fence's fences on screen while its source is shown", () => {
+    // Away from the caret the diagram widget takes the block; with the caret
+    // in it the fences stay, dimmed, rather than being taken off screen.
     const doc = "intro\n```mermaid\ngraph TD\n```\ncursor\n";
-    const specs = buildForDoc(doc, [doc.indexOf("cursor")]);
-    expect(specs.some((s) => classesOf(s).includes("cm-md-codeblock"))).toBe(true);
+    const specs = buildForDoc(doc, [doc.indexOf("graph")]);
+    const slab = specs.filter((s) => classesOf(s).includes("cm-md-codeblock"));
+    expect(slab.map((s) => s.from)).toEqual([
+      doc.indexOf("```mermaid"),
+      doc.indexOf("graph"),
+      doc.lastIndexOf("```"),
+    ]);
   });
 });
 

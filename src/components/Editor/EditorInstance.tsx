@@ -15,6 +15,7 @@ import { editorThemeFor, writCodeFace, writHighlight } from "./cm-theme";
 import { themeStore } from "../../stores/global/theme";
 import { isMarkdownBuffer } from "../../lib/content-type";
 import { markdownInlineExtension } from "../../editor/markdown-typography";
+import { sharedBlockRenderer } from "../../editor/block-renderer";
 import type { InlineImageDeps } from "../../editor/markdown-images";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { MARKDOWN_FORMAT_KEYS } from "../../editor/editor-command-keys";
@@ -98,7 +99,8 @@ import { autoTextDirection } from "../../editor/bidi";
 import { placeholderExtension } from "../../editor/placeholder";
 import { commandChord } from "../../lib/command-chord";
 import { codeChrome, codeChromeFor, isCodeBuffer, surfaceFollowsLanguage } from "../../editor/code-chrome";
-import { indentationFor, lineWrappingFor } from "../../editor/editor-settings";
+import { indentationFor, lineWrappingFor, readingWidthFor } from "../../editor/editor-settings";
+import { foldChromeFor, folding } from "../../editor/folding";
 import { stripOwnedBindings } from "../../editor/keymap-filter";
 import { registerEditorCommands, OWNED_CM_COMMANDS } from "../../editor/editor-commands";
 import "./EditorInstance.css";
@@ -182,6 +184,10 @@ export default function EditorInstance(props: Props) {
   // a change reaches the open file without rebuilding it.
   const wrapCompartment = new Compartment();
   const indentationCompartment = new Compartment();
+  // Settings, Editor, Reading width, which a source file does not take.
+  const measureCompartment = new Compartment();
+  // The fold controls; the folds themselves live outside every compartment.
+  const foldChromeCompartment = new Compartment();
   const directionCompartment = new Compartment();
   const placeholderCompartment = new Compartment();
 
@@ -388,9 +394,24 @@ export default function EditorInstance(props: Props) {
   function typographyExtension(markdown: boolean, features: EditorFeatures): Extension {
     if (!features.markdown) return [];
     if (markdown && win.layout.get(props.buffer.id, "markdown").kind === "inline") {
-      return markdownInlineExtension(imageDeps);
+      return markdownInlineExtension(imageDeps, sharedBlockRenderer());
     }
     return [];
+  }
+
+  // A source file folds from a gutter beside its line numbers and Markdown
+  // from a control beside each heading. Both need the grammar's tree, so a
+  // tier without highlighting has neither.
+  function foldChromeExtension(lang: string | null, mode: FileOpenMode, features: EditorFeatures): Extension {
+    if (!features.highlight || !surfaceFollowsLanguage(mode)) return [];
+    if (lang === "markdown") return foldChromeFor("markdown");
+    return foldChromeFor(isCodeBuffer(lang) ? "code" : "none");
+  }
+
+  // Reading width is for text being read: a large or binary file is being
+  // inspected, and keeps the width of the pane like a source file does.
+  function measureExtension(enabled: boolean, lang: string | null, mode: FileOpenMode): Extension {
+    return surfaceFollowsLanguage(mode) ? readingWidthFor(enabled, isCodeBuffer(lang)) : [];
   }
 
   // Prose sans is the writing face; a source buffer is code all the way down,
@@ -465,6 +486,7 @@ export default function EditorInstance(props: Props) {
           ? [
               codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
               codeChromeCompartment.reconfigure(codeChromeFor(lang)),
+              foldChromeCompartment.reconfigure(foldChromeExtension(lang, mode, features)),
             ]
           : []),
       ],
@@ -522,6 +544,8 @@ export default function EditorInstance(props: Props) {
       typographyCompartment.of(typographyExtension(markdown, features)),
       codeFaceCompartment.of(surface ? codeFaceExtension(langId) : []),
       codeChromeCompartment.of(surface ? codeChromeFor(langId) : codeChrome),
+      folding,
+      foldChromeCompartment.of(foldChromeExtension(langId, mode, features)),
       editingCompartment.of(editingExtension(markdown, features)),
       // Configured by applySpelling() after the view mounts.
       spellingCompartment.of([]),
@@ -559,6 +583,7 @@ export default function EditorInstance(props: Props) {
       themeCompartment.of(editorThemeFor(themeStore.polarity())),
       wrapCompartment.of(lineWrappingFor(configStore.config().editor.word_wrap, features.wrap)),
       indentationCompartment.of(indentationFor(configStore.config().editor.tab_size)),
+      measureCompartment.of(measureExtension(configStore.config().editor.reading_width, langId, mode)),
       directionCompartment.of(features.direction ? autoTextDirection : []),
       placeholderCompartment.of(placeholderFor(markdown, mode)),
       EditorView.updateListener.of((update) => {
@@ -796,10 +821,12 @@ export default function EditorInstance(props: Props) {
         typographyCompartment.reconfigure(typographyExtension(markdown, features)),
         codeFaceCompartment.reconfigure(surface ? codeFaceExtension(lang) : []),
         codeChromeCompartment.reconfigure(surface ? codeChromeFor(lang) : codeChrome),
+        foldChromeCompartment.reconfigure(foldChromeExtension(lang, mode, features)),
         editingCompartment.reconfigure(editingExtension(markdown, features)),
         linkCompartment.reconfigure(features.links ? linkExtensions(markdown) : []),
         wrapCompartment.reconfigure(lineWrappingFor(editor.word_wrap, features.wrap)),
         indentationCompartment.reconfigure(indentationFor(editor.tab_size)),
+        measureCompartment.reconfigure(measureExtension(editor.reading_width, lang, mode)),
         directionCompartment.reconfigure(features.direction ? autoTextDirection : []),
         placeholderCompartment.reconfigure(placeholderFor(markdown, mode)),
         themeCompartment.reconfigure(editorThemeFor(themeStore.polarity())),
@@ -1213,6 +1240,19 @@ export default function EditorInstance(props: Props) {
     { defer: true },
   ));
 
+  // Reading width follows the setting and whether the file in front is code,
+  // in every tier.
+  const readingWidth = createMemo(() => configStore.config().editor.reading_width);
+  createEffect(on(
+    [readingWidth, () => win.editor.language()],
+    ([measured, lang]) => {
+      view?.dispatch({
+        effects: measureCompartment.reconfigure(measureExtension(measured, lang, currentMode())),
+      });
+    },
+    { defer: true },
+  ));
+
   // Flip the editor's light/dark fallback styling when the app theme polarity
   // changes, without rebuilding the view.
   createEffect(on(
@@ -1236,6 +1276,7 @@ export default function EditorInstance(props: Props) {
       effects: [
         codeFaceCompartment.reconfigure(codeFaceExtension(lang)),
         codeChromeCompartment.reconfigure(codeChromeFor(lang)),
+        foldChromeCompartment.reconfigure(foldChromeExtension(lang, currentMode(), features)),
         editingCompartment.reconfigure(
           markdown && editingEnabled && features.markdown ? markdownEditingExtension : [],
         ),

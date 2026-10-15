@@ -63,6 +63,7 @@ function configWithoutStatusBar(): WritConfig {
       markdown_editing: true,
       status_bar: false,
       status_bar_counts: false,
+      reading_width: false,
     },
     window: { width: 800, height: 600, maximized: false },
     keybindings: {},

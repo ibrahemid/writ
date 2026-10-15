@@ -20,7 +20,8 @@ What Writ does, at the level of detail that answers "does it do X".
 
 ## Markdown
 
-- A Markdown file opens in Inline mode: headings at heading sizes, bold, italic, strikethrough and inline code styled, links with the address hidden, images shown under their line, task lists as checkboxes, and fenced code highlighted in its language. The line you are editing shows its markup.
+- A Markdown file opens in Inline mode: headings at heading sizes, bold, italic, strikethrough and inline code styled, links with the address hidden, images shown under their line, task lists as checkboxes, fenced code highlighted in its language, and tables, `$…$` and `$$…$$` math and `mermaid` diagrams drawn in place. The line you are editing shows its markup, and a table, formula or diagram shows its source while the cursor is in it.
+- A heading folds its section from the arrow beside it, and `Cmd+Option+[` and `Cmd+Option+]` (`Ctrl+Shift+[` and `Ctrl+Shift+]` on Windows and Linux) fold and unfold at the cursor. A source file folds from the gutter beside its line numbers.
 - The Inline | Source switch in the status bar shows the raw Markdown instead. Settings, Editor, Markdown opens in sets which one a Markdown file opens in.
 - `[[Name]]` links another file by name, completes from the files in the folder, and opens on `Cmd+click` or `Enter`. `[[Name#Heading]]` opens at the heading. A name two files share asks which one is meant.
 - `Cmd+B`, `Cmd+I`, `Cmd+Shift+X`, `Cmd+Shift+E` and `Cmd+K` format a selection. Settings, Editor, Markdown shortcuts turns them off.
@@ -37,7 +38,7 @@ What Writ does, at the level of detail that answers "does it do X".
 ## Editing
 
 - CodeMirror 6. A file's name decides its language, and a `.txt` or `.text` file stays plain text whatever it holds. Change Language in the palette picks another language for one file, and the file keeps it.
-- Word wrap and tab size, under Settings, Editor, apply to open files at once.
+- Word wrap, tab size and reading width, under Settings, Editor, apply to open files at once. Reading width keeps lines of prose to a set width; code files keep the full width.
 - The command palette opens on a double tap of `Shift` (Help > Command Palette). Typing a file's name there lists the file under the commands.
 - File > Open Folder (`Cmd+Option+O`) shows a folder's files in the sidebar. The tree draws only the rows on screen; it is one `Tab` stop, with the arrow keys, `Home`, `End` and typing a name to move inside it. A folder Writ cannot read says so with Try again, and folders stay open across launches. Right-click on any row shows it in the file manager or copies its path; in Writ's folder it also renames, moves to the Trash, or makes a new file in a folder.
 - Help holds Writ Help (the guide on the site), Keyboard Shortcuts, What's New (the changelog at this version), Show Setup Again and Report an Issue (the bug form, with the version filled in).

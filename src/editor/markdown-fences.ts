@@ -13,6 +13,7 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
+import { isMermaidFence } from "./markdown-blocks";
 
 // Minimal structural types matching @lezer/common, mirroring the shape used
 // by editor/markdown-typography.ts so this module keeps out of the direct
@@ -57,11 +58,18 @@ const BLOCK_CONTAINERS = new Set([
  * document: hiding a line means swallowing the break in front of it, and the
  * first line of a document has none. The caller then leaves the fences where
  * they are, dimmed, which is what shipped before.
+ *
+ * Null for a Mermaid fence too, when `docSlice` is given: away from the caret
+ * the diagram widget takes the whole block, and a fence replace starting on
+ * the line break in front of it would cut into that widget. Its fences stay
+ * on screen, dimmed, while the diagram's source is being edited.
  */
 export function fenceCollapsible(
   node: SyntaxNodeLike,
   docLineAt: (pos: number) => DocLine,
+  docSlice?: (from: number, to: number) => string,
 ): FenceLines | null {
+  if (docSlice && isMermaidFence(node, docSlice)) return null;
   let marks = 0;
   let last: SyntaxNodeLike | null = null;
   for (let child = node.firstChild; child; child = child.nextSibling) {
@@ -110,11 +118,12 @@ export function collapsibleFences(
   docLineAt: (pos: number) => DocLine,
   from: number,
   to: number,
+  docSlice?: (from: number, to: number) => string,
 ): FenceLines[] {
   const found: FenceLines[] = [];
   iterateTree(from, to, (node) => {
     if (node.name === "FencedCode") {
-      const fences = fenceCollapsible(node.node, docLineAt);
+      const fences = fenceCollapsible(node.node, docLineAt, docSlice);
       if (fences) found.push(fences);
       return false;
     }
@@ -145,6 +154,7 @@ function fencesOf(state: EditorState, window: FenceWindow): FenceLines[] {
     (pos) => state.doc.lineAt(pos),
     window.from,
     window.to,
+    (from, to) => state.doc.sliceString(from, to),
   );
 }
 

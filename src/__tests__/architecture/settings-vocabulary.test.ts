@@ -21,6 +21,7 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["editor.font_size", "editor", "Font size", ["font", "size", "text", "zoom"]],
   ["editor.tab_size", "editor", "Tab size", ["tab", "indent", "spaces", "width"]],
   ["editor.word_wrap", "editor", "Word wrap", ["wrap", "word", "line", "soft wrap"]],
+  ["editor.reading_width", "editor", "Reading width", ["reading", "width", "measure", "line length", "column", "narrow", "center"]],
   ["editor.markdown_editing", "editor", "Markdown shortcuts", ["markdown", "editing", "bold", "italic", "strikethrough", "link", "shortcuts", "checkbox", "list"]],
   ["preview.layout_md", "editor", "Markdown opens in", ["layout", "markdown", "md", "text", "preview", "inline", "source"]],
   ["editor.spelling", "editor", "Spell check", ["spell", "spelling", "check", "dictionary", "typos", "grammar"]],

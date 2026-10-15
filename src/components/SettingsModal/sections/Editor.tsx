@@ -46,7 +46,9 @@ export default function EditorSection() {
     void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, tab_size: value } }));
   }
 
-  function toggleEditor(key: "word_wrap" | "markdown_editing" | "status_bar" | "status_bar_counts") {
+  function toggleEditor(
+    key: "word_wrap" | "reading_width" | "markdown_editing" | "status_bar" | "status_bar_counts",
+  ) {
     void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, [key]: !prev.editor[key] } }));
   }
 
@@ -110,6 +112,12 @@ export default function EditorSection() {
         setting="word_wrap"
         checked={cfg().word_wrap}
         onChange={() => toggleEditor("word_wrap")}
+      />
+      <SwitchRow
+        id="editor.reading_width"
+        setting="reading_width"
+        checked={cfg().reading_width}
+        onChange={() => toggleEditor("reading_width")}
       />
       <SwitchRow
         id="editor.markdown_editing"

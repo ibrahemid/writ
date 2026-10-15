@@ -28,7 +28,7 @@ const MOCK_CONFIG: WritConfig = {
   panel: { open: false, width: 240 },
   chat_panel: { open: false, width: 380 },
   first_run: { hint_dismissed: false },
-  editor: { font_size: 18, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_editing: true, status_bar: false, status_bar_counts: false },
+  editor: { font_size: 18, word_wrap: true, tab_size: 4, autosave_debounce_ms: 500, markdown_editing: true, status_bar: false, status_bar_counts: false, reading_width: false },
   window: { width: 1200, height: 800, maximized: false },
   keybindings: {},
   history: { max_entries: 1000 },

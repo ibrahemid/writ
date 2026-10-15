@@ -166,3 +166,42 @@ describe("EditorInstance: Tab size", () => {
     expect(view.state.tabSize).toBe(8);
   });
 });
+
+describe("EditorInstance: Reading width", () => {
+  const MEASURE = "var(--writ-prose-measure)";
+  const measureOf = (view: EditorView) => getComputedStyle(view.contentDOM).maxWidth;
+
+  beforeEach(async () => {
+    bufferContent.clear();
+    await setEditor({ word_wrap: true, tab_size: 2, reading_width: false });
+  });
+
+  afterEach(async () => {
+    cleanup();
+    await setEditor({ reading_width: false });
+  });
+
+  it("holds prose to the reading measure while the setting is on, both ways", async () => {
+    bufferContent.set("R1", "a long line of prose\n");
+    const view = await mount(mockBuffer("R1", "notes.txt"));
+    expect(measureOf(view)).not.toBe(MEASURE);
+
+    await setEditor({ reading_width: true });
+    expect(measureOf(view)).toBe(MEASURE);
+
+    await setEditor({ reading_width: false });
+    expect(measureOf(view)).not.toBe(MEASURE);
+  });
+
+  it("leaves a source file and a large file at the pane's width", async () => {
+    await setEditor({ reading_width: true });
+    bufferContent.set("R2", "fn main() {}\n");
+    const code = await mount(mockBuffer("R2", "main.rs"));
+    await vi.waitFor(() => expect(measureOf(code)).not.toBe(MEASURE));
+    cleanup();
+
+    bufferContent.set("R3", "alpha\nbeta\n");
+    const large = await mount(mockBuffer("R3", "huge.log", 6 * 1024 * 1024));
+    expect(measureOf(large)).not.toBe(MEASURE);
+  });
+});

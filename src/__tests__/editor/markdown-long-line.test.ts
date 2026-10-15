@@ -19,10 +19,16 @@ describe("Markdown Inline with one very long line", () => {
         doc,
         extensions: [
           markdown({ base: markdownLanguage }),
-          markdownInlineExtension({
-            resolve: () => new Promise(() => {}),
-            download: () => new Promise(() => {}),
-          }),
+          markdownInlineExtension(
+            {
+              resolve: () => new Promise(() => {}),
+              download: () => new Promise(() => {}),
+            },
+            {
+              renderMath: () => new Promise(() => {}),
+              renderDiagram: () => new Promise(() => {}),
+            },
+          ),
         ],
       }),
     });
