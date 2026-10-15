@@ -294,12 +294,12 @@ function AppShell() {
       execute: () => {
         const w = windowRegistry.getActive();
         if (!w) return;
-        const tabs = bufferRegistry.activeTabs();
+        const tabs = w.tabs.tabsIn(w.panes.focused());
         const currentId = w.tabs.activeTabId();
         if (tabs.length < 2 || !currentId) return;
-        const idx = tabs.findIndex((t) => t.id === currentId);
+        const idx = tabs.indexOf(currentId);
         const nextIdx = (idx + 1) % tabs.length;
-        w.tabs.setActiveTabId(tabs[nextIdx].id);
+        w.tabs.selectIn(w.panes.focused(), tabs[nextIdx]);
       },
     });
 
@@ -313,12 +313,86 @@ function AppShell() {
       execute: () => {
         const w = windowRegistry.getActive();
         if (!w) return;
-        const tabs = bufferRegistry.activeTabs();
+        const tabs = w.tabs.tabsIn(w.panes.focused());
         const currentId = w.tabs.activeTabId();
         if (tabs.length < 2 || !currentId) return;
-        const idx = tabs.findIndex((t) => t.id === currentId);
+        const idx = tabs.indexOf(currentId);
         const prevIdx = (idx - 1 + tabs.length) % tabs.length;
-        w.tabs.setActiveTabId(tabs[prevIdx].id);
+        w.tabs.selectIn(w.panes.focused(), tabs[prevIdx]);
+      },
+    });
+
+    // Two panes side by side (ADR-056). Global, like the tab chords: the
+    // editor holds focus while you write.
+    registerCommand({
+      id: "pane.splitRight",
+      label: "Split right",
+      description: "Show this file in a second pane beside it",
+      keywords: ["pane", "split", "side by side", "two"],
+      keybinding: "CmdOrCtrl+Shift+2",
+      scope: "app",
+      global: true,
+      isAvailable: () => windowRegistry.getActive()?.tabs.activeTabId() != null,
+      execute: () => {
+        const w = windowRegistry.getActive();
+        if (!w) return;
+        w.tabs.splitRight();
+        w.editor.focusEditor();
+      },
+    });
+
+    registerCommand({
+      id: "pane.closeSplit",
+      label: "Close split",
+      description: "Show one pane holding every tab",
+      keywords: ["pane", "split", "single"],
+      keybinding: "CmdOrCtrl+Shift+1",
+      scope: "app",
+      global: true,
+      isAvailable: () => windowRegistry.getActive()?.panes.isSplit() === true,
+      execute: () => {
+        const w = windowRegistry.getActive();
+        if (!w) return;
+        w.tabs.closeSplit();
+        w.editor.focusEditor();
+      },
+    });
+
+    registerCommand({
+      id: "pane.focusOther",
+      label: "Focus other pane",
+      description: "Move the keyboard to the pane beside this one",
+      keywords: ["pane", "split", "switch"],
+      keybinding: "F6",
+      scope: "app",
+      global: true,
+      isAvailable: () => windowRegistry.getActive()?.panes.isSplit() === true,
+      execute: () => {
+        const w = windowRegistry.getActive();
+        if (!w) return;
+        w.tabs.focusOtherPane();
+        w.editor.focusEditor();
+      },
+    });
+
+    registerCommand({
+      id: "pane.moveTab",
+      label: "Move tab to other pane",
+      description: "Send this tab to the pane beside it",
+      keywords: ["pane", "split", "send"],
+      keybinding: "CmdOrCtrl+Shift+M",
+      scope: "app",
+      global: true,
+      isAvailable: () => {
+        const w = windowRegistry.getActive();
+        if (!w || w.tabs.activeTabId() == null) return false;
+        return w.panes.isSplit() || w.tabs.tabsIn(w.panes.focused()).length > 1;
+      },
+      execute: () => {
+        const w = windowRegistry.getActive();
+        if (!w) return;
+        w.tabs.moveToOtherPane();
+        w.editor.focusEditor();
       },
     });
 

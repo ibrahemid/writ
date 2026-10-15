@@ -69,7 +69,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
     editor: { isRemovedOnDisk: () => false },
+    panes: {
+      holds: () => true,
+      activeIn: () => mocks.activeTabId(),
+      isSplit: () => false,
+      focused: () => "left",
+      focus: () => {},
+    },
     tabs: {
+      selectIn: (_pane: string, id: string) => mocks.setActiveTabId(id),
+      showDownloadPane: () => mocks.setActiveTabId(null),
+      moveToOtherPane: () => {},
       activeTabId: mocks.activeTabId,
       setActiveTabId: mocks.setActiveTabId,
       closeTab: mocks.closeTab,

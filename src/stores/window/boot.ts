@@ -385,6 +385,9 @@ export function createBootPlan(win: WindowState, shell: BootShell): BootPlan {
       // note it has already put there. Under a deadline, so a read that never
       // settles costs that and nothing more.
       await readFirstRunWithin(FIRST_RUN_READ_DEADLINE_MS);
+      // The panes come back first, so the tab chosen is the one in front of
+      // the focused pane (ADR-056).
+      win.tabs.restorePanes();
       await openBootTab(win.tabs, bufferRegistry.activeTabs(), firstRunStore.step());
       // Reapplied here rather than in the hidden Rust restore path: on Windows
       // maximizing runs ShowWindow(SW_MAXIMIZE), which has no visibility guard,

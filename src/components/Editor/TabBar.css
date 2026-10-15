@@ -306,3 +306,12 @@
   min-height: 26px;
   border-radius: var(--writ-r-tab);
 }
+
+/* A tab dragged to the other pane's strip (ADR-056). */
+.tab-label.is-dragged {
+  opacity: 0.5;
+}
+
+.tabbar.is-drop-target {
+  background: var(--writ-bg-hover);
+}

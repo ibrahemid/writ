@@ -51,6 +51,14 @@ export const SCENARIOS = [
     spec: { name: "blocks-50-tables-20-diagrams.md", kind: "markdown-blocks", size: 0, tables: 50, diagrams: 20 },
   },
   {
+    id: "prose-1MiB-split",
+    tier: "Normal",
+    opensAs: "Normal",
+    afterAudit: true,
+    split: true,
+    spec: { name: "prose-1MiB.txt", kind: "prose", size: 1 * MiB },
+  },
+  {
     id: "json-1line-5MiB",
     tier: "Normal",
     opensAs: "LongLines",
@@ -129,6 +137,7 @@ export const BUDGETS = {
   "prose-4.9MiB-counts": { firstPaintMs: 145, heapMiB: 11, jumpToEndMs: 75, typingP50Ms: 35, typingP95Ms: 55, typingMaxMs: 100, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 40, findTypingMaxMs: 100, findTypingTaskMs: 100 },
   "md-4.9MiB": { firstPaintMs: 235, heapMiB: 15, jumpToEndMs: 70, typingP50Ms: 100, typingP95Ms: 160, typingMaxMs: 305, idleTaskMs: 305, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 110, findTypingMaxMs: 305, findTypingTaskMs: 305 },
   "md-blocks": { firstPaintMs: 95, heapMiB: 6, jumpToEndMs: 165, typingP50Ms: 35, typingP95Ms: 55, typingMaxMs: 100, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 510, findTaskMs: 100, findTypingP50Ms: 45, findTypingMaxMs: 100, findTypingTaskMs: 100 },
+  "prose-1MiB-split": { firstPaintMs: 80, heapMiB: 4, jumpToEndMs: 55, typingP50Ms: 40, typingP95Ms: 60, typingMaxMs: 100, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 485, findTaskMs: 100, findTypingP50Ms: 45, findTypingMaxMs: 100, findTypingTaskMs: 100 },
   "json-1line-5MiB": { firstPaintMs: 260, heapMiB: 4, jumpToEndMs: 60, typingP50Ms: 70, typingP95Ms: 85, typingMaxMs: 110, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 120, findTypingMaxMs: 150, findTypingTaskMs: 100 },
   "prose-5.1MiB": { firstPaintMs: 120, heapMiB: 11, jumpToEndMs: 55, typingP50Ms: 35, typingP95Ms: 55, typingMaxMs: 100, idleTaskMs: 100, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 55, findTypingMaxMs: 100, findTypingTaskMs: 100 },
   "log-200k": { firstPaintMs: 305, heapMiB: 41, jumpToEndMs: 55, typingP50Ms: 40, typingP95Ms: 60, typingMaxMs: 210, idleTaskMs: 210, findKeyP50Ms: 35, findKeyMaxMs: 100, findSettleMs: 465, findTaskMs: 100, findTypingP50Ms: 45, findTypingMaxMs: 240, findTypingTaskMs: 240 },

@@ -10,6 +10,11 @@ export interface TabState {
   mode: FileOpenMode;
   /** The longest line the tab was loaded with ([`featuresFor`]). */
   longest: number;
+  /**
+   * Set on a state another pane's editor built, handed over with its tab
+   * (ADR-056): the taker reconfigures it with its own extensions.
+   */
+  foreign?: boolean;
 }
 
 /**
@@ -26,7 +31,7 @@ function isLargeTier(mode: FileOpenMode): boolean {
 
 /**
  * The editor states of the open tabs that are not in front, least recently
- * left first.
+ * left first. The editor store files them by pane and tab (ADR-056).
  *
  * Over the budget, the least recently left large-tier tab goes first, then
  * the least recently left of the rest. A tab whose document alone is over
@@ -102,6 +107,11 @@ export class TabStateCache {
 
   has(id: string): boolean {
     return this.entries.has(id);
+  }
+
+  /** The ids kept, least recently left first. */
+  keys(): string[] {
+    return [...this.entries.keys()];
   }
 
   private evictOver(keep: string): void {

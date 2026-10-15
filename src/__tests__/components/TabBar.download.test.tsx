@@ -41,7 +41,17 @@ const downloads = createDownloadStore();
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
+    panes: {
+      holds: () => true,
+      activeIn: () => (() => null)(),
+      isSplit: () => false,
+      focused: () => "left",
+      focus: () => {},
+    },
     tabs: {
+      selectIn: (_pane: string, id: string) => (vi.fn())(id),
+      showDownloadPane: () => (vi.fn())(null),
+      moveToOtherPane: () => {},
       activeTabId: () => null,
       setActiveTabId: vi.fn(),
       closeTab: vi.fn(),

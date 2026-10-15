@@ -36,6 +36,8 @@ export interface Scenario {
   counts?: true;
   /** Added after the editor-perf audit, which measured no such file: no audit floor. */
   afterAudit?: true;
+  /** The file shows in two panes, and the typing goes to the second (ADR-056). */
+  split?: true;
   spec: CorpusSpec;
 }
 

@@ -194,6 +194,15 @@ async function runScenario(browser, base, scenario) {
     result.file = { size: file.size, lines: file.lines, rareWordCount: file.rareWordCount };
     const heapBefore = await heapUsed(cdp);
     const opened = await page.evaluate((path) => window.__harness.open(path), file.path);
+    if (scenario.split) {
+      // The file shows in both panes and the typing below goes to the second
+      // one, whose editor carries every change into the first.
+      const split = await page.evaluate(() => window.__harness.splitRight());
+      result.split = split;
+      if (split.focused !== "right" || split.leftLength !== split.rightLength || split.rightLength === 0) {
+        problems.push(`the split did not show the file twice: ${JSON.stringify(split)}`);
+      }
+    }
     await page.waitForTimeout(3000);
     result.features = await page.evaluate(() => window.__harness.features());
     if (result.features.tier !== scenario.opensAs) {

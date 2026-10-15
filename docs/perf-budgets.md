@@ -298,6 +298,7 @@ a count of the whole text. A page error fails the scenario.
 | `prose-4.9MiB-counts` | the same prose, with the word, character and token counts on in the status bar | 5,138,022 | Normal | Normal |
 | `md-4.9MiB` | Markdown, a heading every 10,480 bytes, shown Inline | 5,138,022 | Normal | Normal |
 | `md-blocks` | Markdown with 50 tables, 20 Mermaid diagrams, 20 display formulas and inline math between paragraphs, shown Inline with the blocks drawn; the scenario fails unless the first screen shows drawn tables, diagrams and formulas | 35,254 | Normal | Normal |
+| `prose-1MiB-split` | the `prose-1MiB` file shown in both panes after Split right, typed and searched in the second pane while the first takes every change; the scenario fails unless both panes hold the whole file | 1,048,576 | Normal | Normal |
 | `json-1line-5MiB` | JSON on one line | 5,242,880 | Normal | LongLines |
 | `prose-5.1MiB` | prose | 5,347,738 | LargeFile | LargeFile |
 | `log-200k` | a log of 200,000 lines | 22,442,145 | LargeFile | LargeFile |
@@ -317,6 +318,7 @@ a count of the whole text. A page error fails the scenario.
 | `prose-4.9MiB-counts` | Normal | 145 | 11 | 75 | 35 | 55 | 100 | 100 | 35 | 100 | 465 | 100 | 40 | 100 | 100 |
 | `md-4.9MiB` | Normal | 235 | 15 | 70 | 100 | 160 | 305 | 305 | 35 | 100 | 465 | 100 | 110 | 305 | 305 |
 | `md-blocks` | Normal | 95 | 6 | 165 | 35 | 55 | 100 | 100 | 35 | 100 | 510 | 100 | 45 | 100 | 100 |
+| `prose-1MiB-split` | Normal | 80 | 4 | 55 | 40 | 60 | 100 | 100 | 35 | 100 | 485 | 100 | 45 | 100 | 100 |
 | `json-1line-5MiB` | Normal | 260 | 4 | 60 | 70 | 85 | 110 | 100 | 35 | 100 | 465 | 100 | 120 | 150 | 100 |
 | `prose-5.1MiB` | LargeFile | 120 | 11 | 55 | 35 | 55 | 100 | 100 | 35 | 100 | 465 | 100 | 55 | 100 | 100 |
 | `log-200k` | LargeFile | 305 | 41 | 55 | 40 | 60 | 210 | 210 | 35 | 100 | 465 | 100 | 45 | 240 | 240 |
@@ -358,7 +360,10 @@ CI's Linux runners, which are slower than the machine the runs were taken on.
 audit floor (`afterAudit` in `budgets.mjs`); its budgets follow the same rule
 from three runs on 2026-10-15. Its numbers include drawing the blocks: KaTeX
 typesets in a worker, and Mermaid lays each diagram out in a task of its own on
-the page's thread, after typing pauses.
+the page's thread, after typing pauses. `prose-1MiB-split` came with the
+second pane (ADR-056) and has no audit floor either; its budgets follow the
+same rule from three runs on 2026-10-15, and its typing includes carrying each
+keystroke into the first pane's editor.
 
 **Measured** (worst of three runs; Chromium 153.0.8010.12 headless, Apple M1 Pro with 16 GiB, macOS 26.5, 2026-10-13; the one-minute load average at the start and end of each run beside every row; taken before a window counted only the long tasks that started in it, which can only lower the three longest-task columns):
 
@@ -376,6 +381,7 @@ the page's thread, after typing pauses.
 | `prose-300MiB` | 6.2-8.9, 6.7-6.9, 3.7-3.6 | 2170 | 402.9 | 24 | 11 | 19 | 19 | 1541 | 13 | 23 | 1447 | 0 | 13 | 19 | 1533 |
 | `prose-4.9MiB-counts` | 4.7-3.7, 3.4-3.2, 3.5-3.0 | 47 | 2.0 | 22 | 12 | 21 | 22 | 0 | 1 | 20 | 154 | 0 | 17 | 19 | 0 |
 | `log-300MiB-counts` | 4.5-4.7, 4.4-7.4, 6.8-6.0 | 590 | 78.5 | 23 | 12 | 19 | 20 | 778 | 14 | 24 | 827 | 0 | 12 | 19 | 896 |
+| `prose-1MiB-split` | 3.4-3.0, 2.5-2.4, 2.6-2.1 | 25 | 0.7 | 17 | 13 | 18 | 19 | 0 | 2 | 14 | 161 | 0 | 14 | 18 | 0 |
 | `md-blocks` | 5.8-6.0, 5.8-6.1, 6.1-5.7 | 30 | 3.7 | 55 | 11 | 18 | 19 | 0 | 2 | 16 | 170 | 0 | 14 | 18 | 0 |
 
 The `prose-4.9MiB-counts` and `log-300MiB-counts` rows were taken later the

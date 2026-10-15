@@ -104,6 +104,7 @@ async function windowWithADownloadRunning() {
     editor,
     counts: { counts: () => null, watch: () => () => {} },
     tabs: { closeTab: vi.fn() },
+    panes: { isSplit: () => false },
     downloads,
     folderGraph: { isOpen: () => false },
   } as unknown as Record<string, unknown>;

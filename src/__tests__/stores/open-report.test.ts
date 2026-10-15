@@ -107,7 +107,7 @@ describe("reportOpenOutcomes", () => {
 
 describe("the tab store's open", () => {
   function storeAnswering(outcome: OpenOutcome) {
-    const registry = { openFile: vi.fn(async () => outcome) } as unknown as BufferRegistry;
+    const registry = { openFile: vi.fn(async () => outcome), activeTabs: () => [] } as unknown as BufferRegistry;
     const downloads = {
       select: vi.fn(),
       start: vi.fn(async () => undefined),

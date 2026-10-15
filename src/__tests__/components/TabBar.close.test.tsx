@@ -39,7 +39,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
+    panes: {
+      holds: () => true,
+      activeIn: () => mocks.activeTabId(),
+      isSplit: () => false,
+      focused: () => "left",
+      focus: () => {},
+    },
     tabs: {
+      selectIn: (_pane: string, id: string) => mocks.setActiveTabId(id),
+      showDownloadPane: () => mocks.setActiveTabId(null),
+      moveToOtherPane: () => {},
       activeTabId: mocks.activeTabId,
       setActiveTabId: mocks.setActiveTabId,
       closeTab: mocks.closeTab,
@@ -110,7 +120,7 @@ describe("TabBar close button (#47)", () => {
     const { container } = render(() => <TabBar />);
     const close = container.querySelector<HTMLElement>(".tab-close")!;
     fireEvent.click(close);
-    expect(mocks.closeTab).toHaveBeenCalledWith("buf-1");
+    expect(mocks.closeTab).toHaveBeenCalledWith("buf-1", "left");
     expect(mocks.setActiveTabId).not.toHaveBeenCalled();
   });
 
@@ -120,8 +130,8 @@ describe("TabBar close button (#47)", () => {
     fireEvent.keyDown(close, { key: "Enter" });
     fireEvent.keyDown(close, { key: " " });
     expect(mocks.closeTab).toHaveBeenCalledTimes(2);
-    expect(mocks.closeTab).toHaveBeenNthCalledWith(1, "buf-1");
-    expect(mocks.closeTab).toHaveBeenNthCalledWith(2, "buf-1");
+    expect(mocks.closeTab).toHaveBeenNthCalledWith(1, "buf-1", "left");
+    expect(mocks.closeTab).toHaveBeenNthCalledWith(2, "buf-1", "left");
   });
 
   it("lets Cmd+W through to the close-tab command while the close control holds focus", () => {
