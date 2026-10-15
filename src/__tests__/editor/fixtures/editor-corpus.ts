@@ -3,7 +3,7 @@
 // generator writes exactly `size` UTF-8 bytes from a fixed seed, so two runs
 // produce identical files and a changed number is a changed editor.
 
-export type CorpusKind = "prose" | "single-line-json" | "markdown" | "log";
+export type CorpusKind = "prose" | "single-line-json" | "markdown" | "markdown-blocks" | "log";
 
 export interface CorpusSpec {
   name: string;
@@ -13,6 +13,9 @@ export interface CorpusSpec {
   sectionBytes?: number;
   /** Log only: the line count; the size follows from it. */
   lines?: number;
+  /** Markdown blocks only: how many tables and Mermaid diagrams; the size follows. */
+  tables?: number;
+  diagrams?: number;
 }
 
 export interface Corpus {
@@ -206,6 +209,61 @@ function markdown(size: number, seed: number, sectionBytes: number): Corpus {
   return { bytes: sink.bytes, lines: sink.lines + 1, headings, fences, links };
 }
 
+const DIAGRAM_SHAPES = ["graph TD", "graph LR", "flowchart TD"];
+
+/**
+ * A note of tables, Mermaid diagrams and math between paragraphs: what the
+ * Inline block widgets draw. The block count sets the size rather than the
+ * size the block count, so a scenario names exactly what it measures.
+ */
+function markdownBlocks(tables: number, diagrams: number, seed: number): Corpus {
+  const rand = mulberry32(seed);
+  const plan = { next: 50_000 };
+  const pick = () => WORDS[Math.floor(rand() * WORDS.length)];
+  const parts: string[] = ["# Blocks\n\nTables, diagrams and math between paragraphs.\n\n"];
+  let written = parts[0].length;
+  const push = (text: string) => {
+    parts.push(text);
+    written += text.length;
+  };
+  const total = tables + diagrams;
+  let tablesLeft = tables;
+  let diagramsLeft = diagrams;
+  let headings = 1;
+  for (let block = 0; block < total; block++) {
+    if (block % 5 === 0) {
+      push(`## Part ${block / 5 + 1}: ${pick()} ${pick()}\n\n`);
+      headings++;
+    }
+    const paragraph = sentence(rand, 120, 320, written, 100_000, plan);
+    push(`${paragraph} The rate is $r_${block} = \\frac{${block + 1}}{${block + 2}}$ here.\n\n`);
+    // Diagrams spread through the tables rather than bunched at one end.
+    const diagramTurn = diagramsLeft > 0 && (tablesLeft === 0 || (block * diagrams) % total < diagrams);
+    if (diagramTurn) {
+      diagramsLeft--;
+      const shape = DIAGRAM_SHAPES[block % DIAGRAM_SHAPES.length];
+      const nodes = 4 + Math.floor(rand() * 5);
+      let body = `\`\`\`mermaid\n${shape}\n`;
+      for (let n = 1; n < nodes; n++) body += `  N${n}[${pick()}] --> N${n + 1}[${pick()}]\n`;
+      push(`${body}\`\`\`\n\n`);
+      push(`$$\n\\sum_{i=1}^{${block + 3}} i^2 = \\frac{n(n+1)(2n+1)}{6}\n$$\n\n`);
+    } else {
+      tablesLeft--;
+      const rows = 3 + Math.floor(rand() * 5);
+      let table = "| Item | Owner | Due | Score |\n|:--|---|---|--:|\n";
+      for (let r = 0; r < rows; r++) {
+        table += `| **${pick()}** | ${pick()} | 2026-10-${10 + r} | $${r}.${block % 10}$ |\n`;
+      }
+      push(`${table}\n`);
+    }
+  }
+  push("The end.\n");
+  const bytes = new TextEncoder().encode(parts.join(""));
+  let lines = 1;
+  for (const byte of bytes) if (byte === 10) lines++;
+  return { bytes, lines, headings, fences: diagrams, links: 0 };
+}
+
 const LEVELS = ["INFO ", "INFO ", "INFO ", "DEBUG", "WARN ", "INFO ", "ERROR"];
 const VERBS = ["GET", "GET", "POST", "PUT", "DELETE"];
 
@@ -239,6 +297,8 @@ export function generateCorpus(spec: CorpusSpec, seed = 1337): Corpus {
       return singleLineJson(spec.size, seed);
     case "markdown":
       return markdown(spec.size, seed, spec.sectionBytes ?? 10_000);
+    case "markdown-blocks":
+      return markdownBlocks(spec.tables ?? 50, spec.diagrams ?? 20, seed);
     case "log":
       return log(spec.lines ?? 200_000, seed);
   }

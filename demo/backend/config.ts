@@ -35,7 +35,8 @@ export const DEMO_CONFIG: WritConfig = {
     "autosave_debounce_ms": 1000,
     "markdown_editing": true,
     "status_bar": true,
-    "status_bar_counts": false
+    "status_bar_counts": false,
+    "reading_width": false
   },
   "files": {
     "default_extension": "txt"

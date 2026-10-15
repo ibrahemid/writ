@@ -292,6 +292,19 @@ function features() {
   };
 }
 
+// What the Inline block widgets have drawn on screen, so a scenario of tables
+// and diagrams can tell that it measured them and not their source.
+function blocks() {
+  const dom = activeWindow().editor.getView()?.dom;
+  const count = (selector: string) => dom?.querySelectorAll(selector).length ?? 0;
+  return {
+    tables: count(".cm-md-table-widget"),
+    diagrams: count(".cm-md-diagram[data-status='ready'] svg"),
+    failedDiagrams: count(".cm-md-diagram[data-status='failed']"),
+    math: count(".cm-md-math-block[data-status='ready'] .katex, .cm-md-math-inline[data-status='ready'] .katex"),
+  };
+}
+
 function focusEditor(): void {
   activeWindow().editor.getView()?.focus();
 }
@@ -378,6 +391,7 @@ Object.assign(window, {
     dropBytes,
     open,
     features,
+    blocks,
     focusEditor,
     startKeys,
     stopKeys,

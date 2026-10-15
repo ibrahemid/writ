@@ -19,6 +19,17 @@ import {
 } from "./markdown-images";
 import { fenceCollapse, fenceCollapsible } from "./markdown-fences";
 import { rangesWithinLineLimit } from "./line-limit";
+import {
+  blockRenderField,
+  drawnBlocks,
+  markdownBlocks,
+  mathKey,
+  sameRender,
+  type BlockRender,
+} from "./markdown-blocks";
+import { mathSource } from "./markdown-math";
+import type { BlockRenderer } from "./block-renderer";
+import { sanitizedFragment } from "./sanitize-markup";
 
 // Minimal structural types matching @lezer/common — avoids a direct import
 // of @lezer/common which is not in the direct dependency list.
@@ -62,10 +73,13 @@ const codeBlockSoleLine = Decoration.line({
 // right (an absolutely-positioned marker inside .cm-line does not).
 const hangLine = Decoration.line({ class: "cm-line-md-hang" });
 
-// Blocks the editor does not render: a table and an html block are styled
-// where they are written.
+// A table, display math and an html block as they are written: a table and
+// math while the caret is in them (the block widgets draw them otherwise), an
+// html block always.
 const tableLine = Decoration.line({ class: "cm-md-table" });
 const htmlLine = Decoration.line({ class: "cm-md-html" });
+const mathLine = Decoration.line({ class: "cm-md-math-source" });
+const mathSourceMark = Decoration.mark({ class: "cm-md-math-source" });
 
 const markDecByNode: Record<string, Decoration> = {
   StrongEmphasis: Decoration.mark({ class: "cm-md-strong" }),
@@ -155,6 +169,38 @@ class HorizontalRuleWidget extends WidgetType {
     const rule = document.createElement("span");
     rule.className = "cm-md-hr";
     return rule;
+  }
+}
+
+/**
+ * Inline math, drawn where it is written while the caret is on another line.
+ * Until its drawing arrives the expression shows as written, so the line
+ * does not jump twice.
+ */
+class InlineMathWidget extends WidgetType {
+  constructor(
+    readonly tex: string,
+    readonly render: BlockRender,
+  ) {
+    super();
+  }
+
+  override eq(other: InlineMathWidget): boolean {
+    return other.tex === this.tex && sameRender(other.render, this.render);
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-md-math-inline";
+    span.dataset.status = this.render.status;
+    if (this.render.status === "ready") span.append(sanitizedFragment(this.render.markup));
+    else span.textContent = this.tex;
+    return span;
+  }
+
+  // A click places the caret beside it, which brings the source back.
+  override ignoreEvent(): boolean {
+    return false;
   }
 }
 
@@ -254,6 +300,15 @@ export interface DecorationSpec {
 const NO_IMAGES: ReadonlyMap<string, InlineImageState> = new Map();
 const NO_LINES: ReadonlySet<number> = new Set();
 
+/** What the block layer has: the drawings, and the ranges it draws as widgets. */
+export interface BlockInput {
+  renders: ReadonlyMap<string, BlockRender>;
+  drawn: ReadonlyArray<{ from: number; to: number }>;
+}
+
+const NO_BLOCKS: BlockInput = { renders: new Map(), drawn: [] };
+const PENDING_RENDER: BlockRender = { status: "pending" };
+
 /**
  * The start of every line a selection touches, clipped to the visible range.
  *
@@ -308,6 +363,8 @@ export function activeLineStarts(
  * @param visibleFrom  Start of the visible range.
  * @param visibleTo    End of the visible range.
  * @param images       What is known about each authored image reference.
+ * @param blocks       The math drawings, and the ranges the block widgets
+ *                     take, inside which nothing else is drawn.
  */
 export function buildMarkdownDecorations(
   iterateTree: (from: number, to: number, cb: (node: SyntaxNodeRef) => boolean | void) => void,
@@ -317,8 +374,16 @@ export function buildMarkdownDecorations(
   visibleFrom: number,
   visibleTo: number,
   images: ReadonlyMap<string, InlineImageState> = NO_IMAGES,
+  blocks: BlockInput = NO_BLOCKS,
 ): DecorationSpec[] {
   const specs: DecorationSpec[] = [];
+
+  function insideDrawnBlock(from: number, to: number): boolean {
+    for (const block of blocks.drawn) {
+      if (from >= block.from && to <= block.to) return true;
+    }
+    return false;
+  }
 
   // Tracks replaced [from,to) intervals to prevent overlaps.
   const replacedRanges: Array<[number, number]> = [];
@@ -363,7 +428,7 @@ export function buildMarkdownDecorations(
   // opens the document, and one whose fences are being edited.
   function collapsedFenceLines(node: SyntaxNodeFull): ReadonlySet<number> {
     if (node.name !== "FencedCode") return NO_LINES;
-    const fences = fenceCollapsible(node, docLineAt);
+    const fences = fenceCollapsible(node, docLineAt, docSlice);
     if (!fences) return NO_LINES;
     if (activeLineFroms.has(fences.open.from) || activeLineFroms.has(fences.close.from)) {
       return NO_LINES;
@@ -381,6 +446,48 @@ export function buildMarkdownDecorations(
 
   iterateTree(visibleFrom, visibleTo, (nodeRef) => {
     const { from, to, name } = nodeRef;
+
+    // ── A block drawn as a widget: nothing of its source is on screen ─────
+    if (blocks.drawn.length > 0 && name !== "Document" && insideDrawnBlock(from, to)) {
+      return false;
+    }
+
+    // ── Math: drawn inline away from the caret, mono source on it ─────────
+    if (name === "InlineMath") {
+      let lineTo: number;
+      try {
+        lineTo = docLineAt(from).to;
+      } catch {
+        return false;
+      }
+      const active = isActiveLine(from);
+      // An expression that runs onto the next line stays as written: a plugin
+      // may not replace a line break.
+      if (active !== false || to > lineTo) {
+        addMark(from, to, mathSourceMark);
+        return false;
+      }
+      const { tex, display } = mathSource(docSlice(from, to));
+      if (tex === "") return false;
+      const render = blocks.renders.get(mathKey(tex, display)) ?? PENDING_RENDER;
+      addReplace(from, to, Decoration.replace({ widget: new InlineMathWidget(tex, render) }));
+      return false;
+    }
+
+    if (name === "BlockMath") {
+      try {
+        let pos = from;
+        for (;;) {
+          const line = docLineAt(pos);
+          specs.push({ from: line.from, to: line.from, decoration: mathLine });
+          if (line.to >= to) break;
+          pos = line.to + 1;
+        }
+      } catch {
+        // skip un-parseable positions
+      }
+      return false;
+    }
 
     // ── Heading line decorations ──────────────────────────────────────────
     if (name in lineDec) {
@@ -453,12 +560,13 @@ export function buildMarkdownDecorations(
       return;
     }
 
-    // ── Blocks that stay as source ────────────────────────────────────────
-    // A table needs a column-width pass over the whole block and a replace
-    // spanning its line breaks per row, which leaves no way to edit the text
-    // inside it. Arbitrary html inside the editor webview would need a hole
-    // in the window's own policy, which is what the preview pane is for.
-    // Both are styled where they are written, pipes and tags included.
+    // ── Blocks as source ──────────────────────────────────────────────────
+    // A table reaches here while the caret is in it, or where the block
+    // layer does not draw it (in a quote): it is edited as text, pipes
+    // included. An html block always does: the author's own markup inside
+    // the editor's window would run with the app's reach, which only the
+    // preview's sandboxed frame is built to hold. KaTeX and Mermaid output is
+    // the renderers' markup, sanitized, never the author's.
     if (name === "Table" || name === "HTMLBlock") {
       const lineClass = name === "Table" ? tableLine : htmlLine;
       try {
@@ -673,6 +781,10 @@ function buildDecorationSet(view: EditorView): DecorationSet {
   const { state } = view;
   const tree = syntaxTree(state);
   const images = state.field(inlineImageField, false) ?? NO_IMAGES;
+  const blocks: BlockInput = {
+    renders: state.field(blockRenderField, false) ?? NO_BLOCKS.renders,
+    drawn: drawnBlocks(state),
+  };
   const allSpecs: DecorationSpec[] = [];
 
   for (const { from, to } of rangesWithinLineLimit(view)) {
@@ -684,6 +796,7 @@ function buildDecorationSet(view: EditorView): DecorationSet {
       from,
       to,
       images,
+      blocks,
     );
     allSpecs.push(...rangeSpecs);
   }
@@ -717,7 +830,12 @@ class MarkdownTypographyPlugin implements PluginValue {
       // Bytes for an image arrive in their own transaction, which changes
       // neither the document nor the selection.
       update.startState.field(inlineImageField, false) !==
-        update.state.field(inlineImageField, false)
+        update.state.field(inlineImageField, false) ||
+      // Drawings arrive the same way, and the block widgets move with the
+      // caret and the folds.
+      update.startState.field(blockRenderField, false) !==
+        update.state.field(blockRenderField, false) ||
+      drawnBlocks(update.startState) !== drawnBlocks(update.state)
     ) {
       this.decorations = buildDecorationSet(update.view);
     }
@@ -774,12 +892,13 @@ export const markdownTypographyPlugin: Extension = [
 ];
 
 /**
- * The markdown decorations plus the images they draw.
+ * The markdown decorations plus the images, fences and blocks they draw.
  *
- * One builder and one plugin: a second decoration source over the same
- * ranges cannot see the first one's replaced ranges, and CodeMirror refuses
- * overlapping replacements.
+ * One builder and one plugin for what sits inside a line: a second
+ * decoration source over the same ranges cannot see the first one's replaced
+ * ranges. The fences and the blocks replace whole lines, which a plugin may
+ * not, so each has a field; the builder skips what a block widget covers.
  */
-export function markdownInlineExtension(deps: InlineImageDeps): Extension {
-  return [markdownTypographyPlugin, inlineImages(deps), fenceCollapse];
+export function markdownInlineExtension(deps: InlineImageDeps, renderer: BlockRenderer): Extension {
+  return [markdownTypographyPlugin, inlineImages(deps), fenceCollapse, markdownBlocks(renderer)];
 }

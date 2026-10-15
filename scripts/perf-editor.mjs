@@ -199,6 +199,16 @@ async function runScenario(browser, base, scenario) {
     if (result.features.tier !== scenario.opensAs) {
       problems.push(`opened as ${result.features.tier}, expected ${scenario.opensAs}`);
     }
+    if (scenario.spec.kind === "markdown-blocks") {
+      // The numbers count only if the screen shows the drawings, not their source.
+      result.blocks = await page.evaluate(() => window.__harness.blocks());
+      const { tables, diagrams, failedDiagrams, math } = result.blocks;
+      if (tables === 0 || diagrams === 0 || math === 0 || failedDiagrams > 0) {
+        problems.push(
+          `the blocks on screen were not drawn: ${tables} tables, ${diagrams} diagrams, ${math} formulas, ${failedDiagrams} failed diagrams`,
+        );
+      }
+    }
     if (opened.confirmed !== (scenario.tier === "LargeFileConfirm")) {
       problems.push(opened.confirmed ? "the open asked about the size" : "the open did not ask about the size");
     }

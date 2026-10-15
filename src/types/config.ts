@@ -159,7 +159,7 @@ export interface WritConfig {
   panel: PanelConfig;
   chat_panel: ChatPanelConfig;
   first_run: FirstRunConfig;
-  editor: { font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_editing: boolean; status_bar: boolean; status_bar_counts: boolean };
+  editor: { font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_editing: boolean; status_bar: boolean; status_bar_counts: boolean; reading_width: boolean };
   window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };
   keybindings: Record<string, string>;
   history: { max_entries: number };
