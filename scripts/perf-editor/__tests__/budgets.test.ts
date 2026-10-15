@@ -111,12 +111,18 @@ describe("editor perf gate budgets", () => {
   it("budgets every metric of every scenario", () => {
     for (const scenario of SCENARIOS) {
       expect(Object.keys(BUDGETS[scenario.id]).sort()).toEqual(METRICS.map((metric) => metric.key).sort());
-      expect(AUDIT_FIGURES[scenario.id], scenario.id).toBeDefined();
+      if (!scenario.afterAudit) expect(AUDIT_FIGURES[scenario.id], scenario.id).toBeDefined();
+    }
+  });
+
+  it("names a scenario after the audit exactly when the audit has no figure for it", () => {
+    for (const scenario of SCENARIOS) {
+      expect(AUDIT_FIGURES[scenario.id] === undefined, scenario.id).toBe(scenario.afterAudit === true);
     }
   });
 
   it("is never tighter than the audit's figure for a metric Find does not drive", () => {
-    for (const scenario of SCENARIOS) {
+    for (const scenario of SCENARIOS.filter((s) => !s.afterAudit)) {
       for (const metric of METRICS.filter((m) => !m.find)) {
         const figure = AUDIT_FIGURES[scenario.id][metric.key];
         expect(figure, `${scenario.id} ${metric.key}`).toBeDefined();
@@ -126,7 +132,7 @@ describe("editor perf gate budgets", () => {
   });
 
   it("holds Find well under the figures the audit measured before the scan ran in slices", () => {
-    for (const scenario of SCENARIOS) {
+    for (const scenario of SCENARIOS.filter((s) => !s.afterAudit)) {
       const before = AUDIT_FIGURES[scenario.id].findKeyP50Ms!;
       expect(BUDGETS[scenario.id].findKeyMaxMs, scenario.id).toBeLessThan(before);
     }

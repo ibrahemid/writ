@@ -7,7 +7,10 @@ import {
   buildMarkdownDecorations,
 } from "../../editor/markdown-typography";
 import { collapsibleFences } from "../../editor/markdown-fences";
+import { markdownBlockField, markdownBlocks, setBlockWindow } from "../../editor/markdown-blocks";
+import { MARKDOWN_EXTENSIONS } from "../../editor/markdown-math";
 import { buildMarkdownCorpus } from "./fixtures/markdown-corpus";
+import { generateCorpusText } from "./fixtures/editor-corpus";
 
 // What this measures: the wall time of one decoration build over one
 // viewport, in Node. jsdom lays nothing out, so keystroke-to-paint cannot be
@@ -16,6 +19,9 @@ const BUILD_BUDGET_MS = 16;
 // The fence scan runs over the window the view plugin publishes, on the same
 // rebuild as the decorations.
 const FENCE_SCAN_BUDGET_MS = 16;
+// The block field's scan and widget build for one window, which runs on every
+// edit and every scroll that moves the viewport.
+const BLOCK_SCAN_BUDGET_MS = 16;
 // Matches the convention in crates/writ-storage/tests/perf_budget.rs.
 const MEDIAN_SAMPLES = 9;
 const CORPUS_BYTES = 2 * 1024 * 1024;
@@ -153,6 +159,50 @@ describe("inline markdown decoration budget", () => {
       report(`scan ${found} fenced blocks in one viewport`, measured, FENCE_SCAN_BUDGET_MS);
       expect(found).toBeGreaterThan(0);
       expect(measured).toBeLessThan(FENCE_SCAN_BUDGET_MS);
+    },
+    PARSE_TIMEOUT_MS,
+  );
+
+  it.skipIf(gated)(
+    "scans and builds the block widgets of one window of 50 tables and 20 diagrams in under 16ms",
+    () => {
+      const doc = generateCorpusText({
+        name: "blocks.md",
+        kind: "markdown-blocks",
+        size: 0,
+        tables: 50,
+        diagrams: 20,
+      });
+      let state = EditorState.create({
+        doc,
+        extensions: [
+          markdown({ base: markdownLanguage, extensions: MARKDOWN_EXTENSIONS }),
+          markdownBlocks({
+            renderMath: () => new Promise(() => {}),
+            renderDiagram: () => new Promise(() => {}),
+          }),
+        ],
+      });
+      const tree = ensureSyntaxTree(state, doc.length, PARSE_TIMEOUT_MS);
+      expect(tree?.length).toBe(doc.length);
+      const middle = state.doc.lineAt(Math.floor(doc.length / 2));
+      const windows = [0, 1].map((shift) => ({
+        from: state.doc.line(middle.number + shift).from,
+        to: state.doc.line(Math.min(middle.number + shift + VIEWPORT_LINES * 2, state.doc.lines)).to,
+      }));
+
+      const samples: number[] = [];
+      let drawn = 0;
+      for (let run = 0; run < MEDIAN_SAMPLES; run++) {
+        const started = performance.now();
+        state = state.update({ effects: setBlockWindow.of(windows[run % 2]) }).state;
+        drawn = state.field(markdownBlockField).drawn.length;
+        samples.push(performance.now() - started);
+      }
+      const measured = median(samples);
+      report(`scan and build ${drawn} blocks in one window`, measured, BLOCK_SCAN_BUDGET_MS);
+      expect(drawn).toBeGreaterThan(0);
+      expect(measured).toBeLessThan(BLOCK_SCAN_BUDGET_MS);
     },
     PARSE_TIMEOUT_MS,
   );

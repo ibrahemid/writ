@@ -4,6 +4,7 @@ import { createSignal } from "solid-js";
 import { EditorView } from "@codemirror/view";
 import { EditorSelection } from "@codemirror/state";
 import { undo, undoDepth } from "@codemirror/commands";
+import { foldCode, foldable, foldedRanges } from "@codemirror/language";
 import type { BufferDocument } from "../../../types/buffer";
 import WindowProvider, { useWindow } from "../../WindowProvider/WindowProvider";
 import type { WindowState } from "../../../stores/window/createWindowState";
@@ -151,6 +152,36 @@ describe("EditorInstance: tabs keep their place", () => {
 
     undo(view);
     expect(view.state.doc.toString()).toBe("first typed line\nsecond line\n");
+  });
+
+  it("keeps a note's folds across a switch away and back", async () => {
+    const note = "# Plan\n\nFirst part.\n\n# Later\n\nSecond part.\n";
+    bufferContent.set("N", note);
+    bufferContent.set("B", "another file\n");
+    const markdownNote = mockBuffer("N", { title: "N.md", filename: "N.md", source_path: "/notes/N.md" });
+    const { container, setBuf } = await mount(markdownNote);
+    let view = viewIn(container);
+    // The grammar arrives on its own chunk; folding reads its tree.
+    await vi.waitFor(() => {
+      expect(foldable(viewIn(container).state, 0, note.indexOf("\n"))).not.toBeNull();
+    });
+    view = viewIn(container);
+    view.dispatch({ selection: EditorSelection.cursor(2) });
+    expect(foldCode(view)).toBe(true);
+    const folded = () => {
+      const ranges: Array<[number, number]> = [];
+      foldedRanges(viewIn(container).state).between(0, note.length, (from, to) => {
+        ranges.push([from, to]);
+      });
+      return ranges;
+    };
+    const before = folded();
+    expect(before).toEqual([[note.indexOf("\n"), note.indexOf("\n\n# Later")]]);
+
+    await switchTo(setBuf, mockBuffer("B"));
+    expect(folded()).toEqual([]);
+    await switchTo(setBuf, markdownNote);
+    expect(folded()).toEqual(before);
   });
 
   it("opens fresh when the file changed while the tab was behind another", async () => {

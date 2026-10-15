@@ -5,7 +5,9 @@
 #[cfg(feature = "wasm")]
 mod wasm;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 pub mod callout;
 
@@ -393,6 +395,8 @@ fn render_fragment(
         visited,
         host_heading: Cell::new(0),
         source,
+        resolved: RefCell::new(HashMap::new()),
+        sections: RefCell::new(HashMap::new()),
     };
     for event in parser {
         if let Event::Text(ref chunk) = event {
@@ -528,7 +532,21 @@ struct Scan<'a> {
     host_heading: Cell<u8>,
     /// Who wrote the document being rendered, which an embedded note inherits.
     source: Source,
+    /// What each `![[…]]` spelling resolved to in this document. Depth and the
+    /// notes the render is inside are the same for every embed in it, so a
+    /// spelling written fifty times asks the resolver, and reads the note,
+    /// once.
+    resolved: RefCell<HashMap<String, Rc<EmbedResolution>>>,
+    /// The rendered body of each note and heading this document embeds, per
+    /// heading level it sits under. `None` records a heading the note does
+    /// not hold. Siblings share one render rather than each rendering the
+    /// note and everything it embeds again.
+    sections: RefCell<HashMap<SectionKey, Option<String>>>,
 }
+
+/// A note, the heading it was cut to (case-folded, `None` for the whole
+/// note), and the heading level the embed sits under.
+type SectionKey = (String, Option<String>, u8);
 
 impl Scan<'_> {
     /// True when there is a reference form to look for at all. Without one the
@@ -627,18 +645,29 @@ impl Markup {
 
 /// The markup one `![[…]]` naming a note becomes.
 fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) -> Markup {
-    let borrowed: Vec<&str> = scan.visited.iter().map(String::as_str).collect();
-    let resolution = resolver.resolve(inner, scan.depth, &borrowed);
-    let (target, markdown, base) = match resolution {
+    let spelled = inner.trim();
+    let cached = scan.resolved.borrow().get(spelled).cloned();
+    let resolution = match cached {
+        Some(resolution) => resolution,
+        None => {
+            let borrowed: Vec<&str> = scan.visited.iter().map(String::as_str).collect();
+            let resolution = Rc::new(resolver.resolve(inner, scan.depth, &borrowed));
+            scan.resolved
+                .borrow_mut()
+                .insert(spelled.to_string(), Rc::clone(&resolution));
+            resolution
+        }
+    };
+    let (target, markdown, base) = match &*resolution {
         // A target that names several notes picks none of them, and one that
         // names no note has nothing to show. Both read as text, exactly as the
         // link form of the same target does.
         EmbedResolution::Ambiguous | EmbedResolution::Missing => {
             return Markup::Inline(missing_embed_html(inner))
         }
-        EmbedResolution::Cut { target } => return Markup::Inline(embed_link_html(&target)),
+        EmbedResolution::Cut { target } => return Markup::Inline(embed_link_html(target)),
         EmbedResolution::NotDownloaded { target } => {
-            return Markup::Section(not_downloaded_html(inner, &target))
+            return Markup::Section(not_downloaded_html(inner, target))
         }
         EmbedResolution::Resolved {
             target,
@@ -649,27 +678,57 @@ fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) 
     // The two limits are applied to what came back as well as passed to the
     // resolver, so a resolver that ignores them still cannot recurse.
     if scan.depth >= MAX_EMBED_DEPTH || scan.visited.contains(&target.key) {
-        return Markup::Inline(embed_link_html(&target));
+        return Markup::Inline(embed_link_html(target));
     }
-    let body = match heading_section(&markdown, embed_heading(inner)) {
-        Some(body) => body,
+    let heading = embed_heading(inner);
+    let key: SectionKey = (
+        target.key.clone(),
+        heading.map(str::to_lowercase),
+        scan.host_heading.get(),
+    );
+    let cached = scan.sections.borrow().get(&key).cloned();
+    let rendered = match cached {
+        Some(rendered) => rendered,
+        None => {
+            let rendered = heading_section(markdown, heading, scan.source)
+                .map(|body| render_section(&body, target, base.as_deref(), resolver, scan));
+            scan.sections.borrow_mut().insert(key, rendered.clone());
+            rendered
+        }
+    };
+    match rendered {
+        Some(html) => Markup::Section(format!(
+            "<section class=\"writ-embed\" data-target=\"{}\">{}</section>",
+            escape_attribute(spelled),
+            html
+        )),
         // The note is there and the heading in the target is not, so the embed
         // names nothing to show.
-        None => return Markup::Inline(missing_embed_html(inner)),
-    };
+        None => Markup::Inline(missing_embed_html(inner)),
+    }
+}
+
+/// One embedded note's section, rendered inside the document embedding it.
+fn render_section(
+    body: &str,
+    target: &EmbedTarget,
+    base: Option<&dyn EmbedBase>,
+    resolver: &dyn NoteEmbedResolver,
+    scan: &Scan<'_>,
+) -> String {
     let mut visited = scan.visited.to_vec();
-    visited.push(target.key);
+    visited.push(target.key.clone());
     // The note is rendered against its own folder, never the embedding note's:
     // the same `[[…]]` in the same note has to name the same note wherever it
     // is shown. A host that hands back no base has no folders to rebase on, so
     // that note renders with no file or link resolver rather than with one
     // belonging to somewhere else. The embed resolver is passed either way, so
     // the depth and cycle limits hold whatever the host supplies.
-    let rendered = match &base {
+    let rendered = match base {
         Some(base) => {
             let asset_url = |reference: &str| base.asset_url(reference);
             render_fragment(
-                &body,
+                body,
                 Some(&asset_url),
                 base.wikilinks(),
                 Some(base.embeds()),
@@ -680,7 +739,7 @@ fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) 
             )
         }
         None => render_fragment(
-            &body,
+            body,
             None,
             None,
             Some(resolver),
@@ -690,11 +749,7 @@ fn embed_markup(inner: &str, resolver: &dyn NoteEmbedResolver, scan: &Scan<'_>) 
             scan.source,
         ),
     };
-    Markup::Section(format!(
-        "<section class=\"writ-embed\" data-target=\"{}\">{}</section>",
-        escape_attribute(inner.trim()),
-        rendered.html
-    ))
+    rendered.html
 }
 
 /// The heading a target names, or `None` when it names the whole note.
@@ -710,42 +765,81 @@ fn embed_heading(inner: &str) -> Option<&str> {
 ///
 /// `None` says the note holds no such heading. Headings are matched on their
 /// trimmed text, case-folded, which is how a target names one in prose.
-fn heading_section(markdown: &str, heading: Option<&str>) -> Option<String> {
+///
+/// Headings are the ones the renderer itself reads, ATX and setext alike, so a
+/// `#` line inside a fence is code here as it is on the page. Only headings at
+/// the top level of the note open or close a section: one inside a quote or a
+/// list item belongs to that block.
+fn heading_section(markdown: &str, heading: Option<&str>, source: Source) -> Option<String> {
     let Some(wanted) = heading else {
         return Some(markdown.to_string());
     };
     let wanted = wanted.to_lowercase();
     let body = split_frontmatter(markdown).body;
     let mut start: Option<(usize, usize)> = None;
-    let mut offset = 0;
-    for line in body.split_inclusive('\n') {
-        let end = offset + line.len();
-        if let Some((level, text)) = atx_heading(line) {
-            match start {
-                None if text.to_lowercase() == wanted => start = Some((offset, level)),
-                Some((from, opened)) if level <= opened => {
-                    return Some(body[from..offset].to_string())
-                }
-                _ => {}
+    for found in top_level_headings(body, source) {
+        match start {
+            None if body[found.text.clone()].trim().to_lowercase() == wanted => {
+                start = Some((found.from, found.level))
             }
+            Some((from, opened)) if found.level <= opened => {
+                return Some(body[from..found.from].to_string())
+            }
+            _ => {}
         }
-        offset = end;
     }
     start.map(|(from, _)| body[from..].to_string())
 }
 
-/// The level and text of an ATX heading line, or `None` for any other line.
-fn atx_heading(line: &str) -> Option<(usize, &str)> {
-    let trimmed = line.trim_end_matches(['\n', '\r']).trim_start();
-    let level = trimmed.chars().take_while(|c| *c == '#').count();
-    if level == 0 || level > 6 {
-        return None;
+/// One heading at the top level of a note, as the renderer parses it.
+struct HeadingAt {
+    /// Where the heading's own source starts.
+    from: usize,
+    /// 1 to 6.
+    level: usize,
+    /// The source of its text: the markers, the closing `#` run and a setext
+    /// underline left out.
+    text: std::ops::Range<usize>,
+}
+
+/// Every heading at the top level of `body`, in order, found through the
+/// parser's source offsets.
+fn top_level_headings(body: &str, source: Source) -> Vec<HeadingAt> {
+    let mut found = Vec::new();
+    let mut nesting = 0usize;
+    let mut open: Option<HeadingAt> = None;
+    for (event, range) in Parser::new_ext(body, options(source)).into_offset_iter() {
+        match event {
+            Event::Start(Tag::BlockQuote(_) | Tag::List(_) | Tag::Item)
+            | Event::Start(Tag::FootnoteDefinition(_)) => nesting += 1,
+            Event::End(TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item)
+            | Event::End(TagEnd::FootnoteDefinition) => nesting = nesting.saturating_sub(1),
+            Event::Start(Tag::Heading { level, .. }) if nesting == 0 => {
+                open = Some(HeadingAt {
+                    from: range.start,
+                    level: level as usize,
+                    text: range.start..range.start,
+                });
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some(heading) = open.take() {
+                    found.push(heading);
+                }
+            }
+            _ => {
+                if let Some(heading) = open.as_mut() {
+                    // The first piece of text inside the heading starts its
+                    // text and every later one stretches it.
+                    if heading.text.is_empty() {
+                        heading.text = range;
+                    } else {
+                        heading.text.end = heading.text.end.max(range.end);
+                    }
+                }
+            }
+        }
     }
-    let rest = &trimmed[level..];
-    if !rest.is_empty() && !rest.starts_with(' ') && !rest.starts_with('\t') {
-        return None;
-    }
-    Some((level, rest.trim().trim_end_matches('#').trim()))
+    found
 }
 
 /// A target the index cannot name one note for, read as the text it was
@@ -1557,6 +1651,13 @@ mod tests {
             "Deep3" => Some("Deep3 body\n\n![[Deep4]]\n"),
             "Deep4" => Some("Deep4 body\n"),
             "Quo\"te" => Some("Quoted body\n"),
+            "Setup" => Some(
+                "# Setup\n\n## Install\n\n```bash\n# install deps\nnpm i\n```\n\nAfter the fence.\n\n## Use\n\nUse body.\n",
+            ),
+            "Decoy" => Some(
+                "Lead.\n\n```md\n# Install\nnot this one\n```\n\n> # Install\n> nor this\n\n# Install\n\nThe real section.\n",
+            ),
+            "Setext" => Some("Intro\n\nInstall\n-------\n\nSetext body.\n\nNext\n----\n\nNext body.\n"),
             "Note" => Some(
                 "---\ntitle: Note\n---\n\nLead paragraph.\n\n## First\n\nFirst body.\n\n### Under first\n\nDeeper.\n\n## Second\n\nSecond body.\n",
             ),
@@ -1810,6 +1911,110 @@ href=\"Note.md\">Note</a> now</div>"
             "{html}"
         );
         assert!(!html.contains("<section"), "{html}");
+    }
+
+    // RC-18: a `#` line inside a fence is code, so the section runs past it to
+    // the next real heading. The raw line scan read it as an h1 and cut the
+    // embed off mid-fence.
+    #[test]
+    fn a_heading_embed_runs_past_a_fenced_hash_comment() {
+        let html = with_embeds("![[Setup#Install]]\n");
+        assert!(html.contains("<h2>Install</h2>"), "{html}");
+        assert!(
+            html.contains("# install deps\nnpm i\n</code></pre>"),
+            "{html}"
+        );
+        assert!(html.contains("After the fence."), "{html}");
+        assert!(!html.contains("Use body"), "{html}");
+    }
+
+    #[test]
+    fn a_heading_inside_a_fence_or_a_quote_is_not_the_target() {
+        let html = with_embeds("![[Decoy#Install]]\n");
+        assert!(html.contains("The real section."), "{html}");
+        assert!(!html.contains("not this one"), "{html}");
+        assert!(!html.contains("nor this"), "{html}");
+        assert!(!html.contains("Lead."), "{html}");
+    }
+
+    #[test]
+    fn a_setext_heading_opens_and_closes_a_section() {
+        let html = with_embeds("![[Setext#Install]]\n");
+        assert!(html.contains("<h2>Install</h2>"), "{html}");
+        assert!(html.contains("Setext body."), "{html}");
+        assert!(!html.contains("Next body"), "{html}");
+        assert!(!html.contains("Intro"), "{html}");
+    }
+
+    /// Answers like [`Folder`] and counts how often each note is asked for.
+    struct Counting {
+        asked: RefCell<HashMap<String, usize>>,
+    }
+
+    impl Counting {
+        fn new() -> Self {
+            Counting {
+                asked: RefCell::new(HashMap::new()),
+            }
+        }
+
+        fn asked(&self, name: &str) -> usize {
+            self.asked.borrow().get(name).copied().unwrap_or(0)
+        }
+    }
+
+    impl NoteEmbedResolver for Counting {
+        fn resolve(&self, target: &str, depth: u8, visited: &[&str]) -> EmbedResolution {
+            let name = target.split('#').next().unwrap_or(target).trim();
+            *self.asked.borrow_mut().entry(name.to_string()).or_insert(0) += 1;
+            let markdown = match name {
+                "Outer" => "![[Inner]]\n\n".repeat(50),
+                "Inner" => "Inner body\n".to_string(),
+                _ => return Folder.resolve(target, depth, visited),
+            };
+            EmbedResolution::Resolved {
+                target: EmbedTarget {
+                    key: name.to_string(),
+                    label: name.to_string(),
+                    href: Some(format!("{name}.md")),
+                },
+                markdown,
+                base: None,
+            }
+        }
+    }
+
+    // RC-45: fifty embeds of a note that itself embeds another note fifty
+    // times read and render each note once, and the page still shows every
+    // one of them.
+    #[test]
+    fn sibling_embeds_render_once() {
+        let resolver = Counting::new();
+        let html = render_markdown_fragment_with(
+            &"![[Outer]]\n\n".repeat(50),
+            None,
+            None,
+            Some(&resolver),
+        )
+        .html;
+        assert_eq!(resolver.asked("Outer"), 1);
+        assert_eq!(resolver.asked("Inner"), 1);
+        assert_eq!(html.matches("<p>Inner body</p>").count(), 2500);
+    }
+
+    #[test]
+    fn one_note_embedded_under_two_heading_levels_renders_at_each() {
+        let resolver = Counting::new();
+        let html = render_markdown_fragment_with(
+            "# Top\n\n![[Titled]]\n\n### Deeper\n\n![[Titled]]\n",
+            None,
+            None,
+            Some(&resolver),
+        )
+        .html;
+        assert_eq!(resolver.asked("Titled"), 1);
+        assert!(html.contains("<h2>Title</h2>"), "{html}");
+        assert!(html.contains("<h4>Title</h4>"), "{html}");
     }
 
     #[test]

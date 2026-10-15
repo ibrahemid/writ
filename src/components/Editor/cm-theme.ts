@@ -74,6 +74,32 @@ export const writThemeSpec = {
     ".cm-foldGutter .cm-gutterElement": {
       color: cssVar(CSS_VAR.fgFaint),
     },
+    ".cm-fold-marker": {
+      display: "inline-flex",
+      alignItems: "center",
+      height: "100%",
+      padding: "0 var(--writ-space-1)",
+      cursor: "pointer",
+    },
+    ".cm-fold-marker:hover": {
+      color: cssVar(CSS_VAR.fgMuted),
+    },
+    ".cm-fold-chevron": {
+      width: "0.85em",
+      height: "0.85em",
+    },
+    ".cm-fold-marker[data-folded] .cm-fold-chevron": {
+      transform: "rotate(-90deg)",
+    },
+    ".cm-foldPlaceholder": {
+      backgroundColor: cssVar(CSS_VAR.bgHover),
+      border: "none",
+      borderRadius: `var(${CSS_VAR.rControl})`,
+      color: cssVar(CSS_VAR.fgMuted),
+      margin: "0 0.25em",
+      padding: "0 0.4em",
+      cursor: "pointer",
+    },
     ".cm-matchingBracket, .cm-nonmatchingBracket": {
       backgroundColor: SELECTION_MATCH,
       outline: `1px solid ${cssVar(CSS_VAR.border)}`,

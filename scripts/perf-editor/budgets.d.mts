@@ -34,6 +34,8 @@ export interface Scenario {
   large?: true;
   /** The status bar shows the word, character and token counts. */
   counts?: true;
+  /** Added after the editor-perf audit, which measured no such file: no audit floor. */
+  afterAudit?: true;
   spec: CorpusSpec;
 }
 

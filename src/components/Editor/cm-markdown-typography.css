@@ -264,3 +264,126 @@
   font-family: var(--writ-font-mono);
   font-size: 0.875em;
 }
+
+/* The heading fold control. The anchor sits at the start of the heading line
+   and takes no width and no height, so the line keeps its box and CodeMirror's
+   height cache stays right; the chevron hangs to its left in the margin. */
+.cm-editor .cm-md-fold {
+  position: relative;
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+.cm-editor .cm-md-fold-control {
+  position: absolute;
+  right: 0.3em;
+  bottom: -0.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1em;
+  height: 1em;
+  color: var(--writ-fg-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--writ-motion);
+}
+.cm-editor .cm-line:hover .cm-md-fold-control,
+.cm-editor .cm-md-fold[data-folded] .cm-md-fold-control {
+  opacity: 1;
+}
+.cm-editor .cm-md-fold-control:hover {
+  color: var(--writ-fg-muted);
+}
+.cm-editor .cm-md-fold[data-folded] .cm-fold-chevron {
+  transform: rotate(-90deg);
+}
+
+/* Blocks drawn in place while the caret is outside them: a table, display
+   math, a Mermaid diagram (ADR-023, amended). Each widget is a block box of
+   its own, measured by CodeMirror once it is on screen. The editor's content
+   sets white-space: pre, which a table cell or a typeset formula must not
+   inherit. */
+.cm-editor .cm-md-block {
+  /* CodeMirror pads a line 6px in from the left and 2px from the right; a
+     block widget is not a line, so it takes the same inset to sit in the
+     text's column. The space above and below is padding: CodeMirror measures
+     a block widget's border box, and a vertical margin would put every line
+     under it out of step with the height map. */
+  margin: 0 var(--writ-space-1) 0 var(--writ-space-2-5);
+  padding: 0.5em 0;
+  white-space: normal;
+  cursor: text;
+}
+.cm-editor .cm-md-table-block {
+  overflow-x: auto;
+}
+.cm-editor .cm-md-table-widget {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.cm-editor .cm-md-table-widget th,
+.cm-editor .cm-md-table-widget td {
+  border: 1px solid var(--writ-border);
+  padding: 0.3em 0.75em;
+  text-align: left;
+  vertical-align: top;
+}
+.cm-editor .cm-md-table-widget th {
+  font-weight: 600;
+  background: var(--writ-bg-sunken);
+}
+.cm-editor .cm-md-math-block {
+  overflow-x: auto;
+  text-align: center;
+}
+.cm-editor .cm-md-math-block .katex-display {
+  margin: 0;
+}
+.cm-editor .cm-md-diagram {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.cm-editor .cm-md-diagram[data-status="pending"] {
+  min-height: 8rem;
+}
+.cm-editor .cm-md-diagram[data-status="failed"],
+.cm-editor .cm-md-math-block[data-status="failed"] {
+  display: block;
+  text-align: left;
+}
+.cm-editor .cm-md-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Math as written: on the caret's line, and until its drawing arrives. */
+.cm-editor .cm-md-math-source,
+.cm-editor .cm-md-math-pending,
+.cm-editor .cm-md-math-inline[data-status="pending"],
+.cm-editor .cm-md-math-inline[data-status="failed"] {
+  font-family: var(--writ-font-mono);
+  font-size: 0.875em;
+}
+.cm-editor .cm-md-math-pending,
+.cm-editor .cm-md-math-inline[data-status="pending"] {
+  color: var(--writ-fg-muted);
+}
+
+/* A block that could not be drawn: its source, and one line saying so. */
+.cm-editor .cm-md-block-source {
+  margin: 0;
+  padding: 0.875em 1em;
+  font-family: var(--writ-font-mono);
+  font-size: 0.875em;
+  white-space: pre-wrap;
+  background: var(--writ-bg-sunken);
+  border-radius: var(--writ-r-media);
+}
+.cm-editor .cm-md-block-caption {
+  display: block;
+  margin-top: 0.4em;
+  color: var(--writ-danger);
+  font-size: 0.875em;
+}
