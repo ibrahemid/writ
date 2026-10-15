@@ -94,7 +94,7 @@ The preview token layer gains `--writ-preview-status-success`, `-warning`,
 across the boundary. Values are the app's, per polarity.
 
 The bundled preview runtimes this unit did not change, recorded here because
-nothing else records them: KaTeX 0.16.22 (MIT) and Mermaid 11.15.0 (MIT), both
+nothing else records them: KaTeX 0.18.2 (MIT) and Mermaid 11.16.1 (MIT), both
 under `src-tauri/assets/` and served from the document-scope asset route
 (ADR-035). Both are declared in `licences/notices.toml` and listed in
 `THIRD-PARTY-NOTICES.md`.
