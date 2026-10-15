@@ -124,7 +124,15 @@ def shared_libraries(listing: str) -> list[str]:
 def host_candidates(path: str) -> list[str]:
     """Where the build machine keeps the file the AppImage copied to `path`."""
     name = path.rsplit("/", 1)[-1]
-    candidates = ["/" + path] + [f"{directory}/{name}" for directory in LIBRARY_DIRS]
+    # A plugin module keeps its folders below the library dir: the AppImage
+    # holds usr/lib/gtk-3.0/3.0.0/immodules/im-thai.so where the host has
+    # /usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-thai.so.
+    below = path[len("usr/lib/") :] if path.startswith("usr/lib/") else name
+    candidates = (
+        ["/" + path]
+        + [f"{directory}/{below}" for directory in LIBRARY_DIRS if below != name]
+        + [f"{directory}/{name}" for directory in LIBRARY_DIRS]
+    )
     expanded: list[str] = []
     for candidate in candidates:
         resolved = os.path.realpath(candidate) if os.path.exists(candidate) else None
