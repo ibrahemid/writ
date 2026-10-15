@@ -77,6 +77,8 @@ pub struct McpTools {
     pub read: Vec<String>,
     /// The tools the write grant covers.
     pub write: Vec<String>,
+    /// The tools the open-file grant covers (ADR-053).
+    pub context: Vec<String>,
 }
 
 /// IPC: the tools an approved program can call.
@@ -93,6 +95,10 @@ pub fn mcp_tools() -> McpTools {
             .map(|name| name.to_string())
             .collect(),
         write: writ_core::tools::WRITE_TOOLS
+            .iter()
+            .map(|name| name.to_string())
+            .collect(),
+        context: writ_core::tools::CONTEXT_TOOLS
             .iter()
             .map(|name| name.to_string())
             .collect(),
@@ -171,13 +177,79 @@ pub fn set_client_permission_inner(
             first_seen: chrono::Utc::now(),
             read,
             write,
+            context: false,
+            review: false,
+        }),
+    }
+    Ok(())
+}
+
+/// Sets whether one client may see the file open in Writ and its selection
+/// (ADR-053), adding it to the list when it is not there yet.
+///
+/// Its own grant: reading and writing stay as they were, and a client added
+/// here reads and writes nothing until the person says so.
+pub fn set_client_context_inner(
+    config: &mut McpConfig,
+    name: &str,
+    context: bool,
+) -> Result<(), ApprovalError> {
+    if name.trim().is_empty() {
+        return Err(ApprovalError::NoName);
+    }
+    match config
+        .approved_clients
+        .iter_mut()
+        .find(|approval| approval.name == name)
+    {
+        Some(approval) => approval.context = context,
+        None => config.approved_clients.push(ClientApproval {
+            name: name.to_string(),
+            first_seen: chrono::Utc::now(),
+            read: false,
+            write: false,
+            context,
+            review: false,
+        }),
+    }
+    Ok(())
+}
+
+/// Sets whether each of one client's writes waits for the person to apply or
+/// discard it in Writ (ADR-053), adding the client when it is not there yet.
+///
+/// Its own setting: reading, writing and the open file stay as they were. It
+/// is read only while the client may write, so a client added here writes
+/// nothing until the person says so.
+pub fn set_client_review_inner(
+    config: &mut McpConfig,
+    name: &str,
+    review: bool,
+) -> Result<(), ApprovalError> {
+    if name.trim().is_empty() {
+        return Err(ApprovalError::NoName);
+    }
+    match config
+        .approved_clients
+        .iter_mut()
+        .find(|approval| approval.name == name)
+    {
+        Some(approval) => approval.review = review,
+        None => config.approved_clients.push(ClientApproval {
+            name: name.to_string(),
+            first_seen: chrono::Utc::now(),
+            read: false,
+            write: false,
+            context: false,
+            review,
         }),
     }
     Ok(())
 }
 
 pub fn deny_client_inner(config: &mut McpConfig, name: &str) -> Result<(), ApprovalError> {
-    set_client_permission_inner(config, name, false, false)
+    set_client_permission_inner(config, name, false, false)?;
+    set_client_context_inner(config, name, false)
 }
 
 pub fn undo_denial_inner(config: &mut McpConfig, name: &str) -> Option<ClientApproval> {
@@ -404,6 +476,37 @@ pub async fn mcp_set_client_permission(
     })
 }
 
+/// IPC: set whether one client may see the file open in Writ (ADR-053).
+///
+/// Asks nothing outside the webview, as a grant of reading does not: rule 3.8
+/// confirms writing alone.
+#[tauri::command]
+pub fn mcp_set_client_context(
+    app: AppHandle,
+    name: String,
+    context: bool,
+) -> Result<McpClients, String> {
+    write_approvals(&app, "mcp_set_client_context", &name, |mcp| {
+        set_client_context_inner(mcp, &name, context).map_err(|e| e.to_string())
+    })
+}
+
+/// IPC: set whether each of one client's writes waits for the person's answer
+/// in Writ (ADR-053).
+///
+/// Asks nothing outside the webview: the setting holds writes back and never
+/// lets one through that the grant of writing did not already allow.
+#[tauri::command]
+pub fn mcp_set_client_review(
+    app: AppHandle,
+    name: String,
+    review: bool,
+) -> Result<McpClients, String> {
+    write_approvals(&app, "mcp_set_client_review", &name, |mcp| {
+        set_client_review_inner(mcp, &name, review).map_err(|e| e.to_string())
+    })
+}
+
 /// IPC: "Don't allow" one program.
 ///
 /// Stored as an entry granting neither direction, so a program that keeps
@@ -598,7 +701,7 @@ pub async fn mcp_server_command() -> Result<McpServerCommand, String> {
 /// ([`writ_core::cli_install::client_command`]): the copy bundled with the
 /// running build, the installed copy for an AppImage whose own copy is gone
 /// once it quits, and the install target for a development run.
-fn resolved_command() -> McpServerCommand {
+pub(crate) fn resolved_command() -> McpServerCommand {
     let target = super::cli::install_target();
     let exe = std::env::current_exe().ok();
     let bundled = super::cli::bundled_cli_path();
@@ -630,6 +733,8 @@ mod tests {
             first_seen: chrono::Utc::now(),
             read,
             write,
+            context: false,
+            review: false,
         }
     }
 
@@ -744,6 +849,84 @@ mod tests {
             .approval_for("Claude Code")
             .expect("the client is listed");
         assert!(approval.grants_nothing());
+    }
+
+    #[test]
+    fn seeing_the_open_file_is_set_on_its_own_and_kept_by_the_other_grants() {
+        let mut config = McpConfig::default();
+        set_client_permission_inner(&mut config, "Claude Code", true, false).expect("read");
+        set_client_context_inner(&mut config, "Claude Code", true).expect("context");
+
+        let approval = config.approval_for("Claude Code").expect("the client");
+        assert!(approval.read && approval.context && !approval.write);
+
+        set_client_permission_inner(&mut config, "Claude Code", true, true).expect("write");
+        assert!(
+            config
+                .approval_for("Claude Code")
+                .expect("the client")
+                .context
+        );
+
+        set_client_context_inner(&mut config, "Claude Code", false).expect("off");
+        let approval = config.approval_for("Claude Code").expect("the client");
+        assert!(approval.read && approval.write && !approval.context);
+    }
+
+    #[test]
+    fn asking_before_each_write_is_set_on_its_own_and_holds_only_a_program_that_writes() {
+        let mut config = McpConfig::default();
+        set_client_permission_inner(&mut config, "Claude Code", true, true).expect("write");
+        set_client_review_inner(&mut config, "Claude Code", true).expect("review");
+
+        let approval = config.approval_for("Claude Code").expect("the client");
+        assert!(approval.read && approval.write && approval.review);
+        assert!(approval.reviews_writes());
+
+        set_client_permission_inner(&mut config, "Claude Code", true, false).expect("read only");
+        let approval = config.approval_for("Claude Code").expect("the client");
+        assert!(approval.review && !approval.reviews_writes());
+
+        set_client_review_inner(&mut config, "Codex", true).expect("added");
+        let added = config.approval_for("Codex").expect("the client");
+        assert!(!added.read && !added.write && !added.reviews_writes());
+        assert_eq!(
+            set_client_review_inner(&mut config, " ", true),
+            Err(ApprovalError::NoName)
+        );
+    }
+
+    #[test]
+    fn a_program_let_see_the_open_file_alone_reads_and_writes_nothing() {
+        let mut config = McpConfig::default();
+        set_client_context_inner(&mut config, "Codex", true).expect("context");
+
+        let approval = config.approval_for("Codex").expect("the client");
+        assert!(approval.context && !approval.read && !approval.write);
+        assert!(!approval.grants_nothing());
+        assert_eq!(
+            set_client_context_inner(&mut config, " ", true),
+            Err(ApprovalError::NoName)
+        );
+    }
+
+    #[test]
+    fn not_allowing_a_program_takes_away_the_open_file_too() {
+        let mut config = McpConfig::default();
+        set_client_context_inner(&mut config, "Codex", true).expect("context");
+        deny_client_inner(&mut config, "Codex").expect("deny");
+        assert!(config
+            .approval_for("Codex")
+            .expect("the client")
+            .grants_nothing());
+    }
+
+    #[test]
+    fn the_tools_are_listed_by_the_grant_that_covers_them() {
+        let tools = mcp_tools();
+        assert_eq!(tools.context, vec!["get_context".to_string()]);
+        assert!(tools.read.contains(&"reveal".to_string()));
+        assert!(!tools.read.contains(&"get_context".to_string()));
     }
 
     #[test]

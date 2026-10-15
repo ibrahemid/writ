@@ -7,14 +7,18 @@ import {
   mcpClients,
   mcpDenyClient,
   mcpForgetClient,
+  mcpOffCall,
   mcpRestoreClient,
   mcpReturnToWaiting,
   mcpServerCommand,
+  mcpSetClientContext,
+  mcpSetClientReview,
   mcpSetClientPermission,
   mcpTools,
   type ActivityRecord,
   type ClientApproval,
   type McpClients,
+  type McpOffCall,
   type McpServerCommand,
   type McpTools,
   type PendingClient,
@@ -23,7 +27,7 @@ import { writeClipboardText } from "../../services/tauri";
 import { logFailure } from "../../lib/log";
 import { SECTION_LABELS, settingEntry, UnknownSettingError } from "../../settings";
 
-export type { ActivityRecord, ClientApproval, McpServerCommand, McpTools, PendingClient };
+export type { ActivityRecord, ClientApproval, McpOffCall, McpServerCommand, McpTools, PendingClient };
 
 // Singleton state — Writ is single-window
 
@@ -42,9 +46,11 @@ const [pending, setPending] = createSignal<PendingClient[]>([]);
 const [serverCommand, setServerCommand] = createSignal<McpServerCommand | null>(null);
 const [tools, setTools] = createSignal<McpTools | null>(null);
 const [announced, setAnnounced] = createSignal<string[]>([]);
+const [offCall, setOffCall] = createSignal<McpOffCall | null>(null);
 
 let subscription: Promise<UnlistenFn> | null = null;
 let waitingSubscription: Promise<UnlistenFn> | null = null;
+let offCallSubscription: Promise<UnlistenFn> | null = null;
 
 function isWaiting(waiting: readonly PendingClient[], name: string): boolean {
   return waiting.some((client) => client.name === name);
@@ -116,6 +122,24 @@ async function watchWaiting(): Promise<void> {
   });
   await waitingSubscription;
   await refreshClients();
+}
+
+/**
+ * The last program that called while Connected programs was off: read once
+ * at launch, since the call may have come while Writ was closed, and again
+ * whenever the server writes another.
+ */
+async function watchOffCalls(): Promise<void> {
+  offCallSubscription ??= onEvent("mcp:off-call", (payload) => {
+    setOffCall(payload.call);
+  });
+  await offCallSubscription;
+  try {
+    const call = await mcpOffCall();
+    if (call && !offCall()) setOffCall(call);
+  } catch {
+    logFailure("the last call while Connected programs was off could not be read");
+  }
 }
 
 function isDecided(name: string): boolean {
@@ -225,6 +249,16 @@ async function setPermission(name: string, read: boolean, write: boolean): Promi
   await refreshLog();
 }
 
+/** Lets one program see the file open in Writ and its selection, or stops it (ADR-053). */
+async function setContext(name: string, context: boolean): Promise<void> {
+  takeClients(await mcpSetClientContext(name, context));
+}
+
+/** Holds each of one program's writes for the person's answer, or stops (ADR-053). */
+async function setReview(name: string, review: boolean): Promise<void> {
+  takeClients(await mcpSetClientReview(name, review));
+}
+
 /**
  * "Don't allow": stores a decision granting neither direction, by the name the
  * program sent, so it is answered as not allowed and does not wait again.
@@ -265,6 +299,8 @@ export const activityStore = {
   refresh,
   refreshClients,
   watchWaiting,
+  offCall,
+  watchOffCalls,
   isDecided,
   isNotAllowed,
   notice,
@@ -275,6 +311,8 @@ export const activityStore = {
   copyCommand,
   clear,
   setPermission,
+  setContext,
+  setReview,
   deny,
   undoDenial,
   forget,

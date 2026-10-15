@@ -1,15 +1,21 @@
 import type { UpdatePhase } from "./update";
+import type { VersionWriter } from "./writer";
 import type {
   ChatDroppedProposal,
   ChatErrorFrame,
   ChatProposal,
+  HeldWrite,
+  McpOffCall,
   PendingClient,
   RequestIdentity,
 } from "../services/tauri";
 
 export type WritEvent =
-  | { kind: "pending:opens"; payload: { paths: string[] } }
+  | { kind: "pending:opens"; payload: { paths: string[]; lines?: Record<string, number> } }
   | { kind: "files:dropped"; payload: { paths: string[] } }
+  | { kind: "link:new"; payload: { name: string | null } }
+  | { kind: "context:asked"; payload: { token: string } }
+  | { kind: "review:asked"; payload: HeldWrite }
   | { kind: "window:shown"; payload: { rust_elapsed_us: number } }
   | { kind: "config:changed"; payload: { keys: string[] } }
   | {
@@ -20,6 +26,7 @@ export type WritEvent =
         change: "modified" | "removed" | "moved";
         newPath: string | null;
         diskHash: string | null;
+        writer?: VersionWriter | null;
       };
     }
   | { kind: "menu:action"; payload: { action: string } }
@@ -81,6 +88,7 @@ export type WritEvent =
   | { kind: "quit:flush"; payload: Record<string, never> }
   | { kind: "activity:changed"; payload: Record<string, never> }
   | { kind: "mcp:pending"; payload: { waiting: PendingClient[] } }
+  | { kind: "mcp:off-call"; payload: { call: McpOffCall } }
   | { kind: "titlebar:maximize-hit"; payload: { phase: CaptionHitPhase } };
 
 export type CaptionHitPhase = "enter" | "leave" | "press" | "click";

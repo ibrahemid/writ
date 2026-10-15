@@ -29,6 +29,9 @@ ignore = "0.4.31"
 grep-searcher = "0.1.17"
 grep-regex = "0.1.14"
 grep-matcher = "0.1.9"
+# The Claude Desktop extension bundle (`mcp_bundle`): stored entries only, so
+# no compression backend. tauri-plugin-updater already resolves this version.
+zip = { version = "4.6", default-features = false }
 
 [features]
 bundled = ["rusqlite/bundled"]

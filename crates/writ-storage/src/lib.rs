@@ -73,6 +73,8 @@ pub mod instance;
 pub mod layout_state;
 /// WAL checkpointing and freelist reclamation.
 pub mod maintenance;
+/// The desktop extension bundle Claude Desktop installs Writ from.
+pub mod mcp_bundle;
 /// The texts a note used to hold, and the index over them — spec H1.
 pub mod note_history;
 /// The one implementation of the capability-scoped note host surface.
@@ -85,6 +87,10 @@ pub mod notes_index;
 pub mod notes_migration;
 /// Moving the notes folder, and emptying the archive into it.
 pub mod notes_move;
+/// The last program that called while Connected programs was off.
+pub mod off_calls;
+/// The answers the app leaves for a `get_context` call (ADR-053).
+pub mod open_context;
 /// The one spelling of a path the stores hand over.
 pub mod paths;
 /// Programs the harness has seen and the user has not decided on.
@@ -103,3 +109,5 @@ pub mod workspace_search;
 pub mod workspace_store;
 /// The lock Writ's processes hold around the compare and rename of a write.
 pub mod write_lock;
+/// The files a held write travels in between `writ mcp` and the app (ADR-053).
+pub mod write_review;

@@ -105,16 +105,24 @@ import Prose from '../layouts/Prose.astro';
   </p>
   <p>
     Switching the app on approves nobody. A program's first call is refused and waits in Settings until you approve
-    that program. Reading and writing are approved separately; approving reading never grants writing. Either can be
-    withdrawn in Settings or in <code>config.toml</code> and takes effect on the next call.
+    that program. Reading, writing and seeing the open file are approved separately; writing includes reading, and
+    nothing else grants another. Each can be withdrawn in Settings or in <code>config.toml</code> and takes effect on
+    the next call.
   </p>
   <p>
-    With reading approved, a program has eight tools: list the folder's text files, search the folder, read a
-    file, read a file's links, backlinks, properties and tags, and list the folder's tags. With writing approved, it
-    has three: replace a file's text, create a file, and rename one. No tool deletes a file. A write is checked
-    against the version the program read: it is refused if the file changed since, and the program's text is saved
-    beside the file. A file the program has not read is not replaced unless it asks to overwrite it, and the text a
-    write replaces is kept as a version in Writ's data folder. A file outside your folder is out of reach.
+    With reading approved, a program has ten tools: list the folder's text files, search the folder, read a file,
+    read a file's links, backlinks, properties and tags, list the folder's tags, and show a file in Writ at a line or
+    a heading. With writing approved, it has six: replace a file's text, create a file, rename one, add to the end of
+    a file, replace one passage, and make or add to today's file. No tool deletes a file. A write is checked against the
+    version the program read: it is refused if the file changed since, and the program's text is saved beside the
+    file. A file the program has not read is not replaced unless it asks to overwrite it, and the text a write
+    replaces is kept as a version in Writ's data folder. A file outside your folder is out of reach of these tools.
+  </p>
+  <p>
+    With Open file turned on for it, a program can ask which file is in front in Writ and read the text you selected
+    there, including text not saved yet. A file outside your folder is named to it by its file name alone. Writ asks
+    the window only when the program calls, hands the answer over in a file in its data folder that the server
+    deletes once read, and lists each call in the activity list with the file's name and not the text.
   </p>
 
   <h2>The activity list</h2>

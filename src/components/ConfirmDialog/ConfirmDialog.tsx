@@ -1,5 +1,6 @@
-import { Show, createEffect, onCleanup } from "solid-js";
+import { For, Show, createEffect, onCleanup } from "solid-js";
 import { installFocusTrap } from "../../lib/focus-trap";
+import { hunkRows } from "../../lib/diff-rows";
 import {
   initialFocus,
   pendingConfirm,
@@ -37,18 +38,41 @@ export default function ConfirmDialog() {
           <div
             ref={dialogRef}
             class="confirm-dialog"
+            classList={{ "has-diff": (req().hunks?.length ?? 0) > 0 }}
             onClick={(e) => e.stopPropagation()}
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
-            aria-describedby="confirm-message"
+            aria-describedby={req().message ? "confirm-message" : undefined}
           >
             <div id="confirm-title" class="confirm-title">
               {req().title}
             </div>
-            <div id="confirm-message" class="confirm-message">
-              {req().message}
-            </div>
+            <Show when={req().message}>
+              <div id="confirm-message" class="confirm-message">
+                {req().message}
+              </div>
+            </Show>
+            <Show when={(req().hunks?.length ?? 0) > 0}>
+              <div class="confirm-diff" tabindex="0" data-diff>
+                <For each={(req().hunks ?? []).map(hunkRows)}>
+                  {(hunk) => (
+                    <div class="confirm-diff-hunk">
+                      <For each={hunk}>
+                        {(row) => (
+                          <div class="confirm-diff-row" data-kind={row.kind}>
+                            <span class="confirm-diff-mark" aria-hidden="true">
+                              {row.kind === "added" ? "+" : row.kind === "removed" ? "-" : " "}
+                            </span>
+                            <span class="confirm-diff-text">{row.text}</span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
             <div class="confirm-actions">
               <Button
                 ref={cancelRef}

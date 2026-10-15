@@ -201,7 +201,7 @@ describe("PreviewScriptsField", () => {
 
     await findByRole("button", { name: "Scripts off" });
     expect(win.preview.forceRefreshToken()).toBe(before + 1);
-    expect(reload).toHaveBeenCalledWith("S9");
+    expect(reload).toHaveBeenCalledWith("S9", null);
     expect(mocks.setScripts).not.toHaveBeenCalled();
   });
 

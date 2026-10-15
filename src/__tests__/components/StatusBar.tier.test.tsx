@@ -50,6 +50,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       cursorLine: () => 1,
       cursorCol: () => 1,
       isUpdatedFromDisk: () => false,
+      updatedFromDiskBy: () => null,
     },
     counts: { counts: () => null, watch: () => () => {} },
     tabs: { activeTabId: () => "tab-1" },

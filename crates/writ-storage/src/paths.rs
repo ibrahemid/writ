@@ -53,6 +53,25 @@ pub fn relative_slug(root: &Path, path: &Path) -> Option<String> {
     )
 }
 
+/// The file `relative` names inside the folder at `root`, resolved on disk, or
+/// `None` when the folder does not hold a file there.
+///
+/// `relative` has `/` between segments, the way a `writ://` link spells it
+/// (ADR-052). Each segment is joined on its own and the result resolved before
+/// it is compared with the folder, so a symlink out of the folder, a `..` and a
+/// segment that replaces the path all come back `None`, as do a folder and a
+/// path that names nothing.
+pub fn file_in_folder(root: &Path, relative: &str) -> Option<PathBuf> {
+    let root = writ_core::notes::containment::resolve_for_containment(root)?;
+    let mut candidate = root.clone();
+    for segment in relative.split('/') {
+        candidate.push(segment);
+    }
+    writ_core::notes::containment::resolve_inside(&root, &candidate)
+        .filter(|file| file.is_file())
+        .map(strip_verbatim_prefix)
+}
+
 /// The file name at the end of a path argument.
 ///
 /// What a log line or a message takes when a note cannot be spelled relative

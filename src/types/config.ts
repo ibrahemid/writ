@@ -70,6 +70,10 @@ export interface ClientApproval {
   first_seen: string;
   read: boolean;
   write: boolean;
+  /** May see the file open in Writ and its selection (ADR-053). */
+  context: boolean;
+  /** Each write waits for the person to apply or discard it (ADR-053). */
+  review?: boolean;
 }
 
 export interface McpConfig {

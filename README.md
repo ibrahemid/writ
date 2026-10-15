@@ -41,6 +41,16 @@ writ rename Groceries Shopping           # rename a file inside its folder
 
 Every verb and its exit codes are in [docs/cli-verbs.md](docs/cli-verbs.md).
 
+## Connected programs (MCP)
+
+`writ mcp` serves the files in Writ's folder to MCP clients. Switch on Settings, Apps, Connected programs: under Connect a program, Add puts Writ in Claude Code, Codex, Gemini CLI, Cursor, VS Code, LM Studio or Claude Desktop, Copy gives any other client the JSON, and Test reports how many tools Writ lists. A program's first call waits until you approve reading, or reading and writing. Writ never edits another program's configuration file.
+
+```sh
+claude mcp add --scope user writ -- "/Applications/Writ.app/Contents/MacOS/writ" mcp
+```
+
+The walk-through is in [Connect a program to your folder with MCP](https://writ.ibrahemid.com/guides/agent-output/), and Claude Code's hooks are in [docs/integrations/claude-code.md](docs/integrations/claude-code.md).
+
 ## Build from source
 
 Prerequisites: [rustup](https://rustup.rs), which installs the Rust version `rust-toolchain.toml` pins, Node.js `^22.22.2 || ^24.15.0 || >=26`, pnpm 9+, and the [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/) for your OS.

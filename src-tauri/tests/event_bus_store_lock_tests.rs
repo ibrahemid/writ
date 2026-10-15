@@ -90,6 +90,8 @@ fn make_state(dir: &TempDir) -> AppState {
         quit: Arc::new(QuitState::new()),
         removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
+        pending_lines: Mutex::new(Default::default()),
+        cli_waits: Mutex::new(Default::default()),
         frontend_ready: AtomicBool::new(false),
         window_revealed: AtomicBool::new(false),
         window_dismissed: AtomicBool::new(false),
@@ -241,6 +243,7 @@ fn external(buffer_id: &str, path: &str, change: ExternalChange) -> WritEvent {
         change,
         new_path: None,
         disk_hash: None,
+        writer: None,
     }
 }
 
@@ -284,6 +287,7 @@ fn every_event(state: &AppState, id: &str, path: &str) -> Vec<WritEvent> {
             action: "file.save".to_string(),
         },
         WritEvent::McpPendingChanged,
+        WritEvent::McpCalledWhileOff,
         WritEvent::FlushBeforeQuit,
         WritEvent::PluginEvent {
             plugin_id: "writ.test".to_string(),
@@ -312,6 +316,7 @@ fn listed(event: &WritEvent) {
         | WritEvent::HotkeyToggle
         | WritEvent::MenuAction { .. }
         | WritEvent::McpPendingChanged
+        | WritEvent::McpCalledWhileOff
         | WritEvent::FlushBeforeQuit
         | WritEvent::PluginEvent { .. } => {}
     }

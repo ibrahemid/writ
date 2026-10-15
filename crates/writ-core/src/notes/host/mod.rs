@@ -11,7 +11,7 @@
 //! the index. A consumer whose set holds no write capability has no code path
 //! to a write.
 //!
-//! The three writes carry a [`crate::notes::WriteOrigin`] naming the consumer,
+//! The writes carry a [`crate::notes::WriteOrigin`] naming the consumer,
 //! and they do not write themselves: they go through the one guarded facade, so
 //! a note changed since the caller last saw it keeps what it holds and the text
 //! handed in lands beside it. What the caller last saw is a [`LastKnown`] the
@@ -35,8 +35,8 @@ pub mod types;
 pub use capability::{Capability, PermissionSet};
 pub use error::HostError;
 pub use types::{
-    FolderTag, NoteBacklink, NoteContent, NoteFacts, NoteHit, NoteLink, NoteSummary, RenameReceipt,
-    WriteReceipt,
+    FolderTag, IndexEntry, NoteBacklink, NoteContent, NoteFacts, NoteHit, NoteLink, NoteSummary,
+    PassageReceipt, RenameReceipt, WriteReceipt,
 };
 
 use crate::hash::Sha256Digest;
@@ -79,6 +79,15 @@ pub trait NoteHost {
     /// The whole file at `path`, frontmatter included.
     fn read_note(&self, path: &str) -> Result<NoteContent, HostError>;
 
+    /// The 1-based line of the first heading `heading` names in the file at
+    /// `path` (`crate::open_context::heading_line`), or `None` when it has no
+    /// such heading.
+    ///
+    /// Reads the file the way [`NoteHost::read_note`] does and hands back no
+    /// text, so it is not a read the session can later write against: a
+    /// write with no hash still needs the note read first.
+    fn heading_line(&self, path: &str, heading: &str) -> Result<Option<u32>, HostError>;
+
     /// What the file at `path` is called and how long it is, without reading
     /// its text.
     ///
@@ -107,6 +116,13 @@ pub trait NoteHost {
     /// Every tag in the folder, with the number of notes carrying each.
     fn folder_tags(&self) -> Result<Vec<FolderTag>, HostError>;
 
+    /// Every file the index holds, in path order, with its title, tags, the
+    /// files its links reach and its length (ADR-052).
+    ///
+    /// Read from the index on demand and written nowhere: the folder holds
+    /// only the files a person put there.
+    fn folder_index(&self) -> Result<Vec<IndexEntry>, HostError>;
+
     /// Replaces the text of the note at `path`.
     ///
     /// `last_known` is what the caller last saw the note hold. For
@@ -127,6 +143,61 @@ pub trait NoteHost {
         last_known: LastKnown,
         origin: WriteOrigin,
     ) -> Result<WriteReceipt, HostError>;
+
+    /// Replaces the text of the note at `path` as [`NoteHost::write_note`]
+    /// does, in the note's own shape: its encoding (ADR-049) and its line
+    /// ending ([`crate::notes::line_ending::in_shape_of`]).
+    ///
+    /// For text from somewhere that speaks only UTF-8 and `\n` lines, such as
+    /// a model's rewrite of the whole note, which would otherwise change lines
+    /// and bytes nobody changed. A character the encoding has no bytes for is
+    /// answered with [`HostError::EncodingLossy`] and nothing is written.
+    fn replace_note(
+        &self,
+        path: &str,
+        content: &str,
+        last_known: LastKnown,
+        origin: WriteOrigin,
+    ) -> Result<WriteReceipt, HostError>;
+
+    /// Adds `text` to the end of the note at `path`, on lines of its own.
+    ///
+    /// The entry is [`crate::capture::capture_entry`]'s and goes on the end
+    /// as [`crate::capture::append_entry`] puts it, in the note's own line
+    /// ending and encoding (ADR-049): a character the encoding has no bytes
+    /// for is answered with [`HostError::EncodingLossy`] and nothing is
+    /// written. The write is compared against the bytes the append was built
+    /// from, so a note that changed in between is read again rather than
+    /// written over. Text with nothing in it writes nothing, and the receipt
+    /// says so.
+    ///
+    /// Held under [`Capability::WriteNote`]: an append replaces the note's
+    /// bytes as a write does.
+    fn append_note(
+        &self,
+        path: &str,
+        text: &str,
+        origin: WriteOrigin,
+    ) -> Result<WriteReceipt, HostError>;
+
+    /// Replaces the one place the note at `path` holds `old` with `new`.
+    ///
+    /// The match is [`crate::notes::passage::replace_passage`]'s: exact, and
+    /// found once. Absent, empty or there more than once is answered with
+    /// [`HostError::PassageAbsent`], [`HostError::PassageEmpty`] or
+    /// [`HostError::PassageRepeated`] and nothing is written. The note keeps
+    /// its encoding (ADR-049), and the write is compared against the bytes the
+    /// replacement was made in, so a note that changed in between is read
+    /// again rather than written over.
+    ///
+    /// Held under [`Capability::WriteNote`].
+    fn replace_in_note(
+        &self,
+        path: &str,
+        old: &str,
+        new: &str,
+        origin: WriteOrigin,
+    ) -> Result<PassageReceipt, HostError>;
 
     /// Mints a note called `name` in the notes folder.
     ///

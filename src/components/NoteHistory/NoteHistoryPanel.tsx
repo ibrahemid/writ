@@ -18,6 +18,7 @@ import { formatBytes } from "../../lib/format-bytes";
 import { hunkRows } from "../../lib/diff-rows";
 import { noteVersionsStore, type NoteVersion } from "../../stores/global/note-versions";
 import { userErrorText } from "../../lib/error-text";
+import { writerName } from "../../lib/writer";
 import "./NoteHistoryPanel.css";
 
 // Singleton state — Writ is single-window
@@ -83,6 +84,9 @@ function Row(props: { version: NoteVersion }) {
         onClick={() => void noteVersionsStore.select(props.version.id)}
       >
         <span class="note-version-when">{versionLabel(props.version.at_ms)}</span>
+        <Show when={props.version.writer}>
+          {(writer) => <span class="note-version-writer">{writerName(writer())}</span>}
+        </Show>
         <span class="note-version-size">{formatBytes(props.version.bytes)}</span>
       </button>
     </li>

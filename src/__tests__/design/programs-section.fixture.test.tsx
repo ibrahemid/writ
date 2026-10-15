@@ -54,6 +54,7 @@ const mocks = vi.hoisted(() => ({
   activityClear: vi.fn().mockResolvedValue(undefined),
   mcpClients: vi.fn().mockResolvedValue({ approved: [], waiting: [] }),
   mcpSetClientPermission: vi.fn(),
+  mcpSetClientContext: vi.fn(),
   mcpForgetClient: vi.fn(),
   mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" }),
   mcpTools: vi.fn(),
@@ -105,6 +106,7 @@ vi.mock("../../services/tauri", () => ({
   activityClear: mocks.activityClear,
   mcpClients: mocks.mcpClients,
   mcpSetClientPermission: mocks.mcpSetClientPermission,
+  mcpSetClientContext: mocks.mcpSetClientContext,
   mcpForgetClient: mocks.mcpForgetClient,
   mcpServerCommand: mocks.mcpServerCommand,
   mcpTools: mocks.mcpTools,
@@ -240,8 +242,8 @@ const SERVER_READ_TOOLS = [
 const SERVER_WRITE_TOOLS = ["write_note", "create_note", "rename_note"];
 
 const CLIENTS = [
-  { name: "Scribe CLI", first_seen: "2026-09-11T09:12:00Z", read: true, write: true },
-  { name: "Desk helper", first_seen: "2026-09-12T10:04:00Z", read: true, write: false },
+  { name: "Scribe CLI", first_seen: "2026-09-11T09:12:00Z", read: true, write: true, context: false },
+  { name: "Desk helper", first_seen: "2026-09-12T10:04:00Z", read: true, write: false, context: false },
 ];
 
 const SHEETS = [
@@ -293,6 +295,7 @@ async function renderPrograms(): Promise<string> {
   mocks.mcpTools.mockReset().mockResolvedValue({
     read: SERVER_READ_TOOLS,
     write: SERVER_WRITE_TOOLS,
+    context: ["get_context"],
   });
 
   const { container } = render(() => <SettingsModal />);

@@ -86,7 +86,13 @@ import {
   tierForDocument,
   type EditorFeatures,
 } from "../../editor/large-file";
-import { ExternalReloadTxn, smallestChange } from "../../editor/external-reload";
+import {
+  ExternalReloadTxn,
+  reloadTransactionSpec,
+  smallestChange,
+} from "../../editor/external-reload";
+import { agentEditMarks, withoutAgentEdits } from "../../editor/agent-edit-marks";
+import { programName, type VersionWriter } from "../../lib/writer";
 import { TabStateCache } from "../../editor/tab-state-cache";
 import { autoTextDirection } from "../../editor/bidi";
 import { placeholderExtension } from "../../editor/placeholder";
@@ -532,6 +538,7 @@ export default function EditorInstance(props: Props) {
           : [],
       ),
       EditorState.allowMultipleSelections.of(true),
+      agentEditMarks,
       drawSelection(),
       rectangularSelection(),
       crosshairCursor(),
@@ -818,7 +825,8 @@ export default function EditorInstance(props: Props) {
     const mode = currentMode();
     if (mode.kind === "Binary" || closedTabs.has(viewBufferId)) return;
     tabStates.put(viewBufferId, {
-      state: view.state,
+      // Leaving the tab is moving on from what a program changed in it.
+      state: withoutAgentEdits(view.state),
       scroll: view.scrollSnapshot(),
       mode,
       longest: win.editor.longestLine(),
@@ -991,7 +999,7 @@ export default function EditorInstance(props: Props) {
   // but the record has to move now: a background note left holding the digest
   // of a file that has changed reads dirty against a file it matches, and the
   // next change to it asks a question that has no reason to be asked.
-  async function reloadFromDisk(id: string) {
+  async function reloadFromDisk(id: string, writer?: VersionWriter | null) {
     const wasUnread = unreadTabs.stateOf(id) !== null;
     let content: string;
     try {
@@ -1005,24 +1013,22 @@ export default function EditorInstance(props: Props) {
       if (!wasUnread && unread && id === currentBufferId) showUnreadPane(id, unread);
       return;
     }
-    if (id !== currentBufferId) updateKeptState(id, content);
-    win.editor.applyExternalContent(id, content);
+    if (id !== currentBufferId) updateKeptState(id, content, programName(writer));
+    win.editor.applyExternalContent(id, content, writer);
   }
 
   // A tab behind another one whose file changed takes the file's text into
   // its kept state as one undoable change, the way the tab in front does, so
-  // switching back keeps its history rather than opening fresh.
-  function updateKeptState(id: string, content: string) {
+  // switching back keeps its history rather than opening fresh. A program's
+  // text is marked there too, and shows when the tab is switched to.
+  function updateKeptState(id: string, content: string, program: string | null) {
     const kept = tabStates.peek(id);
     if (kept === undefined) return;
     const before = kept.state.doc.toString();
     const after = asEditorText(content);
     if (before === after) return;
     const change = smallestChange(before, after);
-    tabStates.update(
-      id,
-      kept.state.update({ changes: change, annotations: ExternalReloadTxn.of(true) }).state,
-    );
+    tabStates.update(id, kept.state.update(reloadTransactionSpec(change, program)).state);
   }
 
   // Cmd/Ctrl + wheel (and trackpad pinch, which the OS reports as ctrl+wheel)
@@ -1147,7 +1153,7 @@ export default function EditorInstance(props: Props) {
   createEffect(on(
     () => win.editor.externalReload(),
     (req) => {
-      if (req) void reloadFromDisk(req.id);
+      if (req) void reloadFromDisk(req.id, req.writer);
     },
     { defer: true },
   ));

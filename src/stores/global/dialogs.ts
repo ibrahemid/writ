@@ -1,8 +1,15 @@
 import { createSignal } from "solid-js";
 
+import type { DiffHunk } from "../../services/tauri";
+
 export interface ConfirmRequest {
   title: string;
+  /** Shown under the title; an empty message shows nothing. */
   message: string;
+  /** What the answer would change, shown line by line under the message. */
+  hunks?: DiffHunk[];
+  /** Names the question, so its asker can take it back ([`dismissConfirm`]). */
+  key?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
@@ -29,6 +36,16 @@ interface PendingConfirm extends ConfirmRequest {
 
 // Singleton state — Writ is single-window
 const [pending, setPending] = createSignal<PendingConfirm | null>(null);
+const freed: Array<() => void> = [];
+
+/**
+ * Resolves once no question is on screen, for an asker that must not take
+ * the place of the person's own question.
+ */
+export function whenNoQuestion(): Promise<void> {
+  if (!pending()) return Promise.resolve();
+  return new Promise((resolve) => freed.push(resolve));
+}
 
 /** The dialog's full answer. See [`ConfirmOutcome`]. */
 export function requestChoice(request: ConfirmRequest): Promise<ConfirmOutcome> {
@@ -49,12 +66,18 @@ export function pendingConfirm(): ConfirmRequest | null {
   return pending();
 }
 
+/** Takes back the question `key` names, if it is the one on screen. */
+export function dismissConfirm(key: string): void {
+  if (pending()?.key === key) settleConfirm("dismissed");
+}
+
 /** Answers the question on screen. */
 export function settleConfirm(outcome: ConfirmOutcome): void {
   const current = pending();
   if (!current) return;
   current.resolve(outcome);
   setPending(null);
+  for (const resolve of freed.splice(0)) resolve();
 }
 
 /** The button that takes focus when `request` opens. */

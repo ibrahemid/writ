@@ -7001,11 +7001,13 @@ dependencies = [
 name = "writ-core"
 version = "0.6.0"
 dependencies = [
+ "base64 0.22.1",
  "chardetng",
  "chrono",
  "dom_query",
  "encoding_rs",
  "html5ever 0.40.1",
+ "percent-encoding",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -7035,6 +7037,8 @@ dependencies = [
 name = "writ-mcp"
 version = "0.6.0"
 dependencies = [
+ "chrono",
+ "percent-encoding",
  "rmcp",
  "serde",
  "serde_json",
@@ -7089,6 +7093,7 @@ dependencies = [
  "uuid",
  "windows",
  "writ-core",
+ "zip",
 ]
 
 [[package]]

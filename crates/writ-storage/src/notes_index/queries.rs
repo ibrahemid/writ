@@ -20,8 +20,8 @@ use writ_core::workspace::file_search::{rank_keyed_file_hits, FileHit};
 use super::resolve::NameIndex;
 use super::{
     file_name_of, folder_segment, is_note_file, root_prefix, schema, BacklinkCertainty,
-    BacklinkRow, GraphEdge, GraphNode, GraphRows, HeadingRow, IndexedBy, LinkRow, NoteFactsRow,
-    NotesIndex,
+    BacklinkRow, FolderIndexRow, GraphEdge, GraphNode, GraphRows, HeadingRow, IndexedBy, LinkRow,
+    NoteFactsRow, NotesIndex,
 };
 use crate::errors::StorageResult;
 
@@ -708,6 +708,96 @@ pub(crate) fn graph(conn: &Connection, notes_root: &Path) -> StorageResult<Graph
     Ok(GraphRows { nodes, edges })
 }
 
+/// Every indexed file, with the facts the folder index lists for it.
+///
+/// Five reads, each over one table, joined here by path: a folder of thousands
+/// of files is five statements rather than five per file.
+pub(crate) fn folder_index(conn: &Connection) -> StorageResult<Vec<FolderIndexRow>> {
+    use std::collections::HashMap;
+
+    let mut stmt = conn.prepare_cached("SELECT path, size FROM files ORDER BY path")?;
+    let mut rows = stmt
+        .query_map([], |row| {
+            Ok(FolderIndexRow {
+                path: row.get(0)?,
+                bytes: row.get::<_, i64>(1)?.max(0) as u64,
+                title: None,
+                tags: Vec::new(),
+                links: Vec::new(),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let at: HashMap<String, usize> = rows
+        .iter()
+        .enumerate()
+        .map(|(index, row)| (row.path.clone(), index))
+        .collect();
+
+    let mut stmt = conn.prepare_cached(
+        "SELECT path, value_json FROM properties WHERE lower(key) = 'title' ORDER BY rowid",
+    )?;
+    for pair in stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })? {
+        let (path, value) = pair?;
+        let Some(&index) = at.get(&path) else {
+            continue;
+        };
+        if rows[index].title.is_some() {
+            continue;
+        }
+        if let Ok(serde_json::Value::String(title)) = serde_json::from_str(&value) {
+            if !title.trim().is_empty() {
+                rows[index].title = Some(title.trim().to_string());
+            }
+        }
+    }
+
+    let mut stmt =
+        conn.prepare_cached("SELECT path, text FROM headings ORDER BY path, line, rowid")?;
+    for pair in stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })? {
+        let (path, text) = pair?;
+        let Some(&index) = at.get(&path) else {
+            continue;
+        };
+        if rows[index].title.is_none() && !text.trim().is_empty() {
+            rows[index].title = Some(text.trim().to_string());
+        }
+    }
+
+    let mut stmt = conn.prepare_cached("SELECT path, tag FROM tags ORDER BY path, line, rowid")?;
+    for pair in stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })? {
+        let (path, tag) = pair?;
+        let Some(&index) = at.get(&path) else {
+            continue;
+        };
+        if !rows[index].tags.contains(&tag) {
+            rows[index].tags.push(tag);
+        }
+    }
+
+    let mut stmt = conn.prepare_cached(
+        "SELECT DISTINCT from_path, to_path FROM links
+          WHERE to_path IS NOT NULL AND to_path <> from_path
+          ORDER BY from_path, to_path",
+    )?;
+    for pair in stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })? {
+        let (from, to) = pair?;
+        let Some(&index) = at.get(&from) else {
+            continue;
+        };
+        rows[index].links.push(to);
+    }
+
+    Ok(rows)
+}
+
 /// The line the heading `slug` is on in the note at `path`, or `None` when the
 /// note has no such heading.
 pub(crate) fn heading_line(
@@ -869,6 +959,12 @@ impl NotesIndex<'_> {
     ///   rather than drawn to a node that is not there.
     pub fn graph(&self, notes_root: &Path) -> StorageResult<GraphRows> {
         graph(self.conn, notes_root)
+    }
+
+    /// Every indexed file with its title, tags, resolved links and length, in
+    /// path order (ADR-052). Read on demand and written nowhere.
+    pub fn folder_index(&self) -> StorageResult<Vec<FolderIndexRow>> {
+        folder_index(self.conn)
     }
 
     /// Every indexed note a link naming `name` could mean, in byte order.

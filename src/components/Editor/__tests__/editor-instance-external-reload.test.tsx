@@ -7,6 +7,7 @@ import type { BufferDocument } from "../../../types/buffer";
 import WindowProvider, { useWindow } from "../../WindowProvider/WindowProvider";
 import type { WindowState } from "../../../stores/window/createWindowState";
 import { DIRTY_COMPARE_IDLE_MS } from "../../../stores/window/editor-store";
+import { agentEditRanges } from "../../../editor/agent-edit-marks";
 
 // The file, as the operating system holds it. `readBufferContent` is the Rust
 // command that reads it, so this map is what "on disk" means here.
@@ -273,5 +274,131 @@ describe("EditorInstance: reloading after a change outside Writ", () => {
     await handleExternalEdit({ bufferId: "note", change: "modified" }, deps);
     expect(view.state.doc.toString()).toBe(typed);
     expect(asked).toEqual(["note", "note"]);
+  });
+});
+
+describe("EditorInstance: a program's write to the open file", () => {
+  const CLAUDE = { kind: "program", name: "claude-code" } as const;
+
+  beforeEach(() => {
+    fileOnDisk.clear();
+    readBufferContent.mockClear();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("lands marked, keeps the caret, and one undo takes back the program's change only", async () => {
+    fileOnDisk.set("note", "alpha\nbeta\n");
+    const { win } = await mount(mockBuffer("note"));
+    const view = win.editor.getView()!;
+
+    // The person types at the end of the second line, and the save lands.
+    view.dispatch({ selection: { anchor: "alpha\nbeta".length } });
+    view.dispatch({
+      changes: { from: "alpha\nbeta".length, insert: "!" },
+      selection: { anchor: "alpha\nbeta!".length },
+      userEvent: "input.type",
+    });
+    fileOnDisk.set("note", "alpha\nbeta!\n");
+
+    // A moment later the program adds to that same line.
+    fileOnDisk.set("note", "alpha\nbeta! gamma\n");
+    win.editor.requestExternalReload("note", CLAUDE);
+
+    await waitFor(() => expect(view.state.doc.toString()).toBe("alpha\nbeta! gamma\n"));
+    const head = view.state.selection.main.head;
+    expect(view.state.doc.lineAt(head).number).toBe(2);
+    expect(head - view.state.doc.lineAt(head).from).toBe("beta!".length);
+    expect(agentEditRanges(view.state)).toEqual([
+      {
+        from: "alpha\nbeta!".length,
+        to: "alpha\nbeta! gamma".length,
+        title: "Changed by Claude Code",
+      },
+    ]);
+    expect(win.editor.updatedFromDiskBy("note")).toBe("Claude Code");
+
+    undo(view);
+
+    expect(view.state.doc.toString()).toBe("alpha\nbeta!\n");
+    expect(agentEditRanges(view.state)).toEqual([]);
+  });
+
+  it("clears the marks on the person's next edit", async () => {
+    fileOnDisk.set("note", "one\ntwo\n");
+    const { win } = await mount(mockBuffer("note"));
+    const view = win.editor.getView()!;
+
+    fileOnDisk.set("note", "one\ntwo, from the program\n");
+    win.editor.requestExternalReload("note", CLAUDE);
+    await waitFor(() => expect(agentEditRanges(view.state)).toHaveLength(1));
+
+    view.dispatch({ changes: { from: 0, insert: "x" }, userEvent: "input.type" });
+
+    expect(agentEditRanges(view.state)).toEqual([]);
+  });
+
+  it("keeps the first change marked when the program writes again", async () => {
+    fileOnDisk.set("note", "one\ntwo\nthree\n");
+    const { win } = await mount(mockBuffer("note"));
+    const view = win.editor.getView()!;
+
+    fileOnDisk.set("note", "one\ntwo 2\nthree\n");
+    win.editor.requestExternalReload("note", CLAUDE);
+    await waitFor(() => expect(agentEditRanges(view.state)).toHaveLength(1));
+
+    fileOnDisk.set("note", "zero\none\ntwo 2\nthree\n");
+    win.editor.requestExternalReload("note", CLAUDE);
+    await waitFor(() => expect(agentEditRanges(view.state)).toHaveLength(2));
+
+    const doc = view.state.doc.toString();
+    expect(
+      agentEditRanges(view.state).map((range) => doc.slice(range.from, range.to)),
+    ).toEqual(["zero\n", " 2"]);
+  });
+
+  it("marks nothing for a change no program is named for", async () => {
+    fileOnDisk.set("note", "one\n");
+    const { win } = await mount(mockBuffer("note"));
+    const view = win.editor.getView()!;
+
+    fileOnDisk.set("note", "one\nfrom somewhere\n");
+    win.editor.requestExternalReload("note");
+    await waitFor(() => expect(view.state.doc.toString()).toBe("one\nfrom somewhere\n"));
+
+    expect(agentEditRanges(view.state)).toEqual([]);
+    expect(win.editor.isUpdatedFromDisk("note")).toBe(true);
+    expect(win.editor.updatedFromDiskBy("note")).toBeNull();
+  });
+
+  it("shows a background tab's marks when it is switched to, and drops them when it is left", async () => {
+    fileOnDisk.set("front", "the tab in front\n");
+    fileOnDisk.set("behind", "as Writ opened it\n");
+    const { win, switchTo } = await mountSwitchable(mockBuffer("behind"));
+    switchTo(mockBuffer("front"));
+    await waitFor(() =>
+      expect(win.editor.getView()!.state.doc.toString()).toBe("the tab in front\n"),
+    );
+
+    fileOnDisk.set("behind", "as Writ opened it\nand a line from the program\n");
+    win.editor.requestExternalReload("behind", CLAUDE);
+    await waitFor(() => expect(win.editor.isUpdatedFromDisk("behind")).toBe(true));
+
+    switchTo(mockBuffer("behind"));
+    await waitFor(() =>
+      expect(agentEditRanges(win.editor.getView()!.state)).toHaveLength(1),
+    );
+
+    switchTo(mockBuffer("front"));
+    await waitFor(() =>
+      expect(win.editor.getView()!.state.doc.toString()).toBe("the tab in front\n"),
+    );
+    switchTo(mockBuffer("behind"));
+    await waitFor(() =>
+      expect(win.editor.getView()!.state.doc.toString()).toContain("from the program"),
+    );
+    expect(agentEditRanges(win.editor.getView()!.state)).toEqual([]);
   });
 });

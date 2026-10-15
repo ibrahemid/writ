@@ -40,10 +40,11 @@ export const PROVIDERS: readonly AiProviderInfo[] = [
   { id: "apple", label: "Apple Intelligence", group: "on_device", wire: "openai", base_url: "", models_url: "", key_page_url: null, default_model: "", needs_key: false, supports_connect: false, probe_port: null, curated_models: [] },
 ];
 
-/** writ_core::tools::{READ_TOOLS, WRITE_TOOLS}. */
+/** writ_core::tools::{READ_TOOLS, WRITE_TOOLS, CONTEXT_TOOLS}. */
 export const MCP_TOOLS: McpTools = {
-  read: ["list_notes", "search_notes", "read_note", "note_links", "note_backlinks", "note_properties", "note_tags", "folder_tags"],
-  write: ["write_note", "create_note", "rename_note"],
+  read: ["list_notes", "search_notes", "read_note", "note_links", "note_backlinks", "note_properties", "note_tags", "folder_tags", "open_in_writ", "reveal"],
+  write: ["write_note", "create_note", "rename_note", "append_note", "replace_in_note", "today"],
+  context: ["get_context"],
 };
 
 /** activity::server_command_for over the `writ` binary bundled beside the app on macOS. */

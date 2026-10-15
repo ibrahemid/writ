@@ -191,6 +191,7 @@ fn append_to(state: &AppState, path: &Path, entry: &str) -> Result<CaptureOutcom
                 at,
                 Some(&written),
                 encoding,
+                Some(writ_core::notes::Writer::Writ),
             ));
     }
     reindex(state, path);

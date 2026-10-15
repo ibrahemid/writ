@@ -21,7 +21,14 @@ vi.mock("../../services/events", () => ({
   emitFrontendReady: vi.fn(async () => {}),
 }));
 
-import { createBootStore, createBootPlan, type BootPlan } from "../../stores/window/boot";
+import {
+  createBootStore,
+  createBootPlan,
+  openLinkDraft,
+  openPendingPaths,
+  type BootPlan,
+} from "../../stores/window/boot";
+import { windowRegistry } from "../../stores/global/window-registry";
 import type { WindowState } from "../../stores/window/createWindowState";
 
 type Log = string[];
@@ -163,6 +170,9 @@ describe("the window's plan", () => {
     for (const kind of [
       "pending:opens",
       "files:dropped",
+      "link:new",
+      "context:asked",
+      "review:asked",
       "menu:action",
       "buffer:external",
       "config:changed",
@@ -179,5 +189,79 @@ describe("the window's plan", () => {
     ]) {
       expect(h.subscribed, kind).toContain(kind);
     }
+  });
+});
+
+describe("files handed to the window", () => {
+  it("opens each file at the line the writ command named for it", async () => {
+    const reveals: Array<[string, number]> = [];
+    const win = {
+      windowId: 9101,
+      tabs: {
+        openPath: vi.fn(async (path: string) => ({
+          kind: "opened",
+          doc: { id: `id:${path}` },
+          existed: false,
+          mode: "Normal",
+        })),
+      },
+      editor: {
+        requestReveal: (id: string, line: number) => reveals.push([id, line]),
+      },
+    } as unknown as WindowState;
+    const unregister = windowRegistry.register(win);
+    windowRegistry.focus(9101);
+    try {
+      await openPendingPaths(["/n/a.md", "/n/b.md"], { "/n/b.md": 12 });
+    } finally {
+      unregister();
+    }
+    expect(reveals).toEqual([["id:/n/b.md", 12]]);
+  });
+});
+
+describe("a new-tab link", () => {
+  it("opens a tab called what the link named, and an untitled one without a name", async () => {
+    const created: Array<string | undefined> = [];
+    const win = {
+      windowId: 9102,
+      tabs: {
+        createTab: vi.fn(async (title?: string) => {
+          created.push(title);
+          return { id: "draft" };
+        }),
+      },
+      editor: {},
+    } as unknown as WindowState;
+    const unregister = windowRegistry.register(win);
+    windowRegistry.focus(9102);
+    try {
+      await openLinkDraft("Launch notes");
+      await openLinkDraft(null);
+    } finally {
+      unregister();
+    }
+    expect(created).toEqual(["Launch notes", undefined]);
+  });
+
+  it("says so when the tab could not be opened", async () => {
+    h.showToast.mockClear();
+    const win = {
+      windowId: 9103,
+      tabs: {
+        createTab: vi.fn(async () => {
+          throw new Error("title must not contain path separators");
+        }),
+      },
+      editor: {},
+    } as unknown as WindowState;
+    const unregister = windowRegistry.register(win);
+    windowRegistry.focus(9103);
+    try {
+      await openLinkDraft("x");
+    } finally {
+      unregister();
+    }
+    expect(h.showToast).toHaveBeenCalledWith("Could not open a new tab", "error");
   });
 });

@@ -93,4 +93,52 @@ pub enum HostError {
         /// The path as the caller wrote it.
         path: String,
     },
+    /// A replace named no text to replace. Nothing was written.
+    #[error("the text to replace in {path} is empty")]
+    PassageEmpty {
+        /// The path as the caller wrote it.
+        path: String,
+    },
+    /// A replace named text the note does not hold. Nothing was written.
+    #[error("{path} does not hold the text to replace")]
+    PassageAbsent {
+        /// The path as the caller wrote it.
+        path: String,
+    },
+    /// A replace named text the note holds more than once. Nothing was
+    /// written.
+    #[error("{path} holds the text to replace {count} times")]
+    PassageRepeated {
+        /// The path as the caller wrote it.
+        path: String,
+        /// How many places hold it.
+        count: usize,
+    },
+    /// The file's encoding has no bytes for some of the text, so nothing was
+    /// written (ADR-049).
+    #[error("{path} is in {encoding}, which has no bytes for {characters}")]
+    EncodingLossy {
+        /// The path as the caller wrote it.
+        path: String,
+        /// The encoding's name.
+        encoding: String,
+        /// The characters it cannot hold, as `U+…` code points.
+        characters: String,
+    },
+    /// The write waited for the person, who discarded it in Writ. Nothing was
+    /// written (ADR-053).
+    #[error("the change to {path} was discarded in Writ")]
+    Discarded {
+        /// The path as the caller wrote it.
+        path: String,
+    },
+    /// The write waits for the person, and they could not be asked or did not
+    /// answer. Nothing was written (ADR-053).
+    #[error("the change to {path} was not shown in Writ: {reason}")]
+    ReviewUnavailable {
+        /// The path as the caller wrote it.
+        path: String,
+        /// Why nobody answered.
+        reason: crate::write_review::ReviewUnavailable,
+    },
 }

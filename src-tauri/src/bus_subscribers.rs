@@ -94,6 +94,19 @@ pub fn attach_bus_subscribers<H: BusHost>(host: &H) {
         });
     }
 
+    {
+        let host = host.clone();
+        bus.subscribe(move |event| {
+            if let WritEvent::McpCalledWhileOff = event {
+                if let Some(offer) =
+                    crate::commands::mcp_connect::off_call_event(&host.app_state().writ_dir)
+                {
+                    host.to_frontend(offer);
+                }
+            }
+        });
+    }
+
     // Maintain the workspace file-name index from watcher events (ADR-026). A
     // separate subscriber from the frontend bridge, so both observe every
     // WorkspaceChanged.

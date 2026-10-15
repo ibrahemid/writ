@@ -132,6 +132,15 @@
   white-space: nowrap;
 }
 
+.note-version-writer {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  color: var(--writ-fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .note-version-size {
   color: var(--writ-fg-faint);
   font-variant-numeric: tabular-nums;

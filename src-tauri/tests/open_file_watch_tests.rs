@@ -179,6 +179,7 @@ fn a_file_opened_from_anywhere_reports_one_change_when_another_program_rewrites_
             change,
             new_path,
             disk_hash,
+            ..
         } => {
             assert_eq!(buffer_id, "note-1");
             assert_eq!(
@@ -395,6 +396,7 @@ fn a_note_inside_the_notes_folder_reaches_its_tab_when_another_program_rewrites_
             change,
             new_path,
             disk_hash,
+            ..
         } => {
             assert_eq!(buffer_id, "note-1");
             assert_eq!(resolved(Path::new(path)), resolved(&note));
@@ -654,6 +656,7 @@ fn a_write_from_a_connected_program_reaches_the_tab_as_somebody_elses_edit() {
             change,
             new_path,
             disk_hash,
+            ..
         } => {
             assert_eq!(buffer_id, "note-1");
             assert_eq!(resolved(Path::new(path)), resolved(&note));
@@ -743,6 +746,7 @@ fn an_applied_proposal_reaches_the_tab_as_somebody_elses_edit() {
             change,
             new_path,
             disk_hash,
+            ..
         } => {
             assert_eq!(buffer_id, "note-1");
             assert_eq!(resolved(Path::new(path)), resolved(&note));

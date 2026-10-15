@@ -48,7 +48,7 @@ import ActivityPanel, {
 } from "../../components/Activity/ActivityPanel";
 
 function denied(name: string): ClientApproval {
-  return { name, first_seen: "2026-09-09T10:05:00.000Z", read: false, write: false };
+  return { name, first_seen: "2026-09-09T10:05:00.000Z", read: false, write: false, context: false };
 }
 
 function waiting(name: string): PendingClient {

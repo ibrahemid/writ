@@ -905,3 +905,142 @@ fn a_text_kept_with_its_digest_handed_over_reads_back_as_kept() {
         .expect("an entry");
     assert_eq!(fixture.store.content(id).expect("content"), text);
 }
+
+#[test]
+fn each_entry_names_the_write_that_left_its_text() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Plan.md", "first");
+    let key = fixture.key(&path);
+    let program = WriteOrigin::Mcp {
+        client: "claude-code".into(),
+    };
+    fixture
+        .store
+        .capture_replaced(&key, b"what was there", at(1))
+        .expect("replaced");
+    fixture
+        .store
+        .capture(&key, b"typed", at(100), &WriteOrigin::Editor)
+        .expect("save");
+    fixture
+        .store
+        .capture(&key, b"the program's", at(200), &program)
+        .expect("program");
+    fixture
+        .store
+        .capture(&key, b"from chat", at(300), &WriteOrigin::Chat)
+        .expect("chat");
+
+    let writers: Vec<Option<String>> = fixture
+        .store
+        .versions(&key)
+        .expect("versions")
+        .into_iter()
+        .map(|entry| entry.writer)
+        .collect();
+    assert_eq!(
+        writers,
+        vec![
+            Some("chat".to_string()),
+            Some("mcp:claude-code".to_string()),
+            Some("editor".to_string()),
+            None,
+        ]
+    );
+}
+
+#[test]
+fn a_run_of_saves_merged_into_one_entry_keeps_its_writer() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Plan.md", "first");
+    let key = fixture.key(&path);
+    fixture
+        .store
+        .capture(&key, b"a", at(100), &WriteOrigin::Editor)
+        .expect("save");
+    fixture
+        .store
+        .capture(&key, b"ab", at(102), &WriteOrigin::Autosave)
+        .expect("autosave");
+    let entries = fixture.store.versions(&key).expect("versions");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].writer.as_deref(), Some("autosave"));
+}
+
+#[test]
+fn the_writer_of_the_text_a_file_holds_is_the_newest_entrys_only() {
+    let fixture = Fixture::new();
+    let path = fixture.note("Plan.md", "first");
+    let key = fixture.key(&path);
+    let program = WriteOrigin::Mcp {
+        client: "codex".into(),
+    };
+    fixture
+        .store
+        .capture(&key, b"by the program", at(100), &program)
+        .expect("program");
+    let digest = writ_core::hash::sha256_bytes(b"by the program");
+    assert_eq!(
+        fixture
+            .store
+            .writer_of(&key, digest)
+            .expect("lookup")
+            .as_deref(),
+        Some("mcp:codex")
+    );
+
+    // Somebody saves something else, then a third program puts the file back
+    // to the program's text: the older entry is not this change's writer.
+    fixture
+        .store
+        .capture(&key, b"by hand", at(200), &WriteOrigin::Editor)
+        .expect("save");
+    assert_eq!(fixture.store.writer_of(&key, digest).expect("lookup"), None);
+
+    let unknown = fixture.key(&fixture.note("Other.md", "x"));
+    assert_eq!(
+        fixture.store.writer_of(&unknown, digest).expect("lookup"),
+        None
+    );
+}
+
+#[test]
+fn a_store_made_before_writers_were_kept_gains_the_column_and_keeps_its_entries() {
+    let home = TempDir::new().expect("temp dir");
+    let writ_dir = home.path().join("writ-data");
+    let notes = home.path().join("Writ");
+    std::fs::create_dir_all(&writ_dir).expect("data dir");
+    std::fs::create_dir_all(&notes).expect("notes dir");
+    {
+        let conn = rusqlite::Connection::open(writ_dir.join("history.db")).expect("db");
+        conn.execute_batch(
+            "CREATE TABLE notes (id INTEGER PRIMARY KEY, path TEXT NOT NULL UNIQUE,
+                identity TEXT, birth_ns TEXT);
+             CREATE TABLE versions (id INTEGER PRIMARY KEY,
+                note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                at_ms INTEGER NOT NULL, bytes INTEGER NOT NULL, hash TEXT NOT NULL,
+                merges INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO notes (id, path) VALUES (1, 'Plan.md');
+             INSERT INTO versions (note_id, at_ms, bytes, hash) VALUES (1, 1000, 3, 'abc');",
+        )
+        .expect("old schema");
+    }
+
+    let store = NoteHistoryStore::open(&writ_dir).expect("open upgrades");
+    // A second process opening the same file finds the column already there.
+    let again = NoteHistoryStore::open(&writ_dir).expect("open again");
+    store.set_notes_root(notes.clone());
+    let key = VersionKey::new(None, PathBuf::from("Plan.md"));
+    let entries = store.versions(&key).expect("versions");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].writer, None);
+
+    again.set_notes_root(notes);
+    again
+        .capture(&key, b"new text", at(5), &WriteOrigin::Editor)
+        .expect("capture after the upgrade");
+    assert_eq!(
+        store.versions(&key).expect("versions")[0].writer.as_deref(),
+        Some("editor")
+    );
+}

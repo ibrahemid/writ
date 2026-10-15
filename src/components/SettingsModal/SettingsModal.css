@@ -216,6 +216,14 @@
   display: block;
 }
 
+/* A row whose control is a set of cards: the label reads above them and the
+   cards take the row's width. */
+.settings-row[data-layout="stacked"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--writ-space-3);
+}
+
 /* A row that is a list the section heading already names: the list takes the
    row's width, the label is kept for screen readers alone and the description
    stays above the list. */

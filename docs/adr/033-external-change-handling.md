@@ -37,6 +37,12 @@ anything live, 0.6 to 3.4 s here, so streams start from now;
 the polling fallback in decision 4 compares size and modification time instead
 of contents.
 
+Amended 2026-10-15 ([ADR-053](./053-the-open-file.md)): decision 16's reload
+is isolated in the undo history, so typing just before it stays a step of its
+own and one Cmd+Z takes back only the file's change. The event carries the
+writer the version store names for the bytes, and a connected program's text
+is marked in the document until the person edits or leaves the tab.
+
 ## Context
 
 Notes live on disk and the file is the only copy (ADR-028 §1). That makes every

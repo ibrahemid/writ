@@ -72,6 +72,8 @@ fn make_state(dir: &TempDir) -> AppState {
         quit: Arc::new(QuitState::new()),
         removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
+        pending_lines: Mutex::new(Default::default()),
+        cli_waits: Mutex::new(Default::default()),
         frontend_ready: AtomicBool::new(false),
         window_revealed: AtomicBool::new(false),
         window_dismissed: AtomicBool::new(false),
@@ -1062,6 +1064,17 @@ fn an_open_tabs_file_outside_the_folder_can_still_be_renamed() {
         .is_some_and(|path| path.ends_with("renamed.md")));
 }
 
+/// A second launch's request for `paths`.
+fn forwarded(paths: &[&std::path::Path]) -> writ_core::instance::OpenRequest {
+    writ_core::instance::OpenRequest {
+        paths: paths
+            .iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect(),
+        ..writ_core::instance::OpenRequest::default()
+    }
+}
+
 /// A second launch's paths are authorized and resolved as launch arguments
 /// are, and wait with the launch's own opens until the frontend is ready.
 #[test]
@@ -1073,8 +1086,7 @@ fn a_forwarded_path_is_authorized_and_parked_until_the_frontend_is_ready() {
     std::fs::write(&file, "from a second launch").expect("seed");
     let canonical = canonicalize_for_authorization(&file).expect("canonical");
 
-    let now =
-        writ_tauri_lib::instance::route_forwarded(&state, &[file.to_string_lossy().into_owned()]);
+    let now = writ_tauri_lib::instance::route_forwarded(&state, &forwarded(&[&file]));
 
     assert_eq!(now, None, "nothing is sent before the frontend listens");
     assert_eq!(
@@ -1096,10 +1108,9 @@ fn a_forwarded_path_goes_straight_to_a_ready_frontend() {
     std::fs::write(&file, "from a second launch").expect("seed");
     let canonical = canonicalize_for_authorization(&file).expect("canonical");
 
-    let now =
-        writ_tauri_lib::instance::route_forwarded(&state, &[file.to_string_lossy().into_owned()]);
+    let now = writ_tauri_lib::instance::route_forwarded(&state, &forwarded(&[&file]));
 
-    assert_eq!(now, Some(vec![canonical.clone()]));
+    assert_eq!(now.map(|opens| opens.paths), Some(vec![canonical.clone()]));
     assert!(state.pending_opens.lock().unwrap().is_empty());
     assert!(state.authorized_paths.is_pending_open(&canonical));
 }
@@ -1110,10 +1121,7 @@ fn a_forwarded_path_that_holds_nothing_opens_nothing() {
     let state = make_state(&dir);
     let missing = dir.path().join("never-written.md");
 
-    let now = writ_tauri_lib::instance::route_forwarded(
-        &state,
-        &[missing.to_string_lossy().into_owned()],
-    );
+    let now = writ_tauri_lib::instance::route_forwarded(&state, &forwarded(&[&missing]));
 
     assert_eq!(now, None);
     assert!(state.pending_opens.lock().unwrap().is_empty());
