@@ -33,6 +33,7 @@ import {
   type UnmadeFile,
 } from "../../services/tauri";
 import { applyExternalDocument } from "../../editor/external-reload";
+import { programName, type VersionWriter } from "../../lib/writer";
 import { holdRange, releaseRange } from "../../editor/held-ranges";
 import { encodeChangesSince } from "../../editor/change-diff";
 import { savesAsChanges, type FileOverrides } from "../../editor/large-file";
@@ -289,15 +290,17 @@ export function createEditorStore() {
   // disk, raised when the file changed externally (audit blocker #53.4).
   // EditorInstance consumes it; the seq makes repeated external edits to the
   // same buffer each fire a fresh reload.
+  // `writer` is what wrote the file, when the backend knows.
   const [externalReload, setExternalReload] = createSignal<{
     id: string;
     seq: number;
+    writer?: VersionWriter | null;
   } | null>(null);
   let reloadSeq = 0;
 
-  function requestExternalReload(bufferId: string) {
+  function requestExternalReload(bufferId: string, writer?: VersionWriter | null) {
     reloadSeq += 1;
-    setExternalReload({ id: bufferId, seq: reloadSeq });
+    setExternalReload({ id: bufferId, seq: reloadSeq, writer: writer ?? null });
   }
 
   // A request to move the cursor to a line and scroll it into view, raised when
@@ -673,15 +676,24 @@ export function createEditorStore() {
   const [updatedFromDisk, setUpdatedFromDisk] = createSignal<string | null>(
     null,
   );
+  // The program that wrote the file, when one did, by the name a person reads.
+  const [updatedBy, setUpdatedBy] = createSignal<string | null>(null);
   let updatedFromDiskTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function markUpdatedFromDisk(id: string) {
+  function markUpdatedFromDisk(id: string, program: string | null = null) {
     if (updatedFromDiskTimer !== undefined) clearTimeout(updatedFromDiskTimer);
     setUpdatedFromDisk(id);
+    setUpdatedBy(program);
     updatedFromDiskTimer = setTimeout(() => {
       updatedFromDiskTimer = undefined;
       setUpdatedFromDisk(null);
+      setUpdatedBy(null);
     }, UPDATED_FROM_DISK_MS);
+  }
+
+  /** The program that last wrote `id`'s file, while the marker for it shows. */
+  function updatedFromDiskBy(id: string): string | null {
+    return updatedFromDisk() === id ? updatedBy() : null;
   }
 
   function clearUpdatedFromDisk(id: string) {
@@ -707,11 +719,15 @@ export function createEditorStore() {
    * It has no view to dispatch into, and the tab reads its file again when it
    * is switched to; dropping the record instead would leave the note reading
    * dirty against a file it matches.
+   *
+   * `writer` is what wrote the file. A connected program's text is marked in
+   * the document, and the marker names the program.
    */
-  function applyExternalContent(id: string, text: string) {
+  function applyExternalContent(id: string, text: string, writer?: VersionWriter | null) {
     const view = activeView;
+    const program = programName(writer);
     if (view && currentBufferId() === id) {
-      applyExternalDocument(view, text);
+      applyExternalDocument(view, text, program);
       setLineCount(view.state.doc.lines);
       noteOpened(id, view.state.doc, true);
     } else {
@@ -720,7 +736,7 @@ export function createEditorStore() {
     // The note now holds what its file holds, so whatever was being asked
     // about the difference between them is answered.
     recordFileEvent(id, "settled");
-    markUpdatedFromDisk(id);
+    markUpdatedFromDisk(id, program);
   }
 
   /**
@@ -1525,6 +1541,7 @@ export function createEditorStore() {
     saveRemovedNoteTo,
     updatedFromDisk,
     isUpdatedFromDisk,
+    updatedFromDiskBy,
     clearUpdatedFromDisk,
     applyExternalContent,
     lastKnownDiskHash,

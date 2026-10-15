@@ -50,6 +50,11 @@ pub enum WritEvent {
         /// nothing to read: the file is gone, or its bytes are not on this
         /// machine.
         disk_hash: Option<String>,
+        /// What wrote the text the file holds now, when Writ knows: a
+        /// connected program's write keeps that text as the note's newest
+        /// version under the program's name before the watcher reports it.
+        /// `None` for every other change, and for a removal or a move.
+        writer: Option<crate::notes::Writer>,
     },
     /// A file or directory inside the open workspace folder changed on
     /// disk. Listeners refresh the affected directory listing; the event
@@ -138,6 +143,10 @@ pub enum WritEvent {
     /// moment a program nobody has decided on first calls. Carries nothing:
     /// the host reads the file whole when it answers.
     McpPendingChanged,
+    /// A program called while Connected programs was off: a `writ mcp`
+    /// process wrote `mcp-off-call.json` in Writ's data folder. Carries
+    /// nothing: the host reads the record when it answers.
+    McpCalledWhileOff,
     /// The application is shutting down and the frontend may still be holding
     /// text inside the autosave debounce window. Listeners write everything
     /// pending and confirm; the shutdown path waits for that confirmation, but

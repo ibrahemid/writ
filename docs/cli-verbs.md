@@ -4,8 +4,9 @@ The `writ` command opens files (ADR-017) and answers questions about the Writ
 folder. This page is the record of the second half: the verbs, their output, and
 the exit codes a script can rely on.
 
-Implementation: `crates/writ-cli/src/verbs.rs`; the command line is read by
-clap in `crates/writ-cli/src/args.rs`, so `writ --help` lists every verb and
+Implementation: `crates/writ-cli/src/verbs.rs` and
+`crates/writ-cli/src/host_verbs.rs`; the command line is read by clap in
+`crates/writ-cli/src/args.rs`, so `writ --help` lists every verb and
 `writ <verb> --help` prints its arguments.
 
 ## Where the answers come from
@@ -28,7 +29,14 @@ Link resolution is `writ_core::notes::links` reached through `writ-storage`, the
 same policy the editor, the preview and the index itself use. Nothing in the CLI
 re-implements it.
 
-None of the verbs opens a window. `writ <path>` is how a file is opened.
+`open` and `today` open a window; no other verb does. `writ <path>` opens a
+file too.
+
+`search`, `cat`, `ls`, `append`, `today` and `open` run on
+`writ_storage::note_host::NoteHostImpl`, the surface `writ mcp` serves from
+(ADR-032), so the command line and a connected program read and write a file
+the same way. A file outside the notes folder is refused by these verbs with
+exit 1, as it is for a connected program.
 
 ## The verbs
 
@@ -39,7 +47,13 @@ None of the verbs opens a window. `writ <path>` is how a file is opened.
 | `writ properties <file> [--json]` | the file's frontmatter properties |
 | `writ tags <file> [--json]` | the file's tags, with the line each is on |
 | `writ tags [--json]` | every tag in the folder, with a file count |
-| `writ new [<name>] [--json]` | creates a file and prints its path |
+| `writ search <query> [--limit N] [--json]` | files whose text matches, best match first (20 unless `--limit`) |
+| `writ cat <file> [--json]` | the file's text, as written |
+| `writ ls [<folder>] [--json]` | every file in the folder, or in one folder inside it |
+| `writ append <file> [--json]` | adds piped stdin to the end of the file |
+| `writ today [--append] [--no-open] [--json]` | opens today's file, creating it when the day has none |
+| `writ open <name>[:<line>] [--wait] [--json]` | opens a file in the folder by name, at a line |
+| `writ new [<name>] [--json]` | creates a file, holding piped stdin when there is any, and prints its path |
 | `writ rename <file> <new-name> [--json]` | renames a file inside its folder |
 | `writ trash <file> [--json]` | moves a file to the trash and prints where it was |
 | `writ mcp` | serves the folder to an MCP client over stdin and stdout |
@@ -53,6 +67,32 @@ to one.
 
 A first argument that is one of the verb names runs the verb. A file of that
 name is opened by spelling a path for it: `writ ./links`.
+
+## Opening, lines and `--wait`
+
+`writ <path>`, `writ open` and `writ today` open the file in Writ. A path or a
+name may end in `:<line>` or `:<line>:<column>` to open at that line:
+`writ Plan.md:12`. The suffix is read as a line only when no file carries the
+whole argument as its name, so a file called `log:12` opens as written.
+
+`--wait` returns once every file it opened has been closed in Writ, which is
+what an editor command has to do:
+
+```
+git config --global core.editor "writ --wait"
+```
+
+Closing the tab ends the wait with exit 0, and so does quitting Writ. A folder
+cannot be waited on (exit 2). A plain open goes through the operating system's
+open-files path. An open carrying a line or a wait is written into
+`<data dir>/open-requests/` for the running Writ to take, starting it first
+when it is not running; when nothing takes the request within 10 seconds (60
+when the command had to start Writ), it is withdrawn and the command exits 1.
+ADR-017 records the channel.
+
+`--no-open` on piped text saves it and prints its path without opening Writ:
+`make 2>&1 | writ --no-open --title "build log"`. Given with a file path it is
+exit 2. `today --no-open` prints the day's path without opening it.
 
 `writ mcp` is started by the client, opens no port, and answers no tool call
 until Connected programs is on in Settings, Apps and the client is approved
@@ -68,10 +108,13 @@ there. `writ mcp --help` prints its usage.
 
 Code 1 covers: no file of that name, a name two files answer to, a file the
 index does not hold yet, an absent index, an index written under a different
-schema version than this build reads, and a failed create, rename or trash.
-Code 2 prints what was wrong and the usage on stderr. The file-opening path
-uses the same codes: two folders at once, a file and a folder together, and
-`writ -` with nothing piped exit 2.
+schema version than this build reads, a file outside the notes folder, a file
+over 2 MB for `cat` and `append`, a failed create, rename, trash or append, and
+an open Writ did not take. Code 2 prints what was wrong and the usage on
+stderr. `append` and `today --append` with nothing piped exit 2. The
+file-opening path uses the same codes: two folders at once, a file and a folder
+together, `--wait` on a folder, `--no-open` with a path, and `writ -` with
+nothing piped exit 2.
 
 ## Default output
 
@@ -87,7 +130,11 @@ into `cut` and `awk` directly.
 | `properties` | `key`, `value` |
 | `tags <file>` | `tag`, `line` |
 | `tags` | `tag`, `notes` |
-| `new`, `rename`, `trash` | the file's path, alone on the line |
+| `search` | `path`, `line`, `excerpt` |
+| `ls` | `path`, `name`, `bytes` |
+| `new`, `rename`, `trash`, `append`, `today`, `open` | the file's path, alone on the line |
+
+`cat` prints the file's text and nothing else.
 
 For `links`, `path` holds the resolved file's path when `status` is `resolved`,
 the candidate paths joined by `, ` when it is `ambiguous`, and nothing when it is
@@ -210,6 +257,64 @@ as where this command was pointed rather than as where a tag was found.
 {"note": "/Users/x/Writ/Ideas.md"}
 ```
 
+### `writ search --json`
+
+```json
+{"query": "launch",
+ "hits": [{"path": "/Users/x/Writ/Plan.txt", "name": "Plan.txt", "line": 1,
+           "excerpt": "launch the site"}]}
+```
+
+`line` is 1-based and `null` when the match is in the file's name only.
+
+### `writ cat --json`
+
+```json
+{"note": "/Users/x/Writ/Plan.txt", "bytes": 29,
+ "hash": "<sha-256 of the file's bytes>", "text": "launch the site\n..."}
+```
+
+`text` is decoded from the file's own encoding (ADR-049); `hash` is of the
+bytes on disk.
+
+### `writ ls --json`
+
+```json
+{"notes_folder": "/Users/x/Writ",
+ "notes": [{"path": "/Users/x/Writ/Plan.txt", "name": "Plan.txt", "bytes": 29}]}
+```
+
+A `<folder>` is matched against each path relative to the notes folder, so
+`writ ls projects/` lists what is inside `projects`.
+
+### `writ append --json`
+
+```json
+{"note": "/Users/x/Writ/Plan.txt", "bytes": 32,
+ "hash": "<sha-256 of the file's bytes>", "changed": true}
+```
+
+`changed` is `false` when the piped text held nothing but blank space and
+nothing was written.
+
+### `writ today --json`
+
+```json
+{"note": "/Users/x/Writ/2026-10-15.txt", "created": false, "changed": true}
+```
+
+`created` is whether this run made the day's file; `changed` whether
+`--append` added anything.
+
+### `writ open --json`
+
+```json
+{"note": "/Users/x/Writ/Plan.txt", "line": 12}
+```
+
+`line` is `null` when the name carried none. The document is printed once
+Writ has taken the file.
+
 ### `writ rename --json`
 
 ```json
@@ -217,6 +322,21 @@ as where this command was pointed rather than as where a tag was found.
 ```
 
 ## What the writing verbs do and do not do
+
+`append` reads piped stdin, takes off blank lines before the text and blank
+space after it, and adds the rest to the end of the file on lines of its own,
+in the line ending most of the file's lines use and in the file's encoding
+(`writ_core::capture`, the rule quick capture follows). A character the
+encoding has no bytes for refuses the append with exit 1. The write goes
+through the guard against the bytes the append read and is tried again when
+the file changed in between; before it lands, the app's version store keeps
+what the file held, so Revert To in Writ can put it back. A file outside the
+app's notes folder keeps no version, as in the app. A bare name no file has yet
+is created in the notes folder holding the text. `today --append` does the same
+to the day's file, `<yyyy-mm-dd>.<ext>`, found and minted by the rule the
+window's Today's File uses.
+
+`new` with piped stdin creates the file holding the text as piped.
 
 `new` with no name mints the name the window's New File mints,
 `writ-<yymmdd>-<hhmm>` in local time (`writ_core::notes::minted_stem`). A name

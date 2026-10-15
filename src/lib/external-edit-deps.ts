@@ -3,6 +3,7 @@ import type {
   ExternalEditDeps,
 } from "../services/external-edit";
 import type { NoteFileEvent } from "../stores/window/editor-store";
+import type { VersionWriter } from "./writer";
 
 /** An open note, as the row naming it is matched against the event. */
 interface OpenBuffer extends ExternalEditBuffer {
@@ -13,7 +14,7 @@ interface OpenBuffer extends ExternalEditBuffer {
 interface ExternalEditEditor {
   isDirty: (id: string) => boolean;
   isRemovedOnDisk: (id: string) => boolean;
-  requestExternalReload: (id: string) => void;
+  requestExternalReload: (id: string, writer?: VersionWriter | null) => void;
   recordFileEvent: (id: string, event: NoteFileEvent) => void;
 }
 
@@ -59,9 +60,9 @@ export function createExternalEditDeps(
     // here. It has to say so here rather than when the text lands: a tab still
     // marked off its file reads what the store kept for it in place of the
     // file, which is the copy this reload is replacing.
-    reload: (id: string) => {
+    reload: (id: string, writer?: VersionWriter | null) => {
       wiring.editor.recordFileEvent(id, "settled");
-      wiring.editor.requestExternalReload(id);
+      wiring.editor.requestExternalReload(id, writer);
     },
     // A move changes no bytes, so nothing is read and nothing is asked: the
     // row already names the new path, and this is the tab catching up to it.

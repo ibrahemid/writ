@@ -25,6 +25,31 @@ Rule 2.4 amended 2026-10-13: the OAuth loopback receiver answers any request tha
 flow's callback with a 404 and goes on waiting, until the callback arrives or the flow ends
 (ADR-040 section 6). Until then it accepted one request and closed.
 
+Rule 1.1 amended 2026-10-15 ([ADR-052](./052-writ-links.md)): a fourth way in, `writ://` links,
+reaches the app from a browser, another program or `writ mcp`. It shows a file the notes folder
+holds or opens a new tab, and writes nothing. The MCP server gains `append_note`, `replace_in_note`,
+`today` and `open_in_writ`, and serves each file and a folder index as resources. Until then the
+harness was three surfaces and a program changed a file only by sending all of it.
+
+Rules 1.1, 1.2 and 1.4 amended 2026-10-15 ([ADR-053](./053-the-open-file.md), decision MK-D1): a
+program the person lets see the open file calls `get_context`, which answers the file in front in
+Writ and the text selected in it as the window holds it, saved or not, and `reveal`, which shows a
+file at a heading through a `writ://` link. `writ mcp` asks with a request in `open-requests/` and
+reads the answer the app leaves in `context-answers/`, one pair per call, so the two processes now
+pass a message; no socket is added and nothing listens at rest (rule 2.4). Until then the server and
+the app shared two locks and no message, and every surface read a file from the disk.
+
+Rules 2.4 and 7.2 amended 2026-10-15 (decisions AM-D7 and MK-D6): Settings, Apps, Connected
+programs has a card per client. Claude Code, Codex and Gemini CLI are handed their own `mcp add`,
+run from the home folder when the client's command is found and copied otherwise, at the user scope
+where the client has one; Cursor, VS Code and LM Studio their documented install link; Claude
+Desktop `Writ.mcpb`, written to the data folder, whose launcher starts the installed `writ mcp`; any
+other client the JSON. The webview names a client and Rust builds the arguments and the link, and
+Writ writes no other program's configuration file. Test starts the same command and lists its tools
+without calling one. A server that is off writes the first named caller of each process to
+`mcp-off-call.json`, its name and the time, so the app offers Connected programs once. Until then
+the app showed one command to paste and a server that was off kept nothing.
+
 Rule 1.4 amended 2026-10-14: the app and `writ mcp` hold an advisory lock file, `write.lock` in
 the data folder, across the compare and the rename of a guarded note write, so a write from one
 process cannot land between the other's compare and its rename. The file carries no data. Until then
@@ -151,7 +176,8 @@ business and that program's own consent prompt, not Writ's (U4).
 2.4. The server is a stdio process the client starts, not something the app hosts and not a
 listener. A GUI process has no client stdio to attach to, so shipping the server with the app means
 shipping the `writ` binary and showing the exact command to paste into the client's configuration
-(`crates/writ-cli/src/main.rs:138`, U4 for the subcommand, U5 for the settings row). Writ listens on
+(`crates/writ-cli/src/main.rs:138`, U4 for the subcommand, U5 for the settings row; the client
+cards of the 2026-10-15 amendment hand it over per client). Writ listens on
 no port at rest. The one listener it ever opens is the OAuth loopback receiver of ADR-040 section
 6, bound to `127.0.0.1` on an ephemeral port for the duration of one Connect flow the user started;
 it answers any request that is not that flow's callback with a 404, and closes once the callback is

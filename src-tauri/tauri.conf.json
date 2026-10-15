@@ -32,6 +32,11 @@
         }
     },
     "plugins": {
+        "deep-link": {
+            "desktop": {
+                "schemes": ["writ"]
+            }
+        },
         "updater": {
             "endpoints": [
                 "https://github.com/ibrahemid/writ/releases/latest/download/latest.json"

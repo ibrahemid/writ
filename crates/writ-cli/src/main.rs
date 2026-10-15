@@ -4,12 +4,13 @@ use std::path::PathBuf;
 use std::process;
 
 use writ_cli::args::{self, Invocation};
+use writ_cli::handoff::{self, Delivered};
 use writ_cli::mcp;
-use writ_cli::verbs;
+use writ_cli::verbs::{self, OpenPlan};
 use writ_cli::{
     is_empty_payload, no_path_action, piped_note_stem, piped_text, read_files_config,
-    read_notes_root_from_config, resolve_notes_dir, resolve_targets, stdin_kind, write_piped_note,
-    NoPathAction, OpenTarget,
+    read_notes_root_from_config, resolve_app_notes_dir, resolve_notes_dir, resolve_targets,
+    split_line_targets, stdin_kind, write_piped_note, NoPathAction, OpenTarget, StdinKind,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -36,17 +37,27 @@ fn main() {
     match invocation {
         Invocation::Mcp => run_mcp(),
         Invocation::Verb(verb) => run_verb(verb),
-        Invocation::Open { paths, title } => open_paths(paths, title),
+        Invocation::Open {
+            paths,
+            title,
+            wait,
+            no_open,
+        } => open_paths(paths, title, wait, no_open),
     }
 }
 
 /// The file-opening path: open files or a folder, read piped stdin, or launch
 /// the app.
-fn open_paths(paths: Vec<OsString>, title: Option<String>) {
+fn open_paths(paths: Vec<OsString>, title: Option<String>, wait: bool, no_open: bool) {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let stdin = stdin_kind();
     let dash_given = paths.len() == 1 && paths[0] == "-";
+    if no_open && !(paths.is_empty() || dash_given) {
+        eprintln!("writ: --no-open is for piped text; a file given by path is already saved");
+        process::exit(verbs::EXIT_USAGE);
+    }
 
+    let (paths, lines) = split_line_targets(&paths, &cwd);
     let target = match resolve_targets(&paths, &cwd, title) {
         Ok(t) => t,
         Err(e) => {
@@ -57,9 +68,16 @@ fn open_paths(paths: Vec<OsString>, title: Option<String>) {
 
     match target {
         OpenTarget::Files(paths) => {
-            launch_writ(&paths);
+            open_plan(&OpenPlan { paths, lines, wait });
         }
         OpenTarget::Workspace(dir) => {
+            if wait {
+                eprintln!(
+                    "writ: --wait waits for files, and {} is a folder",
+                    dir.display()
+                );
+                process::exit(verbs::EXIT_USAGE);
+            }
             launch_writ(std::slice::from_ref(&dir));
         }
         OpenTarget::Stdin { title } => match no_path_action(stdin, dash_given) {
@@ -83,6 +101,9 @@ fn open_paths(paths: Vec<OsString>, title: Option<String>) {
                 };
 
                 if is_empty_payload(&content) {
+                    if no_open {
+                        eprintln!("writ: nothing was piped, so nothing was saved");
+                    }
                     return;
                 }
 
@@ -102,9 +123,30 @@ fn open_paths(paths: Vec<OsString>, title: Option<String>) {
                     }
                 };
 
-                launch_writ(std::slice::from_ref(&dest));
+                if no_open {
+                    println!("{}", dest.display());
+                    return;
+                }
+                open_plan(&OpenPlan {
+                    paths: vec![dest],
+                    wait,
+                    ..OpenPlan::default()
+                });
             }
         },
+    }
+}
+
+/// Opens `plan` in the app, through the folder the running app takes
+/// requests from when it runs ([`handoff::deliver`]), and exits 1 when it was
+/// not opened.
+fn open_plan(plan: &OpenPlan) {
+    match handoff::deliver(&writ_dir(), plan, launch_writ, handoff::Timings::default()) {
+        Ok(Delivered::Opened | Delivered::Closed | Delivered::AppEnded) => {}
+        Err(error) => {
+            eprintln!("writ: {error}");
+            process::exit(verbs::EXIT_FAILED);
+        }
     }
 }
 
@@ -119,11 +161,7 @@ fn open_paths(paths: Vec<OsString>, title: Option<String>) {
 fn writ_paths() -> (PathBuf, PathBuf) {
     let data_dir_override = data_dir_override();
     let home = dirs::home_dir();
-    let writ_dir = data_dir_override.clone().unwrap_or_else(|| {
-        home.clone()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".writ")
-    });
+    let writ_dir = writ_dir();
     let configured = read_notes_root_from_config(&writ_dir);
     let env_override = std::env::var("WRIT_NOTES_DIR").ok();
 
@@ -139,6 +177,16 @@ fn writ_paths() -> (PathBuf, PathBuf) {
             process::exit(1);
         }
     }
+}
+
+/// The data folder holding `writ.db`, `config.toml` and the requests the
+/// running app takes: `WRIT_DATA_DIR`, or `.writ` in the home folder.
+fn writ_dir() -> PathBuf {
+    data_dir_override().unwrap_or_else(|| {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".writ")
+    })
 }
 
 /// The data folder `WRIT_DATA_DIR` names, when it names one.
@@ -175,7 +223,17 @@ fn run_mcp() -> ! {
         writ_mcp::tools::ToolHost::open_following_app(&db_path, &writ_dir, app_folder, gate)
     };
     let host = match opened {
-        Ok(host) => host,
+        Ok(host) => host
+            .with_opener(Box::new(mcp::LinkHandoff {
+                writ_dir: writ_dir.clone(),
+                launch: start_writ_quietly,
+            }))
+            .with_context_source(Box::new(mcp::ContextHandoff {
+                writ_dir: writ_dir.clone(),
+            }))
+            .with_review_source(Box::new(mcp::ReviewHandoff {
+                writ_dir: writ_dir.clone(),
+            })),
         Err(error) => {
             eprintln!("writ: {error}");
             process::exit(verbs::EXIT_FAILED);
@@ -205,18 +263,102 @@ fn run_mcp() -> ! {
 /// own and none of them falls through to the file-opening path.
 fn run_verb(verb: verbs::Verb) -> ! {
     let (writ_dir, notes_dir) = writ_paths();
+    let stdin = if verb.reads_stdin() {
+        read_piped_stdin()
+    } else {
+        None
+    };
     let context = verbs::Context {
         cwd: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         notes_dir,
         db_path: writ_dir.join("writ.db"),
         now: chrono::Utc::now(),
         default_extension: read_files_config(&writ_dir).default_extension,
+        app_notes_dir: resolve_app_notes_dir(
+            &writ_dir,
+            data_dir_override().as_deref(),
+            dirs::home_dir().as_deref(),
+        ),
+        writ_dir: writ_dir.clone(),
+        stdin,
     };
 
     let outcome = verbs::run(verb, &context);
+    if outcome.code == verbs::EXIT_OK {
+        if let Some(plan) = &outcome.open {
+            open_plan(plan);
+        }
+    }
     print!("{}", outcome.stdout);
     eprint!("{}", outcome.stderr);
     process::exit(outcome.code);
+}
+
+/// The text piped to stdin, or `None` when stdin is a terminal or nothing a
+/// pipe could fill.
+///
+/// Bytes that are not text end the command with exit 1.
+fn read_piped_stdin() -> Option<String> {
+    if stdin_kind() != StdinKind::Payload {
+        return None;
+    }
+    let mut piped = Vec::new();
+    if let Err(e) = io::stdin().read_to_end(&mut piped) {
+        eprintln!("writ: failed to read stdin: {e}");
+        process::exit(verbs::EXIT_FAILED);
+    }
+    match piped_text(&piped) {
+        Some(text) => Some(text),
+        None => {
+            eprintln!("writ: stdin is not text");
+            process::exit(verbs::EXIT_FAILED);
+        }
+    }
+}
+
+/// Starts Writ with nothing to open, for `writ mcp`, answering whether it did.
+///
+/// Every stream of the started process is closed: this process's stdout is
+/// the protocol, and a byte from anything else on it ends the client's
+/// session.
+#[cfg(target_os = "macos")]
+fn start_writ_quietly() -> bool {
+    process::Command::new("open")
+        .arg("-b")
+        .arg(MACOS_BUNDLE_ID)
+        .stdin(process::Stdio::null())
+        .stdout(process::Stdio::null())
+        .stderr(process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+/// Starts Writ with nothing to open, for `writ mcp`, answering whether it did.
+///
+/// Every stream of the started process is closed: this process's stdout is
+/// the protocol, and a byte from anything else on it ends the client's
+/// session.
+#[cfg(not(target_os = "macos"))]
+fn start_writ_quietly() -> bool {
+    let current_exe = std::env::current_exe().ok();
+    let env_override = std::env::var_os(GUI_BIN_ENV).map(PathBuf::from);
+    let GuiLaunch::Binary(bin) =
+        resolve_gui_binary(env_override.as_deref(), current_exe.as_deref())
+    else {
+        return false;
+    };
+    let mut command = process::Command::new(bin);
+    command
+        .env_remove(GUI_BIN_ENV)
+        .stdin(process::Stdio::null())
+        .stdout(process::Stdio::null())
+        .stderr(process::Stdio::null());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    command.spawn().is_ok()
 }
 
 /// Open `paths` in Writ, or launch Writ with no document when `paths` is empty.

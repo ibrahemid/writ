@@ -72,7 +72,9 @@ interface SettingsRowProps {
    * column, so the description stays on the row's own control. */
   footer?: JSX.Element;
   align?: "start";
-  layout?: "full";
+  /** `full`: a list the section heading names, its label for screen readers
+   * alone. `stacked`: the label above a control that takes the row's width. */
+  layout?: "full" | "stacked";
   children: JSX.Element;
 }
 

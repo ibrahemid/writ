@@ -155,6 +155,16 @@ fn a_host_holding_nothing_refuses_every_method() {
         Capability::WriteNote,
     );
     refused(
+        host.replace_note("Launch.md", "after\n", LastKnown::Overwrite, origin())
+            .expect_err("replace"),
+        Capability::WriteNote,
+    );
+    refused(
+        host.append_note("Launch.md", "more\n", origin())
+            .expect_err("append"),
+        Capability::WriteNote,
+    );
+    refused(
         host.create_note("Ship it", "text\n", origin())
             .expect_err("create"),
         Capability::CreateNote,

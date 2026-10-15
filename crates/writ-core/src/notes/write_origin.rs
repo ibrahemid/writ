@@ -51,9 +51,110 @@ impl fmt::Display for WriteOrigin {
     }
 }
 
+/// Who left a version's text in the file, as the version list names it.
+///
+/// Read back from the origin a version row keeps ([`WriteOrigin`]'s display
+/// form). Every surface of Writ that writes on the person's own action is
+/// `Writ`: a save, an autosave, a restore, a link rewritten after a rename.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Writer {
+    /// Writ, on the person's own action.
+    Writ,
+    /// A connected program, by the name it sent.
+    Program {
+        /// The name the program sent, as the grants in the settings key it.
+        name: String,
+    },
+    /// Text accepted from the chat pane.
+    Chat,
+    /// The `writ` command, run in a terminal.
+    Command,
+}
+
+impl Writer {
+    /// The writer a stored origin names, or `None` for a spelling no origin
+    /// writes.
+    pub fn from_stored(stored: &str) -> Option<Self> {
+        match stored {
+            "editor" | "autosave" | "restore" | "rename_propagation" => Some(Self::Writ),
+            "chat" => Some(Self::Chat),
+            "cli" => Some(Self::Command),
+            other => other
+                .strip_prefix("mcp:")
+                .filter(|name| !name.trim().is_empty())
+                .map(|name| Self::Program {
+                    name: name.to_string(),
+                }),
+        }
+    }
+
+    /// Whether the text came from a program connected to Writ.
+    pub fn is_program(&self) -> bool {
+        matches!(self, Self::Program { .. })
+    }
+}
+
+impl From<&WriteOrigin> for Writer {
+    fn from(origin: &WriteOrigin) -> Self {
+        match origin {
+            WriteOrigin::Mcp { client } => Self::Program {
+                name: client.clone(),
+            },
+            WriteOrigin::Chat => Self::Chat,
+            WriteOrigin::Cli => Self::Command,
+            WriteOrigin::Editor
+            | WriteOrigin::Autosave
+            | WriteOrigin::Restore
+            | WriteOrigin::RenamePropagation => Self::Writ,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::WriteOrigin;
+    use super::{WriteOrigin, Writer};
+
+    #[test]
+    fn every_stored_origin_reads_back_as_the_writer_it_names() {
+        for origin in [
+            WriteOrigin::Editor,
+            WriteOrigin::Cli,
+            WriteOrigin::Mcp {
+                client: "claude-code".to_string(),
+            },
+            WriteOrigin::Chat,
+            WriteOrigin::Restore,
+            WriteOrigin::RenamePropagation,
+            WriteOrigin::Autosave,
+        ] {
+            assert_eq!(
+                Writer::from_stored(&origin.to_string()),
+                Some(Writer::from(&origin)),
+                "{origin}"
+            );
+        }
+        assert_eq!(Writer::from_stored("mcp:"), None);
+        assert_eq!(Writer::from_stored("mcp:  "), None);
+        assert_eq!(Writer::from_stored("something else"), None);
+        assert!(Writer::from_stored("mcp:codex").is_some_and(|w| w.is_program()));
+        assert!(!Writer::Chat.is_program());
+    }
+
+    #[test]
+    fn a_writer_is_sent_tagged_by_kind() {
+        assert_eq!(
+            serde_json::to_string(&Writer::Program {
+                name: "codex".to_string()
+            })
+            .expect("serialize"),
+            "{\"kind\":\"program\",\"name\":\"codex\"}"
+        );
+        assert_eq!(
+            serde_json::to_string(&Writer::Writ).expect("serialize"),
+            "{\"kind\":\"writ\"}"
+        );
+    }
 
     #[test]
     fn every_origin_displays_as_one_lowercase_word() {

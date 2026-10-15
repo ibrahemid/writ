@@ -9,11 +9,13 @@ pub mod generated;
 pub mod heartbeat;
 pub mod hotkey;
 pub mod instance;
+pub mod links;
 pub mod logging;
 pub mod menu;
 pub mod navigation;
 pub mod notes;
 pub mod on_device;
+pub mod open_context;
 pub mod poison;
 pub mod preview;
 pub mod quit;
@@ -28,6 +30,7 @@ pub mod state;
 pub mod watcher;
 pub mod window_state;
 pub mod workspace_index;
+pub mod write_review;
 
 use events::{emit_event, WritFrontendEvent};
 use poison::recover_poison;
@@ -412,7 +415,17 @@ pub fn run() {
 
     info!("writ starting");
     let instance_lock = match instance_lock {
-        Ok(lock) => Some(lock),
+        Ok(lock) => {
+            // The instance any `writ --wait` left waiting has ended, and so
+            // have its tabs.
+            writ_storage::instance::clear_waits(&writ_dir);
+            // The `get_context` calls whose answers nobody took have stopped
+            // waiting too.
+            writ_storage::open_context::clear_answers(&writ_dir);
+            // So have the held writes.
+            writ_storage::write_review::clear_reviews(&writ_dir);
+            Some(lock)
+        }
         Err(error) => {
             tracing::warn!(%error, "running without the data folder lock");
             None
@@ -454,8 +467,17 @@ pub fn run() {
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     let builder =
         tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            let args = argv.into_iter().skip(1).map(std::ffi::OsString::from);
-            instance::deliver_forwarded(app, &instance::launch_paths(args));
+            let args: Vec<std::ffi::OsString> = argv
+                .into_iter()
+                .skip(1)
+                .map(std::ffi::OsString::from)
+                .collect();
+            let request = writ_core::instance::OpenRequest {
+                links: writ_core::writ_link::link_args(args.iter().cloned()),
+                paths: instance::launch_paths(args),
+                ..writ_core::instance::OpenRequest::default()
+            };
+            instance::deliver_forwarded(app, &request);
         }));
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -496,6 +518,9 @@ pub fn run() {
         .manage(commands::ai_connect::ConnectState::default())
         .manage(commands::chat::ChatState::default())
         .manage(commands::materialise::MaterialiseState::default())
+        .manage(links::LinkDrafts::default())
+        .manage(open_context::ContextAsks::default())
+        .manage(write_review::ReviewAsks::default())
         .invoke_handler(tauri::generate_handler![
             commands::buffer::create_buffer,
             commands::buffer::get_buffer,
@@ -667,11 +692,20 @@ pub fn run() {
             commands::activity::activity_clear,
             commands::activity::mcp_clients,
             commands::activity::mcp_set_client_permission,
+            commands::activity::mcp_set_client_context,
+            commands::activity::mcp_set_client_review,
+            commands::open_context::context_answer,
+            commands::write_review::review_answer,
             commands::activity::mcp_forget_client,
             commands::activity::mcp_deny_client,
             commands::activity::mcp_return_to_waiting,
             commands::activity::mcp_restore_client,
             commands::activity::mcp_server_command,
+            commands::mcp_connect::mcp_connect_cards,
+            commands::mcp_connect::mcp_connect_add,
+            commands::mcp_connect::mcp_connect_open,
+            commands::mcp_connect::mcp_server_test,
+            commands::mcp_connect::mcp_off_call,
             commands::activity::mcp_tools,
         ])
         .setup(move |app| {
@@ -741,6 +775,8 @@ pub fn run() {
                 if count > 0 {
                     info!(count, "files opened from OS via argv");
                 }
+                let links = writ_core::writ_link::link_args(std::env::args_os().skip(1));
+                links::follow(&handle, &links, false);
             }
 
             {
@@ -749,6 +785,10 @@ pub fn run() {
                     let state = ready_handle.state::<AppState>();
                     let drained =
                         startup::mark_ready_and_drain(&state.pending_opens, &state.frontend_ready);
+                    let lines = std::mem::take(&mut *recover_poison(
+                        state.pending_lines.lock(),
+                        "frontend-ready: pending lines",
+                    ));
                     capture::prepare(&ready_handle);
                     info!(
                         count = drained.len(),
@@ -757,9 +797,13 @@ pub fn run() {
                     if !drained.is_empty() {
                         let _ = emit_event(
                             &ready_handle,
-                            WritFrontendEvent::PendingOpens { paths: drained },
+                            WritFrontendEvent::PendingOpens {
+                                paths: drained,
+                                lines,
+                            },
                         );
                     }
+                    links::drain_drafts(&ready_handle);
                 });
             }
 
@@ -1056,6 +1100,20 @@ pub fn run() {
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         if let tauri::RunEvent::Opened { urls } = &event {
+            let writ_links: Vec<String> = urls
+                .iter()
+                .map(|url| url.as_str().to_string())
+                .filter(|url| writ_core::writ_link::is_writ_link(url))
+                .collect();
+            if !writ_links.is_empty() {
+                // Resolving a link's path asks the disk, which this thread
+                // does not wait on (ADR-047).
+                let app = app_handle.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    links::follow(&app, &writ_links, true)
+                });
+            }
+
             let raw_paths: Vec<String> = urls
                 .iter()
                 .filter_map(|url| {
@@ -1101,7 +1159,10 @@ pub fn run() {
                         ) {
                             let _ = emit_event(
                                 app_handle,
-                                WritFrontendEvent::PendingOpens { paths: files },
+                                WritFrontendEvent::PendingOpens {
+                                    paths: files,
+                                    lines: Default::default(),
+                                },
                             );
                         }
                     }

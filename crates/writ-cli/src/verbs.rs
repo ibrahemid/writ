@@ -1,5 +1,6 @@
 //! The note verbs: `links`, `backlinks`, `properties`, `tags`, `new`, `rename`
-//! and `trash`.
+//! and `trash` here, and the verbs that run on the note host `writ mcp` serves
+//! from in [`crate::host_verbs`].
 //!
 //! Every verb answers from the same two places the app answers from — the notes
 //! folder and the note index inside `writ.db` — so the command line and the
@@ -10,9 +11,11 @@
 //! Link resolution is `writ_core::notes::links` through `writ-storage`. Nothing
 //! here re-implements it.
 //!
-//! None of the verbs opens a window. They print records and exit, so they can
-//! be piped; `writ <file>` is still how a note is opened.
+//! A verb prints records and exits, so it can be piped. `open` and `today` are
+//! the two that open a window, and they say so in [`Outcome::open`] for the
+//! caller to carry out.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use writ_core::config::FileExtension;
@@ -55,6 +58,41 @@ pub enum Verb {
     },
     /// Move a note to the operating system's trash.
     Trash { note: String, json: bool },
+    /// Notes whose text matches a query, best first.
+    Search {
+        query: String,
+        limit: usize,
+        json: bool,
+    },
+    /// A note's text.
+    Cat { note: String, json: bool },
+    /// Every note in the folder, or in one folder inside it.
+    Ls { folder: Option<String>, json: bool },
+    /// Piped text added to the end of a note.
+    Append { note: String, json: bool },
+    /// Today's file, minted when the day has none, with piped text added
+    /// first when `append` is set.
+    Today {
+        append: bool,
+        open: bool,
+        json: bool,
+    },
+    /// A note opened by name, at a line when the name ends in `:LINE`.
+    Open {
+        note: String,
+        wait: bool,
+        json: bool,
+    },
+}
+
+impl Verb {
+    /// Whether the verb reads piped stdin: the text to add or to create with.
+    pub fn reads_stdin(&self) -> bool {
+        matches!(
+            self,
+            Verb::Append { .. } | Verb::New { .. } | Verb::Today { append: true, .. }
+        )
+    }
 }
 
 /// Where a verb reads and writes: resolved once, so a test can point the whole
@@ -71,6 +109,27 @@ pub struct Context {
     pub now: chrono::DateTime<chrono::Utc>,
     /// The format `writ new` mints in, read from the config (ADR-041 §2).
     pub default_extension: FileExtension,
+    /// The data folder: `config.toml`, the version store, the write lock and
+    /// the requests the running app takes.
+    pub writ_dir: PathBuf,
+    /// The notes folder the app resolves, which every key in its version
+    /// store is relative to, or `None` when no source resolves.
+    pub app_notes_dir: Option<PathBuf>,
+    /// The text piped to stdin, read for a verb that [`Verb::reads_stdin`]
+    /// and `None` when nothing is piped.
+    pub stdin: Option<String>,
+}
+
+/// What a verb asks the caller to open once it has done its work.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OpenPlan {
+    /// The files, absolute.
+    pub paths: Vec<PathBuf>,
+    /// The 1-based line to show for a path, keyed by the path as `paths`
+    /// spells it.
+    pub lines: BTreeMap<String, u32>,
+    /// Return only when every file has been closed.
+    pub wait: bool,
 }
 
 /// What a verb produced: the two streams and the exit code.
@@ -79,26 +138,45 @@ pub struct Outcome {
     pub code: i32,
     pub stdout: String,
     pub stderr: String,
+    /// Files to open after the work is done, for `open` and `today`. The
+    /// caller prints `stdout` only once they are open.
+    pub open: Option<OpenPlan>,
 }
 
 impl Outcome {
-    fn ok(stdout: String) -> Self {
+    pub(crate) fn ok(stdout: String) -> Self {
         Self {
             code: EXIT_OK,
             stdout,
             stderr: String::new(),
+            open: None,
         }
     }
 
-    fn failed(message: String) -> Self {
+    pub(crate) fn failed(message: String) -> Self {
         Self {
             code: EXIT_FAILED,
             stdout: String::new(),
             stderr: format!("writ: {message}\n"),
+            open: None,
         }
     }
 
-    fn with_note(mut self, note: String) -> Self {
+    pub(crate) fn usage(message: String) -> Self {
+        Self {
+            code: EXIT_USAGE,
+            stdout: String::new(),
+            stderr: format!("writ: {message}\n"),
+            open: None,
+        }
+    }
+
+    pub(crate) fn opening(mut self, plan: OpenPlan) -> Self {
+        self.open = Some(plan);
+        self
+    }
+
+    pub(crate) fn with_note(mut self, note: String) -> Self {
         self.stderr.push_str(&format!("writ: {note}\n"));
         self
     }
@@ -116,6 +194,12 @@ pub fn run(verb: Verb, ctx: &Context) -> Outcome {
         } => read_verb(&note, json, ctx, note_tags_document),
         Verb::Tags { note: None, json } => folder_tags(json, ctx),
         Verb::New { name, json } => new_note(name.as_deref(), json, ctx),
+        Verb::Search { query, limit, json } => crate::host_verbs::search(&query, limit, json, ctx),
+        Verb::Cat { note, json } => crate::host_verbs::cat(&note, json, ctx),
+        Verb::Ls { folder, json } => crate::host_verbs::ls(folder.as_deref(), json, ctx),
+        Verb::Append { note, json } => crate::host_verbs::append(&note, json, ctx),
+        Verb::Today { append, open, json } => crate::host_verbs::today(append, open, json, ctx),
+        Verb::Open { note, wait, json } => crate::host_verbs::open(&note, wait, json, ctx),
         Verb::Rename {
             note,
             new_name,
@@ -129,7 +213,7 @@ pub fn run(verb: Verb, ctx: &Context) -> Outcome {
 
 /// Why the note index could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum IndexError {
+pub(crate) enum IndexError {
     /// Nothing is at the path at all.
     Absent(PathBuf),
     /// A note index Writ wrote, at a version this build reads past.
@@ -178,7 +262,7 @@ impl std::fmt::Display for IndexError {
 /// build that knows more than this one. Both are refused rather than read
 /// through the wrong column layout, and neither is repaired: migrating is the
 /// app's, and only the app's.
-fn open_index(db_path: &Path) -> Result<NotesIndexStore, IndexError> {
+pub(crate) fn open_index(db_path: &Path) -> Result<NotesIndexStore, IndexError> {
     if !db_path.is_file() {
         return Err(IndexError::Absent(db_path.to_path_buf()));
     }
@@ -206,7 +290,7 @@ fn open_index(db_path: &Path) -> Result<NotesIndexStore, IndexError> {
 /// In order: the argument as a path from the current directory, then a file of
 /// that name in the notes folder, then that name with `.md` on it. A verb that
 /// can also ask the index falls back to it when this finds nothing.
-fn note_file(arg: &str, ctx: &Context) -> Option<PathBuf> {
+pub(crate) fn note_file(arg: &str, ctx: &Context) -> Option<PathBuf> {
     let given = Path::new(arg);
     let from_cwd = if given.is_absolute() {
         given.to_path_buf()
@@ -237,7 +321,11 @@ fn note_file(arg: &str, ctx: &Context) -> Option<PathBuf> {
 /// which answers with every note that name could mean: none is a failure, one
 /// is the answer, and more than one is refused with the list, because picking
 /// one is what quietly reads the wrong note.
-fn note_key(arg: &str, store: &NotesIndexStore, ctx: &Context) -> Result<String, String> {
+pub(crate) fn note_key(
+    arg: &str,
+    store: &NotesIndexStore,
+    ctx: &Context,
+) -> Result<String, String> {
     if let Some(path) = note_file(arg, ctx) {
         return Ok(notes_index::index_key(&path));
     }
@@ -511,7 +599,7 @@ fn folder_tags(json: bool, ctx: &Context) -> Outcome {
 ///
 /// A tab or a line break inside a field would end the record early, so each is
 /// replaced with a space. `--json` carries the field as it is.
-fn record<const N: usize>(fields: [&str; N]) -> String {
+pub(crate) fn record<const N: usize>(fields: [&str; N]) -> String {
     let mut line = fields
         .iter()
         .map(|field| {
@@ -572,7 +660,7 @@ pub fn plain_storage_reason(error: &StorageError) -> String {
 }
 
 /// Prints one path, as a bare line or as the documented JSON document.
-fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
+pub(crate) fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
     if json {
         let mut document = serde_json::json!({ "note": path.to_string_lossy() });
         if let Some(previous) = previous {
@@ -585,11 +673,13 @@ fn path_outcome(json: bool, path: &Path, previous: Option<&Path>) -> Outcome {
     Outcome::ok(format!("{}\n", path.display()))
 }
 
-/// Creates an empty note in the notes folder and prints its path.
+/// Creates a note in the notes folder, holding piped stdin when there is any,
+/// and prints its path.
 ///
-/// `note_ops::create_note` does the work, so the file is minted by the code the
+/// [`crate::mint_note`] does the work, so the file is minted by the code the
 /// app's New Note runs: one sanitiser, one counter dedupe, and the atomic
-/// guarded write that is the only way a note reaches disk (ADR-028). A name
+/// guarded write under the data folder's write lock that is the only way a
+/// note reaches disk (ADR-028). A name
 /// that survives sanitising to nothing is dated, which is what an untitled note
 /// is called.
 ///
@@ -614,7 +704,8 @@ fn new_note(name: Option<&str>, json: bool, ctx: &Context) -> Outcome {
         (None, None) => minted_stem(ctx.now),
     };
     let extension = spelled.map_or(ctx.default_extension.as_str(), |(_, extension)| extension);
-    match note_ops::create_note(&ctx.notes_dir, &stem, extension, WriteOrigin::Cli, None) {
+    let content = ctx.stdin.as_deref().unwrap_or("");
+    match crate::mint_note(&ctx.notes_dir, &ctx.writ_dir, &stem, extension, content) {
         Ok(path) => path_outcome(json, &path, None),
         Err(error) => Outcome::failed(format!(
             "cannot create a file in {}: {}",

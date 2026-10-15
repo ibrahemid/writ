@@ -378,6 +378,8 @@ fn live_with_rust_owned() -> WritConfig {
         first_seen: chrono::Utc::now(),
         read: true,
         write: false,
+        context: false,
+        review: false,
     }];
     live.spelling.ignored_words = vec!["writ".to_string()];
     live.workspace.root = Some("/notes/work".to_string());

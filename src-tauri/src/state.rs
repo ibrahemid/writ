@@ -170,6 +170,12 @@ pub struct AppState {
     /// ([`writ_core::watcher::pending::RemovalHolds`], ADR-033 §14).
     pub removal_holds: Arc<RemovalHolds>,
     pub pending_opens: Mutex<Vec<String>>,
+    /// The line to show for a parked open, keyed by the path as
+    /// `pending_opens` holds it, for a `writ` request that named one.
+    pub pending_lines: Mutex<std::collections::BTreeMap<String, u32>>,
+    /// The `writ --wait` commands owed an answer when their tabs close
+    /// ([`crate::instance::tabs_closed`]).
+    pub cli_waits: Mutex<writ_core::instance::WaitSet>,
     pub frontend_ready: AtomicBool,
     /// Claimed by whichever caller brings the main window up at startup.
     ///
@@ -551,6 +557,8 @@ impl AppState {
             file_tracking: Mutex::new(None),
             removal_holds: Arc::new(RemovalHolds::new()),
             pending_opens: Mutex::new(Vec::new()),
+            pending_lines: Mutex::new(std::collections::BTreeMap::new()),
+            cli_waits: Mutex::new(writ_core::instance::WaitSet::default()),
             frontend_ready: AtomicBool::new(false),
             window_revealed: AtomicBool::new(false),
             window_dismissed: AtomicBool::new(false),

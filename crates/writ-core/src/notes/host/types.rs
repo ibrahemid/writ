@@ -53,6 +53,32 @@ pub struct WriteReceipt {
     pub changed: bool,
 }
 
+/// One file as the folder index lists it (ADR-052).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IndexEntry {
+    /// The file's path, in the spelling every other answer takes back.
+    pub path: String,
+    /// The frontmatter `title`, else the first heading, else the name Writ
+    /// shows for the file.
+    pub title: String,
+    /// The file's length in bytes, as last indexed.
+    pub bytes: u64,
+    /// The tags it carries, each once.
+    pub tags: Vec<String>,
+    /// The files its links reach, each once.
+    pub links: Vec<String>,
+}
+
+/// Where a replaced passage landed.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PassageReceipt {
+    /// What the note holds now.
+    #[serde(flatten)]
+    pub written: WriteReceipt,
+    /// The 1-based line the new text starts on.
+    pub line: u32,
+}
+
 /// What a receipt written before [`WriteReceipt::changed`] existed meant: a
 /// write that reported success moved bytes.
 fn changed_by_default() -> bool {

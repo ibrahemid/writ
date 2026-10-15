@@ -1,3 +1,5 @@
+import { readWriter, type VersionWriter } from "../lib/writer";
+
 export type ExternalChange = "modified" | "removed" | "moved";
 
 export type ExternalEditAction =
@@ -50,7 +52,8 @@ export interface ExternalEditDeps {
   findBuffer: (idOrFilename: string) => ExternalEditBuffer | undefined;
   hasUnsaved: (id: string) => boolean;
   isRemovedOnDisk: (id: string) => boolean;
-  reload: (id: string) => void;
+  // `writer` is what wrote the file, when the backend knows.
+  reload: (id: string, writer?: VersionWriter | null) => void;
   // Raises the bar that asks what to do about a file that changed under text
   // no file holds. Nothing is read, replaced or written until it is answered.
   markChanged: (id: string) => void;
@@ -70,15 +73,17 @@ export interface ExternalEditDeps {
 }
 
 // What the backend says about a file that changed outside Writ. `path` names
-// the file, `diskHash` is what it holds now, and `newPath` is where it went
-// for a change that is a move. Only `bufferId` and `change` are read here; the
-// rest are what the reload and the move handling are built on.
+// the file, `diskHash` is what it holds now, `newPath` is where it went for a
+// change that is a move, and `writer` is what wrote it, when that is known.
+// Only `bufferId` and `change` decide the action; the rest are what the
+// reload and the move handling are built on.
 export interface ExternalEditPayload {
   bufferId: string;
   change: ExternalChange;
   path?: string;
   newPath?: string | null;
   diskHash?: string | null;
+  writer?: VersionWriter | null;
 }
 
 // Reads a `buffer:external` event off the wire, or rejects it.
@@ -94,6 +99,7 @@ export function readExternalEditPayload(payload: {
   path?: string;
   newPath?: string | null;
   diskHash?: string | null;
+  writer?: unknown;
 }): ExternalEditPayload | null {
   if (!payload.bufferId) return null;
   if (
@@ -109,6 +115,7 @@ export function readExternalEditPayload(payload: {
     path: payload.path,
     newPath: payload.newPath,
     diskHash: payload.diskHash,
+    writer: readWriter(payload.writer),
   };
 }
 
@@ -144,7 +151,7 @@ export async function handleExternalEdit(
       return;
     case "reload":
       deps.refreshScripts(buffer.id);
-      deps.reload(buffer.id);
+      deps.reload(buffer.id, payload.writer ?? null);
       return;
     case "prompt":
       deps.refreshScripts(buffer.id);

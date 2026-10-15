@@ -69,12 +69,18 @@ const mocks = vi.hoisted(() => ({
   activityClear: vi.fn().mockResolvedValue(undefined),
   mcpClients: vi.fn().mockResolvedValue({ approved: [], waiting: [] }),
   mcpSetClientPermission: vi.fn(),
+  mcpSetClientContext: vi.fn(),
+  mcpSetClientReview: vi.fn(),
   mcpForgetClient: vi.fn(),
   mcpDenyClient: vi.fn(),
   mcpReturnToWaiting: vi.fn(),
   mcpRestoreClient: vi.fn(),
   mcpServerCommand: vi.fn().mockResolvedValue({ path: "/usr/local/bin/writ", command: "writ mcp" }),
   mcpTools: vi.fn(),
+  mcpConnectCards: vi.fn().mockResolvedValue([]),
+  mcpConnectAdd: vi.fn(),
+  mcpConnectOpen: vi.fn(),
+  mcpServerTest: vi.fn(),
   onEvent: vi.fn().mockResolvedValue(() => {}),
   aiCheckConnection: vi.fn().mockResolvedValue({
     reachable: true,
@@ -212,12 +218,18 @@ vi.mock("../../services/tauri", () => ({
   activityClear: mocks.activityClear,
   mcpClients: mocks.mcpClients,
   mcpSetClientPermission: mocks.mcpSetClientPermission,
+  mcpSetClientContext: mocks.mcpSetClientContext,
+  mcpSetClientReview: mocks.mcpSetClientReview,
   mcpForgetClient: mocks.mcpForgetClient,
   mcpDenyClient: mocks.mcpDenyClient,
   mcpReturnToWaiting: mocks.mcpReturnToWaiting,
   mcpRestoreClient: mocks.mcpRestoreClient,
   mcpServerCommand: mocks.mcpServerCommand,
   mcpTools: mocks.mcpTools,
+  mcpConnectCards: mocks.mcpConnectCards,
+  mcpConnectAdd: mocks.mcpConnectAdd,
+  mcpConnectOpen: mocks.mcpConnectOpen,
+  mcpServerTest: mocks.mcpServerTest,
 }));
 
 vi.mock("../../services/events", () => ({
@@ -2503,18 +2515,21 @@ const WRITING_CLIENT = {
   first_seen: "2026-09-11T09:12:00Z",
   read: true,
   write: true,
+  context: false,
 };
 const READING_CLIENT = {
   name: "Desk helper",
   first_seen: "2026-09-12T10:04:00Z",
   read: true,
   write: false,
+  context: false,
 };
 const DENIED_CLIENT = {
   name: "Claude Code",
   first_seen: "2026-09-12T10:00:00Z",
   read: false,
   write: false,
+  context: false,
 };
 const WAITING_CLIENT = {
   name: "Claude Code",
@@ -2561,6 +2576,7 @@ describe("Connected programs section — the tool row", () => {
     mocks.mcpTools.mockReset().mockResolvedValue({
       read: SERVER_READ_TOOLS,
       write: SERVER_WRITE_TOOLS,
+      context: ["get_context"],
     });
   });
 
@@ -2608,6 +2624,9 @@ describe("Connected programs section — the tool row", () => {
     expect(container.querySelector("[data-grant='write']")?.textContent).toBe(
       "Writing: replace a file's text, make a new file, rename a file.",
     );
+    expect(container.querySelector("[data-grant='context']")?.textContent).toBe(
+      "Open file: see the file open in Writ and the text you selected.",
+    );
   });
 
   it("never lets the label column end up narrower than the list column", async () => {
@@ -2653,6 +2672,7 @@ describe("Connected programs section, programs you approved", () => {
     mocks.mcpTools.mockReset().mockResolvedValue({
       read: SERVER_READ_TOOLS,
       write: SERVER_WRITE_TOOLS,
+      context: ["get_context"],
     });
   });
 
@@ -2704,6 +2724,59 @@ describe("Connected programs section, programs you approved", () => {
     mocks.mcpSetClientPermission.mockClear();
     fireEvent.click(read!);
     expect(mocks.mcpSetClientPermission).toHaveBeenCalledWith("Desk helper", false, false);
+  });
+
+  it("lets a program see the open file on its own switch", async () => {
+    mocks.mcpSetClientContext
+      .mockReset()
+      .mockResolvedValue({ approved: [{ ...READING_CLIENT, context: true }], waiting: [] });
+    const { container } = await openProgramList([READING_CLIENT]);
+
+    const open = container.querySelector<HTMLButtonElement>(
+      '[data-setting="mcp_context_Desk helper"]',
+    );
+    expect(open?.getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(open!);
+
+    expect(mocks.mcpSetClientContext).toHaveBeenCalledWith("Desk helper", true);
+    expect(mocks.mcpSetClientPermission).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        container
+          .querySelector('[data-setting="mcp_context_Desk helper"]')
+          ?.getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+  });
+
+  it("asks first only for a program that may write, on its own switch", async () => {
+    mocks.mcpSetClientReview
+      .mockReset()
+      .mockResolvedValue({ approved: [{ ...WRITING_CLIENT, review: true }, READING_CLIENT], waiting: [] });
+    const { container } = await openProgramList([WRITING_CLIENT, READING_CLIENT]);
+
+    const reading = container.querySelector<HTMLButtonElement>(
+      '[data-setting="mcp_review_Desk helper"]',
+    );
+    expect(reading?.disabled).toBe(true);
+    expect(reading?.getAttribute("aria-checked")).toBe("false");
+
+    const writing = container.querySelector<HTMLButtonElement>(
+      '[data-setting="mcp_review_Scribe CLI"]',
+    );
+    expect(writing?.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(writing!);
+
+    expect(mocks.mcpSetClientReview).toHaveBeenCalledWith("Scribe CLI", true);
+    expect(mocks.mcpSetClientPermission).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        container
+          .querySelector('[data-setting="mcp_review_Scribe CLI"]')
+          ?.getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
   });
 
   // Once under the list, not once per row: three programs used to carry three
@@ -2792,6 +2865,7 @@ describe("Connected programs section, waiting for you", () => {
     mocks.mcpTools.mockReset().mockResolvedValue({
       read: SERVER_READ_TOOLS,
       write: SERVER_WRITE_TOOLS,
+      context: ["get_context"],
     });
   });
 
@@ -2890,6 +2964,25 @@ describe("Connected programs section, waiting for you", () => {
     expect(ids.indexOf("mcp.waiting")).toBe(0);
     expect(ids).toContain("mcp.command");
     expect(ids).toContain("mcp.clients");
+  });
+
+  it("puts the client cards between the waiting list and the command", async () => {
+    mocks.mcpConnectCards.mockResolvedValue([
+      { client: "claude-code", connection: "command", copy_text: "claude mcp add", runs_command: true },
+    ]);
+    const { container } = await openPrograms();
+
+    await waitFor(() =>
+      expect(container.querySelector("[data-setting-id='mcp.connect'] [data-client='claude-code']")).not.toBeNull(),
+    );
+    const ids = Array.from(
+      container.querySelectorAll("[data-app-detail='programs'] [data-setting-id]"),
+      (row) => row.getAttribute("data-setting-id"),
+    );
+    expect(ids.indexOf("mcp.connect")).toBe(ids.indexOf("mcp.waiting") + 1);
+    expect(ids.indexOf("mcp.command")).toBe(ids.indexOf("mcp.connect") + 1);
+    const card = container.querySelector("[data-setting-id='mcp.connect'] [data-client='claude-code']")!;
+    expect(card.querySelector("[data-program='Claude Code'], [data-action='approve-read']")).not.toBeNull();
   });
 });
 

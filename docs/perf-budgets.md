@@ -450,12 +450,25 @@ the whole of its work.
 | `preview_render` | 5 MB note, 54,359 wikilinks to 200 notes | 287 ms | 0 ms | 143 ms |
 | `search_workspace_files` | 200,000 files, slowest of six keystrokes | 104 ms | 0 ms | 104 ms |
 | `install_cli` | administrator password dialog | the whole dialog | 0 ms | the person |
+| `mcp_connect_cards`, `mcp_connect_add`, `mcp_connect_open`, `mcp_server_test` | a client's own command, the login shell, `writ mcp` | not measured yet | 0 ms | the other program |
+| `context_answer` | the selection of the file open in the window, up to 2 MB | async from its first version | 0 ms | not measured yet |
+| `review_answer` | the person's answer to a program's held write | async from its first version | 0 ms | not measured yet |
 
 Notes:
 
 - `install_cli` is paced by the person at the dialog and is not measured
   headless; it runs on the blocking pool (`run_detached`), and the editor
   repainting while the dialog is up is a smoke row.
+- The client-card commands (`commands/mcp_connect.rs`, ADR-031 rule 2.4) are
+  paced by another program: the login shell that reports the `PATH` (stopped
+  after 5 s), a client's own `mcp add` (30 s), the opener and `writ mcp` (10 s).
+  Each runs on the blocking pool and is not measured headless.
+- `context_answer` (ADR-053) writes one answer file to the data folder. Its
+  always-on test holds the buffer store, which the work reads the tab's file
+  from.
+- `review_answer` (ADR-053) writes one answer file to the data folder. Its
+  always-on test holds the settings, which the work reads to confirm the
+  program may still write.
 - The search row's "before" is its work: the ranking code did not change, only
   where it runs.
 - The render's work halved because a note's wikilinks are resolved in one

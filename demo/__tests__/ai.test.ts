@@ -125,7 +125,14 @@ describe("connected programs", () => {
       needs_install: false,
       needs_move: false,
     });
-    expect(MCP_TOOLS.write).toEqual(["write_note", "create_note", "rename_note"]);
+    expect(MCP_TOOLS.write).toEqual([
+      "write_note",
+      "create_note",
+      "rename_note",
+      "append_note",
+      "replace_in_note",
+      "today",
+    ]);
     expect(MCP_TOOLS.read).toContain("note_backlinks");
   });
 });

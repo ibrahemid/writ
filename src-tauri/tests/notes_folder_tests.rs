@@ -76,6 +76,8 @@ fn make_state_at(dir: &TempDir, notes_name: &str, fallback: Option<NotesRootFall
         quit: Arc::new(QuitState::new()),
         removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
+        pending_lines: Mutex::new(Default::default()),
+        cli_waits: Mutex::new(Default::default()),
         frontend_ready: AtomicBool::new(false),
         window_revealed: AtomicBool::new(false),
         window_dismissed: AtomicBool::new(false),

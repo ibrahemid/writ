@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 
 use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
-use writ_mcp::consent::{ConfigGate, EnabledReads};
-use writ_mcp::tools::{FixedAppFolder, ToolHost, READ_TOOLS, WRITE_TOOLS};
+use writ_mcp::consent::{ConfigGate, DenyAll, EnabledReads};
+use writ_mcp::tools::{FixedAppFolder, ToolHost, CONTEXT_TOOLS, READ_TOOLS, WRITE_TOOLS};
 
 /// The version this test speaks. rmcp negotiates from its known list.
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -140,6 +140,7 @@ async fn a_client_initialises_lists_the_tools_and_calls_one() {
     let mut expected: Vec<String> = READ_TOOLS
         .iter()
         .chain(WRITE_TOOLS.iter())
+        .chain(CONTEXT_TOOLS.iter())
         .map(|name| name.to_string())
         .collect();
     expected.sort();
@@ -149,14 +150,15 @@ async fn a_client_initialises_lists_the_tools_and_calls_one() {
         let name = tool["name"].as_str().expect("a name");
         let hints = &tool["annotations"];
         assert_eq!(hints["openWorldHint"], false, "{name}");
-        if READ_TOOLS.contains(&name) {
+        if READ_TOOLS.contains(&name) || CONTEXT_TOOLS.contains(&name) {
             assert_eq!(hints["readOnlyHint"], true, "{name}");
         } else {
             assert_eq!(hints["readOnlyHint"], false, "{name}");
             assert_eq!(
                 hints["destructiveHint"],
-                name != "create_note",
-                "{name}: writing and renaming replace what is there, creating does not"
+                ["write_note", "rename_note", "replace_in_note"].contains(&name),
+                "{name}: writing, renaming and replacing a passage change what is there; \
+                 creating, appending and today's file add to it"
             );
         }
     }
@@ -550,4 +552,181 @@ async fn an_unread_note_is_refused_with_how_to_go_on_and_an_overwrite_lands() {
     drop(writer);
     drop(reader);
     let _ = tokio::time::timeout(std::time::Duration::from_secs(10), served).await;
+}
+
+/// Opens a session as `Test Client` and returns the two halves.
+async fn session(
+    host: ToolHost,
+) -> (
+    tokio::io::WriteHalf<tokio::io::DuplexStream>,
+    tokio::io::Lines<BufReader<tokio::io::ReadHalf<tokio::io::DuplexStream>>>,
+    serde_json::Value,
+) {
+    let (client, server) = tokio::io::duplex(256 * 1024);
+    tokio::spawn(writ_mcp::server::serve_on(host, server));
+    let (read_half, mut writer) = tokio::io::split(client);
+    let mut reader = BufReader::new(read_half).lines();
+    let initialized = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": { "name": "Test Client", "version": "1.0.0" }
+            }
+        }),
+    )
+    .await;
+    send(
+        &mut writer,
+        serde_json::json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+    )
+    .await;
+    (writer, reader, initialized)
+}
+
+#[tokio::test]
+async fn the_files_and_the_folder_index_are_resources_a_client_can_read() {
+    let fixture = fixture();
+    let conn = writ_storage::database::connection::open_database(&fixture.db).expect("open");
+    writ_storage::database::migrations::run_migrations(&conn).expect("migrations");
+    drop(conn);
+    writ_storage::notes_index::NotesIndexStore::open(&fixture.db)
+        .expect("index")
+        .reconcile(&fixture.notes, &|| false, &|_| false)
+        .expect("reconcile");
+    let (mut writer, mut reader, initialized) = session(approved_host(&fixture)).await;
+    assert!(initialized["result"]["capabilities"]["resources"].is_object());
+
+    let listed = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({ "jsonrpc": "2.0", "id": 2, "method": "resources/list", "params": {} }),
+    )
+    .await;
+    let uris: Vec<&str> = listed["result"]["resources"]
+        .as_array()
+        .expect("a resource list")
+        .iter()
+        .map(|resource| resource["uri"].as_str().expect("a uri"))
+        .collect();
+    assert_eq!(
+        uris,
+        vec![
+            "writ-folder://index",
+            "writ-folder://file/Launch.md",
+            "writ-folder://file/Plan.md"
+        ]
+    );
+
+    let read = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "resources/read",
+            "params": { "uri": "writ-folder://file/Launch.md" }
+        }),
+    )
+    .await;
+    assert_eq!(
+        read["result"]["contents"][0]["text"],
+        "# Launch\n\nthe text\n"
+    );
+    assert_eq!(read["result"]["contents"][0]["mimeType"], "text/markdown");
+
+    let index = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "resources/read",
+            "params": { "uri": "writ-folder://index" }
+        }),
+    )
+    .await;
+    let text = index["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("the index as text");
+    let parsed: serde_json::Value = serde_json::from_str(text).expect("json");
+    let titles: Vec<&str> = parsed["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .map(|file| file["title"].as_str().expect("a title"))
+        .collect();
+    assert_eq!(titles, vec!["Launch", "Plan"]);
+
+    let outside = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "resources/read",
+            "params": { "uri": "writ-folder://file/..%2Fwrit.db" }
+        }),
+    )
+    .await;
+    assert!(outside["error"].is_object(), "{outside}");
+
+    let templates = call(
+        &mut writer,
+        &mut reader,
+        serde_json::json!({ "jsonrpc": "2.0", "id": 6, "method": "resources/templates/list", "params": {} }),
+    )
+    .await;
+    assert_eq!(
+        templates["result"]["resourceTemplates"][0]["uriTemplate"],
+        "writ-folder://file/{+path}"
+    );
+}
+
+#[tokio::test]
+async fn resources_are_refused_while_the_server_is_off() {
+    let fixture = fixture();
+    let writ_dir = fixture.db.parent().expect("the data folder").to_path_buf();
+    let host = ToolHost::open(
+        &fixture.notes,
+        &fixture.db,
+        &writ_dir,
+        Box::new(FixedAppFolder(fixture.notes.clone())),
+        Box::new(DenyAll),
+    )
+    .expect("host");
+    let (mut writer, mut reader, _) = session(host).await;
+    for (id, method, params) in [
+        (2, "resources/list", serde_json::json!({})),
+        (
+            3,
+            "resources/read",
+            serde_json::json!({ "uri": "writ-folder://file/Launch.md" }),
+        ),
+        (
+            4,
+            "resources/read",
+            serde_json::json!({ "uri": "writ-folder://index" }),
+        ),
+    ] {
+        let answer = call(
+            &mut writer,
+            &mut reader,
+            serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
+        )
+        .await;
+        assert!(answer["error"].is_object(), "{method}: {answer}");
+        assert!(
+            answer["error"]["message"]
+                .as_str()
+                .expect("a message")
+                .contains("Connected programs is off"),
+            "{answer}"
+        );
+    }
 }

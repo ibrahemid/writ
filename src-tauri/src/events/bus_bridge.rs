@@ -90,6 +90,7 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             change,
             new_path,
             disk_hash,
+            writer,
         } => Some(WritFrontendEvent::BufferExternal {
             buffer_id: buffer_id.clone(),
             path: path.clone(),
@@ -100,6 +101,7 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
             },
             new_path: new_path.clone(),
             disk_hash: disk_hash.clone(),
+            writer: writer.clone(),
         }),
         WritEvent::MenuAction { action } => Some(WritFrontendEvent::MenuAction {
             action: action.clone(),
@@ -130,7 +132,8 @@ fn translate(event: &WritEvent) -> Option<WritFrontendEvent> {
         WritEvent::BufferOpened { .. }
         | WritEvent::HotkeyToggle
         | WritEvent::PluginEvent { .. }
-        | WritEvent::McpPendingChanged => None,
+        | WritEvent::McpPendingChanged
+        | WritEvent::McpCalledWhileOff => None,
     }
 }
 
@@ -178,6 +181,7 @@ mod tests {
             change: ExternalChange::Modified,
             new_path: None,
             disk_hash: Some("abc".to_string()),
+            writer: None,
         });
 
         let events = captured.lock().unwrap();
@@ -190,6 +194,7 @@ mod tests {
                 change: "modified".to_string(),
                 new_path: None,
                 disk_hash: Some("abc".to_string()),
+                writer: None,
             }
         );
     }
@@ -205,6 +210,7 @@ mod tests {
             change: ExternalChange::Removed,
             new_path: None,
             disk_hash: None,
+            writer: None,
         });
 
         let events = captured.lock().unwrap();
@@ -217,6 +223,7 @@ mod tests {
                 change: "removed".to_string(),
                 new_path: None,
                 disk_hash: None,
+                writer: None,
             }
         );
     }
@@ -232,6 +239,7 @@ mod tests {
             change: ExternalChange::Moved,
             new_path: Some("/elsewhere/draft-3.txt".to_string()),
             disk_hash: Some("abc".to_string()),
+            writer: None,
         });
 
         let events = captured.lock().unwrap();
@@ -244,6 +252,7 @@ mod tests {
                 change: "moved".to_string(),
                 new_path: Some("/elsewhere/draft-3.txt".to_string()),
                 disk_hash: Some("abc".to_string()),
+                writer: None,
             }
         );
     }
@@ -267,6 +276,7 @@ mod tests {
                 change: variant.clone(),
                 new_path: None,
                 disk_hash: None,
+                writer: None,
             });
             let events = captured.lock().unwrap();
             let json = serde_json::to_value(&events[0]).expect("serialise");
@@ -289,6 +299,7 @@ mod tests {
             change: "modified".to_string(),
             new_path: None,
             disk_hash: Some("abc".to_string()),
+            writer: None,
         })
         .expect("serialise");
 

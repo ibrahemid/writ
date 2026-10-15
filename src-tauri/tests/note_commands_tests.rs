@@ -13,6 +13,7 @@ use writ_core::hash::sha256_bytes;
 use writ_core::notes::guard::SF_DATALESS;
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::notes::reload::ChangeChoice;
+use writ_core::notes::{WriteOrigin, Writer};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::text_encoding::TextEncoding;
 use writ_core::update::UpdatePhase;
@@ -92,6 +93,8 @@ fn make_state(dir: &TempDir) -> AppState {
         quit: Arc::new(QuitState::new()),
         removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
+        pending_lines: Mutex::new(Default::default()),
+        cli_waits: Mutex::new(Default::default()),
         frontend_ready: AtomicBool::new(false),
         window_revealed: AtomicBool::new(false),
         window_dismissed: AtomicBool::new(false),
@@ -963,6 +966,63 @@ fn a_note_created_this_session_hears_that_another_program_rewrote_it() {
     let (buffer_id, named) = named_by(&seen[0]);
     assert_eq!(buffer_id, doc.id);
     assert_eq!(std::path::Path::new(named), path);
+}
+
+/// What one `BufferExternal` says wrote the file.
+fn writer_named_by(event: &WritEvent) -> Option<Writer> {
+    match event {
+        WritEvent::BufferExternal { writer, .. } => writer.clone(),
+        other => panic!("not an external change: {other:?}"),
+    }
+}
+
+#[test]
+fn a_programs_write_reaches_the_tab_with_the_programs_name_and_an_unknown_one_without() {
+    // `writ mcp` keeps the text a program's write landed as the note's newest
+    // version, under the program's name, before the watcher reports the
+    // change. The tab is told who wrote it from that entry.
+    let dir = TempDir::new().expect("temp dir");
+    let (state, rx) = watching_state(&dir);
+    // The app tells its version store where the notes are at startup.
+    state.note_history.set_notes_root(state.notes_root());
+
+    let doc = new_note_inner(&state).expect("new note");
+    let path = note_file(&state, &doc.id);
+    std::thread::sleep(APART);
+
+    let written = b"rewritten by a program\n";
+    rewrite_from_outside(&path, written);
+    let key = state
+        .note_history
+        .key_for(&path)
+        .expect("a note in the folder");
+    state
+        .note_history
+        .capture(
+            &key,
+            written,
+            std::time::SystemTime::now(),
+            &WriteOrigin::Mcp {
+                client: "claude-code".to_string(),
+            },
+        )
+        .expect("the program's version");
+
+    let seen = external_events(&rx);
+    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(named_by(&seen[0]).0, doc.id);
+    assert_eq!(
+        writer_named_by(&seen[0]),
+        Some(Writer::Program {
+            name: "claude-code".to_string()
+        })
+    );
+
+    std::thread::sleep(APART);
+    rewrite_from_outside(&path, b"then another program nobody named\n");
+    let seen = external_events(&rx);
+    assert_eq!(seen.len(), 1, "the tab must be told once, saw {seen:?}");
+    assert_eq!(writer_named_by(&seen[0]), None);
 }
 
 #[test]

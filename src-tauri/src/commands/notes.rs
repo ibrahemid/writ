@@ -169,24 +169,6 @@ pub fn new_dated_note_inner(
     create_note_at(state, &state.notes_root(), &stem)
 }
 
-/// The two formats a dated name may already be on disk in, the configured one
-/// first.
-///
-/// Today's Note opens whichever of the two is there rather than minting a
-/// second file for the same day: somebody who changed the format still has
-/// yesterday's note, and the day the format changed does not end with two
-/// (ADR-041 §2, decision D-c).
-fn dated_name_candidates(now: DateTime<Utc>, configured: FileExtension) -> [String; 2] {
-    let other = match configured {
-        FileExtension::Txt => FileExtension::Md,
-        FileExtension::Md => FileExtension::Txt,
-    };
-    [
-        writ_core::startup::dated_note_name(now, configured),
-        writ_core::startup::dated_note_name(now, other),
-    ]
-}
-
 /// What Today's File answers: the dated file's path, and what opening it came
 /// to, as any open answers.
 ///
@@ -235,42 +217,20 @@ pub fn open_or_mint_dated_note(state: &AppState, now: DateTime<Utc>) -> Result<T
     Ok(TodaysFile { path, opened })
 }
 
-/// Where Today's File is, or where it would be minted.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TodaysFileAt {
-    /// The dated file, in whichever format the day already has it.
-    Existing(PathBuf),
-    /// No file for the day yet: the path the configured format mints.
-    Missing(PathBuf),
-}
+pub use writ_storage::note_ops::TodaysFileAt;
 
-/// Finds Today's File without opening or minting it.
-///
-/// Both formats the dated name may be written in are looked for, the
-/// configured one first (spec D1).
+/// Finds Today's File without opening or minting it
+/// ([`writ_storage::note_ops::find_todays_file`]).
 ///
 /// # Errors
 ///
-/// The configured name is already on something that is not a note file: a
-/// folder, or a link to one. Minting would dedupe around it and hand back a
-/// second file for the same day, one more on every ask, so the name is
-/// reported as taken instead. Only the configured name is asked about: the
-/// other one is somewhere to read the day from, never somewhere to write, so
-/// a folder wearing it blocks nothing.
+/// The configured name is already on something that is not a note file.
 pub fn find_todays_file(state: &AppState, now: DateTime<Utc>) -> Result<TodaysFileAt, String> {
-    let root = state.notes_root();
-    let names = dated_name_candidates(now, state.default_extension());
-    for name in &names {
-        let path = root.join(name);
-        if path.is_file() {
-            return Ok(TodaysFileAt::Existing(path));
-        }
-    }
-    let minting = root.join(&names[0]);
-    if minting.symlink_metadata().is_ok() {
-        return Err(name_is_taken(&names[0]));
-    }
-    Ok(TodaysFileAt::Missing(minting))
+    writ_storage::note_ops::find_todays_file(&state.notes_root(), now, state.default_extension())
+        .map_err(|error| match error {
+            writ_storage::errors::StorageError::NoteNameTaken { name, .. } => name_is_taken(&name),
+            other => other.to_string(),
+        })
 }
 
 /// [`open_or_mint_dated_note`] for the menu item and the command that share it.

@@ -15,14 +15,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::Deserialize;
 use writ_core::config::mcp::McpConfig;
 
-use crate::tools::READ_TOOLS;
+use crate::tools::{CONTEXT_TOOLS, READ_TOOLS};
 
 pub use writ_core::activity::{ClientId, Decision};
 
@@ -49,6 +49,13 @@ impl Verdict {
 pub trait ConsentGate: Send + Sync {
     /// The verdict on `client` calling `tool`.
     fn decide(&self, client: &ClientId, tool: &str) -> Verdict;
+
+    /// Whether each of `client`'s writes waits for the person to apply or
+    /// discard it in Writ (ADR-053). A gate that keeps no such setting asks
+    /// nobody.
+    fn reviews_writes(&self, _client: &ClientId) -> bool {
+        false
+    }
 }
 
 /// Refuses everything, the way a server that is off does.
@@ -64,7 +71,8 @@ impl ConsentGate for DenyAll {
     }
 }
 
-/// Grants the read tools while `mcp.enabled` is true, and nothing else.
+/// Grants the read tools while `mcp.enabled` is true, and nothing else: no
+/// write tool and no tool that sees the open file.
 ///
 /// This is 0.5's read half on its own. Turning `mcp.enabled` on is the user's
 /// one act until U5 records per-client approvals; a client that sent no name is
@@ -141,6 +149,10 @@ struct Cached {
 /// is the waiting list the app watches and shows. The app drops the entry when
 /// the person decides. Not allowing a program is a decision too, so it is not
 /// written there again until the person forgets it.
+///
+/// While the server is off, the first named client to call in this process is
+/// written to `mcp-off-call.json`, its name and the time and nothing else, so
+/// the app can offer to turn Connected programs on (ADR-031 rule 7.2).
 #[derive(Debug)]
 pub struct ConfigGate {
     writ_dir: PathBuf,
@@ -148,6 +160,7 @@ pub struct ConfigGate {
     parses: AtomicUsize,
     waiting: Mutex<HashMap<String, Waiting>>,
     listing: Mutex<Option<Listing>>,
+    off_noted: AtomicBool,
 }
 
 /// How often one client's entry in `mcp-pending.json` is rewritten while the
@@ -180,6 +193,7 @@ impl ConfigGate {
             parses: AtomicUsize::new(0),
             waiting: Mutex::new(HashMap::new()),
             listing: Mutex::new(None),
+            off_noted: AtomicBool::new(false),
         }
     }
 
@@ -281,11 +295,25 @@ impl ConfigGate {
 }
 
 impl ConsentGate for ConfigGate {
+    fn reviews_writes(&self, client: &ClientId) -> bool {
+        let config = self.current();
+        config.enabled
+            && config
+                .approval_for(&client.name)
+                .is_some_and(|approval| approval.reviews_writes())
+    }
+
     fn decide(&self, client: &ClientId, tool: &str) -> Verdict {
         let config = self.current();
         let verdict = verdict(&config, client, tool);
         if verdict == Verdict::Waiting {
             self.note_waiting(client);
+        }
+        if verdict == Verdict::Off
+            && !client.name.trim().is_empty()
+            && !self.off_noted.swap(true, Ordering::Relaxed)
+        {
+            let _ = writ_storage::off_calls::note(&self.writ_dir, client);
         }
         verdict
     }
@@ -299,7 +327,8 @@ impl ConsentGate for ConfigGate {
 /// approves nobody (ADR-031 rule 7.2), and a client that sent no name leaves
 /// nothing for the user to approve or revoke later. Writing implies reading by
 /// the time the section is loaded (`ClientApproval`), so the read check reads
-/// one field.
+/// one field. Seeing the open file is its own grant, which neither of the
+/// others carries (ADR-053).
 fn verdict(config: &McpConfig, client: &ClientId, tool: &str) -> Verdict {
     if !config.enabled {
         return Verdict::Off;
@@ -312,6 +341,8 @@ fn verdict(config: &McpConfig, client: &ClientId, tool: &str) -> Verdict {
     };
     let granted = if READ_TOOLS.contains(&tool) {
         approval.read
+    } else if CONTEXT_TOOLS.contains(&tool) {
+        approval.context
     } else {
         approval.write
     };
@@ -392,6 +423,15 @@ mod tests {
     }
 
     #[test]
+    fn an_enabled_server_does_not_show_the_open_file() {
+        let gate = EnabledReads::new(true);
+        assert_eq!(
+            gate.decide(&ClientId::named("Claude Code"), "get_context"),
+            Verdict::NotGranted
+        );
+    }
+
+    #[test]
     fn a_client_that_sent_no_name_is_refused_even_when_the_server_is_on() {
         let gate = EnabledReads::new(true);
         for name in ["", "   "] {
@@ -433,6 +473,40 @@ mod tests {
             .into_iter()
             .map(|entry| entry.name)
             .collect()
+    }
+
+    #[test]
+    fn writes_are_held_only_for_a_program_that_may_write_and_was_set_to_ask_first() {
+        let dir = config_dir();
+        let gate = ConfigGate::new(dir.path());
+        let claude = ClientId::named("Claude Code");
+
+        write_config(
+            dir.path(),
+            &format!("{}review = true\n", approving("Claude Code", true, true)),
+        );
+        assert!(gate.reviews_writes(&claude));
+        assert!(!gate.reviews_writes(&ClientId::named("Codex")));
+
+        write_config(
+            dir.path(),
+            &format!("{}review = true\n", approving("Claude Code", true, false)),
+        );
+        assert!(
+            !gate.reviews_writes(&claude),
+            "a program that cannot write has nothing held"
+        );
+
+        write_config(dir.path(), &approving("Claude Code", true, true));
+        assert!(!gate.reviews_writes(&claude));
+
+        write_config(
+            dir.path(),
+            &format!("{}review = true\n", approving("Claude Code", true, true))
+                .replace("enabled = true", "enabled = false"),
+        );
+        assert!(!gate.reviews_writes(&claude));
+        assert!(!DenyAll.reviews_writes(&claude));
     }
 
     #[test]
@@ -568,6 +642,54 @@ mod tests {
     }
 
     #[test]
+    fn a_server_that_is_off_keeps_the_name_of_the_program_that_called() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = false\n");
+        let gate = ConfigGate::new(dir.path());
+
+        gate.decide(&ClientId::named("Claude Code"), "read_note");
+
+        let call = writ_storage::off_calls::read(dir.path()).expect("a record");
+        assert_eq!(call.name, "Claude Code");
+        assert!(writ_storage::pending_clients::read(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_server_that_is_off_writes_its_record_once_per_process() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = false\n");
+        let gate = ConfigGate::new(dir.path());
+
+        gate.decide(&ClientId::named("Claude Code"), "read_note");
+        gate.decide(&ClientId::named("Cursor"), "list_notes");
+
+        let call = writ_storage::off_calls::read(dir.path()).expect("a record");
+        assert_eq!(call.name, "Claude Code");
+    }
+
+    #[test]
+    fn a_program_that_sent_no_name_leaves_no_record_while_off() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = false\n");
+        let gate = ConfigGate::new(dir.path());
+
+        gate.decide(&ClientId::named("  "), "read_note");
+
+        assert!(!writ_storage::off_calls::path(dir.path()).exists());
+    }
+
+    #[test]
+    fn a_server_that_is_on_leaves_no_off_record() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+
+        gate.decide(&ClientId::named("Claude Code"), "read_note");
+
+        assert!(!writ_storage::off_calls::path(dir.path()).exists());
+    }
+
+    #[test]
     fn a_server_that_is_off_says_so_before_anything_else() {
         let dir = config_dir();
         write_config(dir.path(), "[mcp]\nenabled = false\n");
@@ -628,6 +750,44 @@ mod tests {
             gate.decide(&ClientId::named("Claude Code"), "write_note"),
             Verdict::NotGranted
         );
+    }
+
+    #[test]
+    fn only_the_open_file_grant_lets_a_program_see_the_open_file() {
+        let dir = config_dir();
+        write_config(dir.path(), &approving("Claude Code", true, true));
+        let gate = ConfigGate::new(dir.path());
+        assert_eq!(
+            gate.decide(&ClientId::named("Claude Code"), "get_context"),
+            Verdict::NotGranted,
+            "reading and writing do not carry it"
+        );
+
+        write_config(
+            dir.path(),
+            "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Claude Code\"\ncontext = true\n",
+        );
+        assert_eq!(
+            gate.decide(&ClientId::named("Claude Code"), "get_context"),
+            Verdict::Allow
+        );
+        assert_eq!(
+            gate.decide(&ClientId::named("Claude Code"), "read_note"),
+            Verdict::NotGranted,
+            "and it carries neither"
+        );
+    }
+
+    #[test]
+    fn a_program_nobody_decided_on_waits_to_see_the_open_file() {
+        let dir = config_dir();
+        write_config(dir.path(), "[mcp]\nenabled = true\n");
+        let gate = ConfigGate::new(dir.path());
+        assert_eq!(
+            gate.decide(&ClientId::named("Codex"), "get_context"),
+            Verdict::Waiting
+        );
+        assert_eq!(waiting_names(dir.path()), ["Codex"]);
     }
 
     #[test]

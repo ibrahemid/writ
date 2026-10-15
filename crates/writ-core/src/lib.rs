@@ -30,6 +30,8 @@
 //! - [`inbox`]: watch-inbox auto-open policy (ADR-018).
 //! - [`link`]: external-link allowlist policy (ADR-025).
 //! - [`maintenance`]: database bloat policy driving startup `VACUUM`.
+//! - [`mcp_clients`]: the MCP clients Writ connects, and the command, link,
+//!   bundle or JSON each is handed (ADR-031 rule 2.4).
 //! - [`notes`]: notes-folder policy — where the folder is, how a title
 //!   becomes a filename, whether a save may land on the file it is aimed
 //!   at (ADR-028), and how a note links to another note (ADR-034).
@@ -45,6 +47,8 @@
 //! - [`update`]: update lifecycle phases and transition policy.
 //! - [`watcher`]: external-change representation and ignore stamps.
 //! - [`workspace`]: workspace-level state (reserved).
+//! - [`writ_link`]: the `writ://` link grammar, an allowlist that never
+//!   writes (ADR-052).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -92,10 +96,14 @@ pub mod instance;
 pub mod link;
 /// Database bloat policy driving the startup vacuum.
 pub mod maintenance;
+/// The MCP clients Writ connects, and what each is handed (ADR-031).
+pub mod mcp_clients;
 /// What of a note's past is kept, and what is dropped — spec H1.
 pub mod note_history;
 /// Notes-folder policy: root resolution, title sanitisation, dedupe — ADR-028.
 pub mod notes;
+/// The file open in Writ, as a program allowed to see it is answered (ADR-053).
+pub mod open_context;
 /// Prompt construction and endpoint policy for opt-in text rewriting.
 pub mod polish;
 /// Preview surface types and content-type renderer registry — ADR-009.
@@ -123,3 +131,7 @@ pub mod update;
 pub mod watcher;
 /// Workspace-level state (reserved for future expansion).
 pub mod workspace;
+/// `writ://` links: the grammar other programs point at a file with (ADR-052).
+pub mod writ_link;
+/// Asking the person before a connected program's write lands (ADR-053).
+pub mod write_review;

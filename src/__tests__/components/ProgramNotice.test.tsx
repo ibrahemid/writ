@@ -50,7 +50,7 @@ function waiting(name: string): PendingClient {
 }
 
 function denied(name: string): ClientApproval {
-  return { name, first_seen: "2026-09-09T10:00:00.000Z", read: false, write: false };
+  return { name, first_seen: "2026-09-09T10:00:00.000Z", read: false, write: false, context: false };
 }
 
 function send(list: PendingClient[]) {

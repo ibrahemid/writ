@@ -83,6 +83,7 @@ describe("the demo's copies of Rust tables", () => {
     const tools = rust("crates/writ-core/src/tools.rs");
     expect(MCP_TOOLS.read).toEqual(list(tools, "READ_TOOLS"));
     expect(MCP_TOOLS.write).toEqual(list(tools, "WRITE_TOOLS"));
+    expect(MCP_TOOLS.context).toEqual(list(tools, "CONTEXT_TOOLS"));
   });
 
   it("opens in the tiers writ_core::file_ops sets", () => {

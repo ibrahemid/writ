@@ -1,14 +1,11 @@
-import { Annotation, EditorSelection } from "@codemirror/state";
+import { isolateHistory } from "@codemirror/commands";
+import { EditorSelection, type StateEffect } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
-/**
- * Marks a transaction as text arriving from the file rather than from typing.
- *
- * The update listener reads it and skips the autosave it would otherwise
- * schedule: the document already equals the file, and writing it back would
- * defeat the cancelled autosave and move `updated_at` for nothing.
- */
-export const ExternalReloadTxn = Annotation.define<boolean>();
+import { markAgentEdit, type AgentEdit } from "./agent-edit-marks";
+import { ExternalReloadTxn } from "./reload-annotation";
+
+export { ExternalReloadTxn };
 
 /** The single change that turns `before` into `after`. */
 export interface DocumentChange {
@@ -83,16 +80,48 @@ export function positionOnLine(text: string, line: number, column: number): numb
 }
 
 /**
+ * The mark a program's change gets: the text it inserted, in the document
+ * after the change. A change that only removed text has nothing to mark.
+ */
+export function agentEditOf(change: DocumentChange, program: string | null | undefined): AgentEdit | null {
+  if (!program || change.insert.length === 0) return null;
+  return { from: change.from, to: change.from + change.insert.length, program };
+}
+
+/**
+ * What a reload transaction carries besides its change: the annotations that
+ * keep it out of autosave and in an undo step of its own, and the mark of a
+ * program's change.
+ */
+export function reloadTransactionSpec(change: DocumentChange, program?: string | null) {
+  const edit = agentEditOf(change, program);
+  const effects: StateEffect<unknown>[] = edit ? [markAgentEdit.of(edit)] : [];
+  return {
+    changes: change,
+    annotations: [ExternalReloadTxn.of(true), isolateHistory.of("full")],
+    effects,
+  };
+}
+
+/**
  * Replaces the view's document with the file's text in one tracked
  * transaction, leaving the reader where they were.
  *
- * One transaction, so one Cmd+Z puts the document back the way it was before
- * the file changed under it. The cursor keeps its line, or the nearest one a
- * shorter file has, and the scroll position is put back after the dispatch —
- * a reload that jumps a person to the top of a file they were reading in the
- * middle of is a reload they will turn off.
+ * One transaction, isolated in the undo history, so one Cmd+Z puts the
+ * document back the way it was before the file changed under it, and only
+ * that: typing a moment earlier stays its own step. The cursor keeps its
+ * line, or the nearest one a shorter file has, and the scroll position is put
+ * back after the dispatch — a reload that jumps a person to the top of a file
+ * they were reading in the middle of is a reload they will turn off.
+ *
+ * `program` names the connected program that wrote the file, and its text is
+ * marked until the person edits or leaves the tab.
  */
-export function applyExternalDocument(view: EditorView, text: string): void {
+export function applyExternalDocument(
+  view: EditorView,
+  text: string,
+  program?: string | null,
+): void {
   const before = view.state.doc.toString();
   if (before === text) return;
 
@@ -104,9 +133,8 @@ export function applyExternalDocument(view: EditorView, text: string): void {
   const cursor = positionOnLine(text, line.number, head - line.from);
 
   view.dispatch({
-    changes: change,
+    ...reloadTransactionSpec(change, program),
     selection: EditorSelection.cursor(cursor),
-    annotations: ExternalReloadTxn.of(true),
     scrollIntoView: false,
   });
 

@@ -373,6 +373,12 @@ impl NotesIndexStore {
         self.read(|conn| queries::graph(conn, notes_root))
     }
 
+    /// Every indexed file with its title, tags, resolved links and length.
+    /// See [`super::NotesIndex::folder_index`].
+    pub fn folder_index(&self) -> StorageResult<Vec<super::FolderIndexRow>> {
+        self.read(queries::folder_index)
+    }
+
     /// The notes a link naming `name` could mean. See
     /// [`super::NotesIndex::candidate_paths`].
     pub fn candidate_paths(&self, name: &str) -> StorageResult<Vec<String>> {

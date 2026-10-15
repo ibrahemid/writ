@@ -21,6 +21,8 @@ pub mod host;
 pub mod line_ending;
 /// Link syntax and link resolution (ADR-034).
 pub mod links;
+/// Replacing one passage of a note, found exactly once.
+pub mod passage;
 /// Rewriting the links that name a note being renamed.
 pub mod rename;
 /// The sentence a link sits in, for the backlink list.
@@ -38,7 +40,7 @@ pub mod reload;
 /// Who asked for a write to a note's file.
 pub mod write_origin;
 
-pub use write_origin::WriteOrigin;
+pub use write_origin::{WriteOrigin, Writer};
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

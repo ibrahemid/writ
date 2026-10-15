@@ -1,0 +1,4 @@
+.cm-editor .cm-agent-edit {
+  background: color-mix(in srgb, var(--writ-accent) 12%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--writ-accent) 60%, transparent);
+}

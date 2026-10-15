@@ -10,6 +10,9 @@ type EventHandler<K extends EventKind> = (payload: PayloadFor<K>) => void;
 const EVENT_MAP: Record<EventKind, string> = {
   "pending:opens": "writ://pending-opens",
   "files:dropped": "writ://files-dropped",
+  "link:new": "writ://link-new",
+  "context:asked": "writ://context-asked",
+  "review:asked": "writ://review-asked",
   "window:shown": "writ://window-shown",
   "config:changed": "writ://config-changed",
   "buffer:external": "writ://buffer-external",
@@ -29,6 +32,7 @@ const EVENT_MAP: Record<EventKind, string> = {
   "quit:flush": "writ://flush-before-quit",
   "activity:changed": "writ://activity",
   "mcp:pending": "writ://mcp-pending",
+  "mcp:off-call": "writ://mcp-off-call",
   "titlebar:maximize-hit": "writ://titlebar-maximize-hit",
 };
 

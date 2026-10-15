@@ -4,7 +4,8 @@ import { joinAnd } from "./join-and";
 export type ToolPhrase =
   | { group: "do"; phrase: string }
   | { group: "see"; phrase: string }
-  | { group: "write"; phrase: string };
+  | { group: "write"; phrase: string }
+  | { group: "context"; phrase: string };
 
 export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
   list_notes: { group: "do", phrase: "list" },
@@ -15,9 +16,15 @@ export const TOOL_PHRASES: Readonly<Record<string, ToolPhrase>> = {
   note_properties: { group: "see", phrase: "properties" },
   note_tags: { group: "see", phrase: "tags" },
   folder_tags: { group: "see", phrase: "tags" },
+  open_in_writ: { group: "do", phrase: "show" },
+  reveal: { group: "do", phrase: "show" },
   write_note: { group: "write", phrase: "replace a file's text" },
   create_note: { group: "write", phrase: "make a new file" },
   rename_note: { group: "write", phrase: "rename a file" },
+  append_note: { group: "write", phrase: "add to the end of a file" },
+  replace_in_note: { group: "write", phrase: "replace a passage in a file" },
+  today: { group: "write", phrase: "make or add to today's file" },
+  get_context: { group: "context", phrase: "see the file open in Writ and the text you selected" },
 };
 
 export function describeReadTools(ids: readonly string[]): string {
@@ -49,6 +56,15 @@ export function describeWriteTools(ids: readonly string[]): string {
     .join(", ");
 }
 
+export function describeContextTools(ids: readonly string[]): string {
+  return ids
+    .map((id) => {
+      const named = TOOL_PHRASES[id];
+      return named?.group === "context" ? named.phrase : id;
+    })
+    .join(", ");
+}
+
 export function isReadAction(action: string): boolean {
   const group = TOOL_PHRASES[action]?.group;
   return group === "do" || group === "see";
@@ -75,10 +91,27 @@ const CALL_PHRASES: Readonly<Record<string, CallPhrase>> = {
   },
   note_tags: { done: "read", asked: "read", beforePath: "the tags in", alone: "a file's tags" },
   folder_tags: { done: "listed", asked: "list", alone: "the tags in your folder" },
+  open_in_writ: { done: "showed", asked: "show", beforePath: "", alone: "a file in Writ" },
+  reveal: { done: "showed", asked: "show", beforePath: "", alone: "a file in Writ" },
+  get_context: {
+    done: "read",
+    asked: "read",
+    beforePath: "what is selected in",
+    alone: "which file is open in Writ",
+  },
+  read_index: { done: "read", asked: "read", alone: "the index of your folder" },
   write_note: { done: "replaced", asked: "replace", beforePath: "the text of", alone: "a file's text" },
   overwrite_note: { done: "overwrote", asked: "overwrite", beforePath: "", alone: "a file" },
   create_note: { done: "made", asked: "make", beforePath: "", alone: "a new file" },
   rename_note: { done: "renamed", asked: "rename", beforePath: "", alone: "a file" },
+  append_note: { done: "added to", asked: "add to", beforePath: "", alone: "a file" },
+  replace_in_note: {
+    done: "replaced a passage in",
+    asked: "replace a passage in",
+    beforePath: "",
+    alone: "a file",
+  },
+  today: { done: "used", asked: "use", beforePath: "", alone: "today's file" },
   restore_note_version: {
     done: "put back",
     asked: "put back",

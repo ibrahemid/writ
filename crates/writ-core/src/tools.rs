@@ -15,6 +15,9 @@
 //! thing to a move that exists and it stays inside the notes folder.
 
 /// The tools that only read, in the order `tools/list` reports them.
+///
+/// `open_in_writ` and `reveal` change no file: they show one in the app,
+/// through a `writ://` link (ADR-052, ADR-053), and are approved with reading.
 pub const READ_TOOLS: &[&str] = &[
     "list_notes",
     "search_notes",
@@ -24,16 +27,32 @@ pub const READ_TOOLS: &[&str] = &[
     "note_properties",
     "note_tags",
     "folder_tags",
+    "open_in_writ",
+    "reveal",
 ];
 
 /// The tools that change a note, in the order `tools/list` reports them.
-pub const WRITE_TOOLS: &[&str] = &["write_note", "create_note", "rename_note"];
+///
+/// `today` is here because it makes the day's file when there is none.
+pub const WRITE_TOOLS: &[&str] = &[
+    "write_note",
+    "create_note",
+    "rename_note",
+    "append_note",
+    "replace_in_note",
+    "today",
+];
 
-/// Every tool a program can call, reads first.
+/// The tools that see the file open in Writ and its selection, approved by
+/// their own grant (ADR-053): neither reading nor writing implies it.
+pub const CONTEXT_TOOLS: &[&str] = &["get_context"];
+
+/// Every tool a program can call: reads, then writes, then the open file.
 pub fn tool_names() -> Vec<&'static str> {
     READ_TOOLS
         .iter()
         .chain(WRITE_TOOLS.iter())
+        .chain(CONTEXT_TOOLS.iter())
         .copied()
         .collect()
 }
@@ -46,6 +65,11 @@ pub fn is_write_tool(tool: &str) -> bool {
 /// Whether `tool` only reads.
 pub fn is_read_tool(tool: &str) -> bool {
     READ_TOOLS.contains(&tool)
+}
+
+/// Whether `tool` sees the file open in Writ.
+pub fn is_context_tool(tool: &str) -> bool {
+    CONTEXT_TOOLS.contains(&tool)
 }
 
 #[cfg(test)]
@@ -69,8 +93,18 @@ mod tests {
     }
 
     #[test]
-    fn the_three_write_tools_are_the_whole_write_half() {
-        assert_eq!(WRITE_TOOLS, &["write_note", "create_note", "rename_note"]);
+    fn the_six_write_tools_are_the_whole_write_half() {
+        assert_eq!(
+            WRITE_TOOLS,
+            &[
+                "write_note",
+                "create_note",
+                "rename_note",
+                "append_note",
+                "replace_in_note",
+                "today"
+            ]
+        );
     }
 
     #[test]
@@ -83,19 +117,32 @@ mod tests {
     }
 
     #[test]
-    fn a_tool_is_a_read_or_a_write_and_never_both() {
+    fn a_tool_is_on_exactly_one_list() {
         for tool in tool_names() {
-            assert_ne!(
+            let lists = [
                 is_read_tool(tool),
                 is_write_tool(tool),
-                "{tool} is on both halves of the list"
+                is_context_tool(tool),
+            ];
+            assert_eq!(
+                lists.iter().filter(|on| **on).count(),
+                1,
+                "{tool} is on {lists:?}"
             );
         }
     }
 
     #[test]
-    fn a_name_no_tool_carries_is_neither_half() {
+    fn seeing_the_open_file_is_its_own_list() {
+        assert_eq!(CONTEXT_TOOLS, &["get_context"]);
+        assert!(!is_read_tool("get_context"));
+        assert!(is_read_tool("reveal"));
+    }
+
+    #[test]
+    fn a_name_no_tool_carries_is_on_no_list() {
         assert!(!is_read_tool("delete_note"));
         assert!(!is_write_tool("delete_note"));
+        assert!(!is_context_tool("delete_note"));
     }
 }

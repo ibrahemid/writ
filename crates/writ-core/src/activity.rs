@@ -48,13 +48,19 @@ impl ClientId {
 pub const PROGRAM_NAMES: &[(&str, &str)] = &[
     ("claude-code", "Claude Code"),
     ("claude-desktop", "Claude Desktop"),
+    ("claude-ai", "Claude Desktop"),
     ("codex", "Codex"),
     ("codex-cli", "Codex"),
+    ("codex-mcp-client", "Codex"),
     ("cursor", "Cursor"),
+    ("cursor-vscode", "Cursor"),
     ("vscode", "VS Code"),
     ("code", "VS Code"),
+    ("Visual Studio Code", "VS Code"),
     ("gemini-cli", "Gemini CLI"),
+    ("gemini-cli-mcp-client", "Gemini CLI"),
     ("lm-studio", "LM Studio"),
+    ("lmstudio", "LM Studio"),
 ];
 
 /// The name to show a person for a client that sent `sent`: its entry in
@@ -115,6 +121,16 @@ impl PendingClient {
             calls: 1,
         }
     }
+}
+
+/// A program that called while Connected programs was off: the one thing the
+/// server keeps about it, so the app can offer to turn the server on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OffCall {
+    /// The name the program sent.
+    pub name: String,
+    /// When it called.
+    pub at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Who the action was performed for.
@@ -382,6 +398,14 @@ mod tests {
         assert_eq!(display_program_name("code"), "VS Code");
         assert_eq!(display_program_name("gemini-cli"), "Gemini CLI");
         assert_eq!(display_program_name("lm-studio"), "LM Studio");
+    }
+
+    #[test]
+    fn the_names_clients_send_in_their_handshake_read_as_the_product() {
+        assert_eq!(display_program_name("claude-ai"), "Claude Desktop");
+        assert_eq!(display_program_name("cursor-vscode"), "Cursor");
+        assert_eq!(display_program_name("Visual Studio Code"), "VS Code");
+        assert_eq!(display_program_name("codex-mcp-client"), "Codex");
     }
 
     #[test]

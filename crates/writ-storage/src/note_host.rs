@@ -21,10 +21,13 @@ use writ_core::hash::{digest_hex, Sha256Digest};
 use writ_core::notes::containment::{resolve_for_containment, resolve_inside};
 use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::host::{
-    Capability, FolderTag, HostError, LastKnown, NoteBacklink, NoteContent, NoteFacts, NoteHit,
-    NoteHost, NoteLink, NoteSummary, PermissionSet, RenameReceipt, WriteReceipt, MAX_NOTE_BYTES,
+    Capability, FolderTag, HostError, IndexEntry, LastKnown, NoteBacklink, NoteContent, NoteFacts,
+    NoteHit, NoteHost, NoteLink, NoteSummary, PassageReceipt, PermissionSet, RenameReceipt,
+    WriteReceipt, MAX_NOTE_BYTES,
 };
+use writ_core::notes::passage::{replace_passage, PassageError};
 use writ_core::notes::WriteOrigin;
+use writ_core::write_review::{verdict, ProposedChange, Refused, WriteProposal, WriteReview};
 
 use crate::buffer_store::{dataless_flags, read_disk_state};
 use crate::database::migrations::binary_schema_version;
@@ -37,6 +40,10 @@ use crate::note_history::NoteHistoryStore;
 use crate::notes_index::{self, NotesIndexStore};
 use crate::paths::{file_name_only, relative_slug};
 use crate::write_lock::WriteLock;
+
+/// How many times an append or a passage replace reads the note again when it
+/// changed between the read and the rename.
+pub const APPEND_ATTEMPTS: usize = 3;
 
 /// The notes folder, the index over it, and what one consumer may ask of both.
 ///
@@ -54,6 +61,14 @@ pub struct NoteHostImpl<'a> {
     write_lock: Option<WriteLock>,
     default_extension: FileExtension,
     seen: Arc<Mutex<HashMap<String, Sha256Digest>>>,
+    review: Option<Reviewer<'a>>,
+}
+
+/// Who a write made through a handle is held for, and whose write it is.
+#[derive(Clone)]
+struct Reviewer<'a> {
+    review: &'a dyn WriteReview,
+    program: String,
 }
 
 impl std::fmt::Debug for NoteHostImpl<'_> {
@@ -66,6 +81,7 @@ impl std::fmt::Debug for NoteHostImpl<'_> {
             .field("write_lock", &self.write_lock)
             .field("default_extension", &self.default_extension)
             .field("seen", &self.seen().len())
+            .field("review", &self.review.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -106,6 +122,7 @@ impl<'a> NoteHostImpl<'a> {
             write_lock: None,
             default_extension,
             seen: Arc::default(),
+            review: None,
         })
     }
 
@@ -155,6 +172,7 @@ impl<'a> NoteHostImpl<'a> {
             write_lock: self.write_lock.clone(),
             default_extension: self.default_extension,
             seen: Arc::clone(&self.seen),
+            review: self.review.clone(),
         }
     }
 
@@ -178,6 +196,23 @@ impl<'a> NoteHostImpl<'a> {
     /// compare and rename (AM-40). Every handle made from this one holds it.
     pub fn with_write_lock(mut self, lock: Option<WriteLock>) -> Self {
         self.write_lock = lock;
+        self
+    }
+
+    /// The same handle, holding each write it would make for `review` to
+    /// answer, as `program`'s write (ADR-053).
+    ///
+    /// The bytes are built first and shown with what the file holds; only
+    /// [`writ_core::write_review::ReviewAnswer::Apply`] lands them, still
+    /// under the guard and against the bytes the change was built from, so a
+    /// file that changed while the person looked is refused rather than
+    /// written over, and nothing is set beside it. Nothing is held while the
+    /// lock is: it is taken after the answer. `None` writes without asking.
+    pub fn with_review(mut self, review: Option<&'a dyn WriteReview>, program: &str) -> Self {
+        self.review = review.map(|review| Reviewer {
+            review,
+            program: program.to_string(),
+        });
         self
     }
 
@@ -262,6 +297,313 @@ impl<'a> NoteHostImpl<'a> {
         let key = self.note_key(path)?;
         index.facts(&key).map_err(|_| HostError::IndexUnavailable)
     }
+
+    /// The guarded write every write of this surface ends in: the version of
+    /// what it replaces kept first, the data folder's write lock held across
+    /// the compare and the rename, and no ignore stamp, so the running app
+    /// hears the write through its folder watcher as it hears any other
+    /// program's (ADR-033).
+    fn write_guarded(
+        &self,
+        file: &Path,
+        bytes: &[u8],
+        last_known: Option<DiskState>,
+        on_disk: Option<DiskState>,
+        on_conflict: ConflictPolicy,
+        origin: WriteOrigin,
+    ) -> Result<crate::guarded::WriteOutcome, StorageError> {
+        if let Some(history) = self.history {
+            // The capture after the write finds the note by its path, so a note
+            // renamed since the store last saw it is moved to its new path
+            // first, while the file still has the identity the store knows.
+            if let Err(error) = history.follow_rename(file) {
+                warn!(
+                    note = %file_name_only(&file.to_string_lossy()),
+                    error = %error,
+                    "the versions this note kept under another name could not be moved to it"
+                );
+            }
+        }
+        let keep = self.history.map(keep_versions);
+        write_note_guarded(
+            GuardedWrite {
+                target: file,
+                bytes,
+                last_known,
+                // Read once by the caller, from the same bytes the digests it
+                // passes describe.
+                on_disk: DiskRead::Read(on_disk),
+                dataless: None,
+                origin,
+                on_conflict,
+                history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
+                lock: self.write_lock.as_ref(),
+            },
+            None,
+        )
+    }
+
+    /// The digest a write is judged against, settled before the file is asked
+    /// anything else, so a note this host has not seen is answered without
+    /// being stat'ed for its download state or read.
+    fn expected(
+        &self,
+        path: &str,
+        key: &str,
+        last_known: LastKnown,
+    ) -> Result<Option<Sha256Digest>, HostError> {
+        match last_known {
+            LastKnown::Hash(hash) => Ok(Some(hash)),
+            LastKnown::LastSeen => {
+                self.seen()
+                    .get(key)
+                    .copied()
+                    .map(Some)
+                    .ok_or_else(|| HostError::HashRequired {
+                        path: path.to_string(),
+                    })
+            }
+            LastKnown::Overwrite => Ok(None),
+        }
+    }
+
+    /// What a whole-file write the guard refuses leaves behind: the caller's
+    /// text beside the note, or for a held write nothing, since the person
+    /// applied a change to the text they were shown and not a new file.
+    fn on_conflict(&self) -> ConflictPolicy {
+        if self.review.is_some() {
+            ConflictPolicy::RefuseOnly
+        } else {
+            ConflictPolicy::RefuseWithCopy
+        }
+    }
+
+    /// Holds a write for the person, when this handle has a reviewer.
+    ///
+    /// `Ok(true)` once they applied it, `Ok(false)` for a handle that asks
+    /// nobody, and the refusal for anything but Apply.
+    fn reviewed(
+        &self,
+        path: &str,
+        file: &Path,
+        change: impl FnOnce() -> ProposedChange,
+    ) -> Result<bool, HostError> {
+        let Some(reviewer) = &self.review else {
+            return Ok(false);
+        };
+        let proposal = WriteProposal {
+            program: reviewer.program.clone(),
+            path: file.to_string_lossy().into_owned(),
+            change: change(),
+        };
+        match verdict(reviewer.review.review(&proposal)) {
+            Ok(()) => Ok(true),
+            Err(Refused::Discarded) => Err(HostError::Discarded {
+                path: path.to_string(),
+            }),
+            Err(Refused::Unavailable(reason)) => Err(HostError::ReviewUnavailable {
+                path: path.to_string(),
+                reason,
+            }),
+        }
+    }
+
+    /// One try at [`NoteHost::append_note`]: `None` when the note changed
+    /// between the read and the rename and is worth reading again.
+    fn try_append(
+        &self,
+        path: &str,
+        file: &Path,
+        entry: &str,
+        origin: &WriteOrigin,
+    ) -> Result<Option<WriteReceipt>, HostError> {
+        let bytes = std::fs::metadata(file)
+            .map_err(|_| HostError::NotFound {
+                path: path.to_string(),
+            })?
+            .len();
+        if bytes > MAX_NOTE_BYTES {
+            return Err(HostError::TooLarge {
+                path: path.to_string(),
+                bytes,
+            });
+        }
+        let read = std::fs::read(file).map_err(|_| HostError::Unreadable {
+            path: path.to_string(),
+        })?;
+        let decoded =
+            writ_core::text_encoding::decode_file(&read).ok_or_else(|| HostError::NotText {
+                path: path.to_string(),
+            })?;
+        let appended = writ_core::capture::append_entry(&decoded.text, entry);
+        let written = decoded
+            .encoding
+            .encode(&appended)
+            .map_err(|lossy| HostError::EncodingLossy {
+                path: path.to_string(),
+                encoding: lossy.encoding.name().to_string(),
+                characters: writ_core::text_encoding::code_points(&lossy.characters),
+            })?
+            .into_owned();
+        // The append is compared against the read it was built from: the
+        // entry goes after exactly those bytes or not at all.
+        let state = DiskState {
+            hash: writ_core::hash::sha256_bytes(&read),
+            size: read.len() as u64,
+            mtime: std::fs::metadata(file).ok().and_then(|m| m.modified().ok()),
+        };
+        let asked = self.reviewed(path, file, || ProposedChange::Edit {
+            before: decoded.text.to_string(),
+            after: appended.clone(),
+        })?;
+        match self.write_guarded(
+            file,
+            &written,
+            Some(state),
+            Some(state),
+            ConflictPolicy::RefuseOnly,
+            origin.clone(),
+        ) {
+            Ok(outcome) => {
+                let key = notes_index::index_key(file);
+                self.saw(&key, outcome.disk_state.hash);
+                Ok(Some(WriteReceipt {
+                    path: key,
+                    bytes: outcome.disk_state.size,
+                    hash: digest_hex(outcome.disk_state.hash),
+                    changed: true,
+                }))
+            }
+            // A change the person applied is the change they saw; built again
+            // over a file that moved on, it would be one they did not.
+            Err(StorageError::SourceChangedOnDisk { .. }) if asked => Err(HostError::Conflict {
+                path: path.to_string(),
+                conflict_copy: None,
+            }),
+            Err(StorageError::SourceChangedOnDisk { .. }) => Ok(None),
+            Err(error) => Err(write_error(path, error)),
+        }
+    }
+
+    /// One try at [`NoteHost::replace_in_note`]: `None` when the note changed
+    /// between the read and the rename and is worth reading again.
+    fn try_replace(
+        &self,
+        path: &str,
+        file: &Path,
+        old: &str,
+        new: &str,
+        origin: &WriteOrigin,
+    ) -> Result<Option<PassageReceipt>, HostError> {
+        let read = read_whole_note(path, file)?;
+        let decoded =
+            writ_core::text_encoding::decode_file(&read).ok_or_else(|| HostError::NotText {
+                path: path.to_string(),
+            })?;
+        let replaced = replace_passage(&decoded.text, old, new).map_err(|error| match error {
+            PassageError::Empty => HostError::PassageEmpty {
+                path: path.to_string(),
+            },
+            PassageError::Absent => HostError::PassageAbsent {
+                path: path.to_string(),
+            },
+            PassageError::Repeated { count } => HostError::PassageRepeated {
+                path: path.to_string(),
+                count,
+            },
+        })?;
+        let written = decoded
+            .encoding
+            .encode(&replaced.text)
+            .map_err(|lossy| HostError::EncodingLossy {
+                path: path.to_string(),
+                encoding: lossy.encoding.name().to_string(),
+                characters: writ_core::text_encoding::code_points(&lossy.characters),
+            })?
+            .into_owned();
+        // Compared against the read the replacement was made in: the new text
+        // goes in place of exactly those bytes or not at all.
+        let state = DiskState {
+            hash: writ_core::hash::sha256_bytes(&read),
+            size: read.len() as u64,
+            mtime: std::fs::metadata(file).ok().and_then(|m| m.modified().ok()),
+        };
+        let asked = self.reviewed(path, file, || ProposedChange::Edit {
+            before: decoded.text.to_string(),
+            after: replaced.text.clone(),
+        })?;
+        match self.write_guarded(
+            file,
+            &written,
+            Some(state),
+            Some(state),
+            ConflictPolicy::RefuseOnly,
+            origin.clone(),
+        ) {
+            Ok(outcome) => {
+                let key = notes_index::index_key(file);
+                self.saw(&key, outcome.disk_state.hash);
+                Ok(Some(PassageReceipt {
+                    written: WriteReceipt {
+                        path: key,
+                        bytes: outcome.disk_state.size,
+                        hash: digest_hex(outcome.disk_state.hash),
+                        changed: outcome.decision
+                            != writ_core::notes::guard::SaveDecision::AlreadyIdentical,
+                    },
+                    line: replaced.line,
+                }))
+            }
+            // A change the person applied is the change they saw; built again
+            // over a file that moved on, it would be one they did not.
+            Err(StorageError::SourceChangedOnDisk { .. }) if asked => Err(HostError::Conflict {
+                path: path.to_string(),
+                conflict_copy: None,
+            }),
+            Err(StorageError::SourceChangedOnDisk { .. }) => Ok(None),
+            Err(error) => Err(write_error(path, error)),
+        }
+    }
+}
+
+/// What the note at `file` holds, and the state a write is compared with,
+/// or `None` when there is no file there.
+fn read_held_note(path: &str, file: &Path) -> Result<Option<(DiskState, Vec<u8>)>, HostError> {
+    if !file.exists() {
+        return Ok(None);
+    }
+    let read = read_whole_note(path, file)?;
+    let state = DiskState {
+        hash: writ_core::hash::sha256_bytes(&read),
+        size: read.len() as u64,
+        mtime: std::fs::metadata(file).ok().and_then(|m| m.modified().ok()),
+    };
+    Ok(Some((state, read)))
+}
+
+/// A note's bytes as the person reads them, for a held write's comparison.
+fn text_of(bytes: &[u8]) -> String {
+    writ_core::text_encoding::decode_file(bytes)
+        .map(|decoded| decoded.text.into_owned())
+        .unwrap_or_else(|| String::from_utf8_lossy(bytes).into_owned())
+}
+
+/// The bytes of the note at `file`, held to [`MAX_NOTE_BYTES`].
+fn read_whole_note(path: &str, file: &Path) -> Result<Vec<u8>, HostError> {
+    let bytes = std::fs::metadata(file)
+        .map_err(|_| HostError::NotFound {
+            path: path.to_string(),
+        })?
+        .len();
+    if bytes > MAX_NOTE_BYTES {
+        return Err(HostError::TooLarge {
+            path: path.to_string(),
+            bytes,
+        });
+    }
+    std::fs::read(file).map_err(|_| HostError::Unreadable {
+        path: path.to_string(),
+    })
 }
 
 impl NoteHost for NoteHostImpl<'_> {
@@ -340,6 +682,17 @@ impl NoteHost for NoteHostImpl<'_> {
             hash: digest_hex(digest),
             text,
         })
+    }
+
+    fn heading_line(&self, path: &str, heading: &str) -> Result<Option<u32>, HostError> {
+        self.permit(Capability::ReadNote)?;
+        let file = self.note_file(path)?;
+        let read = read_whole_note(path, &file)?;
+        let text =
+            writ_core::text_encoding::decode_file(&read).ok_or_else(|| HostError::NotText {
+                path: path.to_string(),
+            })?;
+        Ok(writ_core::open_context::heading_line(&text.text, heading))
     }
 
     fn note_summary(&self, path: &str) -> Result<NoteSummary, HostError> {
@@ -457,6 +810,26 @@ impl NoteHost for NoteHostImpl<'_> {
             .collect())
     }
 
+    fn folder_index(&self) -> Result<Vec<IndexEntry>, HostError> {
+        self.permit(Capability::ReadIndex)?;
+        let index = self.index()?;
+        let rows = index
+            .folder_index()
+            .map_err(|_| HostError::IndexUnavailable)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| IndexEntry {
+                title: row
+                    .title
+                    .unwrap_or_else(|| writ_core::notes::note_display_name(&row.path)),
+                path: row.path,
+                bytes: row.bytes,
+                tags: row.tags,
+                links: row.links,
+            })
+            .collect())
+    }
+
     fn write_note(
         &self,
         path: &str,
@@ -467,23 +840,7 @@ impl NoteHost for NoteHostImpl<'_> {
         self.permit(Capability::WriteNote)?;
         let file = self.note_file(path)?;
         let key = notes_index::index_key(&file);
-        // Settled before the file is asked anything else, so a note this host
-        // has not seen is answered without being stat'ed for its download
-        // state or read.
-        let expected = match last_known {
-            LastKnown::Hash(hash) => Some(hash),
-            LastKnown::LastSeen => {
-                Some(
-                    self.seen()
-                        .get(&key)
-                        .copied()
-                        .ok_or_else(|| HostError::HashRequired {
-                            path: path.to_string(),
-                        })?,
-                )
-            }
-            LastKnown::Overwrite => None,
-        };
+        let expected = self.expected(path, &key, last_known)?;
         // Asked before the read below, because the read is what would pull an
         // evicted file down (ADR-028 section 5). The guard asks the same
         // question, and asking it here is what lets the state below be read
@@ -493,9 +850,43 @@ impl NoteHost for NoteHostImpl<'_> {
                 path: path.to_string(),
             });
         }
-        let on_disk = read_disk_state(&file).map_err(|_| HostError::Unreadable {
-            path: path.to_string(),
-        })?;
+        // A held write shows what the file holds, so the bytes are read once
+        // and the state the guard compares is taken from them.
+        let (on_disk, held) = if self.review.is_some() {
+            match read_held_note(path, &file)? {
+                Some((state, read)) => (Some(state), Some(read)),
+                None => (None, None),
+            }
+        } else {
+            let state = read_disk_state(&file).map_err(|_| HostError::Unreadable {
+                path: path.to_string(),
+            })?;
+            (state, None)
+        };
+        // Asked only for a write that would land: one the guard is about to
+        // refuse, or one that leaves the file as it is, holds nothing.
+        let current = expected.is_none_or(|hash| on_disk.map(|state| state.hash) == Some(hash));
+        let unchanged = held.as_deref() == Some(content.as_bytes());
+        // Refused here rather than by the guard, which writes a missing file
+        // and sets refused text beside the note: a held write reaches the
+        // folder only as the person applied it.
+        if self.review.is_some() && !current && !unchanged {
+            return Err(HostError::Conflict {
+                path: path.to_string(),
+                conflict_copy: None,
+            });
+        }
+        if current && !unchanged {
+            self.reviewed(path, &file, || match &held {
+                Some(read) => ProposedChange::Edit {
+                    before: text_of(read),
+                    after: content.to_string(),
+                },
+                None => ProposedChange::Create {
+                    after: content.to_string(),
+                },
+            })?;
+        }
         // With a digest, only that is compared: the guard reads neither the
         // length nor the modification time, and a caller that read the note
         // over a wire knows neither about the file it read. For an overwrite,
@@ -510,39 +901,16 @@ impl NoteHost for NoteHostImpl<'_> {
             }),
             None => on_disk,
         };
-        if let Some(history) = self.history {
-            // The capture after the write finds the note by its path, so a note
-            // renamed since the store last saw it is moved to its new path
-            // first, while the file still has the identity the store knows.
-            if let Err(error) = history.follow_rename(&file) {
-                warn!(
-                    note = %file_name_only(path),
-                    error = %error,
-                    "the versions this note kept under another name could not be moved to it"
-                );
-            }
-        }
-        let keep = self.history.map(keep_versions);
-        let outcome = write_note_guarded(
-            GuardedWrite {
-                target: &file,
-                bytes: content.as_bytes(),
+        let outcome = self
+            .write_guarded(
+                &file,
+                content.as_bytes(),
                 last_known,
-                // Read once, above, from the same bytes the digests here
-                // describe.
-                on_disk: DiskRead::Read(on_disk),
-                dataless: None,
+                on_disk,
+                self.on_conflict(),
                 origin,
-                on_conflict: ConflictPolicy::RefuseWithCopy,
-                history: keep.as_ref().map(|hook| hook as &dyn Fn(WriteCapture<'_>)),
-                lock: self.write_lock.as_ref(),
-            },
-            // No ignore stamp: a write made through this surface is meant to
-            // reach the running app the way any other program's write does,
-            // through the folder watcher (ADR-033).
-            None,
-        )
-        .map_err(|error| write_error(path, error))?;
+            )
+            .map_err(|error| write_error(path, error))?;
         // Landed or already there, the note now holds the caller's text, which
         // is what the next write from this host is compared with.
         self.saw(&key, outcome.disk_state.hash);
@@ -554,6 +922,166 @@ impl NoteHost for NoteHostImpl<'_> {
             // alone. Reporting that as a write is what lets a caller tell
             // somebody their change landed when nothing happened.
             changed: outcome.decision != writ_core::notes::guard::SaveDecision::AlreadyIdentical,
+        })
+    }
+
+    fn replace_note(
+        &self,
+        path: &str,
+        content: &str,
+        last_known: LastKnown,
+        origin: WriteOrigin,
+    ) -> Result<WriteReceipt, HostError> {
+        self.permit(Capability::WriteNote)?;
+        let file = self.note_file(path)?;
+        let key = notes_index::index_key(&file);
+        let expected = self.expected(path, &key, last_known)?;
+        // Asked before the read below, because the read is what would pull an
+        // evicted file down (ADR-028 section 5).
+        if is_not_downloaded(dataless_flags(&file)) {
+            return Err(HostError::NotDownloaded {
+                path: path.to_string(),
+            });
+        }
+        let bytes = std::fs::metadata(&file)
+            .map_err(|_| HostError::NotFound {
+                path: path.to_string(),
+            })?
+            .len();
+        if bytes > MAX_NOTE_BYTES {
+            return Err(HostError::TooLarge {
+                path: path.to_string(),
+                bytes,
+            });
+        }
+        let read = std::fs::read(&file).map_err(|_| HostError::Unreadable {
+            path: path.to_string(),
+        })?;
+        let decoded =
+            writ_core::text_encoding::decode_file(&read).ok_or_else(|| HostError::NotText {
+                path: path.to_string(),
+            })?;
+        let shaped = writ_core::notes::line_ending::in_shape_of(&decoded.text, content);
+        let written = decoded
+            .encoding
+            .encode(&shaped)
+            .map_err(|lossy| HostError::EncodingLossy {
+                path: path.to_string(),
+                encoding: lossy.encoding.name().to_string(),
+                characters: writ_core::text_encoding::code_points(&lossy.characters),
+            })?
+            .into_owned();
+        let on_disk = DiskState {
+            hash: writ_core::hash::sha256_bytes(&read),
+            size: read.len() as u64,
+            mtime: std::fs::metadata(&file)
+                .ok()
+                .and_then(|m| m.modified().ok()),
+        };
+        if expected.is_none_or(|hash| hash == on_disk.hash) && read != written {
+            self.reviewed(path, &file, || ProposedChange::Edit {
+                before: decoded.text.to_string(),
+                after: shaped.to_string(),
+            })?;
+        }
+        // With a digest, only that is compared, as `write_note` compares it.
+        let last_known = match expected {
+            Some(hash) => DiskState {
+                hash,
+                size: 0,
+                mtime: None,
+            },
+            None => on_disk,
+        };
+        let outcome = self
+            .write_guarded(
+                &file,
+                &written,
+                Some(last_known),
+                Some(on_disk),
+                self.on_conflict(),
+                origin,
+            )
+            .map_err(|error| write_error(path, error))?;
+        self.saw(&key, outcome.disk_state.hash);
+        Ok(WriteReceipt {
+            path: key,
+            bytes: outcome.disk_state.size,
+            hash: digest_hex(outcome.disk_state.hash),
+            changed: outcome.decision != writ_core::notes::guard::SaveDecision::AlreadyIdentical,
+        })
+    }
+
+    fn append_note(
+        &self,
+        path: &str,
+        text: &str,
+        origin: WriteOrigin,
+    ) -> Result<WriteReceipt, HostError> {
+        self.permit(Capability::WriteNote)?;
+        let file = self.note_file(path)?;
+        // Asked before the read below, because the read is what would pull an
+        // evicted file down (ADR-028 section 5).
+        if is_not_downloaded(dataless_flags(&file)) {
+            return Err(HostError::NotDownloaded {
+                path: path.to_string(),
+            });
+        }
+        let Some(entry) = writ_core::capture::capture_entry(text) else {
+            let state =
+                read_disk_state(&file)
+                    .ok()
+                    .flatten()
+                    .ok_or_else(|| HostError::Unreadable {
+                        path: path.to_string(),
+                    })?;
+            return Ok(WriteReceipt {
+                path: notes_index::index_key(&file),
+                bytes: state.size,
+                hash: digest_hex(state.hash),
+                changed: false,
+            });
+        };
+        for _ in 0..APPEND_ATTEMPTS {
+            if let Some(receipt) = self.try_append(path, &file, &entry, &origin)? {
+                return Ok(receipt);
+            }
+        }
+        Err(HostError::Conflict {
+            path: path.to_string(),
+            conflict_copy: None,
+        })
+    }
+
+    fn replace_in_note(
+        &self,
+        path: &str,
+        old: &str,
+        new: &str,
+        origin: WriteOrigin,
+    ) -> Result<PassageReceipt, HostError> {
+        self.permit(Capability::WriteNote)?;
+        let file = self.note_file(path)?;
+        if old.is_empty() {
+            return Err(HostError::PassageEmpty {
+                path: path.to_string(),
+            });
+        }
+        // Asked before the read below, because the read is what would pull an
+        // evicted file down (ADR-028 section 5).
+        if is_not_downloaded(dataless_flags(&file)) {
+            return Err(HostError::NotDownloaded {
+                path: path.to_string(),
+            });
+        }
+        for _ in 0..APPEND_ATTEMPTS {
+            if let Some(receipt) = self.try_replace(path, &file, old, new, &origin)? {
+                return Ok(receipt);
+            }
+        }
+        Err(HostError::Conflict {
+            path: path.to_string(),
+            conflict_copy: None,
         })
     }
 
@@ -569,6 +1097,13 @@ impl NoteHost for NoteHostImpl<'_> {
         let (stem, extension) =
             writ_core::notes::requested_note_name(name, self.default_extension.as_str())
                 .ok_or(HostError::NameEmpty)?;
+        self.reviewed(
+            name,
+            &self.notes_root.join(format!("{stem}.{extension}")),
+            || ProposedChange::Create {
+                after: content.to_string(),
+            },
+        )?;
         // The dedupe is what a person who asked for a new note wants and the
         // wrong answer for a program: a caller that asked for `Launch` and got
         // `Launch 2` has put its text in a note it did not name. The facade
@@ -632,6 +1167,12 @@ impl NoteHost for NoteHostImpl<'_> {
             path: path.to_string(),
         })?;
         let bytes = last_known.map_or(0, |state| state.size);
+        self.reviewed(path, &file, || ProposedChange::Rename {
+            to: match file.extension() {
+                Some(extension) => format!("{stem}.{}", extension.to_string_lossy()),
+                None => stem.to_string(),
+            },
+        })?;
         let moved = crate::note_ops::rename_note(
             &file, &stem, last_known, origin,
             // No ignore stamp, for the reason `write_note` gives.

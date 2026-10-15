@@ -173,6 +173,7 @@ pub fn start_file_watcher(
     let pending_path = ignore_key_path(&pending_path);
     let folder = parent_of(&config_path)?;
     let pending_folder = parent_of(&pending_path)?;
+    let off_call_path = writ_storage::off_calls::path(&pending_folder);
     let (tx, rx) = mpsc::channel::<DebounceEventResult>();
 
     let mut debouncer = new_debouncer(Duration::from_millis(500), tx)?;
@@ -211,6 +212,9 @@ pub fn start_file_watcher(
                                 ttl,
                                 now,
                             )
+                        })
+                        .or_else(|| {
+                            report_off_call_event(&event.path, &off_call_path, &mut seen, now)
                         });
                         if let Some(domain_event) = reported {
                             bus.emit(domain_event);
@@ -967,6 +971,28 @@ pub fn report_pending_event(
     Some(WritEvent::McpPendingChanged)
 }
 
+/// `mcp-off-call.json` sits beside the waiting file and is written by a
+/// `writ mcp` process that answered while Connected programs was off. The app
+/// never writes it, so nothing of its own is held back; the sighting check
+/// absorbs the `IN_OPEN` the app's read of it raises on Linux, and a removal
+/// is not a call.
+pub fn report_off_call_event(
+    path: &Path,
+    off_call_path: &Path,
+    seen: &mut LastSeen,
+    now: Instant,
+) -> Option<WritEvent> {
+    if path != off_call_path {
+        return None;
+    }
+    let sighting = look_at(path)?;
+    if !seen.is_news(path, Some(sighting), now, DEFAULT_SIGHTING_TTL) {
+        return None;
+    }
+    info!("a program called while Connected programs was off");
+    Some(WritEvent::McpCalledWhileOff)
+}
+
 /// Classifies a single file-system event into a domain event, or suppresses
 /// it. Pure aside from a single `fs::read` to fingerprint the file against
 /// the ignore set; callers test it directly with a tempdir.
@@ -1420,6 +1446,7 @@ mod tests {
                 change,
                 disk_hash,
                 new_path,
+                ..
             }) => {
                 assert_eq!(buffer_id, "note-1");
                 assert_eq!(path, note.to_string_lossy());
@@ -1735,6 +1762,51 @@ mod tests {
 
     fn pending_stamp_key(path: &Path) -> String {
         writ_core::watcher::ignore::data_key(&ignore_key_path(path))
+    }
+
+    #[test]
+    fn a_call_while_the_server_is_off_is_reported() {
+        let dir = tempdir().unwrap();
+        let record = writ_storage::off_calls::path(dir.path());
+        fs::write(&record, b"{\"name\":\"claude-code\"}").unwrap();
+
+        let event = report_off_call_event(&record, &record, &mut LastSeen::new(), Instant::now());
+
+        assert!(matches!(event, Some(WritEvent::McpCalledWhileOff)));
+    }
+
+    #[test]
+    fn the_off_call_record_seen_again_unchanged_is_reported_once() {
+        let dir = tempdir().unwrap();
+        let record = writ_storage::off_calls::path(dir.path());
+        fs::write(&record, b"{\"name\":\"claude-code\"}").unwrap();
+        let mut seen = LastSeen::new();
+        let now = Instant::now();
+
+        assert!(report_off_call_event(&record, &record, &mut seen, now).is_some());
+        assert!(report_off_call_event(&record, &record, &mut seen, now).is_none());
+    }
+
+    #[test]
+    fn a_removed_off_call_record_is_not_a_call() {
+        let dir = tempdir().unwrap();
+        let record = writ_storage::off_calls::path(dir.path());
+
+        let event = report_off_call_event(&record, &record, &mut LastSeen::new(), Instant::now());
+
+        assert!(event.is_none());
+    }
+
+    #[test]
+    fn another_file_beside_the_off_call_record_is_not_a_call() {
+        let dir = tempdir().unwrap();
+        let record = writ_storage::off_calls::path(dir.path());
+        let temp = dir.path().join("mcp-off-call.json.tmp");
+        fs::write(&temp, b"{}").unwrap();
+
+        let event = report_off_call_event(&temp, &record, &mut LastSeen::new(), Instant::now());
+
+        assert!(event.is_none());
     }
 
     #[test]

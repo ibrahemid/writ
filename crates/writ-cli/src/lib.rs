@@ -13,6 +13,11 @@
 
 /// The command line, read by clap.
 pub mod args;
+/// Opening files in the running app through its request folder, and waiting
+/// for their tabs to close.
+pub mod handoff;
+/// The verbs that run on the note host `writ mcp` serves from.
+pub mod host_verbs;
 /// The MCP server, reached as `writ mcp`.
 pub mod mcp;
 /// The note verbs: `links`, `backlinks`, `properties`, `tags`, `new`, `rename`
@@ -302,6 +307,43 @@ pub fn resolve_targets(
     Ok(OpenTarget::Files(files))
 }
 
+/// Splits a trailing `:LINE` off each argument that is not itself a file
+/// ([`writ_core::instance::split_line_target`]), returning the arguments as
+/// paths and each line keyed by the absolute path [`resolve_targets`] makes of
+/// its argument.
+pub fn split_line_targets(
+    paths: &[OsString],
+    cwd: &Path,
+) -> (Vec<OsString>, std::collections::BTreeMap<String, u32>) {
+    let absolute = |raw: &Path| {
+        if raw.is_absolute() {
+            raw.to_path_buf()
+        } else {
+            cwd.join(raw)
+        }
+    };
+    let mut lines = std::collections::BTreeMap::new();
+    let split = paths
+        .iter()
+        .map(|raw| {
+            let Some(text) = raw.to_str().filter(|text| *text != "-") else {
+                return raw.clone();
+            };
+            let (path, line) = writ_core::instance::split_line_target(text, |whole| {
+                absolute(Path::new(whole)).exists()
+            });
+            if let Some(line) = line {
+                lines.insert(
+                    absolute(Path::new(&path)).to_string_lossy().into_owned(),
+                    line,
+                );
+            }
+            OsString::from(path)
+        })
+        .collect();
+    (split, lines)
+}
+
 /// Folder name of the default notes folder, under the user's home folder.
 /// Mirrors `writ_core::notes::DEFAULT_NOTES_FOLDER`.
 pub const NOTES_FOLDER: &str = "Writ";
@@ -438,6 +480,22 @@ pub fn write_piped_note(
     extension: FileExtension,
     content: &str,
 ) -> StorageResult<PathBuf> {
+    mint_note(notes_dir, writ_dir, stem, extension.as_str(), content)
+}
+
+/// Mints a note named from `stem` in `extension` holding `content`, deduped
+/// against the folder by counter, as [`write_piped_note`] does.
+///
+/// # Errors
+///
+/// [`write_piped_note`]'s.
+pub fn mint_note(
+    notes_dir: &Path,
+    writ_dir: &Path,
+    stem: &str,
+    extension: &str,
+    content: &str,
+) -> StorageResult<PathBuf> {
     let lock = WriteLock::in_data_folder(writ_dir);
     let mut attempt = 1;
     loop {
@@ -445,7 +503,7 @@ pub fn write_piped_note(
             CreateNote {
                 notes_root: notes_dir,
                 stem,
-                extension: extension.as_str(),
+                extension,
                 content,
                 origin: WriteOrigin::Cli,
                 on_taken_name: TakenName::Dedupe,
@@ -538,6 +596,26 @@ mod tests {
 
     fn os(s: &str) -> OsString {
         OsString::from(s)
+    }
+
+    #[test]
+    fn a_trailing_line_comes_off_the_path_and_is_keyed_by_where_it_resolves() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("Plan.md"), "x").unwrap();
+        let (paths, lines) = split_line_targets(&[os("Plan.md:12"), os("Other.md")], dir.path());
+        assert_eq!(paths, vec![os("Plan.md"), os("Other.md")]);
+        let key = dir.path().join("Plan.md").to_string_lossy().into_owned();
+        assert_eq!(lines.get(&key), Some(&12));
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn a_file_whose_name_ends_in_a_line_opens_as_written() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("log:7"), "x").unwrap();
+        let (paths, lines) = split_line_targets(&[os("log:7"), os("-")], dir.path());
+        assert_eq!(paths, vec![os("log:7"), os("-")]);
+        assert!(lines.is_empty());
     }
 
     #[test]

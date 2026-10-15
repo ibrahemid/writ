@@ -13,6 +13,9 @@
 
 use std::path::{Path, PathBuf};
 
+use chrono::{DateTime, Utc};
+use writ_core::config::FileExtension;
+
 use writ_core::notes::guard::{is_not_downloaded, DiskState};
 use writ_core::notes::links;
 use writ_core::notes::rename::{rewrite_links, Rewrite};
@@ -847,4 +850,49 @@ mod tests {
 
         assert_eq!(*stamped.borrow(), vec![from, to]);
     }
+}
+
+/// Where Today's File is, or where it would be minted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TodaysFileAt {
+    /// The dated file, in whichever format the day already has it.
+    Existing(PathBuf),
+    /// No file for the day yet: the path the configured format mints.
+    Missing(PathBuf),
+}
+
+/// Finds Today's File in `notes_root` without opening or minting it.
+///
+/// Both formats the dated name may be written in are looked for, the
+/// configured one first ([`writ_core::startup::dated_note_names`]).
+///
+/// # Errors
+///
+/// [`StorageError::NoteNameTaken`] when the configured name is already on
+/// something that is not a note file: a folder, or a link to one. Minting
+/// would dedupe around it and hand back a second file for the same day, one
+/// more on every ask, so the name is reported as taken instead. Only the
+/// configured name is asked about: the other one is somewhere to read the day
+/// from, never somewhere to write, so a folder wearing it blocks nothing.
+pub fn find_todays_file(
+    notes_root: &Path,
+    now: DateTime<Utc>,
+    configured: FileExtension,
+) -> StorageResult<TodaysFileAt> {
+    let names = writ_core::startup::dated_note_names(now, configured);
+    for name in &names {
+        let path = notes_root.join(name);
+        if path.is_file() {
+            return Ok(TodaysFileAt::Existing(path));
+        }
+    }
+    let [minting, _] = names;
+    let path = notes_root.join(&minting);
+    if path.symlink_metadata().is_ok() {
+        return Err(StorageError::NoteNameTaken {
+            name: minting,
+            folder: notes_root.to_path_buf(),
+        });
+    }
+    Ok(TodaysFileAt::Missing(path))
 }

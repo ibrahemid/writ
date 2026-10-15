@@ -1,13 +1,13 @@
 ---
 import Prose from '../../layouts/Prose.astro';
 ---
-<Prose title="Connect a program to your folder with MCP" description="Switch on Connected programs, paste one command into Claude Code or another MCP client, approve what the program may do, and see every call it made." path="/guides/agent-output/" lead="Connected programs is an MCP server in Writ. Claude Code, Cursor or another program you connect can search and read the files in Writ's folder and, if you allow it, write them.">
+<Prose title="Connect a program to your folder with MCP" description="Switch on Connected programs, add Writ to Claude Code or another MCP client from its card, approve what the program may do, and see every call it made." path="/guides/agent-output/" lead="Connected programs is an MCP server in Writ. Claude Code, Cursor or another program you connect can search and read the files in Writ's folder and, if you allow it, write them.">
   <h2>1. Switch the app on</h2>
   <p>Settings, Apps, Connected programs. This starts nothing by itself: the program you connect launches the server when it needs it, over its own input and output. Writ opens no port.</p>
-  <h2>2. Give the program the command</h2>
-  <p>With the app on, the same row shows Command to give a program, with a Copy button. Paste it where your client keeps its MCP servers. For Claude Code:</p>
-  <pre><code>claude mcp add writ -- "/Applications/Writ.app/Contents/MacOS/writ" mcp</code></pre>
-  <p>For a client that reads a JSON file:</p>
+  <h2>2. Add Writ to the program</h2>
+  <p>With the app on, Connect a program has a card for each client. Add runs the client's own command for Claude Code, Codex and Gemini CLI, opens Cursor, VS Code or LM Studio with Writ filled in, and opens a bundle Claude Desktop asks to install. Writ never edits another program's configuration file. When a client's command is not on your computer, its card shows the line to run in a terminal. For Claude Code it is:</p>
+  <pre><code>claude mcp add --scope user writ -- "/Applications/Writ.app/Contents/MacOS/writ" mcp</code></pre>
+  <p><code>--scope user</code> adds Writ to every project rather than the folder the command runs in. Test, on any card, starts the same command and reports how many tools Writ lists. For a client that reads a JSON file, the Other programs card copies:</p>
   <pre><code>{`{
   "mcpServers": {
     "writ": {
@@ -18,7 +18,7 @@ import Prose from '../../layouts/Prose.astro';
 }`}</code></pre>
   <p>On Windows and Linux the path is the one Settings shows for your install.</p>
   <h2>3. Approve the first call</h2>
-  <p>A program's first call waits for you, and the program is told where to look: Settings, Apps, Connected programs, Waiting for you. If Writ is open when it asks, a notice names the program, and the toolbar's programs mark carries a dot while one waits. Choose Approve reading, Approve reading and writing, or Don't allow.</p>
+  <p>A program's first call waits for you, on its card and where the program is told to look: Settings, Apps, Connected programs, Waiting for you. If Writ is open when it asks, a notice names the program, and the toolbar's programs mark carries a dot while one waits. Choose Approve reading, Approve reading and writing, or Don't allow.</p>
   <p>A program you don't allow is turned down on every call without waiting again, and stays under Programs with reading and writing off. Switch either on there, or Forget the program so its next call waits again. A change there or in <code>config.toml</code> applies on the next call.</p>
   <h2>4. What it can do</h2>
   <p>With reading approved: list the text files in the folder, search, read a file, and read a file's links, backlinks, properties and tags. With writing approved: write, create and rename a file. No tool deletes one. A write is checked against the version the program read, so a write over a newer file is refused and the program's text lands beside the file as a conflict copy. A file the program has not read is not written unless it asks to overwrite it. Writ keeps the text every write replaces, and Revert To, in the File menu, puts it back. Nothing outside Writ's folder is reachable.</p>

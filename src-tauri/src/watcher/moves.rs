@@ -19,6 +19,7 @@ use writ_core::text_encoding::TextEncoding;
 use tauri::{AppHandle, Manager};
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{FileIdentity, IdentityProbe};
+use writ_core::notes::Writer;
 use writ_core::watcher::pending::RemovalHolds;
 use writ_storage::paths::file_name_only;
 
@@ -77,6 +78,17 @@ pub trait NoteFiles: Send + Sync {
     /// size and modification time.
     fn is_marked_removed(&self, _note_id: &str) -> bool {
         false
+    }
+
+    /// What wrote `bytes` into the file at `path`, when the version store's
+    /// newest entry for that note holds exactly those bytes and names its
+    /// writer. `None` with no application behind the record.
+    ///
+    /// A connected program's write keeps the text it landed as the note's
+    /// newest version before the watcher reports the change, which is how a
+    /// tab learns a program wrote what it is about to show (ADR-053).
+    fn writer_of(&self, _path: &Path, _bytes: &[u8]) -> Option<Writer> {
+        None
     }
 
     /// The notes folder as it is now, or `None` when there is no application
@@ -215,6 +227,10 @@ impl NoteFiles for AppNoteFiles {
         self.app.state::<AppState>().is_removed_on_disk(note_id)
     }
 
+    fn writer_of(&self, path: &Path, bytes: &[u8]) -> Option<Writer> {
+        writer_of_file(&self.app.state::<AppState>(), path, bytes)
+    }
+
     fn notes_root(&self) -> Option<PathBuf> {
         Some(self.app.state::<AppState>().notes_root())
     }
@@ -282,8 +298,33 @@ impl NoteFiles for SharedNoteFiles {
             .is_some_and(|state| state.is_removed_on_disk(note_id))
     }
 
+    fn writer_of(&self, path: &Path, bytes: &[u8]) -> Option<Writer> {
+        let state = self.state.upgrade()?;
+        writer_of_file(&state, path, bytes)
+    }
+
     fn notes_root(&self) -> Option<PathBuf> {
         Some(self.state.upgrade()?.notes_root())
+    }
+}
+
+/// What wrote `bytes` into the note at `path`, as the version store records
+/// it. Reads the store only; never the buffer store, and never the file.
+pub(crate) fn writer_of_file(state: &AppState, path: &Path, bytes: &[u8]) -> Option<Writer> {
+    let key = state.note_history.key_for(path)?;
+    match state
+        .note_history
+        .writer_of(&key, writ_core::hash::sha256_bytes(bytes))
+    {
+        Ok(stored) => stored.as_deref().and_then(Writer::from_stored),
+        Err(error) => {
+            tracing::warn!(
+                note = %file_name_only(&path.to_string_lossy()),
+                %error,
+                "who changed the note could not be read"
+            );
+            None
+        }
     }
 }
 
