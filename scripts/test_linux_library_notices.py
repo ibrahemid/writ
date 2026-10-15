@@ -139,6 +139,22 @@ class LinuxLibraryNoticesTests(unittest.TestCase):
             ],
         )
 
+    def test_a_module_below_usr_lib_is_looked_up_with_its_folders(self) -> None:
+        candidates = MODULE.host_candidates("usr/lib/gtk-3.0/3.0.0/immodules/im-thai.so")
+        self.assertIn("/usr/lib/x86_64-linux-gnu/gtk-3.0/3.0.0/immodules/im-thai.so", candidates)
+        self.assertIn("/usr/lib/x86_64-linux-gnu/im-thai.so", candidates)
+        listing = (
+            "-rw-r--r-- root/root    20000 2026-10-01 12:00 "
+            "squashfs-root/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-ani.so\n"
+        )
+        dpkg = FakeDpkg(
+            {"/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-ani.so": "libgdk-pixbuf-2.0-0"}
+        )
+        libraries = MODULE.map_libraries(MODULE.shared_libraries(listing), dpkg)
+        self.assertEqual([(lib.path, lib.package) for lib in libraries], [
+            ("usr/lib/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-ani.so", "libgdk-pixbuf-2.0-0"),
+        ])
+
     def test_a_library_no_package_owns_stops_the_release(self) -> None:
         with self.assertRaisesRegex(MODULE.NoticeError, "usr/lib/libz.so.1"):
             MODULE.map_libraries(["usr/lib/libz.so.1"], FakeDpkg({}))
