@@ -3,7 +3,6 @@ import { Compartment, EditorSelection, EditorState, StateEffect, type Extension,
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap,
-  drawSelection,
   rectangularSelection, crosshairCursor,
   type ViewUpdate,
 } from "@codemirror/view";
@@ -18,6 +17,7 @@ import { markdownInlineExtension } from "../../editor/markdown-typography";
 import { sharedBlockRenderer } from "../../editor/block-renderer";
 import type { InlineImageDeps } from "../../editor/markdown-images";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
+import { writSelection } from "../../editor/selection-layer";
 import { MARKDOWN_FORMAT_KEYS } from "../../editor/editor-command-keys";
 import {
   recheckSpelling,
@@ -597,7 +597,7 @@ export default function EditorInstance(props: Props) {
       ),
       EditorState.allowMultipleSelections.of(true),
       agentEditMarks,
-      drawSelection(),
+      writSelection(),
       rectangularSelection(),
       crosshairCursor(),
       bracketMatching(),

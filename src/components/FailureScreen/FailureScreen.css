@@ -44,6 +44,8 @@
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg-muted);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .failure-screen-details {
@@ -60,6 +62,8 @@
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .failure-screen-actions {

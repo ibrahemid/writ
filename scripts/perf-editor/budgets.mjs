@@ -48,6 +48,7 @@ export const SCENARIOS = [
     tier: "Normal",
     opensAs: "Normal",
     afterAudit: true,
+    selection: true,
     spec: { name: "blocks-50-tables-20-diagrams.md", kind: "markdown-blocks", size: 0, tables: 50, diagrams: 20 },
   },
   {
@@ -56,12 +57,14 @@ export const SCENARIOS = [
     opensAs: "Normal",
     afterAudit: true,
     split: true,
+    selection: true,
     spec: { name: "prose-1MiB.txt", kind: "prose", size: 1 * MiB },
   },
   {
     id: "json-1line-5MiB",
     tier: "Normal",
     opensAs: "LongLines",
+    selection: true,
     spec: { name: "single-line-5MiB.json", kind: "single-line-json", size: 5 * MiB },
   },
   {

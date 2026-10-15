@@ -287,7 +287,12 @@ gives it, that the size question is asked for the confirm tier and only there,
 that the jump reaches the end, and that the count equals the word's occurrences
 in the file before and after the edit. With the counts on, it checks that the
 status bar's counts finish, shown without `≈`, and up to 8 MiB that they equal
-a count of the whole text. A page error fails the scenario.
+a count of the whole text. `md-blocks`, `prose-1MiB-split` and
+`json-1line-5MiB` (wrapping off) then select all and extend a selection one
+row at a time over 40 rows: each of those keystrokes is held to the
+scenario's typing max, one layer paints the selection, and every piece of it
+has to sit inside the text column and within the text of the lines it covers
+plus a newline box. A page error fails the scenario.
 
 **Scenarios** (fixed seeds, `src/__tests__/editor/fixtures/editor-corpus.ts`):
 

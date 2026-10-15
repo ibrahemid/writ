@@ -51,6 +51,8 @@
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .toast-count {

@@ -228,6 +228,8 @@
   font-family: var(--writ-font-prose);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-md-lh);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .note-versions-diff-row {

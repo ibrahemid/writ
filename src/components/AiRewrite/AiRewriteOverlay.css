@@ -118,6 +118,8 @@
   white-space: pre-wrap;
   word-break: break-word;
   color: var(--writ-fg-muted);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .ai-overlay-result {

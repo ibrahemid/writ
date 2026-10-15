@@ -49,6 +49,7 @@
   line-height: var(--writ-ui-xs-lh);
   overflow-wrap: anywhere;
   font-variant-ligatures: none;
+  -webkit-user-select: text;
   user-select: text;
 }
 

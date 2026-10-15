@@ -22,6 +22,21 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Chrome never selects. Text a person reads or copies opts back in: fields
+   here, the note in the editor theme, and each content surface in its own
+   stylesheet. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+[contenteditable]:not([contenteditable="false"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 #app {
   height: 100%;
   display: flex;
