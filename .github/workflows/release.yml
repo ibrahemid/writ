@@ -316,9 +316,11 @@ jobs:
           set -euo pipefail
           BIN=target/x86_64-unknown-linux-gnu/release/writ-tauri
           objcopy --only-keep-debug "$BIN" "$BIN.debug"
-          objcopy --strip-all "$BIN"
+          # .debug_gdb_scripts is an allocated section rustc adds for gdb, so
+          # --strip-all leaves it in place; drop it by name.
+          objcopy --strip-all --remove-section=.debug_gdb_scripts "$BIN"
           objcopy --add-gnu-debuglink="$BIN.debug" "$BIN"
-          if readelf -S "$BIN" | grep -q '\.debug_'; then
+          if readelf -S "$BIN" | grep '\.debug_'; then
             echo "$BIN still holds debug sections" >&2
             exit 1
           fi
