@@ -69,6 +69,10 @@ pub enum MenuAction {
     OpenProgramActivity,
     NextTab,
     PreviousTab,
+    SplitRight,
+    CloseSplit,
+    FocusOtherPane,
+    MoveTabToOtherPane,
     ZoomIn,
     ZoomOut,
     ZoomReset,
@@ -103,7 +107,7 @@ pub const TRANSFORM_MENU_IDS: [&str; 9] = [
 
 impl MenuAction {
     /// Every action the table routes to.
-    pub const ALL: [MenuAction; 47] = [
+    pub const ALL: [MenuAction; 51] = [
         MenuAction::ThirdPartyNotices,
         MenuAction::OpenSettings,
         MenuAction::CheckUpdates,
@@ -130,6 +134,10 @@ impl MenuAction {
         MenuAction::OpenProgramActivity,
         MenuAction::NextTab,
         MenuAction::PreviousTab,
+        MenuAction::SplitRight,
+        MenuAction::CloseSplit,
+        MenuAction::FocusOtherPane,
+        MenuAction::MoveTabToOtherPane,
         MenuAction::ZoomIn,
         MenuAction::ZoomOut,
         MenuAction::ZoomReset,
@@ -183,6 +191,10 @@ impl MenuAction {
             MenuAction::OpenProgramActivity => "activity.open",
             MenuAction::NextTab => "buffer.nextTab",
             MenuAction::PreviousTab => "buffer.prevTab",
+            MenuAction::SplitRight => "pane.splitRight",
+            MenuAction::CloseSplit => "pane.closeSplit",
+            MenuAction::FocusOtherPane => "pane.focusOther",
+            MenuAction::MoveTabToOtherPane => "pane.moveTab",
             MenuAction::ZoomIn => "editor.zoomIn",
             MenuAction::ZoomOut => "editor.zoomOut",
             MenuAction::ZoomReset => "editor.zoomReset",
@@ -290,6 +302,10 @@ pub fn menu_action_for_id(id: &str) -> Option<MenuAction> {
         "activity.open" => MenuAction::OpenProgramActivity,
         "buffer.nextTab" => MenuAction::NextTab,
         "buffer.prevTab" => MenuAction::PreviousTab,
+        "pane.splitRight" => MenuAction::SplitRight,
+        "pane.closeSplit" => MenuAction::CloseSplit,
+        "pane.focusOther" => MenuAction::FocusOtherPane,
+        "pane.moveTab" => MenuAction::MoveTabToOtherPane,
         "editor.zoomIn" => MenuAction::ZoomIn,
         "editor.zoomOut" => MenuAction::ZoomOut,
         "editor.zoomReset" => MenuAction::ZoomReset,
@@ -575,9 +591,13 @@ mod tests {
     }
 
     /// The View items every install has, after the ones that belong to apps.
-    const VIEW_TAIL: [&str; 5] = [
+    const VIEW_TAIL: [&str; 9] = [
         "buffer.nextTab",
         "buffer.prevTab",
+        "pane.splitRight",
+        "pane.closeSplit",
+        "pane.focusOther",
+        "pane.moveTab",
         "editor.zoomIn",
         "editor.zoomOut",
         "editor.zoomReset",

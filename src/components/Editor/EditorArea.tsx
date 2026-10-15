@@ -53,7 +53,10 @@ export default function EditorArea() {
   return (
     <div class="editor-area">
       <Toolbar />
-      <TabBar />
+      {/* With both panes showing, each carries its own strip (ADR-056). */}
+      <Show when={!win.panes.isSplit()}>
+        <TabBar />
+      </Show>
       <Switch>
         <Match when={fileState() === "removed"}>
           <RemovedOnDiskBar noteId={activeBuffer()?.id ?? null} />

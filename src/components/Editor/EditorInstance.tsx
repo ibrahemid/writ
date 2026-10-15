@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect, createMemo, on, Show } from "solid-js";
-import { Compartment, EditorSelection, EditorState, type Extension, type Text } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, StateEffect, type Extension, type Text } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap,
@@ -87,14 +87,16 @@ import {
   tierForDocument,
   type EditorFeatures,
 } from "../../editor/large-file";
+import { ExternalReloadTxn } from "../../editor/external-reload";
+import { mirroredSpec, MirroredTxn } from "../../editor/pane-mirror";
+import type { PaneId } from "../../lib/pane-layout";
 import {
-  ExternalReloadTxn,
-  reloadTransactionSpec,
-  smallestChange,
-} from "../../editor/external-reload";
-import { agentEditMarks, withoutAgentEdits } from "../../editor/agent-edit-marks";
-import { programName, type VersionWriter } from "../../lib/writer";
-import { TabStateCache } from "../../editor/tab-state-cache";
+  agentEditMarks,
+  markAgentEdit,
+  withoutAgentEdits,
+  type AgentEdit,
+} from "../../editor/agent-edit-marks";
+import type { VersionWriter } from "../../lib/writer";
 import { autoTextDirection } from "../../editor/bidi";
 import { placeholderExtension } from "../../editor/placeholder";
 import { commandChord } from "../../lib/command-chord";
@@ -122,6 +124,26 @@ function asEditorText(content: string): string {
   return content.indexOf("\r") === -1 ? content : content.replace(/\r\n?/g, "\n");
 }
 
+/**
+ * The marks a program's change put into this editor, in the document after
+ * `update`, for the other pane's editor of the note to take with the change.
+ */
+function agentEditsOf(update: ViewUpdate): StateEffect<AgentEdit>[] {
+  const marks: StateEffect<AgentEdit>[] = [];
+  update.transactions.forEach((tr, index) => {
+    for (const effect of tr.effects) {
+      if (!effect.is(markAgentEdit)) continue;
+      let { from, to } = effect.value;
+      for (const later of update.transactions.slice(index + 1)) {
+        from = later.changes.mapPos(from, 1);
+        to = later.changes.mapPos(to, -1);
+      }
+      marks.push(markAgentEdit.of({ ...effect.value, from, to }));
+    }
+  });
+  return marks;
+}
+
 /** The first position on the line at the top of the view. */
 function topOfView(view: EditorView): number {
   return view.lineBlockAtHeight(Math.max(0, view.scrollDOM.scrollTop)).from;
@@ -143,6 +165,8 @@ function languageKey(buffer: BufferDocument): string {
 
 interface Props {
   buffer: BufferDocument;
+  /** The pane the editor is in (ADR-056); the left one when not given. */
+  pane?: PaneId;
 }
 
 const CONTENT_DETECT_MIN_LENGTH = 40;
@@ -161,6 +185,11 @@ function refreshOpenFind(): void {
 
 export default function EditorInstance(props: Props) {
   const win = useWindow();
+  // The pane is fixed for the editor's life: a tab moving between panes moves
+  // its state, never the editor.
+  const pane: PaneId = props.pane ?? "left";
+  const ed = win.editor.forPane(pane);
+  const isFocused = () => win.panes.focused() === pane;
   const isMarkdown = createMemo(() => isMarkdownBuffer(props.buffer));
   let containerRef!: HTMLDivElement;
   let view: EditorView | undefined;
@@ -191,10 +220,9 @@ export default function EditorInstance(props: Props) {
   const directionCompartment = new Compartment();
   const placeholderCompartment = new Compartment();
 
-  // The editor states of the open tabs behind the one in front (EP-06). A tab
-  // dropped to keep within the budget lets go of the document its last write
-  // landed with too.
-  const tabStates = new TabStateCache(undefined, (id) => win.editor.releaseDocument(id));
+  // The editor states of the open tabs behind the one in front (EP-06) are
+  // kept by the store, per pane (ADR-056).
+  //
   // Tabs closed since they were last loaded. A close selects the next tab
   // before the closed one is forgotten, and the switch that follows must not
   // keep the closed tab's state after the close dropped it.
@@ -202,12 +230,12 @@ export default function EditorInstance(props: Props) {
 
   // The tier of the note the view holds, and what it gets from it.
   function currentMode(): FileOpenMode {
-    return win.editor.largeFileMode() ?? NORMAL;
+    return ed.largeFileMode() ?? NORMAL;
   }
 
   function currentFeatures(): EditorFeatures {
     const id = viewBufferId ?? props.buffer.id;
-    return featuresFor(currentMode(), win.editor.longestLine(), win.editor.overridesOf(id));
+    return featuresFor(currentMode(), ed.longestLine(), ed.overridesOf(id));
   }
 
   // Whether the file's language is decided at all: always where the surface
@@ -267,7 +295,7 @@ export default function EditorInstance(props: Props) {
       void win.tabs
         .openFile(path)
         .then((doc) => {
-          if (doc && line != null) win.editor.requestReveal(doc.id, line);
+          if (doc && line != null) ed.requestReveal(doc.id, line);
         })
         .catch(() => undefined);
     },
@@ -300,14 +328,14 @@ export default function EditorInstance(props: Props) {
 
   const contextMenuExtension = editorContextMenu({
     show: (x, y, items, bounds) => {
-      menuBufferId = win.editor.currentBufferId();
+      menuBufferId = ed.currentBufferId();
       showContextMenu(x, y, items, bounds);
     },
     spellingEntries: () => spellingStore.entries(),
     aiEnabled: () => configStore.config().ai.rewrite.enabled,
     editable: (view) => !view.state.readOnly,
     looksForPlaceholders: () => {
-      const kind = win.editor.largeFileMode()?.kind ?? "Normal";
+      const kind = ed.largeFileMode()?.kind ?? "Normal";
       return kind === "Normal" || kind === "LongLines";
     },
     clipboard: {
@@ -368,11 +396,17 @@ export default function EditorInstance(props: Props) {
     view.dispatch({
       effects: [
         spellingCompartment.reconfigure(
-          active ? spellingExtension((n) => spellingStore.publishCount(n)) : [],
+          active
+            ? spellingExtension((n) => {
+                if (isFocused()) spellingStore.publishCount(n);
+              })
+            : [],
         ),
         ...(active && recheck ? [recheckSpelling.of()] : []),
       ],
     });
+    // The checker holds one view: the focused pane's (ADR-056).
+    if (!isFocused()) return;
     if (active) {
       spellingStore.attach(view);
       spellingStore.requestCheck();
@@ -455,7 +489,7 @@ export default function EditorInstance(props: Props) {
     const target = viewBufferId;
     loadGrammar(lang).then(
       (support) => {
-        if (!support || !view || viewBufferId !== target || win.editor.language() !== lang) return;
+        if (!support || !view || viewBufferId !== target || ed.language() !== lang) return;
         if (!currentFeatures().highlight) return;
         view.dispatch({ effects: languageCompartment.reconfigure(support) });
       },
@@ -473,7 +507,7 @@ export default function EditorInstance(props: Props) {
 
   function applyDetectedLanguage(lang: string) {
     if (!view) return;
-    win.editor.setLanguage(lang);
+    ed.setLanguage(lang);
     const mode = currentMode();
     const features = currentFeatures();
     view.dispatch({
@@ -499,7 +533,7 @@ export default function EditorInstance(props: Props) {
   // the file, settles it: a .txt stays plain text whatever is typed into it.
   function maybeDetectFromContent(doc: Text, force: boolean) {
     if (!currentFeatures().detectLanguage) return;
-    if (win.editor.language() !== null) return;
+    if (ed.language() !== null) return;
     if (
       !contentMayNameLanguage({
         chosen: props.buffer.language,
@@ -512,7 +546,7 @@ export default function EditorInstance(props: Props) {
     if (doc.length > CONTENT_DETECT_MAX_LENGTH) return;
     if (!force && doc.length - lastDetectLen < CONTENT_DETECT_DELTA) return;
     lastDetectLen = doc.length;
-    const detected = win.editor.detectFromDocument(doc);
+    const detected = ed.detectFromDocument(doc);
     if (detected) applyDetectedLanguage(detected);
   }
 
@@ -594,25 +628,40 @@ export default function EditorInstance(props: Props) {
           const isExternalReload = update.transactions.some(
             (t) => t.annotation(ExternalReloadTxn) === true,
           );
-          win.editor.setLineCount(update.state.doc.lines);
-          win.editor.noteDocChanged();
-          if (!isBinary && !isExternalReload) {
-            win.editor.noteEdited(bufferId, update.state.doc);
-            win.editor.scheduleAutosave(bufferId, update.state.doc, autosaveDebounce());
+          // A change the other pane's editor of this note made arrives
+          // mirrored: that pane recorded it, queued its save and told the
+          // rewrite (ADR-056).
+          const mirrored = update.transactions.some((t) => t.annotation(MirroredTxn) === true);
+          ed.setLineCount(update.state.doc.lines);
+          ed.noteDocChanged();
+          if (!mirrored) {
+            if (!isBinary && !isExternalReload) {
+              ed.noteEdited(bufferId, update.state.doc);
+              ed.scheduleAutosave(bufferId, update.state.doc, autosaveDebounce());
+            }
+            if (win.panes.isSplit()) {
+              const spec = mirroredSpec(update.changes, isExternalReload);
+              const marks = agentEditsOf(update);
+              const carried = marks.length > 0 ? { ...spec, effects: marks } : spec;
+              ed.mirrorChanges(bufferId, update.startState.doc.length, carried);
+            }
           }
           const now = currentFeatures();
           if (now.detectLanguage) maybeDetectFromContent(update.state.doc, false);
           if (
             now.spelling &&
             configStore.config().spelling.enabled &&
-            update.state.doc.length <= SPELLING_MAX_CHARS
+            update.state.doc.length <= SPELLING_MAX_CHARS &&
+            isFocused()
           ) {
             spellingStore.requestCheck();
           }
-          // Keep any live rewrite preview's anchored range in sync, and abort it
-          // if this edit lands inside that range.
-          aiRewriteStore.onDocChanged(bufferId, update.changes);
-          if (!isBinary) reviewTier(bufferId, update);
+          if (!mirrored) {
+            // Keep any live rewrite preview's anchored range in sync, and abort
+            // it if this edit lands inside that range.
+            aiRewriteStore.onDocChanged(bufferId, update.changes);
+            if (!isBinary) reviewTier(bufferId, update);
+          }
         }
         publishCursor(update.state);
         if (update.selectionSet || update.viewportChanged) schedulePositionSave();
@@ -633,9 +682,9 @@ export default function EditorInstance(props: Props) {
     const sel = state.selection;
     const pos = sel.main.head;
     const line = state.doc.lineAt(pos);
-    win.editor.setCursorLine(line.number);
-    win.editor.setCursorCol(pos - line.from + 1);
-    win.editor.setSelectionCount(sel.ranges.length);
+    ed.setCursorLine(line.number);
+    ed.setCursorCol(pos - line.from + 1);
+    ed.setSelectionCount(sel.ranges.length);
   }
 
   // After a transaction that moved a lot of text, the chip offers the tier
@@ -649,7 +698,7 @@ export default function EditorInstance(props: Props) {
     if (moved < LARGE_TRANSACTION) return;
     const wanted = tierForDocument(update.state.doc).mode;
     const differs = isLargeTier(wanted) !== isLargeTier(currentMode());
-    win.editor.offerTier(differs ? { bufferId, mode: wanted } : null);
+    ed.offerTier(differs ? { bufferId, mode: wanted } : null);
   }
 
   // Where the note in front was left, kept for this window and, when
@@ -657,7 +706,7 @@ export default function EditorInstance(props: Props) {
   function rememberPosition(id: string, persist: boolean) {
     if (!view) return;
     const position: ViewPosition = { cursor: view.state.selection.main.head, top: topOfView(view) };
-    win.editor.rememberViewPosition(id, position, persist);
+    ed.rememberViewPosition(id, position, persist);
   }
 
   let positionTimer: ReturnType<typeof setTimeout> | undefined;
@@ -673,7 +722,7 @@ export default function EditorInstance(props: Props) {
   async function saveCurrentContent() {
     if (currentBufferId) {
       try {
-        await win.editor.flushAutosave(currentBufferId);
+        await ed.flushAutosave(currentBufferId);
       } catch {}
     }
   }
@@ -687,8 +736,8 @@ export default function EditorInstance(props: Props) {
   // protect and answering afterwards would send the file its own text.
   function keepTextOfOutgoingHeldNote() {
     if (!viewBufferId || !view) return;
-    if (!win.editor.savesAreHeld(viewBufferId)) return;
-    win.editor.keepTextOfRemoved(viewBufferId, view.state.doc.toString());
+    if (!ed.savesAreHeld(viewBufferId)) return;
+    ed.keepTextOfRemoved(viewBufferId, view.state.doc.toString());
   }
 
   // Bumped by every load. A load overtaken while it waited on a flush or a
@@ -715,9 +764,9 @@ export default function EditorInstance(props: Props) {
   // first so the read returns it; if it cannot land, the queued text is what
   // the view opens on, since the file holds the version before it.
   async function loadText(buffer: BufferDocument): Promise<LoadedText> {
-    const pending = await win.editor.flushAutosave(buffer.id);
+    const pending = await ed.flushAutosave(buffer.id);
     if (!pending.ok) {
-      const unsaved = win.editor.unsavedTextOf(buffer.id);
+      const unsaved = ed.unsavedTextOf(buffer.id);
       if (unsaved !== undefined) return { ok: true, text: unsaved, fromFile: false };
     }
     try {
@@ -735,12 +784,12 @@ export default function EditorInstance(props: Props) {
     view?.destroy();
     view = undefined;
     viewBufferId = undefined;
-    win.editor.registerView(null);
-    win.editor.setLargeFileMode(null);
-    win.editor.setLongestLine(0);
-    win.editor.setLanguage(null);
-    win.editor.setLineCount(0);
-    win.editor.setCurrentBufferId(null);
+    ed.registerView(null);
+    ed.setLargeFileMode(null);
+    ed.setLongestLine(0);
+    ed.setLanguage(null);
+    ed.setLineCount(0);
+    ed.setCurrentBufferId(null);
   }
 
   // A file that could not be read gets no document: opening it already
@@ -748,7 +797,7 @@ export default function EditorInstance(props: Props) {
   // through and replace it. The reason takes the view's place.
   function showReadFailure(id: string, error: unknown) {
     dropView();
-    win.editor.failRead(id, error);
+    ed.failRead(id, error);
   }
 
   // The unread tab whose pane the editor shows. Its open answering is what
@@ -766,7 +815,7 @@ export default function EditorInstance(props: Props) {
   // Try again.
   function showUnreadPane(id: string, unread: UnreadTab) {
     dropView();
-    win.editor.clearReadFailure();
+    ed.clearReadFailure();
     unreadPaneFor = id;
     if (unread.kind === "waiting") openUnreadTab(id);
   }
@@ -795,7 +844,7 @@ export default function EditorInstance(props: Props) {
     // Only a file whose surface follows its language reads it from what it
     // holds; a large file is named by its name.
     const content = surfaceFollowsLanguage(mode) ? view.state.doc.toString() : "";
-    win.editor.setLanguage(languageOf(buffer, content));
+    ed.setLanguage(languageOf(buffer, content));
     reconfigureForTier();
   }
 
@@ -811,9 +860,9 @@ export default function EditorInstance(props: Props) {
     const surface = surfaceFollowsLanguage(mode);
     if (languageApplies(mode, features) && appliedLanguageKey === "") {
       appliedLanguageKey = languageKey(props.buffer);
-      win.editor.setLanguage(languageOf(props.buffer, ""));
+      ed.setLanguage(languageOf(props.buffer, ""));
     }
-    const lang = win.editor.language();
+    const lang = ed.language();
     const editor = configStore.config().editor;
     view.dispatch({
       effects: [
@@ -850,13 +899,14 @@ export default function EditorInstance(props: Props) {
     }
     rememberPosition(viewBufferId, true);
     const mode = currentMode();
-    if (mode.kind === "Binary" || closedTabs.has(viewBufferId)) return;
-    tabStates.put(viewBufferId, {
+    // A tab that left this pane took its state along, or let it go.
+    if (mode.kind === "Binary" || closedTabs.has(viewBufferId) || !win.panes.holds(pane, viewBufferId)) return;
+    ed.keepTabState(viewBufferId, {
       // Leaving the tab is moving on from what a program changed in it.
       state: withoutAgentEdits(view.state),
       scroll: view.scrollSnapshot(),
       mode,
-      longest: win.editor.longestLine(),
+      longest: ed.longestLine(),
     });
   }
 
@@ -865,7 +915,7 @@ export default function EditorInstance(props: Props) {
   // changed while the tab was behind another one, and the tab opens on what
   // it holds now.
   function keptStateFor(id: string, content: string) {
-    const kept = tabStates.take(id);
+    const kept = ed.takeTabState(id);
     if (kept === undefined) return undefined;
     const text = asEditorText(content);
     if (kept.state.doc.length !== text.length || kept.state.doc.toString() !== text) return undefined;
@@ -876,7 +926,7 @@ export default function EditorInstance(props: Props) {
   // else where its row says, within the document.
   function startingPosition(buffer: BufferDocument, length: number): ViewPosition | null {
     const kept =
-      win.editor.viewPositionOf(buffer.id) ??
+      ed.viewPositionOf(buffer.id) ??
       (buffer.cursor_pos > 0 || buffer.scroll_pos > 0
         ? { cursor: buffer.cursor_pos, top: buffer.scroll_pos }
         : null);
@@ -892,7 +942,7 @@ export default function EditorInstance(props: Props) {
     keepTextOfOutgoingHeldNote();
     // Drop the outgoing buffer's spell-check state so an in-flight result can
     // never land on the incoming buffer's view.
-    spellingStore.detach();
+    if (isFocused()) spellingStore.detach();
     keepOutgoingState();
     closedTabs.delete(buffer.id);
 
@@ -917,18 +967,37 @@ export default function EditorInstance(props: Props) {
       loadGrammar(languageOf(buffer, "")).catch(() => null);
     }
 
+    // The other pane showing this note: its document is this pane's too, so
+    // nothing is read and the note's record stands (ADR-056). A note the other
+    // pane is still reading, both panes opening it at once at launch, is
+    // waited for rather than read twice: two reads can differ, and the panes
+    // would then hold two texts of one note.
+    let twin = ed.liveDocElsewhere(buffer.id);
+    while (twin === null) {
+      const reading = ed.readElsewhere(buffer.id);
+      if (reading === null) break;
+      await reading;
+      if (ticket !== loadTicket) return;
+      twin = ed.liveDocElsewhere(buffer.id);
+    }
+    if (twin !== null) {
+      showLoaded(buffer, twin.toString(), false, twin);
+      return;
+    }
     // A note that may not write is read from what the store kept, never from
     // disk. For a deleted file the read would fail and the empty string it
     // fell back to went into the view, throwing away every unsaved keystroke.
     // For a file that changed under the tab the read succeeds, which is worse:
     // the other program's text lands in the view, the typing the bar is
     // holding is gone, and the answer then writes the file its own text.
-    let content: string;
-    let fromFile = false;
-    const kept = win.editor.textOfRemoved(buffer.id);
+    const kept = ed.textOfRemoved(buffer.id);
     if (kept !== undefined) {
-      content = kept;
-    } else {
+      showLoaded(buffer, kept, false, null);
+      return;
+    }
+    // Ended once the view shows the note, or once the read came to nothing.
+    const endRead = ed.beginRead(buffer.id);
+    try {
       const loaded = await loadText(buffer);
       if (ticket !== loadTicket) return;
       if (!loaded.ok) {
@@ -939,10 +1008,15 @@ export default function EditorInstance(props: Props) {
         else showReadFailure(buffer.id, loaded.error);
         return;
       }
-      content = loaded.text;
-      fromFile = loaded.fromFile;
+      showLoaded(buffer, loaded.text, loaded.fromFile, null);
+    } finally {
+      endRead();
     }
+  }
 
+  // Puts the text a load decided on in the view. `twin` is the other pane's
+  // document of the same note, which this pane's view then shares.
+  function showLoaded(buffer: BufferDocument, content: string, fromFile: boolean, twin: Text | null) {
     // The tab's own editor comes back when it still holds this text, with its
     // undo history, selection and scroll; otherwise the text opens fresh.
     const restored = buffer.read_only ? undefined : keptStateFor(buffer.id, content);
@@ -951,26 +1025,34 @@ export default function EditorInstance(props: Props) {
     // file with a line over the per-line limit opens as LongLines, whose
     // features follow its longest line (see editor/large-file.ts).
     const tier = restored ?? editorTierForContent(buffer, content);
-    win.editor.setLargeFileMode(tier.mode.kind === "Normal" ? null : tier.mode);
-    win.editor.setLongestLine(tier.longest);
-    win.editor.recordTier(buffer.id, tier.mode);
-    win.editor.offerTier(null);
-    const features = featuresFor(tier.mode, tier.longest, win.editor.overridesOf(buffer.id));
+    ed.setLargeFileMode(tier.mode.kind === "Normal" ? null : tier.mode);
+    ed.setLongestLine(tier.longest);
+    ed.recordTier(buffer.id, tier.mode);
+    ed.offerTier(null);
+    const features = featuresFor(tier.mode, tier.longest, ed.overridesOf(buffer.id));
 
     let lang: string | null = null;
     if (languageApplies(tier.mode, features)) {
       lang = languageOf(buffer, surfaceFollowsLanguage(tier.mode) ? content : "");
       appliedLanguageKey = languageKey(buffer);
     }
-    win.editor.setLanguage(lang);
+    ed.setLanguage(lang);
 
     let state: EditorState;
     let position: ViewPosition | null = null;
     if (restored) {
-      state = restored.state;
+      // A state the other pane's editor built takes this editor's extensions;
+      // its undo history and folds are fields, and stay.
+      state = restored.foreign
+        ? restored.state.update({
+            effects: StateEffect.reconfigure.of(
+              createExtensions(buffer.id, lang, isMarkdownBuffer(buffer), tier.mode, features),
+            ),
+          }).state
+        : restored.state;
     } else {
       state = EditorState.create({
-        doc: content,
+        doc: twin ?? content,
         extensions: createExtensions(buffer.id, lang, isMarkdownBuffer(buffer), tier.mode, features),
       });
       position = startingPosition(buffer, state.doc.length);
@@ -995,31 +1077,36 @@ export default function EditorInstance(props: Props) {
     } else if (position !== null && position.top > 0) {
       view.dispatch({ effects: EditorView.scrollIntoView(position.top, { y: "start" }) });
     }
-    win.editor.rememberViewPosition(
+    ed.rememberViewPosition(
       buffer.id,
-      { cursor: view.state.selection.main.head, top: position?.top ?? win.editor.viewPositionOf(buffer.id)?.top ?? 0 },
+      { cursor: view.state.selection.main.head, top: position?.top ?? ed.viewPositionOf(buffer.id)?.top ?? 0 },
       false,
     );
 
-    win.editor.registerView(view);
-    win.editor.setLineCount(view.state.doc.lines);
+    ed.registerView(view);
+    ed.setLineCount(view.state.doc.lines);
     publishCursor(view.state);
-    win.editor.noteOpened(buffer.id, view.state.doc, fromFile);
+    if (twin === null) ed.noteOpened(buffer.id, view.state.doc, fromFile);
+    else ed.noteShownTwice(buffer.id, view.state.doc);
     // Publish the loaded id last, after the view holding its document: a
     // preview pane gating on this id reads the matching buffer's text.
-    win.editor.setCurrentBufferId(buffer.id);
-    win.editor.clearReadFailure();
+    ed.setCurrentBufferId(buffer.id);
+    ed.clearReadFailure();
     if (!restored) {
       applySpelling();
       if (features.highlight) requestGrammar(lang);
     }
+    // A pane loading behind the focused one takes neither the Find bar nor
+    // the keyboard.
+    if (!isFocused()) return;
     if (findStore.isOpen()) findStore.retarget();
     view.focus();
   }
 
   // Reads the file and hands its text to the store, which replaces the
-  // document in one tracked transaction when this is the tab in front, and
-  // records what the file holds for the note either way.
+  // document in one tracked transaction in an editor showing the note (the
+  // other pane's takes it mirrored), takes it into the states the panes keep
+  // for it otherwise, and records what the file holds for the note either way.
   //
   // A note that is not the one in the view is no longer dropped here. It has
   // nothing to dispatch into and reads its file again when it is switched to,
@@ -1040,22 +1127,16 @@ export default function EditorInstance(props: Props) {
       if (!wasUnread && unread && id === currentBufferId) showUnreadPane(id, unread);
       return;
     }
-    if (id !== currentBufferId) updateKeptState(id, content, programName(writer));
-    win.editor.applyExternalContent(id, content, writer);
+    ed.applyExternalContent(id, content, writer);
   }
 
-  // A tab behind another one whose file changed takes the file's text into
-  // its kept state as one undoable change, the way the tab in front does, so
-  // switching back keeps its history rather than opening fresh. A program's
-  // text is marked there too, and shows when the tab is switched to.
-  function updateKeptState(id: string, content: string, program: string | null) {
-    const kept = tabStates.peek(id);
-    if (kept === undefined) return;
-    const before = kept.state.doc.toString();
-    const after = asEditorText(content);
-    if (before === after) return;
-    const change = smallestChange(before, after);
-    tabStates.update(id, kept.state.update(reloadTransactionSpec(change, program)).state);
+  // One editor reads a changed file: the pane showing the note, the focused
+  // one when both do, and the pane registering the commands when neither
+  // does.
+  function handlesReload(id: string): boolean {
+    const elsewhere = ed.liveDocElsewhere(id) !== null;
+    if (currentBufferId === id) return isFocused() || !elsewhere;
+    return !elsewhere && ed.commandPane() === pane;
   }
 
   // Cmd/Ctrl + wheel (and trackpad pinch, which the OS reports as ctrl+wheel)
@@ -1067,19 +1148,13 @@ export default function EditorInstance(props: Props) {
     editorZoom.handleWheel(event.deltaY, event.timeStamp);
   }
 
-  onMount(() => {
-    containerRef.addEventListener("wheel", onWheelZoom, { passive: false });
+  // The editor's own commands act on the focused pane's view and are
+  // registered once, by the pane `commandPane` names (ADR-056).
+  const ownsCommands = createMemo(() => ed.commandPane() === pane);
+  let ownedCommands = false;
 
-    disposeEditorCommands = registerEditorCommands(() => view ?? null);
-    // A closed tab's kept editor goes with it.
-    stopClosedListener = win.editor.onNoteClosed((id) => {
-      tabStates.delete(id);
-      closedTabs.add(id);
-    });
-
-    // Inline mode draws nothing until the Markdown grammar is there, so it is
-    // loaded while the main thread is idle rather than on the first .md open.
-    warmGrammar("markdown");
+  function registerOwnedCommands() {
+    disposeEditorCommands = registerEditorCommands(() => win.editor.getView());
 
     registerCommand({
       id: "editor.changeLanguage",
@@ -1104,7 +1179,10 @@ export default function EditorInstance(props: Props) {
       label: "Add cursor above",
       keybinding: "Alt+ArrowUp",
       scope: "editor",
-      execute: () => { if (view) addCursorUp(view); },
+      execute: () => {
+        const focused = win.editor.getView();
+        if (focused) addCursorUp(focused);
+      },
     });
 
     registerCommand({
@@ -1112,7 +1190,10 @@ export default function EditorInstance(props: Props) {
       label: "Add cursor below",
       keybinding: "Alt+ArrowDown",
       scope: "editor",
-      execute: () => { if (view) addCursorDown(view); },
+      execute: () => {
+        const focused = win.editor.getView();
+        if (focused) addCursorDown(focused);
+      },
     });
 
     registerCommand({
@@ -1127,7 +1208,44 @@ export default function EditorInstance(props: Props) {
         });
       },
     });
+    ownedCommands = true;
+  }
 
+  function unregisterOwnedCommands() {
+    disposeEditorCommands?.();
+    disposeEditorCommands = undefined;
+    for (const cmd of formatCommands) unregisterCommand(cmd.id);
+    unregisterCommand("editor.addCursorUp");
+    unregisterCommand("editor.addCursorDown");
+    unregisterCommand("editor.changeLanguage");
+    unregisterCommand("editor.reopenWithEncoding");
+    unregisterCommand("spelling.toggle");
+    unregisterCommand("spelling.fixAll");
+    unregisterCommand("spelling.preview");
+    rebuildKeyMap();
+    ownedCommands = false;
+  }
+
+  // A pane taking the commands over registers them again over the same ids;
+  // the pane giving them up leaves them registered for it.
+  createEffect(on(ownsCommands, (owns) => {
+    if (owns && !ownedCommands) registerOwnedCommands();
+    else if (!owns) ownedCommands = false;
+  }));
+
+  onMount(() => {
+    containerRef.addEventListener("wheel", onWheelZoom, { passive: false });
+
+    // A closed tab's kept editor goes with it (the store drops it).
+    stopClosedListener = ed.onNoteClosed((id) => {
+      closedTabs.add(id);
+    });
+
+    // Inline mode draws nothing until the Markdown grammar is there, so it is
+    // loaded while the main thread is idle rather than on the first .md open.
+    warmGrammar("markdown");
+
+    ed.setMounted(true);
     loadBuffer(props.buffer);
   });
 
@@ -1143,22 +1261,22 @@ export default function EditorInstance(props: Props) {
   // A tier the chip offered and the person took: the view keeps its document,
   // selection and undo history and takes the tier's features.
   createEffect(on(
-    () => win.editor.tierSwitch(),
+    () => ed.tierSwitch(),
     (change) => {
       if (!change || !view || change.bufferId !== viewBufferId) return;
       const longest = isLargeTier(change.mode) ? 0 : longestLineOfDocument(view.state.doc);
-      win.editor.setLargeFileMode(change.mode.kind === "Normal" ? null : change.mode);
-      win.editor.setLongestLine(longest);
-      win.editor.recordTier(change.bufferId, change.mode);
+      ed.setLargeFileMode(change.mode.kind === "Normal" ? null : change.mode);
+      ed.setLongestLine(longest);
+      ed.recordTier(change.bufferId, change.mode);
       appliedLanguageKey = "";
-      if (!languageApplies(change.mode, currentFeatures())) win.editor.setLanguage(null);
+      if (!languageApplies(change.mode, currentFeatures())) ed.setLanguage(null);
       reconfigureForTier();
     },
     { defer: true },
   ));
 
   // Wrapping or highlighting turned on or off for this file from the chip.
-  const fileOverrides = createMemo(() => win.editor.overridesOf(props.buffer.id));
+  const fileOverrides = createMemo(() => ed.overridesOf(props.buffer.id));
   createEffect(on(
     fileOverrides,
     () => {
@@ -1178,9 +1296,9 @@ export default function EditorInstance(props: Props) {
   });
 
   createEffect(on(
-    () => win.editor.externalReload(),
+    () => ed.externalReload(),
     (req) => {
-      if (req) void reloadFromDisk(req.id, req.writer);
+      if (req && handlesReload(req.id)) void reloadFromDisk(req.id, req.writer);
     },
     { defer: true },
   ));
@@ -1190,15 +1308,15 @@ export default function EditorInstance(props: Props) {
   // fires once the matching buffer's content is in the view (loadBuffer
   // publishes currentBufferId last), landing on the right line either way.
   createEffect(on(
-    () => [win.editor.pendingReveal(), win.editor.currentBufferId()] as const,
+    () => [ed.pendingReveal(), ed.currentBufferId()] as const,
     ([req]) => {
-      if (!req || !view || req.bufferId !== currentBufferId) return;
+      if (!req || !view || req.bufferId !== currentBufferId || !isFocused()) return;
       const total = view.state.doc.lines;
       const target = Math.min(Math.max(req.line, 1), total);
       const line = view.state.doc.line(target);
       view.dispatch({ selection: { anchor: line.from }, scrollIntoView: true });
       view.focus();
-      win.editor.clearReveal();
+      ed.clearReveal();
     },
     { defer: true },
   ));
@@ -1244,7 +1362,7 @@ export default function EditorInstance(props: Props) {
   // in every tier.
   const readingWidth = createMemo(() => configStore.config().editor.reading_width);
   createEffect(on(
-    [readingWidth, () => win.editor.language()],
+    [readingWidth, () => ed.language()],
     ([measured, lang]) => {
       view?.dispatch({
         effects: measureCompartment.reconfigure(measureExtension(measured, lang, currentMode())),
@@ -1268,7 +1386,7 @@ export default function EditorInstance(props: Props) {
   const markdownEditing = createMemo(() => configStore.config().editor.markdown_editing);
   createEffect(() => {
     const editingEnabled = markdownEditing();
-    const lang = win.editor.language();
+    const lang = ed.language();
     const markdown = isMarkdown();
     if (!surfaceFollowsLanguage(currentMode())) return;
     const features = currentFeatures();
@@ -1322,7 +1440,9 @@ export default function EditorInstance(props: Props) {
   const spellingCommandsActive = createMemo(
     () => configStore.config().spelling.enabled && spellingStore.count() > 0,
   );
-  createEffect(on(spellingCommandsActive, (active) => {
+  createEffect(() => {
+    if (!ownsCommands()) return;
+    const active = spellingCommandsActive();
     if (active) {
       registerCommand({
         id: "spelling.fixAll",
@@ -1340,7 +1460,7 @@ export default function EditorInstance(props: Props) {
       unregisterCommand("spelling.fixAll");
       unregisterCommand("spelling.preview");
     }
-  }));
+  });
 
   // The formatting commands exist in the palette and key map only while a
   // markdown buffer is active with editing helpers enabled, so Cmd+B in a
@@ -1356,11 +1476,19 @@ export default function EditorInstance(props: Props) {
   } as const;
   const formatCommands = MARKDOWN_FORMAT_KEYS.map((key) => ({ ...key, run: formatRuns[key.id] }));
 
+  // This pane's answer, which the pane registering the commands reads off
+  // the focused pane.
   createEffect(() => {
-    const active =
+    ed.setEditsMarkdown(
       isMarkdown() &&
-      configStore.config().editor.markdown_editing &&
-      currentFeatures().markdown;
+        configStore.config().editor.markdown_editing &&
+        currentFeatures().markdown,
+    );
+  });
+
+  createEffect(() => {
+    if (!ownsCommands()) return;
+    const active = win.editor.editsMarkdown();
     if (active) {
       for (const cmd of formatCommands) {
         registerCommand({
@@ -1369,7 +1497,8 @@ export default function EditorInstance(props: Props) {
           keybinding: cmd.keybinding,
           scope: "editor",
           execute: () => {
-            if (view) cmd.run(view);
+            const focused = win.editor.getView();
+            if (focused) cmd.run(focused);
           },
         });
       }
@@ -1379,23 +1508,27 @@ export default function EditorInstance(props: Props) {
     rebuildKeyMap();
   });
 
+  // The pane taking focus takes the singletons with it: spell check and an
+  // open Find bar act on its view (ADR-056).
+  createEffect(on(
+    isFocused,
+    (focused) => {
+      if (!focused || !view) return;
+      applySpelling();
+      if (findStore.isOpen()) findStore.retarget();
+    },
+    { defer: true },
+  ));
+
   onCleanup(() => {
     containerRef.removeEventListener("wheel", onWheelZoom);
     if (positionTimer !== undefined) clearTimeout(positionTimer);
     if (view && viewBufferId) rememberPosition(viewBufferId, true);
-    tabStates.clear();
-    disposeEditorCommands?.();
+    ed.clearTabStates();
+    ed.endRead();
     stopClosedListener?.();
-    for (const cmd of formatCommands) unregisterCommand(cmd.id);
-    unregisterCommand("editor.addCursorUp");
-    unregisterCommand("editor.addCursorDown");
-    unregisterCommand("editor.changeLanguage");
-    unregisterCommand("editor.reopenWithEncoding");
-    unregisterCommand("spelling.toggle");
-    unregisterCommand("spelling.fixAll");
-    unregisterCommand("spelling.preview");
-    spellingStore.detach();
-    rebuildKeyMap();
+    if (ownedCommands) unregisterOwnedCommands();
+    if (isFocused()) spellingStore.detach();
     // This runs before whatever unmounted the editor (the last tab closing, a
     // file whose bytes are not here, a crash screen) has written the typing,
     // so the text stays where that path finds it; only an explicit discard
@@ -1403,21 +1536,22 @@ export default function EditorInstance(props: Props) {
     // and the quit hand to the unsaved-text journal (ADR-033 decision 15). Any
     // other note keeps its queued write, as text read from the view now.
     if (view && viewBufferId) {
-      if (win.editor.savesAreHeld(viewBufferId)) {
-        win.editor.keepTextOfRemoved(viewBufferId, view.state.doc.toString());
+      if (ed.savesAreHeld(viewBufferId)) {
+        ed.keepTextOfRemoved(viewBufferId, view.state.doc.toString());
       } else {
-        win.editor.keepQueuedText(viewBufferId);
+        ed.keepQueuedText(viewBufferId);
       }
     }
-    win.editor.clearReadFailure();
-    win.editor.setLargeFileMode(null);
-    win.editor.registerView(null);
-    win.editor.setCurrentBufferId(null);
+    ed.clearReadFailure();
+    ed.setLargeFileMode(null);
+    ed.registerView(null);
+    ed.setCurrentBufferId(null);
     view?.destroy();
+    ed.setMounted(false);
   });
 
   const shownFailure = () => {
-    const failure = win.editor.readFailure();
+    const failure = ed.readFailure();
     return failure !== null && failure.bufferId === props.buffer.id ? failure : null;
   };
   const shownUnread = () => unreadTabs.stateOf(props.buffer.id);
@@ -1433,7 +1567,7 @@ export default function EditorInstance(props: Props) {
             alert
             canShowInFileManager={canShowInFileManager(failure())}
             onShowInFileManager={() => void showNoteInFileManager(failure().bufferId)}
-            onClose={() => void win.tabs.closeTab(failure().bufferId)}
+            onClose={() => void win.tabs.closeTab(failure().bufferId, pane)}
           />
         )}
       </Show>
@@ -1446,7 +1580,7 @@ export default function EditorInstance(props: Props) {
             alert={unread().kind === "refused"}
             canShowInFileManager
             onShowInFileManager={() => void showNoteInFileManager(props.buffer.id)}
-            onClose={() => void win.tabs.closeTab(props.buffer.id)}
+            onClose={() => void win.tabs.closeTab(props.buffer.id, pane)}
           />
         )}
       </Show>
@@ -1454,6 +1588,7 @@ export default function EditorInstance(props: Props) {
         ref={containerRef!}
         class="editor-instance"
         hidden={shownFailure() !== null || shownUnread() !== null}
+        onFocusIn={() => win.panes.focus(pane)}
       />
     </>
   );

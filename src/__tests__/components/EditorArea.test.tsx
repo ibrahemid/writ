@@ -42,6 +42,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
     },
     counts: { counts: mocks.counts, watch: () => () => {} },
     folderGraph: { isOpen: mocks.graphOpen },
+    panes: { isSplit: () => false },
   }),
 }));
 

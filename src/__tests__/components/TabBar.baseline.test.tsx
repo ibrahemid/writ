@@ -56,7 +56,17 @@ vi.mock("../../lib/platform", () => ({
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
+    panes: {
+      holds: () => true,
+      activeIn: () => (() => h.activeId())(),
+      isSplit: () => false,
+      focused: () => "left",
+      focus: () => {},
+    },
     tabs: {
+      selectIn: (_pane: string, id: string) => h.setActiveTabId(id),
+      showDownloadPane: () => h.setActiveTabId(null),
+      moveToOtherPane: () => {},
       activeTabId: () => h.activeId(),
       setActiveTabId: h.setActiveTabId,
       closeTab: h.closeTab,
@@ -367,7 +377,7 @@ describe("closing a tab from the keyboard", () => {
     });
     fireEvent.keyDown(closes[0], { key: "Enter" });
     await settle();
-    expect(h.closeTab).toHaveBeenCalledWith("buf-1");
+    expect(h.closeTab).toHaveBeenCalledWith("buf-1", "left");
     expect(document.activeElement).toBe(labels(container)[0]);
     expect(labels(container)[0].textContent).toBe("note-2");
     expect(h.focusEditor).not.toHaveBeenCalled();
@@ -382,7 +392,7 @@ describe("closing a tab from the keyboard", () => {
     });
     fireEvent.keyDown(close, { key: " " });
     await settle();
-    expect(h.closeTab).toHaveBeenCalledWith("buf-1");
+    expect(h.closeTab).toHaveBeenCalledWith("buf-1", "left");
     expect(labels(container).map((el) => el.textContent)).toEqual(["note-2"]);
     expect(h.focusEditor).not.toHaveBeenCalled();
   });
@@ -396,7 +406,7 @@ describe("closing a tab from the keyboard", () => {
     });
     fireEvent.keyDown(close, { key: " " });
     await settle();
-    expect(h.closeTab).toHaveBeenCalledWith("buf-1");
+    expect(h.closeTab).toHaveBeenCalledWith("buf-1", "left");
     expect(container.querySelectorAll('[role="tab"]').length).toBe(0);
     expect(h.focusEditor).toHaveBeenCalledTimes(1);
   });

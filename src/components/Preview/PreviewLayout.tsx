@@ -1,8 +1,6 @@
 import { Show, createEffect, createMemo, type JSX } from "solid-js";
 import type { BufferDocument } from "../../types/buffer";
-import EditorInstance from "../Editor/EditorInstance";
-import NoteDownloading from "../Editor/NoteDownloading";
-import StartSurface from "../Editor/StartSurface";
+import PaneGroup from "../Editor/PaneGroup";
 import PreviewPane from "./PreviewPane";
 import PreviewSplit from "./PreviewSplit";
 import { configStore } from "../../stores/global/config";
@@ -19,7 +17,9 @@ import "./preview-chrome.css";
 interface Props {
   // Nullable: the layout is always mounted (so the preview iframe element is
   // never torn down — see PreviewPane), even between buffers / when none is
-  // open. A null buffer renders the empty state and parks the preview blank.
+  // open. A null buffer parks the preview blank. It is the focused pane's
+  // tab: the editor slot holds both panes, and the one preview follows focus
+  // (ADR-056).
   buffer: BufferDocument | null;
 }
 
@@ -144,25 +144,7 @@ export default function PreviewLayout(props: Props) {
       ref={containerEl}
     >
       <div class="preview-editor-slot" style={editorStyle()}>
-        <Show
-          when={props.buffer}
-          fallback={
-            <Show
-              when={win.downloads.selected()}
-              fallback={<StartSurface />}
-            >
-              {(download) => (
-                <NoteDownloading
-                  download={download()}
-                  onRetry={() => void win.downloads.retry(download().path)}
-                  onDismiss={() => void win.downloads.dismiss(download().path)}
-                />
-              )}
-            </Show>
-          }
-        >
-          {(buf) => <EditorInstance buffer={buf()} />}
-        </Show>
+        <PaneGroup focusedBuffer={props.buffer} />
       </div>
 
       <Show when={isSplit() && previewable()}>

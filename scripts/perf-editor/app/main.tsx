@@ -8,6 +8,7 @@ import { installIpc, type CommandArgs, type CommandHandler } from "../../../demo
 import { createBackend } from "../../../demo/backend/backend";
 import { classifySize, formatHexDump, onceOpen, sniffsBinary } from "../../../demo/backend/classify";
 import { windowRegistry } from "../../../src/stores/global/window-registry";
+import { executeCommand } from "../../../src/commands/registry";
 import { findStore } from "../../../src/stores/global/find-store";
 import { largeFileOpen } from "../../../src/stores/global/large-file-open";
 import { configStore } from "../../../src/stores/global/config";
@@ -281,6 +282,30 @@ async function open(path: string) {
   }
 }
 
+/**
+ * Runs Split right on the file in front and resolves once the second pane's
+ * editor holds it, answering what each pane's editor holds.
+ */
+async function splitRight() {
+  const win = activeWindow();
+  const id = win.tabs.activeTabId();
+  if (!id) throw new HarnessError("no file in front to split");
+  if (!executeCommand("pane.splitRight")) throw new HarnessError("Split right did not run");
+  const right = win.editor.forPane("right");
+  const started = performance.now();
+  while (right.currentBufferId() !== id) {
+    if (performance.now() - started > 20_000) throw new HarnessError("the second pane never showed the file");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+  await nextFrame();
+  const left = win.editor.forPane("left").getView();
+  return {
+    focused: win.panes.focused(),
+    leftLength: left?.state.doc.length ?? 0,
+    rightLength: right.getView()?.state.doc.length ?? 0,
+  };
+}
+
 function features() {
   const win = activeWindow();
   const view = win.editor.getView();
@@ -390,6 +415,7 @@ Object.assign(window, {
     addFile,
     dropBytes,
     open,
+    splitRight,
     features,
     blocks,
     focusEditor,

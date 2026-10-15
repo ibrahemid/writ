@@ -45,7 +45,17 @@ vi.mock("../../lib/platform", () => ({
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
   useWindow: () => ({
+    panes: {
+      holds: () => true,
+      activeIn: () => (() => h.activeId())(),
+      isSplit: () => false,
+      focused: () => "left",
+      focus: () => {},
+    },
     tabs: {
+      selectIn: (_pane: string, id: string) => h.setActiveTabId(id),
+      showDownloadPane: () => h.setActiveTabId(null),
+      moveToOtherPane: () => {},
       activeTabId: () => h.activeId(),
       setActiveTabId: h.setActiveTabId,
       closeTab: h.closeTab,

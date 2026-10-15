@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { EditorSelection, type Text } from "@codemirror/state";
+import { EditorSelection, type Text, type TransactionSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { FileOpenMode } from "../../types/buffer";
 import {
@@ -32,7 +32,9 @@ import {
   type NoteDiskAnswer,
   type UnmadeFile,
 } from "../../services/tauri";
-import { applyExternalDocument } from "../../editor/external-reload";
+import { applyExternalDocument, reloadTransactionSpec, smallestChange } from "../../editor/external-reload";
+import { TabStateCache, type TabState } from "../../editor/tab-state-cache";
+import { PANE_IDS, type PaneId } from "../../lib/pane-layout";
 import { programName, type VersionWriter } from "../../lib/writer";
 import { holdRange, releaseRange } from "../../editor/held-ranges";
 import { encodeChangesSince } from "../../editor/change-diff";
@@ -135,9 +137,9 @@ interface NoteHashes {
 const FRESH: NoteHashes = { docGeneration: 0, comparedGeneration: 0, matchesFile: false };
 
 /**
- * The note whose document the view holds, with the documents its dirty answer
- * is read from. Only this note keeps a `Text`: a note with no view cannot
- * change, and keeping its document would hold a closed view's text in memory.
+ * A note a pane's view holds, with the documents its dirty answer is read
+ * from. Only notes on screen keep a `Text`: a note with no view cannot change,
+ * and keeping its document would hold a closed view's text in memory.
  */
 interface ViewedNote {
   id: string;
@@ -243,7 +245,29 @@ function nextNoteFileState(
   }
 }
 
-export function createEditorStore() {
+const NORMAL_MODE: FileOpenMode = { kind: "Normal" };
+
+// Where a kept editor state is filed: one per tab per pane (ADR-056).
+function stateKey(pane: PaneId, id: string): string {
+  return `${pane}\u0000${id}`;
+}
+
+function noteOfStateKey(key: string): string {
+  return key.slice(key.indexOf("\u0000") + 1);
+}
+
+/** A pane's read of a note from disk, which the other pane waits on (ADR-056). */
+interface NoteRead {
+  readonly id: string;
+  readonly done: Promise<void>;
+  readonly end: () => void;
+}
+
+/**
+ * What one pane's editor shows: its view, the note in it and what is read off
+ * that note in front. Everything else the store holds is per note.
+ */
+function createPaneSlot(pane: PaneId) {
   const [cursorLine, setCursorLine] = createSignal(1);
   const [cursorCol, setCursorCol] = createSignal(1);
   const [lineCount, setLineCount] = createSignal(0);
@@ -255,27 +279,15 @@ export function createEditorStore() {
   // The longest line of the note in front as it was loaded, which decides
   // whether a LongLines file wraps and highlights ([`featuresFor`]).
   const [longestLine, setLongestLine] = createSignal(0);
-  // What the person turned on or off per file from the tier chip, for this
-  // session. Kept by buffer id, so switching away and back keeps it.
-  const [overrides, setOverrides] = createSignal<ReadonlyMap<string, FileOverrides>>(new Map());
-  // The tier of each note loaded this session, which the tab tooltip names
-  // when the status bar is hidden.
-  const [tiers, setTiers] = createSignal<ReadonlyMap<string, FileOpenMode>>(new Map());
   // A tier the document in front calls for after a large edit, which the chip
-  // offers; and the switch, once accepted, for the editor to carry out.
+  // offers.
   const [tierOffer, setTierOffer] = createSignal<TierChange | null>(null);
-  const [tierSwitch, setTierSwitch] = createSignal<(TierChange & { seq: number }) | null>(null);
-  let tierSeq = 0;
-  // Where each note was last left in this window, so a tab whose cached
-  // editor state is gone still reopens where it was.
-  const viewPositions = new Map<string, ViewPosition>();
-  const closeListeners = new Set<(id: string) => void>();
   // Bumped on every change to the document in the view and whenever the view
   // takes another document. Nothing reads the text through it: a reader that
   // needs the text fetches it from the view ([`liveDoc`]) when it does its
   // work, after the keystroke rather than inside it.
   const [docVersion, setDocVersion] = createSignal(0);
-  // Id of the buffer whose content is currently loaded into the active view.
+  // Id of the buffer whose content is currently loaded into the pane's view.
   // Published by EditorInstance.loadBuffer only after the view holding the
   // buffer's content is registered, so [`liveDoc`] is that buffer's document
   // whenever this names it. The preview pane gates
@@ -286,6 +298,59 @@ export function createEditorStore() {
   const [currentBufferId, setCurrentBufferId] = createSignal<string | null>(
     null,
   );
+  // The note in front whose file could not be read; the editor shows the
+  // reason in place of a document. Every load reads the file again.
+  const [readFailure, setReadFailure] = createSignal<ReadFailure | null>(null);
+  // Whether the pane's editor is mounted, which decides who registers the
+  // editor's commands ([`commandPane`]).
+  const [mounted, setMounted] = createSignal(false);
+  // Whether the note in front takes the Markdown formatting commands.
+  const [editsMarkdown, setEditsMarkdown] = createSignal(false);
+  return {
+    pane,
+    cursorLine, setCursorLine,
+    cursorCol, setCursorCol,
+    lineCount, setLineCount,
+    language, setLanguage,
+    selectionCount, setSelectionCount,
+    largeFileMode, setLargeFileMode,
+    longestLine, setLongestLine,
+    tierOffer, setTierOffer,
+    docVersion, setDocVersion,
+    currentBufferId, setCurrentBufferId,
+    readFailure, setReadFailure,
+    mounted, setMounted,
+    editsMarkdown, setEditsMarkdown,
+    view: null as EditorView | null,
+    reading: null as NoteRead | null,
+  };
+}
+
+type PaneSlot = ReturnType<typeof createPaneSlot>;
+
+export interface EditorStoreOptions {
+  /** The pane every top-level accessor answers for; the left one when not given. */
+  focusedPane?: () => PaneId;
+}
+
+export function createEditorStore(options: EditorStoreOptions = {}) {
+  const focusedPane = options.focusedPane ?? ((): PaneId => "left");
+  const slots: Record<PaneId, PaneSlot> = { left: createPaneSlot("left"), right: createPaneSlot("right") };
+  const focusedSlot = (): PaneSlot => slots[focusedPane()];
+  // What the person turned on or off per file from the tier chip, for this
+  // session. Kept by buffer id, so switching away and back keeps it.
+  const [overrides, setOverrides] = createSignal<ReadonlyMap<string, FileOverrides>>(new Map());
+  // The tier of each note loaded this session, which the tab tooltip names
+  // when the status bar is hidden.
+  const [tiers, setTiers] = createSignal<ReadonlyMap<string, FileOpenMode>>(new Map());
+  // A tier switch the chip's offer was accepted for, for every editor holding
+  // that note to carry out.
+  const [tierSwitch, setTierSwitch] = createSignal<(TierChange & { seq: number }) | null>(null);
+  let tierSeq = 0;
+  // Where each note was last left in this window, so a tab whose cached
+  // editor state is gone still reopens where it was.
+  const viewPositions = new Map<string, ViewPosition>();
+  const closeListeners = new Set<(id: string) => void>();
   // A monotonically-keyed request to reload the active buffer's content from
   // disk, raised when the file changed externally (audit blocker #53.4).
   // EditorInstance consumes it; the seq makes repeated external edits to the
@@ -338,7 +403,9 @@ export function createEditorStore() {
   // started again would let a call read its own number off a record a later
   // call happens to have stamped with the same one.
   let openTickets = 0;
-  let viewed: ViewedNote | null = null;
+  // The notes the panes' views hold, by note: a note open in both panes is
+  // one entry, its document shared.
+  const viewed = new Map<string, ViewedNote>();
   // The save generations of the writes that carry each note's document as it
   // stands, emptied by the next edit, held or not. A write that lands with one
   // of them wrote what the note holds.
@@ -508,12 +575,18 @@ export function createEditorStore() {
     });
   }
 
-  /** The live document of `id`, when it is the note the editor is showing. */
-  function liveTextOfNote(id: string): string | undefined {
-    if (currentBufferId() === id && activeView !== null) {
-      return activeView.state.doc.toString();
+  /** The view showing note `id`, the focused pane's first. */
+  function viewOfNote(id: string): { slot: PaneSlot; view: EditorView } | null {
+    const order = [focusedSlot(), ...PANE_IDS.map((pane) => slots[pane])];
+    for (const slot of order) {
+      if (slot.view !== null && slot.currentBufferId() === id) return { slot, view: slot.view };
     }
-    return undefined;
+    return null;
+  }
+
+  /** The live document of `id`, when an editor is showing it. */
+  function liveTextOfNote(id: string): string | undefined {
+    return viewOfNote(id)?.view.state.doc.toString();
   }
 
   /**
@@ -724,13 +797,15 @@ export function createEditorStore() {
    * the document, and the marker names the program.
    */
   function applyExternalContent(id: string, text: string, writer?: VersionWriter | null) {
-    const view = activeView;
+    const shown = viewOfNote(id);
     const program = programName(writer);
-    if (view && currentBufferId() === id) {
-      applyExternalDocument(view, text, program);
-      setLineCount(view.state.doc.lines);
-      noteOpened(id, view.state.doc, true);
+    if (shown) {
+      // The other pane's editor of the note takes the same change, mirrored.
+      applyExternalDocument(shown.view, text, program);
+      shown.slot.setLineCount(shown.view.state.doc.lines);
+      noteOpened(id, shown.view.state.doc, true);
     } else {
+      updateKeptStates(id, text, program);
       noteOpened(id, null, true);
     }
     // The note now holds what its file holds, so whatever was being asked
@@ -861,8 +936,8 @@ export function createEditorStore() {
     const record = noteHashes().get(id);
     if (record === undefined || record.openInFlight === true) return;
     if (record.comparedGeneration === record.docGeneration) return;
-    const note = viewed;
-    if (note === null || note.id !== id || note.saved === null) return;
+    const note = viewed.get(id);
+    if (note === undefined || note.saved === null) return;
     patchHashes(id, {
       comparedGeneration: record.docGeneration,
       matchesFile: sameDocument(note.doc, note.saved),
@@ -903,8 +978,8 @@ export function createEditorStore() {
       next.set(id, { ...FRESH, openTicket: ticket, openInFlight: true });
       return next;
     });
-    if (opened !== null) viewed = { id, doc: opened, saved: null, opened };
-    else if (viewed?.id === id) viewed = null;
+    if (opened !== null) viewed.set(id, { id, doc: opened, saved: null, opened });
+    else viewed.delete(id);
     void (async () => {
       // Every exit below is guarded, not only the one that fills the record.
       // A superseded call that dropped its record instead would take the
@@ -956,8 +1031,8 @@ export function createEditorStore() {
       if (record.comparedGeneration !== record.docGeneration) scheduleCompare(id);
       return;
     }
-    const note = viewed;
-    if (fileHoldsOpened && opened !== null && note !== null && note.id === id && note.opened === opened) {
+    const note = viewed.get(id);
+    if (fileHoldsOpened && opened !== null && note !== undefined && note.opened === opened) {
       note.saved = opened;
     }
     const unedited = record.docGeneration === 0;
@@ -987,8 +1062,9 @@ export function createEditorStore() {
     currentTextWrites.get(id)?.clear();
     currentHolds.delete(id);
     patchHashes(id, { docGeneration: hashesOf(id).docGeneration + 1 });
-    if (viewed !== null && viewed.id === id) viewed.doc = doc;
-    else viewed = { id, doc, saved: null, opened: doc };
+    const note = viewed.get(id);
+    if (note !== undefined) note.doc = doc;
+    else viewed.set(id, { id, doc, saved: null, opened: doc });
     scheduleCompare(id);
   }
 
@@ -1027,8 +1103,8 @@ export function createEditorStore() {
     const record = hashesOf(id);
     const newest = write?.current === true || carriesCurrentText(id, write?.generation);
     let matches: boolean | null;
-    const note = viewed;
-    if (note !== null && note.id === id) {
+    const note = viewed.get(id);
+    if (note !== undefined) {
       const written =
         write === undefined
           ? null
@@ -1064,8 +1140,11 @@ export function createEditorStore() {
     forgetFileState(id);
     clearUpdatedFromDisk(id);
     forgetLandedText(id);
-    if (tierOffer()?.bufferId === id) setTierOffer(null);
-    if (viewed?.id === id) viewed = null;
+    for (const slot of PANE_IDS.map((pane) => slots[pane])) {
+      if (slot.tierOffer()?.bufferId === id) slot.setTierOffer(null);
+      tabStates.delete(stateKey(slot.pane, id));
+    }
+    viewed.delete(id);
     for (const listener of closeListeners) listener(id);
   }
 
@@ -1128,37 +1207,109 @@ export function createEditorStore() {
   // every save path remember to report back.
   const stopSaveListener = onAutosaveSuccess(noteSaved);
 
-  let activeView: EditorView | null = null;
+  // A new view holds no note until its open says which. The note the pane
+  // held before keeps its document only while the other pane shows it.
+  function registerView(slot: PaneSlot, view: EditorView | null) {
+    slot.view = view;
+    const shownElsewhere = new Set(
+      PANE_IDS.filter((pane) => pane !== slot.pane).map((pane) => slots[pane].currentBufferId()),
+    );
+    for (const id of [...viewed.keys()]) {
+      if (!shownElsewhere.has(id)) viewed.delete(id);
+    }
+    slot.setDocVersion((version) => version + 1);
+  }
 
-  // A new view holds no note until its open says which.
-  function registerView(view: EditorView | null) {
-    activeView = view;
-    viewed = null;
-    setDocVersion((version) => version + 1);
+  /**
+   * The document another pane's view holds of note `id`, for a pane opening
+   * the same note: it starts from that document rather than the file
+   * (ADR-056).
+   */
+  function liveDocElsewhere(slot: PaneSlot, id: string): Text | null {
+    for (const pane of PANE_IDS) {
+      if (pane === slot.pane) continue;
+      const other = slots[pane];
+      if (other.view !== null && other.currentBufferId() === id) return other.view.state.doc;
+    }
+    return null;
+  }
+
+  /**
+   * Marks `slot`'s editor as reading note `id` from disk, and answers the call
+   * that ends the read. The other pane opening the note meanwhile waits for it
+   * and starts from this pane's document, so a note shown in both panes is
+   * read once (ADR-056).
+   */
+  function beginRead(slot: PaneSlot, id: string): () => void {
+    slot.reading?.end();
+    let resolve!: () => void;
+    const done = new Promise<void>((settle) => {
+      resolve = settle;
+    });
+    const read: NoteRead = {
+      id,
+      done,
+      end: () => {
+        if (slot.reading === read) slot.reading = null;
+        resolve();
+      },
+    };
+    slot.reading = read;
+    return read.end;
+  }
+
+  /** The other pane's read of note `id` in flight, which ends once its view shows the note or the read fails. */
+  function readElsewhere(slot: PaneSlot, id: string): Promise<void> | null {
+    for (const pane of PANE_IDS) {
+      if (pane === slot.pane) continue;
+      const read = slots[pane].reading;
+      if (read !== null && read.id === id) return read.done;
+    }
+    return null;
+  }
+
+  /**
+   * A pane opening a note the other pane already shows takes that note's
+   * record as it stands, and keeps a document to compare from when the
+   * other pane let go of its own.
+   */
+  function noteShownTwice(id: string, doc: Text) {
+    if (!viewed.has(id)) viewed.set(id, { id, doc, saved: null, opened: doc });
+  }
+
+  /**
+   * Carries a change made in `slot`'s view of note `id` to the other pane:
+   * into its view when it shows the note, else into the state it keeps for
+   * the note. A document that does not line up with the change is not
+   * touched: its kept state is dropped and opens from the file.
+   */
+  function mirrorChanges(slot: PaneSlot, id: string, startLength: number, spec: TransactionSpec) {
+    for (const pane of PANE_IDS) {
+      if (pane === slot.pane) continue;
+      const other = slots[pane];
+      if (other.view !== null && other.currentBufferId() === id) {
+        if (other.view.state.doc.length === startLength) other.view.dispatch(spec);
+        else logFailure("a file open in both panes no longer matched in one of them");
+        continue;
+      }
+      const key = stateKey(pane, id);
+      const kept = tabStates.peek(key);
+      if (kept === undefined) continue;
+      if (kept.state.doc.length === startLength) tabStates.update(key, kept.state.update(spec).state);
+      else tabStates.delete(key);
+    }
   }
 
   /** The document in the view, for a reader doing its work after a change. */
-  function liveDoc(): Text | null {
-    return activeView?.state.doc ?? null;
-  }
-
-  /** Says the document in the view changed. */
-  function noteDocChanged() {
-    setDocVersion((version) => version + 1);
-  }
-
-  function getView(): EditorView | null {
-    return activeView;
-  }
-
-  function focusEditor() {
-    activeView?.focus();
+  function liveDoc(slot: PaneSlot): Text | null {
+    return slot.view?.state.doc ?? null;
   }
 
   function getActiveText(
+    slot: PaneSlot,
     useSelectionIfPresent: boolean,
   ): { text: string; usedSelection: boolean } | null {
-    const view = activeView;
+    const view = slot.view;
     if (!view) return null;
     const main = view.state.selection.main;
     const useSelection = useSelectionIfPresent && !main.empty;
@@ -1174,9 +1325,10 @@ export function createEditorStore() {
   // otherwise the whole document. Returns the char offsets so the range can be
   // anchored and mapped through later edits.
   function getSelectionRange(
+    slot: PaneSlot,
     useSelectionIfPresent: boolean,
   ): { from: number; to: number; text: string; usedSelection: boolean } | null {
-    const view = activeView;
+    const view = slot.view;
     if (!view) return null;
     const main = view.state.selection.main;
     const usedSelection = useSelectionIfPresent && !main.empty;
@@ -1193,8 +1345,8 @@ export function createEditorStore() {
   // Replaces an anchored range in a single dispatch (one undo step), selects
   // the inserted text, and refocuses. Offsets are clamped so a stale anchor can
   // never dispatch out of bounds.
-  function replaceRange(from: number, to: number, insert: string): boolean {
-    const view = activeView;
+  function replaceRange(slot: PaneSlot, from: number, to: number, insert: string): boolean {
+    const view = slot.view;
     if (!view) return false;
     const docLen = view.state.doc.length;
     const clampedFrom = Math.max(0, Math.min(from, docLen));
@@ -1211,9 +1363,10 @@ export function createEditorStore() {
   }
 
   async function applyEditToActiveBuffer(
+    slot: PaneSlot,
     options: ApplyEditOptions,
   ): Promise<ApplyEditResult> {
-    const view = activeView;
+    const view = slot.view;
     if (!view) return { applied: false, reason: "no-active-view" };
 
     if (view.state.readOnly) return { applied: false, reason: "read-only" };
@@ -1277,17 +1430,17 @@ export function createEditorStore() {
   }
 
   /** Offers `change` from the chip, or withdraws the offer with null. */
-  function offerTier(change: TierChange | null) {
-    const current = tierOffer();
+  function offerTier(slot: PaneSlot, change: TierChange | null) {
+    const current = slot.tierOffer();
     if (change === null ? current === null : current?.bufferId === change.bufferId && current.mode.kind === change.mode.kind) return;
-    setTierOffer(change);
+    slot.setTierOffer(change);
   }
 
-  /** Takes the offered tier: the editor moves the note in front to it. */
-  function acceptTierOffer() {
-    const offer = tierOffer();
+  /** Takes the offered tier: every editor holding the note moves it there. */
+  function acceptTierOffer(slot: PaneSlot) {
+    const offer = slot.tierOffer();
     if (offer === null) return;
-    setTierOffer(null);
+    slot.setTierOffer(null);
     setTierSwitch({ ...offer, seq: ++tierSeq });
   }
 
@@ -1322,10 +1475,70 @@ export function createEditorStore() {
     forgetLandedText(id);
   }
 
-  // The large tiers save by sending their changes (ADR-022). Only the note in
-  // front has a tier here, and only its view schedules saves through this.
+  // The editor states of the open tabs behind the one in front in each pane
+  // (EP-06), under one budget (ADR-022). A state dropped to keep within it lets
+  // go of the document its note's last write landed with too, once no editor
+  // holds that note any more.
+  const tabStates = new TabStateCache(undefined, (key) => {
+    const id = noteOfStateKey(key);
+    if (viewOfNote(id) !== null) return;
+    if (PANE_IDS.some((pane) => tabStates.has(stateKey(pane, id)))) return;
+    releaseDocument(id);
+  });
+
+  /**
+   * Takes a file's new text into every state a pane keeps for note `id`, as
+   * one change that can be undone, so switching back keeps the tab's history.
+   * A program's text is marked there too, and shows when the tab is switched
+   * to.
+   */
+  function updateKeptStates(id: string, content: string, program: string | null = null) {
+    for (const pane of PANE_IDS) {
+      const key = stateKey(pane, id);
+      const kept = tabStates.peek(key);
+      if (kept === undefined) continue;
+      const before = kept.state.doc.toString();
+      const after = content.indexOf("\r") === -1 ? content : content.replace(/\r\n?/g, "\n");
+      if (before === after) continue;
+      tabStates.update(key, kept.state.update(reloadTransactionSpec(smallestChange(before, after), program)).state);
+    }
+  }
+
+  /**
+   * Hands what pane `from` holds of note `id` to pane `to`: the live editor's
+   * state when `from` shows the note, else the state it keeps. The state was
+   * built by the other pane's editor, which `foreign` tells the taker.
+   */
+  function moveTabState(from: PaneId, to: PaneId, id: string) {
+    const source = slots[from];
+    let entry: TabState | undefined;
+    if (source.view !== null && source.currentBufferId() === id) {
+      entry = {
+        state: source.view.state,
+        scroll: null,
+        mode: source.largeFileMode() ?? NORMAL_MODE,
+        longest: source.longestLine(),
+      };
+    } else {
+      entry = tabStates.take(stateKey(from, id));
+    }
+    if (entry === undefined) return;
+    const target = slots[to];
+    if (target.view !== null && target.currentBufferId() === id) return;
+    tabStates.put(stateKey(to, id), { ...entry, scroll: null, foreign: true });
+  }
+
+  /** Drops the state pane `pane` keeps for note `id`. */
+  function dropTabState(pane: PaneId, id: string) {
+    tabStates.delete(stateKey(pane, id));
+  }
+
+  // The large tiers save by sending their changes (ADR-022). Only a note in
+  // front of a pane has a tier here, and only its view schedules saves
+  // through this.
   function changeEncoderFor(bufferId: string): ChangeEncoder | undefined {
-    return bufferId === currentBufferId() && savesAsChanges(largeFileMode())
+    const shown = viewOfNote(bufferId);
+    return shown !== null && savesAsChanges(shown.slot.largeFileMode())
       ? encodeChangesSince
       : undefined;
   }
@@ -1393,19 +1606,11 @@ export function createEditorStore() {
     return peekUnsavedContent(id);
   }
 
-  // The note in front whose file could not be read; the editor shows the
-  // reason in place of a document. Every load reads the file again.
-  const [readFailure, setReadFailure] = createSignal<ReadFailure | null>(null);
-
   /** Records that the load of `bufferId` could not read its file. */
-  function failRead(bufferId: string, error: unknown): ReadFailure {
+  function failRead(slot: PaneSlot, bufferId: string, error: unknown): ReadFailure {
     const failure = readFailureOf(bufferId, error);
-    setReadFailure(failure);
+    slot.setReadFailure(failure);
     return failure;
-  }
-
-  function clearReadFailure() {
-    setReadFailure(null);
   }
 
   // The explicit save. Writes the live document of the loaded buffer even when
@@ -1417,9 +1622,9 @@ export function createEditorStore() {
   // stays silent for it, but the save keystroke is the person asking, and
   // answering it with nothing at all would be the tab keeping quiet about the
   // one thing it is showing a bar for.
-  function saveActiveBuffer(): Promise<SaveResult> {
-    const bufferId = currentBufferId();
-    const view = activeView;
+  function saveActiveBuffer(slot: PaneSlot): Promise<SaveResult> {
+    const bufferId = slot.currentBufferId();
+    const view = slot.view;
     if (bufferId === null || view === null)
       return Promise.resolve(NOTHING_TO_SAVE);
     // The bar is what "save it" means for a note whose file changed: it is
@@ -1432,7 +1637,7 @@ export function createEditorStore() {
       askForChangeAnswer(bufferId);
       return Promise.resolve(NOTHING_TO_SAVE);
     }
-    if (largeFileMode()?.kind === "Binary")
+    if (slot.largeFileMode()?.kind === "Binary")
       return Promise.resolve(NOTHING_TO_SAVE);
     if (isRemovedOnDisk(bufferId)) return restoreRemovedFile(bufferId);
     saveStatusStore.noteRequestedSave(bufferId);
@@ -1484,67 +1689,133 @@ export function createEditorStore() {
     return detectFromContentService(doc.sliceString(0, MAX_DETECT_BYTES));
   }
 
+  /**
+   * The store as seen from one pane: everything per note is the same, and
+   * what is read off the editor (`getView`, `currentBufferId`, the cursor, the
+   * tier in front, `readFailure`) is that pane's.
+   */
+  function scoped(slotOf: () => PaneSlot) {
+    return {
+      cursorLine: () => slotOf().cursorLine(),
+      setCursorLine: (line: number) => slotOf().setCursorLine(line),
+      cursorCol: () => slotOf().cursorCol(),
+      setCursorCol: (col: number) => slotOf().setCursorCol(col),
+      lineCount: () => slotOf().lineCount(),
+      setLineCount: (count: number) => slotOf().setLineCount(count),
+      language: () => slotOf().language(),
+      setLanguage: (lang: string | null) => slotOf().setLanguage(lang),
+      selectionCount: () => slotOf().selectionCount(),
+      setSelectionCount: (count: number) => slotOf().setSelectionCount(count),
+      docVersion: () => slotOf().docVersion(),
+      noteDocChanged: () => slotOf().setDocVersion((version) => version + 1),
+      liveDoc: () => liveDoc(slotOf()),
+      currentBufferId: () => slotOf().currentBufferId(),
+      setCurrentBufferId: (id: string | null) => slotOf().setCurrentBufferId(id),
+      externalReload, requestExternalReload,
+      pendingReveal, requestReveal, clearReveal,
+      largeFileMode: () => slotOf().largeFileMode(),
+      setLargeFileMode: (mode: FileOpenMode | null) => slotOf().setLargeFileMode(mode),
+      longestLine: () => slotOf().longestLine(),
+      setLongestLine: (longest: number) => slotOf().setLongestLine(longest),
+      overridesOf, setOverride,
+      tierOf, recordTier,
+      tierOffer: () => slotOf().tierOffer(),
+      offerTier: (change: TierChange | null) => offerTier(slotOf(), change),
+      acceptTierOffer: () => acceptTierOffer(slotOf()),
+      tierSwitch,
+      rememberViewPosition, viewPositionOf, releaseDocument,
+      registerView: (view: EditorView | null) => registerView(slotOf(), view),
+      getView: (): EditorView | null => slotOf().view,
+      focusEditor: () => slotOf().view?.focus(),
+      getActiveText: (useSelectionIfPresent: boolean) => getActiveText(slotOf(), useSelectionIfPresent),
+      getSelectionRange: (useSelectionIfPresent: boolean) => getSelectionRange(slotOf(), useSelectionIfPresent),
+      replaceRange: (from: number, to: number, insert: string) => replaceRange(slotOf(), from, to, insert),
+      applyEditToActiveBuffer: (editOptions: ApplyEditOptions) => applyEditToActiveBuffer(slotOf(), editOptions),
+      scheduleAutosave,
+      cancelAutosave,
+      flushAutosave,
+      keepQueuedText,
+      unsavedTextOf,
+      readFailure: () => slotOf().readFailure(),
+      failRead: (bufferId: string, error: unknown) => failRead(slotOf(), bufferId, error),
+      clearReadFailure: () => slotOf().setReadFailure(null),
+      saveActiveBuffer: () => saveActiveBuffer(slotOf()),
+      savesAreHeld,
+      retrySave,
+      readDiskState,
+      detectFromDocument,
+      noteOpened,
+      noteEdited,
+      noteSaved,
+      noteClosed,
+      onNoteClosed,
+      isDirty,
+      isTracked,
+      noteFileStates,
+      noteFileState,
+      recordFileEvent,
+      pendingChangeAnswer,
+      isRemovedOnDisk,
+      isFileChangedOnDisk,
+      markRemovedOnDisk,
+      unmadeFileOf,
+      clearRemovedOnDisk,
+      keepTextOfRemoved,
+      textOfRemoved,
+      liveTextOf,
+      restoreRemovedFile,
+      saveRemovedNoteTo,
+      updatedFromDisk,
+      isUpdatedFromDisk,
+      updatedFromDiskBy,
+      clearUpdatedFromDisk,
+      applyExternalContent,
+      lastKnownDiskHash,
+      stopSaveListener,
+      moveTabState,
+      dropTabState,
+      /** The pane whose editor registers the editor's commands: the left one while it is mounted. */
+      commandPane: (): PaneId | null =>
+        slots.left.mounted() ? "left" : slots.right.mounted() ? "right" : null,
+      /** Whether the focused pane's note takes the Markdown formatting commands. */
+      editsMarkdown: () => slotOf().editsMarkdown(),
+    };
+  }
+
+  /** What only an editor of one pane does: its own view, states and mirror. */
+  function paneOwn(slot: PaneSlot) {
+    return {
+      pane: slot.pane,
+      setMounted: (mounted: boolean) => slot.setMounted(mounted),
+      setEditsMarkdown: (edits: boolean) => slot.setEditsMarkdown(edits),
+      liveDocElsewhere: (id: string) => liveDocElsewhere(slot, id),
+      beginRead: (id: string) => beginRead(slot, id),
+      readElsewhere: (id: string) => readElsewhere(slot, id),
+      /** Ends this pane's read, for an editor going away mid-read. */
+      endRead: () => slot.reading?.end(),
+      noteShownTwice,
+      mirrorChanges: (id: string, startLength: number, spec: TransactionSpec) =>
+        mirrorChanges(slot, id, startLength, spec),
+      keepTabState: (id: string, entry: TabState) => tabStates.put(stateKey(slot.pane, id), entry),
+      takeTabState: (id: string) => tabStates.take(stateKey(slot.pane, id)),
+      /** Lets go of every state this pane keeps, for an editor going away. */
+      clearTabStates: () => {
+        for (const id of tabStatesOf(slot.pane)) tabStates.delete(stateKey(slot.pane, id));
+      },
+      updateKeptStates,
+    };
+  }
+
+  function tabStatesOf(pane: PaneId): string[] {
+    const prefix = stateKey(pane, "");
+    return tabStates.keys().filter((key) => key.startsWith(prefix)).map(noteOfStateKey);
+  }
+
   return {
-    cursorLine, setCursorLine,
-    cursorCol, setCursorCol,
-    lineCount, setLineCount,
-    language, setLanguage,
-    selectionCount, setSelectionCount,
-    docVersion, noteDocChanged, liveDoc,
-    currentBufferId, setCurrentBufferId,
-    externalReload, requestExternalReload,
-    pendingReveal, requestReveal, clearReveal,
-    largeFileMode, setLargeFileMode,
-    longestLine, setLongestLine,
-    overridesOf, setOverride,
-    tierOf, recordTier,
-    tierOffer, offerTier, acceptTierOffer, tierSwitch,
-    rememberViewPosition, viewPositionOf, releaseDocument,
-    registerView, getView, focusEditor,
-    getActiveText,
-    getSelectionRange,
-    replaceRange,
-    applyEditToActiveBuffer,
-    scheduleAutosave,
-    cancelAutosave,
-    flushAutosave,
-    keepQueuedText,
-    unsavedTextOf,
-    readFailure,
-    failRead,
-    clearReadFailure,
-    saveActiveBuffer,
-    savesAreHeld,
-    retrySave,
-    readDiskState,
-    detectFromDocument,
-    noteOpened,
-    noteEdited,
-    noteSaved,
-    noteClosed,
-    onNoteClosed,
-    isDirty,
-    isTracked,
-    noteFileStates,
-    noteFileState,
-    recordFileEvent,
-    pendingChangeAnswer,
-    isRemovedOnDisk,
-    isFileChangedOnDisk,
-    markRemovedOnDisk,
-    unmadeFileOf,
-    clearRemovedOnDisk,
-    keepTextOfRemoved,
-    textOfRemoved,
-    liveTextOf,
-    restoreRemovedFile,
-    saveRemovedNoteTo,
-    updatedFromDisk,
-    isUpdatedFromDisk,
-    updatedFromDiskBy,
-    clearUpdatedFromDisk,
-    applyExternalContent,
-    lastKnownDiskHash,
-    stopSaveListener,
+    ...scoped(focusedSlot),
+    /** The store as pane `pane`'s editor reads and writes it. */
+    forPane: (pane: PaneId) => ({ ...scoped(() => slots[pane]), ...paneOwn(slots[pane]) }),
+    /** The kept states, for the tests that count them. */
+    keptStateCount: () => tabStates.keys().length,
   };
 }

@@ -30,26 +30,44 @@ import { formatRenameError } from "../../lib/save-error";
 import SaveMarker from "../SaveMarker/SaveMarker";
 import type { PendingDownload } from "../../stores/window/download-store";
 import { logFailure } from "../../lib/log";
+import type { PaneId } from "../../lib/pane-layout";
+import { draggedTab, dropPane, endTabDrag, moveTabDrag, registerStrip, startTabDrag } from "./tab-drag";
 import "./TabBar.css";
 
-// Module-level singleton — TabBar mounts only in the main window (detached
-// preview windows render no tabstrip per ADR-009). Editing state is the
-// single TabBar instance's local UI state, not per-window logical state.
-const [editingTabId, setEditingTabId] = createSignal<string | null>(null);
+// Singleton state — Writ is single-window. TabBar mounts only in the main
+// window (detached preview windows render no tabstrip per ADR-009), once per
+// pane. The tab being renamed, and the pane whose strip holds its field, is
+// the strips' local UI state, not per-window logical state.
+const [editing, setEditing] = createSignal<{ pane: PaneId; id: string } | null>(null);
 
 export function startRenameActiveTab() {
   const w = windowRegistry.getActive();
   if (!w) return;
   const id = w.tabs.activeTabId();
-  if (id) setEditingTabId(id);
+  if (id) setEditing({ pane: w.panes.focused(), id });
 }
 
-export default function TabBar() {
+interface Props {
+  /** The pane whose tabs the strip shows (ADR-056); the left one when not given. */
+  pane?: PaneId;
+}
+
+export default function TabBar(props: Props) {
   const win = useWindow();
   // Read per mount: the platform layer is written once at boot (ADR-030).
   const platform = resolvePlatform();
   const tabEls = new Map<string, HTMLButtonElement>();
-  const tabs = () => bufferRegistry.activeTabs();
+  const pane = (): PaneId => props.pane ?? "left";
+  const tabs = () => bufferRegistry.activeTabs().filter((tab) => win.panes.holds(pane(), tab.id));
+  const activeId = () => win.panes.activeIn(pane());
+  const editingTabId = () => {
+    const field = editing();
+    return field !== null && field.pane === pane() ? field.id : null;
+  };
+  const setEditingTabId = (id: string | null) => setEditing(id === null ? null : { pane: pane(), id });
+  // The downloads keep their tabs in the left pane's strip, where their pane shows.
+  const downloads = () => (pane() === "left" ? win.downloads.pending() : []);
+  let stripRef: HTMLDivElement | undefined;
 
   let listRef: HTMLDivElement | undefined;
   let overflowButton: HTMLButtonElement | undefined;
@@ -57,7 +75,7 @@ export default function TabBar() {
   const folderHints = createMemo(() => tabFolderHints(tabs()));
 
   createEffect(() => {
-    const id = win.tabs.activeTabId();
+    const id = activeId();
     if (!id) return;
     const el = tabEls.get(id);
     if (!el) return;
@@ -79,6 +97,7 @@ export default function TabBar() {
   }
 
   onMount(() => {
+    if (stripRef) onCleanup(registerStrip(pane(), stripRef));
     measureClip();
     if (!listRef || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => measureClip());
@@ -89,7 +108,7 @@ export default function TabBar() {
   createEffect(() => {
     tabs();
     folderHints();
-    win.downloads.pending();
+    downloads();
     const frame = requestAnimationFrame(measureClip);
     onCleanup(() => cancelAnimationFrame(frame));
   });
@@ -116,17 +135,17 @@ export default function TabBar() {
   function openOverflowMenu() {
     if (!overflowButton) return;
     const hints = folderHints();
-    const active = win.tabs.activeTabId();
+    const active = activeId();
     const items: MenuItem[] = tabs().map((tab) => {
       const hint = hints.get(tab.id);
       return {
         label: hint ? `${shownName(tab.title)} · ${hint}` : shownName(tab.title),
         checked: tab.id === active,
         marker: markerOf(tab.id),
-        action: () => win.tabs.setActiveTabId(tab.id),
+        action: () => win.tabs.selectIn(pane(), tab.id),
       };
     });
-    for (const download of win.downloads.pending()) {
+    for (const download of downloads()) {
       items.push({
         label: `${shownName(download.title)} · ${markerFor(download.state)}`,
         checked: win.downloads.selectedPath() === download.path,
@@ -169,7 +188,7 @@ export default function TabBar() {
   // active tab behind its pane.
   function selectDownload(path: string) {
     win.downloads.select(path);
-    win.tabs.setActiveTabId(null);
+    win.tabs.showDownloadPane();
   }
 
   // Text, not an animation: a download reports nothing Writ could animate
@@ -208,12 +227,19 @@ export default function TabBar() {
         danger: true,
       },
       {
-        label: "Close tab",
-        kbd: commandChord("buffer.close"),
-        action: () => void win.tabs.closeTab(tabId),
+        label: "Move to other pane",
+        kbd: commandChord("pane.moveTab"),
+        action: () => win.tabs.moveToOtherPane(tabId, pane()),
+        disabled: !win.panes.isSplit() && tabs().length < 2,
         separator: true,
       },
-      { label: "Close other tabs", action: () => void win.tabs.closeOtherTabs(tabId) },
+      {
+        label: "Close tab",
+        kbd: commandChord("buffer.close"),
+        action: () => void win.tabs.closeTab(tabId, pane()),
+        separator: true,
+      },
+      { label: "Close other tabs", action: () => void win.tabs.closeOtherTabs(tabId, pane()) },
       {
         label: "Reopen closed tab",
         kbd: commandChord("history.restoreLast"),
@@ -235,7 +261,7 @@ export default function TabBar() {
     e.preventDefault();
     const from = ids.indexOf(tabId);
     const next = ids[(Math.max(from, 0) + step + ids.length) % ids.length];
-    win.tabs.setActiveTabId(next);
+    win.tabs.selectIn(pane(), next);
     tabEls.get(next)?.focus();
   }
 
@@ -247,7 +273,7 @@ export default function TabBar() {
     const ids = tabs().map((tab) => tab.id);
     const index = ids.indexOf(tabId);
     const successor = ids[index + 1] ?? ids[index - 1];
-    await win.tabs.closeTab(tabId);
+    await win.tabs.closeTab(tabId, pane());
     const remaining = tabs();
     // A refused close keeps the note open: focus stays on the tab holding it.
     if (remaining.some((tab) => tab.id === tabId)) {
@@ -261,8 +287,57 @@ export default function TabBar() {
     tabEls.get(successor)?.focus();
   }
 
+  // A tab dragged onto the other pane's strip moves there (ADR-056). The
+  // drag starts once the pointer has travelled, so a click stays a click.
+  let dragFrom: { id: string; x: number; y: number; pointer: number } | null = null;
+  let suppressClick = false;
+
+  function onTabPointerDown(e: PointerEvent, tabId: string) {
+    suppressClick = false;
+    if (e.button !== 0 || editingTabId() === tabId) return;
+    dragFrom = { id: tabId, x: e.clientX, y: e.clientY, pointer: e.pointerId };
+  }
+
+  function onTabPointerMove(e: PointerEvent) {
+    if (!dragFrom || e.pointerId !== dragFrom.pointer) return;
+    if (draggedTab() === null) {
+      if (!win.panes.isSplit() || Math.hypot(e.clientX - dragFrom.x, e.clientY - dragFrom.y) < 6) return;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      startTabDrag(dragFrom.id, pane());
+    }
+    moveTabDrag(e.clientX, e.clientY);
+  }
+
+  function onTabPointerUp(e: PointerEvent) {
+    if (!dragFrom || e.pointerId !== dragFrom.pointer) return;
+    const id = dragFrom.id;
+    dragFrom = null;
+    if (draggedTab() === null) return;
+    suppressClick = true;
+    const target = endTabDrag(e.clientX, e.clientY);
+    if (target !== null && target !== pane()) win.tabs.moveToOtherPane(id, pane());
+  }
+
+  function onTabPointerCancel() {
+    dragFrom = null;
+    if (draggedTab() !== null) endTabDrag(null, null);
+  }
+
+  function onTabClick(tabId: string) {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
+    win.tabs.selectIn(pane(), tabId);
+  }
+
   return (
-    <div class="tabbar" data-platform={platform}>
+    <div
+      ref={stripRef}
+      class="tabbar"
+      classList={{ "is-drop-target": dropPane() === pane() && draggedTab()?.from !== pane() }}
+      data-platform={platform}
+    >
       {/* The tablist owns its tabs: the anchor and the slot around each one
           are out of the accessibility tree, and the add control is a sibling
           of the list rather than a stray child of it. */}
@@ -277,7 +352,7 @@ export default function TabBar() {
       >
         <For each={tabs()}>
           {(tab) => {
-            const isActive = () => win.tabs.activeTabId() === tab.id;
+            const isActive = () => activeId() === tab.id;
             const isEditing = () => editingTabId() === tab.id;
             const isRemoved = () => win.editor.isRemovedOnDisk(tab.id);
             const hint = () => folderHints().get(tab.id);
@@ -318,7 +393,12 @@ export default function TabBar() {
                       aria-selected={isActive()}
                       aria-label={accessibleName()}
                       tabIndex={isActive() ? 0 : -1}
-                      onClick={() => win.tabs.setActiveTabId(tab.id)}
+                      classList={{ "is-dragged": draggedTab()?.id === tab.id && draggedTab()?.from === pane() }}
+                      onClick={() => onTabClick(tab.id)}
+                      onPointerDown={(e) => onTabPointerDown(e, tab.id)}
+                      onPointerMove={onTabPointerMove}
+                      onPointerUp={onTabPointerUp}
+                      onPointerCancel={onTabPointerCancel}
                       onDblClick={(e) => { e.stopPropagation(); setEditingTabId(tab.id); }}
                     >
                       <span class="tab-title">{shownName(tab.title)}</span>
@@ -354,7 +434,7 @@ export default function TabBar() {
                     class="tab-close"
                     aria-label={`Close ${tab.title}`}
                     tabIndex={isActive() ? 0 : -1}
-                    onClick={(e) => { e.stopPropagation(); void win.tabs.closeTab(tab.id); }}
+                    onClick={(e) => { e.stopPropagation(); void win.tabs.closeTab(tab.id, pane()); }}
                     onKeyDown={(e) => {
                       if (e.key !== "Enter" && e.key !== " ") return;
                       e.preventDefault();
@@ -369,7 +449,7 @@ export default function TabBar() {
             );
           }}
         </For>
-        <For each={win.downloads.pending()}>
+        <For each={downloads()}>
           {(download) => {
             const isSelected = () => win.downloads.selectedPath() === download.path;
             const dismissLabel = () =>
@@ -432,7 +512,10 @@ export default function TabBar() {
           type="button"
           class="tab-add"
           aria-label="New file"
-          onClick={() => void win.tabs.newNote()}
+          onClick={() => {
+            win.panes.focus(pane());
+            void win.tabs.newNote();
+          }}
         >
           <Icon name="plus" size={16} />
         </button>

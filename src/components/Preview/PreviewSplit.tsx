@@ -9,6 +9,8 @@ interface Props {
   onResize: (ratio: number) => void;
   /** Persist the current ratio (drag end / keyboard commit). */
   onCommit: () => void;
+  /** What the handle resizes, for assistive tech; the preview split's when not given. */
+  label?: string;
 }
 
 const MIN_RATIO = 0.15;
@@ -64,7 +66,7 @@ export default function PreviewSplit(props: Props) {
       aria-valuenow={Math.round(props.ratio * 100)}
       aria-valuemin={Math.round(MIN_RATIO * 100)}
       aria-valuemax={Math.round(MAX_RATIO * 100)}
-      aria-label="Resize preview split"
+      aria-label={props.label ?? "Resize preview split"}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
