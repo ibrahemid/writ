@@ -4,6 +4,129 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-10-15
+
+Files in other text encodings open and save in their own encoding, a capture window adds a line to Today's File from any app, and Rewrite can run on Apple Intelligence on macOS 26 or on a model elsewhere on the local network. Chat edits, renames and moves to the Trash can be undone, Settings has eight sections with a sentence under every row, a second launch brings the running window forward, and reading and saving files no longer hold up the window.
+
+### Added
+
+- Cmd+Shift+Option+Space (Ctrl+Shift+Alt+Space on Windows and Linux) opens a small note over any app; Escape adds what was typed to the end of Today's File, and on macOS and Windows the app you were in gets the keyboard back.
+- Open at login in Settings, General starts Writ hidden when you log in.
+- A file in another text encoding, such as Windows-1252, Shift JIS, GBK or UTF-16, opens as text and saves back in that encoding, and a save that would lose a character the encoding cannot hold is refused with the character named. The encoding in the status bar reopens the file in another one.
+- On macOS 26, Rewrite can run on Apple Intelligence on the device with no key, listed under Built into macOS; Chat asks for another provider while it is chosen.
+- llama.cpp and Jan join Ollama and LM Studio as runtimes on this machine, and Settings shows which of them is running.
+- An OpenAI-compatible server at a private network address over `http`, such as Ollama on another computer, works once you allow that host in a sheet that names it and the local network; a saved key goes over `https` only.
+- Chat's first-use card offers a runtime it finds running, as in Use Ollama, with a model picker and a key field.
+- Apply on a chat proposal for a file in the notes folder offers Undo, on the card and in a toast, which puts the file back as it was.
+- Rewrite marks the words it changed, and Cmd+Enter applies the result or, after a failure, tries again.
+- Rename with Update links, Move to Trash, Close all and Clear Recent offer Undo in their toast; Undo after a rename restores the name and every link it rewrote.
+- Versions compares a version with the current text, offers Undo after Restore, saves a version as a new file, and says why a file has none, as in "Files over 2 MB are not versioned."
+- With no file open, the window lists New file, Open file…, Today's file, Open file by name and Command palette with their shortcuts, then recent files; the arrow keys and Enter run them.
+- An empty new file shows a placeholder for its file type until the first key.
+- Hovering a link names the click that opens it, or that creates the file when it does not exist yet.
+- With spell check on, the status bar shows how many words are flagged, and the count opens the review.
+- Tabs that do not fit fade at the edge, scroll with the wheel and list in a menu with their unsaved marks, and tabs with the same file name add the shortest folder that tells them apart, as in README api and README web.
+- The large-file chip opens a menu with Wrap lines and Highlight syntax for that file, and a paste that takes a file past 5 MB offers Use large-file mode.
+- An HTML file over the preview's size limit shows its size in the Preview pane with Switch to Source.
+- A picture in the editor that is not downloaded from iCloud stays in the cloud and shows "not downloaded" with Download.
+- The Help menu holds Command Palette…, Writ Help, Keyboard Shortcuts, What's New, Show Setup Again and Report an Issue, which opens the bug form with the version filled in.
+- File has Open Folder… (Cmd+Option+O), Reopen Closed Tab (Cmd+Shift+T) and F2 for Rename File…; Edit has Search Everywhere…, the Transform actions and Copy as Prompt; View has Next Tab, Previous Tab and the editor font size items.
+- On macOS, the Writ menu has Hide Writ, Hide Others and Show All, and the Window menu has Minimize, Zoom and Bring All to Front.
+- The right-click menu on a selection lists the Transform actions, and Copy as prompt sits beside Copy.
+- Copy files as prompt, in the palette, copies the file in front with the files it links to, its folder's files or a tag's files as one prompt, with a token estimate per file and in all, up to 100 files and 4 MB.
+- Typing a file's name in the command palette lists the file under the commands, and both palettes list their prefixes along the bottom.
+- The sidebar's search field searches Writ's folder and a folder opened with Open Folder, with each folder's matches under its name; typing opens the sidebar on the results, the arrow keys walk them, Enter opens one at its line, and Escape clears the field and returns to the file.
+- The graph opens from a toolbar button or Cmd+Option+G (Ctrl+Alt+G on Windows and Linux), with a legend, Enter or a double-click to open a file, and trackpad pan and pinch zoom.
+- Each app's row and setup card in Settings, Apps lists where the app lives, with Open while it is on; an off app's shortcut opens its row, and an app switched on opens once when Settings closes.
+- A Markdown file with links or tags offers Connections or Tags once while they are off, as a notice with Turn on; Offer apps that are off in Settings, Apps stops these notices.
+- On Windows the MSI puts `writ.exe` on PATH, and on Linux the AppImage installs the `writ` command into `~/.local/bin`.
+- On Linux, an AI key is kept in the Secret Service (GNOME Keyring or KWallet), and for the session only when no Secret Service answers.
+- A Writ installed by a package manager announces a new version with "Update with your package manager." and no Install button, and a Writ left running checks for updates every 24 hours while automatic checks are on.
+- When Writ cannot start, a dialog names the step that failed, and a crash leaves a report in the logs folder with the code location and none of your text.
+- A first load that fails shows an error screen with Try again.
+- On Windows and Linux, the close button's tooltip says Writ keeps running and which shortcut brings it back.
+- A Settings search with no match offers Search everywhere with the same words.
+- `writ search`, `cat`, `ls`, `append`, `today` and `open` work from any terminal or agent, with `--json` and exit codes 0, 1 and 2; `writ --wait` returns when the tab closes, so it serves as a git or shell editor; `writ Plan.md:12` opens at the line; `--no-open` writes without a window.
+- Settings, Integrations has a card for Claude Code, Codex, Cursor, VS Code, Claude Desktop, Gemini CLI, LM Studio and any other client: Add connects Writ through the client's own command, a link or a bundle, Test reports the tool count, and the first call is approved in place. Writ never edits another app's config file.
+- `writ://open?path=Plan.md&line=12` and `writ://new?name=…` links open a file at a line or start a new tab from a browser or another app; they never write.
+- Programs can append to a file, replace one passage, reach today's file and open a file in Writ, and read an index of the folder.
+- A program granted Open file can read the file and selection open in the window and point the window at a heading; every such read is listed in Program activity.
+- A program's edit to an open file lands in the tab as one marked change that keeps the caret and undo, the status bar says who changed it, and each version names its writer. A per-program Ask first setting shows every write as a diff to apply or discard.
+- Two panes side by side show two files, or the same file twice, each with its own cursor and scroll. Split right (Cmd+Shift+2), Close split (Cmd+Shift+1), Focus other pane (F6) and Move tab to other pane (Cmd+Shift+M) in the View menu; a tab can be dragged to the other strip; the split, the divider and each pane's front tab come back after a relaunch.
+- Pipe tables, display math and `mermaid` fences draw in place in a Markdown file in Inline, and show their source while the selection touches them. Math is typeset off the page thread; a diagram's styling comes from the theme, never from the file.
+- Headings fold from a chevron in the margin and code from the gutter, with Cmd+Option+[ and ] (Ctrl+Shift+[ and ] on Windows and Linux) at the cursor; folds survive Inline, Source and a tab switch.
+- Settings, Editor, Reading width holds prose to a reading measure; code keeps the pane's width.
+
+### Changed
+
+- Settings has eight sections: General, Appearance, Editor, Preview, Shortcuts, Apps, Integrations and About. Folder and Default format are under General, Markdown opens in is under Editor, the watched folder, the `writ` command and default apps are under Integrations, updates are under About, and the AI connection is on the Chat and Rewrite pages under Apps.
+- Every Settings row has one sentence under it, rows that change how text looks show a sample, and Help, Keyboard Shortcuts opens Settings, Shortcuts; closing Settings with unsaved shortcut changes asks "Discard your changes?".
+- Messages across the app say what happened in one voice, and raw system error text no longer reaches them.
+- Each tab keeps its undo history, selection and scroll when you switch away and back, and a reopened file returns to its cursor and scroll position.
+- `[[` suggestions list open and recent files first, then the files in the current file's folder.
+- Typing no longer shows autosave in the status bar, and Cmd+S shows "Saved"; a failed autosave tries again with growing waits.
+- Error toasts stay until dismissed, and a toast with an action stays for 8 seconds.
+- Menus, tooltips and the Windows and Linux menus show each command's current shortcut, and recording a chord the macOS menu bar uses, such as Cmd+Q, names the conflict.
+- Show and hide Writ needs Cmd, Ctrl or Alt in its chord, with F13 to F24 allowed alone; a chord another app holds is named in the shortcut editor and the title bar, and a Wayland session shows the shortcut as unsupported.
+- A transform acts on the selection, keeps text typed elsewhere in the file while it runs, and stops with a message when an edit touches the text it acts on.
+- In the command palette, `#` and `:` act only as prefixes, and file names typed with no prefix list at most five files.
+- The file tree draws only the rows on screen and is one Tab stop, with the arrow keys, Home, End and type-ahead; folders stay open across launches, and right-click on any row shows it in Finder or copies its path.
+- Opening a second copy of Writ brings the running window forward, and `writ <file>` opens the file there.
+- Search skips files not downloaded from iCloud and says how many, as in "1 file not downloaded, not searched", and renaming such a file no longer downloads it.
+- An opened folder's watcher skips build and package folders, caps how many changes reach the window, and checks a network share by size and modification time without reading its files, so installing packages into an opened folder no longer stalls the window.
+- Reading a large file, installing the `writ` command and database upkeep at launch no longer hold up the window, and saves, reads and renames of one file keep the order they began in.
+- Spell check uses SCOWL dictionaries for each English variant and still accepts the words 0.6.0 did, such as configs and backends; Fix all pre-selects only mechanical fixes and spellings with a single suggestion one edit away.
+- A Markdown file name turns `#`, `[`, `]` and `^`, which break links, into spaces, as in `C notes.md` for "C# notes".
+- The token estimate counts Chinese, Japanese and Korean text as one token a character and Arabic as half.
+- Moving the notes folder to another disk copies it into a staging folder, syncs it, renames it into place and then removes the old one, and a folder holding a file not downloaded from iCloud is refused before anything is copied.
+- The Versions, Activity and Chat panels show a failure line with Try again.
+- The `writ` command takes subcommands and exits with 2 on a usage error, and piped text with no title is named `writ-<yymmdd>-<hhmm>` and lands with LF line endings.
+- A copy of Writ opened from Downloads on macOS asks to be moved to Applications before it installs the `writ` command, and connected programs are handed the installed command's path.
+- Connected programs get paths relative to the folder, page through `list_notes` and `search_notes` with `next_cursor`, and receive lists and search hits as objects with structured content, so a client that parsed the old arrays needs an update.
+- Allowing a program to write asks for confirmation in a system dialog, and a link in a chat reply shows its full address with Open and Cancel before the browser opens it.
+- A crash in a renderer or the preview no longer closes the app, and the logs keep 14 daily files that name files without their folders.
+- Chat takes the keyboard when it opens and returns it to the file on Escape.
+- Sending with no key asks for the key in one sheet before anything asks to send to the host.
+- While a reply writes a change, Chat shows "Writing a change to" the file in place of Thinking.
+- A chat proposal whose file changed after it was written shows Ask again in place of Apply, instead of writing a conflict copy.
+- A long conversation sends the latest turns that fit 8,192 tokens for a server on this machine or the local network and 128,000 for a hosted one, with a line for each earlier proposal; a note over the size limit is refused when attached, and attachments stop at 4 MB in all.
+- Running a command from the palette no longer rewrites `config.toml`; the palette's recent commands live in Writ's database and keep their order through the update.
+- `install.sh` checks the release's minisign signature with minisign or OpenSSL 3 and stops when it has neither unless `WRIT_INSTALL_SKIP_SIGNATURE=1` is set, and the AUR package checks the AppImage's signature.
+- The Linux AppImage's third-party licenses list the system libraries it bundles, with an offer of their source.
+
+### Fixed
+
+- One invalid value in `config.toml` stopped Writ from starting; Writ starts now, names the key and its line in a notice, and leaves the file as it is until it reads clean.
+- The window could rename a file outside the notes folder after its tab closed, and read a picture beside a note no tab held; access to a file outside the folder now ends when its last tab closes or History is cleared.
+- A note holding `</note>` could end its text early in what Chat sent to the model; the framing holds for any text now.
+- A program's write landing while Writ saved the same note could lose the program's text; the note and a dated copy keep both now.
+- `create_note` given "Plan.md" made `Plan.md.md`; the extension a program types is kept now.
+- Connected programs kept serving the old folder after it moved in Settings; they follow it without a restart now.
+- Renaming a file to a name that differs only in case or Unicode form, as Notes.md to notes.md, left the name on disk unchanged; the new name reaches the disk now.
+- Search missed Arabic written with harakat or other letter forms, and Chinese, Japanese or Korean words inside a longer run of text; both are found now, and quick open matches accented names, as Émile.md for "émile".
+- Search missed text saved in the last two seconds; it waits for pending saves now.
+- A Markdown note with one very long line, such as a pasted base64 image, lost its formatting throughout; the long-line limits apply to that line only now.
+- A picture over 2 MB in the editor showed a caption in its place; pictures up to 16 MB draw now, and typing inside an image link looks the file up once you pause.
+- Shortcuts did nothing on a non-Latin keyboard layout such as Arabic or Russian; letters and digits match by key position now.
+- On macOS, Control chords ran Writ's Cmd shortcuts, so Ctrl+N made a new file; in the editor Ctrl+N moves down a line and Ctrl+K deletes to the end of the line now.
+- A rebound shortcut kept its old chord in the menu bar and the Windows and Linux menus, where the old chord still ran the command; the menus show and run the new one now.
+- Enter that confirmed an input method's conversion in Chat, Rewrite or a rename also sent or committed the text; it only confirms the conversion now.
+- Show and hide Writ accepted a single key such as A, a failed rebind left it with no shortcut, and Reset went back to the last saved chord; the rule is stated, the old chord stays until the new one registers, and Reset restores Cmd+Shift+Space.
+- Ctrl+Shift+\ did not toggle Connections on Windows and Linux; it does now.
+- Closing could wait without end on a save that never answered; it waits a set time now.
+- One unreadable entry made the sidebar fail to list its folder; the folder lists and says what it could not read.
+- Moving the notes folder to another disk reported a failure when the old folder could not be fully removed after the copy; it reports the move with what was left behind now.
+- A long editing session could push the version from before it out of Revert To…; that version is kept now.
+- Installing the `writ` command replaced any file at `/usr/local/bin/writ`; it replaces only Writ's own now.
+- Piped text titled in Arabic or with accents was named with underscores, and two pipes at once could overwrite each other; titles keep their letters and a pipe no longer replaces another's file.
+- Choosing Writ for a file type on Windows and Linux reported success and changed nothing; Linux registers Writ through `xdg-mime` now, and Windows opens Settings, Default apps.
+- A chat draft was lost on New chat; it carries over now.
+
+### Removed
+
+- The `storage.path` key in `config.toml`, which Writ never used.
+- The `[commands.usage]` table in `config.toml`; Writ moves an existing one into its database once.
+
 ## [0.6.0] - 2026-10-14
 
 Text a save could not write now survives a crash, and the preview shows a document in a sandbox with its scripts off until they are allowed for that file. Typing and Find keep up in large files because a keystroke no longer copies the whole document, editor settings apply, and the sidebar shows the notes folder. Requests to AI providers carry only what each accepts, a program asking for files is announced where it can be answered, and releases are signed in their own jobs on current dependencies.
