@@ -34,6 +34,8 @@
   line-height: 1.5;
   /* A caller that breaks its message into lines keeps them. */
   white-space: pre-line;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .confirm-actions {
@@ -92,4 +94,6 @@
 .confirm-diff-text {
   flex: 1;
   min-width: 0;
+  -webkit-user-select: text;
+  user-select: text;
 }

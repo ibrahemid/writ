@@ -307,6 +307,8 @@
   color: var(--writ-fg);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .chat-turn-notes {
@@ -393,6 +395,8 @@
   line-height: 1.55;
   color: var(--writ-fg);
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .chat-reply > :first-child {
@@ -521,6 +525,8 @@
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
   color: var(--writ-status-error);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* An offered change: which note, what it would do, and the lines it would
@@ -552,6 +558,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .chat-proposal-summary {
@@ -559,6 +567,8 @@
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   color: var(--writ-fg);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .chat-proposal-stale {
@@ -582,6 +592,8 @@
   font-family: var(--writ-font-mono);
   font-size: var(--writ-ui-sm);
   line-height: 1.5;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .chat-diff-row {

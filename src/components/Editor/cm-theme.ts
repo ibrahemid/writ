@@ -41,15 +41,22 @@ export const writThemeSpec = {
       margin: "0 auto",
       padding: `var(${CSS_VAR.prosePadY}) var(${CSS_VAR.prosePadX})`,
       caretColor: cssVar(CSS_VAR.accent),
+      WebkitUserSelect: "text",
+      userSelect: "text",
     },
     ".cm-cursor, .cm-dropCursor": {
       borderLeftColor: cssVar(CSS_VAR.accent),
     },
-    "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+    "&.cm-focused > .cm-scroller > .cm-writ-selection .cm-selectionBackground": {
       backgroundColor: SELECTION,
     },
-    ".cm-selectionBackground, .cm-content ::selection": {
+    ".cm-writ-selection .cm-selectionBackground": {
       backgroundColor: SELECTION,
+    },
+    // The selection layer paints the note; a native selection reaching a
+    // block widget would paint over it a second time.
+    ".cm-content ::selection": {
+      backgroundColor: "transparent",
     },
     ".cm-selectionMatch": {
       backgroundColor: SELECTION_MATCH,

@@ -33,6 +33,7 @@ const MATCH_COUNT_CAP = 10_000;
 // The whole-text count the page checks the status bar against allocates many
 // times the document, so only files up to this size are checked by it.
 const WHOLE_TEXT_CHECK_MAX_BYTES = 8 * MiB;
+const SELECTION_ROWS = 40;
 
 class GateSetupError extends Error {
   constructor(message) {
@@ -182,6 +183,101 @@ async function checkCounts(page, file, result, problems) {
   }
 }
 
+// Runs in the page: one layer paints each editor's selection, and every piece
+// sits inside the text column and within the text of the lines it covers,
+// plus a newline box.
+function selectionGeometry() {
+  const problems = [];
+  let pieces = 0;
+  for (const editor of document.querySelectorAll(".cm-editor")) {
+    const content = editor.querySelector(".cm-content");
+    const style = getComputedStyle(content);
+    const box = content.getBoundingClientRect();
+    const left = box.left + parseFloat(style.paddingLeft);
+    const right = box.right - parseFloat(style.paddingRight);
+    const lines = [...content.children]
+      .filter((line) => line.classList.contains("cm-line"))
+      .map((line) => {
+        const range = document.createRange();
+        range.selectNodeContents(line);
+        const rects = [...range.getClientRects()].filter((rect) => rect.width >= 0.5);
+        const lineBox = line.getBoundingClientRect();
+        return {
+          top: lineBox.top,
+          bottom: lineBox.bottom,
+          textLeft: rects.length ? Math.min(...rects.map((rect) => rect.left)) : null,
+          textRight: rects.length ? Math.max(...rects.map((rect) => rect.right)) : null,
+          slack: parseFloat(getComputedStyle(line).fontSize) * 0.7,
+        };
+      });
+    const painting = [...editor.querySelectorAll(".cm-layer")].filter(
+      (layer) => layer.querySelector(".cm-selectionBackground") && getComputedStyle(layer).display !== "none",
+    );
+    if (painting.length > 1) problems.push(`${painting.length} layers paint the selection`);
+    for (const piece of painting.flatMap((layer) => [...layer.querySelectorAll(".cm-selectionBackground")])) {
+      pieces++;
+      const rect = piece.getBoundingClientRect();
+      if (rect.left < left - 0.5 || rect.right > right + 0.5) {
+        problems.push(
+          `a selection piece paints into the gutter: ${Math.round(rect.left)} to ${Math.round(rect.right)}, the column ${Math.round(left)} to ${Math.round(right)}`,
+        );
+        continue;
+      }
+      const past = lines.find(
+        (line) =>
+          line.textLeft !== null &&
+          Math.min(line.bottom, rect.bottom) - Math.max(line.top, rect.top) > 1 &&
+          (rect.right > line.textRight + line.slack || rect.left < line.textLeft - line.slack),
+      );
+      if (past) {
+        problems.push(
+          `a selection piece runs past its line's text: ${Math.round(rect.left)} to ${Math.round(rect.right)}, the text ${Math.round(past.textLeft)} to ${Math.round(past.textRight)}`,
+        );
+      }
+    }
+  }
+  return { pieces, problems: [...new Set(problems)].slice(0, 5) };
+}
+
+// Select all, then extend a selection a row at a time over a long stretch of
+// the file. Each keystroke is held to the scenario's typing max.
+async function checkSelection(page, scenario, result, problems) {
+  const limit = BUDGETS[scenario.id].typingMaxMs;
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => window.__harness.focusEditor());
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__harness.startKeys());
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.waitForTimeout(500);
+  const selectAll = keyMs(await page.evaluate(() => window.__harness.stopKeys()));
+  const all = await page.evaluate(selectionGeometry);
+
+  await page.keyboard.press("ControlOrMeta+Home");
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__harness.startKeys());
+  for (let i = 0; i < SELECTION_ROWS; i++) {
+    await page.keyboard.press("Shift+ArrowDown");
+    await page.waitForTimeout(60);
+  }
+  await page.waitForTimeout(300);
+  const rows = keyMs(await page.evaluate(() => window.__harness.stopKeys()));
+  const extended = await page.evaluate(selectionGeometry);
+
+  result.selection = {
+    selectAllMs: maximum(selectAll),
+    extendP50Ms: median(rows),
+    extendMaxMs: maximum(rows),
+    pieces: { all: all.pieces, extended: extended.pieces },
+  };
+  const { selectAllMs, extendMaxMs } = result.selection;
+  if (selectAllMs === null || selectAllMs > limit) problems.push(`select all took ${formatValue(selectAllMs, "ms")}, over ${limit} ms`);
+  if (extendMaxMs === null || extendMaxMs > limit) problems.push(`extending the selection took ${formatValue(extendMaxMs, "ms")}, over ${limit} ms`);
+  if (all.pieces === 0 || extended.pieces === 0) problems.push("the selection painted nothing");
+  problems.push(...new Set([...all.problems, ...extended.problems]));
+}
+
 async function runScenario(browser, base, scenario) {
   const problems = [];
   const result = { id: scenario.id, tier: scenario.tier, loadAverage: os.loadavg()[0], problems };
@@ -283,6 +379,7 @@ async function runScenario(browser, base, scenario) {
     measured.findTypingTaskMs = longestTask(withFindObserved);
     measured.findTaskMs = Math.max(rare.taskMs, absent.taskMs, again.taskMs);
 
+    if (scenario.selection) await checkSelection(page, scenario, result, problems);
     if (scenario.counts) await checkCounts(page, file, result, problems);
 
     result.measured = measured;
@@ -329,6 +426,12 @@ function printScenario(scenario, result) {
     );
   }
   if (result.counts) console.log(`  ${"Counts shown".padEnd(28)} ${result.counts.shown}`);
+  if (result.selection) {
+    const { selectAllMs, extendP50Ms, extendMaxMs } = result.selection;
+    console.log(
+      `  ${"Selection".padEnd(28)} select all ${formatValue(selectAllMs, "ms")}, extend p50 ${formatValue(extendP50Ms, "ms")} max ${formatValue(extendMaxMs, "ms")}`,
+    );
+  }
   for (const problem of result.problems) console.log(`  problem: ${problem}`);
 }
 

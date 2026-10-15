@@ -41,6 +41,8 @@
 .notes-report-text {
   color: var(--writ-fg);
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .notes-report-btn {

@@ -38,6 +38,8 @@ export interface Scenario {
   afterAudit?: true;
   /** The file shows in two panes, and the typing goes to the second (ADR-056). */
   split?: true;
+  /** Selects all, then extends a selection a row at a time, and checks where the selection paints. */
+  selection?: true;
   spec: CorpusSpec;
 }
 

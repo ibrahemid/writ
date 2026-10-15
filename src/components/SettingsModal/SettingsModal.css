@@ -994,3 +994,8 @@
   font-size: var(--writ-ui-sm);
   color: var(--writ-fg-muted);
 }
+
+.settings-version {
+  -webkit-user-select: text;
+  user-select: text;
+}

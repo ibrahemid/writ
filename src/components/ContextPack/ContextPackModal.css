@@ -110,6 +110,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--writ-fg);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .context-pack-tokens {
@@ -136,6 +138,8 @@
   color: var(--writ-fg);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .context-pack-actions {

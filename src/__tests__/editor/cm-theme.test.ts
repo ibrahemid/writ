@@ -5,6 +5,7 @@ import {
   writCodeFace,
   writThemeSpec,
 } from "../../components/Editor/cm-theme";
+import { SELECTION_LAYER_CLASS, SELECTION_PIECE_CLASS } from "../../editor/selection-layer";
 
 // The site island renders this same spec against its own values, and a live
 // theme switch rewrites custom properties on the root. Both break the moment a
@@ -31,9 +32,10 @@ function declarations(): { selector: string; property: string; value: string }[]
   );
 }
 
+// `none` and `transparent` paint nothing, so they cannot drift with a theme.
+const NO_PAINT = new Set(["none", "transparent"]);
+
 describe("the editor theme", () => {
-  // `none` and `transparent` paint nothing, so they cannot drift with a theme.
-  const NO_PAINT = new Set(["none", "transparent"]);
 
   it("references only var(--writ-…) colours", () => {
     const baked = declarations().filter(
@@ -57,10 +59,45 @@ describe("the editor theme", () => {
   it("takes the selection and its match from the app's own properties", () => {
     const spec = writThemeSpec as Record<string, Record<string, string>>;
     expect(
-      spec["&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground"]
+      spec[`&.cm-focused > .cm-scroller > .${SELECTION_LAYER_CLASS} .${SELECTION_PIECE_CLASS}`]
         .backgroundColor,
     ).toBe("var(--writ-selection)");
+    expect(spec[`.${SELECTION_LAYER_CLASS} .${SELECTION_PIECE_CLASS}`].backgroundColor).toBe(
+      "var(--writ-selection)",
+    );
     expect(spec[".cm-selectionMatch"].backgroundColor).toBe("var(--writ-selection-match)");
+  });
+
+  // The pieces of the editor's own selection layer are the only selection
+  // paint: CodeMirror's layer runs to the pane edge, and a native selection in
+  // a block widget would paint a second time over the layer.
+  it("paints the selection only through the editor's selection layer", () => {
+    const painted = declarations().filter(
+      ({ selector, property, value }) =>
+        /selection/i.test(selector) &&
+        !/selectionMatch|searchMatch/.test(selector) &&
+        /background/i.test(property) &&
+        !NO_PAINT.has(value),
+    );
+    expect(painted.map(({ selector }) => selector).sort()).toEqual(
+      [
+        `&.cm-focused > .cm-scroller > .${SELECTION_LAYER_CLASS} .${SELECTION_PIECE_CLASS}`,
+        `.${SELECTION_LAYER_CLASS} .${SELECTION_PIECE_CLASS}`,
+      ].sort(),
+    );
+    for (const { selector } of painted) {
+      for (const part of selector.split(",")) expect(part).toContain(`.${SELECTION_LAYER_CLASS} `);
+    }
+  });
+
+  it("paints no native selection inside the note", () => {
+    const spec = writThemeSpec as Record<string, Record<string, string>>;
+    expect(spec[".cm-content ::selection"].backgroundColor).toBe("transparent");
+    const native = declarations().filter(
+      ({ selector, property, value }) =>
+        selector.includes("::selection") && /background/i.test(property) && !NO_PAINT.has(value),
+    );
+    expect(native, JSON.stringify(native)).toEqual([]);
   });
 
   it("mixes no alpha of its own against the accent", () => {

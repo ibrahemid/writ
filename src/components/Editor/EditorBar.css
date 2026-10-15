@@ -35,6 +35,8 @@
   margin: 0;
   flex: 1;
   min-width: 0;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .editor-bar-heading {
