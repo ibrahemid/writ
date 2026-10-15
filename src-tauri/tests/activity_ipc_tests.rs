@@ -62,6 +62,8 @@ fn approved(name: &str, read: bool, write: bool) -> ClientApproval {
         first_seen: chrono::Utc::now(),
         read,
         write,
+        context: false,
+        review: false,
     }
 }
 
@@ -256,6 +258,8 @@ fn a_waiting_program_is_listed_beside_the_approved_ones() {
         first_seen: chrono::Utc::now(),
         read: true,
         write: false,
+        context: false,
+        review: false,
     }];
 
     let waiting = waiting_in(dir.path(), &approved);
@@ -277,6 +281,8 @@ fn a_program_already_decided_on_is_not_also_waiting() {
         first_seen: chrono::Utc::now(),
         read: false,
         write: false,
+        context: false,
+        review: false,
     }];
 
     assert!(waiting_in(dir.path(), &approved).is_empty());
@@ -322,19 +328,31 @@ fn the_settings_row_lists_the_tools_the_served_process_registers() {
     registered.sort();
 
     let tools = mcp_tools();
-    let mut shown: Vec<String> = tools.read.into_iter().chain(tools.write).collect();
+    let mut shown: Vec<String> = tools
+        .read
+        .into_iter()
+        .chain(tools.write)
+        .chain(tools.context)
+        .collect();
     shown.sort();
 
     assert_eq!(shown, registered);
 }
 
 #[test]
-fn the_write_half_of_the_settings_row_is_the_three_write_tools() {
+fn the_write_half_of_the_settings_row_is_the_six_write_tools() {
     let tools = mcp_tools();
 
     assert_eq!(
         tools.write,
-        vec!["write_note", "create_note", "rename_note"]
+        vec![
+            "write_note",
+            "create_note",
+            "rename_note",
+            "append_note",
+            "replace_in_note",
+            "today"
+        ]
     );
     for absent in ["delete_note", "trash_note", "move_note"] {
         assert!(!tools.read.contains(&absent.to_string()), "{absent}");

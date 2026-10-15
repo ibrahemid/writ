@@ -83,8 +83,15 @@ describe("handleExternalEdit", () => {
   it("reloads the editor when there are no unsaved edits", async () => {
     const deps = makeDeps();
     await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified" }, deps);
-    expect(deps.reload).toHaveBeenCalledWith("buf-1");
+    expect(deps.reload).toHaveBeenCalledWith("buf-1", null);
     expect(deps.markChanged).not.toHaveBeenCalled();
+  });
+
+  it("hands the reload the program that wrote the file", async () => {
+    const deps = makeDeps();
+    const writer = { kind: "program", name: "claude-code" } as const;
+    await handleExternalEdit({ bufferId: "buf-1.txt", change: "modified", writer }, deps);
+    expect(deps.reload).toHaveBeenCalledWith("buf-1", writer);
   });
 
   it("raises the bar when there is text to lose", async () => {
@@ -200,7 +207,7 @@ describe("handleExternalEdit", () => {
       deps,
     );
 
-    expect(deps.reload).toHaveBeenCalledWith("buf-1");
+    expect(deps.reload).toHaveBeenCalledWith("buf-1", null);
   });
 
   it("reads a modified file's scripts again before the reload or the bar", async () => {
@@ -253,6 +260,7 @@ describe("readExternalEditPayload", () => {
       path: "/Users/x/Writ/today.md",
       newPath: null,
       diskHash: "abc123",
+      writer: null,
     });
   });
 
@@ -273,6 +281,19 @@ describe("readExternalEditPayload", () => {
     });
 
     expect(inside).toEqual({ ...outside, path: "/Users/x/Writ/today.md" });
+  });
+
+  it("reads the writer Rust names, and nothing it cannot read as one", () => {
+    const base = { bufferId: "buf-1", change: "modified", path: "/n.md", diskHash: "abc" };
+    expect(
+      readExternalEditPayload({ ...base, writer: { kind: "program", name: "codex" } })?.writer,
+    ).toEqual({ kind: "program", name: "codex" });
+    expect(readExternalEditPayload({ ...base, writer: { kind: "chat" } })?.writer).toEqual({
+      kind: "chat",
+    });
+    expect(readExternalEditPayload({ ...base, writer: { kind: "program", name: "" } })?.writer).toBeNull();
+    expect(readExternalEditPayload({ ...base, writer: "mcp:codex" })?.writer).toBeNull();
+    expect(readExternalEditPayload({ ...base, writer: null })?.writer).toBeNull();
   });
 
   it("rejects a payload with no buffer to act on", () => {
@@ -301,6 +322,7 @@ describe("readExternalEditPayload", () => {
       path: "/Users/x/Writ/today.md",
       newPath: "/Users/x/Writ/archive/today.md",
       diskHash: null,
+      writer: null,
     });
   });
 
@@ -319,6 +341,7 @@ describe("readExternalEditPayload", () => {
       path: "/Users/x/Writ/today.md",
       newPath: null,
       diskHash: null,
+      writer: null,
     });
   });
 });

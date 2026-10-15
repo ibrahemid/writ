@@ -25,7 +25,7 @@ use writ_core::diff::{line_diff, Hunk};
 use writ_core::hash::{digest_hex, Sha256Digest};
 use writ_core::note_history::{no_versions_reason, NoVersionsReason};
 use writ_core::notes::guard::DiskState;
-use writ_core::notes::WriteOrigin;
+use writ_core::notes::{WriteOrigin, Writer};
 use writ_storage::buffer_store::BeforeWrite;
 use writ_storage::errors::StorageError;
 use writ_storage::guarded::{
@@ -49,6 +49,8 @@ pub struct NoteVersion {
     pub at_ms: i64,
     /// What the text costs in bytes.
     pub bytes: u64,
+    /// What left the text in the file, or `None` when Writ does not know.
+    pub writer: Option<Writer>,
 }
 
 /// A file's versions, and why it has none when it has none.
@@ -129,6 +131,7 @@ pub fn note_versions_inner(store: &NoteHistoryStore, path: &Path) -> Result<Note
                 id: entry.id,
                 at_ms: millis(entry.at),
                 bytes: entry.bytes,
+                writer: entry.writer.as_deref().and_then(Writer::from_stored),
             })
             .collect(),
         no_versions_reason,
@@ -508,6 +511,7 @@ pub fn restore_note_version_for_tab(
                 &file,
                 Some(&restored.content),
                 crate::watcher::moves::encoding_of_note(state, &id),
+                Some(Writer::Writ),
             ));
     }
     Ok(restored)

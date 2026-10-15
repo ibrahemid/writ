@@ -23,6 +23,7 @@ use writ_core::diff::LineKind;
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::note_history::NoVersionsReason;
 use writ_core::notes::guard::DiskState;
+use writ_core::notes::{WriteOrigin, Writer};
 use writ_core::preview::ContentRendererRegistry;
 use writ_core::update::UpdatePhase;
 use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
@@ -204,6 +205,8 @@ impl Running {
             quit: Arc::new(QuitState::new()),
             removal_holds: Default::default(),
             pending_opens: Mutex::new(Vec::new()),
+            pending_lines: Mutex::new(Default::default()),
+            cli_waits: Mutex::new(Default::default()),
             frontend_ready: AtomicBool::new(false),
             window_revealed: AtomicBool::new(false),
             window_dismissed: AtomicBool::new(false),
@@ -332,6 +335,49 @@ fn note_versions_lists_what_a_note_held_newest_first() {
     assert_eq!(folder.text_of(&listed[1]), "the first\n");
     assert!(listed[0].at_ms > listed[1].at_ms);
     assert_eq!(listed[0].bytes, b"the second\n".len() as u64);
+}
+
+#[test]
+fn each_version_names_its_writer_and_one_writ_cannot_place_names_nobody() {
+    let folder = Folder::new();
+    let path = folder.note("Launch.md", b"seen on disk\n", 90);
+    let key = folder
+        .store
+        .key_for(&path)
+        .expect("a note inside the folder");
+    let at = |seconds_ago: u64| SystemTime::now() - Duration::from_secs(seconds_ago);
+    folder
+        .store
+        .capture(&key, b"saved\n", at(60), &WriteOrigin::Editor)
+        .expect("save");
+    folder
+        .store
+        .capture(
+            &key,
+            b"the program's\n",
+            at(30),
+            &WriteOrigin::Mcp {
+                client: "claude-code".to_string(),
+            },
+        )
+        .expect("program");
+
+    let writers: Vec<Option<Writer>> = folder
+        .versions(&path)
+        .into_iter()
+        .map(|version| version.writer)
+        .collect();
+
+    assert_eq!(
+        writers,
+        vec![
+            Some(Writer::Program {
+                name: "claude-code".to_string()
+            }),
+            Some(Writer::Writ),
+            None,
+        ]
+    );
 }
 
 #[test]
@@ -794,6 +840,7 @@ fn a_restore_tells_the_tab_holding_the_note_what_it_put_on_the_file() {
             change,
             new_path,
             disk_hash,
+            ..
         } => {
             assert_eq!(buffer_id, &id, "the tab holding the note");
             assert_eq!(Path::new(told), path.as_path());

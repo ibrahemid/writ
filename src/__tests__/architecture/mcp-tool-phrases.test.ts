@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
   TOOL_PHRASES,
   describeCall,
+  describeContextTools,
   describeReadTools,
   describeWriteTools,
 } from "../../lib/tool-phrases";
@@ -23,6 +24,7 @@ function constantList(name: string): string[] {
 
 const SERVER_READ = constantList("READ_TOOLS");
 const SERVER_WRITE = constantList("WRITE_TOOLS");
+const SERVER_CONTEXT = constantList("CONTEXT_TOOLS");
 
 describe("the tool table names every tool the server registers", () => {
   it("reads both lists off the server", () => {
@@ -46,8 +48,16 @@ describe("the tool table names every tool the server registers", () => {
     }
   });
 
+  it("names every open-file tool as a clause about the open file", () => {
+    for (const id of SERVER_CONTEXT) {
+      const phrase = TOOL_PHRASES[id];
+      expect(phrase, `${id} is named in TOOL_PHRASES`).toBeTruthy();
+      expect(phrase!.group, id).toBe("context");
+    }
+  });
+
   it("names nothing the server does not register", () => {
-    const registered = new Set([...SERVER_READ, ...SERVER_WRITE]);
+    const registered = new Set([...SERVER_READ, ...SERVER_WRITE, ...SERVER_CONTEXT]);
     for (const id of Object.keys(TOOL_PHRASES)) {
       expect(registered.has(id), `${id} is registered by the server`).toBe(true);
     }
@@ -55,15 +65,18 @@ describe("the tool table names every tool the server registers", () => {
 
   it("turns the server's lists into the sentences the row shows", () => {
     expect(describeReadTools(SERVER_READ)).toBe(
-      "list, search and open files, and see their links, properties and tags",
+      "list, search, open and show files, and see their links, properties and tags",
     );
     expect(describeWriteTools(SERVER_WRITE)).toBe(
-      "replace a file's text, make a new file, rename a file",
+      "replace a file's text, make a new file, rename a file, add to the end of a file, replace a passage in a file, make or add to today's file",
+    );
+    expect(describeContextTools(SERVER_CONTEXT)).toBe(
+      "see the file open in Writ and the text you selected",
     );
   });
 
   it("names every call the server records in the Activity list", () => {
-    for (const id of [...SERVER_READ, ...SERVER_WRITE]) {
+    for (const id of [...SERVER_READ, ...SERVER_WRITE, ...SERVER_CONTEXT]) {
       expect(describeCall(id, false, "allow"), `${id} has a call phrase`).not.toBe(
         id.replace(/_/g, " "),
       );

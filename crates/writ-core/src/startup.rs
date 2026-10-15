@@ -571,6 +571,24 @@ pub fn dated_note_name(now: DateTime<Utc>, extension: FileExtension) -> String {
     format!("{}.{}", crate::notes::date_stem(now), extension.as_str())
 }
 
+/// The two names the day's note may already be on disk under, the configured
+/// format first.
+///
+/// Today's File opens whichever of the two is there rather than minting a
+/// second file for the same day: somebody who changed the format still has
+/// yesterday's note, and the day the format changed does not end with two
+/// (ADR-041 §2, decision D-c).
+pub fn dated_note_names(now: DateTime<Utc>, configured: FileExtension) -> [String; 2] {
+    let other = match configured {
+        FileExtension::Txt => FileExtension::Md,
+        FileExtension::Md => FileExtension::Txt,
+    };
+    [
+        dated_note_name(now, configured),
+        dated_note_name(now, other),
+    ]
+}
+
 /// The title a note's first line gives it, or `None` when the line names
 /// nothing yet.
 ///

@@ -101,6 +101,8 @@ fn make_state(dir: &TempDir) -> AppState {
         quit: Arc::new(QuitState::new()),
         removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
+        pending_lines: Mutex::new(Default::default()),
+        cli_waits: Mutex::new(Default::default()),
         frontend_ready: AtomicBool::new(false),
         window_revealed: AtomicBool::new(false),
         window_dismissed: AtomicBool::new(false),
@@ -137,6 +139,8 @@ fn make_state(dir: &TempDir) -> AppState {
 fn mock_app(state: AppState) -> (tauri::App<MockRuntime>, WebviewWindow<MockRuntime>) {
     let app = mock_builder()
         .manage(state)
+        .manage(writ_tauri_lib::open_context::ContextAsks::default())
+        .manage(writ_tauri_lib::write_review::ReviewAsks::default())
         .invoke_handler(tauri::generate_handler![
             writ_tauri_lib::commands::file::open_file_confirmed,
             writ_tauri_lib::commands::buffer::read_buffer_content,
@@ -146,6 +150,8 @@ fn mock_app(state: AppState) -> (tauri::App<MockRuntime>, WebviewWindow<MockRunt
             writ_tauri_lib::commands::workspace::search_workspace_files,
             writ_tauri_lib::commands::prompt::prompt_context_pack,
             writ_tauri_lib::commands::workspace::list_workspace_dir,
+            writ_tauri_lib::commands::open_context::context_answer,
+            writ_tauri_lib::commands::write_review::review_answer,
         ])
         .build(mock_context(noop_assets()))
         .expect("mock app");
@@ -432,6 +438,61 @@ fn list_workspace_dir_returns_its_thread_while_its_work_waits() {
     sent.held();
     drop(root);
     assert!(sent.answer().is_ok());
+}
+
+#[test]
+fn context_answer_returns_its_thread_while_its_work_waits() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    app.state::<writ_tauri_lib::open_context::ContextAsks>()
+        .hold("t-1", Instant::now());
+
+    let state = app.state::<AppState>();
+    let store = state.store.lock().expect("store");
+    let sent = dispatch(
+        &window,
+        "context_answer",
+        json!({
+            "token": "t-1",
+            "reply": { "buffer_id": "a-tab", "selections": [], "unsaved": false },
+        }),
+    );
+    sent.held();
+    drop(store);
+    assert!(sent.answer().is_ok());
+    assert_eq!(
+        writ_storage::open_context::take_answer(&state.writ_dir, "t-1"),
+        Some(writ_core::open_context::OpenContext::nothing_open())
+    );
+}
+
+#[test]
+fn review_answer_returns_its_thread_while_its_work_waits() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    app.state::<writ_tauri_lib::write_review::ReviewAsks>()
+        .hold(
+            "r-1",
+            "Claude Code",
+            writ_core::write_review::REVIEW_WAIT,
+            Instant::now(),
+        );
+
+    let state = app.state::<AppState>();
+    let config = state.config.lock().expect("config");
+    let sent = dispatch(
+        &window,
+        "review_answer",
+        json!({ "token": "r-1", "apply": true }),
+    );
+    sent.held();
+    drop(config);
+    assert!(sent.answer().is_ok());
+    assert_eq!(
+        writ_storage::write_review::take_answer(&state.writ_dir, "r-1"),
+        Some(writ_core::write_review::ReviewAnswer::Discard),
+        "a program the settings do not hold is never applied"
+    );
 }
 
 /// Saves of one note sent one after the other land in that order, even when

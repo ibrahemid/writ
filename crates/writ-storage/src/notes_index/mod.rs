@@ -232,6 +232,23 @@ pub struct NoteFactsRow {
     pub headings: Vec<HeadingRow>,
 }
 
+/// One file as the folder index lists it (ADR-052).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderIndexRow {
+    /// Canonical path of the file.
+    pub path: String,
+    /// The file's length in bytes, as last indexed.
+    pub bytes: u64,
+    /// The frontmatter `title` when it is a string, else the text of the
+    /// file's first heading, else `None`.
+    pub title: Option<String>,
+    /// Each tag the file carries, once, in the order first written.
+    pub tags: Vec<String>,
+    /// Each file its links resolve to, once, in path order. A link that
+    /// resolves nowhere, or to the file itself, is left out.
+    pub links: Vec<String>,
+}
+
 /// One note in the folder's link graph.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GraphNode {

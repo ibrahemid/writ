@@ -795,6 +795,7 @@ fn resync_open_buffer(state: &AppState, turn: &Turn, doc: &BufferDocument) {
             change: ExternalChange::Modified,
             new_path: None,
             disk_hash: Some(encoding.comparison_digest_hex(&source)),
+            writer: None,
         });
     }
 }

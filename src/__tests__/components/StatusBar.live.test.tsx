@@ -10,7 +10,8 @@ const fixtures = await vi.hoisted(async () => {
     reason?: { code: string | null; message: string; retryable: boolean };
   }>({ state: "clean", fileName: "one.md" });
   const [updated, setUpdated] = createSignal(false);
-  return { status, setStatus, updated, setUpdated };
+  const [by, setBy] = createSignal<string | null>(null);
+  return { status, setStatus, updated, setUpdated, by, setBy };
 });
 
 vi.mock("../../stores/global/save-status", () => ({
@@ -33,6 +34,7 @@ vi.mock("../../components/WindowProvider/WindowProvider", () => ({
       cursorCol: () => 1,
       language: () => null,
       isUpdatedFromDisk: () => fixtures.updated(),
+      updatedFromDiskBy: () => (fixtures.updated() ? fixtures.by() : null),
     },
     counts: { counts: () => null, watch: () => () => {} },
     tabs: { activeTabId: () => "note-1" },
@@ -51,6 +53,7 @@ describe("StatusBar persistent live region (#50)", () => {
   afterEach(() => {
     fixtures.setStatus({ state: "clean", fileName: "one.md" });
     fixtures.setUpdated(false);
+    fixtures.setBy(null);
     cleanup();
   });
 
@@ -131,6 +134,15 @@ describe("StatusBar persistent live region (#50)", () => {
     const live = container.querySelector<HTMLElement>(".statusbar-live")!;
     expect(live.textContent).toBe("Updated from disk");
     expect(container.querySelector(".statusbar-save")).toBeNull();
+  });
+
+  it("names the program when a connected program wrote the file", () => {
+    fixtures.setUpdated(true);
+    fixtures.setBy("Claude Code");
+
+    const { container } = render(() => <StatusBar />);
+
+    expect(container.querySelector(".statusbar-live")!.textContent).toBe("Changed by Claude Code");
   });
 
   it("hands the region back to the save state once the marker has gone", () => {

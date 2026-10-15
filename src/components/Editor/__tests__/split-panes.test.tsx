@@ -8,6 +8,7 @@ import type { BufferDocument } from "../../../types/buffer";
 import WindowProvider, { useWindow } from "../../WindowProvider/WindowProvider";
 import type { WindowState } from "../../../stores/window/createWindowState";
 import type { PaneId } from "../../../lib/pane-layout";
+import { agentEditRanges } from "../../../editor/agent-edit-marks";
 
 // Two editors side by side (ADR-056): a note open in both shares its document
 // and its save, each pane keeps its own caret and undo, a tab moved to the
@@ -168,6 +169,104 @@ describe("a note open in both panes", () => {
     expect(left.state.doc.toString()).toBe("kept here\n");
     expect(undoDepth(left.state)).toBe(1);
     expect(panes.win().editor.isTracked("A")).toBe(true);
+  });
+});
+
+describe("a program's write to a note open in both panes", () => {
+  const CLAUDE = { kind: "program", name: "claude-code" } as const;
+
+  function markedText(view: EditorView): { text: string; title: string }[] {
+    const doc = view.state.doc.toString();
+    return agentEditRanges(view.state).map((range) => ({
+      text: doc.slice(range.from, range.to),
+      title: range.title,
+    }));
+  }
+
+  it("is marked in both panes' editors", async () => {
+    const a = mockBuffer("A");
+    openTabs.push(a);
+    bufferContent.set("A", "one\n");
+    const panes = await mountPanes(a);
+    panes.win().tabs.setActiveTabId("A");
+    panes.win().tabs.splitRight();
+    panes.setRight(a);
+    await settle();
+
+    bufferContent.set("A", "one\nfrom the program\n");
+    panes.win().editor.requestExternalReload("A", CLAUDE);
+    await settle();
+
+    expect(vi.mocked(bufferRegistry.readContent)).toHaveBeenCalledTimes(2);
+    for (const pane of ["left", "right"] as const) {
+      expect(panes.view(pane).state.doc.toString()).toBe("one\nfrom the program\n");
+      expect(markedText(panes.view(pane))).toHaveLength(1);
+      expect(markedText(panes.view(pane))[0].title).toBe("Changed by Claude Code");
+    }
+    expect(markedText(panes.view("right"))).toEqual(markedText(panes.view("left")));
+    expect(panes.win().editor.updatedFromDiskBy("A")).toBe("Claude Code");
+
+    type(panes.view("left"), 0, "x");
+    expect(markedText(panes.view("left"))).toEqual([]);
+    expect(markedText(panes.view("right"))).toEqual([]);
+  });
+
+  it("is marked in the state the other pane keeps for it, and shows when that pane comes back to it", async () => {
+    const a = mockBuffer("A");
+    const b = mockBuffer("B");
+    openTabs.push(a, b);
+    bufferContent.set("A", "one\n");
+    bufferContent.set("B", "other\n");
+    const panes = await mountPanes(a);
+    panes.win().tabs.setActiveTabId("A");
+    panes.win().tabs.splitRight();
+    panes.setRight(a);
+    await settle();
+    panes.win().tabs.moveToOtherPane("B", "left");
+    panes.setRight(b);
+    await settle();
+    expect(panes.view("right").state.doc.toString()).toBe("other\n");
+
+    bufferContent.set("A", "one\nfrom the program\n");
+    panes.win().editor.requestExternalReload("A", CLAUDE);
+    await settle();
+    expect(markedText(panes.view("left"))).toHaveLength(1);
+
+    panes.win().tabs.selectIn("right", "A");
+    panes.setRight(a);
+    await settle();
+
+    expect(panes.view("right").state.doc.toString()).toBe("one\nfrom the program\n");
+    expect(markedText(panes.view("right"))).toEqual(markedText(panes.view("left")));
+  });
+
+  it("drops the marks from the state a pane keeps when it leaves the note", async () => {
+    const a = mockBuffer("A");
+    const b = mockBuffer("B");
+    openTabs.push(a, b);
+    bufferContent.set("A", "one\n");
+    bufferContent.set("B", "other\n");
+    const panes = await mountPanes(a);
+    panes.win().tabs.setActiveTabId("A");
+    panes.win().tabs.splitRight();
+    panes.setRight(a);
+    await settle();
+
+    bufferContent.set("A", "one\nfrom the program\n");
+    panes.win().editor.requestExternalReload("A", CLAUDE);
+    await settle();
+    expect(markedText(panes.view("right"))).toHaveLength(1);
+
+    panes.win().tabs.moveToOtherPane("B", "left");
+    panes.setRight(b);
+    await settle();
+    panes.win().tabs.selectIn("right", "A");
+    panes.setRight(a);
+    await settle();
+
+    expect(panes.view("right").state.doc.toString()).toBe("one\nfrom the program\n");
+    expect(markedText(panes.view("right"))).toEqual([]);
+    expect(markedText(panes.view("left"))).toHaveLength(1);
   });
 });
 

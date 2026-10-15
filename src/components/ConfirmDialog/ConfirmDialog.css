@@ -42,3 +42,54 @@
   gap: var(--writ-space-3);
   margin-top: var(--writ-space-3);
 }
+
+.confirm-dialog.has-diff {
+  width: min(640px, calc(100vw - 48px));
+  max-height: calc(100vh - 96px);
+}
+
+.confirm-diff {
+  min-height: 0;
+  max-height: 50vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-2) 0;
+  border-radius: var(--writ-r-modal);
+  background: var(--writ-bg-sunken);
+  font-family: var(--writ-font-prose);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-md-lh);
+}
+
+.confirm-diff-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--writ-space-2);
+  padding: 0 var(--writ-space-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--writ-fg-muted);
+}
+
+.confirm-diff-row[data-kind="added"] {
+  background: color-mix(in srgb, var(--writ-status-success) 20%, transparent);
+  color: var(--writ-fg);
+}
+
+.confirm-diff-row[data-kind="removed"] {
+  background: color-mix(in srgb, var(--writ-status-error) 20%, transparent);
+  color: var(--writ-fg);
+}
+
+.confirm-diff-mark {
+  flex-shrink: 0;
+  width: 1ch;
+  color: var(--writ-fg-faint);
+}
+
+.confirm-diff-text {
+  flex: 1;
+  min-width: 0;
+}

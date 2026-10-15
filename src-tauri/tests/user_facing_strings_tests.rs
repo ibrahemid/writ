@@ -169,7 +169,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-mcp/src/server.rs",
-        line: 33,
+        line: 41,
         word: "note",
         note: "MCP server instructions, out of the copy sweep (decision C1)",
     },
@@ -181,13 +181,13 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 442,
+        line: 448,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },
     AllowedString {
         file: "src-tauri/src/state.rs",
-        line: 635,
+        line: 643,
         word: "note",
         note: "log line the prefix test misses inside a multi-line macro",
     },

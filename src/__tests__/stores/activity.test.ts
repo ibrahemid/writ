@@ -10,12 +10,14 @@ const h = vi.hoisted(() => {
     activityClear: vi.fn().mockResolvedValue(undefined),
     mcpClients: vi.fn(),
     mcpSetClientPermission: vi.fn(),
+    mcpSetClientContext: vi.fn(),
     mcpForgetClient: vi.fn(),
     mcpDenyClient: vi.fn(),
     mcpReturnToWaiting: vi.fn(),
     mcpRestoreClient: vi.fn(),
     mcpServerCommand: vi.fn(),
     mcpTools: vi.fn(),
+    mcpOffCall: vi.fn(),
     writeClipboardText: vi.fn().mockResolvedValue(undefined),
     onEvent: vi.fn((name: string, handler: (payload: unknown) => void) => {
       listeners.set(name, handler);
@@ -30,12 +32,14 @@ vi.mock("../../services/tauri", () => ({
   activityClear: h.activityClear,
   mcpClients: h.mcpClients,
   mcpSetClientPermission: h.mcpSetClientPermission,
+  mcpSetClientContext: h.mcpSetClientContext,
   mcpForgetClient: h.mcpForgetClient,
   mcpDenyClient: h.mcpDenyClient,
   mcpReturnToWaiting: h.mcpReturnToWaiting,
   mcpRestoreClient: h.mcpRestoreClient,
   mcpServerCommand: h.mcpServerCommand,
   mcpTools: h.mcpTools,
+  mcpOffCall: h.mcpOffCall,
 }));
 vi.mock("../../services/events", () => ({ onEvent: h.onEvent }));
 
@@ -53,8 +57,8 @@ function record(over: Partial<ActivityRecord> = {}): ActivityRecord {
   };
 }
 
-function approval(name: string, read: boolean, write: boolean): ClientApproval {
-  return { name, first_seen: "2026-09-09T10:00:00Z", read, write };
+function approval(name: string, read: boolean, write: boolean, context = false): ClientApproval {
+  return { name, first_seen: "2026-09-09T10:00:00Z", read, write, context };
 }
 
 function waiting(name: string): PendingClient {
@@ -196,6 +200,15 @@ describe("activityStore", () => {
     expect(activityStore.pending()).toEqual([]);
   });
 
+  it("letting a program see the open file takes the lists the command answered with", async () => {
+    h.mcpSetClientContext.mockResolvedValue(answer([approval("Claude Code", true, false, true)]));
+
+    await activityStore.setContext("Claude Code", true);
+
+    expect(h.mcpSetClientContext).toHaveBeenCalledWith("Claude Code", true);
+    expect(activityStore.clients()).toEqual([approval("Claude Code", true, false, true)]);
+  });
+
   it("granting writing grants reading with it", async () => {
     h.mcpSetClientPermission.mockResolvedValue(answer([approval("Claude Code", true, true)]));
     h.activityRecent.mockResolvedValue([]);
@@ -234,16 +247,28 @@ describe("activityStore", () => {
 
   it("reads the tool list the server registers", async () => {
     const store = await freshStore();
-    h.mcpTools.mockResolvedValue({ read: ["read_note"], write: ["write_note"] });
+    h.mcpTools.mockResolvedValue({
+      read: ["read_note"],
+      write: ["write_note"],
+      context: ["get_context"],
+    });
 
     await store.loadTools();
 
-    expect(store.tools()).toEqual({ read: ["read_note"], write: ["write_note"] });
+    expect(store.tools()).toEqual({
+      read: ["read_note"],
+      write: ["write_note"],
+      context: ["get_context"],
+    });
   });
 
   it("asks for the tool list once, however often the section is opened", async () => {
     const store = await freshStore();
-    h.mcpTools.mockResolvedValue({ read: ["read_note"], write: ["write_note"] });
+    h.mcpTools.mockResolvedValue({
+      read: ["read_note"],
+      write: ["write_note"],
+      context: ["get_context"],
+    });
 
     await store.loadTools();
     await store.loadTools();
@@ -258,7 +283,11 @@ describe("activityStore", () => {
     await expect(store.loadTools()).resolves.toBeUndefined();
     expect(store.tools()).toBeNull();
 
-    h.mcpTools.mockResolvedValue({ read: ["read_note"], write: ["write_note"] });
+    h.mcpTools.mockResolvedValue({
+      read: ["read_note"],
+      write: ["write_note"],
+      context: ["get_context"],
+    });
     await store.loadTools();
 
     expect(store.tools()?.write).toEqual(["write_note"]);
@@ -332,6 +361,43 @@ describe("deciding on a program", () => {
     expect(activityStore.isNotAllowed("Claude Code")).toBe(true);
     expect(activityStore.isNotAllowed("Cursor")).toBe(false);
     expect(activityStore.isNotAllowed("Zed")).toBe(false);
+  });
+});
+
+describe("a program calling while Connected programs is off", () => {
+  async function watching(atLaunch: { name: string; at: string } | null) {
+    vi.resetModules();
+    const fresh = await import("../../stores/global/activity");
+    h.mcpOffCall.mockResolvedValue(atLaunch);
+    await fresh.activityStore.watchOffCalls();
+    const send = (call: { name: string; at: string }) => h.listeners.get("mcp:off-call")!({ call });
+    return { store: fresh.activityStore, send };
+  }
+
+  it("reads the call that came while Writ was closed", async () => {
+    const { store } = await watching({ name: "claude-code", at: "2026-10-15T09:00:00Z" });
+    expect(store.offCall()?.name).toBe("claude-code");
+  });
+
+  it("takes a call that comes while Writ runs", async () => {
+    const { store, send } = await watching(null);
+    expect(store.offCall()).toBeNull();
+
+    send({ name: "cursor-vscode", at: "2026-10-15T09:01:00Z" });
+
+    expect(store.offCall()?.name).toBe("cursor-vscode");
+  });
+
+  it("keeps working when the record cannot be read", async () => {
+    vi.resetModules();
+    const fresh = await import("../../stores/global/activity");
+    h.mcpOffCall.mockRejectedValue(new Error("unreadable"));
+
+    await fresh.activityStore.watchOffCalls();
+
+    expect(fresh.activityStore.offCall()).toBeNull();
+    h.listeners.get("mcp:off-call")!({ call: { name: "codex-mcp-client", at: "2026-10-15T09:02:00Z" } });
+    expect(fresh.activityStore.offCall()?.name).toBe("codex-mcp-client");
   });
 });
 

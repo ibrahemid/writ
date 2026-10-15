@@ -55,6 +55,10 @@ export default function StatusBar() {
     const id = win.tabs.activeTabId();
     return id !== null && win.editor.isUpdatedFromDisk(id);
   });
+  const updatedBy = createMemo(() => {
+    const id = win.tabs.activeTabId();
+    return id === null ? null : win.editor.updatedFromDiskBy(id);
+  });
 
   const cursorPosition = createMemo(
     () => `Ln ${win.editor.cursorLine()}, Col ${win.editor.cursorCol()}`,
@@ -122,7 +126,9 @@ export default function StatusBar() {
       <div class="statusbar-left">
         <div class="statusbar-live" role="status" aria-live="polite">
           <Show when={updatedFromDisk()}>
-            <span class="statusbar-label statusbar-updated">Updated from disk</span>
+            <span class="statusbar-label statusbar-updated">
+              {updatedBy() ? `Changed by ${updatedBy()}` : "Updated from disk"}
+            </span>
           </Show>
           <Show when={!updatedFromDisk() && saveLabel()}>
             {(label) => (

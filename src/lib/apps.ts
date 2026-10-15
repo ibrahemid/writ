@@ -101,6 +101,12 @@ export const APPS: readonly AppEntry[] = [
   },
 ];
 
+/** The line that offers Connected programs while it is off, once, when a
+ * program has called Writ: `name` is the program as a person knows it. */
+export function programsCallOffer(name: string): string {
+  return `${name} asked for your files, and Connected programs is off.`;
+}
+
 /** The entry for `app`. Every `AppId` has one. */
 export function appEntry(app: AppId): AppEntry {
   return APPS.find((entry) => entry.id === app)!;

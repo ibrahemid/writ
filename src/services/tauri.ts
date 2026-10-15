@@ -23,6 +23,7 @@ export type { ClientApproval };
 import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
 import type { LinkVerdict } from "../types/link";
+import type { VersionWriter } from "../types/writer";
 import { isInlineImageFailure, type InlineImageFailure } from "../types/inline-image";
 import { logFailure } from "../lib/log";
 
@@ -621,6 +622,8 @@ export interface NoteVersion {
   at_ms: number;
   /** What the text costs in bytes. */
   bytes: number;
+  /** What left the text in the file, or `null` when Writ does not know. */
+  writer?: VersionWriter | null;
 }
 
 /** Why a file has no versions to list. */
@@ -2176,6 +2179,16 @@ export async function mcpSetClientPermission(
   return invoke("mcp_set_client_permission", { name, read, write });
 }
 
+/** Lets one program see the file open in Writ and its selection, or stops it (ADR-053). */
+export async function mcpSetClientContext(name: string, context: boolean): Promise<McpClients> {
+  return invoke("mcp_set_client_context", { name, context });
+}
+
+/** Holds each of one program's writes for the person's answer, or stops (ADR-053). */
+export async function mcpSetClientReview(name: string, review: boolean): Promise<McpClients> {
+  return invoke("mcp_set_client_review", { name, review });
+}
+
 export async function mcpForgetClient(name: string): Promise<McpClients> {
   return invoke("mcp_forget_client", { name });
 }
@@ -2218,10 +2231,122 @@ export async function mcpServerCommand(): Promise<McpServerCommand> {
 export interface McpTools {
   read: string[];
   write: string[];
+  /** The tools the open-file grant covers (ADR-053). */
+  context: string[];
+}
+
+/** A place in a file: 1-based line and 1-based column, in characters. */
+export interface TextPoint {
+  line: number;
+  column: number;
+}
+
+/** One selected range and its text. */
+export interface SelectedText {
+  text: string;
+  from: TextPoint;
+  to: TextPoint;
+}
+
+/** What the main window answers when a program asks which file is open (ADR-053). */
+export interface WindowContext {
+  buffer_id: string | null;
+  selections: SelectedText[];
+  cursor: TextPoint | null;
+  unsaved: boolean;
+  /** Selected text past the window's own ceiling was left out. */
+  truncated: boolean;
+}
+
+/** Answers the ask holding `token`. Rust names the file from the tab id. */
+export async function answerOpenContext(token: string, reply: WindowContext): Promise<void> {
+  return invoke("context_answer", { token, reply });
+}
+
+/** A program's write waiting for the person's answer (ADR-053). */
+export interface HeldWrite {
+  token: string;
+  /** The program, by the name it sent. */
+  program: string;
+  /** The file, relative to the notes folder, or its name outside it. */
+  path: string;
+  kind: "edit" | "create" | "rename";
+  /** The name a rename would give the file. */
+  rename_to: string | null;
+  hunks: DiffHunk[];
+  /** How long the write waits for the answer. */
+  wait_ms: number;
+}
+
+/** Applies or discards the held write `token` names. */
+export async function answerHeldWrite(token: string, apply: boolean): Promise<void> {
+  return invoke("review_answer", { token, apply });
 }
 
 export async function mcpTools(): Promise<McpTools> {
   return invoke("mcp_tools");
+}
+
+/** The MCP clients Writ has a card for (`writ_core::mcp_clients::McpClient`). */
+export type McpClientId =
+  | "claude-code"
+  | "codex"
+  | "gemini-cli"
+  | "cursor"
+  | "vs-code"
+  | "lm-studio"
+  | "claude-desktop"
+  | "other";
+
+/** How a client is connected: its own `mcp add`, an install link, a bundle it
+ * installs, or JSON pasted into it. */
+export type McpConnection = "command" | "link" | "bundle" | "json";
+
+export interface McpClientCard {
+  client: McpClientId;
+  connection: McpConnection;
+  /** The `mcp add` line or the JSON to copy; null while the command is not
+   * ready to hand out, and for a link or a bundle. */
+  copy_text: string | null;
+  /** The client's own command was found, so Add runs it. */
+  runs_command: boolean;
+}
+
+export interface McpAddResult {
+  /** The last line the client printed. */
+  said: string;
+}
+
+export interface McpServerTest {
+  tools: number;
+}
+
+/** The last program that called while Connected programs was off. */
+export interface McpOffCall {
+  name: string;
+  at: string;
+}
+
+export async function mcpConnectCards(): Promise<McpClientCard[]> {
+  return invoke("mcp_connect_cards");
+}
+
+/** Runs the client's own `mcp add`. Rust builds the arguments from the id. */
+export async function mcpConnectAdd(client: McpClientId): Promise<McpAddResult> {
+  return invoke("mcp_connect_add", { client });
+}
+
+/** Opens the client's install link, or the Claude Desktop bundle. */
+export async function mcpConnectOpen(client: McpClientId): Promise<void> {
+  return invoke("mcp_connect_open", { client });
+}
+
+export async function mcpServerTest(): Promise<McpServerTest> {
+  return invoke("mcp_server_test");
+}
+
+export async function mcpOffCall(): Promise<McpOffCall | null> {
+  return invoke("mcp_off_call");
 }
 
 // --- Clipboard ---

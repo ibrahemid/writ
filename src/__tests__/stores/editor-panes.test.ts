@@ -24,6 +24,7 @@ vi.mock("../../services/tauri", () => ({
 import { createEditorStore, DIRTY_COMPARE_IDLE_MS } from "../../stores/window/editor-store";
 import { createCountsStore } from "../../stores/window/counts-store";
 import { mirroredSpec } from "../../editor/pane-mirror";
+import { agentEditMarks, agentEditRanges } from "../../editor/agent-edit-marks";
 import { resetAutosave } from "../../services/autosave";
 import type { PaneId } from "../../lib/pane-layout";
 
@@ -224,5 +225,25 @@ describe("a file that changed under a note no pane shows", () => {
     for (const pane of ["left", "right"] as const) {
       expect(editor.forPane(pane).takeTabState("A")?.state.doc.toString()).toBe("new\n");
     }
+  });
+
+  it("marks a program's text in every state the panes keep for it", () => {
+    const { editor } = store();
+    for (const pane of ["left", "right"] as const) {
+      editor.forPane(pane).keepTabState("A", {
+        state: EditorState.create({ doc: "old\n", extensions: [history(), agentEditMarks] }),
+        scroll: null,
+        mode: { kind: "Normal" },
+        longest: 3,
+      });
+    }
+    editor.applyExternalContent("A", "old\nnew\n", { kind: "program", name: "claude-code" });
+    for (const pane of ["left", "right"] as const) {
+      const kept = editor.forPane(pane).takeTabState("A")!.state;
+      expect(kept.doc.toString()).toBe("old\nnew\n");
+      expect(agentEditRanges(kept).map((range) => range.title)).toEqual(["Changed by Claude Code"]);
+      expect(undoDepth(kept)).toBe(1);
+    }
+    expect(editor.updatedFromDiskBy("A")).toBe("Claude Code");
   });
 });

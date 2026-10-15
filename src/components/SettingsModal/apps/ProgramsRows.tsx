@@ -4,12 +4,16 @@ import Button from "../../Button/Button";
 import { showToast } from "../../../stores/global/notifications";
 import { WaitingList } from "../../Activity/WaitingProgram";
 import { activityStore, type ClientApproval } from "../../../stores/global/activity";
-import { describeReadTools, describeWriteTools } from "../../../lib/tool-phrases";
+import {
+  describeContextTools,
+  describeReadTools,
+  describeWriteTools,
+} from "../../../lib/tool-phrases";
 import { PathText } from "../controls";
 import { SettingsRow, ToggleSwitch } from "../SettingsRow";
+import ClientCards from "./ClientCards";
 
-/** The row id the client cards take, between the waiting list and the
- * command, once their settings entry and row exist. */
+/** The row the client cards take, between the waiting list and the command. */
 export const CLIENT_CARDS_SETTING_ID = "mcp.connect";
 
 /**
@@ -20,7 +24,8 @@ export const CLIENT_CARDS_SETTING_ID = "mcp.connect";
  * the program relays sends the person (ADR-031 rules 3.2 and 7.2). The waiting
  * rows are the Activity window's own. Reading and writing are separate grants,
  * so a program approved to read never writes; a program not allowed either way
- * is listed with both off.
+ * is listed with both off. Seeing the open file is a third grant, which neither
+ * of the others carries (ADR-053).
  *
  * The grants read as sentences: the server reports the tool ids it registers,
  * and the tool phrases turn them into the words under each grant.
@@ -59,6 +64,22 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
     }
   }
 
+  async function onSetReview(name: string, review: boolean) {
+    try {
+      await activityStore.setReview(name, review);
+    } catch {
+      showToast("Could not save the change", "error");
+    }
+  }
+
+  async function onSetContext(name: string, context: boolean) {
+    try {
+      await activityStore.setContext(name, context);
+    } catch {
+      showToast("Could not save the change", "error");
+    }
+  }
+
   async function onForget(client: ClientApproval) {
     try {
       await activityStore.forget(client.name);
@@ -87,6 +108,14 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
             </span>
           }
         />
+      </SettingsRow>
+
+      <SettingsRow
+        id={CLIENT_CARDS_SETTING_ID}
+        layout="stacked"
+        caution={activityStore.commandCaution()}
+      >
+        <ClientCards />
       </SettingsRow>
 
       <SettingsRow
@@ -124,6 +153,10 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
               <li class="settings-tool-grant" data-grant="write">
                 <span class="settings-tool-grant-name">Writing:</span>{" "}
                 <span class="settings-tool-names">{describeWriteTools(tools().write)}.</span>
+              </li>
+              <li class="settings-tool-grant" data-grant="context">
+                <span class="settings-tool-grant-name">Open file:</span>{" "}
+                <span class="settings-tool-names">{describeContextTools(tools().context)}.</span>
               </li>
             </ul>
           )}
@@ -163,6 +196,25 @@ export default function ProgramsRows(props: { onOpenActivity: () => void }) {
                           label={`Let ${client.name} write your files`}
                           checked={client.write}
                           onChange={() => void onSetPermission(client.name, true, !client.write)}
+                        />
+                      </label>
+                      <label class="settings-program-grant">
+                        Ask first
+                        <ToggleSwitch
+                          setting={`mcp_review_${client.name}`}
+                          label={`Show each write from ${client.name} for you to apply or discard`}
+                          checked={client.write && client.review === true}
+                          disabled={!client.write}
+                          onChange={() => void onSetReview(client.name, client.review !== true)}
+                        />
+                      </label>
+                      <label class="settings-program-grant">
+                        Open file
+                        <ToggleSwitch
+                          setting={`mcp_context_${client.name}`}
+                          label={`Let ${client.name} see the file open in Writ and the text you selected`}
+                          checked={client.context}
+                          onChange={() => void onSetContext(client.name, !client.context)}
                         />
                       </label>
                       <Button data-action="mcp-forget" onClick={() => void onForget(client)}>

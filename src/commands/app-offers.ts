@@ -4,7 +4,10 @@ import { configStore } from "../stores/global/config";
 import { bufferRegistry } from "../stores/global/buffer-registry";
 import { indexCacheStore } from "../stores/global/index-cache";
 import { showToast } from "../stores/global/notifications";
-import { appEntry, fileShowsUseFor, OFFERED_BY_FILE } from "../lib/apps";
+import { activityStore } from "../stores/global/activity";
+import { appEntry, fileShowsUseFor, OFFERED_BY_FILE, programsCallOffer } from "../lib/apps";
+import { displayProgramName } from "../lib/program-names";
+import { openSettings } from "../components/SettingsModal/state";
 import { openAppSurface } from "./app-surfaces";
 import type { WindowState } from "../stores/window/createWindowState";
 
@@ -33,6 +36,42 @@ async function takeOffer(app: AppId): Promise<void> {
 }
 
 /**
+ * Switches Connected programs on from its offer and opens its rows, where
+ * the program waits for approval from its next call.
+ */
+async function takeProgramsOffer(): Promise<void> {
+  try {
+    await configStore.setAppOn("programs", true);
+  } catch {
+    showToast("Could not save your settings", "error");
+    return;
+  }
+  openSettings("apps", "mcp.waiting");
+}
+
+/**
+ * Offers Connected programs, once, when a program called Writ while it was
+ * off: the server answered that it is off and wrote the program's name down
+ * (ADR-031 rule 7.2). Recorded when shown, like the file offers, and held to
+ * the same switch.
+ */
+function offerProgramsWhenCalled(): void {
+  createEffect(() => {
+    const call = activityStore.offCall();
+    if (!call || !configStore.loaded() || !configStore.appOffersOn()) return;
+    if (configStore.isAppOn("programs") || configStore.wasAppOffered("programs")) return;
+    untrack(() => {
+      configStore.noteAppOffered("programs");
+      showToast({
+        text: programsCallOffer(displayProgramName(call.name)),
+        type: "info",
+        action: { label: "Turn on", run: () => takeProgramsOffer() },
+      });
+    });
+  });
+}
+
+/**
  * Offers an app that is off, once, when the open file shows a use for it
  * (ADR-041 section 5): Connections for a file with `[[links]]`, Tags for one
  * with `#tags`.
@@ -57,6 +96,8 @@ export function offerAppsInContext(win: OfferingWindow): void {
   );
   const path = createMemo(() => (waiting().length > 0 ? activePath(win) : null));
   let showing = false;
+
+  offerProgramsWhenCalled();
 
   createEffect(() => {
     const at = path();

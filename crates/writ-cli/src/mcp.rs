@@ -12,9 +12,15 @@
 //! unless `WRIT_NOTES_DIR` names another.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
-use writ_mcp::tools::AppNotesFolder;
+use writ_core::open_context::OpenContext;
+use writ_core::write_review::{
+    ReviewAnswer, ReviewUnavailable, WriteProposal, WriteReview, REVIEW_WAIT,
+};
+use writ_mcp::tools::{AppNotesFolder, ContextSource, WritNotReached, WritOpener};
 
+use crate::handoff::{self, Timings};
 use crate::resolve_app_notes_dir;
 
 /// What `writ mcp --help` says beneath the usage line.
@@ -50,6 +56,77 @@ impl AppNotesFolder for ConfiguredAppFolder {
             self.data_dir.as_deref(),
             self.home.as_deref(),
         )
+    }
+}
+
+/// How long `open_in_writ` waits for Writ to take its link: a tool call holds
+/// the client until it answers, so a Writ that is starting gets half the
+/// minute a request stays fresh.
+pub const OPEN_TIMINGS: Timings = Timings {
+    running: Duration::from_secs(10),
+    launched: Duration::from_secs(30),
+    poll: Duration::from_millis(100),
+};
+
+/// Shows a file in Writ for `open_in_writ`: the link goes to the app as a
+/// request in the data folder (ADR-033, ADR-052), and `launch` starts the app
+/// when nothing holds the folder.
+pub struct LinkHandoff<L> {
+    /// The data folder the app holds.
+    pub writ_dir: PathBuf,
+    /// Starts the app, answering whether it did.
+    pub launch: L,
+}
+
+impl<L> WritOpener for LinkHandoff<L>
+where
+    L: Fn() -> bool + Send + Sync,
+{
+    fn open_link(&self, link: &str) -> Result<(), WritNotReached> {
+        handoff::deliver_link(&self.writ_dir, link, &self.launch, OPEN_TIMINGS)
+            .map_err(|_| WritNotReached)
+    }
+}
+
+/// How long `get_context` waits for the running Writ to say which file is
+/// open.
+pub const CONTEXT_WAIT: Duration = Duration::from_secs(5);
+
+/// How often `get_context` looks for the answer while it waits.
+pub const CONTEXT_POLL: Duration = Duration::from_millis(25);
+
+/// Asks the running Writ which file is open for `get_context`, through the
+/// data folder (ADR-053): a request in `open-requests/` and the answer the app
+/// leaves in `context-answers/`. No socket, and nothing looked at between
+/// calls.
+pub struct ContextHandoff {
+    /// The data folder the app holds.
+    pub writ_dir: PathBuf,
+}
+
+impl ContextSource for ContextHandoff {
+    fn open_context(&self, program: &str) -> Result<OpenContext, WritNotReached> {
+        handoff::ask_context(&self.writ_dir, program, CONTEXT_WAIT, CONTEXT_POLL)
+            .map_err(|_| WritNotReached)
+    }
+}
+
+/// How often a held write looks for the person's answer.
+pub const REVIEW_POLL: Duration = Duration::from_millis(100);
+
+/// Shows a program's held write in the running Writ and waits for the
+/// person's answer (ADR-053), through the data folder: the proposal in
+/// `write-reviews/`, a request in `open-requests/`, and the answer the app
+/// leaves in `review-answers/`. No socket, and nothing looked at between
+/// writes.
+pub struct ReviewHandoff {
+    /// The data folder the app holds.
+    pub writ_dir: PathBuf,
+}
+
+impl WriteReview for ReviewHandoff {
+    fn review(&self, proposal: &WriteProposal) -> Result<ReviewAnswer, ReviewUnavailable> {
+        handoff::ask_review(&self.writ_dir, proposal, REVIEW_WAIT, REVIEW_POLL)
     }
 }
 

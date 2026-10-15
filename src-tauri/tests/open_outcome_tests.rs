@@ -86,6 +86,8 @@ fn make_state(dir: &TempDir) -> AppState {
         quit: Arc::new(QuitState::new()),
         removal_holds: Default::default(),
         pending_opens: Mutex::new(Vec::new()),
+        pending_lines: Mutex::new(Default::default()),
+        cli_waits: Mutex::new(Default::default()),
         frontend_ready: AtomicBool::new(false),
         window_revealed: AtomicBool::new(false),
         window_dismissed: AtomicBool::new(false),
@@ -812,4 +814,91 @@ fn a_file_reopened_from_history_is_followed_again() {
     restore_buffer_inner(&state, &id).expect("reopen");
 
     assert!(is_followed(&state, &id));
+}
+
+/// A `writ` request for `paths`, with a line for some of them and a wait.
+fn cli_request(
+    paths: &[&str],
+    lines: &[(&str, u32)],
+    wait: Option<&str>,
+) -> writ_core::instance::OpenRequest {
+    writ_core::instance::OpenRequest {
+        paths: paths.iter().map(|path| path.to_string()).collect(),
+        sent_at_ms: 0,
+        lines: lines
+            .iter()
+            .map(|(path, line)| (path.to_string(), *line))
+            .collect(),
+        wait: wait.map(str::to_string),
+        links: Vec::new(),
+        context: None,
+        review: None,
+    }
+}
+
+#[test]
+fn a_request_parked_before_the_frontend_is_ready_keeps_each_line_beside_its_file() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let file = state.notes_root().join("Plan.md");
+    std::fs::write(&file, "one\ntwo\n").unwrap();
+    let missing = state.notes_root().join("Gone.md");
+    let (file, missing) = (file.to_string_lossy(), missing.to_string_lossy());
+    let request = cli_request(&[&missing, &file], &[(&missing, 3), (&file, 7)], None);
+
+    assert_eq!(
+        writ_tauri_lib::instance::route_forwarded(&state, &request),
+        None
+    );
+    let canonical = canonicalize_for_authorization(std::path::Path::new(&*file)).unwrap();
+    assert_eq!(
+        *state.pending_opens.lock().unwrap(),
+        vec![canonical.clone()]
+    );
+    assert_eq!(
+        state
+            .pending_lines
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(path, line)| (path.clone(), *line))
+            .collect::<Vec<_>>(),
+        vec![(canonical, 7)]
+    );
+}
+
+#[test]
+fn a_waiting_command_is_answered_when_the_tab_it_opened_closes() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    state
+        .frontend_ready
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let file = state.notes_root().join("COMMIT_EDITMSG");
+    std::fs::write(&file, "message\n").unwrap();
+    let marker = writ_storage::instance::create_wait_marker(&state.writ_dir, "t1").unwrap();
+    let request = cli_request(&[&file.to_string_lossy()], &[], Some("t1"));
+
+    let opens = writ_tauri_lib::instance::route_forwarded(&state, &request).expect("opens");
+    let opened = open_file_from_path(&state, &opens.paths[0]).expect("open");
+    let id = opened.doc.expect("a tab").id;
+    assert!(marker.exists(), "the tab is still open");
+
+    close_buffer_inner(&state, &id).expect("close");
+    assert!(!marker.exists(), "closing the tab answers the wait");
+}
+
+#[test]
+fn a_waiting_command_whose_files_cannot_open_is_answered_at_once() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let marker = writ_storage::instance::create_wait_marker(&state.writ_dir, "t2").unwrap();
+    let missing = state.notes_root().join("Gone.md");
+    let request = cli_request(&[&missing.to_string_lossy()], &[], Some("t2"));
+
+    assert_eq!(
+        writ_tauri_lib::instance::route_forwarded(&state, &request),
+        None
+    );
+    assert!(!marker.exists());
 }

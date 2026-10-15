@@ -1973,7 +1973,8 @@ pub(crate) fn released_source(store: &BufferStore, source_path: Option<String>) 
     }
 }
 
-/// Takes away the write permission of every file in `released`.
+/// Takes away the write permission of every file in `released`, and answers
+/// every `writ --wait` that waited on them.
 ///
 /// A closed tab's file is one the person has put away, and only an open tab
 /// may write a file from outside the notes folder; reopening it blesses it
@@ -1982,6 +1983,8 @@ pub(crate) fn revoke_released(state: &AppState, released: &[String]) {
     for path in released {
         state.authorized_paths.revoke_blessed_source(path);
     }
+    // A file put away is one a waiting `writ --wait` is answered for.
+    crate::instance::tabs_closed(state, released);
 }
 
 /// IPC: closes one tab.

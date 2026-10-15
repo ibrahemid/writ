@@ -58,10 +58,15 @@ use writ_core::activity::{display_program_name, ActivityRecord, Actor, RepeatFol
 use writ_core::config::{FileExtension, FilesConfig};
 use writ_core::hash::digest_from_hex;
 use writ_core::notes::containment::resolve_for_containment;
-use writ_core::notes::host::{Capability, HostError, LastKnown, NoteHost, PermissionSet};
+use writ_core::notes::host::{
+    Capability, HostError, IndexEntry, LastKnown, NoteHost, PassageReceipt, PermissionSet,
+};
 use writ_core::notes::WriteOrigin;
+use writ_core::open_context::{OpenContext, Selected, TextPoint};
+pub use writ_core::write_review::{ReviewAnswer, ReviewUnavailable, WriteProposal, WriteReview};
 use writ_storage::note_history::NoteHistoryStore;
 use writ_storage::note_host::NoteHostImpl;
+use writ_storage::note_ops::{find_todays_file, TodaysFileAt};
 use writ_storage::paths::{file_name_only, relative_slug};
 use writ_storage::write_lock::WriteLock;
 
@@ -105,7 +110,11 @@ pub struct HitPage {
 /// registers them, the gate reads the split, and the settings row shows the
 /// user the same names, so none of the three can drift
 /// ([`writ_core::tools`]).
-pub use writ_core::tools::{READ_TOOLS, WRITE_TOOLS};
+pub use writ_core::tools::{CONTEXT_TOOLS, READ_TOOLS, WRITE_TOOLS};
+
+/// The tool that sees the file open in Writ (ADR-053), and the action its
+/// activity line carries.
+pub const CONTEXT_TOOL: &str = "get_context";
 
 /// The answers a tool hands back, which are the host's own shapes: one note in
 /// the folder, a note's text, a search hit, a link, a backlink, a folder tag,
@@ -132,6 +141,35 @@ pub const INDEX_TOOLS: &[&str] = &[
     "folder_tags",
 ];
 
+/// How `today` names the day's file in a refusal, before it has a path.
+const TODAYS_FILE: &str = "today's file";
+
+/// The action the activity log records for a read of the folder index
+/// resource. It is approved as `list_notes` is.
+pub const INDEX_ACTION: &str = "read_index";
+
+/// Most files the folder index resource lists. A folder past it is listed to
+/// here, in path order, and says so.
+pub const MAX_INDEX_FILES: usize = 5_000;
+
+/// The URI of the folder index resource.
+pub const INDEX_RESOURCE: &str = "writ-folder://index";
+
+/// What every file resource's URI starts with, before its path.
+pub const FILE_RESOURCE_PREFIX: &str = "writ-folder://file/";
+
+/// How many times `today` looks for the day's file again after another
+/// program made it in between.
+const TODAY_ATTEMPTS: usize = 3;
+
+/// What a path segment keeps as it is in a resource URI.
+const RESOURCE_PATH_KEEPS: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~')
+    .remove(b'/');
+
 /// Why a tool call produced no answer.
 ///
 /// Every message names a path, a client or a tool and nothing else: no note
@@ -157,6 +195,30 @@ pub enum ToolError {
         direction_of(tool)
     )]
     NotAllowed { client: String, tool: String },
+    /// The person discarded the write in Writ. Nothing was written (ADR-053).
+    #[error("The change to {path} was discarded in Writ. Nothing was written.")]
+    Discarded {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// The write waits for the person, who could not be asked or did not
+    /// answer. Nothing was written (ADR-053).
+    #[error("Writ asks before each write from this program, and {}. Nothing was written to {path}.", review_unavailable(*reason))]
+    ReviewUnavailable {
+        /// The path as the client wrote it.
+        path: String,
+        /// Why nobody answered.
+        reason: ReviewUnavailable,
+    },
+    /// The program may not see the file open in Writ (ADR-053).
+    #[error(
+        "{} is not allowed to see the file open in Writ. Turn on Open file for it in Settings, Apps, Connected programs.",
+        display_program_name(client)
+    )]
+    ContextNotAllowed {
+        /// The name the client sent.
+        client: String,
+    },
     #[error("Writ approves programs by name, and this program sent none.")]
     Unnamed,
     /// The path argument names something the notes folder does not hold.
@@ -262,6 +324,62 @@ pub enum ToolError {
         /// The path as the client wrote it.
         path: String,
     },
+    /// `replace_in_note` was handed no text to replace. Nothing was written.
+    #[error("old_text for {path} is empty. Pass the exact text to replace.")]
+    PassageEmpty {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// The note does not hold `old_text`. Nothing was written.
+    #[error("{path} does not hold old_text. Read it and pass text it holds, exactly.")]
+    PassageAbsent {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// The note holds `old_text` in more than one place. Nothing was written.
+    #[error("{path} holds old_text {count} times. Pass more of the text around it, so it is found once.")]
+    PassageRepeated {
+        /// The path as the client wrote it.
+        path: String,
+        /// How many places hold it.
+        count: usize,
+    },
+    /// The file is in the folder this server serves and not in the one Writ
+    /// has open, so no `writ://` link reaches it.
+    #[error("{path} is not in the folder Writ has open, so Writ cannot show it.")]
+    NotInAppFolder {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// Writ could not be reached to show the file.
+    #[error("Writ did not show {path}. Open Writ and try again.")]
+    WritUnreachable {
+        /// The path as the client wrote it.
+        path: String,
+    },
+    /// The resource URI is not one this server lists.
+    #[error("{uri} is not a resource Writ lists.")]
+    UnknownResource {
+        /// The URI as the client wrote it.
+        uri: String,
+    },
+    /// Writ is running and did not say which file is open in time.
+    #[error("Writ did not say which file is open. Try again.")]
+    ContextUnanswered,
+    /// The file has no heading the `heading` argument names.
+    #[error("{path} has no heading {heading}.")]
+    HeadingAbsent {
+        /// The path as the client wrote it.
+        path: String,
+        /// The heading as the client wrote it.
+        heading: String,
+    },
+    /// `reveal` was handed a heading and a line, which name two places.
+    #[error("Pass heading or line for {path}, not both.")]
+    HeadingAndLine {
+        /// The path as the client wrote it.
+        path: String,
+    },
 }
 
 /// Where a renamed note went, and where it was.
@@ -275,6 +393,177 @@ pub struct RenameReceipt {
     pub path: String,
     /// The path it had before.
     pub previous_path: String,
+}
+
+/// What `append_note` and `replace_in_note` answer: where the write landed,
+/// and the link that shows the note in Writ.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LinkedReceipt {
+    /// Where the write landed and what the file holds afterwards.
+    #[serde(flatten)]
+    pub written: WriteReceipt,
+    /// The 1-based line the new text starts on, for a replaced passage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// The `writ://` link that shows the note in Writ (ADR-052). Absent for a
+    /// note outside the folder Writ has open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_url: Option<String>,
+}
+
+/// What `today` answers.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TodayReceipt {
+    /// Today's file.
+    pub path: String,
+    /// The call made it: the day had no file.
+    pub created: bool,
+    /// The call changed what the file holds.
+    pub changed: bool,
+    /// The `writ://` link that shows the file in Writ (ADR-052).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_url: Option<String>,
+}
+
+/// What `open_in_writ` answers.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ShownReceipt {
+    /// The file Writ was asked to show.
+    pub path: String,
+    /// The line it was asked to show it at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    /// The `writ://` link Writ was handed.
+    pub open_url: String,
+}
+
+/// What `get_context` answers (ADR-053).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ContextReceipt {
+    /// The file in front in Writ: relative to the folder when the folder
+    /// holds it, its name alone otherwise. Absent when no file is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Whether the folder holds the file, so the other tools reach it.
+    pub in_folder: bool,
+    /// What is selected, as the window holds it, with where each range
+    /// starts and ends.
+    pub selections: Vec<Selected>,
+    /// Where the caret is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<TextPoint>,
+    /// The tab holds text the file on disk does not have yet.
+    pub unsaved: bool,
+    /// Selections or text past the answer's ceilings were left out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+    /// The `writ://` link that shows the file, when Writ's folder holds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open_url: Option<String>,
+}
+
+/// Asks the running Writ which file is open and what is selected in it
+/// (ADR-053).
+pub trait ContextSource: Send + Sync {
+    /// The file open in Writ, as Writ answers for `program`, or
+    /// [`OpenContext::nothing_open`] when no Writ is running.
+    ///
+    /// # Errors
+    ///
+    /// [`WritNotReached`]: Writ is running and did not answer.
+    fn open_context(&self, program: &str) -> Result<OpenContext, WritNotReached>;
+}
+
+/// The review of a host that has no way to reach Writ: every held write is
+/// refused.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoReview;
+
+impl WriteReview for NoReview {
+    fn review(&self, _proposal: &WriteProposal) -> Result<ReviewAnswer, ReviewUnavailable> {
+        Err(ReviewUnavailable::NotRunning)
+    }
+}
+
+/// The context source of a host that has no way to reach Writ.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoContext;
+
+impl ContextSource for NoContext {
+    fn open_context(&self, _program: &str) -> Result<OpenContext, WritNotReached> {
+        Err(WritNotReached)
+    }
+}
+
+/// The folder index resource: every file the index holds, as the served folder
+/// spells it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FolderIndex {
+    /// The files, in path order, with paths and links relative to the folder.
+    pub files: Vec<IndexEntry>,
+    /// More files than [`MAX_INDEX_FILES`] are indexed, and the list stops
+    /// there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+/// What a resource URI names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResourceTarget {
+    /// The folder index.
+    Index,
+    /// The file at this path, relative to the folder.
+    File(String),
+}
+
+/// The URI of the file resource for `relative`, a path inside the folder with
+/// `/` between segments.
+pub fn file_resource_uri(relative: &str) -> String {
+    format!(
+        "{FILE_RESOURCE_PREFIX}{}",
+        percent_encoding::utf8_percent_encode(relative, RESOURCE_PATH_KEEPS)
+    )
+}
+
+/// What `uri` names, or `None` for a URI this server does not list.
+pub fn resource_target(uri: &str) -> Option<ResourceTarget> {
+    if uri == INDEX_RESOURCE {
+        return Some(ResourceTarget::Index);
+    }
+    let encoded = uri.strip_prefix(FILE_RESOURCE_PREFIX)?;
+    let path = percent_encoding::percent_decode_str(encoded)
+        .decode_utf8()
+        .ok()?
+        .into_owned();
+    (!path.is_empty()).then_some(ResourceTarget::File(path))
+}
+
+/// Shows a file in Writ by handing it a `writ://` link (ADR-052).
+///
+/// The link goes through the same grammar a clicked link does, so a program
+/// that can call `open_in_writ` can do nothing a link on a web page could not.
+pub trait WritOpener: Send + Sync {
+    /// Hands `link` to Writ, starting it when it is not running.
+    ///
+    /// # Errors
+    ///
+    /// [`WritNotReached`]: Writ did not take the link.
+    fn open_link(&self, link: &str) -> Result<(), WritNotReached>;
+}
+
+/// Writ did not take a link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("Writ did not take the link")]
+pub struct WritNotReached;
+
+/// The opener of a host that has no way to reach Writ.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoOpener;
+
+impl WritOpener for NoOpener {
+    fn open_link(&self, _link: &str) -> Result<(), WritNotReached> {
+        Err(WritNotReached)
+    }
 }
 
 /// One frontmatter property.
@@ -360,6 +649,9 @@ pub struct ToolHost {
     current: Mutex<Current>,
     history: OnceLock<NoteHistoryStore>,
     fold: Mutex<RepeatFold>,
+    opener: Box<dyn WritOpener>,
+    context: Box<dyn ContextSource>,
+    review: Box<dyn WriteReview>,
 }
 
 /// Which folder a host answers from.
@@ -474,7 +766,38 @@ impl ToolHost {
             current: Mutex::new(Current { settings, host }),
             history: OnceLock::new(),
             fold: Mutex::new(RepeatFold::default()),
+            opener: Box::new(NoOpener),
+            context: Box::new(NoContext),
+            review: Box::new(NoReview),
         })
+    }
+
+    /// The same host, showing files in Writ through `opener`.
+    ///
+    /// A host opened without one answers `open_in_writ` with
+    /// [`ToolError::WritUnreachable`].
+    pub fn with_opener(mut self, opener: Box<dyn WritOpener>) -> Self {
+        self.opener = opener;
+        self
+    }
+
+    /// The same host, asking Writ which file is open through `context`.
+    ///
+    /// A host opened without one answers `get_context` with
+    /// [`ToolError::ContextUnanswered`].
+    pub fn with_context_source(mut self, context: Box<dyn ContextSource>) -> Self {
+        self.context = context;
+        self
+    }
+
+    /// The same host, holding each write of a program the person set to
+    /// "ask first" for `review` to answer (ADR-053).
+    ///
+    /// A host opened without one refuses those writes with
+    /// [`ToolError::ReviewUnavailable`] and writes nothing.
+    pub fn with_review_source(mut self, review: Box<dyn WriteReview>) -> Self {
+        self.review = review;
+        self
     }
 
     /// The folder every path argument is checked against, as the last allowed
@@ -804,7 +1127,8 @@ impl ToolHost {
             Ok(host) => host.default_extension(),
             Err(_) => self.resolved().host.default_extension(),
         };
-        let created = permitted.and_then(|host| self.mint_note(&host, client, name, content));
+        let created = permitted
+            .and_then(|host| self.mint_note(&self.reviewing(host, client), client, name, content));
         self.record(
             client,
             "create_note",
@@ -838,7 +1162,8 @@ impl ToolHost {
     ) -> Result<RenameReceipt, ToolError> {
         let permitted = self.permit(client, "rename_note", Some(path));
         let root = self.root_of(&permitted);
-        let renamed = permitted.and_then(|host| self.move_name(&host, client, path, new_name));
+        let renamed = permitted
+            .and_then(|host| self.move_name(&self.reviewing(host, client), client, path, new_name));
         self.record(
             client,
             "rename_note",
@@ -852,6 +1177,403 @@ impl ToolHost {
             decision_of(&renamed),
         );
         renamed.map(|(receipt, _)| receipt)
+    }
+
+    /// Adds `text` to the end of the note at `path`, on lines of its own,
+    /// keeping what the note held as a version.
+    ///
+    /// The note keeps its line ending and encoding, and nothing it held is
+    /// sent or replaced: the append is compared against the bytes it was built
+    /// from, and a note that changed in between is read again
+    /// ([`NoteHost::append_note`]). Text with nothing in it writes nothing.
+    pub fn append_note(
+        &self,
+        client: &ClientId,
+        path: &str,
+        text: &str,
+    ) -> Result<LinkedReceipt, ToolError> {
+        let permitted = self.permit(client, "append_note", Some(path));
+        let root = self.root_of(&permitted);
+        let appended = permitted.and_then(|host| self.add_text(host, client, path, text));
+        self.record(
+            client,
+            "append_note",
+            Some(logged_path(
+                &root,
+                appended
+                    .as_ref()
+                    .map_or(path, |receipt| receipt.written.path.as_str()),
+            )),
+            Some(text.len() as u64),
+            decision_of(&appended),
+        );
+        appended
+    }
+
+    /// Replaces the one place the note at `path` holds `old_text` with
+    /// `new_text`, keeping what the note held as a version.
+    ///
+    /// The match is exact and has to be found once: text the note does not
+    /// hold, or holds in more than one place, is refused and nothing is
+    /// written ([`NoteHost::replace_in_note`]). The answer names the line the
+    /// new text starts on.
+    pub fn replace_in_note(
+        &self,
+        client: &ClientId,
+        path: &str,
+        old_text: &str,
+        new_text: &str,
+    ) -> Result<LinkedReceipt, ToolError> {
+        let permitted = self.permit(client, "replace_in_note", Some(path));
+        let root = self.root_of(&permitted);
+        let replaced =
+            permitted.and_then(|host| self.replace_passage(host, client, path, old_text, new_text));
+        self.record(
+            client,
+            "replace_in_note",
+            Some(logged_path(
+                &root,
+                replaced
+                    .as_ref()
+                    .map_or(path, |receipt| receipt.written.path.as_str()),
+            )),
+            Some(new_text.len() as u64),
+            decision_of(&replaced),
+        );
+        replaced
+    }
+
+    /// Today's file: found by its dated name, made when the day has none, with
+    /// `text` added to its end when there is some.
+    ///
+    /// The dated name and the format are the app's own
+    /// ([`writ_storage::note_ops::find_todays_file`]), so this is the file
+    /// Today's File opens in Writ and `writ today` answers with.
+    pub fn today(&self, client: &ClientId, text: Option<&str>) -> Result<TodayReceipt, ToolError> {
+        let permitted = self.permit(client, "today", None);
+        let root = self.root_of(&permitted);
+        let result = permitted.and_then(|host| self.todays_file(host, client, text));
+        self.record(
+            client,
+            "today",
+            result
+                .as_ref()
+                .ok()
+                .map(|receipt| logged_path(&root, &receipt.path)),
+            text.map(|text| text.len() as u64),
+            decision_of(&result),
+        );
+        result
+    }
+
+    /// Shows the file at `path` in Writ, at `line` when there is one, through
+    /// a `writ://` link (ADR-052).
+    ///
+    /// Approved with reading: it changes no file, and Writ reads the link
+    /// through the grammar any clicked link goes through.
+    pub fn open_in_writ(
+        &self,
+        client: &ClientId,
+        path: &str,
+        line: Option<u32>,
+    ) -> Result<ShownReceipt, ToolError> {
+        let host = self.permit(client, "open_in_writ", Some(path))?;
+        self.show(
+            &host,
+            client,
+            "open_in_writ",
+            path,
+            line.filter(|line| *line > 0),
+        )
+    }
+
+    /// Shows a file in Writ at a heading or a line, through a `writ://` link
+    /// (ADR-053).
+    ///
+    /// The heading is found in the file's text here, compared as a
+    /// `[[Note#Heading]]` link compares it, so Writ is handed the same `open`
+    /// link a line would make. Approved with reading; finding the heading is
+    /// not a read the session can later write against.
+    pub fn reveal(
+        &self,
+        client: &ClientId,
+        path: &str,
+        heading: Option<&str>,
+        line: Option<u32>,
+    ) -> Result<ShownReceipt, ToolError> {
+        let host = self.permit(client, "reveal", Some(path))?;
+        let line = match (heading, line) {
+            (Some(_), Some(_)) => {
+                return Err(ToolError::HeadingAndLine {
+                    path: path.to_string(),
+                })
+            }
+            (Some(heading), None) => {
+                let found = host
+                    .heading_line(path, heading)
+                    .map_err(|error| tool_error(host.notes_root(), client, "reveal", error))?;
+                Some(found.ok_or_else(|| ToolError::HeadingAbsent {
+                    path: path.to_string(),
+                    heading: heading.to_string(),
+                })?)
+            }
+            (None, line) => line.filter(|line| *line > 0),
+        };
+        self.show(&host, client, "reveal", path, line)
+    }
+
+    /// The file in front in Writ's window and what is selected in it, for a
+    /// program allowed to see it (ADR-053).
+    ///
+    /// The gate decides first, and a refusal asks Writ nothing. Each call is a
+    /// line of its own in the activity log, naming the file and never what is
+    /// selected in it.
+    pub fn get_context(&self, client: &ClientId) -> Result<ContextReceipt, ToolError> {
+        let verdict = self.gate.decide(client, CONTEXT_TOOL);
+        if let Some(refusal) = refusal_for(verdict, client, CONTEXT_TOOL) {
+            self.record(client, CONTEXT_TOOL, None, None, verdict.decision());
+            return Err(refusal);
+        }
+        let root = self
+            .refreshed()
+            .ok()
+            .map(|host| host.notes_root().to_path_buf());
+        let answered = self
+            .context
+            .open_context(&client.name)
+            .map(|context| self.context_receipt(root.as_deref(), context.fitted()))
+            .map_err(|_| ToolError::ContextUnanswered);
+        let logged = answered
+            .as_ref()
+            .ok()
+            .and_then(|receipt| receipt.path.clone());
+        self.record(client, CONTEXT_TOOL, logged, None, decision_of(&answered));
+        answered
+    }
+
+    /// The folder index: every file the index holds, with its title, tags,
+    /// the files its links reach and its length, relative to the served
+    /// folder (ADR-052).
+    ///
+    /// Rendered from `writ.db` at each call and written nowhere. Approved as
+    /// `list_notes` is, and logged as [`INDEX_ACTION`].
+    pub fn folder_index(&self, client: &ClientId) -> Result<FolderIndex, ToolError> {
+        let host = self.permit_as(client, "list_notes", INDEX_ACTION, None)?;
+        let root = host.notes_root().to_path_buf();
+        let entries = host
+            .folder_index()
+            .map_err(|error| tool_error(&root, client, INDEX_ACTION, error))?;
+        let mut files: Vec<IndexEntry> = entries
+            .into_iter()
+            .filter_map(|entry| {
+                Some(IndexEntry {
+                    path: in_folder(&root, &entry.path)?,
+                    links: entry
+                        .links
+                        .iter()
+                        .filter_map(|link| in_folder(&root, link))
+                        .collect(),
+                    ..entry
+                })
+            })
+            .collect();
+        let truncated = files.len() > MAX_INDEX_FILES;
+        files.truncate(MAX_INDEX_FILES);
+        Ok(FolderIndex { files, truncated })
+    }
+
+    /// Hands Writ the link that shows `path` at `line`, for `open_in_writ`
+    /// and `reveal`.
+    fn show(
+        &self,
+        host: &NoteHostImpl<'static>,
+        client: &ClientId,
+        tool: &str,
+        path: &str,
+        line: Option<u32>,
+    ) -> Result<ShownReceipt, ToolError> {
+        let root = host.notes_root().to_path_buf();
+        let summary = host
+            .note_summary(path)
+            .map_err(|error| tool_error(&root, client, tool, error))?;
+        let open_url =
+            self.open_url_for(&summary.path, line)
+                .ok_or_else(|| ToolError::NotInAppFolder {
+                    path: path.to_string(),
+                })?;
+        self.opener
+            .open_link(&open_url)
+            .map_err(|_| ToolError::WritUnreachable {
+                path: path.to_string(),
+            })?;
+        Ok(ShownReceipt {
+            path: spelled_in(&root, &summary.path),
+            line,
+            open_url,
+        })
+    }
+
+    /// Writ's answer as the client is handed it: the file spelled relative to
+    /// the served folder `root` when it holds the file and by its name alone
+    /// otherwise (AM-20), with the link that shows it.
+    fn context_receipt(&self, root: Option<&Path>, context: OpenContext) -> ContextReceipt {
+        let resolved = context.path.as_deref().map(|path| {
+            resolve_for_containment(Path::new(path)).unwrap_or_else(|| PathBuf::from(path))
+        });
+        let relative = match (root.and_then(resolve_for_containment), &resolved) {
+            (Some(root), Some(file)) => in_folder(&root, &file.to_string_lossy()),
+            _ => None,
+        };
+        let open_url = resolved
+            .as_ref()
+            .and_then(|file| self.open_url_for(&file.to_string_lossy(), None));
+        ContextReceipt {
+            in_folder: relative.is_some(),
+            path: relative.or_else(|| {
+                resolved
+                    .as_ref()
+                    .map(|file| file_name_only(&file.to_string_lossy()))
+            }),
+            selections: context.selections,
+            cursor: context.cursor,
+            unsaved: context.unsaved,
+            truncated: context.truncated,
+            open_url,
+        }
+    }
+
+    /// The `writ://` link that shows the note the host keys as `key`, relative
+    /// to the folder Writ has open, or `None` when that folder does not hold
+    /// it.
+    fn open_url_for(&self, key: &str, line: Option<u32>) -> Option<String> {
+        let app_root = self
+            .app_folder
+            .app_notes_root()
+            .and_then(|root| resolve_for_containment(&root))?;
+        let relative = relative_slug(&app_root, Path::new(key)).filter(|rel| !rel.is_empty())?;
+        writ_core::writ_link::open_url(&relative, line)
+    }
+
+    /// A receipt as the client is handed it: spelled relative to `root`, with
+    /// its link.
+    fn linked(&self, root: &Path, written: WriteReceipt, line: Option<u32>) -> LinkedReceipt {
+        LinkedReceipt {
+            open_url: self.open_url_for(&written.path, line),
+            written: WriteReceipt {
+                path: spelled_in(root, &written.path),
+                ..written
+            },
+            line,
+        }
+    }
+
+    /// [`ToolHost::append_note`] past the gate.
+    fn add_text(
+        &self,
+        host: NoteHostImpl<'static>,
+        client: &ClientId,
+        path: &str,
+        text: &str,
+    ) -> Result<LinkedReceipt, ToolError> {
+        self.text_fits(text)?;
+        let root = host.notes_root().to_path_buf();
+        let history = self.history(&root, path)?;
+        let receipt = self
+            .reviewing(host, client)
+            .with_history(history)
+            .append_note(path, text, self.origin(client))
+            .map_err(|error| tool_error(&root, client, "append_note", error))?;
+        Ok(self.linked(&root, receipt, None))
+    }
+
+    /// [`ToolHost::replace_in_note`] past the gate.
+    fn replace_passage(
+        &self,
+        host: NoteHostImpl<'static>,
+        client: &ClientId,
+        path: &str,
+        old_text: &str,
+        new_text: &str,
+    ) -> Result<LinkedReceipt, ToolError> {
+        self.text_fits(old_text)?;
+        self.text_fits(new_text)?;
+        let root = host.notes_root().to_path_buf();
+        let history = self.history(&root, path)?;
+        let PassageReceipt { written, line } = self
+            .reviewing(host, client)
+            .with_history(history)
+            .replace_in_note(path, old_text, new_text, self.origin(client))
+            .map_err(|error| tool_error(&root, client, "replace_in_note", error))?;
+        Ok(self.linked(&root, written, Some(line)))
+    }
+
+    /// [`ToolHost::today`] past the gate.
+    fn todays_file(
+        &self,
+        host: NoteHostImpl<'static>,
+        client: &ClientId,
+        text: Option<&str>,
+    ) -> Result<TodayReceipt, ToolError> {
+        if let Some(text) = text {
+            self.text_fits(text)?;
+        }
+        let root = host.notes_root().to_path_buf();
+        let extension = host.default_extension();
+        // Opened only for an append, the one write here that replaces text.
+        let history = match text {
+            Some(_) => self.history(&root, TODAYS_FILE)?,
+            None => None,
+        };
+        let host = self.reviewing(host, client).with_history(history);
+        for _ in 0..TODAY_ATTEMPTS {
+            let at =
+                find_todays_file(&root, chrono::Utc::now(), extension).map_err(
+                    |error| match error {
+                        writ_storage::errors::StorageError::NoteNameTaken { name, .. } => {
+                            ToolError::NameTaken { name }
+                        }
+                        _ => ToolError::Unwritable {
+                            path: TODAYS_FILE.to_string(),
+                        },
+                    },
+                )?;
+            let attempt = match (at, text) {
+                (TodaysFileAt::Existing(file), None) => {
+                    Ok((file.to_string_lossy().into_owned(), false, false))
+                }
+                (TodaysFileAt::Existing(file), Some(text)) => host
+                    .append_note(&file.to_string_lossy(), text, self.origin(client))
+                    .map(|receipt| (receipt.path, false, receipt.changed)),
+                (TodaysFileAt::Missing(file), text) => {
+                    let name = file
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    let entry = text
+                        .and_then(writ_core::capture::capture_entry)
+                        .map(|entry| writ_core::capture::append_entry("", &entry))
+                        .unwrap_or_default();
+                    host.create_note(&name, &entry, self.origin(client))
+                        .map(|receipt| (receipt.path, true, !entry.is_empty()))
+                }
+            };
+            match attempt {
+                Ok((key, created, changed)) => {
+                    return Ok(TodayReceipt {
+                        path: spelled_in(&root, &key),
+                        created,
+                        changed,
+                        open_url: self.open_url_for(&key, None),
+                    })
+                }
+                Err(HostError::NameTaken { .. }) => continue,
+                Err(error) => return Err(tool_error(&root, client, "today", error)),
+            }
+        }
+        Err(ToolError::Conflict {
+            path: TODAYS_FILE.to_string(),
+            conflict_copy: None,
+        })
     }
 
     /// The folder a write call is logged against: the one its handle serves,
@@ -893,7 +1615,8 @@ impl ToolHost {
         };
         let root = host.notes_root().to_path_buf();
         let history = self.history(&root, path)?;
-        let receipt = host
+        let receipt = self
+            .reviewing(host, client)
             .with_history(history)
             .write_note(path, content, last_known, self.origin(client))
             .map_err(|error| tool_error(&root, client, "write_note", error))?;
@@ -986,6 +1709,16 @@ impl ToolHost {
         ))
     }
 
+    /// `host`, holding each write for the person when they set `client` to
+    /// ask first (ADR-053).
+    fn reviewing<'a>(&'a self, host: NoteHostImpl<'a>, client: &ClientId) -> NoteHostImpl<'a> {
+        let review = self
+            .gate
+            .reviews_writes(client)
+            .then_some(&*self.review as &dyn WriteReview);
+        host.with_review(review, &client.name)
+    }
+
     /// The origin every write from this host carries.
     fn origin(&self, client: &ClientId) -> WriteOrigin {
         WriteOrigin::Mcp {
@@ -1051,6 +1784,18 @@ impl ToolHost {
         tool: &str,
         path: Option<&str>,
     ) -> Result<NoteHostImpl<'static>, ToolError> {
+        self.permit_as(client, tool, tool, path)
+    }
+
+    /// [`ToolHost::permit`] for a call approved as `tool` and logged as
+    /// `action`: a resource read, which is no tool of its own.
+    fn permit_as(
+        &self,
+        client: &ClientId,
+        tool: &str,
+        action: &str,
+        path: Option<&str>,
+    ) -> Result<NoteHostImpl<'static>, ToolError> {
         let verdict = self.gate.decide(client, tool);
         let decision = verdict.decision();
         let writes = writ_core::tools::is_write_tool(tool);
@@ -1062,7 +1807,7 @@ impl ToolHost {
             let root = self.root_of(&resolved);
             self.record(
                 client,
-                tool,
+                action,
                 path.map(|path| logged_path(&root, path)),
                 None,
                 decision,
@@ -1098,6 +1843,11 @@ fn refusal_for(verdict: Verdict, client: &ClientId, tool: &str) -> Option<ToolEr
             client: client.name.clone(),
             tool: tool.to_string(),
         }),
+        Verdict::NotGranted if writ_core::tools::is_context_tool(tool) => {
+            Some(ToolError::ContextNotAllowed {
+                client: client.name.clone(),
+            })
+        }
         Verdict::NotGranted => Some(ToolError::NotAllowed {
             client: client.name.clone(),
             tool: tool.to_string(),
@@ -1239,7 +1989,25 @@ fn tool_error(root: &Path, client: &ClientId, tool: &str, error: HostError) -> T
         HostError::NameEmpty => ToolError::NameEmpty,
         HostError::NameTaken { name } => ToolError::NameTaken { name },
         HostError::NotDownloaded { path } => ToolError::NotDownloaded { path },
-        HostError::Unwritable { path } => ToolError::Unwritable { path },
+        HostError::Unwritable { path } | HostError::EncodingLossy { path, .. } => {
+            ToolError::Unwritable { path }
+        }
+        HostError::PassageEmpty { path } => ToolError::PassageEmpty { path },
+        HostError::PassageAbsent { path } => ToolError::PassageAbsent { path },
+        HostError::PassageRepeated { path, count } => ToolError::PassageRepeated { path, count },
+        HostError::Discarded { path } => ToolError::Discarded { path },
+        HostError::ReviewUnavailable { path, reason } => {
+            ToolError::ReviewUnavailable { path, reason }
+        }
+    }
+}
+
+/// Why a held write was not answered, as the sentence a program reads.
+fn review_unavailable(reason: ReviewUnavailable) -> &'static str {
+    match reason {
+        ReviewUnavailable::NotRunning => "Writ is not open to ask. Open Writ and try again",
+        ReviewUnavailable::NotShown => "Writ could not show this change",
+        ReviewUnavailable::Unanswered => "nobody answered within 5 minutes",
     }
 }
 
@@ -2281,7 +3049,10 @@ mod tests {
             host.note_properties(&client(), named).map(|_| ()),
             host.note_tags(&client(), named).map(|_| ()),
             host.folder_tags(&client()).map(|_| ()),
+            host.open_in_writ(&client(), named, None).map(|_| ()),
+            host.reveal(&client(), named, None, Some(1)).map(|_| ()),
         ];
+        assert_eq!(refusals.len(), READ_TOOLS.len());
         for (tool, refusal) in READ_TOOLS.iter().zip(refusals) {
             assert_eq!(
                 refusal.expect_err("refused"),
@@ -2289,6 +3060,7 @@ mod tests {
                 "{tool}"
             );
         }
+        assert_eq!(host.get_context(&client()), Err(ToolError::NotEnabled));
     }
 
     #[test]
@@ -3803,5 +4575,713 @@ mod tests {
             std::fs::read_to_string(&note).expect("read back"),
             "before\n"
         );
+    }
+
+    /// Records every link it is handed, and takes each.
+    #[derive(Default, Clone)]
+    struct RecordingOpener(Arc<Mutex<Vec<String>>>);
+
+    impl WritOpener for RecordingOpener {
+        fn open_link(&self, link: &str) -> Result<(), WritNotReached> {
+            self.0.lock().expect("links").push(link.to_string());
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn append_note_adds_to_the_end_keeps_a_version_and_links_to_the_note() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Plan.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+
+        let receipt = host
+            .append_note(&client(), "Plan.md", "a new line")
+            .expect("the append is made");
+
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "before\na new line\n"
+        );
+        assert!(receipt.written.changed);
+        assert_eq!(receipt.written.path, "Plan.md");
+        assert_eq!(
+            receipt.open_url.as_deref(),
+            Some("writ://open?path=Plan.md")
+        );
+        assert!(
+            versions_the_app_lists(&fixture, "Plan.md").contains(&"before\n".to_string()),
+            "the text the note held is kept"
+        );
+        let wrote = records_a_tool_wrote(&fixture);
+        assert_eq!(wrote[0].action, "append_note");
+        assert_eq!(wrote[0].path.as_deref(), Some(Path::new("Plan.md")));
+    }
+
+    #[test]
+    fn append_note_needs_writing_to_be_allowed() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Plan.md", "before\n");
+        let host = approved_host(&fixture, true, false);
+
+        let refused = host.append_note(&client(), "Plan.md", "x");
+
+        assert!(
+            matches!(refused, Err(ToolError::NotAllowed { .. })),
+            "{refused:?}"
+        );
+        assert_eq!(std::fs::read_to_string(&note).expect("read"), "before\n");
+    }
+
+    #[test]
+    fn replace_in_note_swaps_the_one_passage_and_names_its_line() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Plan.md", "# Plan\n\nShip it Friday.\n");
+        let host = approved_host(&fixture, true, true);
+
+        let receipt = host
+            .replace_in_note(&client(), "Plan.md", "Friday", "Monday")
+            .expect("the passage is replaced");
+
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read back"),
+            "# Plan\n\nShip it Monday.\n"
+        );
+        assert_eq!(receipt.line, Some(3));
+        assert_eq!(
+            receipt.open_url.as_deref(),
+            Some("writ://open?path=Plan.md&line=3")
+        );
+        assert!(versions_the_app_lists(&fixture, "Plan.md")
+            .contains(&"# Plan\n\nShip it Friday.\n".to_string()));
+    }
+
+    #[test]
+    fn replace_in_note_refuses_text_the_note_does_not_hold_once() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Plan.md", "one\ntwo\none\n");
+        let host = approved_host(&fixture, true, true);
+
+        assert_eq!(
+            host.replace_in_note(&client(), "Plan.md", "three", "3"),
+            Err(ToolError::PassageAbsent {
+                path: "Plan.md".to_string()
+            })
+        );
+        assert_eq!(
+            host.replace_in_note(&client(), "Plan.md", "one", "1"),
+            Err(ToolError::PassageRepeated {
+                path: "Plan.md".to_string(),
+                count: 2
+            })
+        );
+        assert_eq!(
+            host.replace_in_note(&client(), "Plan.md", "", "1"),
+            Err(ToolError::PassageEmpty {
+                path: "Plan.md".to_string()
+            })
+        );
+        assert_eq!(
+            std::fs::read_to_string(&note).expect("read"),
+            "one\ntwo\none\n"
+        );
+        let refusal = ToolError::PassageAbsent {
+            path: "Plan.md".to_string(),
+        }
+        .to_string();
+        assert!(!refusal.contains("three"), "no note text in a refusal");
+    }
+
+    #[test]
+    fn today_makes_the_days_file_adds_to_it_and_links_to_it() {
+        let fixture = fixture();
+        let host = approved_host(&fixture, true, true);
+
+        let made = host.today(&client(), None).expect("today's file");
+        assert!(made.created);
+        assert!(!made.changed);
+        let file = fixture.notes.join(&made.path);
+        assert!(file.is_file(), "{}", made.path);
+        assert_eq!(
+            made.open_url,
+            writ_core::writ_link::open_url(&made.path, None)
+        );
+
+        let again = host.today(&client(), None).expect("today's file");
+        assert_eq!(again.path, made.path);
+        assert!(!again.created && !again.changed);
+
+        let added = host
+            .today(&client(), Some("Called the printer"))
+            .expect("added to today's file");
+        assert!(!added.created && added.changed);
+        assert_eq!(
+            std::fs::read_to_string(&file).expect("read back"),
+            "Called the printer\n"
+        );
+    }
+
+    #[test]
+    fn today_is_a_write_and_a_reader_cannot_make_the_file() {
+        let fixture = fixture();
+        let host = approved_host(&fixture, true, false);
+        assert!(matches!(
+            host.today(&client(), None),
+            Err(ToolError::NotAllowed { .. })
+        ));
+        assert_eq!(notes_in(&fixture), 0);
+    }
+
+    #[test]
+    fn open_in_writ_hands_writ_a_link_to_the_file_at_its_line() {
+        let fixture = fixture();
+        write_note(&fixture, "Projects/Launch Plan.md", "one\n");
+        let opener = RecordingOpener::default();
+        let host = approved_host(&fixture, true, false).with_opener(Box::new(opener.clone()));
+
+        let shown = host
+            .open_in_writ(&client(), "Projects/Launch Plan.md", Some(12))
+            .expect("shown");
+
+        let link = "writ://open?path=Projects/Launch%20Plan.md&line=12";
+        assert_eq!(shown.open_url, link);
+        assert_eq!(shown.path, "Projects/Launch Plan.md");
+        assert_eq!(*opener.0.lock().expect("links"), vec![link.to_string()]);
+        assert_eq!(
+            writ_core::writ_link::parse(link),
+            Ok(writ_core::writ_link::WritLink::Open {
+                path: "Projects/Launch Plan.md".to_string(),
+                line: Some(12)
+            })
+        );
+    }
+
+    #[test]
+    fn open_in_writ_refuses_a_path_out_of_the_folder_and_hands_over_nothing() {
+        let fixture = fixture();
+        std::fs::write(fixture.writ.join("outside.md"), "x").expect("outside");
+        let opener = RecordingOpener::default();
+        let host = approved_host(&fixture, true, false).with_opener(Box::new(opener.clone()));
+
+        assert!(matches!(
+            host.open_in_writ(&client(), "../outside.md", None),
+            Err(ToolError::OutsideNotesFolder { .. })
+        ));
+        assert!(opener.0.lock().expect("links").is_empty());
+    }
+
+    #[test]
+    fn open_in_writ_says_so_when_writ_cannot_be_reached_or_does_not_hold_the_file() {
+        let fixture = fixture();
+        write_note(&fixture, "Plan.md", "one\n");
+        let host = approved_host(&fixture, true, false);
+        assert_eq!(
+            host.open_in_writ(&client(), "Plan.md", None),
+            Err(ToolError::WritUnreachable {
+                path: "Plan.md".to_string()
+            })
+        );
+
+        let elsewhere = fixture.writ.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).expect("another folder");
+        let host = approved_host_serving(
+            &fixture,
+            &fixture.notes,
+            Box::new(FixedAppFolder(elsewhere)),
+        )
+        .with_opener(Box::new(RecordingOpener::default()));
+        assert_eq!(
+            host.open_in_writ(&client(), "Plan.md", None),
+            Err(ToolError::NotInAppFolder {
+                path: "Plan.md".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn the_folder_index_lists_every_file_relative_to_the_folder() {
+        let fixture = fixture();
+        write_note(&fixture, "Plan.md", "# The plan\nSee [[Launch]] #ship\n");
+        write_note(&fixture, "Projects/Launch.md", "launch\n");
+        build_index(&fixture);
+        let host = approved_host(&fixture, true, false);
+
+        let index = host.folder_index(&client()).expect("the index");
+
+        let plan = index
+            .files
+            .iter()
+            .find(|file| file.path == "Plan.md")
+            .expect("Plan.md is listed");
+        assert_eq!(plan.title, "The plan");
+        assert_eq!(plan.tags, vec!["ship".to_string()]);
+        assert_eq!(plan.links, vec!["Projects/Launch.md".to_string()]);
+        assert!(index
+            .files
+            .iter()
+            .any(|file| file.path == "Projects/Launch.md"));
+        assert!(!index.truncated);
+        assert!(
+            records(&fixture)
+                .iter()
+                .any(|record| record.action == INDEX_ACTION),
+            "the read is logged"
+        );
+        let text = serde_json::to_string(&index).expect("json");
+        assert!(
+            !text.contains(&fixture.notes.display().to_string()),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn the_folder_index_is_refused_to_a_program_not_allowed_to_read() {
+        let fixture = fixture();
+        build_index(&fixture);
+        let host = approved_host(&fixture, false, false);
+        assert!(matches!(
+            host.folder_index(&client()),
+            Err(ToolError::NotAllowed { .. })
+        ));
+    }
+
+    #[test]
+    fn a_file_resource_uri_reads_back_as_its_path() {
+        for path in [
+            "Plan.md",
+            "Projects/Launch Plan.md",
+            "C++ #1 100%.md",
+            "Café.md",
+        ] {
+            let uri = file_resource_uri(path);
+            assert!(uri.starts_with(FILE_RESOURCE_PREFIX), "{uri}");
+            assert_eq!(
+                resource_target(&uri),
+                Some(ResourceTarget::File(path.to_string())),
+                "{uri}"
+            );
+        }
+        assert_eq!(resource_target(INDEX_RESOURCE), Some(ResourceTarget::Index));
+        assert_eq!(resource_target("file:///etc/passwd"), None);
+        assert_eq!(resource_target(FILE_RESOURCE_PREFIX), None);
+    }
+
+    /// Answers every ask with `answer`, or as a Writ that did not answer when
+    /// there is none, and keeps the name of each program that asked.
+    #[derive(Default, Clone)]
+    struct FixedContext {
+        answer: Option<OpenContext>,
+        asked: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ContextSource for FixedContext {
+        fn open_context(&self, program: &str) -> Result<OpenContext, WritNotReached> {
+            self.asked.lock().expect("asks").push(program.to_string());
+            self.answer.clone().ok_or(WritNotReached)
+        }
+    }
+
+    /// A host on the production gate, over settings that let the test client
+    /// read and, when `context` is set, see the open file.
+    fn context_host(fixture: &Fixture, context: bool, source: FixedContext) -> ToolHost {
+        std::fs::write(
+            fixture.writ.join("config.toml"),
+            format!(
+                "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Test Client\"\nread = true\nwrite = true\ncontext = {context}\n"
+            ),
+        )
+        .expect("seed the settings file");
+        ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host")
+        .with_context_source(Box::new(source))
+    }
+
+    fn selected_paragraph() -> Selected {
+        Selected {
+            text: "launch the site".to_string(),
+            from: TextPoint { line: 2, column: 1 },
+            to: TextPoint {
+                line: 2,
+                column: 16,
+            },
+        }
+    }
+
+    fn context_records(fixture: &Fixture) -> Vec<writ_core::activity::ActivityRecord> {
+        records(fixture)
+            .into_iter()
+            .filter(|record| record.action == CONTEXT_TOOL)
+            .collect()
+    }
+
+    #[test]
+    fn a_program_not_allowed_to_see_the_open_file_is_refused_and_writ_is_not_asked() {
+        let fixture = fixture();
+        let source = FixedContext {
+            answer: Some(OpenContext::nothing_open()),
+            ..FixedContext::default()
+        };
+        let host = context_host(&fixture, false, source.clone());
+
+        let refused = host.get_context(&client());
+
+        assert_eq!(
+            refused,
+            Err(ToolError::ContextNotAllowed {
+                client: "Test Client".to_string()
+            })
+        );
+        assert!(refused
+            .unwrap_err()
+            .to_string()
+            .contains("Turn on Open file for it in Settings, Apps, Connected programs"));
+        assert!(source.asked.lock().expect("asks").is_empty());
+        let logged = context_records(&fixture);
+        assert_eq!(logged.len(), 1);
+        assert_eq!(logged[0].decision, Decision::Refuse);
+        assert_eq!(logged[0].path, None);
+    }
+
+    #[test]
+    fn a_program_nobody_decided_on_waits_to_see_the_open_file() {
+        let fixture = fixture();
+        std::fs::write(fixture.writ.join("config.toml"), "[mcp]\nenabled = true\n")
+            .expect("settings");
+        let source = FixedContext::default();
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host")
+        .with_context_source(Box::new(source.clone()));
+
+        assert!(matches!(
+            host.get_context(&client()),
+            Err(ToolError::NotApproved { .. })
+        ));
+        assert!(source.asked.lock().expect("asks").is_empty());
+        assert_eq!(context_records(&fixture)[0].decision, Decision::Pending);
+    }
+
+    #[test]
+    fn an_allowed_program_gets_the_file_and_its_selection_and_the_read_is_logged() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Projects/Plan.md", "# Plan\nlaunch the site\n");
+        let source = FixedContext {
+            answer: Some(OpenContext {
+                path: Some(note.to_string_lossy().into_owned()),
+                selections: vec![selected_paragraph()],
+                cursor: Some(TextPoint {
+                    line: 2,
+                    column: 16,
+                }),
+                unsaved: true,
+                truncated: false,
+            }),
+            ..FixedContext::default()
+        };
+        let host = context_host(&fixture, true, source.clone());
+
+        let answer = host.get_context(&client()).expect("answered");
+
+        assert_eq!(answer.path.as_deref(), Some("Projects/Plan.md"));
+        assert!(answer.in_folder);
+        assert_eq!(answer.selections, vec![selected_paragraph()]);
+        assert!(answer.unsaved);
+        assert_eq!(
+            answer.open_url.as_deref(),
+            Some("writ://open?path=Projects/Plan.md")
+        );
+        assert_eq!(*source.asked.lock().expect("asks"), vec!["Test Client"]);
+
+        let logged = context_records(&fixture);
+        assert_eq!(logged.len(), 1);
+        assert_eq!(logged[0].decision, Decision::Allow);
+        assert_eq!(logged[0].path, Some(PathBuf::from("Projects/Plan.md")));
+        let log = std::fs::read_to_string(fixture.writ.join("activity.jsonl")).expect("the log");
+        assert!(!log.contains("launch the site"), "{log}");
+    }
+
+    #[test]
+    fn every_read_of_the_open_file_is_a_line_of_its_own() {
+        let fixture = fixture();
+        let note = write_note(&fixture, "Plan.md", "one\n");
+        let source = FixedContext {
+            answer: Some(OpenContext {
+                path: Some(note.to_string_lossy().into_owned()),
+                ..OpenContext::default()
+            }),
+            ..FixedContext::default()
+        };
+        let host = context_host(&fixture, true, source);
+
+        host.get_context(&client()).expect("first");
+        host.get_context(&client()).expect("second");
+
+        assert_eq!(context_records(&fixture).len(), 2);
+    }
+
+    #[test]
+    fn a_file_outside_the_folder_is_named_by_its_name_alone() {
+        let fixture = fixture();
+        let outside = fixture.writ.join("Elsewhere").join("Draft.txt");
+        std::fs::create_dir_all(outside.parent().expect("parent")).expect("folder");
+        std::fs::write(&outside, "draft\n").expect("outside file");
+        let source = FixedContext {
+            answer: Some(OpenContext {
+                path: Some(outside.to_string_lossy().into_owned()),
+                selections: vec![selected_paragraph()],
+                ..OpenContext::default()
+            }),
+            ..FixedContext::default()
+        };
+        let host = context_host(&fixture, true, source);
+
+        let answer = host.get_context(&client()).expect("answered");
+
+        assert_eq!(answer.path.as_deref(), Some("Draft.txt"));
+        assert!(!answer.in_folder);
+        assert_eq!(answer.open_url, None);
+        assert_eq!(answer.selections.len(), 1);
+        assert_eq!(
+            context_records(&fixture)[0].path,
+            Some(PathBuf::from("Draft.txt"))
+        );
+    }
+
+    #[test]
+    fn with_no_file_open_the_answer_names_none_and_a_silent_writ_is_said() {
+        let fixture = fixture();
+        let host = context_host(
+            &fixture,
+            true,
+            FixedContext {
+                answer: Some(OpenContext::nothing_open()),
+                ..FixedContext::default()
+            },
+        );
+        let answer = host.get_context(&client()).expect("answered");
+        assert_eq!(answer.path, None);
+        assert!(!answer.in_folder);
+        assert!(answer.selections.is_empty());
+        let wire = serde_json::to_value(&answer).expect("json");
+        assert_eq!(wire["selections"], serde_json::json!([]));
+
+        let silent = context_host(&fixture, true, FixedContext::default());
+        assert_eq!(
+            silent.get_context(&client()),
+            Err(ToolError::ContextUnanswered)
+        );
+        let logged = context_records(&fixture);
+        assert_eq!(logged[0].decision, Decision::Refuse);
+    }
+
+    #[test]
+    fn reveal_hands_writ_a_link_at_the_line_of_the_heading() {
+        let fixture = fixture();
+        write_note(
+            &fixture,
+            "Projects/Plan.md",
+            "# Plan\nintro\n\n## Next steps\nwork\n",
+        );
+        let opener = RecordingOpener::default();
+        let host = approved_host(&fixture, true, false).with_opener(Box::new(opener.clone()));
+
+        let shown = host
+            .reveal(&client(), "Projects/Plan.md", Some("next steps"), None)
+            .expect("shown");
+
+        let link = "writ://open?path=Projects/Plan.md&line=4";
+        assert_eq!(shown.open_url, link);
+        assert_eq!(shown.line, Some(4));
+        assert_eq!(*opener.0.lock().expect("links"), vec![link.to_string()]);
+        assert_eq!(
+            writ_core::writ_link::parse(link),
+            Ok(writ_core::writ_link::WritLink::Open {
+                path: "Projects/Plan.md".to_string(),
+                line: Some(4)
+            })
+        );
+
+        let at_line = host
+            .reveal(&client(), "Projects/Plan.md", None, Some(2))
+            .expect("shown at a line");
+        assert_eq!(at_line.open_url, "writ://open?path=Projects/Plan.md&line=2");
+    }
+
+    #[test]
+    fn reveal_hands_over_nothing_for_a_heading_the_file_lacks_or_two_places() {
+        let fixture = fixture();
+        write_note(&fixture, "Plan.md", "# Plan\n");
+        let opener = RecordingOpener::default();
+        let host = approved_host(&fixture, true, false).with_opener(Box::new(opener.clone()));
+
+        assert_eq!(
+            host.reveal(&client(), "Plan.md", Some("Budget"), None),
+            Err(ToolError::HeadingAbsent {
+                path: "Plan.md".to_string(),
+                heading: "Budget".to_string()
+            })
+        );
+        assert_eq!(
+            host.reveal(&client(), "Plan.md", Some("Plan"), Some(3)),
+            Err(ToolError::HeadingAndLine {
+                path: "Plan.md".to_string()
+            })
+        );
+        assert!(matches!(
+            host.reveal(&client(), "../outside.md", Some("Plan"), None),
+            Err(ToolError::OutsideNotesFolder { .. }) | Err(ToolError::NotFound { .. })
+        ));
+        assert!(opener.0.lock().expect("links").is_empty());
+    }
+
+    #[test]
+    fn reveal_is_approved_with_reading_and_leaves_a_write_needing_a_read() {
+        let fixture = fixture();
+        write_note(&fixture, "Plan.md", "# Plan\n");
+        let host =
+            approved_host(&fixture, false, false).with_opener(Box::new(RecordingOpener::default()));
+        assert!(matches!(
+            host.reveal(&client(), "Plan.md", Some("Plan"), None),
+            Err(ToolError::NotAllowed { .. })
+        ));
+
+        let host =
+            approved_host(&fixture, true, true).with_opener(Box::new(RecordingOpener::default()));
+        host.reveal(&client(), "Plan.md", Some("Plan"), None)
+            .expect("shown");
+        assert_eq!(
+            host.write_note(&client(), "Plan.md", "new\n", None, false),
+            Err(ToolError::HashRequired {
+                path: "Plan.md".to_string()
+            })
+        );
+    }
+
+    /// Answers every held write the same way and keeps what it was shown.
+    struct Answers {
+        answer: ReviewAnswer,
+        shown: Arc<Mutex<Vec<WriteProposal>>>,
+    }
+
+    impl WriteReview for Answers {
+        fn review(&self, proposal: &WriteProposal) -> Result<ReviewAnswer, ReviewUnavailable> {
+            self.shown.lock().expect("shown").push(proposal.clone());
+            Ok(self.answer)
+        }
+    }
+
+    /// A host whose settings let the test client write, set to ask first as
+    /// `review` says, answered by `answer`.
+    fn held_host(
+        fixture: &Fixture,
+        review: bool,
+        answer: ReviewAnswer,
+    ) -> (ToolHost, Arc<Mutex<Vec<WriteProposal>>>) {
+        std::fs::write(
+            fixture.writ.join("config.toml"),
+            format!(
+                "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Test Client\"\nread = true\nwrite = true\nreview = {review}\n"
+            ),
+        )
+        .expect("seed the settings file");
+        let shown = Arc::new(Mutex::new(Vec::new()));
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host")
+        .with_review_source(Box::new(Answers {
+            answer,
+            shown: Arc::clone(&shown),
+        }));
+        (host, shown)
+    }
+
+    #[test]
+    fn a_program_set_to_ask_first_writes_only_what_the_person_applied() {
+        let fixture = fixture();
+        let file = write_note(&fixture, "Plan.md", "one\n");
+
+        let (host, shown) = held_host(&fixture, true, ReviewAnswer::Discard);
+        assert_eq!(
+            host.append_note(&client(), "Plan.md", "two").map(|_| ()),
+            Err(ToolError::Discarded {
+                path: "Plan.md".to_string()
+            })
+        );
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "one\n");
+        assert_eq!(shown.lock().expect("shown").len(), 1);
+        assert_eq!(shown.lock().expect("shown")[0].program, "Test Client");
+        assert_eq!(
+            records_a_tool_wrote(&fixture)[0].decision,
+            Decision::Refuse,
+            "a discarded write is logged as refused"
+        );
+
+        let (host, shown) = held_host(&fixture, true, ReviewAnswer::Apply);
+        host.append_note(&client(), "Plan.md", "two")
+            .expect("applied");
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "one\ntwo\n");
+        assert_eq!(shown.lock().expect("shown").len(), 1);
+    }
+
+    #[test]
+    fn a_program_not_set_to_ask_first_is_not_held() {
+        let fixture = fixture();
+        let file = write_note(&fixture, "Plan.md", "one\n");
+        let (host, shown) = held_host(&fixture, false, ReviewAnswer::Discard);
+        host.append_note(&client(), "Plan.md", "two")
+            .expect("written");
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "one\ntwo\n");
+        assert!(shown.lock().expect("shown").is_empty());
+    }
+
+    #[test]
+    fn a_held_write_with_no_way_to_ask_writes_nothing() {
+        let fixture = fixture();
+        let file = write_note(&fixture, "Plan.md", "one\n");
+        std::fs::write(
+            fixture.writ.join("config.toml"),
+            "[mcp]\nenabled = true\n\n[[mcp.approved_clients]]\nname = \"Test Client\"\nread = true\nwrite = true\nreview = true\n",
+        )
+        .expect("seed the settings file");
+        let host = ToolHost::open(
+            &fixture.notes,
+            &fixture.db,
+            &fixture.writ,
+            Box::new(FixedAppFolder(fixture.notes.clone())),
+            Box::new(crate::consent::ConfigGate::new(&fixture.writ)),
+        )
+        .expect("host");
+
+        let refused = host.create_note(&client(), "Launch", "hello\n");
+        assert_eq!(
+            refused.map(|_| ()),
+            Err(ToolError::ReviewUnavailable {
+                path: "Launch".to_string(),
+                reason: ReviewUnavailable::NotRunning,
+            })
+        );
+        assert!(!fixture.notes.join("Launch.md").exists());
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), "one\n");
+        let message = ToolError::ReviewUnavailable {
+            path: "Plan.md".to_string(),
+            reason: ReviewUnavailable::NotRunning,
+        }
+        .to_string();
+        assert!(message.contains("Nothing was written"), "{message}");
     }
 }

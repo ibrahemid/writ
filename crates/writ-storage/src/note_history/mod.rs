@@ -63,6 +63,10 @@ pub struct VersionEntry {
     pub bytes: u64,
     /// SHA-256 of the text, as hex.
     pub hash: String,
+    /// What wrote the text, spelled as [`WriteOrigin`] displays it, or `None`
+    /// when Writ does not know: a text a program outside Writ left in the
+    /// file, or an entry kept before the store recorded writers.
+    pub writer: Option<String>,
 }
 
 /// What became of one text handed to the store.
@@ -239,7 +243,14 @@ impl NoteHistoryStore {
         at: SystemTime,
         origin: &WriteOrigin,
     ) -> StorageResult<Kept> {
-        self.record(key, bytes, None, at, Merge::for_origin(origin))
+        self.record(
+            key,
+            bytes,
+            None,
+            at,
+            Merge::for_origin(origin),
+            Some(origin),
+        )
     }
 
     /// [`Self::capture`] for a caller that already holds the digest of
@@ -256,7 +267,14 @@ impl NoteHistoryStore {
         at: SystemTime,
         origin: &WriteOrigin,
     ) -> StorageResult<Kept> {
-        self.record(key, bytes, Some(digest), at, Merge::for_origin(origin))
+        self.record(
+            key,
+            bytes,
+            Some(digest),
+            at,
+            Merge::for_origin(origin),
+            Some(origin),
+        )
     }
 
     /// Keeps `bytes` as a version of the note `key` names, whatever the merge
@@ -278,7 +296,7 @@ impl NoteHistoryStore {
         bytes: &[u8],
         at: SystemTime,
     ) -> StorageResult<Kept> {
-        self.record(key, bytes, None, at, Merge::Never)
+        self.record(key, bytes, None, at, Merge::Never, None)
     }
 
     /// [`Self::capture_replaced`] for a caller that already holds the digest
@@ -294,7 +312,7 @@ impl NoteHistoryStore {
         digest: Sha256Digest,
         at: SystemTime,
     ) -> StorageResult<Kept> {
-        self.record(key, bytes, Some(digest), at, Merge::Never)
+        self.record(key, bytes, Some(digest), at, Merge::Never, None)
     }
 
     /// The versions of the note `key` names, newest first.
@@ -317,7 +335,7 @@ impl NoteHistoryStore {
             return Ok(Vec::new());
         };
         let mut statement = conn.prepare(
-            "SELECT id, at_ms, bytes, hash FROM versions \
+            "SELECT id, at_ms, bytes, hash, writer FROM versions \
              WHERE note_id = ?1 ORDER BY at_ms DESC, id DESC",
         )?;
         let rows = statement.query_map([note], |row| {
@@ -326,9 +344,45 @@ impl NoteHistoryStore {
                 at: from_millis(row.get(1)?),
                 bytes: row.get::<_, i64>(2)?.max(0) as u64,
                 hash: row.get(3)?,
+                writer: row.get(4)?,
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// What wrote `digest` into the note `key` names, when the note's newest
+    /// entry holds exactly that text and names its writer.
+    ///
+    /// For a tab told its file changed: a program's write keeps the text it
+    /// landed as the note's newest entry before the folder watcher reports
+    /// it, so the text the file holds now is found there with the program's
+    /// name. Only the newest entry is asked. An older entry holding the same
+    /// text describes an earlier write, and a file put back to it by something
+    /// else is not that writer's doing.
+    ///
+    /// # Errors
+    ///
+    /// [`StorageError::Database`] when the index cannot be read.
+    pub fn writer_of(
+        &self,
+        key: &VersionKey,
+        digest: Sha256Digest,
+    ) -> StorageResult<Option<String>> {
+        let conn = self.conn();
+        let Some(note) = resolve_note(&conn, key, Mint::No)? else {
+            return Ok(None);
+        };
+        let newest: Option<(String, Option<String>)> = conn
+            .query_row(
+                "SELECT hash, writer FROM versions WHERE note_id = ?1 \
+                 ORDER BY at_ms DESC, id DESC LIMIT 1",
+                [note],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        Ok(newest
+            .filter(|(hash, _)| digest_from_hex(hash) == Some(digest))
+            .and_then(|(_, writer)| writer))
     }
 
     /// The text of one entry.
@@ -516,6 +570,9 @@ impl NoteHistoryStore {
     }
 
     /// The one place a capture is written, whichever rule brought it here.
+    ///
+    /// `writer` is the write that left `bytes` in the file, and `None` for a
+    /// text the file held before a write Writ knows the origin of.
     fn record(
         &self,
         key: &VersionKey,
@@ -523,7 +580,9 @@ impl NoteHistoryStore {
         digest: Option<Sha256Digest>,
         at: SystemTime,
         merge: Merge,
+        writer: Option<&WriteOrigin>,
     ) -> StorageResult<Kept> {
+        let writer = writer.map(ToString::to_string);
         if !is_versionable(bytes.len() as u64) {
             return Ok(Kept::Nothing);
         }
@@ -579,8 +638,8 @@ impl NoteHistoryStore {
                 let newest = newest.expect("mergeable implies an entry");
                 self.write_blob(&hash, bytes)?;
                 conn.execute(
-                    "UPDATE versions SET hash = ?1, bytes = ?2 WHERE id = ?3",
-                    rusqlite::params![&hash, bytes.len() as i64, newest.id],
+                    "UPDATE versions SET hash = ?1, bytes = ?2, writer = ?3 WHERE id = ?4",
+                    rusqlite::params![&hash, bytes.len() as i64, &writer, newest.id],
                 )?;
                 self.forget_text(&conn, &newest.hash)?;
                 conn.commit()?;
@@ -597,14 +656,15 @@ impl NoteHistoryStore {
         // is an entry that cannot be restored.
         self.write_blob(&hash, bytes)?;
         conn.execute(
-            "INSERT INTO versions (note_id, at_ms, bytes, hash, merges) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO versions (note_id, at_ms, bytes, hash, merges, writer) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             rusqlite::params![
                 note,
                 as_millis(at),
                 bytes.len() as i64,
                 &hash,
-                i64::from(merge == Merge::Window)
+                i64::from(merge == Merge::Window),
+                &writer
             ],
         )?;
         let added = conn.last_insert_rowid();
@@ -731,12 +791,17 @@ enum Mint {
     No,
 }
 
-/// Creates the schema, which is two tables and never changes shape in place.
+/// Creates the schema: two tables, which change shape in place only by a
+/// column added at the end.
 ///
 /// `IF NOT EXISTS` rather than the migration framework `writ.db` uses: this
 /// file is Writ's own cache of texts, and a schema change that cannot be
 /// applied is answered by rebuilding it rather than by migrating a user's
 /// data. Nothing here is the only copy of anything.
+///
+/// `versions.writer` came later than the table, so a store made before it is
+/// given the column here ([`add_writer_column`]); its older entries name no
+/// writer.
 fn create_schema(conn: &Connection) -> StorageResult<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS notes (
@@ -751,14 +816,38 @@ fn create_schema(conn: &Connection) -> StorageResult<()> {
             at_ms INTEGER NOT NULL,
             bytes INTEGER NOT NULL,
             hash TEXT NOT NULL,
-            merges INTEGER NOT NULL DEFAULT 0
+            merges INTEGER NOT NULL DEFAULT 0,
+            writer TEXT
         );
         CREATE INDEX IF NOT EXISTS versions_by_note ON versions(note_id, at_ms DESC, id DESC);
         CREATE INDEX IF NOT EXISTS versions_by_hash ON versions(hash);
         CREATE UNIQUE INDEX IF NOT EXISTS notes_by_identity
             ON notes(identity) WHERE identity IS NOT NULL;",
     )?;
-    Ok(())
+    add_writer_column(conn)
+}
+
+/// Gives a store made before writers were recorded its `writer` column.
+///
+/// The app and `writ mcp` open the file independently, so both can find the
+/// column missing and both can add it; the one that loses is told the column
+/// exists, which is the state it was after.
+fn add_writer_column(conn: &Connection) -> StorageResult<()> {
+    let has_writer = conn
+        .prepare("SELECT 1 FROM pragma_table_info('versions') WHERE name = 'writer'")?
+        .exists([])?;
+    if has_writer {
+        return Ok(());
+    }
+    match conn.execute_batch("ALTER TABLE versions ADD COLUMN writer TEXT") {
+        Ok(()) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(_, Some(message)))
+            if message.contains("duplicate column name") =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Finds the note row `key` names, and mints one when asked to.

@@ -45,6 +45,7 @@ use tracing::{error, info, warn};
 use writ_core::events::bus::{EventBus, WritEvent};
 use writ_core::notes::guard::DiskState;
 use writ_core::notes::identity::{classify_delete, DeleteVerdict, FileIdentity};
+use writ_core::notes::Writer;
 use writ_core::text_encoding::TextEncoding;
 use writ_core::watcher::change_event::{modification_is_news, ExternalChange};
 use writ_core::watcher::ignore::{SuppressDecision, DEFAULT_IGNORE_TTL};
@@ -763,11 +764,13 @@ fn open_note_modification(
         return None;
     }
     vanished.tracking.files.note_file_changed(note_id);
+    let writer = bytes.and_then(|bytes| vanished.tracking.files.writer_of(path, bytes));
     Some(open_note_modified(
         note_id,
         path,
         bytes,
         vanished.tracking.files.encoding_of(note_id),
+        writer,
     ))
 }
 
@@ -816,12 +819,15 @@ fn readable_bytes(path: &Path) -> Option<Vec<u8>> {
 /// ([`super::handler::route_notes_change_to_open_tab`]).
 ///
 /// The digest is taken over the file's text in `encoding`, the note's own
-/// (ADR-049), since that is what the tab compares it with.
+/// (ADR-049), since that is what the tab compares it with. `writer` is what
+/// left those bytes there, when the version store says so
+/// ([`super::moves::NoteFiles::writer_of`]).
 pub fn open_note_modified(
     note_id: &str,
     path: &Path,
     bytes: Option<&[u8]>,
     encoding: TextEncoding,
+    writer: Option<Writer>,
 ) -> WritEvent {
     WritEvent::BufferExternal {
         buffer_id: note_id.to_string(),
@@ -829,6 +835,7 @@ pub fn open_note_modified(
         change: ExternalChange::Modified,
         new_path: None,
         disk_hash: bytes.map(|bytes| encoding.comparison_digest_hex(bytes)),
+        writer,
     }
 }
 
@@ -840,6 +847,7 @@ pub fn open_note_removed(note_id: &str, path: &Path) -> WritEvent {
         change: ExternalChange::Removed,
         new_path: None,
         disk_hash: None,
+        writer: None,
     }
 }
 
@@ -858,6 +866,7 @@ pub fn open_note_moved(note_id: &str, from: &Path, to: &Path, encoding: TextEnco
         disk_hash: readable_bytes(to)
             .as_deref()
             .map(|bytes| encoding.comparison_digest_hex(bytes)),
+        writer: None,
     }
 }
 
@@ -1039,11 +1048,16 @@ pub fn open_note_vanished(
         // before identity was read at all.
         DeleteVerdict::ExternalModification => {
             files.note_file_changed(note_id);
+            let bytes = readable_bytes(path);
+            let writer = bytes
+                .as_deref()
+                .and_then(|bytes| files.writer_of(path, bytes));
             Some(open_note_modified(
                 note_id,
                 path,
-                readable_bytes(path).as_deref(),
+                bytes.as_deref(),
                 files.encoding_of(note_id),
+                writer,
             ))
         }
     }
@@ -2067,6 +2081,7 @@ mod tests {
                 change,
                 new_path,
                 disk_hash,
+                ..
             }) => {
                 assert_eq!(buffer_id, "note-1");
                 assert_eq!(path, from.to_string_lossy());
@@ -3097,6 +3112,7 @@ mod tests {
                 change,
                 new_path,
                 disk_hash,
+                ..
             }) => {
                 assert_eq!(buffer_id, "note-1");
                 assert_eq!(path, file.to_string_lossy());

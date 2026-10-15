@@ -21,6 +21,8 @@ import { captureHotkeyStore, hotkeyStore } from "../global/hotkey";
 import { inboxStore } from "../global/inbox";
 import { showToast } from "../global/notifications";
 import { notesStore } from "../global/notes";
+import { answerContextAsk } from "../global/open-context";
+import { receiveHeldWrite } from "../global/write-review";
 import { reportOpenOutcomes } from "../global/open-report";
 import { osWindowStore } from "../global/os-window";
 import { previewScriptsStore } from "../global/preview-scripts";
@@ -193,8 +195,33 @@ async function readFirstRunWithin(deadlineMs: number): Promise<void> {
   }
 }
 
-/** Opens files the OS or a drop handed to the window, one line for every refusal. */
-async function openPendingPaths(paths: string[]): Promise<void> {
+/**
+ * Opens the new tab a `writ://new` link asked for, called `name` when the link
+ * gave one (ADR-052). The tab reaches a file on its first keystroke, as any new
+ * tab does, so the link itself writes nothing.
+ */
+export async function openLinkDraft(name: string | null | undefined): Promise<void> {
+  const win = windowRegistry.getActive();
+  if (!win) {
+    logFailure("a new-tab link arrived with no window to open into");
+    return;
+  }
+  try {
+    await win.tabs.createTab(name ?? undefined);
+  } catch {
+    logFailure("a new-tab link could not open its tab");
+    showToast("Could not open a new tab", "error");
+  }
+}
+
+/**
+ * Opens files the OS, a drop or the `writ` command handed to the window, one
+ * line for every refusal, each at the line `lines` names for it.
+ */
+export async function openPendingPaths(
+  paths: string[],
+  lines: Readonly<Record<string, number>> = {},
+): Promise<void> {
   if (!Array.isArray(paths)) {
     logFailure("an open request arrived without a list of files");
     showToast("Could not open the files", "error");
@@ -209,7 +236,12 @@ async function openPendingPaths(paths: string[]): Promise<void> {
   const outcomes: OpenOutcome[] = [];
   for (const path of paths) {
     try {
-      outcomes.push(await win.tabs.openPath(path));
+      const outcome = await win.tabs.openPath(path);
+      const line = lines[path];
+      if (outcome.kind === "opened" && typeof line === "number") {
+        win.editor.requestReveal(outcome.doc.id, line);
+      }
+      outcomes.push(outcome);
     } catch (error) {
       outcomes.push({ kind: "refused", path, reason: openFailureReason(error) });
     }
@@ -296,6 +328,7 @@ export function createBootPlan(win: WindowState, shell: BootShell): BootPlan {
       await inboxStore.hydrate().catch(() => undefined);
       await notesStore.load();
       void activityStore.watchWaiting();
+      void activityStore.watchOffCalls();
     },
 
     restoreRecovered: async () => {
@@ -316,8 +349,14 @@ export function createBootPlan(win: WindowState, shell: BootShell): BootPlan {
     installKeyboard: () => shell.installKeyboard(),
 
     subscriptions: [
-      ["pending:opens", () => onEvent("pending:opens", (p) => void openPendingPaths(p.paths))],
+      [
+        "pending:opens",
+        () => onEvent("pending:opens", (p) => void openPendingPaths(p.paths, p.lines)),
+      ],
       ["files:dropped", () => onEvent("files:dropped", (p) => void openPendingPaths(p.paths))],
+      ["link:new", () => onEvent("link:new", (p) => void openLinkDraft(p.name))],
+      ["context:asked", () => onEvent("context:asked", (p) => void answerContextAsk(p.token))],
+      ["review:asked", () => onEvent("review:asked", (p) => receiveHeldWrite(p))],
       [
         "window:shown",
         () => onEvent("window:shown", (p) => measureFirstPaint("warm", p.rust_elapsed_us)),

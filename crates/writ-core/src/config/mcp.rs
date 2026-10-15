@@ -4,7 +4,8 @@
 //! on, and the list of clients they approved. Turning `enabled` on approves
 //! nobody: a client not in `approved_clients` is refused and shown to the user
 //! to decide on (ADR-031 rules 3.2 and 7.2). Reading and writing are separate
-//! grants, so approving a client to read never lets it write.
+//! grants, so approving a client to read never lets it write. Seeing the file
+//! open in Writ is a third, which neither of the others carries (ADR-053).
 //!
 //! The list is plain text the user can read and edit, which is the other half
 //! of revocation (ADR-031 rule 6.1). Every field has a serde default so an
@@ -45,13 +46,24 @@ pub struct ClientApproval {
     pub read: bool,
     /// Whether it may run the write tools.
     pub write: bool,
+    /// Whether it may see the file open in Writ and its selection.
+    pub context: bool,
+    /// Whether each of its writes waits for the person to apply or discard
+    /// it in Writ (ADR-053). Read only while it may write.
+    pub review: bool,
 }
 
 impl ClientApproval {
+    /// Whether its writes are held for the person's answer: it may write, and
+    /// the person asked to see each write first.
+    pub fn reviews_writes(&self) -> bool {
+        self.write && self.review
+    }
+
     /// Whether the entry grants nothing: the person decided the program may
-    /// neither read nor write.
+    /// neither read nor write nor see the open file.
     pub fn grants_nothing(&self) -> bool {
-        !self.read && !self.write
+        !self.read && !self.write && !self.context
     }
 }
 
@@ -64,6 +76,10 @@ struct StoredApproval {
     read: bool,
     #[serde(default)]
     write: bool,
+    #[serde(default)]
+    context: bool,
+    #[serde(default)]
+    review: bool,
 }
 
 impl From<StoredApproval> for ClientApproval {
@@ -73,6 +89,8 @@ impl From<StoredApproval> for ClientApproval {
             first_seen: stored.first_seen,
             read: stored.read || stored.write,
             write: stored.write,
+            context: stored.context,
+            review: stored.review,
         }
     }
 }
@@ -141,6 +159,8 @@ mod tests {
                 .with_timezone(&chrono::Utc),
             read: true,
             write: false,
+            context: true,
+            review: false,
         };
         let config = WritConfig {
             mcp: McpConfig {
@@ -165,7 +185,26 @@ mod tests {
         let approval = config.mcp.approval_for("Some Client").expect("the client");
         assert!(!approval.read);
         assert!(!approval.write);
+        assert!(!approval.context);
         assert_eq!(approval.first_seen, default_first_seen());
+    }
+
+    #[test]
+    fn neither_reading_nor_writing_lets_a_program_see_the_open_file() {
+        let config: WritConfig = toml::from_str(
+            "[mcp]\n[[mcp.approved_clients]]\nname = \"Claude Code\"\nread = true\nwrite = true\n",
+        )
+        .expect("parse");
+        let approval = config.mcp.approval_for("Claude Code").expect("the client");
+        assert!(approval.write);
+        assert!(!approval.context);
+
+        let config: WritConfig =
+            toml::from_str("[mcp]\n[[mcp.approved_clients]]\nname = \"Codex\"\ncontext = true\n")
+                .expect("parse");
+        let approval = config.mcp.approval_for("Codex").expect("the client");
+        assert!(approval.context);
+        assert!(!approval.read && !approval.write);
     }
 
     #[test]
@@ -182,8 +221,17 @@ mod tests {
             first_seen: default_first_seen(),
             read: true,
             write: false,
+            context: false,
+            review: false,
         };
         assert!(!reading.grants_nothing());
+
+        let seeing = ClientApproval {
+            read: false,
+            context: true,
+            ..reading
+        };
+        assert!(!seeing.grants_nothing());
     }
 
     #[test]
@@ -227,6 +275,8 @@ mod tests {
                 first_seen: default_first_seen(),
                 read: true,
                 write: false,
+                context: false,
+                review: false,
             }],
         };
 

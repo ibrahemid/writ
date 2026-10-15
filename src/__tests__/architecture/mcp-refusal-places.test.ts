@@ -53,7 +53,21 @@ describe("a refusal sends the person to a place Writ has", () => {
   });
 
   it("the not-allowed refusal names where the switches are", () => {
-    const text = refusalContaining("is not allowed to");
+    const text = refusalContaining("files in Writ. Allow it in");
     expect(placeAfter(text, "Allow it in ")).toEqual([SETTINGS, SECTION_LABELS.apps, PROGRAMS]);
+  });
+
+  it("the open-file refusal names its switch and where it is", () => {
+    const text = refusalContaining("see the file open in Writ");
+    expect(placeAfter(text, "Turn on Open file for it in ")).toEqual([
+      SETTINGS,
+      SECTION_LABELS.apps,
+      PROGRAMS,
+    ]);
+    const rows = readFileSync(
+      resolve(process.cwd(), "src/components/SettingsModal/apps/ProgramsRows.tsx"),
+      "utf8",
+    );
+    expect(rows).toMatch(/>\s*Open file\s*</);
   });
 });

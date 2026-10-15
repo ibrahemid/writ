@@ -90,6 +90,13 @@ import {
 import { ExternalReloadTxn } from "../../editor/external-reload";
 import { mirroredSpec, MirroredTxn } from "../../editor/pane-mirror";
 import type { PaneId } from "../../lib/pane-layout";
+import {
+  agentEditMarks,
+  markAgentEdit,
+  withoutAgentEdits,
+  type AgentEdit,
+} from "../../editor/agent-edit-marks";
+import type { VersionWriter } from "../../lib/writer";
 import { autoTextDirection } from "../../editor/bidi";
 import { placeholderExtension } from "../../editor/placeholder";
 import { commandChord } from "../../lib/command-chord";
@@ -115,6 +122,26 @@ const NORMAL: FileOpenMode = { kind: "Normal" };
 /** The text the editor holds for `content`: CodeMirror reads every line break as `\n`. */
 function asEditorText(content: string): string {
   return content.indexOf("\r") === -1 ? content : content.replace(/\r\n?/g, "\n");
+}
+
+/**
+ * The marks a program's change put into this editor, in the document after
+ * `update`, for the other pane's editor of the note to take with the change.
+ */
+function agentEditsOf(update: ViewUpdate): StateEffect<AgentEdit>[] {
+  const marks: StateEffect<AgentEdit>[] = [];
+  update.transactions.forEach((tr, index) => {
+    for (const effect of tr.effects) {
+      if (!effect.is(markAgentEdit)) continue;
+      let { from, to } = effect.value;
+      for (const later of update.transactions.slice(index + 1)) {
+        from = later.changes.mapPos(from, 1);
+        to = later.changes.mapPos(to, -1);
+      }
+      marks.push(markAgentEdit.of({ ...effect.value, from, to }));
+    }
+  });
+  return marks;
 }
 
 /** The first position on the line at the top of the view. */
@@ -569,6 +596,7 @@ export default function EditorInstance(props: Props) {
           : [],
       ),
       EditorState.allowMultipleSelections.of(true),
+      agentEditMarks,
       drawSelection(),
       rectangularSelection(),
       crosshairCursor(),
@@ -612,7 +640,10 @@ export default function EditorInstance(props: Props) {
               ed.scheduleAutosave(bufferId, update.state.doc, autosaveDebounce());
             }
             if (win.panes.isSplit()) {
-              ed.mirrorChanges(bufferId, update.startState.doc.length, mirroredSpec(update.changes, isExternalReload));
+              const spec = mirroredSpec(update.changes, isExternalReload);
+              const marks = agentEditsOf(update);
+              const carried = marks.length > 0 ? { ...spec, effects: marks } : spec;
+              ed.mirrorChanges(bufferId, update.startState.doc.length, carried);
             }
           }
           const now = currentFeatures();
@@ -871,7 +902,8 @@ export default function EditorInstance(props: Props) {
     // A tab that left this pane took its state along, or let it go.
     if (mode.kind === "Binary" || closedTabs.has(viewBufferId) || !win.panes.holds(pane, viewBufferId)) return;
     ed.keepTabState(viewBufferId, {
-      state: view.state,
+      // Leaving the tab is moving on from what a program changed in it.
+      state: withoutAgentEdits(view.state),
       scroll: view.scrollSnapshot(),
       mode,
       longest: ed.longestLine(),
@@ -1081,7 +1113,7 @@ export default function EditorInstance(props: Props) {
   // but the record has to move now: a background note left holding the digest
   // of a file that has changed reads dirty against a file it matches, and the
   // next change to it asks a question that has no reason to be asked.
-  async function reloadFromDisk(id: string) {
+  async function reloadFromDisk(id: string, writer?: VersionWriter | null) {
     const wasUnread = unreadTabs.stateOf(id) !== null;
     let content: string;
     try {
@@ -1095,7 +1127,7 @@ export default function EditorInstance(props: Props) {
       if (!wasUnread && unread && id === currentBufferId) showUnreadPane(id, unread);
       return;
     }
-    ed.applyExternalContent(id, content);
+    ed.applyExternalContent(id, content, writer);
   }
 
   // One editor reads a changed file: the pane showing the note, the focused
@@ -1266,7 +1298,7 @@ export default function EditorInstance(props: Props) {
   createEffect(on(
     () => ed.externalReload(),
     (req) => {
-      if (req && handlesReload(req.id)) void reloadFromDisk(req.id);
+      if (req && handlesReload(req.id)) void reloadFromDisk(req.id, req.writer);
     },
     { defer: true },
   ));

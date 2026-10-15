@@ -34,10 +34,31 @@ pub enum NoteDownloadState {
 #[serde(tag = "kind", content = "payload")]
 pub enum WritFrontendEvent {
     #[serde(rename = "pending:opens")]
-    PendingOpens { paths: Vec<String> },
+    PendingOpens {
+        paths: Vec<String>,
+        /// The 1-based line to show for a path, keyed by the path as `paths`
+        /// spells it.
+        #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        lines: std::collections::BTreeMap<String, u32>,
+    },
 
     #[serde(rename = "files:dropped")]
     FilesDropped { paths: Vec<String> },
+
+    /// A `writ://new` link asked for a new tab, called `name` when it gave one
+    /// (ADR-052). The tab reaches a file on its first keystroke.
+    #[serde(rename = "link:new")]
+    LinkNew { name: Option<String> },
+
+    /// A program allowed to see the open file asked which one it is (ADR-053).
+    /// The main window answers with `context_answer` and this `token`.
+    #[serde(rename = "context:asked")]
+    ContextAsked { token: String },
+
+    /// A program's write waits for the person to apply or discard it
+    /// (ADR-053). The main window answers with `review_answer` and the token.
+    #[serde(rename = "review:asked")]
+    ReviewAsked(crate::write_review::ShownReview),
 
     #[serde(rename = "window:shown")]
     WindowShown { rust_elapsed_us: u64 },
@@ -56,6 +77,7 @@ pub enum WritFrontendEvent {
         change: String,
         new_path: Option<String>,
         disk_hash: Option<String>,
+        writer: Option<writ_core::notes::Writer>,
     },
 
     #[serde(rename = "menu:action")]
@@ -154,6 +176,11 @@ pub enum WritFrontendEvent {
         waiting: Vec<writ_core::activity::PendingClient>,
     },
 
+    /// A program called while Connected programs was off: the record the
+    /// server wrote, so the app can offer to turn it on.
+    #[serde(rename = "mcp:off-call")]
+    McpOffCall { call: writ_core::activity::OffCall },
+
     /// Whether the OS gave Writ the chord that shows and hides the window.
     /// Raised at startup and again on every rebind, so the shortcut editor can
     /// say a chord is taken rather than leaving a dead key.
@@ -170,6 +197,9 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
     match event {
         WritFrontendEvent::PendingOpens { .. } => "writ://pending-opens",
         WritFrontendEvent::FilesDropped { .. } => "writ://files-dropped",
+        WritFrontendEvent::LinkNew { .. } => "writ://link-new",
+        WritFrontendEvent::ContextAsked { .. } => "writ://context-asked",
+        WritFrontendEvent::ReviewAsked(..) => "writ://review-asked",
         WritFrontendEvent::WindowShown { .. } => "writ://window-shown",
         WritFrontendEvent::ConfigChanged { .. } => "writ://config-changed",
         WritFrontendEvent::BufferExternal { .. } => "writ://buffer-external",
@@ -188,6 +218,7 @@ fn event_name(event: &WritFrontendEvent) -> &'static str {
         WritFrontendEvent::CaptionMaximizeHit { .. } => "writ://titlebar-maximize-hit",
         WritFrontendEvent::ActivityChanged { .. } => "writ://activity",
         WritFrontendEvent::McpPending { .. } => "writ://mcp-pending",
+        WritFrontendEvent::McpOffCall { .. } => "writ://mcp-off-call",
         WritFrontendEvent::HotkeyStatus(..) => "writ://hotkey-status",
         WritFrontendEvent::CaptureHotkeyStatus(..) => "writ://hotkey-capture-status",
     }

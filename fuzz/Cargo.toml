@@ -1,5 +1,6 @@
 # cargo-fuzz crate for writ-core's parsers of untrusted input: the
-# writ-preview:// URL parser, the rename name, and the image sniff.
+# writ-preview:// URL parser, the rename name, the image sniff, and the
+# writ:// link grammar.
 #
 # Its own workspace (empty [workspace] table) so the main `cargo build
 # --workspace` and the four merge gates never pull in libfuzzer or require
@@ -37,6 +38,13 @@ bench = false
 [[bin]]
 name = "sniff_image_mime"
 path = "fuzz_targets/sniff_image_mime.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "writ_link_parser"
+path = "fuzz_targets/writ_link_parser.rs"
 test = false
 doc = false
 bench = false

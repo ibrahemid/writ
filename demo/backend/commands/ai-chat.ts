@@ -200,6 +200,8 @@ export function createAiChatCommands(state: DemoState): CommandTable {
     mcp_clients: (): Answer<"mcpClients"> => ({ approved: [], waiting: [] }),
     mcp_server_command: (): Answer<"mcpServerCommand"> => ai.getMcpServerCommand(),
     mcp_tools: (): Answer<"mcpTools"> => structuredClone(ai.MCP_TOOLS),
+    mcp_connect_cards: (): Answer<"mcpConnectCards"> => [],
+    mcp_off_call: (): Answer<"mcpOffCall"> => null,
     activity_recent: () => [],
     activity_clear: () => null,
   };
