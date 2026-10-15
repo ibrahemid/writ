@@ -120,15 +120,24 @@ describe("a program's held write", () => {
   });
 
   it("goes away when the program stops waiting, as a discard", async () => {
-    render(() => <ConfirmDialog />, { container: mountShell() });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      render(() => <ConfirmDialog />, { container: mountShell() });
 
-    receiveHeldWrite(held("t-4", { wait_ms: 20 }));
-    await flush();
-    expect(title()).not.toBeNull();
+      receiveHeldWrite(held("t-4", { wait_ms: 20 }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(title()).not.toBeNull();
 
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    expect(title()).toBeNull();
-    expect(h.answerHeldWrite).toHaveBeenCalledWith("t-4", false);
+      await vi.advanceTimersByTimeAsync(19);
+      expect(title()).not.toBeNull();
+      expect(h.answerHeldWrite).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(title()).toBeNull();
+      expect(h.answerHeldWrite).toHaveBeenCalledWith("t-4", false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says nothing was written when an Apply comes too late", async () => {
