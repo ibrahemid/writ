@@ -26,7 +26,7 @@ const sums: [string, string][] = [
         <tbody>
           <tr><th>macOS</th><td>Signed and notarized by Apple, so there is no warning to click through.</td></tr>
           <tr><th>Windows</th><td>The .msi is not code-signed yet, so SmartScreen shows a warning on first run: More info, then Run anyway. The checksum below is how to verify it instead.</td></tr>
-          <tr><th>Linux</th><td>The AppImage needs FUSE 2: install libfuse2t64 on Ubuntu 24.04 or later and Debian 13 or later, or libfuse2 on earlier releases.</td></tr>
+          <tr><th>Linux</th><td>The AppImage runs with the fuse3 package installed, which provides fusermount3. It does not need libfuse2.</td></tr>
         </tbody>
       </table>
       <h2>Verify a download</h2>
@@ -47,9 +47,9 @@ const sums: [string, string][] = [
         <li>Press <kbd class="kc">⌘</kbd><kbd class="kc">⇧</kbd><kbd class="kc">Space</kbd> from any app to bring it up, and again to put it away.</li>
       </ol>
       <h2>Updates</h2>
-      <p>Writ checks GitHub Releases shortly after launch, at most once a day, and offers the new version; nothing installs without a click. The check verifies a signed manifest and can be turned off in Settings. Package-manager installs update through the package manager instead.</p>
+      <p>Writ checks GitHub Releases shortly after launch, at most once a day, and offers the new version; nothing installs without a click. Each update is verified against Writ's signing key before it installs, and the automatic check can be turned off in Settings. An AUR install updates through the package manager instead.</p>
       <h2>Uninstall</h2>
-      <p>Delete the app. Your files stay where they are, including Writ's folder, and Writ's own data stays in <code>~/.writ</code> until you delete that folder too.</p>
+      <p>On macOS, delete the app. On Windows, uninstall it from Windows Settings, Apps. On Linux, remove the package, or delete the AppImage. Your files stay where they are, including Writ's folder, and Writ's own data stays in <code>~/.writ</code> until you delete that folder too.</p>
     </article>
   </main>
 </Site>

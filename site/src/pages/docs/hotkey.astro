@@ -1,0 +1,16 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Chord from '../../components/Chord.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('hotkey');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p><Chord of="CmdOrCtrl+Shift+Space" /> (<Chord of="CmdOrCtrl+Shift+Space" other /> on Windows and Linux) brings the window up over whatever is in front; the same keys put it away. On Linux under Wayland, the system does not pass these keys to Writ from other apps. Writ keeps running while the window is away, and it comes back on the tab you were on. Change the key in Settings, Shortcuts.</p>
+
+  <h2 id="quick-capture">Quick capture</h2>
+  <p><Chord of="CmdOrCtrl+Shift+Alt+Space" /> (<Chord of="CmdOrCtrl+Shift+Alt+Space" other /> on Windows and Linux) opens a small window over any app. <Chord of="Escape" /> adds what you typed to the end of Today's File and hides the window; on macOS and Windows, the app you were in gets the keyboard back. A click outside the window hides it without writing and keeps what you typed. Settings, Shortcuts changes these keys too, and Wayland does not pass them from other apps either.</p>
+
+  <h2 id="open-at-login">Open at login</h2>
+  <p>Settings, General, Open at login starts Writ hidden when you log in.</p>
+</Prose>

@@ -47,7 +47,7 @@ Files in other text encodings open and save in their own encoding, a capture win
 - On Windows and Linux, the close button's tooltip says Writ keeps running and which shortcut brings it back.
 - A Settings search with no match offers Search everywhere with the same words.
 - `writ search`, `cat`, `ls`, `append`, `today` and `open` work from any terminal or agent, with `--json` and exit codes 0, 1 and 2; `writ --wait` returns when the tab closes, so it serves as a git or shell editor; `writ Plan.md:12` opens at the line; `--no-open` writes without a window.
-- Settings, Integrations has a card for Claude Code, Codex, Cursor, VS Code, Claude Desktop, Gemini CLI, LM Studio and any other client: Add connects Writ through the client's own command, a link or a bundle, Test reports the tool count, and the first call is approved in place. Writ never edits another app's config file.
+- Settings, Apps has a card for Claude Code, Codex, Cursor, VS Code, Claude Desktop, Gemini CLI, LM Studio and any other client: Add connects Writ through the client's own command, a link or a bundle, Test reports the tool count, and the first call is approved in place. Writ never edits another app's config file.
 - `writ://open?path=Plan.md&line=12` and `writ://new?name=…` links open a file at a line or start a new tab from a browser or another app; they never write.
 - Programs can append to a file, replace one passage, reach today's file and open a file in Writ, and read an index of the folder.
 - A program granted Open file can read the file and selection open in the window and point the window at a heading; every such read is listed in Program activity.

@@ -1,0 +1,9 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('appearance');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>Light, dark, or following the system, with six accents to choose from in Settings, Appearance. Interface text size is a setting of its own, and Zoom scales the editor and the rendered pane together.</p>
+</Prose>

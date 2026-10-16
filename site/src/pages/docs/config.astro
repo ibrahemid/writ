@@ -1,0 +1,9 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('config');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>Every setting except the API key, the file types and the terminal command is also in <code>~/.writ/config.toml</code>, including which programs you approved. Logs are in <code>~/.writ/logs/</code>. Writ checks for an update shortly after launch, at most once a day, and Settings, About turns the check off.</p>
+</Prose>

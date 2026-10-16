@@ -1,0 +1,10 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Chord from '../../components/Chord.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('preview');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>An HTML or Mermaid file can show its source, the rendered page beside it, or the page alone. The status bar switches between Source, Split and Preview; the two panes scroll together, and <Chord of="CmdOrCtrl+Shift+H" /> puts the page below the source instead of beside it. Scripts in a file stay off until you turn them on for that file from the status bar. Until then the page cannot reach the network or send your text anywhere, and a link in it names its destination and asks before opening.</p>
+</Prose>

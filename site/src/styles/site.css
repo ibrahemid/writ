@@ -932,6 +932,16 @@ button {
   color: var(--writ-fg-muted);
 }
 
+.rel-tag {
+  display: inline-block;
+  margin-right: var(--writ-space-2);
+  padding: 0 var(--writ-space-2);
+  border: var(--writ-site-hairline) solid var(--writ-border);
+  border-radius: var(--writ-r-window);
+  font-size: var(--writ-site-text-xs);
+  color: var(--writ-fg-muted);
+}
+
 /* Breakpoints: site.bp.sm, site.bp.md, site.bp.lg */
 
 @media (max-width: 640px) {

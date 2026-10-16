@@ -1,0 +1,9 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('inbox');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>Point Settings, Integrations, Folder to watch for new files at a folder. Any file that appears there after that moment opens by itself and the window comes forward. Files that were already in the folder are left alone, and more than three arrivals in two seconds collapse into one notice. Turn off "Bring Writ to the front when a new file arrives" to keep arrivals quiet.</p>
+</Prose>

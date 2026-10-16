@@ -1,0 +1,23 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Capture from '../../components/Capture.astro';
+import Chord from '../../components/Chord.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('search');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <Capture name="search" alt="Search everywhere open, matches listed across files" />
+  <p><Chord of="CmdOrCtrl+Shift+F" /> opens one palette over commands, settings, file names and the text of the files in the folder, plain text and Markdown alike. With a second folder open it adds that folder's file names and contents. Results are grouped by where they came from; <Chord of="Enter" /> opens the match on its line.</p>
+  <p>In Writ's folder, search reads text files up to 5 MB and leaves out folders such as <code>.git</code>, <code>.obsidian</code> and <code>.trash</code>. In a folder opened with Open Folder, it searches the names of up to 200,000 files and the text of files up to 2 MB, leaving out what the folder's <code>.gitignore</code> names and folders such as <code>node_modules</code> and <code>build</code>.</p>
+  <ul>
+    <li><code>&gt;</code> limits the query to commands</li>
+    <li><code>@</code> limits it to file names: open and recent files, and the files of a folder opened with Open Folder</li>
+    <li><code>#</code> limits it to file contents</li>
+    <li><code>:42</code> jumps to line 42 of the current file</li>
+  </ul>
+  <p><Chord of="CmdOrCtrl+F" /> finds within the current file, and <Chord of="CmdOrCtrl+Shift+O" /> opens a file by name.</p>
+
+  <h2 id="search-field">The search field</h2>
+  <p>Typing in Search your files looks through the text of Writ's folder and of a folder opened with Open Folder, and opens the sidebar on the results, each folder's matches under its name. The arrow keys walk them, <Chord of="Enter" /> opens one at its line, and <Chord of="Escape" /> clears the field and returns to the file.</p>
+</Prose>
