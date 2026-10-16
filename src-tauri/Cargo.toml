@@ -92,6 +92,12 @@ objc2-app-kit = { version = "0.3", features = [
     "NSWorkspace",
     "libc",
 ] }
+# The title-bar double-click setting lives in the global defaults domain.
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSString",
+    "NSUserDefaults",
+] }
 dispatch2 = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]

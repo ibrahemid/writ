@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, cleanup } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
 import type { Platform } from "../../lib/platform";
 
 const h = vi.hoisted(() => ({
   platform: "mac" as Platform,
   sidebarOpen: true,
+  startDragging: vi.fn(),
+  titleBarDoubleClick: vi.fn(),
 }));
 
 vi.mock("../../lib/platform", () => ({
@@ -18,6 +21,8 @@ vi.mock("../../stores/global/os-window", () => ({
     hide: vi.fn(),
     minimize: vi.fn(),
     toggleFullscreen: vi.fn(),
+    startDragging: h.startDragging,
+    titleBarDoubleClick: h.titleBarDoubleClick,
   },
 }));
 vi.mock("../../components/WindowProvider/WindowProvider", () => ({
@@ -63,44 +68,21 @@ import WindowLights from "../../components/TitleBar/WindowLights";
 
 const ATTR = "data-tauri-drag-region";
 
-// Ported from tauri 2.11.5 `src/window/scripts/drag.js` so the assertions are
-// about what the runtime does with the markup, not about the markup alone: a
-// bare attribute drags on direct hits only, `deep` drags anywhere in the
-// subtree, and a clickable element carrying no attribute of its own stops the
-// walk either way.
-const CLICKABLE_TAGS = new Set(["A", "BUTTON", "INPUT", "SELECT", "TEXTAREA", "LABEL", "SUMMARY"]);
-const INTERACTIVE_ROLES = new Set([
-  "button",
-  "link",
-  "menuitem",
-  "tab",
-  "checkbox",
-  "radio",
-  "switch",
-  "option",
-]);
+type Point = { x: number; y: number };
+const AT: Point = { x: 20, y: 12 };
 
-function isClickableElement(el: HTMLElement): boolean {
-  return (
-    CLICKABLE_TAGS.has(el.tagName) ||
-    (el.hasAttribute("contenteditable") && el.getAttribute("contenteditable") !== "false") ||
-    (el.hasAttribute("tabindex") && el.getAttribute("tabindex") !== "-1") ||
-    INTERACTIVE_ROLES.has(el.getAttribute("role") ?? "")
-  );
+function press(el: Element, detail: number, down: Point = AT, up: Point = down) {
+  fireEvent.mouseDown(el, { button: 0, detail, clientX: down.x, clientY: down.y });
+  fireEvent.mouseUp(el, { button: 0, detail, clientX: up.x, clientY: up.y });
+  fireEvent.click(el, { button: 0, detail, clientX: up.x, clientY: up.y });
 }
 
-function dragsFrom(target: HTMLElement): boolean {
-  const path: HTMLElement[] = [];
-  for (let el: HTMLElement | null = target; el; el = el.parentElement) path.push(el);
-  for (const el of path) {
-    const attr = el.getAttribute(ATTR);
-    if (isClickableElement(el) && attr === null) return false;
-    if (attr === null) continue;
-    if (attr === "false") return false;
-    if (attr === "deep") return true;
-    if (attr === "" || attr === "true") return el === path[0];
-  }
-  return false;
+// The sequence a browser delivers for one double-click: two presses, the
+// second counted 2, then the dblclick at the second release.
+function doubleClick(el: Element, release: Point = AT) {
+  press(el, 1);
+  press(el, 2, AT, release);
+  fireEvent.dblClick(el, { button: 0, detail: 2, clientX: release.x, clientY: release.y });
 }
 
 function pick(container: HTMLElement, selector: string): HTMLElement {
@@ -116,78 +98,99 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("the macOS drag region covers the whole chrome row", () => {
-  it("marks the toolbar as a subtree drag region", () => {
-    const { container } = render(() => <Toolbar />);
-    expect(pick(container, ".writ-toolbar").getAttribute(ATTR)).toBe("deep");
-  });
+const BARE_CHROME: Array<[string, () => JSX.Element, string]> = [
+  ["the toolbar's own surface", () => <Toolbar />, ".writ-toolbar"],
+  ["the gap the toolbar divider sits in", () => <Toolbar />, ".writ-toolbar-divider"],
+  ["the sidebar head", () => <Sidebar />, ".sidebar-head"],
+  ["the lights layer", () => <WindowLights />, ".window-lights-layer"],
+  ["the gaps in the lights row", () => <WindowLights />, ".window-lights-layer > .window-lights"],
+];
 
-  it("marks the sidebar head as a subtree drag region", () => {
-    const { container } = render(() => <Sidebar />);
-    expect(pick(container, ".sidebar-head").getAttribute(ATTR)).toBe("deep");
-  });
-
-  // The 44px band beside the lights is the strip every macOS window is moved
-  // by. A bare attribute drags on direct hits only, so these wrappers were
-  // dead zones.
-  it("drags from the wrappers inside the toolbar", () => {
+describe("the macOS top chrome acts as the window's title bar", () => {
+  // Tauri's drag script answers any region carrying the attribute. Its
+  // double-click never maximizes an undecorated macOS window, and next to
+  // Writ's own handler it would answer the same gesture a second time.
+  it("leaves the gesture to Writ alone: no Tauri drag region remains", () => {
     h.sidebarOpen = false;
-    const { container } = render(() => <Toolbar />);
-    for (const selector of [".writ-toolbar", ".writ-toolbar-divider"]) {
-      expect(dragsFrom(pick(container, selector)), selector).toBe(true);
+    for (const view of [() => <Toolbar />, () => <Sidebar />, () => <WindowLights />]) {
+      const { container } = render(view);
+      expect(container.querySelector(`[${ATTR}]`)).toBeNull();
+      cleanup();
     }
   });
 
-  it("drags from the sidebar head", () => {
-    const { container } = render(() => <Sidebar />);
-    expect(dragsFrom(pick(container, ".sidebar-head"))).toBe(true);
+  it.each(BARE_CHROME)("a press on %s moves the window", (_name, view, selector) => {
+    h.sidebarOpen = false;
+    const { container } = render(view);
+    press(pick(container, selector), 1);
+    expect(h.startDragging).toHaveBeenCalledTimes(1);
+    expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
   });
 
-  // The layer takes no pointer events, so the band around the lights reaches
-  // the head or the toolbar below. The gaps inside the lights row do take them,
-  // and `deep` on the layer is what keeps those dragging the window.
-  it("drags from the lights layer and the row inside it", () => {
-    const { container } = render(() => <WindowLights />);
-    expect(dragsFrom(pick(container, ".window-lights-layer"))).toBe(true);
-    expect(dragsFrom(pick(container, ".window-lights-layer > .window-lights"))).toBe(true);
+  it.each(BARE_CHROME)("a double-click on %s is answered once", (_name, view, selector) => {
+    h.sidebarOpen = false;
+    const { container } = render(view);
+    doubleClick(pick(container, selector));
+    expect(h.titleBarDoubleClick).toHaveBeenCalledTimes(1);
+    // Only the first press drags: a drag on the second would take its release.
+    expect(h.startDragging).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves the controls clickable rather than draggable", () => {
+  it("a double-click whose second press travels is not one", () => {
+    const { container } = render(() => <Toolbar />);
+    doubleClick(pick(container, ".writ-toolbar"), { x: AT.x + 12, y: AT.y });
+    expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
+  });
+
+  it("a dblclick without a second press on the chrome is not one", () => {
+    const { container } = render(() => <Toolbar />);
+    fireEvent.dblClick(pick(container, ".writ-toolbar"), { button: 0, detail: 2 });
+    expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
+  });
+
+  it("a right-button press neither drags nor counts", () => {
+    const { container } = render(() => <Toolbar />);
+    fireEvent.mouseDown(pick(container, ".writ-toolbar"), { button: 2, detail: 1 });
+    expect(h.startDragging).not.toHaveBeenCalled();
+  });
+
+  it("leaves the toolbar controls clickable: no drag, no double-click", () => {
     h.sidebarOpen = false;
     const { container } = render(() => <Toolbar />);
     const controls = container.querySelectorAll<HTMLElement>("button, input");
     expect(controls.length).toBeGreaterThan(0);
     for (const control of controls) {
-      expect(control.hasAttribute(ATTR), control.className).toBe(false);
-      expect(dragsFrom(control), control.className).toBe(false);
+      doubleClick(control);
     }
+    expect(h.startDragging).not.toHaveBeenCalled();
+    expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
   });
 
-  it("leaves the lights clickable rather than draggable", () => {
+  it("leaves the lights clickable: no drag, no double-click", () => {
     const { container } = render(() => <WindowLights />);
-    const lights = container.querySelectorAll<HTMLElement>(".maclight");
-    expect(lights).toHaveLength(3);
-    for (const light of lights) {
-      expect(light.hasAttribute(ATTR)).toBe(false);
-      expect(dragsFrom(light)).toBe(false);
-    }
+    const lights = container.querySelectorAll<HTMLElement>(".maclight, .maclight svg, .maclight path");
+    expect(lights.length).toBeGreaterThanOrEqual(3);
+    for (const light of lights) doubleClick(light);
+    expect(h.startDragging).not.toHaveBeenCalled();
+    expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
   });
 
-  // The field's icon, its result count and its own padding are the interior of
-  // a text control, not window chrome. Without the opt-out the subtree region
-  // would move the window from inside the search box.
-  it("stops at the search field rather than dragging from inside it", () => {
+  // The field's icon and its own padding are the interior of a text control,
+  // not window chrome.
+  it("stops at the search field rather than acting from inside it", () => {
     const { container } = render(() => <Toolbar />);
-    expect(pick(container, ".search-bar").getAttribute(ATTR)).toBe("false");
     for (const selector of [".search-bar", ".search-field", ".search-icon", ".search-input"]) {
-      expect(dragsFrom(pick(container, selector)), selector).toBe(false);
+      doubleClick(pick(container, selector));
     }
+    expect(h.startDragging).not.toHaveBeenCalled();
+    expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
   });
 
   it.each(["win", "linux"] as const)("leaves the %s toolbar to its own title bar", (p) => {
     h.platform = p;
     const { container } = render(() => <Toolbar />);
-    expect(pick(container, ".writ-toolbar").hasAttribute(ATTR)).toBe(false);
-    expect(dragsFrom(pick(container, ".writ-toolbar"))).toBe(false);
+    doubleClick(pick(container, ".writ-toolbar"));
+    expect(h.startDragging).not.toHaveBeenCalled();
+    expect(h.titleBarDoubleClick).not.toHaveBeenCalled();
   });
 });

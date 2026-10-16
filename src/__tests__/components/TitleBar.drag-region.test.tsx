@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   showContextMenu: vi.fn(),
   showAnchoredMenu: vi.fn(),
   toggleMaximize: vi.fn(),
+  titleBarDoubleClick: vi.fn(),
   startDragging: vi.fn(),
   minimize: vi.fn(),
   hide: vi.fn(),
@@ -88,6 +89,7 @@ vi.mock("../../stores/global/os-window", () => ({
     snapPressed: () => false,
     installSnapOverlay: () => Promise.resolve(() => {}),
     toggleMaximize: mocks.toggleMaximize,
+    titleBarDoubleClick: mocks.titleBarDoubleClick,
     startDragging: mocks.startDragging,
     minimize: mocks.minimize,
     hide: mocks.hide,
@@ -101,11 +103,14 @@ vi.mock("../../stores/global/config", () => ({
   },
 }));
 
-import TitleBar, { isInteractiveTarget } from "../../components/TitleBar/TitleBar";
+import TitleBar from "../../components/TitleBar/TitleBar";
+import { isInteractiveTarget } from "../../components/TitleBar/title-bar-region";
 
 describe("TitleBar drag region", () => {
   afterEach(() => {
     mocks.toggleMaximize.mockClear();
+    mocks.titleBarDoubleClick.mockClear();
+    mocks.startDragging.mockClear();
     mocks.setActiveTabId.mockClear();
     cleanup();
   });
@@ -116,13 +121,34 @@ describe("TitleBar drag region", () => {
     expect(container.querySelector(".tabbar")).toBeNull();
   });
 
-  it("double-clicking the bare titlebar surface still toggles maximize", () => {
+  it("double-clicking the bare titlebar surface is answered once, after one drag", () => {
     const { container } = render(() => <TitleBar />);
     const bar = container.querySelector<HTMLElement>(".titlebar")!;
 
-    fireEvent.dblClick(bar);
+    for (const detail of [1, 2]) {
+      fireEvent.mouseDown(bar, { button: 0, detail });
+      fireEvent.mouseUp(bar, { button: 0, detail });
+      fireEvent.click(bar, { button: 0, detail });
+    }
+    fireEvent.dblClick(bar, { button: 0, detail: 2 });
 
-    expect(mocks.toggleMaximize).toHaveBeenCalledTimes(1);
+    expect(mocks.titleBarDoubleClick).toHaveBeenCalledTimes(1);
+    expect(mocks.startDragging).toHaveBeenCalledTimes(1);
+    expect(mocks.toggleMaximize).not.toHaveBeenCalled();
+  });
+
+  it("a double-click on the window chord does nothing to the window", () => {
+    const { container } = render(() => <TitleBar />);
+    const chord = container.querySelector<HTMLElement>(".titlebar-right")!;
+
+    for (const detail of [1, 2]) {
+      fireEvent.mouseDown(chord, { button: 0, detail });
+      fireEvent.mouseUp(chord, { button: 0, detail });
+    }
+    fireEvent.dblClick(chord, { button: 0, detail: 2 });
+
+    expect(mocks.titleBarDoubleClick).not.toHaveBeenCalled();
+    expect(mocks.startDragging).not.toHaveBeenCalled();
   });
 });
 
@@ -165,6 +191,40 @@ describe("isInteractiveTarget", () => {
       expect(isInteractiveTarget(bare)).toBe(false);
     } finally {
       bare.remove();
+    }
+  });
+
+  it("treats a tab, a link and a focusable surface as interactive, as Tauri's drag script does", () => {
+    const strip = document.createElement("div");
+    strip.setAttribute("role", "tablist");
+    const tab = document.createElement("div");
+    tab.setAttribute("role", "tab");
+    const link = document.createElement("a");
+    const focusable = document.createElement("div");
+    focusable.tabIndex = 0;
+    strip.append(tab, link, focusable);
+    document.body.appendChild(strip);
+    try {
+      expect(isInteractiveTarget(strip)).toBe(false);
+      for (const el of [tab, link, focusable]) expect(isInteractiveTarget(el)).toBe(true);
+    } finally {
+      strip.remove();
+    }
+  });
+
+  it("does not let a control above the region make the region itself a control", () => {
+    const outer = document.createElement("div");
+    outer.tabIndex = 0;
+    const region = document.createElement("div");
+    const bare = document.createElement("span");
+    region.appendChild(bare);
+    outer.appendChild(region);
+    document.body.appendChild(outer);
+    try {
+      expect(isInteractiveTarget(bare)).toBe(true);
+      expect(isInteractiveTarget(bare, region)).toBe(false);
+    } finally {
+      outer.remove();
     }
   });
 

@@ -27,6 +27,7 @@ pub mod snap_overlay;
 pub mod startup;
 pub mod startup_failure;
 pub mod state;
+pub mod title_bar;
 pub mod watcher;
 pub mod window_state;
 pub mod workspace_index;
@@ -604,6 +605,7 @@ pub fn run() {
             commands::window::reveal_window,
             commands::window::compute_window_placement,
             commands::window::set_caption_button_metrics,
+            commands::window::title_bar_double_click,
             commands::transforms::list_transforms,
             commands::transforms::apply_transform,
             commands::prompt::prompt_estimate_tokens,

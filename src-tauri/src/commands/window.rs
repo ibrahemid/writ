@@ -1,5 +1,6 @@
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
+use writ_core::title_bar::{title_bar_effect, DoubleClickPreference, TitleBarEffect, WindowState};
 
 use crate::snap_overlay::{self, CaptionButtonMetrics};
 use crate::state::AppState;
@@ -86,4 +87,84 @@ pub fn set_caption_button_metrics(
         return Ok(());
     };
     snap_overlay::install(&window, metrics)
+}
+
+/// The code an IPC failure of the title-bar command carries.
+pub const ERR_TITLE_BAR: &str = "ERR_TITLE_BAR";
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum TitleBarError {
+    #[error("{ERR_TITLE_BAR}: the window state could not be read ({0})")]
+    State(String),
+    #[error("{ERR_TITLE_BAR}: the window did not change ({0})")]
+    Change(String),
+}
+
+/// What a title-bar double-click asks of the window. A trait so the command
+/// can be tested without one.
+pub trait TitleBarWindow {
+    fn is_maximized(&self) -> Result<bool, TitleBarError>;
+    fn is_fullscreen(&self) -> Result<bool, TitleBarError>;
+    fn maximize(&self) -> Result<(), TitleBarError>;
+    fn unmaximize(&self) -> Result<(), TitleBarError>;
+    fn minimize(&self) -> Result<(), TitleBarError>;
+}
+
+impl<R: tauri::Runtime> TitleBarWindow for tauri::WebviewWindow<R> {
+    fn is_maximized(&self) -> Result<bool, TitleBarError> {
+        tauri::WebviewWindow::is_maximized(self).map_err(|e| TitleBarError::State(e.to_string()))
+    }
+
+    fn is_fullscreen(&self) -> Result<bool, TitleBarError> {
+        tauri::WebviewWindow::is_fullscreen(self).map_err(|e| TitleBarError::State(e.to_string()))
+    }
+
+    fn maximize(&self) -> Result<(), TitleBarError> {
+        tauri::WebviewWindow::maximize(self).map_err(|e| TitleBarError::Change(e.to_string()))
+    }
+
+    fn unmaximize(&self) -> Result<(), TitleBarError> {
+        tauri::WebviewWindow::unmaximize(self).map_err(|e| TitleBarError::Change(e.to_string()))
+    }
+
+    fn minimize(&self) -> Result<(), TitleBarError> {
+        tauri::WebviewWindow::minimize(self).map_err(|e| TitleBarError::Change(e.to_string()))
+    }
+}
+
+/// Makes the change `preference` asks of a title-bar double-click on
+/// `window`, and answers which change that was.
+///
+/// No check of `is_maximizable` comes first. On macOS that reads the window's
+/// zoom button, which an undecorated window does not have, so it is always
+/// false there; Tauri's own drag-region double-click checks it and never
+/// maximizes Writ's window.
+pub fn title_bar_double_click_inner(
+    window: &impl TitleBarWindow,
+    preference: &DoubleClickPreference,
+) -> Result<TitleBarEffect, TitleBarError> {
+    let state = WindowState {
+        maximized: window.is_maximized()?,
+        fullscreen: window.is_fullscreen()?,
+    };
+    let effect = title_bar_effect(preference.resolve(), state);
+    match effect {
+        TitleBarEffect::Maximize => window.maximize()?,
+        TitleBarEffect::Unmaximize => window.unmaximize()?,
+        TitleBarEffect::Minimize => window.minimize()?,
+        TitleBarEffect::Unchanged => {}
+    }
+    Ok(effect)
+}
+
+/// A double-click on an empty part of the window's top chrome, answered the
+/// way the system's own title bar answers it (macOS: System Settings,
+/// "Double-click a window's title bar to"; Windows and Linux: maximize and
+/// restore). Async so the window calls run off the main thread.
+#[tauri::command]
+pub async fn title_bar_double_click(window: tauri::WebviewWindow) -> Result<(), String> {
+    let preference = crate::title_bar::read_double_click_preference();
+    title_bar_double_click_inner(&window, &preference)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }

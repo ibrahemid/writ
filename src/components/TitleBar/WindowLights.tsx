@@ -3,6 +3,7 @@ import { resolvePlatform } from "../../lib/platform";
 import { resolveLightsSlot } from "../../lib/window-chrome";
 import { osWindowStore } from "../../stores/global/os-window";
 import TrafficLights from "./TrafficLights";
+import { createTitleBarRegion } from "./title-bar-region";
 
 /**
  * The one host for the macOS lights, pinned to the window's leading edge and
@@ -10,14 +11,15 @@ import TrafficLights from "./TrafficLights";
  * of those move while the sidebar opens and closes; the lights do not.
  *
  * The layer itself takes no pointer events, so the 44px band around the lights
- * still reaches the drag region underneath. `deep` covers the gaps inside the
- * lights row, which the layer does take events for.
+ * still reaches the chrome underneath. The gaps inside the lights row do take
+ * them, and the layer's handlers keep those moving and zooming the window.
  */
 export default function WindowLights() {
   const platform = resolvePlatform();
+  const region = createTitleBarRegion({ drag: true });
   return (
     <Show when={resolveLightsSlot(platform) === "window-lead"}>
-      <div class="window-lights-layer" data-tauri-drag-region="deep">
+      <div class="window-lights-layer" onMouseDown={region.onMouseDown} onDblClick={region.onDblClick}>
         <TrafficLights focused={osWindowStore.focused()} />
       </div>
     </Show>

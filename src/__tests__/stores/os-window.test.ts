@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     minimizeWindow: vi.fn(),
     maximizeWindow: vi.fn(),
     toggleMaximizeWindow: vi.fn(),
+    performTitleBarDoubleClick: vi.fn(),
     isWindowMaximized: vi.fn(),
     isWindowMinimized: vi.fn(),
     isWindowFullscreen: vi.fn(),
@@ -63,6 +64,7 @@ beforeEach(() => {
   apiMock.minimizeWindow.mockResolvedValue(undefined);
   apiMock.maximizeWindow.mockResolvedValue(undefined);
   apiMock.toggleMaximizeWindow.mockResolvedValue(undefined);
+  apiMock.performTitleBarDoubleClick.mockResolvedValue(undefined);
   apiMock.isWindowMaximized.mockResolvedValue(false);
   apiMock.isWindowMinimized.mockResolvedValue(false);
   apiMock.isWindowFullscreen.mockResolvedValue(false);
@@ -102,6 +104,13 @@ describe("osWindowStore actions", () => {
     const store = await freshStore();
     await store.toggleMaximize();
     expect(apiMock.toggleMaximizeWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("titleBarDoubleClick hands the gesture to Rust exactly once", async () => {
+    const store = await freshStore();
+    await store.titleBarDoubleClick();
+    expect(apiMock.performTitleBarDoubleClick).toHaveBeenCalledTimes(1);
+    expect(apiMock.toggleMaximizeWindow).not.toHaveBeenCalled();
   });
 
   it("toggleFullscreen delegates to api.toggleFullscreenWindow exactly once", async () => {
@@ -179,6 +188,19 @@ describe("osWindowStore maximize sync", () => {
 
     apiMock.isWindowMaximized.mockResolvedValue(true);
     await store.toggleMaximize();
+
+    expect(store.maximized()).toBe(true);
+    unlisten();
+  });
+
+  it("re-reads after a title bar double-click without waiting for a resize event", async () => {
+    const store = await freshStore();
+    apiMock.onWindowResized.mockResolvedValue(() => {});
+    apiMock.isWindowMaximized.mockResolvedValue(false);
+    const unlisten = await store.installMaximizeSync();
+
+    apiMock.isWindowMaximized.mockResolvedValue(true);
+    await store.titleBarDoubleClick();
 
     expect(store.maximized()).toBe(true);
     unlisten();

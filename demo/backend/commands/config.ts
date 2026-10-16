@@ -57,6 +57,7 @@ export function createConfigCommands(state: DemoState): CommandTable {
     reveal_window: () => null,
     compute_window_placement: () => null,
     set_caption_button_metrics: () => null,
+    title_bar_double_click: () => null,
     confirm_quit_flush: () => null,
     record_unsaved_notes: () => null,
     discard_unsaved_text: () => null,

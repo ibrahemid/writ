@@ -32,6 +32,7 @@ import type { PendingDownload } from "../../stores/window/download-store";
 import { logFailure } from "../../lib/log";
 import type { PaneId } from "../../lib/pane-layout";
 import { draggedTab, dropPane, endTabDrag, moveTabDrag, registerStrip, startTabDrag } from "./tab-drag";
+import { createTitleBarRegion } from "../TitleBar/title-bar-region";
 import "./TabBar.css";
 
 // Singleton state — Writ is single-window. TabBar mounts only in the main
@@ -68,6 +69,9 @@ export default function TabBar(props: Props) {
   // The downloads keep their tabs in the left pane's strip, where their pane shows.
   const downloads = () => (pane() === "left" ? win.downloads.pending() : []);
   let stripRef: HTMLDivElement | undefined;
+  // The strip's empty stretch answers a double-click as the title bar does.
+  // Tabs keep their own press for moving between panes, so it does not drag.
+  const emptyStrip = createTitleBarRegion({ drag: false });
 
   let listRef: HTMLDivElement | undefined;
   let overflowButton: HTMLButtonElement | undefined;
@@ -337,6 +341,8 @@ export default function TabBar(props: Props) {
       class="tabbar"
       classList={{ "is-drop-target": dropPane() === pane() && draggedTab()?.from !== pane() }}
       data-platform={platform}
+      onMouseDown={emptyStrip.onMouseDown}
+      onDblClick={emptyStrip.onDblClick}
     >
       {/* The tablist owns its tabs: the anchor and the slot around each one
           are out of the accessibility tree, and the add control is a sibling
@@ -375,6 +381,7 @@ export default function TabBar(props: Props) {
                 class={`tab ${isActive() ? "tab-active" : ""}`}
                 classList={{ "tab-removed": isRemoved() }}
                 role="presentation"
+                data-no-drag
                 onContextMenu={(e) => handleContextMenu(e, tab.id)}
                 onKeyDown={(e) => handleArrowKey(e, tab.id)}
               >
@@ -459,6 +466,7 @@ export default function TabBar(props: Props) {
                 <div
                   class={`tab tab-download ${isSelected() ? "tab-active" : ""}`}
                   role="presentation"
+                  data-no-drag
                 >
                   <button
                     type="button"
