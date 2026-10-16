@@ -1,0 +1,22 @@
+---
+import { keybindingSegments } from '../../../src/lib/keybinding-format';
+
+interface Props {
+  /** A chord as the app writes it, such as `CmdOrCtrl+Shift+F`. */
+  b: string;
+  /** Draw the chord as Windows and Linux show it rather than as macOS does. */
+  other?: boolean;
+}
+
+class EmptyChordError extends Error {
+  constructor() {
+    super('Keys was given an empty chord');
+    this.name = 'EmptyChordError';
+  }
+}
+
+const { b, other = false } = Astro.props;
+const keys = keybindingSegments(b, { isMac: !other });
+if (keys.length === 0) throw new EmptyChordError();
+---
+{keys.map((k) => <kbd class="kc">{k}</kbd>)}

@@ -1,0 +1,11 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Capture from '../../components/Capture.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('first-launch');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <Capture name="first-run" alt="The first screen: Plain text (.txt) and Markdown (.md) side by side, with a Continue button" />
+  <p>Writ asks two things before the first file. The format for new files: Plain text (.txt) or Markdown (.md). Then the apps, each with a switch, all off. Continue saves both and opens a new file in the chosen format, or the newest file already in the folder. Both answers can be changed later in Settings, General and Settings, Apps.</p>
+</Prose>

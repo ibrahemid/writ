@@ -1,0 +1,26 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import { DOCS_TOPICS, getDocsTopicHref } from '../../data/docs-topics';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+// Links from before the split name a section as /docs/#<id>. GitHub Pages has
+// no redirects and the fragment never reaches the server, so the script below
+// sends a hash on to its topic's page.
+---
+<Prose title="How Writ works" description="Opening and saving files, the folder, Markdown inline, search, the apps in Settings, the writ command, themes and shortcuts." path="/docs/" lead="The same facts in more detail live in the repo's docs folder.">
+  <ul>
+    {DOCS_TOPICS.map((t) => (
+      <li id={t.id}><a href={getDocsTopicHref(t, base)} data-topic>{t.title}</a>: {t.description}</li>
+    ))}
+  </ul>
+  <script is:inline>
+    (function () {
+      var id;
+      try { id = decodeURIComponent(location.hash.slice(1)); } catch (e) { return; }
+      if (!id) return;
+      var row = document.getElementById(id);
+      var link = row && row.querySelector('a[data-topic]');
+      if (link) location.replace(link.href);
+    })();
+  </script>
+</Prose>

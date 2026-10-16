@@ -1,0 +1,15 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('install');
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>Builds for macOS, Windows and Linux are on the <a href={`${base}/download/`}>download page</a> with their checksums, or from a package manager:</p>
+  <pre><code>brew trust ibrahemid/writ
+brew install --cask ibrahemid/writ/writ
+winget install -e --id ibrahemid.Writ
+yay -S writ-bin
+curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh</code></pre>
+</Prose>

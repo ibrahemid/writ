@@ -1,11 +1,13 @@
 ---
 import Prose from '../../layouts/Prose.astro';
+import Capture from '../../components/Capture.astro';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 ---
 <Prose title="Open your Obsidian folder in Writ" description="Point Writ at the folder Obsidian uses. Links, properties and tags read as written, nothing is copied or converted, and Obsidian keeps working from the same files." path="/guides/obsidian-vault-files/" lead="There is no import step. Writ reads the folder where it is, and Obsidian keeps working from it.">
   <h2>1. Point Writ at the folder</h2>
-  <p>Settings, General, Folder: choose the folder Obsidian uses. Writ reads it once, then follows changes on disk. Nothing is copied, converted or rewritten. To try it without changing that setting, start Writ with <code>WRIT_NOTES_DIR</code> set to the folder instead.</p>
+  <p>Settings, General, Folder, Move…: choose the folder Obsidian uses. The files already in Writ's folder move into it; if a name is in both, nothing moves. Writ reads it once, then follows changes on disk. Nothing in it is copied, converted or rewritten. To try it without changing that setting, start Writ with <code>WRIT_NOTES_DIR</code> set to the folder instead.</p>
+  <Capture name="obsidian-folder" alt="A folder written in Obsidian open in Writ: the tree in the sidebar and a Markdown file in Inline mode" />
   <h2>2. Switch on the apps you used</h2>
   <p>Backlinks, the graph and the tag list are apps in Writ, off until you switch them on in Settings, Apps: Connections for the files that link here, the outline and the properties; Graph for the map of the folder; Tags for the tag list in the sidebar.</p>
   <h2>3. What carries over</h2>
@@ -15,11 +17,12 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <li>Frontmatter <code>key: value</code> pairs are properties, listed in the Connections panel. A nested map is kept as written and shown as text.</li>
     <li><code>#tag</code> in the text, and <code>tags:</code> in the frontmatter as a list or one line. <code>#project/alpha</code> is one tag, listed under <code>project</code>. Tags fold to lowercase, so <code>#Project</code> and <code>#project</code> are one. A tag inside a code fence is left alone.</li>
     <li>Headings, lists, checkboxes, links, images and code blocks are formatted in Inline mode, with the markup shown on the line you are editing.</li>
+    <li>Tables, <code>$x^2$</code> math and Mermaid fences are drawn in Inline mode, with the source shown while the cursor is in them.</li>
   </ul>
   <h2>4. What stays as written</h2>
   <ul>
-    <li>Callouts, <code>![[File]]</code> and <code>![[image.png]]</code> embeds, Mermaid fences, <code>$x^2$</code> math and tables show as the text they are.</li>
-    <li><code>.obsidian/</code>: appearance, hotkeys, plugin settings. Writ skips the folder whole and never writes to it.</li>
+    <li>Callouts and <code>![[File]]</code> and <code>![[image.png]]</code> embeds show as the text they are.</li>
+    <li><code>.obsidian/</code>: appearance, hotkeys, plugin settings. Writ skips the folder whole and writes nothing there on its own.</li>
     <li>Community plugins. None run. A file a plugin wrote shows the text it holds, so a Dataview query or a Templater tag reads as the characters it is.</li>
     <li><code>.canvas</code> files open as the text they hold.</li>
     <li><code>obsidian://</code> links are not opened. Rewrite the ones worth keeping as <code>[[File]]</code>.</li>
@@ -28,5 +31,5 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <li><code>.trash/</code> is skipped. To bring a file back, move it out of there.</li>
   </ul>
   <h2>5. Using both</h2>
-  <p>Writ's settings and index live in its own data folder, not in yours. If both apps have the same file open, the last save wins, so keep one of them closed on that file. If a file changes under Writ, a save that would overwrite it is refused and your text lands beside the file as a dated copy. <a href={`${base}/guides/obsidian/`}>Writ and Obsidian on one folder</a> lists what each app does there.</p>
+  <p>Writ's settings and index live in its own data folder, not in yours. If both apps have the same file open, a save from Obsidian replaces what Writ saved, so keep one of them closed on that file. If a file changes under Writ, a save that would overwrite it is refused and your text lands beside the file as a dated copy. <a href={`${base}/guides/obsidian/`}>Writ and Obsidian on one folder</a> lists what each app does there.</p>
 </Prose>

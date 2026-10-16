@@ -1,12 +1,13 @@
 ---
 import Prose from '../layouts/Prose.astro';
 ---
-<Prose title="Privacy" description="Your files stay in a folder on your disk. No account, no telemetry. Chat, Rewrite and Connected programs are apps that do nothing until you switch them on. Writ contacts GitHub to check for updates and to download one you install." path="/privacy/" lead="Where your files live, and what leaves the machine. Reviewed 2026-09-24.">
+<Prose title="Privacy" description="Your files stay in a folder on your disk. No account, no telemetry. Chat, Rewrite and Connected programs are apps that are off until you switch them on. Writ contacts GitHub to check for updates and to download one you install." path="/privacy/" lead="Where your files live, and what leaves the machine. Reviewed 2026-10-17.">
   <h2>Your files</h2>
   <p>
-    Writ opens any text file on your disk and edits it where it is. It also keeps a folder of its own,
+    Writ opens a text file up to 524&nbsp;MB anywhere on your disk and edits it where it is. It also keeps a folder of its own,
     <code>~/Writ</code> unless you moved it; <code>Settings &rarr; General &rarr; Folder</code> shows the path. New
-    files and anything you pipe into the <code>writ</code> command land there, and search covers every file in it.
+    files and anything you pipe into the <code>writ</code> command land there, and search covers its text files up to
+    5&nbsp;MB each, leaving out folders such as <code>.git</code>, <code>.obsidian</code> and <code>.trash</code>.
   </p>
 
   <h2>Writ's data folder</h2>
@@ -16,23 +17,26 @@ import Prose from '../layouts/Prose.astro';
   </p>
   <ul>
     <li>
-      <code>writ.db</code> holds the search index, which stores the text of each file in the folder so search can
-      find it, along with the links, tags and properties read from those files, tab order and window state. It also
-      holds a recovery snapshot of the text in your open tabs up to 5&nbsp;MB each, including text you typed that had not reached its
-      file when Writ quit.
+      <code>writ.db</code> holds the search index, which stores the text of each file search covers so search can
+      find it, along with the links, tags and properties read from those files, the paths and order of your tabs and
+      of the files you closed, and each file's preview layout. It also holds text you typed that had not reached its
+      file, such as after a refused save or when Writ quit, until a later save or the next launch puts it on disk.
     </li>
     <li><code>config.toml</code> holds your settings. It holds no API key.</li>
     <li>
       <code>history/</code> and <code>history.db</code> hold earlier versions of the files in the folder, so a bad
-      edit or a program's write can be undone. Writ keeps a version each time a file is saved, for up to 30 days or
-      200 versions per file, and no more than 250&nbsp;MB in all. A file over 2&nbsp;MB is not versioned.
+      edit or a program's write can be undone. Writ keeps a version when a file is saved, except for your own saves
+      within 10 seconds of the last version kept, for up to 30 days or 200 versions per file, and no more than
+      250&nbsp;MB in all. A file's newest version is kept past 30 days. A file over 2&nbsp;MB is not versioned.
     </li>
     <li>
       <code>chats/</code> holds one file per conversation: your messages, the replies, the edits a reply proposed,
-      and the paths and sizes of attached files. It never holds an attached file's text or a key.
+      and the paths and sizes of attached files. It keeps no copy of an attached file and no key. A proposed edit is
+      kept as the whole text the reply proposed for that file, until you apply or discard it.
     </li>
     <li><code>activity.jsonl</code> lists what connected programs and chat did with your files, without their text.</li>
-    <li><code>logs/</code> records what the app did and the paths it opened. Logs rotate daily and are kept.</li>
+    <li><code>logs/</code> records what the app did, and can name the files it worked on. Logs rotate daily, and the
+    newest 14 are kept. Crash files, up to eight a run, stay until you delete them.</li>
   </ul>
   <p>
     None of this is written into your folder, so a sync client never carries it.
@@ -40,34 +44,43 @@ import Prose from '../layouts/Prose.astro';
 
   <h2>What the app does on the network</h2>
   <p>
-    Until you switch on Chat or Rewrite, Writ makes one kind of outbound request: it fetches a release manifest from
-    GitHub and compares versions on your machine. It does this on its own shortly after launch, at most once a day,
+    Until you switch on Chat or Rewrite, Writ itself contacts only GitHub, for updates: it fetches a release manifest
+    and compares versions on your machine. It does this on its own shortly after launch, at most once a day,
     and whenever you ask in <code>Settings &rarr; About</code>. Turn the automatic check off with
     <code>Check for updates automatically</code>. Installing an update downloads the release from GitHub and checks it
-    against a signing key built into the app.
+    against a signing key built into the app. Both requests go to github.com, which redirects them to
+    release-assets.githubusercontent.com.
   </p>
   <p>
     Spell check runs against a dictionary bundled in the app. The preview pane runs under a fixed
     content-security-policy (<code>default-src 'none'</code>, <code>connect-src 'none'</code>), so rendered HTML makes
-    no network calls. Writ sends no crash reports, usage data or telemetry.
+    no network calls while scripts are off for that file, as they are until you turn them on for it. A file whose
+    scripts you turn on runs its own code, which can reach the network. Writ sends no crash reports, usage data or
+    telemetry.
   </p>
 
   <h2>The AI connection</h2>
   <p>
     Chat and Rewrite are apps you switch on in <code>Settings &rarr; Apps</code>. While either is on, the same
-    section holds the connection they share: provider, address, API key and model. Ollama and LM Studio run on your
-    machine and need no key, so a request to either stays there.
+    section holds the connection they share: provider, address, API key and model. Ollama, LM Studio, llama.cpp and
+    Jan run on your machine and need no key, so a request to any of them stays there. On macOS 26, on a Mac that
+    can run it, Rewrite can also use Apple's on-device model, and Writ makes no network request for it.
   </p>
   <p>
     Point the connection at a hosted provider and Writ asks once, naming the host, before it sends that host
-    anything. The answer is recorded for that host alone, so allowing one provider does not cover another or a
-    hand-edited address. An address that is neither on this machine nor <code>https</code> is refused before any
-    bytes leave.
+    anything. The hosted providers are Anthropic (api.anthropic.com), OpenAI (api.openai.com), Google Gemini
+    (generativelanguage.googleapis.com), OpenRouter (openrouter.ai), Groq (api.groq.com), DeepSeek
+    (api.deepseek.com), Mistral (api.mistral.ai), xAI (api.x.ai), Together (api.together.ai) and Fireworks
+    (api.fireworks.ai); a custom address goes to the host you typed. The answer is recorded for that host alone, so
+    it does not cover another host, whether a provider's or one you typed. An address that is not <code>https</code>
+    is refused before any bytes leave, unless it is this machine or a private IP address, such as one on your local
+    network or Tailscale. Writ asks before it sends anything to a private address, and sends no key over plain http.
   </p>
   <p>
     To show whether the provider is reachable, Writ requests its model list. That request carries your API key and
-    no text, and goes to a hosted provider only after you allowed it. Settings also asks Ollama and LM Studio on this
-    machine whether they are running; that request carries nothing.
+    no text, and goes to a hosted provider only after you allowed it. Settings and the chat pane also ask Ollama,
+    LM Studio, llama.cpp and Jan on this machine (ports 11434, 1234, 8080 and 1337) whether they are running; that
+    request carries nothing.
   </p>
   <p>
     Connecting OpenRouter opens openrouter.ai in your browser. Writ listens on this machine for the one answer that
@@ -91,8 +104,9 @@ import Prose from '../layouts/Prose.astro';
   </p>
   <p>
     Chat writes a file only when you choose Apply on a proposed edit, and no setting applies one for you. If the file
-    changed after the edit was proposed, Writ refuses to apply it. For a file in your folder, the proposed text is
-    saved beside it as a dated copy; for a file outside it, the proposed text stays in the conversation.
+    changed after the edit was proposed, Writ refuses to apply it. The proposed text stays in the conversation. If
+    Apply finds a file in your folder changed since the edit was proposed, the proposed text is also saved beside it
+    as a dated copy.
   </p>
 
   <h2>Connected programs</h2>
@@ -100,7 +114,7 @@ import Prose from '../layouts/Prose.astro';
     Writ ships an MCP server, <code>writ mcp</code>, so a program you choose can work with the files in your folder.
     Connected programs is an app you switch on in <code>Settings &rarr; Apps</code>, which also shows the command to
     give the program. The program starts the server itself and talks to it over that process's input and output.
-    Writ opens no port, and the server makes no network request. Where that program sends what it reads is up to
+    Writ opens no port for it, and the server makes no network request. Where that program sends what it reads is up to
     that program.
   </p>
   <p>
@@ -112,11 +126,13 @@ import Prose from '../layouts/Prose.astro';
   <p>
     With reading approved, a program has ten tools: list the folder's text files, search the folder, read a file,
     read a file's links, backlinks, properties and tags, list the folder's tags, and show a file in Writ at a line or
-    a heading. With writing approved, it has six: replace a file's text, create a file, rename one, add to the end of
+    a heading. With writing approved, it has six more: replace a file's text, create a file, rename one, add to the end of
     a file, replace one passage, and make or add to today's file. No tool deletes a file. A write is checked against the
     version the program read: it is refused if the file changed since, and the program's text is saved beside the
     file. A file the program has not read is not replaced unless it asks to overwrite it, and the text a write
-    replaces is kept as a version in Writ's data folder. A file outside your folder is out of reach of these tools.
+    replaces is kept as a version in Writ's data folder. A file outside your folder is out of reach of these tools,
+    unless the program starts the server with <code>WRIT_NOTES_DIR</code> naming another folder. A write to a file
+    outside your folder keeps no version.
   </p>
   <p>
     With Open file turned on for it, a program can ask which file is in front in Writ and read the text you selected
@@ -128,7 +144,7 @@ import Prose from '../layouts/Prose.astro';
   <h2>The activity list</h2>
   <p>
     Every call from a program, whether it was allowed, refused or left waiting, and every chat edit you applied or
-    discarded, is appended to <code>activity.jsonl</code>. A record names the program or chat, the tool, the file,
+    discarded, is appended to <code>activity.jsonl</code>. A record names the program, the chat or Writ, the tool, the file,
     the decision and, for a write, a byte count, never the text. Reads of one file that one program repeats within a minute
     are counted on a single record. The file stays on your disk and is capped at 5&nbsp;MB with one
     older generation kept. While Connected programs is on, open it from
@@ -137,7 +153,8 @@ import Prose from '../layouts/Prose.astro';
 
   <h2>Keys</h2>
   <p>
-    On macOS and Windows, Writ stores an API key in the system keychain under the service <code>com.writ.ai</code>.
+    On macOS, Windows and Linux, Writ stores an API key in the system keychain (the Secret Service on Linux) under
+    the service <code>com.writ.ai</code>.
     Where the keychain is unavailable, Writ holds the key in memory for the session and warns that you will enter it
     again next time. A key is never written to <code>config.toml</code>, the database or a log.
   </p>
@@ -151,21 +168,24 @@ import Prose from '../layouts/Prose.astro';
 
   <h2>Backup and deletion</h2>
   <p>
-    Back up your folder and any file you keep elsewhere; the files are the only copy of your text. Writ can rebuild
+    Back up your folder and any file you keep elsewhere; Writ's data folder is not a backup of them. Writ can rebuild
     the index in <code>~/.writ</code> from the folder. Nothing else in <code>~/.writ</code> can be rebuilt:
-    settings, earlier versions, conversations and the activity list.
+    settings, earlier versions, conversations, the activity list, your tab list, and text in <code>writ.db</code>
+    that had not reached its file.
   </p>
   <p>
-    Delete <code>~/.writ</code> to return the app to a fresh install. Your folder and every file you opened elsewhere
+    Delete <code>~/.writ</code> to reset the settings and records kept there. The sidebar's open folders and the
+    pane layout are kept apart, in the web view's storage (<code>~/Library/WebKit/com.writ.editor</code> on macOS).
+    Your folder and every file you opened elsewhere
     stay untouched. An API key is not in that directory: clear it from your keychain, or from
     <code>Settings &rarr; Apps</code> while Chat or Rewrite is on.
   </p>
 
   <h2>Source of truth</h2>
   <p>
-    Everything above is in the repository,
+    Everything above about the app is in the repository,
     <a href="https://github.com/ibrahemid/writ" rel="noopener" target="_blank">github.com/ibrahemid/writ</a>, with
-    the decisions behind it in
+    the decisions on what leaves the machine in
     <a href="https://github.com/ibrahemid/writ/blob/main/docs/adr/031-the-ai-harness-and-what-leaves-the-machine.md" rel="noopener" target="_blank">ADR-031</a>
     and the checks in
     <a href="https://github.com/ibrahemid/writ/blob/main/docs/threat-model.md" rel="noopener" target="_blank">the threat model</a>.

@@ -1,0 +1,17 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('cli');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>The <code>writ</code> command opens files in the running app. The Windows installer and the AUR package put it on your PATH; elsewhere, install it from Settings, Integrations, Terminal command (macOS asks for an administrator password once when <code>/usr/local/bin</code> is not writable).</p>
+  <pre><code>writ todo.txt            # open a file
+writ .                   # open the folder
+pbpaste | writ           # stdin becomes a new file
+make test 2>&1 | writ --title tests</code></pre>
+  <p>Piped text is saved as a file in Writ's folder, so it stays after the terminal closes.</p>
+
+  <h2 id="links">writ:// links</h2>
+  <p>On macOS and Windows, <code>writ://open?path=Plan.md&amp;line=12</code> opens a file in Writ's folder at a line, from a browser or another program, and <code>writ://new</code> opens a new tab. A link opens only a file inside the folder, and following one writes nothing.</p>
+</Prose>

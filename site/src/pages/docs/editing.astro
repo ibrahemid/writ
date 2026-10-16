@@ -1,0 +1,17 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Keys from '../../components/Keys.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('editing');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <h2 id="folding">Folding</h2>
+  <p>A Markdown heading folds its section from the arrow in the margin beside it, and a source file folds from the gutter beside its line numbers. <Keys b="CmdOrCtrl+Alt+[" /> and <Keys b="CmdOrCtrl+Alt+]" /> fold and unfold at the cursor (<Keys b="Ctrl+Shift+[" other /> and <Keys b="Ctrl+Shift+]" other /> on Windows and Linux).</p>
+
+  <h2 id="transforms">Transforms</h2>
+  <p>Transform, in the Edit menu, holds Trim Leading Spaces, Trim Trailing Spaces, Collapse Repeated Spaces, Remove Shared Indentation, End with One Newline, Straighten Quotes, Fix Spacing Before Punctuation, Prepare as Prompt, and Tidy Whitespace, which runs several of them. The palette has them too, and so does the right-click menu on a selection. A transform acts on the selection, or on the whole file when nothing is selected.</p>
+
+  <h2 id="copy-as-prompt">Copy as prompt</h2>
+  <p>Copy as Prompt, in the Edit menu, the right-click menu and the palette, copies the selection, or the whole file when nothing is selected, without its frontmatter and without the HTML comments outside code blocks. The file stays as it is. Fill placeholders, in the palette, asks for a value for each <code>{'{{placeholder}}'}</code>, shows the filled text and copies it. Copy files as prompt, in the palette, copies several files as one prompt: the file in front with the files it links to, the files of its folder, or the files carrying a tag, up to 100 files and 4 MB.</p>
+</Prose>

@@ -186,6 +186,22 @@ footer takes its version from the published release instead, so skipping this
 leaves the deployed site advertising the new version beside a changelog that
 stops at the previous one.
 
+A note whose change exists only on some platforms carries `platforms`
+(`'macos'`, `'windows'`, `'linux'`, never all three), and the page tags it. A
+platform counts when the note scopes the change to it ("on macOS …", "the
+Windows MSI …") or names an artifact that exists only there: MSI and winget on
+Windows; AppImage, .deb, AUR, `install.sh` and the Secret Service on Linux;
+Homebrew, notarization, Gatekeeper, translocation and Apple Intelligence on
+macOS. A platform named only in a chord alternative, in a name such as
+Windows-1252, or in part of a change that exists everywhere does not count.
+
+At most one note per release carries an `image`, `{ file: 'v<version>.png',
+alt }`, for its major entry. Copy a light still that shows that change as it
+ships into `site/src/assets/changelog/` under that name; the capture harness
+rewrites `site/src/assets/captures/`, so the changelog keeps its own copy.
+`pnpm --dir site test` checks the tags and the image, and `pnpm --dir site
+check` the types.
+
 Commit both on the same branch as the version bump.
 
 ### 2.3 Pre-tag checks, tag, and push

@@ -1,0 +1,9 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('spelling');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>Off until you turn it on in Settings, Editor. It runs on your machine. Double-click a flagged word to accept a correction or add the word to your dictionary. Code, links and tokens like <code>API</code> are not flagged.</p>
+</Prose>
