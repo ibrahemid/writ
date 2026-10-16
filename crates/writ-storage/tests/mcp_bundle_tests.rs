@@ -15,7 +15,7 @@ fn entries(bytes: Vec<u8>) -> Vec<(String, String)> {
             let mut entry = archive.by_index(index).expect("an entry");
             let mut text = String::new();
             entry.read_to_string(&mut text).expect("utf-8");
-            (entry.name().to_string(), text)
+            (entry.name().expect("a name").into_owned(), text)
         })
         .collect()
 }

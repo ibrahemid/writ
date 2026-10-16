@@ -32,6 +32,7 @@ Environment:
 #[derive(Debug, Parser)]
 #[command(
     name = "writ",
+    bin_name = "writ",
     about = ABOUT,
     after_help = AFTER_HELP,
     version,
@@ -500,6 +501,26 @@ mod tests {
         ] {
             let error = parse(&args).unwrap_err();
             assert_eq!(error.exit_code(), crate::verbs::EXIT_USAGE, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_usage_names_writ_whatever_file_runs_it() {
+        for program in ["writ.exe", "writ-aarch64-apple-darwin"] {
+            let missing = parse_invocation([program, "links"])
+                .unwrap_err()
+                .render()
+                .to_string();
+            assert!(
+                missing.contains("Usage: writ links <FILE>"),
+                "{program}: {missing}"
+            );
+            let help = parse_invocation([program, "--help"])
+                .unwrap_err()
+                .render()
+                .to_string();
+            assert!(help.contains("Usage: writ "), "{program}: {help}");
+            assert!(!help.contains(program), "{program}: {help}");
         }
     }
 

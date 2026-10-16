@@ -3,13 +3,12 @@
 use std::fs;
 
 use tempfile::TempDir;
-use writ_storage::paths::file_in_folder;
+use writ_storage::paths::{file_in_folder, strip_verbatim_prefix};
 
 fn folder() -> (TempDir, std::path::PathBuf) {
     let dir = TempDir::new().expect("temp dir");
-    let root = fs::canonicalize(dir.path())
-        .expect("canonical root")
-        .join("Notes");
+    let root =
+        strip_verbatim_prefix(fs::canonicalize(dir.path()).expect("canonical root")).join("Notes");
     fs::create_dir_all(root.join("Projects")).expect("folders");
     fs::write(root.join("Plan.md"), "plan").expect("note");
     fs::write(root.join("Projects/Launch Plan.md"), "launch").expect("note");
