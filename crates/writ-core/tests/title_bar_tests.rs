@@ -98,7 +98,7 @@ fn zoom_toggles_between_the_visible_frame_and_the_frame_before() {
 }
 
 #[test]
-fn fill_takes_the_visible_frame_and_keeps_it() {
+fn fill_takes_the_visible_frame_and_gives_it_back() {
     assert_eq!(
         title_bar_effect(TitleBarDoubleClick::Fill, floating()),
         TitleBarEffect::Maximize
@@ -109,7 +109,7 @@ fn fill_takes_the_visible_frame_and_keeps_it() {
     };
     assert_eq!(
         title_bar_effect(TitleBarDoubleClick::Fill, filled),
-        TitleBarEffect::Unchanged
+        TitleBarEffect::Unmaximize
     );
 }
 

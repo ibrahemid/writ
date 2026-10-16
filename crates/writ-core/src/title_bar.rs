@@ -84,10 +84,10 @@ pub enum TitleBarEffect {
 
 /// The change `action` makes to a window in `state`.
 ///
-/// Zoom toggles between the visible frame and the frame before it: Writ sets
-/// no largest size of its own, so the standard frame macOS zooms to is the
-/// visible frame. Fill takes the visible frame and leaves a window already
-/// filling it as it is. A window in full screen has no title bar to
+/// Zoom and Fill both toggle between the visible frame and the frame before
+/// it: Writ sets no largest size of its own, so the standard frame macOS zooms
+/// to is the visible frame, and a filled window returns to its previous size
+/// on the next double-click. A window in full screen has no title bar to
 /// double-click and is left as it is, as macOS leaves it.
 #[must_use]
 pub fn title_bar_effect(action: TitleBarDoubleClick, state: WindowState) -> TitleBarEffect {
@@ -95,8 +95,9 @@ pub fn title_bar_effect(action: TitleBarDoubleClick, state: WindowState) -> Titl
         return TitleBarEffect::Unchanged;
     }
     match action {
-        TitleBarDoubleClick::Zoom if state.maximized => TitleBarEffect::Unmaximize,
-        TitleBarDoubleClick::Fill if state.maximized => TitleBarEffect::Unchanged,
+        TitleBarDoubleClick::Zoom | TitleBarDoubleClick::Fill if state.maximized => {
+            TitleBarEffect::Unmaximize
+        }
         TitleBarDoubleClick::Zoom | TitleBarDoubleClick::Fill => TitleBarEffect::Maximize,
         TitleBarDoubleClick::Minimize => TitleBarEffect::Minimize,
         TitleBarDoubleClick::Nothing => TitleBarEffect::Unchanged,

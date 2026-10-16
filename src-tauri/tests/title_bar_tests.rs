@@ -82,7 +82,7 @@ fn zoom_restores_a_maximized_window() {
 }
 
 #[test]
-fn fill_takes_the_visible_frame_and_keeps_it() {
+fn fill_takes_the_visible_frame_and_gives_it_back() {
     let floating = FakeWindow::default();
     title_bar_double_click_inner(&floating, &setting("Fill")).unwrap();
     assert_eq!(floating.calls(), ["maximize"]);
@@ -92,8 +92,8 @@ fn fill_takes_the_visible_frame_and_keeps_it() {
         ..FakeWindow::default()
     };
     let effect = title_bar_double_click_inner(&filled, &setting("Fill")).unwrap();
-    assert_eq!(effect, TitleBarEffect::Unchanged);
-    assert!(filled.calls().is_empty());
+    assert_eq!(effect, TitleBarEffect::Unmaximize);
+    assert_eq!(filled.calls(), ["unmaximize"]);
 }
 
 #[test]
