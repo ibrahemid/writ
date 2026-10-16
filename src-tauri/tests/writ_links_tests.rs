@@ -17,7 +17,7 @@ struct Folder {
 
 fn folder() -> Folder {
     let dir = TempDir::new().expect("temp dir");
-    let root = std::fs::canonicalize(dir.path())
+    let root = writ_tauri_lib::security::canonicalize_root(dir.path())
         .expect("canonical temp dir")
         .join("Notes");
     std::fs::create_dir_all(root.join("Projects")).expect("folders");

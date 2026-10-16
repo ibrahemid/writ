@@ -4,7 +4,32 @@ use std::process::Command;
 fn main() {
     check_sidecar_version();
     build_on_device_bridge();
+    embed_manifest_for_tests();
     tauri_build::build()
+}
+
+/// Links tauri-build's Common Controls v6 manifest (copied to
+/// `windows-app-manifest.xml`) into the integration test binaries on Windows
+/// MSVC. tauri-build links it into bin targets only, so a test binary that
+/// builds an app with `tauri::test::mock_builder` fails to load with
+/// STATUS_ENTRYPOINT_NOT_FOUND. Same workaround as tauri's own build script
+/// (`embed_manifest_for_tests`), limited to test targets so the app binary
+/// keeps the one manifest tauri-build gives it.
+fn embed_manifest_for_tests() {
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS");
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV");
+    if target_os.as_deref() != Ok("windows") || target_env.as_deref() != Ok("msvc") {
+        return;
+    }
+    let manifest =
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"))
+            .join("windows-app-manifest.xml");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    let manifest = manifest
+        .to_str()
+        .unwrap_or_else(|| panic!("{} is not valid UTF-8", manifest.display()));
+    println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+    println!("cargo:rustc-link-arg-tests=/MANIFESTINPUT:{manifest}");
 }
 
 /// Compiles the Swift bridge to Apple's on-device model
