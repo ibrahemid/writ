@@ -2,10 +2,9 @@
 import { Picture } from 'astro:assets';
 import type { ImageMetadata } from 'astro';
 import Prose from '../layouts/Prose.astro';
-import { releases, type ChangelogPlatform } from '../data/changelog';
+import { releases } from '../data/changelog';
 import { findChangelogImage } from '../lib/changelog-image';
-
-const PLATFORM_LABELS: Record<ChangelogPlatform, string> = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
+import { CHANGELOG_PLATFORM_LABELS, stripPlatformLead } from '../lib/changelog-text';
 
 const images = import.meta.glob<ImageMetadata>('/src/assets/changelog/*.png', { eager: true, import: 'default' });
 const widthsFor = (src: ImageMetadata): number[] => [640, 960, 1320, 1920].filter((w) => w < src.width).concat(src.width);
@@ -22,8 +21,8 @@ const widthsFor = (src: ImageMetadata): number[] => [640, 960, 1320, 1920].filte
             <li>
               <span class="rel-kind">{n.kind}</span>
               <div>
-                {n.platforms?.map((p) => <span class="rel-tag">{PLATFORM_LABELS[p]}</span>)}
-                <span>{n.text}</span>
+                {n.platforms?.map((p) => <span class="rel-tag">{CHANGELOG_PLATFORM_LABELS[p]}</span>)}
+                <span>{stripPlatformLead(n.text, n.platforms)}</span>
                 {shot && (
                   <figure class="window">
                     <Picture src={shot.src} alt={shot.alt} formats={['avif', 'webp']} widths={widthsFor(shot.src)} sizes="(max-width: 880px) 100vw, 720px" loading="lazy" />

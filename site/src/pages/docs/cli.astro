@@ -5,7 +5,7 @@ import { getDocsPage } from '../../data/docs-topics';
 const page = getDocsPage('cli');
 ---
 <Prose title={page.title} description={page.description} path={page.path}>
-  <p>The <code>writ</code> command opens files in the running app. The Windows installer and the AUR package put it on your PATH; elsewhere, install it from Settings, Integrations, Terminal command (macOS asks for an administrator password once when <code>/usr/local/bin</code> is not writable).</p>
+  <p>The <code>writ</code> command opens files in the running app. The Windows installer, the <code>.deb</code> and the AUR package put it on your PATH, and <code>install.sh</code> puts it in <code>~/.local/bin</code>. On macOS or from a downloaded AppImage, install it from Settings, Integrations, Terminal command (macOS asks for an administrator password once when <code>/usr/local/bin</code> is not writable).</p>
   <pre><code>writ todo.txt            # open a file
 writ .                   # open the folder
 pbpaste | writ           # stdin becomes a new file

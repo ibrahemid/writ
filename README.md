@@ -29,7 +29,7 @@ Or download a `.pkg` or `.dmg`, `.msi`, `.AppImage` or `.deb` from [Releases](ht
 
 ## The `writ` command
 
-The Windows installer and the AUR package put it on your PATH; elsewhere, install it from Settings, Integrations, Terminal command.
+The Windows installer, the `.deb` and the AUR package put it on your PATH, and `install.sh` puts it in `~/.local/bin`. On macOS or from a downloaded AppImage, install it from Settings, Integrations, Terminal command.
 
 ```sh
 writ todo.txt README.md                  # open files
