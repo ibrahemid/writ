@@ -449,6 +449,9 @@ fn contain(
 /// the filesystem; only names it has never seen are appended literally, so a
 /// reference to a file that is not there yet is still judged honestly.
 fn resolve_existing_prefix(path: &Path) -> Option<PathBuf> {
+    if !parents_step_out_of_folders(path) {
+        return None;
+    }
     let mut unresolved: Vec<std::ffi::OsString> = Vec::new();
     let mut cursor = path.to_path_buf();
     loop {
@@ -467,6 +470,21 @@ fn resolve_existing_prefix(path: &Path) -> Option<PathBuf> {
             Err(_) => return None,
         }
     }
+}
+
+/// Whether every `..` in `path` steps out of a folder that exists. Windows
+/// collapses `missing/..` as text before the filesystem sees it, where Unix
+/// refuses to walk through a folder that is not there; refusing it on both
+/// keeps a reference resolving to the same file everywhere.
+fn parents_step_out_of_folders(path: &Path) -> bool {
+    let mut prefix = PathBuf::new();
+    for component in path.components() {
+        if component == Component::ParentDir && !prefix.as_os_str().is_empty() && !prefix.is_dir() {
+            return false;
+        }
+        prefix.push(component);
+    }
+    true
 }
 
 /// Percent-encode a relative path into the `/`-separated form the URL
@@ -819,6 +837,39 @@ mod asset_tests {
         assert_eq!(r.root, AssetRoot::Notes);
         assert_eq!(r.url_path, "daily/beside.png");
         assert!(r.path.ends_with("daily/beside.png"));
+    }
+
+    #[test]
+    fn a_parent_step_out_of_a_missing_folder_is_refused() {
+        let (g, notes, _note_dir) = fixture();
+        assert!(parents_step_out_of_folders(
+            &notes.join("daily/../root.png")
+        ));
+        assert!(!parents_step_out_of_folders(
+            &notes.join("missing/../root.png")
+        ));
+        assert!(!parents_step_out_of_folders(
+            &notes.join("root.png/../root.png")
+        ));
+        assert_eq!(
+            resolve_existing_prefix(&notes.join("missing/../root.png")),
+            None
+        );
+        drop(g);
+    }
+
+    #[test]
+    fn a_reference_above_both_roots_is_refused_with_no_attachments_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = dir.path().join("Writ");
+        let note_dir = dir.path().join("d");
+        std::fs::create_dir_all(&notes).unwrap();
+        std::fs::create_dir_all(&note_dir).unwrap();
+        std::fs::write(dir.path().join("outside.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+        assert_eq!(
+            resolve(&notes, &note_dir, "../outside.png"),
+            Err(RefusalReason::OutsideRoot)
+        );
     }
 
     #[test]
