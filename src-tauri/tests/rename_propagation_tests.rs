@@ -974,6 +974,15 @@ fn an_undo_leaves_a_rewritten_file_the_folder_no_longer_holds() {
     assert!(note(&state, "Old note.md").exists());
 }
 
+/// The last component of an index key, whichever separator the platform
+/// spells it with.
+fn key_file_name(key: &str) -> String {
+    std::path::Path::new(key)
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 #[test]
 fn a_case_only_rename_leaves_one_index_row_under_the_new_spelling() {
     let (_dir, state) = seeded(&[
@@ -1004,10 +1013,10 @@ fn a_case_only_rename_leaves_one_index_row_under_the_new_spelling() {
         .note_paths()
         .expect("paths")
         .into_iter()
-        .filter(|path| path.to_lowercase().ends_with("/notes.md"))
+        .filter(|path| key_file_name(path).eq_ignore_ascii_case("notes.md"))
         .collect();
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert!(rows[0].ends_with("/notes.md"), "{rows:?}");
+    assert_eq!(key_file_name(&rows[0]), "notes.md", "{rows:?}");
     assert_eq!(
         count_links_to_inner(&state, &renamed).expect("count"),
         1,
@@ -1021,8 +1030,8 @@ fn a_case_only_rename_leaves_one_index_row_under_the_new_spelling() {
         .note_paths()
         .expect("paths")
         .into_iter()
-        .filter(|path| path.to_lowercase().ends_with("/notes.md"))
+        .filter(|path| key_file_name(path).eq_ignore_ascii_case("notes.md"))
         .collect();
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert!(rows[0].ends_with("/Notes.md"), "{rows:?}");
+    assert_eq!(key_file_name(&rows[0]), "Notes.md", "{rows:?}");
 }

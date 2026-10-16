@@ -99,6 +99,12 @@ impl Fixture {
     }
 }
 
+/// A path resolved, so the path the command sends and the one the test builds
+/// compare as one file however each is spelled.
+fn canonical(path: impl AsRef<Path>) -> PathBuf {
+    std::fs::canonicalize(path).expect("canonical path")
+}
+
 fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).expect("stdout is text")
 }
@@ -381,15 +387,14 @@ fn a_path_ending_in_a_line_opens_there() {
     let output = fixture.run(&["Plan.txt:2"]);
     let request = app.join().expect("app");
     assert_eq!(code(&output), 0, "{}", stderr(&output));
-    // Joined to the working folder as the command reads it, which is
-    // resolved on macOS (`/private/var` for `/var`).
-    let expected = fixture
-        .resolved()
-        .join("Plan.txt")
-        .to_string_lossy()
-        .into_owned();
-    assert_eq!(request.paths, vec![expected.clone()]);
-    assert_eq!(request.lines.get(&expected), Some(&2));
+    let [sent] = request.paths.as_slice() else {
+        panic!("one path: {:?}", request.paths);
+    };
+    // Joined to the working folder as the command reads it: resolved on macOS
+    // (`/private/var` for `/var`), as given on Windows (a `RUNNER~1` short name).
+    assert!(Path::new(sent).is_absolute(), "{sent}");
+    assert_eq!(canonical(sent), canonical(fixture.notes.join("Plan.txt")));
+    assert_eq!(request.lines.get(sent), Some(&2));
 }
 
 #[test]
@@ -403,13 +408,13 @@ fn wait_returns_when_the_tab_closes() {
     let request = app.join().expect("app");
     assert_eq!(code(&output), 0, "{}", stderr(&output));
     assert!(request.wait_token().is_some());
+    let [sent] = request.paths.as_slice() else {
+        panic!("one path: {:?}", request.paths);
+    };
+    assert!(Path::new(sent).is_absolute(), "{sent}");
     assert_eq!(
-        request.paths,
-        vec![fixture
-            .resolved()
-            .join("COMMIT_EDITMSG")
-            .to_string_lossy()
-            .into_owned()]
+        canonical(sent),
+        canonical(fixture.notes.join("COMMIT_EDITMSG"))
     );
     assert!(
         started.elapsed() >= Duration::from_millis(300),

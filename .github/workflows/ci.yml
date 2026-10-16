@@ -202,9 +202,11 @@ jobs:
         run: cargo clippy --workspace --release --locked -- -D warnings
 
       - name: Run tests
-        # Cross-OS tests run once on main, after integration.
-        if: matrix.cross_only == false || github.event_name == 'push'
-        run: cargo test --workspace --locked
+        # Cross-OS tests run once on main, after integration, and on pull
+        # requests labelled cross-os. Every test binary runs, so one run
+        # reports every failure.
+        if: matrix.cross_only == false || github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'cross-os')
+        run: cargo test --workspace --locked --no-fail-fast
 
       # A key stored through the Secret Service is read back by a second
       # process. The ordinary test step has no session bus, so the test runs
