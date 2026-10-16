@@ -1,0 +1,58 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Chord from '../../components/Chord.astro';
+// The frozen sheet, not the app's live table. See `site/src/data/shortcuts.json`.
+import editorShortcuts from '../../data/shortcuts.json';
+import { getDocsPage } from '../../data/docs-topics';
+
+interface WindowKey {
+  label: string;
+  keys: readonly string[];
+}
+
+interface FoldKey {
+  label: string;
+  mac: string;
+  other: string;
+}
+
+const page = getDocsPage('shortcuts');
+const windowKeys: readonly WindowKey[] = [
+  { label: 'Bring up or put away the window', keys: ['CmdOrCtrl+Shift+Space'] },
+  { label: 'Command palette', keys: ['Shift+Shift'] },
+  { label: 'Search everywhere', keys: ['CmdOrCtrl+Shift+F'] },
+  { label: 'Find in the file', keys: ['CmdOrCtrl+F'] },
+  { label: 'New file', keys: ['CmdOrCtrl+N'] },
+  { label: 'Open a file by name', keys: ['CmdOrCtrl+Shift+O'] },
+  { label: 'Close tab', keys: ['CmdOrCtrl+W'] },
+  { label: 'Reopen the last closed tab', keys: ['CmdOrCtrl+Shift+T'] },
+  { label: 'Previous / next tab', keys: ['CmdOrCtrl+[', 'CmdOrCtrl+]'] },
+  { label: 'Save now', keys: ['CmdOrCtrl+S'] },
+  { label: 'Toggle sidebar', keys: ['CmdOrCtrl+\\'] },
+  { label: 'Switch how the file is shown', keys: ['CmdOrCtrl+Shift+V'] },
+  { label: 'Connections panel (Connections app)', keys: ['CmdOrCtrl+Shift+\\'] },
+  { label: 'Chat pane (Chat app)', keys: ['CmdOrCtrl+Shift+A'] },
+  { label: 'Settings', keys: ['CmdOrCtrl+,'] },
+  { label: 'Zoom in / out', keys: ['CmdOrCtrl+=', 'CmdOrCtrl+-'] },
+];
+const foldKeys: readonly FoldKey[] = [
+  { label: 'Fold at the cursor', mac: 'CmdOrCtrl+Alt+[', other: 'Ctrl+Shift+[' },
+  { label: 'Unfold at the cursor', mac: 'CmdOrCtrl+Alt+]', other: 'Ctrl+Shift+]' },
+];
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>Settings, Shortcuts changes every row but the two fold rows, and lists an app's row while that app is on. macOS keys are shown: on Windows and Linux, ⌘ is Ctrl and ⌥ is Alt, and the fold rows show their own.</p>
+  <table>
+    <tbody>
+    {windowKeys.map((row) => (
+      <tr><td>{row.label}</td><td>{row.keys.map((b, i) => <Fragment>{i > 0 && ' / '}<Chord of={b} /></Fragment>)}</td></tr>
+    ))}
+    {foldKeys.map((row) => (
+      <tr><td>{row.label}</td><td><Chord of={row.mac} /> (<Chord of={row.other} other /> on Windows and Linux)</td></tr>
+    ))}
+    {editorShortcuts.keys.map((c) => (
+      <tr><td>{c.label}</td><td><Chord of={c.keybinding} /></td></tr>
+    ))}
+  </tbody>
+  </table>
+</Prose>

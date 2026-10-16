@@ -1,0 +1,20 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Capture from '../../components/Capture.astro';
+import Chord from '../../components/Chord.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('files');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <Capture name="text-file" alt="A plain text file open in Writ" />
+  <p>Drag a file onto the window, double-click it in Finder once Writ is the default app, use Open File, or run <code>writ path</code>. Writ saves the file where it is, a second after you stop typing; <Chord of="CmdOrCtrl+S" /> saves at once. Code and configs open with highlighting for the language, and binary files open read-only as hex. A file over 5 MB opens in large-file mode, with formatting, spell check, links and highlighting off, and Writ opens files up to 524 MB.</p>
+  <p>Writ also has a folder of its own, <code>~/Writ</code> until you move it with Move… in Settings, General, Folder. New File (<Chord of="CmdOrCtrl+N" />) creates a file there named <code>writ-</code> plus the date and time, in the format set in Settings, General, Default format. Name it <code>Groceries.md</code> or <code>Groceries.txt</code> and the name decides the format. Today's File, in the File menu, opens a file named for the date. Delete moves a file to the Trash, and closing a tab keeps the file.</p>
+  <p>The folder is watched, so a change made in another program shows up at once. A file with unsaved edits asks before anything is replaced, and a save never overwrites a newer file: the unsaved text is written beside it as a dated copy instead. Choose Open Folder… (<Chord of="CmdOrCtrl+Alt+O" />) in the File menu, or run <code>writ .</code> in a folder, and the sidebar shows its tree.</p>
+
+  <h2 id="encodings">Text encodings</h2>
+  <p>A file in another text encoding, such as Windows-1252, Shift JIS, GBK or UTF-16, opens as text and saves in that encoding. A save that would lose a character the encoding cannot hold is refused, and the character is named. The encoding in the status bar reopens the file in another one.</p>
+
+  <h2 id="panes">Tabs and panes</h2>
+  <p>Split right (<Chord of="CmdOrCtrl+Shift+2" />) shows the file in front in a second pane beside the first. Each pane has its own tabs, and an edit to a file open in both shows in both. <Chord of="F6" /> moves to the other pane, <Chord of="CmdOrCtrl+Shift+M" /> moves the tab there, and Close split (<Chord of="CmdOrCtrl+Shift+1" />) puts every tab back in one pane. The split comes back after a relaunch.</p>
+</Prose>

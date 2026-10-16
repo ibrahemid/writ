@@ -1,0 +1,13 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Capture from '../../components/Capture.astro';
+import Chord from '../../components/Chord.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('markdown');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <Capture name="markdown-inline" alt="A Markdown file in Inline mode: headings, a list and checkboxes formatted, the line being edited showing its markup" />
+  <p>A Markdown file opens in Inline mode: headings, emphasis, lists, checkboxes, links, images and code blocks are formatted where they are written, and the line you are editing shows its markup. Source shows the plain text. The status bar switches between the two, and so does <Chord of="CmdOrCtrl+Shift+V" />; Settings, Editor, Markdown opens in sets which one a Markdown file opens in. Tables, math and Mermaid diagrams are drawn in place, and each shows its source while the cursor is in it. A Markdown file over 5 MB opens in large-file mode, without Inline formatting.</p>
+  <p>Lists continue on <Chord of="Enter" />, a checkbox toggles on click, and <Chord of="CmdOrCtrl+B" />, <Chord of="CmdOrCtrl+I" />, <Chord of="CmdOrCtrl+K" /> wrap the selection. In a Markdown file, <code>[[File]]</code> opens that file, <code>[[Folder/File]]</code> picks one of two with the same name, and <code>[[File#Heading]]</code> opens it at the heading. Typing <code>[[</code> offers the files in the folder. Renaming a file offers to update the links that point at it.</p>
+</Prose>

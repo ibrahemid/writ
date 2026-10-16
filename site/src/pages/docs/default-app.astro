@@ -1,0 +1,10 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('default-app');
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>On macOS, Settings, Integrations, Open these file types with Writ has a box per group: Plain text &amp; logs, Markdown, Config &amp; data, Source code. macOS keeps the choice per file type. The guide on <a href={`${base}/guides/default-md-app/`}>making Writ the app for .md and .txt</a> covers Windows and Linux.</p>
+</Prose>

@@ -1,9 +1,10 @@
 # Opening an Obsidian folder in Writ
 
 There is no import step. Point Writ at the folder Obsidian was using and the
-files open from where they are: Settings, General, Folder, or run Writ with
-`WRIT_NOTES_DIR` set to the folder. Nothing is copied, converted or rewritten,
-and both apps can keep using the same files.
+files open from where they are: Settings, General, Folder, Move… (the files
+already in Writ's folder move into it), or run Writ with `WRIT_NOTES_DIR` set
+to the folder. Nothing in the folder is copied, converted or rewritten, and
+both apps can keep using the same files.
 
 Writ reads the folder once after it is set, then follows changes on disk.
 Links, properties, tags and headings come out of that read.
@@ -32,17 +33,18 @@ install: switch on Connections, Tags and Graph under Settings, Apps.
 | Headings | Heading sizes in Inline mode, the outline in Connections, and the anchors links point at. |
 | `![alt](image.png)` | The image is shown under its line. |
 | Task lists | Checkboxes you can click. |
+| ` ```mermaid ` fences | A diagram in Inline mode. The source shows while the cursor is in it. |
+| `$x^2$` and `$$…$$` math | Drawn in Inline mode. The source shows while the cursor is in it. |
 
 ## What does not
 
 | Written in Obsidian | In Writ |
 |---|---|
-| `.obsidian/` settings: appearance, hotkeys, core plugin options | Set them again in Writ's settings. The folder is skipped whole and never written to, so Obsidian keeps working from it. |
+| `.obsidian/` settings: appearance, hotkeys, core plugin options | Set them again in Writ's settings. The folder is skipped whole and Writ writes nothing there on its own, so Obsidian keeps working from it. |
 | Community plugins in `.obsidian/plugins/` | None of them run. A file a plugin wrote shows the text the file holds, so a Dataview query or a Templater tag shows as the characters it is. |
 | `> [!note]` callouts | Styled as a blockquote. |
 | `![[Note]]` and `![[image.png]]` embeds | Not shown in the page. The text stays as written. |
-| ` ```mermaid ` fences | A code block, not a diagram. |
-| `$x^2$` math, footnotes | Shown as written. |
+| Footnotes | Shown as written. |
 | `.canvas` files | Not drawn. The file opens as the text it holds. Keep the drawing in Obsidian. |
 | `obsidian://` links | Not opened. Rewrite the ones worth keeping as `[[Note]]`. |
 | `aliases:` in frontmatter | Kept as a property, but a link that names an alias finds nothing. Link by file name, or rename the file. |

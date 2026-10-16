@@ -1,0 +1,11 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Capture from '../../components/Capture.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('versions');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <Capture name="versions" alt="Revert To listing earlier versions of a file" />
+  <p>Writ keeps a version of a file in the folder each time it is saved. A run of saves inside ten seconds is one version. Versions older than thirty days are dropped, except a file's latest one. At most two hundred are kept per file and 250 MB in all, in Writ's own data folder and never in the folder itself. A file over 2 MB is not versioned. Revert To, in the File menu, puts one back, and the restore is kept as a version too.</p>
+</Prose>

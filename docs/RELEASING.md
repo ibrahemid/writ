@@ -181,10 +181,30 @@ following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Mirror that section into `site/src/data/changelog.ts` as a new first entry in
 `releases`: `version`, `date`, and one note per line with its `kind`. The
-`/changelog` page renders that array verbatim and nothing generates it. The site
+`/changelog` page renders that array, dropping a tagged note's opening platform
+clause, and nothing generates it. The site
 footer takes its version from the published release instead, so skipping this
 leaves the deployed site advertising the new version beside a changelog that
 stops at the previous one.
+
+A note whose change exists only on some platforms carries `platforms`
+(`'macos'`, `'windows'`, `'linux'`, never all three), and the page tags it. A
+platform counts when the note opens with it ("on macOS, …", "on Windows and
+Linux, …") or names an artifact that exists only there ("the MSI …"): MSI and
+winget on Windows; AppImage, .deb, AUR, `install.sh` and the Secret Service on
+Linux; Homebrew, notarization, Gatekeeper, translocation and Apple Intelligence
+on macOS. The page shows the tags in place of that opening, so the rest of a
+tagged note names its platform only before a version ("macOS 26") or to say
+which of two tagged platforms does what. A platform named only in a chord
+alternative, in a name such as Windows-1252, or in part of a change that exists
+everywhere does not count.
+
+At most one note per release carries an `image`, `{ file: 'v<version>.png',
+alt }`, for its major entry. Copy a light still that shows that change as it
+ships into `site/src/assets/changelog/` under that name; the capture harness
+rewrites `site/src/assets/captures/`, so the changelog keeps its own copy.
+`pnpm --dir site test` checks the tags and the image in the data, `pnpm --dir
+site test:dist` on the built page, and `pnpm --dir site check` the types.
 
 Commit both on the same branch as the version bump.
 
