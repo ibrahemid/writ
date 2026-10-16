@@ -64,6 +64,11 @@ function createOsWindowStore() {
     await syncMaximized();
   }
 
+  async function titleBarDoubleClick(): Promise<void> {
+    await api.performTitleBarDoubleClick();
+    await syncMaximized();
+  }
+
   // On Windows the maximize button is covered by the child window that answers
   // the snap-layout hit test, so the button itself never receives a real mouse
   // event: CSS :hover and :active are dead over it and the pointer state has to
@@ -194,13 +199,16 @@ function createOsWindowStore() {
     installSnapOverlay,
     installGeometryPersistence,
     flushGeometry,
-    reveal: api.showWindow,
-    hide: api.hideWindow,
-    minimize: api.minimizeWindow,
-    maximize: api.maximizeWindow,
+    // Read at call time: the chrome every pane draws imports this store, and
+    // creating it must not touch a service it has not been asked to use.
+    reveal: () => api.showWindow(),
+    hide: () => api.hideWindow(),
+    minimize: () => api.minimizeWindow(),
+    maximize: () => api.maximizeWindow(),
     toggleMaximize,
-    toggleFullscreen: api.toggleFullscreenWindow,
-    startDragging: api.startDraggingWindow,
+    titleBarDoubleClick,
+    toggleFullscreen: () => api.toggleFullscreenWindow(),
+    startDragging: () => api.startDraggingWindow(),
   };
 }
 

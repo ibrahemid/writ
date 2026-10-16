@@ -10,6 +10,7 @@ import {
   SIDEBAR_WIDTH_MIN,
 } from "../../stores/global/config";
 import EdgeResizer from "../Resizer/EdgeResizer";
+import { createTitleBarRegion } from "../TitleBar/title-bar-region";
 import SearchBar from "./SearchBar";
 import FilesSection from "./FilesSection";
 import TagsSection from "./TagsSection";
@@ -42,6 +43,7 @@ export default function Sidebar() {
   // does not track the open state — unmounting it would drop the content 44px
   // while the sidebar is still visibly sliding out.
   const hasWindowHead = resolveLightsSlot(platform) === "window-lead";
+  const head = createTitleBarRegion({ drag: true });
   const searching = createMemo(() => win.sidebar.searchQuery().trim().length > 0);
 
   // Non-null only while a drag is in flight: the edge follows the pointer
@@ -62,9 +64,9 @@ export default function Sidebar() {
     >
       <div class="sidebar-inner">
         <Show when={hasWindowHead}>
-          {/* The head sits outside the toolbar's drag region and only exists on
-              macOS, where nothing else moves the window from this column. */}
-          <div class="sidebar-head" data-tauri-drag-region="deep" />
+          {/* The head sits outside the toolbar and only exists on macOS, where
+              nothing else moves or zooms the window from this column. */}
+          <div class="sidebar-head" onMouseDown={head.onMouseDown} onDblClick={head.onDblClick} />
         </Show>
         <Show when={searchInSidebar}>
           <SearchBar />

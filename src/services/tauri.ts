@@ -1033,6 +1033,15 @@ export async function toggleMaximizeWindow(): Promise<void> {
   }
 }
 
+// Rust reads the system's title-bar setting and makes the change it names.
+export async function performTitleBarDoubleClick(): Promise<void> {
+  try {
+    await invoke("title_bar_double_click");
+  } catch {
+    logFailure("a title bar double-click did not change the window");
+  }
+}
+
 export async function isWindowMaximized(): Promise<boolean> {
   try {
     const win = getCurrentWindow();

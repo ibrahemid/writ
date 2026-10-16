@@ -7096,6 +7096,7 @@ dependencies = [
  "notify-debouncer-mini",
  "objc2",
  "objc2-app-kit",
+ "objc2-foundation",
  "pulldown-cmark",
  "reqwest",
  "rfd",

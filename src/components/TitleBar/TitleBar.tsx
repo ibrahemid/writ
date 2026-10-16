@@ -13,23 +13,8 @@ import { formatKeybinding } from "../../lib/keybinding-format";
 import { configStore } from "../../stores/global/config";
 import { hotkeyStore } from "../../stores/global/hotkey";
 import { osWindowStore } from "../../stores/global/os-window";
+import { createTitleBarRegion } from "./title-bar-region";
 import "./TitleBar.css";
-
-const INTERACTIVE_SELECTOR = 'button, input, select, [role="button"], [data-no-drag]';
-
-export function isInteractiveTarget(target: EventTarget | null): boolean {
-  // Element, not HTMLElement: a press landing on a caption button's glyph hits
-  // an SVG element, which is not an HTMLElement and would read as bare titlebar
-  // — dragging the window instead of clicking the button under the cursor.
-  if (!(target instanceof Element)) return false;
-  // This runs in a delegated ancestor handler, so closest() reads the live tree.
-  // If a descendant handler detached the clicked node earlier in the same event,
-  // closest() can no longer reach its interactive ancestor and would misread it
-  // as the bare titlebar. The bare titlebar is never detached, so treat any
-  // detached target as interactive: do not drag or maximize from it.
-  if (!target.isConnected) return true;
-  return Boolean(target.closest(INTERACTIVE_SELECTOR));
-}
 
 /**
  * The decorated shells only. macOS draws no title bar at all: its lights move
@@ -42,12 +27,7 @@ export default function TitleBar() {
   const platform = resolvePlatform();
   const layout = resolveChromeLayout(platform);
 
-  function handleMouseDown(e: MouseEvent) {
-    if (e.button !== 0) return;
-    if (isInteractiveTarget(e.target)) return;
-    e.preventDefault();
-    osWindowStore.startDragging();
-  }
+  const region = createTitleBarRegion({ drag: true });
 
   const windowChord = () => hotkeyStore.chord() || configStore.config().hotkey.toggle;
   // The chord does nothing from other apps: another app holds it, or the
@@ -58,18 +38,13 @@ export default function TitleBar() {
       ? `Another app is using ${formatKeybinding(windowChord())}`
       : WAYLAND_LINE;
 
-  function handleDblClick(e: MouseEvent) {
-    if (isInteractiveTarget(e.target)) return;
-    osWindowStore.toggleMaximize();
-  }
-
   return (
     <Show when={layout.titleBar}>
       <div
         class={`titlebar titlebar-${platform}`}
         classList={{ headerbar: layout.headerBar, "is-blurred": !osWindowStore.focused() }}
-        onMouseDown={handleMouseDown}
-        onDblClick={handleDblClick}
+        onMouseDown={region.onMouseDown}
+        onDblClick={region.onDblClick}
       >
         <div class="titlebar-start">
           <Show when={layout.composeInChrome}>

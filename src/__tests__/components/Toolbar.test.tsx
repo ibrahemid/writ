@@ -193,18 +193,13 @@ describe("Toolbar shape", () => {
 });
 
 describe("Toolbar drag region", () => {
-  it("makes the bar itself draggable on macOS, and no control", () => {
-    const { container } = render(() => <Toolbar />);
-    expect(bar(container).hasAttribute("data-tauri-drag-region")).toBe(true);
-    for (const button of container.querySelectorAll("button")) {
-      expect(button.hasAttribute("data-tauri-drag-region")).toBe(false);
-    }
-  });
-
-  it("leaves the bar alone where the window keeps its own title bar", () => {
-    on("win");
+  // The bar answers presses itself (window-drag-region.test.tsx); a Tauri drag
+  // region on it would answer the same presses a second time.
+  it.each(["mac", "win"] as const)("carries no Tauri drag region on %s", (platform) => {
+    on(platform);
     const { container } = render(() => <Toolbar />);
     expect(bar(container).hasAttribute("data-tauri-drag-region")).toBe(false);
+    expect(container.querySelector("[data-tauri-drag-region]")).toBeNull();
   });
 });
 

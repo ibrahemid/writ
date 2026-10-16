@@ -9,6 +9,7 @@ import { configStore } from "../../stores/global/config";
 import { activityStore } from "../../stores/global/activity";
 import { resolvePlatform } from "../../lib/platform";
 import { resolveChromeLayout, toolbarLeadsLights } from "../../lib/window-chrome";
+import { createTitleBarRegion } from "../TitleBar/title-bar-region";
 import "./Toolbar.css";
 
 export default function Toolbar() {
@@ -21,6 +22,9 @@ export default function Toolbar() {
   // window lights their inset. The class eases the padding on the sidebar's own
   // motion token, which keeps the first control clear of them throughout.
   const leadsLights = () => toolbarLeadsLights(platform, win.sidebar.isOpen());
+  // The bar is the window's title bar on macOS, which draws none of its own:
+  // its wrappers and the gaps between controls move and zoom the window.
+  const region = layout.dragHost === "toolbar" ? createTitleBarRegion({ drag: true }) : null;
   const [focusIndex, setFocusIndex] = createSignal(0);
   let barRef: HTMLDivElement | undefined;
 
@@ -80,11 +84,8 @@ export default function Toolbar() {
       role="toolbar"
       aria-label="File actions"
       data-platform={platform}
-      // The bar is the drag region on macOS, where the window has no title bar
-      // of its own. `deep` so the wrappers and the gaps between controls move
-      // the window too; the walk still stops at any button or input that
-      // carries no attribute of its own, so a press on a control clicks it.
-      data-tauri-drag-region={platform === "mac" ? "deep" : undefined}
+      onMouseDown={region?.onMouseDown}
+      onDblClick={region?.onDblClick}
       onKeyDown={handleKeyDown}
     >
       <Tooltip label="Toggle sidebar" kbd="sidebar.toggle">

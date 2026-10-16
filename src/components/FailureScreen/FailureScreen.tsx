@@ -2,7 +2,7 @@ import { Show } from "solid-js";
 import Button from "../Button/Button";
 import CaptionButtons from "../TitleBar/CaptionButtons";
 import WindowLights from "../TitleBar/WindowLights";
-import { isInteractiveTarget } from "../TitleBar/TitleBar";
+import { isInteractiveTarget } from "../TitleBar/title-bar-region";
 import { clipboardStore } from "../../stores/global/clipboard";
 import { showToast } from "../../stores/global/notifications";
 import { osWindowStore } from "../../stores/global/os-window";
