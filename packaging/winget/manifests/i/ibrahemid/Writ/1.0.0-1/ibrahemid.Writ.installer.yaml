@@ -1,0 +1,25 @@
+# Created with the Writ release packaging workflow.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+
+PackageIdentifier: ibrahemid.Writ
+PackageVersion: 1.0.0-1
+MinimumOSVersion: 10.0.17763.0
+InstallerType: wix
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+ReleaseDate: 2026-10-18
+Installers:
+  - Architecture: x64
+    InstallerType: wix
+    InstallerUrl: https://github.com/ibrahemid/writ/releases/download/v1.0.0-1/Writ_1.0.0-1_x64_en-US.msi
+    InstallerSha256: 5e891f8c4aa3bf9da79eb230bae88cefe74c827fa9518bd0038705255ef1eed1
+    InstallerSwitches:
+      Silent: /quiet
+      SilentWithProgress: /passive
+    ProductCode: "{5CE9148D-FCBC-4A3A-BB80-15D6E333F65C}"
+ManifestType: installer
+ManifestVersion: 1.6.0
