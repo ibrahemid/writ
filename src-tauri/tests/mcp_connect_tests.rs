@@ -2,14 +2,15 @@
 //! client's own `mcp add`, the Claude Desktop bundle and the connection test,
 //! each through its Tauri-free inner function.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
 use writ_core::mcp_clients::{Connection, McpClient};
 use writ_tauri_lib::commands::mcp_connect::{
-    client_cards_inner, off_call_event, program_search, test_server_inner, write_bundle_inner,
-    ConnectError, ProgramSearch,
+    client_cards_inner, off_call_event, test_server_inner, write_bundle_inner, ConnectError,
+    ProgramSearch,
 };
 use writ_tauri_lib::events::emitter::WritFrontendEvent;
 
@@ -25,8 +26,12 @@ const COMMANDS: &[&str] = &[
 
 const SERVER: &str = "/Applications/Writ.app/Contents/MacOS/writ";
 
+/// A search with no folders, so no program on this machine is found.
 fn nowhere() -> ProgramSearch {
-    program_search(None, None, None)
+    ProgramSearch {
+        folders: Vec::new(),
+        path: OsString::new(),
+    }
 }
 
 /// The `writ` command this test run built, beside the test binary's folder.
@@ -97,6 +102,8 @@ fn a_command_that_is_not_ready_is_handed_to_no_card() {
 #[cfg(unix)]
 #[test]
 fn the_search_tries_the_login_shell_then_the_app_then_the_usual_folders() {
+    use writ_tauri_lib::commands::mcp_connect::program_search;
+
     let search = program_search(
         Some("/opt/homebrew/bin:/usr/bin"),
         Some(std::ffi::OsStr::new("/usr/bin:/bin")),
@@ -136,6 +143,8 @@ fn the_search_tries_the_login_shell_then_the_app_then_the_usual_folders() {
 #[cfg(unix)]
 #[test]
 fn a_relative_folder_in_a_path_is_never_searched() {
+    use writ_tauri_lib::commands::mcp_connect::program_search;
+
     let search = program_search(Some("bin:/usr/bin"), None, None);
     assert!(search.folders.iter().all(|folder| folder.is_absolute()));
 }
@@ -254,8 +263,12 @@ mod a_clients_own_command {
         path
     }
 
+    /// A search that holds `folder` and no other.
     fn search_in(folder: &Path) -> ProgramSearch {
-        program_search(Some(&folder.display().to_string()), None, None)
+        ProgramSearch {
+            folders: vec![folder.to_path_buf()],
+            path: std::env::join_paths([folder]).expect("a folder fit for PATH"),
+        }
     }
 
     #[test]
