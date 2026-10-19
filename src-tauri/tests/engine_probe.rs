@@ -38,7 +38,8 @@
 //!    reports in, every attempt is made, none reaches a sink, every link click
 //!    reaches the app as a request to open, and the app page never navigates.
 //!    The channels ADR-043 accepts for an opted-in file are reported, not
-//!    asserted: STUN, a resource hint the script creates, and on WebView2 the
+//!    asserted: STUN, the resource hints the script creates (a preconnect and,
+//!    with the DNS sink on, a DNS prefetch by name), and on WebView2 the
 //!    frame navigations the script starts, whose target the browser layer
 //!    connects to before `frame-src` refuses them.
 //! 3. **Controls.** The same iframe, at the same origin and under the same
@@ -68,8 +69,9 @@
 //! resolver sends that domain to that address; the probe then resolves a
 //! control name itself first and fails if the sink does not see it, the
 //! scripts-off corpus adds two hints, an image, an anchor and a frame by name,
-//! none of which may reach the sink, and the in-frame control also loads an
-//! image by name, which has to.
+//! none of which may reach the sink, the scripts-on script creates a DNS
+//! prefetch by name, whose lookup is reported, and the in-frame control also
+//! loads an image by name, which has to reach it.
 
 #[path = "support/app_csp.rs"]
 mod app_csp;
@@ -169,6 +171,12 @@ const ON_CLICKS: &[&str] = &["link-top", "link-blank", "svg-link", "area", "link
 /// Channels an opted-in file keeps (ADR-043), reported and not asserted.
 const ON_RESIDUAL: &[&str] = &["dynamic-preconnect"];
 
+/// The DNS prefetch the scripts-on script creates, also a channel an opted-in
+/// file keeps. It names a host under the DNS sink's domain, so it has no TCP
+/// sink and does nothing on a run without the DNS sink; the lookups it causes
+/// are reported in the block's `names` row.
+const ON_DNS_RESIDUAL: &[&str] = &["dynamic-dns-prefetch"];
+
 /// Frame navigations the scripts-on corpus starts. WebView2's browser layer
 /// opens a connection to a frame navigation's target before the app's
 /// `frame-src` refuses it, a channel ADR-043 accepts for an opted-in file, so
@@ -188,6 +196,7 @@ const ON_LOADS: &[&[&str]] = &[
         "script-img",
         "stun",
         "dynamic-preconnect",
+        "dynamic-dns-prefetch",
         "top-location",
         "link-top",
         "link-blank",
@@ -585,6 +594,14 @@ var steps = {{
     hint.href = "{dynamic_preconnect}";
     document.head.appendChild(hint);
   }},
+  "dynamic-dns-prefetch": function () {{
+    var name = "{dynamic_dns_prefetch}";
+    if (!name) return;
+    var hint = document.createElement("link");
+    hint.rel = "dns-prefetch";
+    hint.href = "//" + name;
+    document.head.appendChild(hint);
+  }},
   "top-location": function () {{ top.location = "{top_location}"; }},
   "link-top": function () {{ click("link-top"); }},
   "link-blank": function () {{ click("link-blank"); }},
@@ -638,6 +655,11 @@ window.addEventListener("message", function (event) {{
         script_img = u("script-img"),
         stun = sinks.udp["stun"],
         dynamic_preconnect = u("dynamic-preconnect"),
+        dynamic_dns_prefetch = sinks
+            .dns
+            .as_ref()
+            .map(|dns| dns.name("dynamic-dns-prefetch"))
+            .unwrap_or_default(),
         top_location = u("top-location"),
         window_open = u("window-open"),
         script_iframe = u("script-iframe"),
@@ -890,6 +912,7 @@ fn check_on_loads() -> Result<(), String> {
     let mut vectors: Vec<&str> = ON_VECTORS
         .iter()
         .chain(ON_RESIDUAL)
+        .chain(ON_DNS_RESIDUAL)
         .copied()
         .chain(["stun"])
         .collect();
@@ -1332,7 +1355,7 @@ fn evaluate(
     }
     blocks.push(controls);
 
-    let off_names = match &sinks.dns {
+    let (off_names, on_names) = match &sinks.dns {
         Some(dns) => {
             let names = dns.queried();
             let looked_up = |label: &str| names.contains(&dns.name(label));
@@ -1369,19 +1392,24 @@ fn evaluate(
                 dns.name("control-img"),
                 dns.name("control-frame-img"),
             ];
-            Some(
-                names
-                    .into_iter()
-                    .filter(|name| name.ends_with(&ours) && !controls.contains(name))
-                    .collect::<Vec<_>>(),
-            )
+            let on_steps: Vec<String> = ON_DNS_RESIDUAL
+                .iter()
+                .map(|label| dns.name(label))
+                .collect();
+            let (mut on, off): (Vec<_>, Vec<_>) = names
+                .into_iter()
+                .filter(|name| name.ends_with(&ours) && !controls.contains(name))
+                .partition(|name| on_steps.contains(name));
+            on.sort_unstable();
+            on.dedup();
+            (Some(off), Some(on))
         }
         None => {
             blocks.push(Block::new(
                 "dns",
                 "not routed on this run (set WRIT_ENGINE_PROBE_DNS_DOMAIN and _ADDR)",
             ));
-            None
+            (None, None)
         }
     };
 
@@ -1454,7 +1482,16 @@ fn evaluate(
             on.row(Mark::Fail, what, "never reported in: its script never ran");
         }
         for vector in vectors.iter().copied() {
-            let accepted = if vector == "stun" || ON_RESIDUAL.contains(&vector) {
+            let by_name = ON_DNS_RESIDUAL.contains(&vector);
+            if by_name && sinks.dns.is_none() {
+                on.row(
+                    Mark::Info,
+                    vector,
+                    "skipped: the DNS sink is off on this run",
+                );
+                continue;
+            }
+            let accepted = if vector == "stun" || ON_RESIDUAL.contains(&vector) || by_name {
                 Some("accepted for an opted-in file")
             } else if webview2 && ON_FRAME_NAVIGATIONS.contains(&vector) {
                 Some("accepted for an opted-in file on WebView2")
@@ -1469,7 +1506,9 @@ fn evaluate(
                 failed = true;
                 verdict.push("never attempted".to_string());
             }
-            verdict.push(reached(vector));
+            if !by_name {
+                verdict.push(reached(vector));
+            }
             match accepted {
                 Some(why) => verdict.push(why.to_string()),
                 None => failed |= sinks.hits(vector) > 0,
@@ -1491,6 +1530,22 @@ fn evaluate(
             };
             on.row(mark, vector, verdict.join("; "));
         }
+    }
+    match on_names {
+        Some(names) if names.is_empty() => {
+            on.row(Mark::Info, "names", "none reached the DNS sink");
+        }
+        Some(names) => {
+            on.row(
+                Mark::Info,
+                "names",
+                format!(
+                    "reached the DNS sink: {}; accepted for an opted-in file",
+                    names.join(", ")
+                ),
+            );
+        }
+        None => {}
     }
     for vector in reports.unknown_steps() {
         on.row(

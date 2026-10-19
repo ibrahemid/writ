@@ -3490,6 +3490,74 @@ mod tests {
         );
     }
 
+    /// The versions Revert To lists for the note `name`, oldest first, each
+    /// with the writer the store keeps for it.
+    fn versions_and_writers_the_app_lists(
+        fixture: &Fixture,
+        name: &str,
+    ) -> Vec<(String, Option<String>)> {
+        let store = app_store_over(fixture, &fixture.notes);
+        let key = store
+            .key_for(&fixture.notes.join(name))
+            .expect("a note in the folder has a key");
+        let mut entries: Vec<(String, Option<String>)> = store
+            .versions(&key)
+            .expect("read the versions")
+            .into_iter()
+            .map(|entry| {
+                let text = String::from_utf8(store.content(entry.id).expect("a version's text"))
+                    .expect("utf-8");
+                (text, entry.writer)
+            })
+            .collect();
+        entries.reverse();
+        entries
+    }
+
+    #[test]
+    fn each_write_tool_keeps_its_version_under_the_programs_name() {
+        let fixture = fixture();
+        write_note(&fixture, "Written.md", "before\n");
+        write_note(&fixture, "Appended.md", "before\n");
+        write_note(&fixture, "Replaced.md", "before\n");
+        let host = approved_host(&fixture, true, true);
+        let read = host.read_note(&client(), "Written.md").expect("read");
+
+        host.write_note(&client(), "Written.md", "after\n", Some(&read.hash), false)
+            .expect("write_note lands");
+        host.append_note(&client(), "Appended.md", "after")
+            .expect("append_note lands");
+        host.replace_in_note(&client(), "Replaced.md", "before", "after")
+            .expect("replace_in_note lands");
+
+        let program = "mcp:Test Client".to_string();
+        for (name, after) in [
+            ("Written.md", "after\n"),
+            ("Appended.md", "before\nafter\n"),
+            ("Replaced.md", "after\n"),
+        ] {
+            let listed = versions_and_writers_the_app_lists(&fixture, name);
+            assert_eq!(
+                listed,
+                [
+                    ("before\n".to_string(), None),
+                    (after.to_string(), Some(program.clone()))
+                ],
+                "{name}"
+            );
+            assert_eq!(
+                listed[1]
+                    .1
+                    .as_deref()
+                    .and_then(writ_core::notes::Writer::from_stored),
+                Some(writ_core::notes::Writer::Program {
+                    name: "Test Client".to_string()
+                }),
+                "{name}"
+            );
+        }
+    }
+
     /// Saves `text` over the note `name` the way the app does, keeping
     /// versions in the app's store.
     fn save_as_the_app(fixture: &Fixture, name: &str, text: &str) {

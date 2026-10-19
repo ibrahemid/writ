@@ -110,6 +110,23 @@ describe("what the first launch asks", () => {
     expect(first.step()).toBe("apps");
     expect(first.format()).toBe("md");
     expect(first.isAppChosen("graph")).toBe(true);
+    expect(first.failure()).toBe("Could not finish the setup. Press Continue to try again.");
+  });
+
+  it("clears the failure line once a later Continue lands", async () => {
+    const first = store();
+    await first.load();
+    first.continueFormat();
+    mocks.finishFirstRun.mockRejectedValueOnce("io error: Permission denied (os error 13)");
+
+    await first.continueApps();
+    expect(first.failure()).toBe("Could not finish the setup. Press Continue to try again.");
+
+    mocks.finishFirstRun.mockResolvedValueOnce(DOC);
+    await first.continueApps();
+
+    expect(first.failure()).toBeNull();
+    expect(first.step()).toBeNull();
   });
 });
 

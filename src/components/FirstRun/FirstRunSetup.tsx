@@ -271,20 +271,29 @@ function AppsStep() {
           }}
         </For>
       </ul>
-      <div class="first-run-setup-actions">
-        <Button
-          variant="primary"
-          class="first-run-setup-continue"
-          disabled={firstRunStore.busy()}
-          aria-busy={firstRunStore.busy()}
-          onClick={submit}
-        >
-          Continue
-        </Button>
-        <Show when={firstRunStore.revisiting()}>
-          <Button data-action="cancel-apps" onClick={() => firstRunStore.cancelApps()}>
-            Cancel
+      <div class="first-run-setup-foot">
+        <div class="first-run-setup-actions">
+          <Button
+            variant="primary"
+            class="first-run-setup-continue"
+            disabled={firstRunStore.busy()}
+            aria-busy={firstRunStore.busy()}
+            onClick={submit}
+          >
+            Continue
           </Button>
+          <Show when={firstRunStore.revisiting()}>
+            <Button data-action="cancel-apps" onClick={() => firstRunStore.cancelApps()}>
+              Cancel
+            </Button>
+          </Show>
+        </div>
+        <Show when={firstRunStore.failure()}>
+          {(line) => (
+            <p class="first-run-setup-failure" role="alert">
+              {line()}
+            </p>
+          )}
         </Show>
       </div>
     </div>

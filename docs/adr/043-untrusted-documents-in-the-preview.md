@@ -284,8 +284,10 @@ host names at a DNS sink.
   target, an SVG link, an image-map area, `window.open`, a form submit, a
   frame it creates and an inserted meta refresh. Asserted: none reaches a
   sink, each click reaches the app as a request to open, and the app page
-  stays. STUN and a preconnect the script creates are reported, not asserted,
-  and on Windows so are the three frame navigations (residual risks).
+  stays. STUN, a preconnect the script creates and, with the DNS sink on, a
+  DNS prefetch it creates by name (`dynamic-dns-prefetch`) are reported, not
+  asserted, and on Windows so are the three frame navigations (residual
+  risks).
 - **Controls.** The same iframe, at the same origin and under the same sandbox,
   loads a document served without the policy that fires an image, a preconnect
   and STUN at fresh sinks; the image must land or the run fails, since silence
