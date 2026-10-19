@@ -159,9 +159,9 @@ describe("the format the first launch asks about", () => {
 
   // The screen is the only place the answer exists until Continue lands, so a
   // failed call leaves it up rather than dropping the question.
-  it("keeps the screen up when the answer could not be recorded", async () => {
+  it("keeps the screen up and says so when the answer could not be recorded", async () => {
     await firstRunStore.load();
-    mocks.finishFirstRun.mockRejectedValue(new Error("no IPC"));
+    mocks.finishFirstRun.mockRejectedValue("io error: Permission denied (os error 13)");
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { container } = mount();
 
@@ -170,9 +170,60 @@ describe("the format the first launch asks about", () => {
     fireEvent.click(continueButton(container));
 
     await waitFor(() => expect(mocks.finishFirstRun).toHaveBeenCalledWith("md", []));
+    const line = await waitFor(() => {
+      const el = container.querySelector(".first-run-setup-failure");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(line.getAttribute("role")).toBe("alert");
+    expect(line.textContent).toBe("Could not finish the setup. Press Continue to try again.");
+    expect(container.textContent).not.toContain("os error");
     expect(container.querySelector(".first-run-setup")).not.toBeNull();
     expect(firstRunStore.step()).toBe("apps");
     expect(firstRunStore.format()).toBe("md");
+    consoleSpy.mockRestore();
+  });
+
+  it("names the reason when the failure carries one in words", async () => {
+    await firstRunStore.load();
+    mocks.finishFirstRun.mockRejectedValue("The notes folder is read-only.");
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = mount();
+
+    await continueToApps(container);
+    fireEvent.click(continueButton(container));
+
+    await waitFor(() =>
+      expect(container.querySelector(".first-run-setup-failure")?.textContent).toBe(
+        "Could not finish the setup. The notes folder is read-only. Press Continue to try again.",
+      ),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it("drops the failure line as soon as Continue tries again, and leaves on success", async () => {
+    await firstRunStore.load();
+    mocks.finishFirstRun.mockRejectedValueOnce("io error: No space left on device (os error 28)");
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = mount();
+
+    await continueToApps(container);
+    fireEvent.click(continueButton(container));
+    await waitFor(() => expect(container.querySelector(".first-run-setup-failure")).not.toBeNull());
+
+    let answer: (doc: BufferDocument | null) => void = () => {};
+    mocks.finishFirstRun.mockReturnValueOnce(
+      new Promise<BufferDocument | null>((resolve) => (answer = resolve)),
+    );
+    fireEvent.click(continueButton(container));
+
+    await waitFor(() => expect(mocks.finishFirstRun).toHaveBeenCalledTimes(2));
+    expect(container.querySelector(".first-run-setup-failure")).toBeNull();
+    expect(firstRunStore.step()).toBe("apps");
+
+    answer(null);
+    await waitFor(() => expect(firstRunStore.step()).toBeNull());
+    expect(firstRunStore.failure()).toBeNull();
     consoleSpy.mockRestore();
   });
 

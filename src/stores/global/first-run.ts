@@ -8,6 +8,7 @@ import { windowRegistry } from "./window-registry";
 import type { AppId, FileExtension } from "../../types/config";
 import type { BufferDocument } from "../../types/buffer";
 import { logFailure } from "../../lib/log";
+import { userErrorText } from "../../lib/error-text";
 import { APPS } from "../../lib/apps";
 import { showToast } from "./notifications";
 
@@ -28,6 +29,14 @@ export function offerText(title: string): string {
   return `Rename this file to "${title}"?`;
 }
 
+/** The line under Continue when a first launch could not finish. The reason
+ * is the one Rust wrote for a person, when it wrote one. */
+function setupFailureText(error: unknown): string {
+  const reason = userErrorText(error);
+  const said = reason === null ? "" : ` ${reason}`;
+  return `Could not finish the setup.${said} Press Continue to try again.`;
+}
+
 const APP_IDS: readonly AppId[] = APPS.map((app) => app.id);
 
 /** Exported for tests: each launch reads the state once, so a test that
@@ -39,6 +48,7 @@ export function createFirstRunStore() {
   const [fileManager, setFileManager] = createSignal("Finder");
   const [offer, setOffer] = createSignal<{ id: string; title: string } | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [failure, setFailure] = createSignal<string | null>(null);
   const [apps, setApps] = createSignal<ReadonlySet<AppId>>(new Set());
   // The Apps step opened from Settings writes the switches and opens nothing;
   // the one a first launch reaches finishes that launch.
@@ -160,7 +170,8 @@ export function createFirstRunStore() {
    * apps into the config in one write and answers with the note to open,
    * which is null on a launch that has tabs to restore. A call that fails
    * leaves the screen up with the answers still on it, because the config it
-   * would have written is not there.
+   * would have written is not there, and says so under Continue until the
+   * next press.
    *
    * One at a time. A held Enter repeats well inside one round trip, and two
    * calls that both reach the mint leave the folder with a
@@ -170,13 +181,15 @@ export function createFirstRunStore() {
   async function continueSetup(): Promise<void> {
     if (busy()) return;
     setBusy(true);
+    setFailure(null);
     const extension = format();
     const chosen = APP_IDS.filter((app) => apps().has(app));
     let doc: BufferDocument | null;
     try {
       doc = await api.finishFirstRun(extension, chosen);
-    } catch {
+    } catch (error) {
       logFailure("the first launch could not be finished");
+      setFailure(setupFailureText(error));
       return;
     } finally {
       setBusy(false);
@@ -263,6 +276,7 @@ export function createFirstRunStore() {
     cancelApps,
     revisiting,
     busy,
+    failure,
     showHint,
     fileManager,
     offer,

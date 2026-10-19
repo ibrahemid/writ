@@ -209,3 +209,16 @@
   display: flex;
   gap: var(--writ-space-3);
 }
+
+.first-run-setup-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--writ-space-3);
+}
+
+.first-run-setup-failure {
+  margin: 0;
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  color: var(--writ-status-error);
+}
