@@ -1,5 +1,5 @@
 {
-  "frozenThrough": "0.4.0",
+  "frozenThrough": "1.0.0",
   "keys": [
     { "id": "editor.duplicateLine", "label": "Duplicate line", "keybinding": "CmdOrCtrl+D" },
     { "id": "editor.deleteLine", "label": "Delete line", "keybinding": "CmdOrCtrl+Shift+K" },

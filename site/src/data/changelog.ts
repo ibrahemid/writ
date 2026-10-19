@@ -24,6 +24,21 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "1.0.0",
+    date: "2026-10-19",
+    notes: [
+      { kind: 'changed', text: "Find in a large file is about six times faster when the search text is ASCII." },
+      { kind: 'changed', text: "The first save after opening a large file sends only the lines that changed." },
+      { kind: 'changed', text: "Switching back to a tab whose file is unchanged on disk restores it without reading the file again." },
+      { kind: 'changed', text: "With counts on, the counts update about 0.1 seconds after the last key instead of while you type, and the Find count updates one frame after an edit." },
+      { kind: 'fixed', text: "a selection painted past the text into the padding and to the pane edges, and a drag that left the editor or Select All could select the sidebar, tabs and status bar; the highlight covers the selected characters only now, and the window around the editor no longer selects." },
+      { kind: 'fixed', text: "when another program changed an open file without the watcher noticing, Save a copy… from its tab or a move of the notes folder or the file let the tab's next save replace that change; that save handles it as a change made outside Writ now." },
+      { kind: 'fixed', text: "when the setup screen could not save its answers, nothing said so; a line under Continue says so now, and Continue tries again." },
+      { kind: 'fixed', text: "on macOS, double-clicking the top of the window did nothing; the toolbar, the sidebar head, the window controls and the empty part of the tab bar follow \"Double-click a window's title bar to\" in System Settings now, whether it zooms, fills, minimizes or does nothing.", platforms: ['macos'] },
+      { kind: 'fixed', text: "on Windows, writ --help and usage errors named the command writ.exe; they read writ now.", platforms: ['windows'] },
+    ],
+  },
+  {
     version: "0.7.0",
     date: "2026-10-15",
     notes: [
