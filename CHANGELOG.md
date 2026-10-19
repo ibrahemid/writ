@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.0] - 2026-10-19
+
+A selection paints over the selected text and nothing else, Find and the first save keep up in large files, a tab you switch back to comes back without reading its file again, and double-clicking the top of the window zooms it again on macOS.
+
+### Changed
+
+- Find in a large file is about six times faster when the search text is ASCII.
+- The first save after opening a large file sends only the lines that changed.
+- Switching back to a tab whose file is unchanged on disk restores it without reading the file again.
+- With counts on, the counts update about 0.1 seconds after the last key instead of while you type, and the Find count updates one frame after an edit.
+
+### Fixed
+
+- A selection painted past the text into the padding and to the pane edges, and a drag that left the editor or Select All could select the sidebar, tabs and status bar; the highlight covers the selected characters only now, and the window around the editor no longer selects.
+- When another program changed an open file without the watcher noticing, Save a copy… from its tab or a move of the notes folder or the file let the tab's next save replace that change; that save handles it as a change made outside Writ now.
+- When the setup screen could not save its answers, nothing said so; a line under Continue says so now, and Continue tries again.
+- On macOS, double-clicking the top of the window did nothing; the toolbar, the sidebar head, the window controls and the empty part of the tab bar follow "Double-click a window's title bar to" in System Settings now, whether it zooms, fills, minimizes or does nothing.
+- On Windows, `writ --help` and usage errors named the command `writ.exe`; they read `writ` now.
+
 ## [0.7.0] - 2026-10-15
 
 Files in other text encodings open and save in their own encoding, a capture window adds a line to Today's File from any app, and Rewrite can run on Apple Intelligence on macOS 26 or on a model elsewhere on the local network. Chat edits, renames and moves to the Trash can be undone, Settings has eight sections with a sentence under every row, a second launch brings the running window forward, and reading and saving files no longer hold up the window.
