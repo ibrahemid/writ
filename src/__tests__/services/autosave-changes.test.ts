@@ -12,6 +12,7 @@ import {
   forgetLandedText,
   onAutosaveSuccess,
   peekUnsavedContent,
+  recordOpenedText,
   resetAutosave,
   saveNow,
 } from "../../services/autosave";
@@ -140,5 +141,87 @@ describe("autosave: large-tier saves send their changes", () => {
     await saveNow("big", edit(opened, 0, "x"), undefined, encodeChangesSince);
     expect(mockedChanges).not.toHaveBeenCalled();
     expect(mockedWhole).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("autosave: the first save after the open sends its changes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetAutosave();
+    files.clear();
+    digestOf.clear();
+    mockedWhole.mockImplementation(async (id: string, content: string) => {
+      files.set(id, content);
+      return digest(content);
+    });
+    mockedChanges.mockImplementation(async (id, base, changes, length) => {
+      const text = files.get(id) ?? "";
+      if (digestOf.get(base) !== text) throw "ERR_CHANGES_STALE: the file moved on";
+      const doc = ChangeSet.fromJSON(changes).apply(Text.of(text.split("\n")));
+      expect(doc.length).toBe(length);
+      files.set(id, doc.toString());
+      return digest(doc.toString());
+    });
+  });
+
+  // What the open leaves: the file holds the document the load read, and
+  // Rust answered the open with that text's digest.
+  function open(id: string, doc: Text): void {
+    files.set(id, doc.toString());
+    recordOpenedText(id, doc, digest(doc.toString()));
+  }
+
+  it("sends the changes since the opened document, and nothing whole", async () => {
+    const opened = lines(50_000);
+    open("big", opened);
+
+    const typed = edit(opened, 120, "typed");
+    const materialised = vi.spyOn(typed, "toString");
+    expect((await saveNow("big", typed, undefined, encodeChangesSince)).ok).toBe(true);
+
+    expect(mockedWhole).not.toHaveBeenCalled();
+    expect(mockedChanges).toHaveBeenCalledTimes(1);
+    expect(mockedChanges.mock.calls[0][1]).toBe(digest(opened.toString()));
+    expect(JSON.stringify(mockedChanges.mock.calls[0][2]).length).toBeLessThan(100);
+    expect(materialised).not.toHaveBeenCalled();
+    expect(files.get("big")).toBe(typed.toString());
+  });
+
+  it("sends the whole text when the file changed after the open", async () => {
+    const opened = lines(1_000);
+    open("big", opened);
+    files.set("big", "another program wrote this");
+
+    const typed = edit(opened, 0, "x");
+    expect((await saveNow("big", typed, undefined, encodeChangesSince)).ok).toBe(true);
+
+    expect(mockedChanges).toHaveBeenCalledTimes(1);
+    expect(mockedWhole).toHaveBeenCalledTimes(1);
+    expect(mockedWhole.mock.calls[0][1]).toBe(typed.toString());
+  });
+
+  it("takes no opened document while a write of the note is out", async () => {
+    const written = lines(1_000);
+    let land!: () => void;
+    // The write reaches the file and its answer is a failure, as one whose
+    // record could not be updated afterwards is.
+    mockedWhole.mockImplementationOnce(async (id: string, content: string) => {
+      await new Promise<void>((resolve) => (land = resolve));
+      files.set(id, content);
+      throw "ERR_WRITE_FAILED: the record was not updated";
+    });
+    const out = saveNow("big", written, undefined, encodeChangesSince);
+    await Promise.resolve();
+
+    // The open's answer arrives while the write is out, and its digest
+    // already describes what the write put on the file.
+    recordOpenedText("big", lines(999), digest(written.toString()));
+    land();
+    expect((await out).ok).toBe(false);
+
+    const typed = edit(written, 0, "x");
+    expect((await saveNow("big", typed, undefined, encodeChangesSince)).ok).toBe(true);
+    expect(mockedChanges).not.toHaveBeenCalled();
+    expect(files.get("big")).toBe(typed.toString());
   });
 });

@@ -69,3 +69,76 @@ export function overBudget(
   budgets?: Readonly<Record<string, Partial<Record<MetricKey, number>>>>,
 ): string[];
 export function formatValue(value: number | null | undefined, unit: "ms" | "MiB"): string;
+
+export const FIND_RATE: Readonly<{ scenarios: readonly string[]; runs: number; budgetMsPerMiB: number }>;
+export const TAB_SWITCH: Readonly<{ scenarios: readonly string[]; other: CorpusSpec }>;
+export const PAIRED_TYPING: Readonly<{ scenario: string; rounds: number; characters: number; bandScale: number }>;
+export const WHOLE_DOCUMENT: Readonly<{ kinds: readonly string[]; minChars: number; share: number }>;
+
+/** A call the harness saw take a value of `size` characters. */
+export interface BigCall {
+  kind: string;
+  size: number;
+  ms: number;
+}
+
+export function holdsWholeDocumentCalls(scenario: Scenario): boolean;
+export function wholeDocumentCalls(calls: readonly BigCall[], docLength: number): BigCall[];
+export function wholeDocumentProblems(where: string, calls: readonly BigCall[], docLength: number): string[];
+
+/** The parts of a CDP `Profiler.Profile` the find rate reads. */
+export interface CpuProfile {
+  nodes: readonly { id: number; callFrame: { functionName: string } }[];
+  samples: readonly number[];
+  timeDeltas: readonly number[];
+}
+export function busyMs(profile: CpuProfile): number;
+export interface FindRun {
+  word: string;
+  busyMs: number;
+}
+export function findRate(
+  runs: readonly FindRun[],
+  sizeBytes: number,
+): { perWord: Record<string, number | null>; msPerMiB: number | null; problems: string[] };
+
+export function middle(values: readonly number[]): number | null;
+export function noiseBand(values: readonly number[]): number | null;
+
+export interface TypingStats {
+  p50: number | null;
+  max: number | null;
+}
+export interface TypingRound {
+  off: TypingStats | null;
+  on: TypingStats | null;
+  find: TypingStats | null;
+}
+export interface Comparison {
+  /** The median of the round-by-round differences from the counts off. */
+  delta: number | null;
+  /** The counts-off runs' noise, from `noiseBand`. */
+  noise: number | null;
+  /** `PAIRED_TYPING.bandScale` times the noise: the most `delta` may be. */
+  band: number | null;
+  rounds: number;
+}
+export function pairedTyping(rounds: readonly TypingRound[]): {
+  compared: Record<"on" | "find", Record<"p50" | "max", Comparison>>;
+  problems: string[];
+};
+
+export interface EditorSnapshot {
+  undoDepth: number;
+  head: number;
+  anchor: number;
+  topLine: number;
+  /** The document's length in UTF-16 code units. */
+  length: number;
+}
+export function tabSwitchProblems(trip: {
+  before: EditorSnapshot | null;
+  after: EditorSnapshot | null;
+  ipcCalls: Record<string, number>;
+  bigCalls?: readonly BigCall[];
+}): string[];

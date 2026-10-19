@@ -374,9 +374,11 @@ pub enum MoveOutcome {
 /// — so taking them the other way round here is how a watcher thread and a
 /// keystroke deadlock.
 ///
-/// The bytes did not move, so the digest Writ recorded still describes the
-/// file and is carried over rather than read again. Reading again would fetch
-/// the whole file in a sync folder for an answer already in hand.
+/// The bytes did not move, so the record of what Writ last read or wrote
+/// stays as it is, size and modification time with it. Reading again would
+/// fetch the whole file in a sync folder for an answer already in hand, and
+/// taking the size and time from the file now would vouch for a change another
+/// program made before the move that no watcher reported.
 ///
 /// [`MoveOutcome::AlreadyThere`] when the row was already there, which is what
 /// keeps one move seen by two watchers from telling the tab twice.
@@ -404,9 +406,6 @@ fn apply_move(state: &AppState, note_id: &str, from: &Path, to: &Path) -> MoveOu
             tracing::warn!(note = %note_id, error = %e, "a note's row could not follow its file");
             return MoveOutcome::Failed;
         }
-    }
-    if let Some(previous) = state.disk_state(note_id) {
-        state.record_disk_state(note_id, to, previous.hash, previous.size);
     }
     if let Ok(canonical) = crate::security::canonicalize_for_authorization(to) {
         state.authorized_paths.record_blessed_source(canonical);

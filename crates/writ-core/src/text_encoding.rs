@@ -270,6 +270,22 @@ impl TextEncoding {
         }
         crate::hash::comparison_digest_hex(self.decode_lossy(bytes).as_bytes())
     }
+
+    /// [`Self::comparison_digest_hex`] for bytes whose SHA-256 is `sha256`.
+    ///
+    /// A UTF-8 file with no mark and no `\r` is hashed as it is, so that digest
+    /// is the answer and the bytes are not hashed a second time.
+    #[must_use]
+    pub fn comparison_digest_hex_of_hashed(
+        self,
+        bytes: &[u8],
+        sha256: crate::hash::Sha256Digest,
+    ) -> String {
+        if self.encoding == UTF_8 && !bytes.starts_with(UTF_8_BOM) && !bytes.contains(&b'\r') {
+            return crate::hash::digest_hex(sha256);
+        }
+        self.comparison_digest_hex(bytes)
+    }
 }
 
 impl Serialize for TextEncoding {

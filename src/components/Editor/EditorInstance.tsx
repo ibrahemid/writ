@@ -1,5 +1,5 @@
 import { onMount, onCleanup, createEffect, createMemo, on, Show } from "solid-js";
-import { Compartment, EditorSelection, EditorState, StateEffect, type Extension, type Text } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, StateEffect, Text, type Extension } from "@codemirror/state";
 import { addCursorUp, addCursorDown } from "../../commands/multicursor";
 import {
   EditorView, keymap,
@@ -75,7 +75,9 @@ import { useWindow } from "../WindowProvider/WindowProvider";
 import { registerCommand, unregisterCommand, executeCommand } from "../../commands/registry";
 import { rebuildKeyMap } from "../../commands/keybindings";
 import { loadGrammar, loadedGrammar, warmGrammar } from "../../editor/languages";
-import { contentMayNameLanguage, languageOfFile } from "../../editor/file-language";
+import { contentMayNameLanguage, languageHeadOf, languageOfFile } from "../../editor/file-language";
+import { sameDocument } from "../../editor/same-document";
+import type { TabState } from "../../editor/tab-state-cache";
 import { openLanguagePicker } from "./LanguagePicker";
 import { openEncodingPicker } from "./EncodingPicker";
 import {
@@ -760,12 +762,12 @@ export default function EditorInstance(props: Props) {
   type LoadedText = { ok: true; text: string; fromFile: boolean } | { ok: false; error: unknown };
 
   // The incoming note's text. A note can arrive with its own typing still
-  // queued, left by the cleanup of a view that was unmounted. That write goes
-  // first so the read returns it; if it cannot land, the queued text is what
-  // the view opens on, since the file holds the version before it.
-  async function loadText(buffer: BufferDocument): Promise<LoadedText> {
-    const pending = await ed.flushAutosave(buffer.id);
-    if (!pending.ok) {
+  // queued, left by the cleanup of a view that was unmounted. The load writes
+  // it first so the read returns it; if it could not land (`flushed` is
+  // false), the queued text is what the view opens on, since the file holds
+  // the version before it.
+  async function loadText(buffer: BufferDocument, flushed: boolean): Promise<LoadedText> {
+    if (!flushed) {
       const unsaved = ed.unsavedTextOf(buffer.id);
       if (unsaved !== undefined) return { ok: true, text: unsaved, fromFile: false };
     }
@@ -914,12 +916,10 @@ export default function EditorInstance(props: Props) {
   // on: the file, or the text a held note kept. Anything else means the file
   // changed while the tab was behind another one, and the tab opens on what
   // it holds now.
-  function keptStateFor(id: string, content: string) {
+  function keptStateFor(id: string, doc: Text) {
     const kept = ed.takeTabState(id);
     if (kept === undefined) return undefined;
-    const text = asEditorText(content);
-    if (kept.state.doc.length !== text.length || kept.state.doc.toString() !== text) return undefined;
-    return kept;
+    return sameDocument(kept.state.doc, doc) ? kept : undefined;
   }
 
   // Where a tab that kept no state opens: where it was left in this window,
@@ -998,7 +998,19 @@ export default function EditorInstance(props: Props) {
     // Ended once the view shows the note, or once the read came to nothing.
     const endRead = ed.beginRead(buffer.id);
     try {
-      const loaded = await loadText(buffer);
+      const pending = await ed.flushAutosave(buffer.id);
+      if (ticket !== loadTicket) return;
+      // The kept state comes back unread while the file is as Writ last read
+      // or wrote it. It is taken right after the ticket check, with no wait
+      // between them, so a later load cannot lose it.
+      const check = pending.ok && !buffer.read_only ? await ed.checkKeptState(buffer.id) : null;
+      if (ticket !== loadTicket) return;
+      const kept = check === null ? undefined : ed.takeCheckedTabState(buffer.id, check);
+      if (kept !== undefined) {
+        showLoaded(buffer, languageHeadOf(kept.state.doc), false, null, kept);
+        return;
+      }
+      const loaded = await loadText(buffer, pending.ok);
       if (ticket !== loadTicket) return;
       if (!loaded.ok) {
         // A file that grew past the size Writ opens was measured and not
@@ -1015,11 +1027,20 @@ export default function EditorInstance(props: Props) {
   }
 
   // Puts the text a load decided on in the view. `twin` is the other pane's
-  // document of the same note, which this pane's view then shares.
-  function showLoaded(buffer: BufferDocument, content: string, fromFile: boolean, twin: Text | null) {
+  // document of the same note, which this pane's view then shares. `kept` is
+  // the tab's own state, checked against the file without reading it, and
+  // `content` is then the start of its document.
+  function showLoaded(
+    buffer: BufferDocument,
+    content: string,
+    fromFile: boolean,
+    twin: Text | null,
+    kept?: TabState,
+  ) {
+    const doc = kept?.state.doc ?? twin ?? Text.of(asEditorText(content).split("\n"));
     // The tab's own editor comes back when it still holds this text, with its
     // undo history, selection and scroll; otherwise the text opens fresh.
-    const restored = buffer.read_only ? undefined : keptStateFor(buffer.id, content);
+    const restored = kept ?? (buffer.read_only ? undefined : keptStateFor(buffer.id, doc));
 
     // Mode is content-aware: byte size drives the large-file tiers, and a
     // file with a line over the per-line limit opens as LongLines, whose
@@ -1052,7 +1073,7 @@ export default function EditorInstance(props: Props) {
         : restored.state;
     } else {
       state = EditorState.create({
-        doc: twin ?? content,
+        doc,
         extensions: createExtensions(buffer.id, lang, isMarkdownBuffer(buffer), tier.mode, features),
       });
       position = startingPosition(buffer, state.doc.length);
@@ -1086,7 +1107,8 @@ export default function EditorInstance(props: Props) {
     ed.registerView(view);
     ed.setLineCount(view.state.doc.lines);
     publishCursor(view.state);
-    if (twin === null) ed.noteOpened(buffer.id, view.state.doc, fromFile);
+    if (kept !== undefined) ed.noteRestored(buffer.id, view.state.doc);
+    else if (twin === null) ed.noteOpened(buffer.id, view.state.doc, fromFile);
     else ed.noteShownTwice(buffer.id, view.state.doc);
     // Publish the loaded id last, after the view holding its document: a
     // preview pane gating on this id reads the matching buffer's text.
@@ -1109,8 +1131,8 @@ export default function EditorInstance(props: Props) {
   // for it otherwise, and records what the file holds for the note either way.
   //
   // A note that is not the one in the view is no longer dropped here. It has
-  // nothing to dispatch into and reads its file again when it is switched to,
-  // but the record has to move now: a background note left holding the digest
+  // nothing to dispatch into and the state kept for it takes the text, but the
+  // record has to move now: a background note left holding the digest
   // of a file that has changed reads dirty against a file it matches, and the
   // next change to it asks a question that has no reason to be asked.
   async function reloadFromDisk(id: string, writer?: VersionWriter | null) {

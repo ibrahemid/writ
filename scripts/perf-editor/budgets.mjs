@@ -153,6 +153,149 @@ export const BUDGETS = {
 
 export const TOGGLE_BUDGETS = { coldP95Ms: 250, warmP95Ms: 80 };
 
+// Held to the editor-perf audit's section 6 targets; docs/perf-budgets.md
+// states them. The timing checks run only with --strict, on the machine the
+// targets were measured on.
+export const FIND_RATE = {
+  scenarios: ["prose-50MiB", "prose-300MiB", "log-300MiB-counts"],
+  runs: 3,
+  budgetMsPerMiB: 1.6,
+};
+
+export const TAB_SWITCH = {
+  scenarios: ["prose-4.9MiB", "md-4.9MiB", "prose-50MiB"],
+  other: { name: "other.txt", kind: "prose", size: 16 * 1024 },
+};
+
+export const PAIRED_TYPING = {
+  scenario: "prose-4.9MiB",
+  rounds: 12,
+  characters: 120,
+  bandScale: 2,
+};
+
+export const WHOLE_DOCUMENT = {
+  kinds: ["Text.toString", "Text.sliceString", "TextEncoder.encode", "TextEncoder.encodeInto", "JSON.stringify"],
+  minChars: MiB,
+  share: 0.9,
+};
+
+/** The scenarios whose open and typing pauses may not turn the whole document into one value. */
+export function holdsWholeDocumentCalls(scenario) {
+  return scenario.opensAs === "LargeFile";
+}
+
+/** The calls in `calls` that took the whole of a document `docLength` characters long. */
+export function wholeDocumentCalls(calls, docLength) {
+  const least = Math.max(WHOLE_DOCUMENT.minChars, WHOLE_DOCUMENT.share * docLength);
+  return calls.filter((call) => WHOLE_DOCUMENT.kinds.some((kind) => call.kind.startsWith(kind)) && call.size >= least);
+}
+
+export function wholeDocumentProblems(where, calls, docLength) {
+  return wholeDocumentCalls(calls, docLength).map(
+    (call) => `${where} ran ${call.kind} of ${call.size.toLocaleString("en-US")} characters`,
+  );
+}
+
+/** Main-thread time a CPU profile spent on anything but idling, in ms. */
+export function busyMs(profile) {
+  const idle = new Set(profile.nodes.filter((node) => node.callFrame.functionName === "(idle)").map((node) => node.id));
+  let busy = 0;
+  for (let i = 0; i < profile.samples.length; i++) {
+    if (!idle.has(profile.samples[i])) busy += (profile.timeDeltas[i + 1] ?? 0) / 1000;
+  }
+  return busy;
+}
+
+/**
+ * The find rate of each word, the median of its runs in ms per MiB, and the
+ * slower word's rate held to the budget.
+ */
+export function findRate(runs, sizeBytes) {
+  const words = [...new Set(runs.map((run) => run.word))];
+  const perWord = Object.fromEntries(
+    words.map((word) => [word, middle(runs.filter((run) => run.word === word).map((run) => run.busyMs / (sizeBytes / MiB)))]),
+  );
+  const rates = Object.values(perWord);
+  const msPerMiB = rates.length ? Math.max(...rates) : null;
+  const problems =
+    msPerMiB === null
+      ? ["the find rate was not measured"]
+      : msPerMiB > FIND_RATE.budgetMsPerMiB
+        ? [`the find rate ${msPerMiB.toFixed(2)} ms/MiB is over ${FIND_RATE.budgetMsPerMiB} ms/MiB`]
+        : [];
+  return { perWord, msPerMiB, problems };
+}
+
+/** The middle value, or the mean of the two middle values. */
+export function middle(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const half = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[half] : (sorted[half - 1] + sorted[half]) / 2;
+}
+
+/** The run-to-run spread of `values`: 1.4826 times their median absolute deviation, a standard deviation for normal noise. */
+export function noiseBand(values) {
+  const centre = middle(values);
+  if (centre === null) return null;
+  return 1.4826 * middle(values.map((value) => Math.abs(value - centre)));
+}
+
+/**
+ * Typing with the counts on and with Find open against typing with the
+ * counts off, round by round: the median of each round's difference, for the
+ * runs' p50 and max, has to sit within PAIRED_TYPING.bandScale times the
+ * noise of the counts-off runs.
+ */
+export function pairedTyping(rounds) {
+  const problems = [];
+  const compared = {};
+  for (const [variant, label] of [
+    ["on", "with the counts on"],
+    ["find", "with Find open"],
+  ]) {
+    compared[variant] = {};
+    for (const stat of ["p50", "max"]) {
+      const usable = rounds.filter((round) => typeof round.off?.[stat] === "number" && typeof round[variant]?.[stat] === "number");
+      const delta = middle(usable.map((round) => round[variant][stat] - round.off[stat]));
+      const noise = noiseBand(usable.map((round) => round.off[stat]));
+      const band = noise === null ? null : PAIRED_TYPING.bandScale * noise;
+      compared[variant][stat] = { delta, noise, band, rounds: usable.length };
+      if (usable.length < rounds.length || delta === null || band === null) {
+        problems.push(`typing ${label} was not measured in every round`);
+      } else if (delta > band) {
+        problems.push(
+          `typing ${label}: the ${stat} sits ${delta.toFixed(1)} ms above the counts off, over the band of ${band.toFixed(1)} ms`,
+        );
+      }
+    }
+  }
+  return { compared, problems: [...new Set(problems)] };
+}
+
+/** What a switch to another tab and back changed in the editor and asked the host. */
+export function tabSwitchProblems({ before, after, ipcCalls, bigCalls }) {
+  if (!before || !after) return ["the editor was not there to compare"];
+  const problems = [];
+  if (before.undoDepth === 0) problems.push("there was nothing to undo before the switch");
+  if ((ipcCalls.read_buffer_content ?? 0) > 0) {
+    problems.push(`switching back read the file again (${ipcCalls.read_buffer_content} read_buffer_content)`);
+  }
+  if ((ipcCalls.note_disk_state ?? 0) > 0) {
+    problems.push(`switching back hashed the file again (${ipcCalls.note_disk_state} note_disk_state)`);
+  }
+  const asked = ipcCalls.note_file_unchanged ?? 0;
+  if (asked !== 1) problems.push(`switching back asked whether the file changed ${asked} times, not once`);
+  problems.push(...wholeDocumentProblems("switching back", bigCalls ?? [], before.length));
+  if (after.undoDepth !== before.undoDepth) problems.push(`the undo depth went from ${before.undoDepth} to ${after.undoDepth}`);
+  if (after.anchor !== before.anchor || after.head !== before.head) {
+    problems.push(`the selection went from ${before.anchor}-${before.head} to ${after.anchor}-${after.head}`);
+  }
+  if (after.topLine !== before.topLine) problems.push(`the top visible line went from ${before.topLine} to ${after.topLine}`);
+  return problems;
+}
+
 export function median(values) {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);

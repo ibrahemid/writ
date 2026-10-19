@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { contentMayNameLanguage, languageOfFile } from "../../editor/file-language";
+import { Text } from "@codemirror/state";
+import { contentMayNameLanguage, languageHeadOf, languageOfFile } from "../../editor/file-language";
+import { MAX_DETECT_BYTES } from "../../services/language-detect";
 
 const onDisk = (name: string, content = "", chosen: string | null = null) => ({
   chosen,
@@ -82,5 +84,17 @@ describe("contentMayNameLanguage", () => {
     expect(contentMayNameLanguage({ chosen: null, name: "server.log" })).toBe(false);
     expect(contentMayNameLanguage({ chosen: "python", name: "deploy" })).toBe(false);
     expect(contentMayNameLanguage({ chosen: "plaintext", name: "deploy" })).toBe(false);
+  });
+});
+
+describe("languageHeadOf", () => {
+  it("names the language its document's first line names", () => {
+    const doc = Text.of(["#!/bin/bash", "echo hi", ""]);
+    expect(languageOfFile(onDisk("deploy", languageHeadOf(doc)))).toBe("shell");
+  });
+
+  it("reads no further than detection does on a document of one long line", () => {
+    const doc = Text.of(["#!/bin/sh " + "x".repeat(MAX_DETECT_BYTES * 4)]);
+    expect(languageHeadOf(doc).length).toBe(MAX_DETECT_BYTES);
   });
 });

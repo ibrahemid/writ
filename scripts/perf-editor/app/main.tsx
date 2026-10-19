@@ -3,6 +3,9 @@ import { render } from "solid-js/web";
 import { createEffect, createRoot } from "solid-js";
 import "../../../src/styles/global.css";
 import { getSearchQuery } from "@codemirror/search";
+import { ChangeSet, Text } from "@codemirror/state";
+import { undoDepth } from "@codemirror/commands";
+import { EditorView } from "@codemirror/view";
 import App from "../../../src/App";
 import { installIpc, type CommandArgs, type CommandHandler } from "../../../demo/ipc";
 import { createBackend } from "../../../demo/backend/backend";
@@ -14,7 +17,7 @@ import { largeFileOpen } from "../../../src/stores/global/large-file-open";
 import { configStore } from "../../../src/stores/global/config";
 import type { BufferDocument, FileOpenMode, FileOpenResult } from "../../../src/types/buffer";
 import { generateCorpus, RARE_WORD, type CorpusSpec } from "../../../src/__tests__/editor/fixtures/editor-corpus";
-import { filterTasksStartedIn, type LongTask } from "../budgets.mjs";
+import { WHOLE_DOCUMENT, filterTasksStartedIn, type BigCall, type LongTask } from "../budgets.mjs";
 
 const HARNESS_ROOT = "/Users/you/Perf";
 
@@ -23,6 +26,110 @@ class HarnessError extends Error {
     super(message);
     this.name = "HarnessError";
   }
+}
+
+/** The host turning down a write, with the code Rust answers it with. */
+class HostRefusal extends Error {
+  constructor(code: string) {
+    super(code);
+    this.name = "HostRefusal";
+  }
+}
+
+// While recording, every call that turns at least WHOLE_DOCUMENT.minChars
+// characters into one value is noted, and every command the page sends is
+// counted. The host's own work runs at depth, where nothing is noted.
+const recording = { on: false, depth: 0, sending: null as string | null };
+const bigCalls: BigCall[] = [];
+const ipcCalls: Record<string, number> = {};
+
+function hostSide<T>(work: () => T): T {
+  recording.depth++;
+  try {
+    return work();
+  } finally {
+    recording.depth--;
+  }
+}
+
+/** Whether a call taking `size` characters, known before it runs, is noted. */
+const notes = (size: number) => recording.on && recording.depth === 0 && size >= WHOLE_DOCUMENT.minChars;
+
+function noted<T>(kind: string, size: number, work: () => T): T {
+  recording.depth++;
+  const started = performance.now();
+  try {
+    return work();
+  } finally {
+    recording.depth--;
+    bigCalls.push({ kind, size, ms: performance.now() - started });
+  }
+}
+
+type Stringify = (value: unknown, replacer?: unknown, space?: string | number) => string | undefined;
+const originalStringify = JSON.stringify as Stringify;
+const recordingStringify: Stringify = (value, replacer, space) => {
+  if (!recording.on || recording.depth > 0) return originalStringify(value, replacer, space);
+  const kind = recording.sending ? `JSON.stringify (the IPC send of ${recording.sending})` : "JSON.stringify";
+  recording.depth++;
+  const started = performance.now();
+  try {
+    const out = originalStringify(value, replacer, space);
+    if (typeof out === "string" && out.length >= WHOLE_DOCUMENT.minChars) {
+      bigCalls.push({ kind, size: out.length, ms: performance.now() - started });
+    }
+    return out;
+  } finally {
+    recording.depth--;
+  }
+};
+JSON.stringify = recordingStringify as typeof JSON.stringify;
+
+const originalEncode = TextEncoder.prototype.encode;
+TextEncoder.prototype.encode = function (this: TextEncoder, input?: string) {
+  const size = input?.length ?? 0;
+  if (!notes(size)) return originalEncode.call(this, input);
+  return noted("TextEncoder.encode", size, () => originalEncode.call(this, input));
+};
+const originalEncodeInto = TextEncoder.prototype.encodeInto;
+TextEncoder.prototype.encodeInto = function (this: TextEncoder, source: string, destination: Uint8Array) {
+  if (!notes(source.length)) return originalEncodeInto.call(this, source, destination);
+  return noted("TextEncoder.encodeInto", source.length, () => originalEncodeInto.call(this, source, destination));
+};
+const originalDecode = TextDecoder.prototype.decode;
+
+// The document's two classes, a leaf of lines and a node over leaves.
+for (const proto of new Set([Object.getPrototypeOf(Text.of(["a"])), Object.getPrototypeOf(Text.of(Array<string>(400).fill("a")))])) {
+  const toString = proto.toString as (this: Text) => string;
+  const sliceString = proto.sliceString as (this: Text, from: number, to?: number, lineSep?: string) => string;
+  Object.defineProperty(proto, "toString", {
+    configurable: true,
+    writable: true,
+    value: function (this: Text) {
+      if (!notes(this.length)) return toString.call(this);
+      return noted("Text.toString", this.length, () => toString.call(this));
+    },
+  });
+  Object.defineProperty(proto, "sliceString", {
+    configurable: true,
+    writable: true,
+    value: function (this: Text, from: number, to?: number, lineSep?: string) {
+      const size = (to ?? this.length) - from;
+      if (!notes(size)) return sliceString.call(this, from, to, lineSep);
+      return noted("Text.sliceString", size, () => sliceString.call(this, from, to, lineSep));
+    },
+  });
+}
+
+function startRecording(): void {
+  bigCalls.length = 0;
+  for (const key of Object.keys(ipcCalls)) delete ipcCalls[key];
+  recording.on = true;
+}
+
+function stopRecording() {
+  recording.on = false;
+  return { bigCalls: bigCalls.slice(), ipcCalls: { ...ipcCalls } };
 }
 
 interface SendCost {
@@ -43,7 +150,13 @@ function tauriReplacer(_key: string, value: unknown): unknown {
 
 function chargeSend(cmd: string, args: CommandArgs): void {
   const started = performance.now();
-  const body = JSON.stringify(args ?? {}, tauriReplacer);
+  recording.sending = cmd;
+  let body: string;
+  try {
+    body = JSON.stringify(args ?? {}, tauriReplacer);
+  } finally {
+    recording.sending = null;
+  }
   const cost = (sendCosts[cmd] ??= { calls: 0, chars: 0, ms: 0 });
   cost.calls++;
   cost.chars += body.length;
@@ -103,6 +216,25 @@ function openAnswer(file: HarnessFile, confirmed: boolean): FileOpenResult {
   return { doc: { ...rowFor(file, opened) }, mode: opened, size_bytes: file.size };
 }
 
+// With keepWrites on, a save lands in the file's bytes and moves its digest,
+// so a later read gives back what was saved, as the Rust side does.
+const writes = { kept: false, count: 0 };
+
+function keepWrite(file: HarnessFile, cmd: string, args: Record<string, unknown>): void {
+  let text: string;
+  if (cmd === "save_buffer_changes") {
+    if (args.base !== file.digest) throw new HostRefusal("ERR_CHANGES_STALE");
+    const current = originalDecode.call(new TextDecoder(), bytesOf(file));
+    text = ChangeSet.fromJSON(args.changes).apply(Text.of(current.split("\n"))).toString();
+  } else {
+    text = String(args.content ?? "");
+  }
+  file.bytes = originalEncode.call(new TextEncoder(), text);
+  file.size = file.bytes.length;
+  writes.count++;
+  file.digest = `${file.digest.slice(0, 64)}-w${writes.count}`;
+}
+
 function answerFor(cmd: string, args: Record<string, unknown>): { value: unknown } | null {
   const path = typeof args.path === "string" ? args.path : null;
   const id = typeof args.id === "string" ? args.id : null;
@@ -120,13 +252,18 @@ function answerFor(cmd: string, args: Record<string, unknown>): { value: unknown
     }
     case "note_disk_state":
       return { value: { state: "described", disk: { hash: file.digest, size: file.size, mtime_ms: Date.now() } } };
+    // Every write to the page's files is the editor's own, so each file is as
+    // Writ last read or wrote it.
+    case "note_file_unchanged":
+      return { value: true };
     case "get_buffer":
       return { value: file.doc ? { ...file.doc } : null };
-    // The write is not kept: the page measures the frontend's side of a save,
-    // and the digest stays the one the open recorded.
+    // Unless keepWrites is on, the write is not kept: the page measures the
+    // frontend's side of a save, and the digest stays the one the open recorded.
     case "save_buffer_content":
     case "save_buffer_content_unindexed":
     case "save_buffer_changes":
+      if (writes.kept) keepWrite(file, cmd, args);
       return { value: file.digest };
     case "set_buffer_view_position":
       return { value: null };
@@ -149,15 +286,18 @@ installIpc((bridge) => {
   emitEvent = (event, payload) => bridge.emit(event, payload);
   const backend = createBackend(bridge);
   return (cmd, args, raw) => {
+    if (recording.on) ipcCalls[cmd] = (ipcCalls[cmd] ?? 0) + 1;
     // A raw body goes to the host as it is; only JSON arguments are serialised.
     if (!raw) chargeSend(cmd, args);
     if (cmd === "report_first_paint") {
       firstPaints.push({ mode: String(args?.mode), elapsedMs: Number(args?.elapsedMs) });
       return null;
     }
-    const own = answerFor(cmd, args ?? {});
-    if (own) return own.value;
-    return backend.handle(cmd, args);
+    return hostSide(() => {
+      const own = answerFor(cmd, args ?? {});
+      if (own) return own.value;
+      return backend.handle(cmd, args);
+    });
   };
 });
 
@@ -231,7 +371,7 @@ function countWord(bytes: Uint8Array, word: string): number {
 }
 
 async function addFile(spec: CorpusSpec) {
-  const corpus = generateCorpus(spec);
+  const corpus = hostSide(() => generateCorpus(spec));
   const digestBuffer = await crypto.subtle.digest("SHA-256", corpus.bytes as Uint8Array<ArrayBuffer>);
   const digest = [...new Uint8Array(digestBuffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   const path = `${HARNESS_ROOT}/${spec.name}`;
@@ -260,6 +400,7 @@ function observations() {
 /** Opens `path` and resolves once its first frame is painted, answering Open when the app asks. */
 async function open(path: string) {
   resetObservations();
+  startRecording();
   const win = activeWindow();
   let confirmedAt: number | null = null;
   const stopAnswering = createRoot((dispose) => {
@@ -276,8 +417,15 @@ async function open(path: string) {
     if (!doc) throw new HarnessError(`opening ${path} gave no tab`);
     while (win.editor.currentBufferId() !== doc.id) await new Promise((resolve) => requestAnimationFrame(resolve));
     const painted = await nextFrame();
-    return { firstPaintMs: painted - (confirmedAt ?? started), confirmed: confirmedAt !== null, ...observations() };
+    return {
+      id: doc.id,
+      firstPaintMs: painted - (confirmedAt ?? started),
+      confirmed: confirmedAt !== null,
+      ...observations(),
+      ...stopRecording(),
+    };
   } finally {
+    recording.on = false;
     stopAnswering();
   }
 }
@@ -397,13 +545,77 @@ async function waitCountsExact(timeoutMs: number) {
 
 /** The counts of the document in the view, the way the status bar counted them before it counted the document's strings. */
 function wholeTextCounts() {
-  const text = activeWindow().editor.getView()?.state.doc.toString() ?? "";
+  const text = hostSide(() => activeWindow().editor.getView()?.state.doc.toString() ?? "");
   const trimmed = text.trim();
   return { words: trimmed === "" ? 0 : trimmed.split(/\s+/).length, characters: [...text].length };
 }
 
 function emitWindowShown(): void {
   emitEvent?.("writ://window-shown", { kind: "window:shown", payload: { rust_elapsed_us: 0 } });
+}
+
+/** The undo depth, the selection and the line at the top of the view of the editor in front. */
+function editorSnapshot() {
+  const view = activeWindow().editor.getView();
+  if (!view) return null;
+  const visibleTop = view.scrollDOM.getBoundingClientRect().top - view.documentTop;
+  return {
+    bufferId: activeWindow().editor.currentBufferId(),
+    undoDepth: undoDepth(view.state),
+    anchor: view.state.selection.main.anchor,
+    head: view.state.selection.main.head,
+    topLine: view.state.doc.lineAt(view.lineBlockAtHeight(Math.max(0, visibleTop)).from).number,
+    length: view.state.doc.length,
+  };
+}
+
+/** Selects a few characters of the line at `fraction` of the document, scrolled to the middle of the view. */
+async function placeSelection(fraction: number) {
+  const view = activeWindow().editor.getView();
+  if (!view) throw new HarnessError("no editor to place the selection in");
+  const line = view.state.doc.lineAt(Math.floor(view.state.doc.length * fraction));
+  view.dispatch({
+    selection: { anchor: line.from + Math.min(3, line.length), head: line.from + Math.min(12, line.length) },
+    effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+  });
+  await nextFrame();
+  await nextFrame();
+  return editorSnapshot();
+}
+
+async function waitUntil(test: () => boolean, what: string, timeoutMs = 30_000): Promise<void> {
+  const started = performance.now();
+  while (!test()) {
+    if (performance.now() - started > timeoutMs) throw new HarnessError(`${what} timed out`);
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+}
+
+/** Switches from the tab in front to `otherId` and back, answering what the editor kept and what the switch back sent. */
+async function tabRoundTrip(otherId: string) {
+  const win = activeWindow();
+  const id = win.editor.currentBufferId();
+  if (!id) throw new HarnessError("no file in front to switch away from");
+  const before = editorSnapshot();
+  win.tabs.setActiveTabId(otherId);
+  await waitUntil(() => win.editor.currentBufferId() === otherId, "the switch away");
+  await nextFrame();
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  startRecording();
+  try {
+    const started = performance.now();
+    win.tabs.setActiveTabId(id);
+    await waitUntil(() => win.editor.currentBufferId() === id, "the switch back");
+    const switchBackMs = (await nextFrame()) - started;
+    await nextFrame();
+    return { before, after: editorSnapshot(), switchBackMs, ...stopRecording() };
+  } finally {
+    recording.on = false;
+  }
+}
+
+function keepWrites(on: boolean): void {
+  writes.kept = on;
 }
 
 function isReady(): boolean {
@@ -429,6 +641,12 @@ Object.assign(window, {
     wholeTextCounts,
     resetObservations,
     observations,
+    startRecording,
+    stopRecording,
+    editorSnapshot,
+    placeSelection,
+    tabRoundTrip,
+    keepWrites,
     firstPaints: () => firstPaints.slice(),
     emitWindowShown,
     ready: isReady,

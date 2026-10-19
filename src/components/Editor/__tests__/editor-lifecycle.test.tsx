@@ -17,6 +17,8 @@ const h = vi.hoisted(() => ({
   saves: [] as Array<[string, string]>,
   readFails: new Map<string, unknown>(),
   gates: new Map<string, Promise<void>>(),
+  // The text each file held when Writ last read or wrote it.
+  seen: new Map<string, string>(),
 }));
 
 vi.mock("../../../services/tauri", () => ({
@@ -31,16 +33,32 @@ vi.mock("../../../services/tauri", () => ({
     const gate = h.gates.get(id);
     if (gate) await gate;
     if (h.readFails.has(id)) throw h.readFails.get(id);
-    return h.content.get(id) ?? "";
+    const content = h.content.get(id) ?? "";
+    h.seen.set(id, content);
+    return content;
   }),
   saveBufferContent: vi.fn(async (id: string, content: string) => {
     h.saves.push([id, content]);
     h.content.set(id, content);
+    h.seen.set(id, content);
     return `hash-${content.length}`;
   }),
-  noteDiskState: vi.fn(async () => ({
+  // A large file's saves are its changes, applied to the file's text only
+  // while the base names that text, as `save_buffer_changes` does.
+  saveBufferChanges: vi.fn(async (id: string, base: string, changes: unknown) => {
+    const { ChangeSet, Text } = await import("@codemirror/state");
+    const current = h.content.get(id) ?? "";
+    if (base !== `hash-${current.length}`) throw "ERR_CHANGES_STALE: the file moved on";
+    const content = ChangeSet.fromJSON(changes).apply(Text.of(current.split("\n"))).toString();
+    h.saves.push([id, content]);
+    h.content.set(id, content);
+    h.seen.set(id, content);
+    return `hash-${content.length}`;
+  }),
+  noteFileUnchanged: vi.fn(async (id: string) => h.seen.has(id) && h.seen.get(id) === h.content.get(id)),
+  noteDiskState: vi.fn(async (id: string) => ({
     state: "described",
-    disk: { hash: "disk-hash", size: 17, mtime_ms: 0 },
+    disk: { hash: `hash-${(h.content.get(id) ?? "").length}`, size: 17, mtime_ms: 0 },
   })),
   recordUnsavedNotes: vi.fn(async () => {}),
   restoreNoteFile: vi.fn(async () => "x"),
@@ -142,6 +160,7 @@ describe("typing reaches its file when the view goes away", () => {
     const { resetAutosave } = await import("../../../services/autosave");
     resetAutosave();
     h.content.clear();
+    h.seen.clear();
     h.saves.length = 0;
     h.readFails.clear();
     h.gates.clear();
@@ -228,6 +247,7 @@ describe("a file Writ could not read", () => {
     const { resetAutosave } = await import("../../../services/autosave");
     resetAutosave();
     h.content.clear();
+    h.seen.clear();
     h.saves.length = 0;
     h.readFails.clear();
     h.gates.clear();
@@ -487,6 +507,7 @@ describe("loads that overlap", () => {
     const { resetAutosave } = await import("../../../services/autosave");
     resetAutosave();
     h.content.clear();
+    h.seen.clear();
     h.saves.length = 0;
     h.readFails.clear();
     h.gates.clear();
@@ -552,6 +573,7 @@ describe("a crash screen in front of the editor", () => {
     const { resetAutosave } = await import("../../../services/autosave");
     resetAutosave();
     h.content.clear();
+    h.seen.clear();
     h.saves.length = 0;
     h.readFails.clear();
     h.gates.clear();

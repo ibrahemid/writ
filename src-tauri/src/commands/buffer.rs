@@ -873,13 +873,15 @@ pub enum ChangesRefused {
 
 /// Saves note `id` as `changes` applied to the text its file holds, when that
 /// text is the one whose comparison digest is `base`
-/// ([`writ_core::hash::comparison_digest_hex`]), and `length` is the length in
-/// UTF-16 code units of the document the editor holds after them.
+/// ([`writ_core::hash::comparison_digest_hex`]), the file's bytes are the ones
+/// Writ last read or wrote of it, and `length` is the length in UTF-16 code
+/// units of the document the editor holds after them.
 ///
-/// The editor's large tiers save this way once one of their writes has landed
-/// (ADR-022): `base` is the digest that write answered with. The result goes
-/// through [`save_in_turn`], so it is encoded, given the file's line ending,
-/// guarded and journaled exactly as a whole-text save is.
+/// The editor's large tiers save this way (ADR-022): `base` is the digest
+/// their last landed write answered with, or the one [`note_disk_state`]
+/// answered their open with. The result goes through [`save_in_turn`], so it
+/// is encoded, given the file's line ending, guarded and journaled exactly as
+/// a whole-text save is.
 ///
 /// Waits its turn in the note's queue, like every write of the note.
 pub fn save_buffer_changes_inner(
@@ -900,10 +902,7 @@ fn save_changes_in_turn(
     changes: &writ_core::buffer::change_set::ChangeSet,
     length: usize,
 ) -> Result<Option<String>, String> {
-    let text = editor_text_of_file(state, turn.key()).map_err(|e| e.to_string())?;
-    if writ_core::hash::comparison_digest_hex(text.as_bytes()) != base {
-        return Err(ChangesRefused::Stale.to_string());
-    }
+    let text = base_text_of_file(state, turn.key(), base).map_err(|e| e.to_string())?;
     if changes.result_length() != length {
         return Err(ChangesRefused::Invalid(format!(
             "the changes produce {} code units and the editor holds {length}",
@@ -918,14 +917,22 @@ fn save_changes_in_turn(
     save_in_turn(state, turn, &content)
 }
 
-/// The text the editor would hold for note `id`'s file as it stands: decoded
-/// in the note's encoding, with its line breaks as `\n`.
+/// The text the editor would hold for note `id`'s file as it stands, decoded
+/// in the note's encoding with its line breaks as `\n`, when that text is the
+/// one whose comparison digest is `base` and the file's bytes are the ones
+/// Writ last read or wrote of it.
+///
+/// The digest alone is not enough. The open's digest comes from a read of its
+/// own, after the read the tab's text came from, so a file another program
+/// changed in between matches it: the changes would be applied to that
+/// program's text, and the guard would set the mix aside as the editor's.
+/// The write guard's record names the bytes the tab's text came from.
 ///
 /// Read without the store. A note with no file, a read-only one, a file whose
-/// bytes are not on this machine and a file that cannot be read all answer
-/// [`ChangesRefused::Stale`]: the whole-text save that follows is the one that
-/// says what is wrong with them.
-fn editor_text_of_file(state: &AppState, id: &str) -> Result<String, ChangesRefused> {
+/// bytes are not on this machine, a file that cannot be read and a file Writ
+/// holds no record of all answer [`ChangesRefused::Stale`]: the whole-text
+/// save that follows is the one that says what is wrong with them.
+fn base_text_of_file(state: &AppState, id: &str, base: &str) -> Result<String, ChangesRefused> {
     let doc = state
         .store
         .lock()
@@ -940,6 +947,15 @@ fn editor_text_of_file(state: &AppState, id: &str) -> Result<String, ChangesRefu
     }
     let read =
         writ_storage::buffer_store::read_doc_text(&doc).map_err(|_| ChangesRefused::Stale)?;
+    let bytes = read.bytes().ok_or(ChangesRefused::Stale)?;
+    let sha256 = writ_core::hash::sha256_bytes(bytes);
+    if state.disk_state(id).map(|known| known.hash) != Some(sha256) {
+        return Err(ChangesRefused::Stale);
+    }
+    let encoding = doc.encoding.unwrap_or_else(TextEncoding::utf8);
+    if encoding.comparison_digest_hex_of_hashed(bytes, sha256) != base {
+        return Err(ChangesRefused::Stale);
+    }
     let text = read.text;
     Ok(
         match writ_core::hash::normalise_line_endings(text.as_bytes()) {
@@ -1262,27 +1278,37 @@ pub fn read_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, 
     read_in_turn(state, &turn)
 }
 
-/// [`read_buffer_content_inner`] for a caller already holding the note's turn.
-pub fn read_in_turn(state: &AppState, turn: &Turn) -> Result<Vec<u8>, String> {
-    let id = turn.key();
+/// Note `id`'s row and the text of its file, read with the store let go
+/// (ADR-047). A file past the size Writ opens is measured, and the size found
+/// goes on the row.
+fn read_note_text(
+    state: &AppState,
+    id: &str,
+) -> Result<(BufferDocument, writ_storage::buffer_store::ReadText), String> {
     let doc = state
         .store
         .lock()
         .map_err(|e| format!("{ERR_READ_FAILED}: {e}"))?
         .get(id)
         .map_err(|e| read_failure_message(&e))?;
-    let read = match writ_storage::buffer_store::read_doc_text(&doc) {
-        Ok(read) => read,
+    match writ_storage::buffer_store::read_doc_text(&doc) {
+        Ok(read) => Ok((doc, read)),
         Err(error) => {
             if let StorageError::FileTooLarge { size_bytes } = error {
-                let store = recover_poison(state.store.lock(), "commands::buffer::read_in_turn");
+                let store = recover_poison(state.store.lock(), "commands::buffer::read_note_text");
                 if let Err(e) = store.record_size(id, size_bytes) {
                     tracing::debug!(buffer_id = %id, error = %e, "the measured size was not recorded");
                 }
             }
-            return Err(read_failure_message(&error));
+            Err(read_failure_message(&error))
         }
-    };
+    }
+}
+
+/// [`read_buffer_content_inner`] for a caller already holding the note's turn.
+pub fn read_in_turn(state: &AppState, turn: &Turn) -> Result<Vec<u8>, String> {
+    let id = turn.key();
+    let (doc, read) = read_note_text(state, id)?;
     let content = read.text.as_str();
     if let (Some(source_path), Some(bytes)) = (doc.source_path.as_deref(), read.bytes()) {
         let path = Path::new(source_path);
@@ -1325,6 +1351,10 @@ pub fn read_in_turn(state: &AppState, turn: &Turn) -> Result<Vec<u8>, String> {
                 }
             }
             drop(store);
+            // A change no watcher reported can be another program's file
+            // renamed over the note, so the file's id moves with the record:
+            // [`note_file_unchanged`] holds the file against both.
+            state.refresh_source_identity(id, path);
             // The text the tab is about to be given is kept. The text it is
             // replacing was kept when Writ read or wrote it, which is what
             // puts the pre-overwrite text in the store before the reload
@@ -1348,6 +1378,40 @@ pub async fn read_buffer_content<R: Runtime>(
     let ticket = note_ticket(&app, &id);
     run_in_turn(app, ticket, ERR_READ_FAILED, |state, turn| {
         read_in_turn(state, turn).map(tauri::ipc::Response::new)
+    })
+    .await
+}
+
+/// Reads a note's text for a caller other than its tab, a copy of the note or
+/// a link looked up in it, recording nothing.
+///
+/// The record of the file, the file's id and the row's ending and encoding
+/// stay what the tab last read or wrote. A change the tab has not taken is
+/// still found by its next save and by [`note_file_unchanged`] when it is
+/// switched back to; [`read_buffer_content_inner`] would move them to bytes
+/// the tab never holds.
+///
+/// A file past the size Writ opens is measured and refused as that read is.
+pub fn peek_buffer_content_inner(state: &AppState, id: &str) -> Result<Vec<u8>, String> {
+    let turn = state.buffer_writes.turn(id);
+    peek_in_turn(state, &turn)
+}
+
+/// [`peek_buffer_content_inner`] for a caller already holding the note's turn.
+fn peek_in_turn(state: &AppState, turn: &Turn) -> Result<Vec<u8>, String> {
+    read_note_text(state, turn.key()).map(|(_, read)| read.text.into_bytes())
+}
+
+/// IPC: [`peek_buffer_content_inner`], answered as raw bytes like
+/// [`read_buffer_content`].
+#[tauri::command]
+pub async fn peek_buffer_content<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<tauri::ipc::Response, String> {
+    let ticket = note_ticket(&app, &id);
+    run_in_turn(app, ticket, ERR_READ_FAILED, |state, turn| {
+        peek_in_turn(state, turn).map(tauri::ipc::Response::new)
     })
     .await
 }
@@ -1496,6 +1560,69 @@ fn note_disk_state_in_turn(state: &AppState, turn: &Turn) -> Result<NoteDiskAnsw
         }
     }
     Ok(answer)
+}
+
+/// IPC: whether note `id`'s file is still the file Writ last read or wrote,
+/// told from its size, modification time and file id without reading it.
+///
+/// A tab switched back to keeps the editor it left when this answers `true`.
+/// It is the net for a change no watcher reported, an overflowed watcher or a
+/// network share (ADR-033): such a change moves the size, the modification
+/// time or the file, and the tab then reads the file. No file, no record of
+/// it, a record with no modification time, a file marked deleted or an id
+/// that differs or cannot be read all answer `false`. An edit that keeps the
+/// size and lands inside one tick of the volume's clock is missed, as
+/// [`crate::watcher::open_files::matches_last_look`] says.
+#[tauri::command]
+pub async fn note_file_unchanged<R: Runtime>(
+    app: AppHandle<R>,
+    id: String,
+) -> Result<bool, String> {
+    let ticket = note_ticket(&app, &id);
+    run_in_turn(app, ticket, ERR_READ_FAILED, |state, turn| {
+        Ok(note_file_unchanged_in_turn(state, turn))
+    })
+    .await
+}
+
+/// [`note_file_unchanged`] as everything but the IPC boundary sees it.
+pub fn note_file_unchanged_inner(state: &AppState, id: &str) -> bool {
+    let turn = state.buffer_writes.turn(id);
+    note_file_unchanged_in_turn(state, &turn)
+}
+
+/// [`note_file_unchanged_inner`] for a caller already holding the note's turn,
+/// which keeps a save of the note from landing between the two records and
+/// the look at the file.
+fn note_file_unchanged_in_turn(state: &AppState, turn: &Turn) -> bool {
+    let id = turn.key();
+    let source_path = {
+        let store = recover_poison(state.store.lock(), "commands::buffer::note_file_unchanged");
+        match store.get(id) {
+            Ok(doc) if !doc.read_only => doc.source_path,
+            _ => return false,
+        }
+    };
+    let Some(source_path) = source_path else {
+        return false;
+    };
+    if state.is_removed_on_disk(id) {
+        return false;
+    }
+    let path = Path::new(&source_path);
+    let Some(metadata) = std::fs::metadata(path).ok().filter(|m| m.is_file()) else {
+        return false;
+    };
+    if !crate::watcher::open_files::matches_last_look(state.disk_state(id).as_ref(), &metadata) {
+        return false;
+    }
+    match (
+        crate::watcher::identity::read_identity(path),
+        state.source_identity(id),
+    ) {
+        (Some(seen), Some(recorded)) => seen.is_same_file(&recorded),
+        _ => false,
+    }
 }
 
 /// What resolving a change outside Writ left behind.

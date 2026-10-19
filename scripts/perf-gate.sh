@@ -50,8 +50,8 @@ WRIT_PERF_GATE=1 "${PNPM}" exec vitest run \
     src/__tests__/lib/document-counts-perf.test.ts \
     --disable-console-intercept
 
-step "perf gate: editor in headless Chromium (frontend)"
-WRIT_PERF_GATE=1 node scripts/perf-editor.mjs
+step "perf gate: editor in headless Chromium, the 300 MiB files and the section 6 targets (frontend)"
+WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large --strict
 
 step "perf gate: shell budget (writ-tauri, release, one test at a time)"
 WRIT_PERF_GATE=1 cargo test \

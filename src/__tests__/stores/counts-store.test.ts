@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 import { Text } from "@codemirror/state";
 import { createCountsStore, RECOUNT_DELAY_MS, type CountsStore } from "../../stores/window/counts-store";
-import { TextCounter } from "../../editor/document-counts";
+import { TextCounter, countText } from "../../editor/document-counts";
 import type { EditorStore } from "../../stores/window/editor-store";
 import type { FileOpenMode } from "../../types/buffer";
 
@@ -90,26 +90,65 @@ describe("counts store", () => {
     expect(counts.counts()).toEqual({ words: 2, characters: 7, cjk: 0, arabic: 0, exact: true });
   });
 
-  it("recounts continuous typing at most once per wait, and counts its last change", async () => {
+  it("counts nothing while changes keep arriving inside the wait, and counts the last one once they stop", async () => {
     const { counts, view } = mount();
     view.show("a", doc("one"));
     counts.watch();
     await vi.runAllTimersAsync();
     const count = vi.spyOn(TextCounter.prototype, "count");
 
-    const BURST_MS = 600;
+    const GAP_MS = RECOUNT_DELAY_MS - 10;
     let text = "one";
-    for (let at = 0; at < BURST_MS; at += 50) {
+    for (let key = 0; key < 12; key++) {
       text += " w";
       view.edit(doc(text));
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(GAP_MS);
     }
-    const duringBurst = count.mock.calls.length;
-    expect(duringBurst).toBeGreaterThan(0);
-    expect(duringBurst).toBeLessThanOrEqual(Math.ceil(BURST_MS / RECOUNT_DELAY_MS));
+    expect(count).not.toHaveBeenCalled();
+    expect(counts.counts()).toEqual({ words: 1, characters: 3, cjk: 0, arabic: 0, exact: true });
 
     await vi.advanceTimersByTimeAsync(RECOUNT_DELAY_MS);
+    expect(count).toHaveBeenCalledTimes(1);
     expect(counts.counts()).toEqual({ words: 13, characters: text.length, cjk: 0, arabic: 0, exact: true });
+  });
+
+  it("puts off a recount a change interrupts until the changes stop, then gives the exact counts", async () => {
+    const lines = Array.from({ length: 6_000 }, (_, i) => `line ${i} 東京 مرحبا 𠀀 word`);
+    const { counts, view } = mount();
+    view.show("a", doc(lines.join("\n")));
+    counts.watch();
+    await vi.runAllTimersAsync();
+
+    // Every clock read is 2 ms later, so each slice stops after one look at the clock.
+    let now = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => (now += 2));
+    const count = vi.spyOn(TextCounter.prototype, "count");
+    let text = doc(lines.join("\n"));
+    const edits: [number, number, string][] = [
+      [10, 10, "a b "],
+      [40_000, 40_004, "𠀁"],
+      [120, 125, ""],
+      [90_000, 90_000, " مرحبا"],
+      [5, 5, "\n\n"],
+    ];
+    const first = edits[0];
+    text = text.replace(first[0], first[1], Text.of(first[2].split("\n")));
+    view.edit(text);
+    await vi.advanceTimersByTimeAsync(RECOUNT_DELAY_MS - 1);
+    await vi.advanceTimersToNextTimerAsync();
+    await vi.advanceTimersToNextTimerAsync();
+    expect(count).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(1);
+    for (const [from, to, insert] of edits.slice(1)) {
+      text = text.replace(from, to, Text.of(insert.split("\n")));
+      view.edit(text);
+      const before = count.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(RECOUNT_DELAY_MS - 10);
+      expect(count.mock.calls.length).toBe(before);
+    }
+
+    await vi.runAllTimersAsync();
+    expect(counts.counts()).toEqual({ ...countText(text), exact: true });
   });
 
   it("drops the last note's counts as soon as another note is in the view", async () => {

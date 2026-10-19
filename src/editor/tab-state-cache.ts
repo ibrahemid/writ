@@ -15,6 +15,12 @@ export interface TabState {
    * (ADR-056): the taker reconfigures it with its own extensions.
    */
   foreign?: boolean;
+  /**
+   * Which open of the note's record the state was kept under (the editor
+   * store's `openTicket`). A later open read the file for another pane, so a
+   * state kept under an earlier one comes back only through a read.
+   */
+  openTicket?: number;
 }
 
 /**

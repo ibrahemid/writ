@@ -127,7 +127,7 @@ function createRenameLinksStore() {
     reportOpenOutcome(outcome);
     if (outcome.kind !== "opened" || note.linkName === null) return;
     try {
-      const line = lineOfLinkTo(await bufferRegistry.readContent(outcome.doc.id), note.linkName);
+      const line = lineOfLinkTo(await bufferRegistry.peekContent(outcome.doc.id), note.linkName);
       if (line !== null) win.editor.requestReveal(outcome.doc.id, line);
     } catch {
       logFailure("a note a rename left alone could not be read for its link");

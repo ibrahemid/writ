@@ -559,10 +559,11 @@ export async function saveBufferContent(id: string, content: string): Promise<st
 
 /**
  * Writes the note as `changes` (CodeMirror's `ChangeSet.toJSON()`) applied to
- * the text whose digest is `base`, the digest a write of it answered with.
- * `length` is the length in UTF-16 code units of the document the changes
- * produce. Answers like [`saveBufferContent`]; refused under
- * `ERR_CHANGES_STALE` when the file no longer holds that text.
+ * the text whose digest is `base`, the digest a write of it or the open's
+ * [`noteDiskState`] answered with. `length` is the length in UTF-16 code units
+ * of the document the changes produce. Answers like [`saveBufferContent`];
+ * refused under `ERR_CHANGES_STALE` when the file no longer holds that text or
+ * holds bytes Writ did not last read or write.
  */
 export async function saveBufferChanges(
   id: string,
@@ -612,6 +613,15 @@ export type NoteDiskAnswer =
 /** What the note's file holds right now. */
 export async function noteDiskState(id: string): Promise<NoteDiskAnswer> {
   return invoke("note_disk_state", { id });
+}
+
+/**
+ * Whether the note's file is still the file Writ last read or wrote, told
+ * from its size, modification time and file id without reading it. `false`
+ * whenever that cannot be shown: no file, nothing recorded, another file.
+ */
+export async function noteFileUnchanged(id: string): Promise<boolean> {
+  return invoke("note_file_unchanged", { id });
 }
 
 /** One text a note used to hold. */
@@ -742,6 +752,17 @@ export async function saveNoteTo(id: string, content: string, path: string): Pro
 
 export async function readBufferContent(id: string): Promise<string> {
   const bytes = await invoke<ArrayBuffer>("read_buffer_content", { id });
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * The note's text for a caller other than its tab. Refused as
+ * [`readBufferContent`] is, and records nothing: the record of the file stays
+ * what the tab last read or wrote, so a change the tab has not taken is still
+ * found by its next save and its switch back.
+ */
+export async function peekBufferContent(id: string): Promise<string> {
+  const bytes = await invoke<ArrayBuffer>("peek_buffer_content", { id });
   return new TextDecoder().decode(bytes);
 }
 

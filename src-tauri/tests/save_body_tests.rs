@@ -33,14 +33,14 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
-    read_buffer_content_inner, ERR_CHANGES_INVALID, ERR_CHANGES_STALE, ERR_SAVE_BODY,
-    NOTE_ID_HEADER,
+    note_disk_state_inner, read_buffer_content_inner, NoteDiskAnswer, ERR_CHANGES_INVALID,
+    ERR_CHANGES_STALE, ERR_FILE_CHANGED_ON_DISK, ERR_SAVE_BODY, NOTE_ID_HEADER,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
 use writ_tauri_lib::quit::QuitState;
 use writ_tauri_lib::security::{canonicalize_for_authorization, AuthorizedPaths};
-use writ_tauri_lib::state::AppState;
+use writ_tauri_lib::state::{restore_unsaved_text, AppState};
 use writ_tauri_lib::watcher::handler::create_ignore_set;
 
 fn make_state(dir: &TempDir) -> AppState {
@@ -442,6 +442,306 @@ fn a_change_set_save_for_a_note_with_no_file_asks_for_the_whole_text() {
     .unwrap_err();
 
     assert_eq!(refusal_code(&refused), ERR_CHANGES_STALE);
+}
+
+/// The read's bytes as the editor holds them: decoded as the webview's
+/// `TextDecoder` decodes them, which drops a leading U+FEFF, with every line
+/// break as `\n`, as CodeMirror keeps them.
+fn as_editor_holds(bytes: Vec<u8>) -> String {
+    let text = String::from_utf8(bytes).expect("the read hands over UTF-8");
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    String::from_utf8(writ_core::hash::normalise_line_endings(text.as_bytes()).into_owned())
+        .expect("UTF-8")
+}
+
+/// The digest the open's `note_disk_state` answers with.
+fn digest_at_open(app: &tauri::App<MockRuntime>, id: &str) -> String {
+    match note_disk_state_inner(&app.state::<AppState>(), id).expect("the open asks") {
+        NoteDiskAnswer::Described { disk } => disk.hash,
+        other => panic!("the open found {other:?}"),
+    }
+}
+
+/// What a tab holds once its open has answered: the text its load read and
+/// the digest the open answered with, which its first save sends as the base.
+fn load_tab(app: &tauri::App<MockRuntime>, id: &str) -> (String, String) {
+    let read = read_buffer_content_inner(&app.state::<AppState>(), id).expect("the load reads");
+    (as_editor_holds(read), digest_at_open(app, id))
+}
+
+/// "naïve" typed as a line of its own after the first line of `text`, as the
+/// change set CodeMirror makes of it, and the text the editor then holds.
+fn type_second_line(text: &str) -> (Value, String) {
+    let at = text.find('\n').expect("a first line") + 1;
+    let typed = format!("{}naïve\n{}", &text[..at], &text[at..]);
+    let changes = json!([
+        utf16_len(&text[..at]),
+        [0, "naïve", ""],
+        utf16_len(&text[at..])
+    ]);
+    (changes, typed)
+}
+
+/// The first save after the open, as the large tiers send it: the changes
+/// since the text the load read, against the digest the open answered with.
+/// Answers with the text the editor holds after it.
+fn save_first_change(
+    app: &tauri::App<MockRuntime>,
+    window: &WebviewWindow<MockRuntime>,
+    id: &str,
+) -> String {
+    let (text, base) = load_tab(app, id);
+    let (changes, typed) = type_second_line(&text);
+    let digest = save_changes(window, id, &base, changes, utf16_len(&typed))
+        .expect("the first save lands as its changes");
+    assert_eq!(digest, Some(comparison_digest_hex(typed.as_bytes())));
+    typed
+}
+
+/// The dated copies a refused save left in `folder`.
+fn conflict_copies(folder: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut copies: Vec<_> = std::fs::read_dir(folder)
+        .expect("read_dir")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().contains("(conflict "))
+        })
+        .collect();
+    copies.sort();
+    copies
+}
+
+#[test]
+fn the_first_save_after_the_open_keeps_a_crlf_file_crlf() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let path = dir.path().join("windows.txt");
+    std::fs::write(&path, b"one\r\ntwo\r\n").unwrap();
+    let id = open(&app, &path);
+
+    let typed = save_first_change(&app, &window, &id);
+
+    assert_eq!(typed, "one\nnaïve\ntwo\n");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        "one\r\nnaïve\r\ntwo\r\n".as_bytes()
+    );
+}
+
+#[test]
+fn the_first_save_after_the_open_keeps_the_byte_order_mark() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let path = dir.path().join("marked.txt");
+    std::fs::write(&path, b"\xef\xbb\xbfone\ntwo\n").unwrap();
+    let id = open(&app, &path);
+
+    let typed = save_first_change(&app, &window, &id);
+
+    assert_eq!(typed, "one\nnaïve\ntwo\n");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        "\u{feff}one\nnaïve\ntwo\n".as_bytes()
+    );
+}
+
+#[test]
+fn the_first_save_after_the_open_writes_windows_1252() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let path = dir.path().join("legacy.txt");
+    std::fs::write(&path, b"caf\xe9\r\nend\r\n").unwrap();
+    let id = open(&app, &path);
+    {
+        let state = app.state::<AppState>();
+        let store = state.store.lock().unwrap();
+        store
+            .set_encoding(&id, Some(TextEncoding::from_label("windows-1252").unwrap()))
+            .unwrap();
+        store.set_line_ending(&id, LineEnding::CrLf).unwrap();
+    }
+
+    let typed = save_first_change(&app, &window, &id);
+
+    assert_eq!(typed, "café\nnaïve\nend\n");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        b"caf\xe9\r\nna\xefve\r\nend\r\n".to_vec()
+    );
+}
+
+#[test]
+fn the_first_save_after_the_open_writes_utf16() {
+    fn utf16le(text: &str) -> Vec<u8> {
+        let mut out = b"\xff\xfe".to_vec();
+        out.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        out
+    }
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let path = dir.path().join("powershell.txt");
+    std::fs::write(&path, utf16le("one\r\ntwo\r\n")).unwrap();
+    let id = open(&app, &path);
+
+    let typed = save_first_change(&app, &window, &id);
+
+    assert_eq!(typed, "one\nnaïve\ntwo\n");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        utf16le("one\r\nnaïve\r\ntwo\r\n")
+    );
+}
+
+#[test]
+fn the_first_save_after_the_open_of_a_large_file_is_its_changes() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let path = dir.path().join("big.log");
+    let mut text = String::new();
+    let mut line = 0;
+    while text.len() as u64 <= writ_core::file_ops::THRESHOLD_NORMAL_BYTES {
+        text.push_str(&format!("line {line} · café 😀\n"));
+        line += 1;
+    }
+    std::fs::write(&path, &text).unwrap();
+    let id = open(&app, &path);
+
+    let typed = save_first_change(&app, &window, &id);
+
+    assert_eq!(typed.len(), text.len() + "naïve\n".len());
+    assert!(std::fs::read(&path).unwrap() == typed.as_bytes());
+}
+
+#[test]
+fn the_first_save_after_a_relaunch_lands_on_the_text_the_journal_gave_back() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let state = app.state::<AppState>();
+    let doc = writ_core::buffer::manager::BufferManager::new()
+        .create_buffer(None)
+        .expect("mint");
+    state.store.lock().unwrap().insert(&doc).expect("insert");
+    let kept = "kept · café\nsecond line\n";
+    state
+        .store
+        .lock()
+        .unwrap()
+        .record_unsaved_text(&doc.id, kept, chrono::Utc::now())
+        .expect("journaled");
+
+    // The relaunch writes the text into the note's first file and seeds the
+    // write guard with what it wrote.
+    let restored = {
+        let store = state.store.lock().unwrap();
+        restore_unsaved_text(&store, &state.notes_root(), state.default_extension())
+    };
+    for (id, disk) in restored.disk_states {
+        state.set_disk_state(&id, disk);
+    }
+    let path = state
+        .store
+        .lock()
+        .unwrap()
+        .get(&doc.id)
+        .unwrap()
+        .source_path
+        .expect("the relaunch gave the note its file");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), kept);
+
+    let typed = save_first_change(&app, &window, &doc.id);
+
+    assert_eq!(typed, "kept · café\nnaïve\nsecond line\n");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), typed);
+}
+
+#[test]
+fn a_file_changed_after_the_open_refuses_the_first_change_set() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let folder = dir.path().join("notes");
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.join("shared.txt");
+    std::fs::write(&path, b"mine one\r\nend\r\n").unwrap();
+    let id = open(&app, &path);
+    let (text, base) = load_tab(&app, &id);
+    std::fs::write(&path, b"theirs\r\n").unwrap();
+
+    let (changes, typed) = type_second_line(&text);
+    let refused = save_changes(&window, &id, &base, changes, utf16_len(&typed)).unwrap_err();
+
+    assert_eq!(refusal_code(&refused), ERR_CHANGES_STALE);
+    assert_eq!(std::fs::read(&path).unwrap(), b"theirs\r\n".to_vec());
+    assert!(conflict_copies(&folder).is_empty());
+
+    // The whole text the editor sends next is refused as any save over a
+    // change is, and set aside as the editor's text.
+    let refused = save_raw(&window, &id, typed.as_bytes()).unwrap_err();
+    assert_eq!(refusal_code(&refused), ERR_FILE_CHANGED_ON_DISK);
+    assert_eq!(std::fs::read(&path).unwrap(), b"theirs\r\n".to_vec());
+    let copies = conflict_copies(&folder);
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read(&copies[0]).unwrap(),
+        "mine one\r\nnaïve\r\nend\r\n".as_bytes()
+    );
+}
+
+#[test]
+fn a_file_changed_between_the_opens_read_and_its_digest_refuses_the_first_change_set() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let folder = dir.path().join("notes");
+    std::fs::create_dir_all(&folder).unwrap();
+    let path = folder.join("shared.txt");
+    std::fs::write(&path, b"draft one\r\nend\r\n").unwrap();
+    let id = open(&app, &path);
+    let read = read_buffer_content_inner(&app.state::<AppState>(), &id).expect("the load reads");
+    let text = as_editor_holds(read);
+    // Another program writes text of the same length before the open asks
+    // for the file's digest, so the digest describes its text.
+    std::fs::write(&path, b"DRAFT TWO\r\nEND\r\n").unwrap();
+    let base = digest_at_open(&app, &id);
+
+    let (changes, typed) = type_second_line(&text);
+    let refused = save_changes(&window, &id, &base, changes, utf16_len(&typed)).unwrap_err();
+
+    assert_eq!(refusal_code(&refused), ERR_CHANGES_STALE, "{refused}");
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        b"DRAFT TWO\r\nEND\r\n".to_vec()
+    );
+    assert!(
+        conflict_copies(&folder).is_empty(),
+        "the changes were applied to the other program's text"
+    );
+
+    let refused = save_raw(&window, &id, typed.as_bytes()).unwrap_err();
+    assert_eq!(refusal_code(&refused), ERR_FILE_CHANGED_ON_DISK);
+    let copies = conflict_copies(&folder);
+    assert_eq!(copies.len(), 1, "{copies:?}");
+    assert_eq!(
+        std::fs::read(&copies[0]).unwrap(),
+        "draft one\r\nnaïve\r\nend\r\n".as_bytes()
+    );
+}
+
+#[test]
+fn a_change_set_for_a_file_writ_holds_no_record_of_asks_for_the_whole_text() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let path = dir.path().join("note.md");
+    std::fs::write(&path, "one\ntwo\n").unwrap();
+    let id = open(&app, &path);
+    let (text, base) = load_tab(&app, &id);
+    app.state::<AppState>().forget_disk_state(&id);
+
+    let (changes, typed) = type_second_line(&text);
+    let refused = save_changes(&window, &id, &base, changes, utf16_len(&typed)).unwrap_err();
+
+    assert_eq!(refusal_code(&refused), ERR_CHANGES_STALE);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\ntwo\n");
 }
 
 #[test]

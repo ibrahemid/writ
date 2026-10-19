@@ -192,3 +192,35 @@ describe("find on one 5 MiB line", () => {
     120_000,
   );
 });
+
+// The editor gate's find-rate budget (scripts/perf-editor/budgets.mjs), held
+// here to the reading alone.
+const RATE_BUDGET_MS_PER_MIB = 1.6;
+
+describe("find on 20 MiB of prose", () => {
+  it.skipIf(gated)(
+    "reads a word's last keystroke within the find rate",
+    () => {
+      const size = 20 * MiB;
+      const state = EditorState.create({ doc: generateCorpusText({ name: "prose-20MiB.txt", kind: "prose", size }) });
+      const read = (search: string) => {
+        const index = new MatchIndex(createQueryScanner(new SearchQuery({ search }))!);
+        index.advance(state, Infinity);
+        return index;
+      };
+      for (const word of [RARE_WORD, "qxjzv"]) {
+        // Typing the rest of the word reads the document first.
+        read(word.slice(0, -1));
+        const rates: number[] = [];
+        for (let run = 0; run < RUNS; run++) {
+          const started = performance.now();
+          read(word);
+          rates.push((performance.now() - started) / (size / MiB));
+        }
+        report(`20 MiB prose ${word} ms per MiB`, rates, RATE_BUDGET_MS_PER_MIB);
+        expect(best(rates)).toBeLessThan(RATE_BUDGET_MS_PER_MIB);
+      }
+    },
+    120_000,
+  );
+});

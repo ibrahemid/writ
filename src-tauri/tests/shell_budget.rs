@@ -144,6 +144,7 @@ fn mock_app(state: AppState) -> (tauri::App<MockRuntime>, WebviewWindow<MockRunt
         .invoke_handler(tauri::generate_handler![
             writ_tauri_lib::commands::file::open_file_confirmed,
             writ_tauri_lib::commands::buffer::read_buffer_content,
+            writ_tauri_lib::commands::buffer::peek_buffer_content,
             writ_tauri_lib::commands::buffer::save_buffer_content,
             writ_tauri_lib::commands::buffer::save_buffer_changes,
             writ_tauri_lib::commands::preview::preview_render,
@@ -309,6 +310,24 @@ fn read_buffer_content_returns_its_thread_while_its_work_waits() {
 
     let turn = app.state::<AppState>().buffer_writes.turn(&id);
     let sent = dispatch(&window, "read_buffer_content", json!({ "id": id }));
+    sent.held();
+    drop(turn);
+    match sent.answer() {
+        Ok(InvokeResponseBody::Raw(bytes)) => assert_eq!(bytes, b"text\n"),
+        other => panic!("the read failed: {other:?}"),
+    }
+}
+
+#[test]
+fn peek_buffer_content_returns_its_thread_while_its_work_waits() {
+    let dir = TempDir::new().unwrap();
+    let (app, window) = mock_app(make_state(&dir));
+    let path = dir.path().join("a.md");
+    std::fs::write(&path, "text\n").unwrap();
+    let id = open(&app, &path);
+
+    let turn = app.state::<AppState>().buffer_writes.turn(&id);
+    let sent = dispatch(&window, "peek_buffer_content", json!({ "id": id }));
     sent.held();
     drop(turn);
     match sent.answer() {
