@@ -908,8 +908,9 @@ scroll keeps its place, and undo has one step to reverse rather than the file.
 A shorter file puts the cursor on the nearest line it has.
 
 **A tab in the background is reloaded too.** It has no view to dispatch into,
-and it reads its file again when it is switched to, but its record moves at the
-moment of the change: a background note left holding the digest of a file that
+and the state its pane keeps for it takes the change (a tab that kept none reads
+its file when it is switched to), but its record moves at the moment of the
+change: a background note left holding the digest of a file that
 has moved on reads dirty against a file it matches, and the next change to it
 asks a question that has no reason to be asked. That note is the ordinary case
 for a restored session, which is the one decision 6 already calls the likeliest

@@ -13,8 +13,9 @@ export interface DocumentCounts extends TextCounts {
 export const COUNT_SLICE_MS = 6;
 
 /**
- * How long a change waits for its recount. The changes inside the wait are
- * counted with it, so continuous typing is recounted at most once per wait.
+ * How long the document has to stay unchanged before it is recounted. A
+ * change during the wait or during a recount starts the wait again, so
+ * nothing is counted while keys keep arriving.
  */
 export const RECOUNT_DELAY_MS = 120;
 
@@ -37,8 +38,8 @@ function projectsWhileCounting(mode: FileOpenMode | null): boolean {
 
 /**
  * Word and character counts of the document in the view, counted only while
- * something on screen shows them, a slice at a time after the document
- * changes, never inside the keystroke that changed it.
+ * something on screen shows them, a slice at a time once the document has
+ * stopped changing.
  */
 export function createCountsStore(editor: EditorStore) {
   const [counts, setCounts] = createSignal<DocumentCounts | null>(null, { equals: sameCounts });
@@ -91,6 +92,7 @@ export function createCountsStore(editor: EditorStore) {
         schedule(0);
         return;
       }
+      cancel();
       schedule(RECOUNT_DELAY_MS);
     }),
   );

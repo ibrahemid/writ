@@ -1,4 +1,4 @@
-import { Facet, RangeSetBuilder, type EditorState, type Extension } from "@codemirror/state";
+import { Facet, RangeSetBuilder, type EditorState, type Extension, type Range } from "@codemirror/state";
 import {
   Decoration,
   ViewPlugin,
@@ -19,6 +19,8 @@ const REGEXP_MARGIN = 250;
 export interface FindMatchesConfig {
   onChange?: () => void;
   schedule?: (slice: () => void) => () => void;
+  /** Runs `work` once the frame being drawn is on screen; returns a cancel. */
+  afterFrame?: (work: () => void) => () => void;
 }
 
 // A MessageChannel task runs right after the current one, without the timer clamp.
@@ -36,11 +38,24 @@ function scheduleMessage(slice: () => void): () => void {
   };
 }
 
+// A timer set from a frame callback runs once that frame is drawn.
+function scheduleAfterFrame(work: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const frame = requestAnimationFrame(() => {
+    timer = setTimeout(work, 0);
+  });
+  return () => {
+    cancelAnimationFrame(frame);
+    if (timer !== null) clearTimeout(timer);
+  };
+}
+
 const findMatchesConfig = Facet.define<FindMatchesConfig, Required<FindMatchesConfig>>({
   combine(configs) {
     return {
       onChange: configs.find((config) => config.onChange)?.onChange ?? (() => {}),
       schedule: configs.find((config) => config.schedule)?.schedule ?? scheduleMessage,
+      afterFrame: configs.find((config) => config.afterFrame)?.afterFrame ?? scheduleAfterFrame,
     };
   },
 });
@@ -66,6 +81,7 @@ class FindMatches {
   private index: MatchIndex | null = null;
   private wordChars: string | null = null;
   private cancelSlice: (() => void) | null = null;
+  private cancelAfterEdit: (() => void) | null = null;
   private changeQueued = false;
   private destroyed = false;
 
@@ -94,8 +110,7 @@ class FindMatches {
     }
     if (update.docChanged) {
       this.index.applyChanges(update.changes, update.startState.doc, update.state);
-      this.read(update.state);
-      this.changed();
+      this.followEdit(update.state);
     }
   }
 
@@ -103,11 +118,15 @@ class FindMatches {
     this.destroyed = true;
     this.cancelSlice?.();
     this.cancelSlice = null;
+    this.cancelAfterEdit?.();
+    this.cancelAfterEdit = null;
   }
 
   private start(state: EditorState): void {
     this.cancelSlice?.();
     this.cancelSlice = null;
+    this.cancelAfterEdit?.();
+    this.cancelAfterEdit = null;
     const scanner = createQueryScanner(this.query);
     this.index = scanner ? new MatchIndex(scanner) : null;
     this.wordChars = scanner && this.query.wholeWord ? wordCharsKey(state) : null;
@@ -123,6 +142,29 @@ class FindMatches {
     }
     if (!this.cancelSlice) this.cancelSlice = this.config().schedule(this.slice);
   }
+
+  /**
+   * Reads the edited part of a document up to 1 MiB in the update, and of a
+   * longer one once the frame the edit draws is on screen; the listener
+   * hears then, once for all the edits that frame draws.
+   */
+  private followEdit(state: EditorState): void {
+    if (state.doc.length <= SYNC_SCAN_MAX_CHARS) {
+      this.read(state);
+    } else {
+      this.cancelSlice?.();
+      this.cancelSlice = null;
+    }
+    this.cancelAfterEdit ??= this.config().afterFrame(this.afterEdit);
+  }
+
+  private afterEdit = (): void => {
+    this.cancelAfterEdit = null;
+    const index = this.index;
+    if (this.destroyed || !index) return;
+    if (!index.settled && !this.cancelSlice) this.slice();
+    else this.config().onChange();
+  };
 
   private slice = (): void => {
     this.cancelSlice = null;
@@ -168,63 +210,149 @@ export const findMatchesPlugin = ViewPlugin.fromClass(FindMatches);
 const matchMark = Decoration.mark({ class: "cm-searchMatch" });
 const selectedMatchMark = Decoration.mark({ class: "cm-searchMatch cm-searchMatch-selected" });
 
+/** A stretch the highlighter searches: visible ranges whose margins overlap, joined, widened by the margin. */
+interface Segment {
+  from: number;
+  end: number;
+}
+
+interface Highlights {
+  decorations: DecorationSet;
+  segments: Segment[];
+}
+
+function marginOf(query: SearchQuery): number {
+  return query.regexp ? REGEXP_MARGIN : unquoteSearch(query).length;
+}
+
+// Searches must not overlap, or marks are added out of order: ranges whose
+// margins overlap are searched as one, and a search stops at its end, past
+// which the cursor for a pattern that crosses lines reads on to the end of
+// the line holding its start + 5,000 (into the next range on a long line).
+function segmentsOf(view: EditorView, margin: number): Segment[] {
+  const length = view.state.doc.length;
+  const joinWithin = 2 * Math.max(margin, REGEXP_MARGIN);
+  const ranges = view.visibleRanges;
+  const segments: Segment[] = [];
+  for (let i = 0; i < ranges.length; i++) {
+    const from = ranges[i].from;
+    let to = ranges[i].to;
+    while (i < ranges.length - 1 && to > ranges[i + 1].from - joinWithin) to = ranges[++i].to;
+    segments.push({ from: Math.max(0, from - margin), end: Math.min(to + margin, length) });
+  }
+  return segments;
+}
+
+function addMatches(
+  state: EditorState,
+  query: SearchQuery,
+  from: number,
+  end: number,
+  add: (from: number, to: number, mark: Decoration) => void,
+): void {
+  const cursor = query.getCursor(state, from, end);
+  for (let step = cursor.next(); !step.done; step = cursor.next()) {
+    const match = step.value;
+    if (match.from >= end) break;
+    const selected = state.selection.ranges.some((range) => range.from === match.from && range.to === match.to);
+    add(match.from, match.to, selected ? selectedMatchMark : matchMark);
+  }
+}
+
 // CodeMirror's search highlighter paints only while its own panel is open, and
 // Find never opens it. This paints the same marks over the visible ranges
 // with the same cursors.
-function highlightVisible(view: EditorView): DecorationSet {
+function highlightVisible(view: EditorView): Highlights {
   const state = view.state;
   const query = getSearchQuery(state);
-  if (!query.valid || searchPanelOpen(state)) return Decoration.none;
-  const margin = query.regexp ? REGEXP_MARGIN : unquoteSearch(query).length;
-  // Searches must not overlap, or marks are added out of order: ranges whose
-  // margins overlap are searched as one, and a search stops at its end, past
-  // which the cursor for a pattern that crosses lines reads on to the end of
-  // the line holding its start + 5,000 (into the next range on a long line).
-  const joinWithin = 2 * Math.max(margin, REGEXP_MARGIN);
+  if (!query.valid || searchPanelOpen(state)) return { decorations: Decoration.none, segments: [] };
+  const segments = segmentsOf(view, marginOf(query));
   const builder = new RangeSetBuilder<Decoration>();
-  const ranges = view.visibleRanges;
   try {
-    for (let i = 0; i < ranges.length; i++) {
-      const from = ranges[i].from;
-      let to = ranges[i].to;
-      while (i < ranges.length - 1 && to > ranges[i + 1].from - joinWithin) to = ranges[++i].to;
-      const end = Math.min(to + margin, state.doc.length);
-      const cursor = query.getCursor(state, Math.max(0, from - margin), end);
-      for (let step = cursor.next(); !step.done; step = cursor.next()) {
-        const match = step.value;
-        if (match.from >= end) break;
-        const selected = state.selection.ranges.some((range) => range.from === match.from && range.to === match.to);
-        builder.add(match.from, match.to, selected ? selectedMatchMark : matchMark);
-      }
+    for (const segment of segments) {
+      addMatches(state, query, segment.from, segment.end, (from, to, mark) => builder.add(from, to, mark));
     }
   } catch (error) {
     // The library's regexp cursor reads on past `to` to the end of the line
     // holding `from` + 5,000, where V8 can give up on a long line.
     if (!(error instanceof RangeError)) throw error;
   }
-  return builder.finish();
+  return { decorations: builder.finish(), segments };
+}
+
+function hasSelectedText(state: EditorState): boolean {
+  return state.selection.ranges.some((range) => !range.empty);
+}
+
+/**
+ * The marks after an edit, searched again only over the lines the edit
+ * touched, for a literal query whose matches stay on one line; null when
+ * the whole visible text has to be searched again.
+ */
+function highlightEdited(update: ViewUpdate, previous: Highlights): Highlights | null {
+  const state = update.state;
+  const query = getSearchQuery(state);
+  if (query.regexp || !query.valid || searchPanelOpen(state)) return null;
+  const search = unquoteSearch(query);
+  if (search.includes("\n") || hasSelectedText(update.startState) || hasSelectedText(state)) return null;
+  const segments = segmentsOf(update.view, search.length);
+  const { changes } = update;
+  if (
+    segments.length !== previous.segments.length ||
+    segments.some(
+      (segment, i) =>
+        changes.mapPos(previous.segments[i].from, -1) !== segment.from ||
+        changes.mapPos(previous.segments[i].end, 1) !== segment.end,
+    )
+  ) {
+    return null;
+  }
+  const doc = state.doc;
+  const touched: { from: number; to: number }[] = [];
+  changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+    const from = doc.lineAt(fromB).from;
+    const to = doc.lineAt(toB).to;
+    const last = touched[touched.length - 1];
+    if (last && from <= last.to) last.to = Math.max(last.to, to);
+    else touched.push({ from, to });
+  });
+  let decorations = previous.decorations.map(changes);
+  for (const lines of touched) {
+    for (const segment of segments) {
+      const from = Math.max(segment.from, lines.from);
+      const end = Math.min(segment.end, lines.to);
+      if (from > end) continue;
+      const add: Range<Decoration>[] = [];
+      addMatches(state, query, from, end, (matchFrom, matchTo, mark) => add.push(mark.range(matchFrom, matchTo)));
+      decorations = decorations.update({
+        filterFrom: from,
+        filterTo: end,
+        filter: (markFrom) => markFrom < from || markFrom >= end,
+        add,
+      });
+    }
+  }
+  return { decorations, segments };
 }
 
 const findHighlighter = ViewPlugin.fromClass(
   class {
-    decorations: DecorationSet;
+    highlights: Highlights;
 
     constructor(view: EditorView) {
-      this.decorations = highlightVisible(view);
+      this.highlights = highlightVisible(view);
     }
 
     update(update: ViewUpdate): void {
-      if (
-        update.docChanged ||
-        update.selectionSet ||
-        update.viewportChanged ||
-        getSearchQuery(update.state) !== getSearchQuery(update.startState)
-      ) {
-        this.decorations = highlightVisible(update.view);
+      const queryChanged = getSearchQuery(update.state) !== getSearchQuery(update.startState);
+      if (update.docChanged && !queryChanged) {
+        this.highlights = highlightEdited(update, this.highlights) ?? highlightVisible(update.view);
+      } else if (update.docChanged || update.selectionSet || update.viewportChanged || queryChanged) {
+        this.highlights = highlightVisible(update.view);
       }
     }
   },
-  { decorations: (plugin) => plugin.decorations },
+  { decorations: (plugin) => plugin.highlights.decorations },
 );
 
 /**

@@ -1,4 +1,5 @@
-import { detectLanguage, textMayNameLanguage } from "../services/language-detect";
+import type { Text } from "@codemirror/state";
+import { detectLanguage, MAX_DETECT_BYTES, textMayNameLanguage } from "../services/language-detect";
 import { PLAIN_TEXT_LANGUAGE, isKnownLanguage, languageForFileName } from "./languages";
 
 /** What the language of a file is decided from. */
@@ -29,6 +30,14 @@ export function languageOfFile(inputs: FileLanguageInputs): string | null {
   }
   if (!hasFile) return languageOfUntitled(name, content);
   return detectLanguage(content, name) ?? languageForFileName(name);
+}
+
+/**
+ * As much of `doc` as [`languageOfFile`] reads, its `content`: a bounded start,
+ * so a document of one long line is not read whole.
+ */
+export function languageHeadOf(doc: Text): string {
+  return doc.sliceString(0, MAX_DETECT_BYTES);
 }
 
 /**

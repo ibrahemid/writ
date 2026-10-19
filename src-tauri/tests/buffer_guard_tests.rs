@@ -17,10 +17,11 @@ use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
 use writ_tauri_lib::commands::buffer::{
-    decide_create_buffer, read_buffer_content_inner, record_unsaved_notes_inner,
-    save_buffer_content_inner, save_failure_message, CreateDecision, UnsavedNote,
-    ERR_FILE_CHANGED_ON_DISK, ERR_FILE_IN_USE, ERR_FILE_NOT_DOWNLOADED, ERR_FOLDER_NOT_WRITABLE,
-    ERR_HARD_LINKED, ERR_READ_ONLY_DESTINATION, ERR_WRITE_FAILED,
+    decide_create_buffer, note_file_unchanged_inner, peek_buffer_content_inner,
+    read_buffer_content_inner, record_unsaved_notes_inner, save_buffer_content_inner,
+    save_failure_message, CreateDecision, UnsavedNote, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_IN_USE,
+    ERR_FILE_NOT_DOWNLOADED, ERR_FOLDER_NOT_WRITABLE, ERR_HARD_LINKED, ERR_READ_ONLY_DESTINATION,
+    ERR_WRITE_FAILED,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::preview::handler::RenderCache;
@@ -504,4 +505,166 @@ fn text_handed_over_on_the_way_out_is_journaled_until_a_save_of_it_lands() {
     let kept = journaled(&state);
     assert!(!kept.contains_key(&one), "{kept:?}");
     assert_eq!(kept.get(&two).map(String::as_str), Some("another note"));
+}
+
+/// Sets `path`'s modification time, so a test can make a change that leaves
+/// it where it was.
+fn set_modified(path: &std::path::Path, mtime: std::time::SystemTime) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .expect("open for the time")
+        .set_modified(mtime)
+        .expect("set the modification time");
+}
+
+fn modified(path: &std::path::Path) -> std::time::SystemTime {
+    std::fs::metadata(path)
+        .expect("metadata")
+        .modified()
+        .expect("a modification time")
+}
+
+#[test]
+fn a_file_untouched_since_the_tab_read_it_is_unchanged() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, _path) = open_note(&state, &dir, "kept.md", "what Writ read\n");
+    read_buffer_content_inner(&state, &id).expect("the open reads");
+
+    assert!(note_file_unchanged_inner(&state, &id));
+    assert!(
+        note_file_unchanged_inner(&state, &id),
+        "asking reads nothing and moves nothing"
+    );
+}
+
+#[test]
+fn writs_own_save_leaves_the_file_unchanged() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, _path) = open_note(&state, &dir, "saved.md", "first\n");
+    read_buffer_content_inner(&state, &id).expect("the open reads");
+
+    save_buffer_content_inner(&state, &id, "first\nsecond\n").expect("the save lands");
+
+    assert!(note_file_unchanged_inner(&state, &id));
+}
+
+#[test]
+fn a_change_no_watcher_reported_is_a_changed_file() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, path) = open_note(&state, &dir, "shared.md", "what Writ read\n");
+    read_buffer_content_inner(&state, &id).expect("the open reads");
+
+    std::fs::write(&path, "what another program wrote\n").unwrap();
+
+    assert!(!note_file_unchanged_inner(&state, &id));
+    // Reading the file is how the tab catches up, and it moves the record.
+    read_buffer_content_inner(&state, &id).expect("the switch back reads");
+    assert!(note_file_unchanged_inner(&state, &id));
+}
+
+#[test]
+fn a_same_size_change_is_told_by_its_modification_time() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, path) = open_note(&state, &dir, "same.md", "abcd\n");
+    read_buffer_content_inner(&state, &id).expect("the open reads");
+    let read_at = modified(&path);
+
+    std::fs::write(&path, "wxyz\n").unwrap();
+    set_modified(&path, read_at + std::time::Duration::from_secs(2));
+
+    assert!(!note_file_unchanged_inner(&state, &id));
+}
+
+#[test]
+fn a_file_renamed_over_the_note_with_its_time_put_back_is_told_by_its_id() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, path) = open_note(&state, &dir, "replaced.md", "abcd\n");
+    read_buffer_content_inner(&state, &id).expect("the open reads");
+    let read_at = modified(&path);
+
+    let other = dir.path().join("replaced.md.tmp");
+    std::fs::write(&other, "wxyz\n").unwrap();
+    set_modified(&other, read_at);
+    std::fs::rename(&other, &path).unwrap();
+    assert_eq!(
+        modified(&path),
+        read_at,
+        "size and time are as Writ read them"
+    );
+
+    assert!(!note_file_unchanged_inner(&state, &id));
+    read_buffer_content_inner(&state, &id).expect("the switch back reads");
+    assert!(
+        note_file_unchanged_inner(&state, &id),
+        "the read takes the new file's id with its bytes"
+    );
+}
+
+#[test]
+fn a_file_with_nothing_recorded_is_not_vouched_for() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, path) = open_note(&state, &dir, "unrecorded.md", "text\n");
+    read_buffer_content_inner(&state, &id).expect("the open reads");
+
+    state.forget_disk_state(&id);
+    assert!(
+        !note_file_unchanged_inner(&state, &id),
+        "no record of the bytes"
+    );
+
+    read_buffer_content_inner(&state, &id).expect("read again");
+    state.forget_source_record(&id);
+    assert!(
+        !note_file_unchanged_inner(&state, &id),
+        "no record of the file"
+    );
+
+    read_buffer_content_inner(&state, &id).expect("read again");
+    std::fs::remove_file(&path).unwrap();
+    assert!(!note_file_unchanged_inner(&state, &id), "no file");
+}
+
+#[test]
+fn a_note_with_no_file_is_not_vouched_for() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let mut mgr = BufferManager::new();
+    let id = persist_empty_scratch(&state.store.lock().unwrap(), &mut mgr);
+
+    assert!(!note_file_unchanged_inner(&state, &id));
+}
+
+#[test]
+fn a_read_no_tab_takes_leaves_the_record_where_the_tab_left_it() {
+    let dir = TempDir::new().unwrap();
+    let state = make_state(&dir);
+    let (id, path) = open_note(&state, &dir, "copied.md", "what the tab read\n");
+    read_buffer_content_inner(&state, &id).expect("the open reads");
+
+    let outside = "another program\r\nwrote this\r\n";
+    std::fs::write(&path, outside).unwrap();
+    let peeked = peek_buffer_content_inner(&state, &id).expect("a copy of the note reads it");
+    assert_eq!(String::from_utf8(peeked).unwrap(), outside);
+
+    assert!(
+        !note_file_unchanged_inner(&state, &id),
+        "the switch back still finds the change"
+    );
+    let row = state.store.lock().unwrap().get(&id).expect("row");
+    assert_eq!(
+        row.line_ending,
+        writ_core::notes::line_ending::LineEnding::Lf,
+        "the ending stays the one the tab's text has"
+    );
+    let refused = save_buffer_content_inner(&state, &id, "what the tab read\ntyped\n")
+        .expect_err("the next save must not land over the change");
+    assert!(refused.starts_with(ERR_FILE_CHANGED_ON_DISK), "{refused}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), outside);
 }

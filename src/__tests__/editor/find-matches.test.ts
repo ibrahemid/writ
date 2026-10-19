@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, StateEffect, StateField, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { SearchQuery, search, setSearchQuery } from "@codemirror/search";
 import { SYNC_SCAN_MAX_CHARS, findMatches, findMatchesPlugin } from "../../editor/search/find-matches";
@@ -24,6 +24,22 @@ function manualSlices() {
     return true;
   };
   return { queue, schedule, runNext };
+}
+
+/** Work the plugin puts off until a frame is on screen, run when the test draws one. */
+function manualFrames() {
+  const queue: { run: () => void; cancelled: boolean }[] = [];
+  const afterFrame = (work: () => void) => {
+    const entry = { run: work, cancelled: false };
+    queue.push(entry);
+    return () => {
+      entry.cancelled = true;
+    };
+  };
+  const draw = (): void => {
+    for (const entry of queue.splice(0)) if (!entry.cancelled) entry.run();
+  };
+  return { queue, afterFrame, draw };
 }
 
 const views: EditorView[] = [];
@@ -89,6 +105,34 @@ function splitByLongLine(): { doc: string; ranges: Span[] } {
       { from: longTo, to: longTo + 600 },
     ],
   };
+}
+
+/** Visible ranges that move with the edits, the way CodeMirror maps its own. */
+function followVisible(view: EditorView, initial: (length: number) => Span[]): void {
+  const visible = StateField.define<Span[]>({
+    create: (state) => initial(state.doc.length),
+    update: (ranges, tr) =>
+      tr.docChanged
+        ? ranges.map((range) => ({ from: tr.changes.mapPos(range.from, -1), to: tr.changes.mapPos(range.to, 1) }))
+        : ranges,
+  });
+  view.dispatch({ effects: StateEffect.appendConfig.of(visible) });
+  Object.defineProperty(view, "visibleRanges", { get: () => view.state.field(visible), configurable: true });
+}
+
+/** Every mark the find highlighter paints, with its class. */
+function markedSpans(view: EditorView): { from: number; to: number; selected: boolean }[] {
+  const spans: { from: number; to: number; selected: boolean }[] = [];
+  for (const source of view.state.facet(EditorView.decorations)) {
+    const set = typeof source === "function" ? source(view) : source;
+    for (const cursor = set.iter(); cursor.value; cursor.next()) {
+      const classes = String(cursor.value.spec.class ?? "").split(" ");
+      if (classes.includes("cm-searchMatch")) {
+        spans.push({ from: cursor.from, to: cursor.to, selected: classes.includes("cm-searchMatch-selected") });
+      }
+    }
+  }
+  return spans;
 }
 
 function paintedMatches(view: EditorView): Span[] {
@@ -178,15 +222,86 @@ describe("findMatches", () => {
     expect(plugin(view).matchState()).toMatchObject({ total: needles, pending: false, capped: false });
   });
 
-  it("tells the listener once the update that changed the count has finished", async () => {
+  it("tells the listener once the update that set the query has finished", async () => {
     const onChange = vi.fn();
-    const view = makeView("needle", [findMatches({ onChange })]);
+    const view = makeView("needle needle", [findMatches({ onChange })]);
     setQuery(view, { search: "needle" });
-    view.dispatch({ changes: { from: 0, insert: "needle " } });
     expect(onChange).not.toHaveBeenCalled();
     await Promise.resolve();
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(plugin(view).matchState().total).toBe(2);
+  });
+
+  it("tells the listener about edits once the frame drawing them is on screen, once per frame", async () => {
+    const onChange = vi.fn();
+    const frames = manualFrames();
+    const view = makeView("needle", [findMatches({ onChange, afterFrame: frames.afterFrame })]);
+    setQuery(view, { search: "needle" });
+    await Promise.resolve();
+    onChange.mockClear();
+
+    view.dispatch({ changes: { from: 0, insert: "needle " } });
+    view.dispatch({ changes: { from: 0, insert: "needle " } });
+    expect(plugin(view).matchState()).toMatchObject({ total: 3, pending: false });
+    await Promise.resolve();
+    expect(onChange).not.toHaveBeenCalled();
+
+    frames.draw();
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the edited part of a longer document once the frame drawing the edit is on screen", () => {
+    const { text, needles } = longDocument();
+    const slices = manualSlices();
+    const frames = manualFrames();
+    const onChange = vi.fn();
+    const view = makeView(text, [findMatches({ schedule: slices.schedule, afterFrame: frames.afterFrame, onChange })]);
+    setQuery(view, { search: "needle" });
+    while (slices.runNext());
+    expect(plugin(view).matchState()).toMatchObject({ total: needles, pending: false });
+    onChange.mockClear();
+
+    const middle = view.state.doc.line(Math.floor(view.state.doc.lines / 2)).to;
+    view.dispatch({ changes: { from: middle, insert: " needle" } });
+    expect(slices.queue).toHaveLength(0);
+    expect(frames.queue).toHaveLength(1);
+    expect(onChange).not.toHaveBeenCalled();
+
+    frames.draw();
+    while (slices.runNext());
+    expect(plugin(view).matchState()).toMatchObject({ total: needles + 1, pending: false });
+    expect(onChange).toHaveBeenCalled();
+  });
+
+  it("holds the count and positions to a fresh reading after edits drawn across frames", () => {
+    const { text } = longDocument();
+    const slices = manualSlices();
+    const frames = manualFrames();
+    const view = makeView(text, [findMatches({ schedule: slices.schedule, afterFrame: frames.afterFrame })]);
+    setQuery(view, { search: "Needle" });
+    while (slices.runNext());
+
+    let seed = 7;
+    const random = (below: number) => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed % below;
+    };
+    const pieces = ["needle", "nee", "dle", " ", "\n", "NEEDLE ", "x"];
+    for (let edit = 0; edit < 60; edit++) {
+      const length = view.state.doc.length;
+      const from = random(length);
+      const to = random(3) === 0 ? Math.min(length, from + random(40)) : from;
+      view.dispatch({ changes: { from, to, insert: pieces[random(pieces.length)] } });
+      if (random(3) === 0) frames.draw();
+      if (random(4) === 0) slices.runNext();
+    }
+    frames.draw();
+    while (slices.runNext());
+
+    const fresh = new MatchIndex(createQueryScanner(new SearchQuery({ search: "Needle" }))!);
+    fresh.advance(view.state, Infinity);
+    expect(plugin(view).matchState()).toMatchObject({ total: fresh.count, pending: false });
+    expect(plugin(view).ticks(Infinity)).toEqual(fresh.ticks(Infinity, view.state.doc.length));
   });
 
   it("counts a match typed into the document and drops one deleted from it", () => {
@@ -259,8 +374,9 @@ describe("findMatches", () => {
     let givesUp = true;
     engineGivesUpOn(["(\\D)+"], () => givesUp);
     const slices = manualSlices();
+    const frames = manualFrames();
     const onChange = vi.fn();
-    const view = makeView(longDocument().text, [findMatches({ schedule: slices.schedule, onChange })]);
+    const view = makeView(longDocument().text, [findMatches({ schedule: slices.schedule, afterFrame: frames.afterFrame, onChange })]);
     setQuery(view, { search: "(\\D)+", regexp: true });
     expect(plugin(view).matchState()).toMatchObject({ pending: true, failed: false });
     while (slices.runNext());
@@ -270,6 +386,7 @@ describe("findMatches", () => {
     view.dispatch({ changes: { from: 0, insert: "x" } });
     expect(plugin(view).matchState()).toMatchObject({ pending: true, failed: true });
     expect(plugin(view).foundNothing()).toBe(true);
+    frames.draw();
     while (slices.runNext());
     expect(plugin(view).matchState()).toMatchObject({ pending: false, failed: false });
     expect(plugin(view).matchState().total).toBeGreaterThan(0);
@@ -355,5 +472,68 @@ describe("findMatches highlights", () => {
       { from: 1000, to: 1600 },
       { from: 1600, to: 2200 },
     ]);
+  });
+
+  it("searches only the lines an edit touched, for a literal on one line", () => {
+    const lines = Array.from({ length: 200 }, (_, i) => `line ${i} holds a needle and some hay`);
+    const view = makeView(lines.join("\n"), [findMatches()]);
+    followVisible(view, (length) => [{ from: 0, to: length }]);
+    setQuery(view, { search: "needle" });
+    const cursor = vi.spyOn(SearchQuery.prototype, "getCursor");
+
+    const at = view.state.doc.line(100).from + 5;
+    view.dispatch({ changes: { from: at, insert: "x" }, selection: { anchor: at + 1 } });
+    const line = view.state.doc.line(100);
+    expect(cursor.mock.calls.length).toBeGreaterThan(0);
+    for (const [, from, to] of cursor.mock.calls) {
+      expect(from).toBeGreaterThanOrEqual(line.from);
+      expect(to).toBeLessThanOrEqual(line.to);
+    }
+    expect(paintedMatches(view)).toHaveLength(200);
+  });
+
+  it.each([
+    [{ search: "needle" }],
+    [{ search: "Needle", caseSensitive: true }],
+    [{ search: "nee", wholeWord: true }],
+    [{ search: "aa" }],
+    [{ search: "strasse" }],
+    [{ search: "dle\\nline" }],
+    [{ search: "ne+dle", regexp: true }],
+  ])("paints after each edit what searching the whole visible text again paints (%o)", (spec) => {
+    const long = Array.from({ length: 600 }, (_, i) => (i % 7 === 0 ? "needle" : `w${i}`)).join(" ");
+    const short = Array.from({ length: 30 }, (_, i) => `row ${i} NEEDLE nee-dle aaaa Straße needle`).join("\n");
+    const view = makeView(`${short}\n${long}\n${short}`, [findMatches()]);
+    const longFrom = short.length + 1;
+    followVisible(view, (length) => [
+      { from: 0, to: longFrom + 900 },
+      { from: longFrom + 3000, to: length },
+    ]);
+    setQuery(view, spec);
+
+    let seed = 11;
+    const random = (below: number) => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed % below;
+    };
+    const pieces = ["needle", "nee", "dle", "a", " ", "\n", "N", "ß", "x"];
+    for (let edit = 0; edit < 120; edit++) {
+      const length = view.state.doc.length;
+      const typing = edit % 3 !== 0;
+      const from = typing ? view.state.selection.main.head : random(length + 1);
+      const to = !typing && random(3) === 0 ? Math.min(length, from + random(30)) : from;
+      const insert = pieces[random(pieces.length)];
+      view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length } });
+      if (edit % 40 === 39) view.dispatch({ selection: { anchor: 0, head: Math.min(6, view.state.doc.length) } });
+      if (edit % 40 === 0) view.dispatch({ selection: { anchor: random(view.state.doc.length) } });
+
+      const fresh = makeView(view.state.doc.toString(), [findMatches()]);
+      fresh.dispatch({ selection: view.state.selection });
+      showOnly(fresh, view.visibleRanges);
+      setQuery(fresh, spec);
+      expect(markedSpans(view), `edit ${edit}`).toEqual(markedSpans(fresh));
+      fresh.destroy();
+      views.splice(views.indexOf(fresh), 1);
+    }
   });
 });

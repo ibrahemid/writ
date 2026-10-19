@@ -24,8 +24,8 @@ budgets that each walk thousands of notes would otherwise time each other.
 
 `scripts/perf-editor.mjs` is the browser half: it builds the real app over the
 demo backend and measures it in headless Chromium, per file tier. The perf gate
-runs it, and so does CI, on the Linux leg of every pull request. It reads the
-same variable; see [editor: responsiveness per file tier](#editor-responsiveness-per-file-tier-headless-chromium).
+runs it with `--large --strict`, and CI runs it without them on the Linux leg of
+every pull request. It reads the same variable; see [editor: responsiveness per file tier](#editor-responsiveness-per-file-tier-headless-chromium).
 
 ---
 
@@ -141,6 +141,10 @@ On one generated 5 MiB line of JSON carrying accented words, a word
 (`résumé`) and a pattern (`na.ve`) are read in 6 ms slices; the longest slice
 and one edit, which must read only around itself, are held to the task budget.
 
+On 20 MiB of generated prose, the reading of a word's last keystroke
+(`zebrafish`, `qxjzv`), after the rest of the word has been read, is held to
+the editor gate's find rate.
+
 Every timed figure is the best of three runs of its operation: the query typed
 again into an empty field, the edit made again, the line read again from its
 start. Other work on the machine can slow a run but never speed one up, and a
@@ -152,7 +156,7 @@ whole text, which Find counts while a match and its lookarounds stay within
 4 KiB of where it starts; ADR-013 records that bound and where the count
 differs from the matches `SearchCursor` steps through.
 
-**Budgets: 16 ms per task (one frame at 60 Hz); 250 ms to the final count**
+**Budgets: 16 ms per task (one frame at 60 Hz); 250 ms to the final count; 1.6 ms per MiB read**
 
 Rationale:
 
@@ -164,6 +168,11 @@ Rationale:
   the 20 MiB patterns held the main thread for 230 ms and 75 ms on each
   keystroke and each edit, and the 5 MiB line for 19.5 ms in one slice, an
   edit reading the whole line again (under vitest, 2026-10-13).
+- Before text with no code point past ASCII that could join a match was
+  read by native searches alone, the 20 MiB prose read at 4.06 ms per MiB,
+  and after it at 0.77 (`zebrafish`) and 0.76 (`qxjzv`) (under vitest,
+  Node 26.12.0, Apple M1 Pro, 2026-10-19, load average 3.9). The rate is the
+  editor gate's find-rate budget.
 - Node runs V8, as Chromium does. Keystroke to paint in a browser is the
   editor gate's measure, below.
 - Measured (five runs of the file under vitest, Node 26.4.0, Apple M1 Pro,
@@ -253,6 +262,7 @@ numbers.
 WRIT_PERF_GATE=1 node scripts/perf-editor.mjs                    # every scenario but the two 300 MiB ones
 WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --only prose-50MiB
 WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large            # adds prose-300MiB and log-300MiB-counts
+WRIT_PERF_GATE=1 node scripts/perf-editor.mjs --large --strict   # adds the timing checks of the section 6 targets (scripts/perf-gate.sh)
 ```
 
 Chromium comes from `playwright-core`, a pinned dev dependency: install the
@@ -397,6 +407,75 @@ document's strings; the status bar showed the finished counts in every run
 The toggle's frontend half is measured on every run too; its numbers and
 budget are in [toggle-latency-baseline.md](perf/toggle-latency-baseline.md).
 
+### The section 6 targets
+
+Four more checks hold the editor to the targets of the editor-perf audit's
+section 6. The two that count run on every run, CI's included. The two that
+time run only with `--strict`, which `scripts/perf-gate.sh` passes, on the
+machine the targets were measured on: an Apple M1 Pro with 16 GiB, in the
+Chromium for Testing build that `playwright-core` installs (153.0.8010.12 when
+they were set). CI's Linux runners read about 1.4 times this machine and stay
+on the budgets in the table above.
+
+<!-- editor-perf-section-6:start -->
+| Check | Scenarios | Budget | Runs |
+|---|---|---|---|
+| Find rate | `prose-50MiB`, `prose-300MiB`, `log-300MiB-counts` | 1.6 ms per MiB, the slower word's median of 3 runs | `--strict` |
+| Whole-document calls | every scenario that opens as LargeFile | none in the open, the typing pause or the typing pause with Find open | every run |
+| Tab switch back | `prose-4.9MiB`, `md-4.9MiB`, `prose-50MiB` | one `note_file_unchanged`, no `read_buffer_content` or `note_disk_state` and no whole-document call; the undo depth, the selection and the top visible line as they were | every run |
+| Paired typing | `prose-4.9MiB`, 12 rounds | the counts on and Find open within 2 times the noise of the counts off, at p50 and max | `--strict` |
+<!-- editor-perf-section-6:end -->
+
+**Find rate:** after the scenario's other steps, the find field is cleared,
+the word but its last letter is typed and left to settle (with the counts on,
+until they are exact too), and the last letter is profiled with the CDP
+sampling profiler at 200 µs from the keystroke to the final count. The rate is
+the main thread's busy time, every sample but the idle ones, per MiB of the
+file. Each of the two words is typed three times; a word's rate is the median
+of its runs.
+
+**Whole-document calls:** the page wraps `Text.toString` and
+`Text.sliceString` on the document's classes, `TextEncoder.encode` and
+`encodeInto`, and `JSON.stringify`, which also stands for Tauri's
+serialisation of every command's arguments, and notes each call that takes
+1 MiB or more. A call that takes 90% of the document or more fails the
+scenario when it falls in the open (to the first paint), in the typing at the
+end with the 3.5 s after it, or in the typing with Find open with the 3.5 s
+after it. The check counts calls; their times are in the results file. It holds
+the scenarios that open as LargeFile: only the large tiers save their changes
+rather than the whole text (ADR-022), and a Normal or LongLines file names its
+language from its text when it opens. The host's own work, generating the files
+and keeping a write, is left out, and the decode of the read at the open is not
+held.
+
+**Tab switch back:** a fresh page whose host keeps every write (a save lands in
+the file's bytes and moves its digest, and a change set made against another
+digest is refused as Rust refuses it) opens a 16 KiB prose file, then the
+scenario's file. It types ` edited` at the end, waits 3 s for the save,
+selects nine characters of the line in the middle of the file, scrolled to the
+middle of the view, switches to the first tab, waits 1.5 s and switches back.
+The host answers `note_file_unchanged` with yes, every write to its files
+being the editor's own. From the switch back to two frames later the page asks
+`note_file_unchanged` once, sends no `read_buffer_content` or
+`note_disk_state`, runs no whole-document call (as counted for Whole-document
+calls, in every tier), and the undo depth (at least 1), the selection's anchor
+and head and the line at the top of the view are what they were before the
+switch.
+
+**Paired typing:** each of 12 rounds opens `prose-4.9MiB` in three fresh pages:
+the counts off, the counts on (typing once they are exact), and Find open on
+`zebrafish` with the counts off, the order turning each round so that each takes
+each place four times. Each page types 120 characters at the end of the file
+110 ms apart, timed as Typing above, and gives the run's p50 and max. For the
+counts on and for Find open, the median of the twelve round-by-round differences
+from the counts off (the mean of the two middle values) has to be within 2 times
+the noise of the counts-off runs, the noise being 1.4826 times the median
+absolute deviation of their twelve values, a standard deviation for normal
+noise. The band and the round count are set for false failures in about 2% of
+runs: in a simulation with normal noise, typing that matches the counts off
+fails one of the four comparisons in about 2% of runs, a difference of two noise
+widths fails about 60% of the time and one of three widths about 90%.
+
 ### WKWebView, once per release
 
 macOS Writ runs in WKWebView (WebKit and JavaScriptCore), which the gate does
@@ -426,7 +505,8 @@ release.
 Re-measure with the procedure above (three quiet runs, load average under 20,
 recorded beside the numbers) when a change moves a number on purpose, and
 update `scripts/perf-editor/budgets.mjs` and this section together. A budget
-other than a Find budget never drops below the audit figure for its file.
+other than a Find budget never drops below the audit figure for its file. The
+section 6 checks hold the audit's targets and are not re-baselined.
 
 ---
 
@@ -492,9 +572,9 @@ Notes:
   root; its timed test lists one folder of 20,000 entries.
 - `save_buffer_content` takes the text as a raw body with the note in the
   `writ-note-id` header (EP-13): nothing is serialised to JSON or parsed on
-  either side. The large tiers send `save_buffer_changes` once one write has
-  landed. Both rows are in the 300 MB timed test; the release numbers are
-  taken by the next `scripts/perf-gate.sh` run.
+  either side. The large tiers send `save_buffer_changes` from the first
+  save after the open. Both rows are in the 300 MB timed test; the release
+  numbers are taken by the next `scripts/perf-gate.sh` run.
 
 ### Re-baselining
 

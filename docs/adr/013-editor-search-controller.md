@@ -82,17 +82,19 @@ text, while a match and its lookarounds stay within 4 KiB of where it starts
 - The matcher (`src/editor/search/scanner.ts`) finds what
   `SearchQuery.getCursor` finds, except as the next two points say. A literal
   query is folded per code point the way `SearchCursor` folds (NFKD, then
-  lower case when the query ignores case), with a native search on plain
-  ASCII text, and the whole-word test uses the editor's word characters. A
+  lower case when the query ignores case), with a native search on text
+  where no code point past ASCII can be part of a match (known per node of
+  the document), and the whole-word test uses the editor's word characters. A
   regular expression is compiled once with the library's flags and picks up
   after each match where the library's cursors do: `RegExpCursor` line by
   line, or, for a pattern the library reads as able to cross lines (one
   holding `\s`, `\W`, `\D`, `\n`, `\r` or `[^`), `MultilineRegExpCursor`
   across them, down to its stop at the first match the whole-word test turns
   down.
-- A line over 64 KiB, and a query that crosses lines, are read in windows of
-  64 KiB. For a regular expression a window also reaches 4 KiB behind the
-  search, and a match is taken only when it ends 4 KiB before its window does
+- A literal query, a line over 64 KiB, and a query that crosses lines are
+  read in windows of 64 KiB. For a regular expression a window also reaches
+  4 KiB behind the search, and a match is taken only when it ends 4 KiB
+  before its window does
   or the window holds the rest of the line or document; a match that keeps
   going from where the search stands grows its window until it ends, in one
   task. A literal finds exactly the library's matches. A regular expression

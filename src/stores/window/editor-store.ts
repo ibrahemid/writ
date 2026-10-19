@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { EditorSelection, type Text, type TransactionSpec } from "@codemirror/state";
+import { EditorSelection, type EditorState, type Text, type TransactionSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { FileOpenMode } from "../../types/buffer";
 import {
@@ -14,6 +14,7 @@ import {
   onAutosaveSuccess,
   peekUnsavedContent,
   peekUnsavedText,
+  recordOpenedText,
   releaseUnsavedContent,
   saveNow as saveNowService,
   materializeContent,
@@ -26,6 +27,7 @@ import {
 } from "../../services/autosave";
 import {
   noteDiskState,
+  noteFileUnchanged,
   restoreNoteFile,
   saveNoteTo,
   setBufferViewPosition,
@@ -135,6 +137,13 @@ interface NoteHashes {
 }
 
 const FRESH: NoteHashes = { docGeneration: 0, comparedGeneration: 0, matchesFile: false };
+
+/** What [`checkKeptState`] found, for [`takeCheckedTabState`] to hold the state to. */
+export interface KeptStateCheck {
+  readonly entry: TabState;
+  readonly state: EditorState;
+  readonly record: NoteHashes;
+}
 
 /**
  * A note a pane's view holds, with the documents its dirty answer is read
@@ -789,14 +798,18 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
    * happen once each and in one place.
    *
    * A note that is not the one in the view is recorded rather than dispatched.
-   * It has no view to dispatch into, and the tab reads its file again when it
-   * is switched to; dropping the record instead would leave the note reading
-   * dirty against a file it matches.
+   * It has no view to dispatch into: the states the panes keep for it take the
+   * text, and a tab that kept none reads its file when it is switched to.
+   * Dropping the record instead would leave the note reading dirty against a
+   * file it matches.
    *
    * `writer` is what wrote the file. A connected program's text is marked in
    * the document, and the marker names the program.
    */
   function applyExternalContent(id: string, text: string, writer?: VersionWriter | null) {
+    // The file's text moved, so no earlier base describes it; the open below
+    // records the new one when it answers.
+    forgetLandedText(id);
     const shown = viewOfNote(id);
     const program = programName(writer);
     if (shown) {
@@ -807,6 +820,11 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
     } else {
       updateKeptStates(id, text, program);
       noteOpened(id, null, true);
+      // Every kept state took this text, which is what the open records.
+      for (const pane of PANE_IDS) {
+        const kept = tabStates.peek(stateKey(pane, id));
+        if (kept !== undefined) kept.openTicket = openTicketOf(id);
+      }
     }
     // The note now holds what its file holds, so whatever was being asked
     // about the difference between them is answered.
@@ -1034,6 +1052,10 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
     const note = viewed.get(id);
     if (fileHoldsOpened && opened !== null && note !== undefined && note.opened === opened) {
       note.saved = opened;
+      // So the first save can be the changes since the open. Rust applies
+      // them only while the file holds this digest's text and the bytes Writ
+      // last read or wrote.
+      if (diskHash !== undefined && !savesAreHeld(id)) recordOpenedText(id, opened, diskHash);
     }
     const unedited = record.docGeneration === 0;
     patchHashes(id, {
@@ -1046,6 +1068,11 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
     // Typing that landed while the answer was out is compared with what the
     // open read, so undoing it reads clean again.
     if (!unedited) scheduleCompare(id);
+  }
+
+  /** The open the note's record belongs to ([`NoteHashes.openTicket`]). */
+  function openTicketOf(id: string): number | undefined {
+    return noteHashes().get(id)?.openTicket;
   }
 
   /** Whether a later [`noteOpened`] has taken the note off this call's answer. */
@@ -1275,6 +1302,51 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
    */
   function noteShownTwice(id: string, doc: Text) {
     if (!viewed.has(id)) viewed.set(id, { id, doc, saved: null, opened: doc });
+  }
+
+  /**
+   * Records that a tab came back with the state it kept, its file as Writ
+   * last read or wrote it ([`checkKeptState`]). The note's record stands, and
+   * its document is the text the file holds.
+   */
+  function noteRestored(id: string, doc: Text) {
+    viewed.set(id, { id, doc, saved: doc, opened: doc });
+  }
+
+  /**
+   * Whether the state pane `slot` keeps for note `id` can come back without
+   * the file being read: it was kept under the note's current open, the note
+   * reads clean against its file, nothing holds its saves, and the backend
+   * finds the file as Writ last read or wrote it
+   * ([`noteFileUnchanged`]). Null sends the tab to its file, as does a check
+   * that fails.
+   */
+  async function checkKeptState(slot: PaneSlot, id: string): Promise<KeptStateCheck | null> {
+    const entry = tabStates.peek(stateKey(slot.pane, id));
+    const record = noteHashes().get(id);
+    if (entry === undefined || record === undefined) return null;
+    if (entry.openTicket === undefined || entry.openTicket !== record.openTicket) return null;
+    if (!isTracked(id) || isDirty(id) || savesAreHeld(id)) return null;
+    const state = entry.state;
+    try {
+      return (await noteFileUnchanged(id)) ? { entry, state, record } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Takes the state [`checkKeptState`] checked, when nothing moved while it
+   * was out: a reload or a mirrored change taken into the state, a write
+   * landing, a question about the file or the state dropped leave it where it
+   * is, and the tab reads its file.
+   */
+  function takeCheckedTabState(slot: PaneSlot, id: string, check: KeptStateCheck): TabState | undefined {
+    const key = stateKey(slot.pane, id);
+    const entry = tabStates.peek(key);
+    if (entry !== check.entry || entry.state !== check.state) return undefined;
+    if (noteHashes().get(id) !== check.record || savesAreHeld(id)) return undefined;
+    return tabStates.take(key);
   }
 
   /**
@@ -1518,6 +1590,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
         scroll: null,
         mode: source.largeFileMode() ?? NORMAL_MODE,
         longest: source.longestLine(),
+        openTicket: openTicketOf(id),
       };
     } else {
       entry = tabStates.take(stateKey(from, id));
@@ -1745,6 +1818,7 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
       readDiskState,
       detectFromDocument,
       noteOpened,
+      noteRestored,
       noteEdited,
       noteSaved,
       noteClosed,
@@ -1796,8 +1870,11 @@ export function createEditorStore(options: EditorStoreOptions = {}) {
       noteShownTwice,
       mirrorChanges: (id: string, startLength: number, spec: TransactionSpec) =>
         mirrorChanges(slot, id, startLength, spec),
-      keepTabState: (id: string, entry: TabState) => tabStates.put(stateKey(slot.pane, id), entry),
+      keepTabState: (id: string, entry: TabState) =>
+        tabStates.put(stateKey(slot.pane, id), { ...entry, openTicket: openTicketOf(id) }),
       takeTabState: (id: string) => tabStates.take(stateKey(slot.pane, id)),
+      checkKeptState: (id: string) => checkKeptState(slot, id),
+      takeCheckedTabState: (id: string, check: KeptStateCheck) => takeCheckedTabState(slot, id, check),
       /** Lets go of every state this pane keeps, for an editor going away. */
       clearTabStates: () => {
         for (const id of tabStatesOf(slot.pane)) tabStates.delete(stateKey(slot.pane, id));

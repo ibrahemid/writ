@@ -502,9 +502,19 @@ function createBufferRegistry() {
   // past that size since its open comes back as the refusal's code: the tab
   // is unread from then on, refused, and its pane says why.
   async function readContent(id: string): Promise<string> {
+    return readWith(id, api.readBufferContent);
+  }
+
+  // The note's text for a caller other than its tab, a copy of it or a link
+  // looked up in it: the tab's record of its file does not move.
+  async function peekContent(id: string): Promise<string> {
+    return readWith(id, api.peekBufferContent);
+  }
+
+  async function readWith(id: string, read: (id: string) => Promise<string>): Promise<string> {
     if (unreadTabs.stateOf(id)) throw new UnreadTabReadError(id);
     try {
-      return await api.readBufferContent(id);
+      return await read(id);
     } catch (error) {
       if (leadingCodeOf(error, [ERR_OPEN_TOO_LARGE]) === null) throw error;
       // A size that could not be learned is worded as the limit itself, which
@@ -571,6 +581,7 @@ function createBufferRegistry() {
     registerOpenResult,
     showOpenFileDialog,
     readContent,
+    peekContent,
     refreshBuffer,
   };
 }

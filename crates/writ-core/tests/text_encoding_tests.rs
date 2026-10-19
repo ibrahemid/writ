@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use writ_core::file_ops::{classify_path, is_binary_bytes, FileOpenMode};
-use writ_core::hash::comparison_digest_hex;
+use writ_core::hash::{comparison_digest_hex, sha256_bytes};
 use writ_core::notes::line_ending::LineEnding;
 use writ_core::text_encoding::{
     code_points, declared, decode_detected, decode_detected_owned, decode_file, detect,
@@ -269,6 +269,31 @@ fn the_comparison_digest_is_over_the_text_the_editor_holds() {
         TextEncoding::utf8().comparison_digest_hex(b"x\r\n"),
         comparison_digest_hex(b"x\r\n")
     );
+}
+
+#[test]
+fn the_comparison_digest_of_hashed_bytes_is_the_comparison_digest() {
+    let utf8_bom = TextEncoding::utf8().with_bom_of(b"\xef\xbb\xbfx");
+    let utf16_bom = TextEncoding::from_label("UTF-16LE BOM").expect("known");
+    let cases: Vec<(TextEncoding, Vec<u8>)> = vec![
+        (TextEncoding::utf8(), b"plain\nlines\n".to_vec()),
+        (TextEncoding::utf8(), "café · 😀\n".as_bytes().to_vec()),
+        (TextEncoding::utf8(), b"crlf\r\nlines\r\n".to_vec()),
+        (TextEncoding::utf8(), b"lone\rbreak".to_vec()),
+        (TextEncoding::utf8(), b"\xef\xbb\xbfmarked\n".to_vec()),
+        (utf8_bom, b"\xef\xbb\xbfmarked\n".to_vec()),
+        (TextEncoding::windows_1252(), b"caf\xe9\n".to_vec()),
+        (TextEncoding::windows_1252(), b"plain ascii\n".to_vec()),
+        (utf16_bom, utf16("café\r\n", true, true)),
+        (TextEncoding::utf8(), Vec::new()),
+    ];
+    for (encoding, bytes) in cases {
+        assert_eq!(
+            encoding.comparison_digest_hex_of_hashed(&bytes, sha256_bytes(&bytes)),
+            encoding.comparison_digest_hex(&bytes),
+            "{encoding:?} {bytes:?}"
+        );
+    }
 }
 
 #[test]

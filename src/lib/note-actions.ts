@@ -171,7 +171,7 @@ export async function saveCopyOfNote(id: string): Promise<void> {
   try {
     const live = win.editor.currentBufferId() === id ? win.editor.getActiveText(false) : null;
     const kept = win.editor.textOfRemoved(id);
-    const content = live ? live.text : (kept ?? (await bufferRegistry.readContent(id)));
+    const content = live ? live.text : (kept ?? (await bufferRegistry.peekContent(id)));
     const path = await bufferRegistry.saveCopy(id, content);
     await win.tabs.openFile(path);
   } catch {

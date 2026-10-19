@@ -1717,13 +1717,21 @@ fn repoint_notes(state: &AppState, from: &Path, to: &Path) -> Result<(), String>
         // move. Reading every file in the folder to make one would be the one
         // thing this operation must not do: in a sync folder it pulls down
         // every note that is not on this machine (ADR-028 section 7).
-        if state.disk_state(&row.id).is_none() {
+        let Some(previous) = state.disk_state(&row.id) else {
             continue;
-        }
+        };
         state.forget_disk_state(&row.id);
         state.forget_source_record(&row.id);
+        // Bytes that are not the ones on record were changed by another
+        // program before the move, and no tab has them: the old record stays,
+        // for the tab's next save and its switch back to find the change.
         if let Ok(bytes) = std::fs::read(&path) {
-            state.record_disk_state_bytes(&row.id, &path, &bytes);
+            let digest = writ_core::hash::sha256_bytes(&bytes);
+            if digest == previous.hash {
+                state.record_disk_state(&row.id, &path, digest, bytes.len() as u64);
+            } else {
+                state.set_disk_state(&row.id, previous);
+            }
         }
     }
     Ok(())

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-//   WRIT_PERF_GATE=1 node scripts/perf-editor.mjs [--only <id>]... [--large] [--out <file.json>]
+//   WRIT_PERF_GATE=1 node scripts/perf-editor.mjs [--only <id>]... [--large] [--strict] [--out <file.json>]
 //   node scripts/perf-editor.mjs --write-files <dir> [--only <id>]... [--large]   (Node 22.18+)
 // Chromium: WRIT_PLAYWRIGHT_CORE (path to playwright-core's index.mjs), an installed
 // playwright-core with its chromium, or WRIT_PERF_CHROMIUM. Exit 0 within budget,
@@ -11,15 +11,24 @@ import { extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   BUDGETS,
+  FIND_RATE,
   METRICS,
   MiB,
+  PAIRED_TYPING,
   SCENARIOS,
+  TAB_SWITCH,
   TOGGLE_BUDGETS,
+  busyMs,
+  findRate,
   formatValue,
+  holdsWholeDocumentCalls,
   maximum,
   median,
   overBudget,
+  pairedTyping,
   percentile,
+  tabSwitchProblems,
+  wholeDocumentProblems,
 } from "./perf-editor/budgets.mjs";
 import { ROOT, harnessBuildConfig } from "./perf-editor/harness.mjs";
 
@@ -34,6 +43,8 @@ const MATCH_COUNT_CAP = 10_000;
 // times the document, so only files up to this size are checked by it.
 const WHOLE_TEXT_CHECK_MAX_BYTES = 8 * MiB;
 const SELECTION_ROWS = 40;
+const PAIRED_TEXT = "The quick brown fox jumps over the lazy dog and ".repeat(3).slice(0, PAIRED_TYPING.characters);
+const PROFILE_INTERVAL_US = 200;
 
 class GateSetupError extends Error {
   constructor(message) {
@@ -43,10 +54,11 @@ class GateSetupError extends Error {
 }
 
 function parseArgs(argv) {
-  const options = { only: [], large: false, out: null, writeFiles: null };
+  const options = { only: [], large: false, strict: false, out: null, writeFiles: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--large") options.large = true;
+    else if (arg === "--strict") options.strict = true;
     else if (arg === "--only" && argv[i + 1]) options.only.push(argv[++i]);
     else if (arg === "--out" && argv[i + 1]) options.out = resolve(argv[++i]);
     else if (arg === "--write-files" && argv[i + 1]) options.writeFiles = resolve(argv[++i]);
@@ -278,7 +290,44 @@ async function checkSelection(page, scenario, result, problems) {
   problems.push(...new Set([...all.problems, ...extended.problems]));
 }
 
-async function runScenario(browser, base, scenario) {
+// Profiles the last keystroke of each word, typed after the rest of it has
+// settled, to the final count: the main thread's busy time per MiB of file.
+async function measureFindRate(page, cdp, scenario, file) {
+  await page.keyboard.press("ControlOrMeta+f");
+  await page.waitForSelector(".find-input", { timeout: 5000 });
+  await page.waitForTimeout(300);
+  await cdp.send("Profiler.enable");
+  await cdp.send("Profiler.setSamplingInterval", { interval: PROFILE_INTERVAL_US });
+  const runs = [];
+  try {
+    for (let run = 0; run < FIND_RATE.runs; run++) {
+      for (const word of [RARE_WORD, ABSENT_WORD]) {
+        await clearFind(page);
+        await page.keyboard.type(word.slice(0, -1), { delay: 150 });
+        if ((await page.evaluate((timeout) => window.__harness.waitFindSettled(timeout), SETTLE_TIMEOUT_MS)) === null) {
+          throw new GateSetupError(`the count for "${word.slice(0, -1)}" never settled`);
+        }
+        if (scenario.counts && (await page.evaluate((timeout) => window.__harness.waitCountsExact(timeout), SETTLE_TIMEOUT_MS)) === null) {
+          throw new GateSetupError("the counts never finished before the profiled keystroke");
+        }
+        await page.waitForTimeout(500);
+        await page.evaluate(() => window.__harness.startKeys());
+        await cdp.send("Profiler.start");
+        await page.keyboard.press(word.at(-1));
+        const settledAt = await page.evaluate((timeout) => window.__harness.waitFindSettled(timeout), SETTLE_TIMEOUT_MS);
+        const { profile } = await cdp.send("Profiler.stop");
+        const keys = await page.evaluate(() => window.__harness.stopKeys());
+        if (settledAt === null || keys.length === 0) throw new GateSetupError(`the count for "${word}" never settled`);
+        runs.push({ word, busyMs: busyMs(profile), wallMs: settledAt - keys.at(-1).at });
+      }
+    }
+  } finally {
+    await cdp.send("Profiler.disable").catch(() => undefined);
+  }
+  return { runs, ...findRate(runs, file.size) };
+}
+
+async function runScenario(browser, base, scenario, options) {
   const problems = [];
   const result = { id: scenario.id, tier: scenario.tier, loadAverage: os.loadavg()[0], problems };
   const { context, page } = await openPage(browser, base, problems);
@@ -290,6 +339,8 @@ async function runScenario(browser, base, scenario) {
     result.file = { size: file.size, lines: file.lines, rareWordCount: file.rareWordCount };
     const heapBefore = await heapUsed(cdp);
     const opened = await page.evaluate((path) => window.__harness.open(path), file.path);
+    const wholeDocument = { open: opened.bigCalls };
+    result.wholeDocument = wholeDocument;
     if (scenario.split) {
       // The file shows in both panes and the typing below goes to the second
       // one, whose editor carries every change into the first.
@@ -335,11 +386,15 @@ async function runScenario(browser, base, scenario) {
     if (atEnd === null || jump.length === 0) problems.push("the jump to the end never showed the end");
     else measured.jumpToEndMs = Math.max(jump[0].ms, atEnd - jump[0].at);
 
-    await page.evaluate(() => window.__harness.startKeys());
+    await page.evaluate(() => {
+      window.__harness.startRecording();
+      window.__harness.startKeys();
+    });
     await page.keyboard.type(TYPED, { delay: 110 });
     await page.evaluate(() => window.__harness.resetObservations());
     await page.waitForTimeout(3500);
     const typing = keyMs(await page.evaluate(() => window.__harness.stopKeys()));
+    wholeDocument.typing = (await page.evaluate(() => window.__harness.stopRecording())).bigCalls;
     measured.typingP50Ms = median(typing);
     measured.typingP95Ms = percentile(typing, 95);
     measured.typingMaxMs = maximum(typing);
@@ -364,6 +419,7 @@ async function runScenario(browser, base, scenario) {
     await page.waitForTimeout(500);
     await page.evaluate(() => {
       window.__harness.resetObservations();
+      window.__harness.startRecording();
       window.__harness.startKeys();
     });
     await page.keyboard.type(TYPED_WITH_FIND, { delay: 120 });
@@ -371,6 +427,7 @@ async function runScenario(browser, base, scenario) {
     await page.waitForTimeout(3500);
     const withFind = await page.evaluate(() => window.__harness.stopKeys());
     const withFindObserved = await page.evaluate(() => window.__harness.observations());
+    wholeDocument.findTyping = (await page.evaluate(() => window.__harness.stopRecording())).bigCalls;
     const afterEdit = await page.evaluate(() => window.__harness.findStatus());
     if (editSettledAt === null) problems.push("the count never settled after typing with Find open");
     expectCount(afterEdit, file.rareWordCount, `${RARE_WORD}" after typing "${TYPED_WITH_FIND}`, problems);
@@ -381,9 +438,21 @@ async function runScenario(browser, base, scenario) {
 
     if (scenario.selection) await checkSelection(page, scenario, result, problems);
     if (scenario.counts) await checkCounts(page, file, result, problems);
+    if (options.strict && FIND_RATE.scenarios.includes(scenario.id)) {
+      result.findRate = await measureFindRate(page, cdp, scenario, file);
+      problems.push(...result.findRate.problems);
+    }
 
     result.measured = measured;
     problems.push(...overBudget(scenario.id, measured));
+    if (holdsWholeDocumentCalls(scenario)) {
+      const length = result.features.docLength;
+      problems.push(
+        ...wholeDocumentProblems("the open", wholeDocument.open, length),
+        ...wholeDocumentProblems("the typing pause", wholeDocument.typing, length),
+        ...wholeDocumentProblems("the typing pause with Find open", wholeDocument.findTyping, length),
+      );
+    }
   } catch (error) {
     problems.push(`the run stopped: ${String(error?.message ?? error).split("\n")[0]}`);
     result.stopped = true;
@@ -392,6 +461,113 @@ async function runScenario(browser, base, scenario) {
   }
   result.loadAverageEnd = os.loadavg()[0];
   return result;
+}
+
+// With the host keeping writes, types at the end, lets the save land, selects
+// a few characters in the middle and switches to another tab and back.
+async function runTabSwitch(browser, base, scenario) {
+  const problems = [];
+  const { context, page } = await openPage(browser, base, problems);
+  try {
+    await page.evaluate(() => window.__harness.keepWrites(true));
+    const other = await page.evaluate((spec) => window.__harness.addFile(spec), TAB_SWITCH.other);
+    const otherOpened = await page.evaluate((path) => window.__harness.open(path), other.path);
+    const file = await page.evaluate((spec) => window.__harness.addFile(spec), scenario.spec);
+    await page.evaluate((path) => window.__harness.open(path), file.path);
+    await page.waitForTimeout(3000);
+    await page.evaluate(() => window.__harness.focusEditor());
+    await page.keyboard.press("ControlOrMeta+End");
+    if ((await page.evaluate(() => window.__harness.waitViewportAtEnd(20_000))) === null) {
+      throw new GateSetupError("the jump to the end never showed the end");
+    }
+    await page.keyboard.type(" edited", { delay: 60 });
+    await page.waitForTimeout(3000);
+    await page.evaluate((fraction) => window.__harness.placeSelection(fraction), 0.5);
+    await page.waitForTimeout(500);
+    const trip = await page.evaluate((id) => window.__harness.tabRoundTrip(id), otherOpened.id);
+    problems.push(...tabSwitchProblems(trip));
+    return {
+      before: trip.before,
+      after: trip.after,
+      switchBackMs: trip.switchBackMs,
+      ipcCalls: trip.ipcCalls,
+      bigCalls: trip.bigCalls,
+      problems,
+    };
+  } catch (error) {
+    problems.push(`the tab switch stopped: ${String(error?.message ?? error).split("\n")[0]}`);
+    return { problems, stopped: true };
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+}
+
+// One run of paired typing: the counts off, the counts on, or Find open with
+// the counts off, each in a fresh page on the same file.
+async function typePaired(browser, base, scenario, condition) {
+  const problems = [];
+  const { context, page } = await openPage(browser, base, problems);
+  try {
+    await page.evaluate((on) => window.__harness.setCounts(on), condition === "on");
+    const file = await page.evaluate((spec) => window.__harness.addFile(spec), scenario.spec);
+    await page.evaluate((path) => window.__harness.open(path), file.path);
+    await page.waitForTimeout(3000);
+    await page.evaluate(() => window.__harness.dropBytes());
+    if (condition === "on" && (await page.evaluate((timeout) => window.__harness.waitCountsExact(timeout), SETTLE_TIMEOUT_MS)) === null) {
+      throw new GateSetupError("the counts never finished");
+    }
+    if (condition === "find") {
+      await page.keyboard.press("ControlOrMeta+f");
+      await page.waitForSelector(".find-input", { timeout: 5000 });
+      await page.keyboard.type(RARE_WORD, { delay: 150 });
+      if ((await page.evaluate((timeout) => window.__harness.waitFindSettled(timeout), SETTLE_TIMEOUT_MS)) === null) {
+        throw new GateSetupError(`the count for "${RARE_WORD}" never settled`);
+      }
+    }
+    await page.evaluate(() => window.__harness.focusEditor());
+    await page.keyboard.press("ControlOrMeta+End");
+    if ((await page.evaluate(() => window.__harness.waitViewportAtEnd(20_000))) === null) {
+      throw new GateSetupError("the jump to the end never showed the end");
+    }
+    await page.waitForTimeout(500);
+    await page.evaluate(() => window.__harness.startKeys());
+    await page.keyboard.type(PAIRED_TEXT, { delay: 110 });
+    await page.waitForTimeout(400);
+    const keys = keyMs(await page.evaluate(() => window.__harness.stopKeys()));
+    return { condition, keys: keys.length, p50: median(keys), max: maximum(keys), loadAverage: os.loadavg()[0], problems };
+  } catch (error) {
+    problems.push(`the run stopped: ${String(error?.message ?? error).split("\n")[0]}`);
+    return { condition, keys: 0, p50: null, max: null, loadAverage: os.loadavg()[0], problems, stopped: true };
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+}
+
+// Rounds of the three conditions, the order turning each round so that each
+// takes each place equally often.
+async function runPairedTyping(browser, base) {
+  const scenario = SCENARIOS.find((candidate) => candidate.id === PAIRED_TYPING.scenario);
+  const conditions = ["off", "on", "find"];
+  const rounds = [];
+  for (let index = 0; index < PAIRED_TYPING.rounds; index++) {
+    const shift = index % conditions.length;
+    const order = [...conditions.slice(shift), ...conditions.slice(0, shift)];
+    const round = {};
+    for (const condition of order) round[condition] = await typePaired(browser, base, scenario, condition);
+    rounds.push(round);
+    console.log(
+      `  round ${index + 1}: ${conditions.map((condition) => `${condition} p50 ${formatValue(round[condition].p50, "ms")} max ${formatValue(round[condition].max, "ms")}`).join(", ")} (load average ${round[order[0]].loadAverage.toFixed(1)})`,
+    );
+  }
+  const verdict = pairedTyping(rounds);
+  const problems = [...new Set(rounds.flatMap((round) => conditions.flatMap((condition) => round[condition].problems)))];
+  problems.push(...verdict.problems);
+  return {
+    rounds,
+    compared: verdict.compared,
+    problems,
+    stopped: rounds.some((round) => conditions.some((condition) => round[condition].stopped)),
+  };
 }
 
 async function runToggle(browser, base) {
@@ -426,6 +602,24 @@ function printScenario(scenario, result) {
     );
   }
   if (result.counts) console.log(`  ${"Counts shown".padEnd(28)} ${result.counts.shown}`);
+  if (result.findRate) {
+    const rates = Object.entries(result.findRate.perWord).map(([word, rate]) => `${word} ${rate?.toFixed(2) ?? "n/a"}`);
+    console.log(
+      `  ${"Find rate (ms/MiB)".padEnd(28)} ${(result.findRate.msPerMiB?.toFixed(2) ?? "n/a").padStart(10)}  budget ${FIND_RATE.budgetMsPerMiB.toFixed(2).padStart(10)}  (${rates.join(", ")})`,
+    );
+  }
+  if (result.wholeDocument && holdsWholeDocumentCalls(scenario)) {
+    const { open, typing, findTyping } = result.wholeDocument;
+    console.log(
+      `  ${"Calls of 1 MiB or more".padEnd(28)} open ${open?.length ?? "n/a"}, typing pause ${typing?.length ?? "n/a"}, with Find open ${findTyping?.length ?? "n/a"}`,
+    );
+  }
+  if (result.tabSwitch?.before) {
+    const { before, after, switchBackMs, ipcCalls } = result.tabSwitch;
+    console.log(
+      `  ${"Tab switch back".padEnd(28)} ${formatValue(switchBackMs, "ms")}; undo ${before.undoDepth} to ${after?.undoDepth}, top line ${before.topLine} to ${after?.topLine}; sent ${Object.keys(ipcCalls).join(", ") || "nothing"}`,
+    );
+  }
   if (result.selection) {
     const { selectAllMs, extendP50Ms, extendMaxMs } = result.selection;
     console.log(
@@ -495,11 +689,34 @@ async function main() {
     let failed = false;
     let stopped = false;
     for (const scenario of scenarios) {
-      const result = await runScenario(browser, base, scenario);
+      const result = await runScenario(browser, base, scenario, options);
+      if (TAB_SWITCH.scenarios.includes(scenario.id)) {
+        result.tabSwitch = await runTabSwitch(browser, base, scenario);
+        result.problems.push(...result.tabSwitch.problems);
+        if (result.tabSwitch.stopped) result.stopped = true;
+      }
       results.push(result);
       printScenario(scenario, result);
       if (result.problems.length) failed = true;
       if (result.stopped) stopped = true;
+    }
+
+    let paired = null;
+    if (options.strict && scenarios.some((scenario) => scenario.id === PAIRED_TYPING.scenario)) {
+      console.log(`\npaired typing (${PAIRED_TYPING.scenario}, ${PAIRED_TYPING.rounds} rounds of counts off, counts on and Find open)`);
+      paired = await runPairedTyping(browser, base);
+      for (const [variant, label] of [
+        ["on", "counts on"],
+        ["find", "Find open"],
+      ]) {
+        const { p50, max } = paired.compared[variant];
+        console.log(
+          `  ${label} against counts off: p50 ${p50.delta?.toFixed(1) ?? "n/a"} ms (band ${p50.band?.toFixed(1) ?? "n/a"} ms), max ${max.delta?.toFixed(1) ?? "n/a"} ms (band ${max.band?.toFixed(1) ?? "n/a"} ms)`,
+        );
+      }
+      for (const problem of paired.problems) console.log(`  problem: ${problem}`);
+      if (paired.problems.length) failed = true;
+      if (paired.stopped) stopped = true;
     }
 
     const toggleLoad = os.loadavg()[0];
@@ -520,7 +737,9 @@ async function main() {
     const record = {
       at: new Date().toISOString(),
       machine,
+      strict: options.strict,
       results,
+      pairedTyping: paired,
       toggle: { loadAverage: toggleLoad, cold, warm: toggle.warm, problems: toggleProblems },
     };
     await writeFile(out, `${JSON.stringify(record, null, 1)}\n`);

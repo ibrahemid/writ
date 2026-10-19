@@ -240,6 +240,8 @@ export function createBufferCommands(state: DemoState): CommandTable {
       const doc = state.getBuffer(args.id);
       return refuseOnThrow(() => readBufferContent(doc).slice().buffer, describeReadRefusal);
     },
+    // The demo keeps no record of what a tab read, so this read is that one.
+    peek_buffer_content: (args) => commands.read_buffer_content(args),
     open_file: (args) => state.openPath(String(args.path)),
     open_file_confirmed: (args) => state.openConfirmedPath(String(args.path)),
     create_buffer: (args) => {
@@ -463,6 +465,9 @@ export function createBufferCommands(state: DemoState): CommandTable {
         describeNoteFailure,
       );
     },
+    // The demo keeps no record of what it last read or wrote, so it vouches
+    // for no file and a tab switched back to reads its file again.
+    note_file_unchanged: (): Answer<"noteFileUnchanged"> => false,
     note_disk_state: async (args): Promise<Answer<"noteDiskState">> => {
       const doc = state.getBuffer(args.id);
       if (!doc.source_path || !folder.has(doc.source_path)) return { state: "no_file" };

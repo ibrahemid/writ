@@ -104,8 +104,9 @@ interface QueuedContent {
   writer?: SaveWriter;
   /**
    * Set for a note in the editor's large tiers: a snapshot is then sent as the
-   * changes since the document the note's last write landed with, when one
-   * is known ([`landedTexts`]), instead of as the whole text.
+   * changes since the document the note's last write landed with or its tab
+   * opened with, when one is known ([`landedTexts`]), instead of as the whole
+   * text.
    */
   encodeChanges?: ChangeEncoder;
 }
@@ -125,7 +126,11 @@ export interface EncodedChanges {
  */
 export type ChangeEncoder = (base: DocumentSnapshot, doc: DocumentSnapshot) => EncodedChanges | null;
 
-/** The document a note's last landed write carried, and the digest Rust answered it with. */
+/**
+ * The document a note's last landed write carried, and the digest Rust
+ * answered it with; or the document its tab opened with, and the digest Rust
+ * read its file at.
+ */
 interface LandedText {
   doc: DocumentSnapshot;
   digest: string;
@@ -174,9 +179,11 @@ const lastFailedContent = new Map<string, UnsavedText>();
 // to a stalled share can still hand that text to the unsaved-text journal.
 const inFlightContent = new Map<string, () => string>();
 // Per note, the snapshot its last landed write carried and the digest of what
-// that write put on the file. Only a snapshot is kept: the change set a
-// large-tier save sends is made against exactly this document, and Rust
-// applies it only while the file's text still has this digest. A write that
+// that write put on the file, or the document its tab opened with and the
+// digest of the file it was read from ([`recordOpenedText`]). Only a snapshot
+// is kept: the change set a large-tier save sends is made against exactly
+// this document, and Rust applies it only while the file's text still has
+// this digest and its bytes are the ones Writ last read or wrote. A write that
 // lands carrying anything else, or through a writer of its own, drops it.
 const landedTexts = new Map<string, LandedText>();
 
@@ -187,6 +194,20 @@ const landedTexts = new Map<string, LandedText>();
  */
 export function forgetLandedText(bufferId: string) {
   landedTexts.delete(bufferId);
+}
+
+/**
+ * Takes the document a note's tab opened with as the one its file holds,
+ * `digest` being the comparison digest Rust read the file at, so the note's
+ * first write can go as the changes since the open rather than whole.
+ *
+ * Not while a write of the note is out: its answer may not have arrived yet
+ * while the digest already describes what it wrote, and it records its own
+ * document when it lands.
+ */
+export function recordOpenedText(bufferId: string, doc: DocumentSnapshot, digest: string) {
+  if (inFlight.has(bufferId)) return;
+  landedTexts.set(bufferId, { doc, digest });
 }
 
 export function onAutosaveError(listener: AutosaveErrorListener): () => void {
@@ -645,7 +666,8 @@ async function startWrite(bufferId: string): Promise<SaveResult> {
 
 /**
  * The change set a queued snapshot can be sent as: made against the document
- * the note's last write landed with, for a note whose writes may go that way.
+ * the note's last write landed with or its tab opened with, for a note whose
+ * writes may go that way.
  */
 function changesToSend(
   bufferId: string,

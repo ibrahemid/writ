@@ -31,9 +31,9 @@ use writ_storage::notes_index::{self, NotesIndexStore};
 #[cfg(unix)]
 use writ_tauri_lib::commands::buffer::ERR_FOLDER_NOT_WRITABLE;
 use writ_tauri_lib::commands::buffer::{
-    read_buffer_content_inner, resolve_external_change_at, resolve_external_change_inner,
-    restore_note_file_inner, save_buffer_content_inner, ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING,
-    ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK,
+    note_file_unchanged_inner, read_buffer_content_inner, resolve_external_change_at,
+    resolve_external_change_inner, restore_note_file_inner, save_buffer_content_inner,
+    ERR_FILE_CHANGED_ON_DISK, ERR_FILE_MISSING, ERR_FILE_NOT_DOWNLOADED, ERR_FILE_REMOVED_ON_DISK,
 };
 use writ_tauri_lib::commands::file::open_file_from_path;
 use writ_tauri_lib::commands::note_index::resolve_note_link_inner;
@@ -1110,6 +1110,31 @@ fn open_tabs_follow_their_files_when_the_notes_folder_moves() {
 }
 
 #[test]
+fn a_folder_move_keeps_the_record_of_a_note_another_program_changed() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = make_state(&dir);
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "what the tab holds").expect("save");
+    let outside = "another program wrote more than this\n";
+    std::fs::write(note_file(&state, &doc.id), outside).expect("write in place");
+
+    let elsewhere = TempDir::new().expect("somewhere else");
+    move_notes_folder_to(&state, &elsewhere.path().join("Moved")).expect("move the notes folder");
+
+    assert!(
+        !note_file_unchanged_inner(&state, &doc.id),
+        "the switch back still finds the change"
+    );
+    let refused = save_buffer_content_inner(&state, &doc.id, "what the tab holds, typed")
+        .expect_err("the next save must not land over the change");
+    assert!(refused.starts_with(ERR_FILE_CHANGED_ON_DISK), "{refused}");
+    assert_eq!(
+        std::fs::read_to_string(note_file(&state, &doc.id)).expect("read the moved file"),
+        outside
+    );
+}
+
+#[test]
 fn a_file_opened_from_outside_the_notes_folder_survives_the_move() {
     let dir = TempDir::new().expect("temp dir");
     let (state, rx) = watching_state(&dir);
@@ -1823,6 +1848,30 @@ fn deleting_one_name_of_a_hard_linked_file_follows_the_name_that_is_left() {
     assert!(
         !path.exists(),
         "the save recreated the name that was deleted"
+    );
+}
+
+#[test]
+fn a_move_another_program_made_keeps_the_record_of_a_change_no_watcher_reported() {
+    let dir = TempDir::new().expect("temp dir");
+    let state = Arc::new(make_state(&dir));
+    let doc = new_note_inner(&state).expect("new note");
+    save_buffer_content_inner(&state, &doc.id, "what the tab holds").expect("save");
+    assert!(note_file_unchanged_inner(&state, &doc.id));
+    let before = note_file(&state, &doc.id);
+    std::fs::write(&before, "another program wrote more than this\n").expect("write in place");
+    let after = state.notes_root().join("moved-by-finder.md");
+    std::fs::rename(&before, &after).expect("move the file the way Finder does");
+
+    let files = FileTracking::of_state(&state).files;
+    assert_eq!(
+        files.note_file_moved(&doc.id, &before, &after),
+        MoveOutcome::Followed
+    );
+
+    assert!(
+        !note_file_unchanged_inner(&state, &doc.id),
+        "the switch back still finds the change"
     );
 }
 
