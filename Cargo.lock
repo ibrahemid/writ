@@ -6947,7 +6947,7 @@ dependencies = [
 
 [[package]]
 name = "writ-ai"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "futures-util",
  "keyring",
@@ -6967,7 +6967,7 @@ dependencies = [
 
 [[package]]
 name = "writ-cli"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "clap",
@@ -6984,7 +6984,7 @@ dependencies = [
 
 [[package]]
 name = "writ-core"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "base64 0.22.1",
  "chardetng",
@@ -7010,7 +7010,7 @@ dependencies = [
 
 [[package]]
 name = "writ-lint"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "pulldown-cmark",
  "serde",
@@ -7020,7 +7020,7 @@ dependencies = [
 
 [[package]]
 name = "writ-mcp"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "percent-encoding",
@@ -7037,7 +7037,7 @@ dependencies = [
 
 [[package]]
 name = "writ-plugin"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "criterion",
  "serde",
@@ -7048,7 +7048,7 @@ dependencies = [
 
 [[package]]
 name = "writ-render"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "pulldown-cmark",
  "serde",
@@ -7058,7 +7058,7 @@ dependencies = [
 
 [[package]]
 name = "writ-storage"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "criterion",
@@ -7083,7 +7083,7 @@ dependencies = [
 
 [[package]]
 name = "writ-tauri"
-version = "1.0.0-2"
+version = "1.0.0"
 dependencies = [
  "chrono",
  "core-foundation 0.10.1",

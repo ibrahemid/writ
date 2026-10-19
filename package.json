@@ -1,7 +1,7 @@
 {
     "name": "writ",
     "private": true,
-    "version": "1.0.0-2",
+    "version": "1.0.0",
     "description": "Light text editor for any text file, with full-text search and inline Markdown",
     "license": "MIT",
     "packageManager": "pnpm@10.13.1",
