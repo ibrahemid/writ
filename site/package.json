@@ -19,7 +19,7 @@
     "astro": "^7.4.2"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.10",
+    "@astrojs/check": "^0.9.11",
     "sharp": "0.35.5",
     "typescript": "^6.0.3",
     "ultrahtml": "1.7.0",
