@@ -16,14 +16,14 @@
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.4",
-    "astro": "^7.3.8"
+    "astro": "^7.4.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "sharp": "0.35.5",
     "typescript": "^6.0.3",
     "ultrahtml": "1.7.0",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.5"
   },
   "pnpm": {
     "overrides": {
