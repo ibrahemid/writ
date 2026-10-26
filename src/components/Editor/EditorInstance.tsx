@@ -1542,6 +1542,11 @@ export default function EditorInstance(props: Props) {
     { defer: true },
   ));
 
+  // The font size lands through CSS at once, and the editor measures again
+  // only when its ResizeObserver fires a frame later, so the cursor and the
+  // selection paint at the old size for that frame. Measure in this frame.
+  createEffect(on(editorZoom.fontSize, () => view?.requestMeasure(), { defer: true }));
+
   onCleanup(() => {
     containerRef.removeEventListener("wheel", onWheelZoom);
     if (positionTimer !== undefined) clearTimeout(positionTimer);
