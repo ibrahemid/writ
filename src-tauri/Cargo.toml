@@ -32,7 +32,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 notify = "8"
 notify-debouncer-mini = "0.7"
-hashbrown = { version = "0.16", default-features = false }
+hashbrown = { version = "0.17", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
@@ -72,7 +72,7 @@ tauri-plugin-single-instance = "2"
 # where rfd's dialogs would add GTK as a direct build dependency of this
 # crate; see startup_failure::show_failure_dialog_via_command.
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-rfd = { version = "0.16", default-features = false }
+rfd = { version = "0.17", default-features = false }
 
 # access(2) for the updater's check that the directory it writes into is
 # writable. The rustix tempfile already resolves on every unix target.
@@ -81,7 +81,7 @@ rustix = { version = "1", default-features = false, features = ["std", "fs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
-fsevent-sys = "4"
+fsevent-sys = "5"
 # The same objc2 line tauri, tao and wry already resolve, so this unifies
 # rather than adding a second copy of the AppKit bindings. Needed to install
 # `applicationShouldTerminate:`, which nothing above this crate exposes, and to
