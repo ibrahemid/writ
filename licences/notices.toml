@@ -121,7 +121,7 @@ sources = [
 ]
 
 [[bundled]]
-name = "Mermaid 12.2.0"
+name = "Mermaid 11.16.1"
 licence = "MIT"
 file = "mermaid.txt"
 files = [
