@@ -34,7 +34,7 @@ chardetng = "1.0.0"
 toml_edit = { version = "0.25", default-features = false, features = ["parse", "display"] }
 # The install links an MCP client takes (`mcp_clients`): base64 and
 # `encodeURIComponent` of the server's JSON. Both already resolve in the lock.
-base64 = "0.22"
+base64 = "0.23"
 percent-encoding = "2.3"
 
 [dev-dependencies]

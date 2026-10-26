@@ -20,6 +20,9 @@ updates:
     groups:
       cargo-all:
         patterns: ["*"]
+    ignore:
+      - dependency-name: "fsevent-sys"
+        update-types: ["version-update:semver-major"]
 
   # Root frontend (Tauri / SolidJS / Vite)
   - package-ecosystem: "npm"
@@ -41,6 +44,11 @@ updates:
     groups:
       npm-all:
         patterns: ["*"]
+    ignore:
+      # The md-blocks editor perf gate keeps the preview's JS heap under its
+      # budget; mermaid 12 grows it past it.
+      - dependency-name: "mermaid"
+        update-types: ["version-update:semver-major"]
 
   # Site (Astro)
   - package-ecosystem: "npm"
