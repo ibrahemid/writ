@@ -6,10 +6,10 @@ import { fileURLToPath } from 'node:url';
 const DIST = join(fileURLToPath(new URL('..', import.meta.url)), 'dist');
 const PAGES = [join(DIST, 'index.html'), join(DIST, 'download', 'index.html')];
 
-const EXPECTED = [
+const EXPECTED: { os: string; name: string; file: RegExp; command: string | null }[] = [
   { os: 'mac', name: 'macOS', file: /\.pkg$/, command: 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ' },
   { os: 'win', name: 'Windows', file: /\.msi$/, command: 'winget install -e --id ibrahemid.Writ' },
-  { os: 'linux', name: 'Linux', file: /\.AppImage$/, command: 'yay -S writ-bin' },
+  { os: 'linux', name: 'Linux', file: /\.AppImage$/, command: null },
 ];
 
 const decode = (html: string): string => {
@@ -65,13 +65,19 @@ describe('download groups in the built pages', () => {
     }
   });
 
-  it('give each operating system its one package-manager command, with a copy button hidden until script shows it', () => {
+  it('give each operating system with a package manager its one command, with a copy button hidden until script shows it', () => {
     for (const page of PAGES) {
       for (const group of groupsOf(page)) {
         const expected = EXPECTED.find((candidate) => candidate.os === group.os);
         const commands = [...group.html.matchAll(/<code\b[^>]*\bdata-copy-text\b[^>]*>([\s\S]*?)<\/code>/g)].map((m) => decode(m[1] ?? ''));
-        expect(commands, `${page} ${group.os}`).toEqual([expected?.command]);
         const buttons = [...group.html.matchAll(/<button\b[^>]*\bdata-copy\b[^>]*>/g)].map((m) => m[0]);
+        if (!expected?.command) {
+          expect(commands, `${page} ${group.os}`).toEqual([]);
+          expect(buttons, `${page} ${group.os}`).toEqual([]);
+          expect(group.html, `${page} ${group.os}`).not.toMatch(/data-copy-status|class="dl-manager"/);
+          continue;
+        }
+        expect(commands, `${page} ${group.os}`).toEqual([expected.command]);
         expect(buttons, `${page} ${group.os}`).toHaveLength(1);
         expect(buttons[0]).toMatch(/\bhidden\b/);
         expect(buttons[0]).toMatch(/type="button"/);
