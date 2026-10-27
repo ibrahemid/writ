@@ -1,7 +1,7 @@
 # Maintainer: ibrahemid <ibrahemid@gmail.com>
 pkgname=writ-bin
 _pkgname=writ
-pkgver=1.0.0
+pkgver=1.0.1
 pkgrel=1
 pkgdesc="Light text editor for any text file, with full-text search and inline Markdown"
 arch=('x86_64')
@@ -19,7 +19,7 @@ source=("${_pkgname}-${pkgver}.AppImage::${url}/releases/download/v${pkgver}/Wri
         "${_pkgname}-${pkgver}.AppImage.minisign::${url}/releases/download/v${pkgver}/Writ_${pkgver}_amd64.AppImage.sig"
         "LICENSE-${pkgver}::${url}/raw/v${pkgver}/LICENSE")
 noextract=("${_pkgname}-${pkgver}.AppImage")
-sha256sums=('def228b53d55b4cb80bc0e58af520d8e8297feda6cf04137006d7aa48c9ec3a0'
+sha256sums=('4369ca3e4e5746b94debfaecc4b5add8f9e2f6589b6a2be8db64432c51d9be13'
             'SKIP'
             'e851ba857f3adab0dea5d16a71684a9f046cd7e413f12334d3dd13cff1f4f10f')
 
