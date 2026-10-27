@@ -6,7 +6,7 @@ import solidPlugin from "vite-plugin-solid";
 const host = process.env.TAURI_DEV_HOST;
 const devPort = Number(process.env.WRIT_DEV_PORT) || 1420;
 
-const SHARED_EXCLUDE = ["**/node_modules/**", "**/dist/**", "**/.claude/**", "site/**"];
+const SHARED_EXCLUDE = ["**/node_modules/**", "**/dist/**", "**/.claude/**", "**/.status/**", "site/**"];
 // Files that mount a component or an editor view, wherever they live.
 const MOUNT_TESTS = [
   "src/__tests__/components/**/*.{test,spec}.{ts,tsx}",
