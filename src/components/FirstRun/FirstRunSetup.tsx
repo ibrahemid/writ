@@ -133,6 +133,7 @@ function FormatStep() {
         onKeyDown={(event) => answerOnEnter(event, submit)}
       >
         <div class="first-run-setup-head">
+          <p class="first-run-setup-step">1 of 2</p>
           <h1 class="first-run-setup-heading" id={HEADING_ID}>
             Default format
           </h1>
@@ -167,19 +168,21 @@ function FormatStep() {
             }}
           </For>
         </div>
-        <div class="first-run-setup-actions">
-          <Button
-            variant="primary"
-            class="first-run-setup-continue"
-            onClick={submit}
-          >
-            Continue
-          </Button>
-          <Show when={firstRunStore.revisiting()}>
-            <Button data-action="cancel-setup" onClick={() => firstRunStore.cancelApps()}>
-              Cancel
+        <div class="first-run-setup-foot">
+          <div class="first-run-setup-actions">
+            <Button
+              variant="primary"
+              class="first-run-setup-continue"
+              onClick={submit}
+            >
+              Continue
             </Button>
-          </Show>
+            <Show when={firstRunStore.revisiting()}>
+              <Button data-action="cancel-setup" onClick={() => firstRunStore.cancelApps()}>
+                Cancel
+              </Button>
+            </Show>
+          </div>
         </div>
     </div>
   );
@@ -224,12 +227,15 @@ function AppsStep() {
       onKeyDown={(event) => answerOnEnter(event, submit)}
     >
       <div class="first-run-setup-head">
+        <Show when={firstRunStore.stepCount() > 1}>
+          <p class="first-run-setup-step">2 of 2</p>
+        </Show>
         <h1 class="first-run-setup-heading" id={APPS_HEADING_ID}>
           Apps
         </h1>
         <p class="first-run-setup-lead" id={APPS_LEAD_ID}>
-          Each app adds one thing to the window. They stay off until you switch them on, here or in
-          Settings, Apps.
+          Writ opens and edits text files. These apps add more, and each stays off until you switch
+          it on. Settings, Apps changes them later.
         </p>
       </div>
       <ul class="first-run-apps" aria-labelledby={APPS_HEADING_ID}>
@@ -239,33 +245,42 @@ function AppsStep() {
             const labelId = `first-run-app-${app.id}`;
             const detailId = `first-run-app-${app.id}-detail`;
             return (
-              <li class="first-run-app" data-app={app.id} onClick={() => firstRunStore.toggleApp(app.id)}>
-                <Icon name={app.icon} class="first-run-app-icon" />
-                <span class="first-run-app-text">
+              <li
+                class="first-run-app"
+                classList={{ "is-on": on() }}
+                data-app={app.id}
+                onClick={() => firstRunStore.toggleApp(app.id)}
+              >
+                <span class="first-run-app-head">
+                  <span class="first-run-app-tile">
+                    <Icon name={app.icon} class="first-run-app-icon" />
+                  </span>
                   <span class="first-run-app-label" id={labelId}>
                     {app.label}
                   </span>
+                  <button
+                    ref={(el) => (switches[index()] = el)}
+                    type="button"
+                    class="first-run-app-switch"
+                    classList={{ "is-on": on() }}
+                    role="switch"
+                    aria-checked={on()}
+                    aria-labelledby={labelId}
+                    aria-describedby={detailId}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      firstRunStore.toggleApp(app.id);
+                    }}
+                  >
+                    <span class="first-run-app-knob" />
+                  </button>
+                </span>
+                <span class="first-run-app-text">
                   <span class="first-run-app-detail" id={detailId}>
                     {app.detail}
                   </span>
                   <AppEntryPoints app={app} class="first-run-app-where" />
                 </span>
-                <button
-                  ref={(el) => (switches[index()] = el)}
-                  type="button"
-                  class="first-run-app-switch"
-                  classList={{ "is-on": on() }}
-                  role="switch"
-                  aria-checked={on()}
-                  aria-labelledby={labelId}
-                  aria-describedby={detailId}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    firstRunStore.toggleApp(app.id);
-                  }}
-                >
-                  <span class="first-run-app-knob" />
-                </button>
               </li>
             );
           }}
@@ -282,7 +297,19 @@ function AppsStep() {
           >
             Continue
           </Button>
-          <Show when={firstRunStore.revisiting()}>
+          <Show
+            when={firstRunStore.revisiting()}
+            fallback={
+              <Button
+                variant="ghost"
+                data-action="skip-apps"
+                disabled={firstRunStore.busy()}
+                onClick={() => void firstRunStore.skipApps()}
+              >
+                Skip for now
+              </Button>
+            }
+          >
             <Button data-action="cancel-apps" onClick={() => firstRunStore.cancelApps()}>
               Cancel
             </Button>

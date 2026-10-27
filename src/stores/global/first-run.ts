@@ -56,7 +56,7 @@ export function createFirstRunStore() {
   // Whether the revisit began at the format step (Help, Show Setup Again), so
   // its last Continue writes the format too. A revisit of the Apps step alone
   // never touches the format.
-  let revisitingFormat = false;
+  const [revisitingFormat, setRevisitingFormat] = createSignal(false);
   let loaded = false;
   const asked = new Set<string>();
 
@@ -99,7 +99,7 @@ export function createFirstRunStore() {
   function showApps(): void {
     if (step() !== null) return;
     setApps(new Set(APP_IDS.filter((app) => configStore.isAppOn(app))));
-    revisitingFormat = false;
+    setRevisitingFormat(false);
     setRevisiting(true);
     setStep("apps");
   }
@@ -113,7 +113,7 @@ export function createFirstRunStore() {
     if (step() !== null) return;
     setFormat(configStore.config().files.default_extension);
     setApps(new Set(APP_IDS.filter((app) => configStore.isAppOn(app))));
-    revisitingFormat = true;
+    setRevisitingFormat(true);
     setRevisiting(true);
     setStep("format");
   }
@@ -121,9 +121,15 @@ export function createFirstRunStore() {
   /** Leaves a revisited setup without writing. */
   function cancelApps(): void {
     if (!revisiting()) return;
-    revisitingFormat = false;
+    setRevisitingFormat(false);
     setRevisiting(false);
     setStep(null);
+  }
+
+  /** How many steps the screen shows: one when Settings, Apps opens the Apps
+   * step alone, two otherwise. */
+  function stepCount(): number {
+    return revisiting() && !revisitingFormat() ? 1 : 2;
   }
 
   /** The Apps step's Continue. */
@@ -135,6 +141,14 @@ export function createFirstRunStore() {
     await continueSetup();
   }
 
+  /** The Apps step's Skip for now on a first launch: every switch goes off and
+   * the launch finishes, so what is written is what the screen shows. */
+  async function skipApps(): Promise<void> {
+    if (revisiting() || busy()) return;
+    setApps(new Set<AppId>());
+    await continueSetup();
+  }
+
   /** Writes the switches the revisited screen holds, in one config write, and
    * leaves. A write that fails keeps the screen up with the answer on it. */
   async function saveApps(): Promise<void> {
@@ -142,7 +156,7 @@ export function createFirstRunStore() {
     setBusy(true);
     const chosen = apps();
     const current = configStore.config();
-    const base = revisitingFormat
+    const base = revisitingFormat()
       ? { ...current, files: { ...current.files, default_extension: format() } }
       : current;
     try {
@@ -151,14 +165,14 @@ export function createFirstRunStore() {
     } catch {
       logFailure("the apps could not be saved");
       showToast(
-        revisitingFormat ? "Could not save the setup" : "Could not save the app switches",
+        revisitingFormat() ? "Could not save the setup" : "Could not save the app switches",
         "error",
       );
       return;
     } finally {
       setBusy(false);
     }
-    revisitingFormat = false;
+    setRevisitingFormat(false);
     setRevisiting(false);
     setStep(null);
   }
@@ -272,7 +286,9 @@ export function createFirstRunStore() {
     toggleApp,
     showApps,
     showSetup,
+    stepCount,
     continueApps,
+    skipApps,
     cancelApps,
     revisiting,
     busy,

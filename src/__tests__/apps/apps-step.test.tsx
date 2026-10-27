@@ -90,7 +90,7 @@ describe("the Apps step", () => {
       expect(switchFor(container, app.id).getAttribute("aria-checked")).toBe("false");
     }
     const controls = getByRole("dialog").querySelectorAll("button, input, select, [role='radio']");
-    expect(controls.length).toBe(APPS.length + 1);
+    expect(controls.length).toBe(APPS.length + 2);
     expect(container.querySelector("[data-action='cancel-apps']")).toBeNull();
   });
 
