@@ -4,6 +4,18 @@
 
 Accepted.
 
+Amended 2026-10-27: names are drawn on the folder view, not only on the open
+note. The open, chosen and hovered notes and the neighbours of the chosen or
+hovered one are always named; the most linked notes are named under a budget
+that grows with the square of the zoom, each placed only where an occupancy
+grid says no name already is. Every name is drawn between ten and twelve
+pixels whatever the fit. The folder settle adds a pull of each note towards
+the middle of its top-level folder (`groupPull`, 0.016 in
+`FOLDER_LAYOUT_OPTIONS`, absent for the panel's neighbourhood), so a folder
+reads as a cluster; section 2 holds unchanged. Hovering or choosing a note
+lights its links and drops the rest to faint. Notes with no links are drawn
+smaller and faint, and the view has a switch that hides them.
+
 ## Context
 
 Two surfaces draw the folder's link graph: "Connections", the panel beside the
