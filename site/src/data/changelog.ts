@@ -24,6 +24,13 @@ export interface ChangelogRelease {
 
 export const releases: ChangelogRelease[] = [
   {
+    version: "1.0.1",
+    date: "2026-10-27",
+    notes: [
+      { kind: 'fixed', text: "changing the text size with Cmd+= or Cmd+- (Ctrl on Windows and Linux) left the cursor and the selection at their old size and place for a frame before they jumped, which read as a flicker; they move with the text now." },
+    ],
+  },
+  {
     version: "1.0.0",
     date: "2026-10-19",
     notes: [
