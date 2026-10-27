@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] - 2026-10-27
+
+The cursor and the selection follow a text-size change at once.
+
+### Fixed
+
+- Changing the text size with Cmd+= or Cmd+- (Ctrl on Windows and Linux) left the cursor and the selection at their old size and place for a frame before they jumped, which read as a flicker; they move with the text now.
+
 ## [1.0.0] - 2026-10-19
 
 A selection paints over the selected text and nothing else, Find and the first save keep up in large files, a tab you switch back to comes back without reading its file again, and double-clicking the top of the window zooms it again on macOS.
