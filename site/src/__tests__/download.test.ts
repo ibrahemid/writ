@@ -69,7 +69,7 @@ interface FakeGroup {
   querySelector(selector: string): unknown;
 }
 
-function fakeGroup(os: string, command: string): FakeGroup {
+function fakeGroup(os: string, command: string | null): FakeGroup {
   const clicks: (() => void)[] = [];
   const button: FakeButton = {
     hidden: true,
@@ -78,14 +78,14 @@ function fakeGroup(os: string, command: string): FakeGroup {
       if (type === 'click') clicks.push(fn);
     },
   };
-  const code = { textContent: `\n  ${command}\n` };
+  const code = { textContent: `\n  ${command ?? ''}\n` };
   const status = { textContent: '' };
-  const parts: Record<string, unknown> = { '[data-copy]': button, '[data-copy-text]': code, '[data-copy-status]': status };
+  const parts: Record<string, unknown> = command === null ? {} : { '[data-copy]': button, '[data-copy-text]': code, '[data-copy-status]': status };
   return { dataset: { os }, button, code, status, querySelector: (selector) => parts[selector] ?? null };
 }
 
 function setup(options: { nav?: NavigatorLike; writeText?: (text: string) => Promise<void>; noClipboard?: boolean } = {}) {
-  const children = [fakeGroup('mac', 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ'), fakeGroup('win', 'winget install -e --id ibrahemid.Writ'), fakeGroup('linux', 'yay -S writ-bin')];
+  const children = [fakeGroup('mac', 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ'), fakeGroup('win', 'winget install -e --id ibrahemid.Writ'), fakeGroup('linux', null)];
   const container = {
     get firstElementChild() {
       return children[0] ?? null;
@@ -148,7 +148,14 @@ describe('startDownloadGroups', () => {
 
   it('shows every copy button once the script runs', () => {
     const { group } = setup();
-    for (const os of ['mac', 'win', 'linux']) expect(group(os).button.hidden).toBe(false);
+    for (const os of ['mac', 'win']) expect(group(os).button.hidden).toBe(false);
+  });
+
+  it('moves a group with no command first for its visitor and leaves it without a copy button', () => {
+    const { order, group } = setup({ nav: { platform: 'Linux x86_64' } });
+    expect(order()).toEqual(['linux', 'mac', 'win']);
+    expect(group('linux').button.hidden).toBe(true);
+    for (const os of ['mac', 'win']) expect(group(os).button.hidden).toBe(false);
   });
 
   it('copies the command as shown, says so, and clears the status after its delay', async () => {
@@ -186,18 +193,18 @@ describe('startDownloadGroups', () => {
     };
     const onWindows = setup({ nav: { platform: 'Win32' }, writeText: refuse });
     onWindows.group('mac').button.click();
-    onWindows.group('linux').button.click();
+    onWindows.group('win').button.click();
     await settle();
-    expect(onWindows.selected).toEqual([onWindows.group('mac').code, onWindows.group('linux').code]);
+    expect(onWindows.selected).toEqual([onWindows.group('mac').code, onWindows.group('win').code]);
     expect(onWindows.group('mac').status.textContent).toBe('Selected, press Ctrl+C');
-    expect(onWindows.group('linux').status.textContent).toBe('Selected, press Ctrl+C');
+    expect(onWindows.group('win').status.textContent).toBe('Selected, press Ctrl+C');
 
     const onMac = setup({ nav: { platform: 'MacIntel' }, writeText: refuse });
     onMac.group('win').button.click();
-    onMac.group('linux').button.click();
+    onMac.group('mac').button.click();
     await settle();
     expect(onMac.group('win').status.textContent).toBe('Selected, press ⌘C');
-    expect(onMac.group('linux').status.textContent).toBe('Selected, press ⌘C');
+    expect(onMac.group('mac').status.textContent).toBe('Selected, press ⌘C');
   });
 
   it('lets an error other than a refused write through, leaving the command unselected', async () => {

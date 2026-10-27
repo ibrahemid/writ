@@ -22,14 +22,13 @@ brew trust ibrahemid/writ                                            # macOS 12 
 brew install --cask ibrahemid/writ/writ
 winget install -e --id ibrahemid.Writ                                # Windows
 curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh # Linux
-yay -S writ-bin                                                      # Arch
 ```
 
 Or download a `.pkg` or `.dmg`, `.msi`, `.AppImage` or `.deb` from [Releases](https://github.com/ibrahemid/writ/releases/latest).
 
 ## The `writ` command
 
-The Windows installer, the `.deb` and the AUR package put it on your PATH, and `install.sh` puts it in `~/.local/bin`. On macOS or from a downloaded AppImage, install it from Settings, Integrations, Terminal command.
+The Windows installer and the `.deb` put it on your PATH, and `install.sh` puts it in `~/.local/bin`. On macOS or from a downloaded AppImage, install it from Settings, Integrations, Terminal command.
 
 ```sh
 writ todo.txt README.md                  # open files

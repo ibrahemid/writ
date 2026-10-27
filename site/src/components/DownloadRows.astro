@@ -23,15 +23,19 @@ interface DownloadFile {
   size: number;
 }
 
+interface PackageManager {
+  tool: string;
+  toolName: string;
+  command: string;
+}
+
 interface Group {
   os: OsKey;
   name: string;
   req: string;
   primary: DownloadFile;
   others: DownloadFile[];
-  tool: string;
-  toolName: string;
-  command: string;
+  manager?: PackageManager;
 }
 
 const groups: Group[] = [
@@ -41,9 +45,11 @@ const groups: Group[] = [
     req: 'macOS 12 or later, Apple silicon and Intel',
     primary: { name: 'Installer (.pkg)', href: p.mac.pkg, size: p.mac.size_pkg },
     others: [{ name: 'Disk image (.dmg)', href: p.mac.dmg, size: p.mac.size_dmg }],
-    tool: 'Homebrew, in Terminal',
-    toolName: 'Homebrew',
-    command: 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ',
+    manager: {
+      tool: 'Homebrew, in Terminal',
+      toolName: 'Homebrew',
+      command: 'brew trust ibrahemid/writ && brew install --cask ibrahemid/writ/writ',
+    },
   },
   {
     os: 'win',
@@ -51,9 +57,11 @@ const groups: Group[] = [
     req: 'Windows 10 or later, 64-bit',
     primary: { name: 'Installer (.msi)', href: p.win.msi, size: p.win.size_msi },
     others: [],
-    tool: 'winget, in PowerShell',
-    toolName: 'winget',
-    command: 'winget install -e --id ibrahemid.Writ',
+    manager: {
+      tool: 'winget, in PowerShell',
+      toolName: 'winget',
+      command: 'winget install -e --id ibrahemid.Writ',
+    },
   },
   {
     os: 'linux',
@@ -61,9 +69,6 @@ const groups: Group[] = [
     req: '64-bit Intel or AMD (x86_64)',
     primary: { name: 'Single-file app (.AppImage)', href: p.linux.appImage, size: p.linux.size_appImage },
     others: [{ name: 'Debian and Ubuntu package (.deb)', href: p.linux.deb, size: p.linux.size_deb }],
-    tool: 'Arch User Repository (AUR), in a terminal',
-    toolName: 'AUR',
-    command: 'yay -S writ-bin',
   },
 ];
 
@@ -83,14 +88,16 @@ const describeFile = (file: DownloadFile): string => [file.name, mb(file.size)].
           {g.others.filter((f) => isShipped(f.href)).map((f) => <a href={f.href}>{describeFile(f)}</a>)}
         </p>
       </div>
-      <div class="dl-manager">
-        <div class="dl-tool">
-          <span class="dl-tool-name">{g.tool}</span>
-          <span class="dl-status" role="status" data-copy-status></span>
-          <button type="button" class="dl-copy" data-copy hidden aria-label={`Copy the ${g.toolName} command`}>Copy</button>
+      {g.manager && (
+        <div class="dl-manager">
+          <div class="dl-tool">
+            <span class="dl-tool-name">{g.manager.tool}</span>
+            <span class="dl-status" role="status" data-copy-status></span>
+            <button type="button" class="dl-copy" data-copy hidden aria-label={`Copy the ${g.manager.toolName} command`}>Copy</button>
+          </div>
+          <code class="dl-cmd" data-copy-text>{g.manager.command.split(' ').map((word, i) => <Fragment>{i > 0 && ' '}<span>{word}</span></Fragment>)}</code>
         </div>
-        <code class="dl-cmd" data-copy-text>{g.command.split(' ').map((word, i) => <Fragment>{i > 0 && ' '}<span>{word}</span></Fragment>)}</code>
-      </div>
+      )}
     </section>
   ))}
 </div>
