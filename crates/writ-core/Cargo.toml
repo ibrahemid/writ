@@ -50,4 +50,4 @@ html5ever = "0.40"
 # Test-only. A tree builder for the resource-hint tests to compare documents
 # with; wry and tauri-utils already resolve it, so no new package enters the
 # lock.
-dom_query = "0.28"
+dom_query = "0.29"
