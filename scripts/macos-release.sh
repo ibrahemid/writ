@@ -13,7 +13,7 @@
 set -euo pipefail
 
 ENTITLEMENTS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/src-tauri/entitlements.plist"
-MOUNTS=()
+DEVICES=()
 SCRATCH=()
 
 fail() {
@@ -21,21 +21,28 @@ fail() {
   exit 1
 }
 
+is_detached() {
+  hdiutil info -plist | python3 -c 'import plistlib, sys
+images = plistlib.loads(sys.stdin.buffer.read()).get("images", [])
+sys.exit(any(e.get("dev-entry") == sys.argv[1] for i in images for e in i.get("system-entities", [])))' "$1"
+}
+
+# By device node: a detach that unmounts and then fails to eject leaves only the device.
 detach() {
-  local mountpoint="$1" attempt
+  local device="$1" attempt
   for attempt in 1 2 3 4 5; do
-    if hdiutil detach "$mountpoint" -quiet; then
+    if hdiutil detach "$device" -quiet || is_detached "$device"; then
       return 0
     fi
     sleep "$attempt"
   done
-  hdiutil detach "$mountpoint" -force -quiet
+  hdiutil detach "$device" -force -quiet || is_detached "$device" || fail "could not detach $device"
 }
 
 cleanup() {
-  local mountpoint dir
-  for mountpoint in ${MOUNTS[@]+"${MOUNTS[@]}"}; do
-    hdiutil detach "$mountpoint" -force -quiet >/dev/null 2>&1 || true
+  local device dir
+  for device in ${DEVICES[@]+"${DEVICES[@]}"}; do
+    hdiutil detach "$device" -force -quiet >/dev/null 2>&1 || true
   done
   for dir in ${SCRATCH[@]+"${SCRATCH[@]}"}; do
     rm -rf "$dir"
@@ -63,18 +70,25 @@ new_scratch_dir() {
 }
 
 attach() {
-  local image="$1" mountpoint="$2" mode="$3"
-  hdiutil attach "$image" "$mode" -nobrowse -noautoopen -noverify -mountpoint "$mountpoint" -quiet
-  MOUNTS+=("$mountpoint")
+  local image="$1" mountpoint="$2" mode="$3" plist
+  plist="$(hdiutil attach "$image" "$mode" -nobrowse -noautoopen -noverify -mountpoint "$mountpoint" -plist)"
+  ATTACHED_DEVICE="$(printf '%s' "$plist" | python3 -c 'import plistlib, re, sys
+entries = plistlib.loads(sys.stdin.buffer.read()).get("system-entities", [])
+print(next(e["dev-entry"] for e in entries if re.fullmatch(r"/dev/disk[0-9]+", e.get("dev-entry", ""))))')" || ATTACHED_DEVICE=""
+  if [ -z "$ATTACHED_DEVICE" ]; then
+    hdiutil detach "$mountpoint" -force -quiet >/dev/null 2>&1 || true
+    fail "no device node for $image in the hdiutil attach output"
+  fi
+  DEVICES+=("$ATTACHED_DEVICE")
 }
 
-release_mount() {
-  local mountpoint="$1" kept=() entry
-  detach "$mountpoint"
-  for entry in ${MOUNTS[@]+"${MOUNTS[@]}"}; do
-    [ "$entry" = "$mountpoint" ] || kept+=("$entry")
+release_device() {
+  local device="$1" kept=() entry
+  detach "$device"
+  for entry in ${DEVICES[@]+"${DEVICES[@]}"}; do
+    [ "$entry" = "$device" ] || kept+=("$entry")
   done
-  MOUNTS=(${kept[@]+"${kept[@]}"})
+  DEVICES=(${kept[@]+"${kept[@]}"})
 }
 
 bundle_executable() {
@@ -100,7 +114,7 @@ extract_app() {
   done
   [ "${#apps[@]}" -eq 1 ] || fail "expected one .app at the root of $dmg, found ${#apps[@]}"
   ditto "${apps[0]}" "$dest"
-  release_mount "$mountpoint"
+  release_device "$ATTACHED_DEVICE"
   echo "extracted $(basename "${apps[0]}") from $dmg"
 }
 
@@ -202,12 +216,12 @@ repack_dmg() {
   ditto "$app" "$mountpoint/$name"
   chmod -Rf go-w "$mountpoint" || true
   rm -rf "$mountpoint/.fseventsd"
-  release_mount "$mountpoint"
+  release_device "$ATTACHED_DEVICE"
   hdiutil convert "$work/rw.dmg" -format UDZO -imagekey zlib-level=9 -o "$out" -quiet
   attach "$out" "$mountpoint" -readonly
   want="$(cdhash "$app")"
   got="$(cdhash "$mountpoint/$name")"
-  release_mount "$mountpoint"
+  release_device "$ATTACHED_DEVICE"
   [ -n "$want" ] || fail "$app carries no code signature"
   [ "$want" = "$got" ] || fail "the $name in $out is not the signed one (CDHash $got, expected $want)"
   echo "wrote $out around $name (CDHash $want)"

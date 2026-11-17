@@ -51,6 +51,73 @@ exit 0
 
 PLAIN_STUB = RECORDER + "exit 0\n"
 
+# The first $HDIUTIL_BUSY_EJECTS detaches unmount the volume and then fail to eject the disk.
+HDIUTIL_STUB = RECORDER + """
+state="$HDIUTIL_STATE"
+case "$1" in
+  attach)
+    mountpoint=""
+    previous=""
+    for arg in "$@"; do
+      [ "$previous" = "-mountpoint" ] && mountpoint="$arg"
+      previous="$arg"
+    done
+    count=$(cat "$state/attaches" 2>/dev/null || echo 0)
+    echo $((count + 1)) > "$state/attaches"
+    disk="disk$((90 + count))"
+    printf '%s' "$2" > "$state/$disk.image"
+    printf '%s' "$mountpoint" > "$state/$disk.mount"
+    if [ -n "${DMG_APP:-}" ]; then
+      mkdir -p "$mountpoint/$DMG_APP"
+    fi
+    cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>system-entities</key><array>
+<dict><key>dev-entry</key><string>/dev/$disk</string></dict>
+<dict><key>dev-entry</key><string>/dev/${disk}s1</string><key>mount-point</key><string>$mountpoint</string></dict>
+</array></dict></plist>
+EOF
+    ;;
+  detach)
+    disk=""
+    for record in "$state"/disk*.image; do
+      [ -e "$record" ] || continue
+      candidate="$(basename "$record" .image)"
+      if [ "$2" = "/dev/$candidate" ]; then
+        disk="$candidate"
+      elif [ -e "$state/$candidate.mount" ] && [ "$2" = "$(cat "$state/$candidate.mount")" ]; then
+        disk="$candidate"
+      fi
+    done
+    if [ -z "$disk" ]; then
+      echo "hdiutil: detach failed - No such file or directory" >&2
+      exit 1
+    fi
+    rm -f "$state/$disk.mount"
+    busy=$(cat "$state/busy" 2>/dev/null || echo "${HDIUTIL_BUSY_EJECTS:-0}")
+    if [ "$busy" -gt 0 ]; then
+      echo $((busy - 1)) > "$state/busy"
+      if [ -n "${HDIUTIL_EJECTED_ANYWAY:-}" ]; then
+        rm -f "$state/$disk.image"
+      fi
+      echo "hdiutil: couldn't eject $disk - Resource busy" >&2
+      exit 16
+    fi
+    rm -f "$state/$disk.image"
+    ;;
+  info)
+    printf '<?xml version="1.0" encoding="UTF-8"?>\\n<plist version="1.0"><dict><key>images</key><array>\\n'
+    for record in "$state"/disk*.image; do
+      [ -e "$record" ] || continue
+      printf '<dict><key>image-path</key><string>%s</string><key>system-entities</key><array>' "$(cat "$record")"
+      printf '<dict><key>dev-entry</key><string>/dev/%s</string></dict></array></dict>\\n' "$(basename "$record" .image)"
+    done
+    printf '</array></dict></plist>\\n'
+    ;;
+esac
+exit 0
+"""
+
 
 def write_app(root: pathlib.Path, name: str = "Writ.app", executable: str = "writ-tauri") -> pathlib.Path:
     app = root / name
@@ -75,12 +142,14 @@ class StubbedToolsTest(unittest.TestCase):
         self.stubs.mkdir()
         self.log = self.root / "calls"
         self.log.mkdir()
+        self.hdiutil_state = self.root / "hdiutil-state"
+        self.hdiutil_state.mkdir()
         for name, body in (
             ("codesign", CODESIGN_STUB),
             ("xcrun", XCRUN_STUB),
             ("xattr", PLAIN_STUB),
             ("ditto", PLAIN_STUB),
-            ("hdiutil", PLAIN_STUB),
+            ("hdiutil", HDIUTIL_STUB),
         ):
             stub = self.stubs / name
             stub.write_text(body)
@@ -90,6 +159,7 @@ class StubbedToolsTest(unittest.TestCase):
             "HOME": str(self.root),
             "TMPDIR": str(self.root),
             "CALL_LOG": str(self.log),
+            "HDIUTIL_STATE": str(self.hdiutil_state),
         }
         for tool in ("codesign", "xcrun", "xattr", "ditto", "hdiutil"):
             self.assertEqual(shutil.which(tool, path=self.env["PATH"]), str(self.stubs / tool))
@@ -249,6 +319,44 @@ class RepackStubTests(StubbedToolsTest):
         result = self.run_script("sign-everything")
         self.assertEqual(result.returncode, 1)
         self.assertIn("extract-app, sign-app, notarize or repack-dmg", result.stderr)
+
+
+class DetachStubTests(StubbedToolsTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sleep = self.stubs / "sleep"
+        sleep.write_text(PLAIN_STUB)
+        sleep.chmod(0o755)
+        self.image = self.root / "built.dmg"
+        self.image.write_bytes(b"dmg")
+
+    def extract(self, **env: str) -> subprocess.CompletedProcess[str]:
+        return self.run_script("extract-app", str(self.image), str(self.root / "out" / "Writ.app"), DMG_APP="Writ.app", **env)
+
+    def detach_targets(self) -> list[str]:
+        return [call[2] for call in self.calls() if call[:2] == ["hdiutil", "detach"]]
+
+    def still_attached(self) -> list[str]:
+        return sorted(record.name for record in self.hdiutil_state.glob("*.image"))
+
+    def test_a_disk_that_unmounts_but_fails_to_eject_is_detached_by_its_device(self) -> None:
+        result = self.extract(HDIUTIL_BUSY_EJECTS="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.detach_targets(), ["/dev/disk90", "/dev/disk90"])
+        self.assertEqual(self.still_attached(), [])
+
+    def test_a_failed_eject_that_detached_the_disk_is_not_retried(self) -> None:
+        result = self.extract(HDIUTIL_BUSY_EJECTS="1", HDIUTIL_EJECTED_ANYWAY="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.detach_targets(), ["/dev/disk90"])
+        self.assertFalse(any(call[0] == "sleep" for call in self.calls()))
+
+    def test_a_disk_that_never_ejects_fails_naming_its_device(self) -> None:
+        result = self.extract(HDIUTIL_BUSY_EJECTS="100")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("could not detach /dev/disk90", result.stderr)
+        self.assertEqual(set(self.detach_targets()), {"/dev/disk90"})
+        self.assertEqual(len(self.detach_targets()), 7)
 
 
 @unittest.skipUnless(ON_MAC, "needs macOS with hdiutil and codesign")

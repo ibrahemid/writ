@@ -864,7 +864,10 @@ pub fn run() {
             quit_macos::install(&handle);
 
             #[cfg(target_os = "macos")]
-            dictation::window::observe_minimize(&handle, dictation::window::is_main_ns_window);
+            {
+                dictation::window::observe_minimize(&handle, dictation::window::is_main_ns_window);
+                dictation::window::observe_app_hide(&handle);
+            }
 
             if let Err(e) = hotkey::setup_global_hotkey(&handle) {
                 tracing::warn!(error = %e, "failed to register global hotkey");

@@ -36,6 +36,7 @@ use crate::dictation::bridge::{self, MicStatus};
 use crate::dictation::session::{
     self, AiCleanUp, ApiSession, ApiTranscriber, CleanUp, Emitter, OnDeviceSession,
 };
+use crate::dictation::window::SightWatch;
 use crate::dictation::{DictationState, ReleaseOnDrop};
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
@@ -379,6 +380,7 @@ async fn start_session(
     let out = Emitter::logging_failures(session_id, move |event| on_event.send(event));
     let task_app = app.clone();
     let release_slot = move || task_app.state::<DictationState>().release(session_id);
+    let watch_app = app.clone();
 
     let locale = match engine {
         DictationEngine::Api => {
@@ -407,6 +409,7 @@ async fn start_session(
             };
             tauri::async_runtime::spawn(async move {
                 let _slot = ReleaseOnDrop::new(release_slot);
+                let _watch = SightWatch::start(&watch_app, session_id);
                 session::run_api(session, controls, out).await;
             });
             None
@@ -430,6 +433,7 @@ async fn start_session(
             };
             tauri::async_runtime::spawn(async move {
                 let _slot = ReleaseOnDrop::new(release_slot);
+                let _watch = SightWatch::start(&watch_app, session_id);
                 session::run_on_device(session, controls, out).await;
             });
             Some(locale)
