@@ -32,11 +32,14 @@ export type InlineImageState =
   | { status: "pending" }
   | { status: "ready"; src: string; label: string }
   | { status: "downloading"; label: string }
-  | { status: "remote"; label: string; host: string }
+  | { status: "remote"; label: string; host: string; onNetwork?: true }
   | { status: "failed"; label: string; reason: ShownFailure };
 
-/** A refusal the widget names. `local_address` keeps the Load image button. */
-type ShownFailure = Exclude<InlineImageFailure, "local_address">;
+/**
+ * A refusal the widget names. `local_address` and `resolves_to_local` keep
+ * the Load image button; `resolves_to_local` sets `onNetwork`.
+ */
+type ShownFailure = Exclude<InlineImageFailure, "local_address" | "resolves_to_local">;
 
 /**
  * How a reference becomes a URL the image is drawn from.
@@ -152,6 +155,7 @@ const FAILURE_LABELS: Record<ShownFailure, string> = {
   not_an_image: "not an image",
   unreachable: "could not be loaded",
   not_remote: "not a web address",
+  redirects_to_local: "redirects to an address on your network",
 };
 
 function sameState(a: InlineImageState, b: InlineImageState): boolean {
@@ -163,7 +167,12 @@ function sameState(a: InlineImageState, b: InlineImageState): boolean {
     case "downloading":
       return b.status === "downloading" && a.label === b.label;
     case "remote":
-      return b.status === "remote" && a.host === b.host && a.label === b.label;
+      return (
+        b.status === "remote" &&
+        a.host === b.host &&
+        a.label === b.label &&
+        a.onNetwork === b.onNetwork
+      );
     case "failed":
       return b.status === "failed" && a.reason === b.reason && a.label === b.label;
   }
@@ -211,7 +220,8 @@ export class InlineImageWidget extends WidgetType {
     } else if (this.state.status === "downloading") {
       frame.appendChild(caption(`${this.state.label} · downloading`));
     } else if (this.state.status === "remote") {
-      frame.appendChild(caption(`Image from ${this.state.host}`));
+      const where = this.state.onNetwork ? ", on your network" : "";
+      frame.appendChild(caption(`Image from ${this.state.host}${where}`));
       frame.appendChild(actionButton(view, "Load image", loadRemoteImage.of(this.reference)));
     } else if (this.state.status === "failed") {
       frame.appendChild(caption(`${this.state.label} · ${FAILURE_LABELS[this.state.reason]}`));
@@ -258,13 +268,20 @@ function failureOf(error: unknown): InlineImageFailure {
   return isInlineImageFailure(reason) ? reason : "not_found";
 }
 
-/** The state a failed request leaves: a refused local address keeps its button. */
+/**
+ * The state a failed request leaves: a load held back from a local host keeps
+ * its button, and says the host is on the network when only its name's
+ * answer showed it.
+ */
 function failedState(reference: string, label: string, error: unknown): InlineImageState {
   const reason = failureOf(error);
-  if (reason !== "local_address") return { status: "failed", label, reason };
+  if (reason !== "local_address" && reason !== "resolves_to_local") {
+    return { status: "failed", label, reason };
+  }
   const host = remoteImageHost(reference);
-  return host === null
-    ? { status: "failed", label, reason: "unreachable" }
+  if (host === null) return { status: "failed", label, reason: "unreachable" };
+  return reason === "resolves_to_local"
+    ? { status: "remote", label, host, onNetwork: true }
     : { status: "remote", label, host };
 }
 
@@ -284,7 +301,8 @@ function failedState(reference: string, label: string, error: unknown): InlineIm
  * web images; until then it shows its host and a Load image button. One the
  * person loaded is asked for again when the tab comes back, which the host
  * answers from memory. Only a click loads as `asked`; every other load is
- * `automatic`, which the host refuses for a local address.
+ * `automatic`, which the host refuses for a local host or a name that
+ * resolves to a local address.
  */
 class InlineImageRequester implements PluginValue {
   private readonly asked = new Set<string>();

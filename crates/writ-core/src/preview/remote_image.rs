@@ -6,7 +6,7 @@
 //! webview, and only after a click or the `editor.load_remote_images` switch.
 
 use std::collections::{HashMap, HashSet};
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,10 +44,17 @@ pub enum RemoteImageRefusal {
     TooLarge,
     /// The answer's leading bytes are not an image the editor draws.
     NotAnImage,
-    /// A load the person did not ask for would reach this machine or the
-    /// local network ([`is_local_host`], [`is_local_address`]), so the
-    /// placeholder stays until they click Load image.
+    /// A load the person did not ask for names a local host
+    /// ([`is_local_host`]), so the placeholder stays until they click Load
+    /// image.
     LocalAddress,
+    /// A load the person did not ask for names a host that resolves to a
+    /// local address ([`is_local_address`]). The placeholder says the host is
+    /// on the local network and keeps Load image.
+    ResolvesToLocal,
+    /// A redirect leads to a local address at a host other than the one the
+    /// placeholder named. Refused for every load, a click included.
+    RedirectsToLocal,
 }
 
 /// Who started a remote image load.
@@ -70,6 +77,8 @@ impl RemoteImageRefusal {
             Self::TooLarge => "too_large",
             Self::NotAnImage => "not_an_image",
             Self::LocalAddress => "local_address",
+            Self::ResolvesToLocal => "resolves_to_local",
+            Self::RedirectsToLocal => "redirects_to_local",
         }
     }
 }
@@ -114,14 +123,31 @@ pub fn is_followable_redirect(target: &Url) -> bool {
     matches!(target.scheme(), "http" | "https") && target.host_str().is_some_and(|h| !h.is_empty())
 }
 
-/// Whether an address is on this machine or the local network: loopback
-/// (127/8, `::1`), unspecified (0/8, `::`), the private, shared (100.64/10)
-/// and link-local ranges of [`is_private_network_address`], IPv6 unique local
-/// and link-local, and any of those IPv4 ranges written as IPv4-mapped or
-/// IPv4-compatible IPv6.
+/// The IPv4 address an IPv6 address carries for a transition mechanism:
+/// IPv4-mapped (`::ffff:0:0/96`), IPv4-compatible (`::/96`), NAT64
+/// (`64:ff9b::/96`, the last 32 bits) and 6to4 (`2002::/16`, bits 16 to 48).
+pub fn embedded_ipv4(v6: Ipv6Addr) -> Option<Ipv4Addr> {
+    if let Some(v4) = v6.to_ipv4() {
+        return Some(v4);
+    }
+    let joined = |high: u16, low: u16| Ipv4Addr::from((u32::from(high) << 16) | u32::from(low));
+    match v6.segments() {
+        [0x64, 0xff9b, 0, 0, 0, 0, high, low] | [0x2002, high, low, ..] => Some(joined(high, low)),
+        _ => None,
+    }
+}
+
+/// Whether an address is in a range reserved for this machine or a local
+/// network: loopback (127/8, `::1`), unspecified (0/8, `::`), the private,
+/// shared (100.64/10) and link-local ranges of [`is_private_network_address`],
+/// IPv6 unique local and link-local, the local-use NAT64 prefix
+/// `64:ff9b:1::/48`, and an IPv6 address whose [`embedded_ipv4`] is in one of
+/// the IPv4 ranges. The test is by range: a device on the local network that
+/// holds a public address is not recognized.
 pub fn is_local_address(addr: IpAddr) -> bool {
     let addr = match addr {
-        IpAddr::V6(v6) => v6.to_ipv4().map_or(addr, IpAddr::V4),
+        IpAddr::V6(v6) if matches!(v6.segments(), [0x64, 0xff9b, 1, ..]) => return true,
+        IpAddr::V6(v6) => embedded_ipv4(v6).map_or(addr, IpAddr::V4),
         IpAddr::V4(_) => addr,
     };
     let is_this_machine = match addr {

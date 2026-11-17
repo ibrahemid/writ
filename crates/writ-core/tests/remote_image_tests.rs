@@ -1,10 +1,10 @@
 use std::net::IpAddr;
 
 use writ_core::preview::remote_image::{
-    check_remote_image_bytes, check_remote_image_size, is_followable_redirect, is_local_address,
-    is_local_host, is_local_host_name, remote_image_host, remote_image_key, remote_image_route,
-    remote_image_url, split_remote_image_request, RemoteImageLoad, RemoteImageRefusal,
-    RemoteImageRequest, REMOTE_IMAGE_MAX_BYTES,
+    check_remote_image_bytes, check_remote_image_size, embedded_ipv4, is_followable_redirect,
+    is_local_address, is_local_host, is_local_host_name, remote_image_host, remote_image_key,
+    remote_image_route, remote_image_url, split_remote_image_request, RemoteImageLoad,
+    RemoteImageRefusal, RemoteImageRequest, REMOTE_IMAGE_MAX_BYTES,
 };
 
 #[test]
@@ -114,6 +114,14 @@ fn refusals_map_to_the_editor_captions() {
     assert_eq!(RemoteImageRefusal::TooLarge.as_str(), "too_large");
     assert_eq!(RemoteImageRefusal::NotAnImage.as_str(), "not_an_image");
     assert_eq!(RemoteImageRefusal::LocalAddress.as_str(), "local_address");
+    assert_eq!(
+        RemoteImageRefusal::ResolvesToLocal.as_str(),
+        "resolves_to_local"
+    );
+    assert_eq!(
+        RemoteImageRefusal::RedirectsToLocal.as_str(),
+        "redirects_to_local"
+    );
 }
 
 fn addr(text: &str) -> IpAddr {
@@ -192,6 +200,55 @@ fn ipv4_mapped_ipv6_is_judged_by_its_ipv4_address() {
         "::10.0.0.1",
     ]);
     assert_public(&["::ffff:8.8.8.8"]);
+}
+
+#[test]
+fn the_local_use_nat64_prefix_is_local_up_to_its_edges() {
+    assert_local(&[
+        "64:ff9b:1::",
+        "64:ff9b:1::808:808",
+        "64:ff9b:1:ffff:ffff:ffff:ffff:ffff",
+    ]);
+    assert_public(&["64:ff9b:2::", "64:ff9b:0:ffff:ffff:ffff:ffff:ffff"]);
+}
+
+#[test]
+fn nat64_addresses_are_judged_by_their_ipv4_address() {
+    assert_local(&[
+        "64:ff9b::10.0.0.1",
+        "64:ff9b::127.0.0.1",
+        "64:ff9b::192.168.1.1",
+        "64:ff9b::100.64.0.1",
+        "64:ff9b::169.254.169.254",
+        "64:ff9b::0.0.0.0",
+    ]);
+    assert_public(&["64:ff9b::8.8.8.8", "64:ff9b::93.184.216.34"]);
+}
+
+#[test]
+fn six_to_four_addresses_are_judged_by_their_ipv4_address() {
+    assert_local(&[
+        "2002:a00:1::1",
+        "2002:7f00:1::",
+        "2002:c0a8:101:ffff::1",
+        "2002:6440:1::1",
+        "2002:a9fe:a9fe::1",
+        "2002::1",
+    ]);
+    assert_public(&["2002:808:808::1", "2002:5db8:d822::1"]);
+}
+
+#[test]
+fn the_embedded_ipv4_address_is_read_from_each_transition_form() {
+    let v4 = |text: &str| Some(text.parse::<std::net::Ipv4Addr>().unwrap());
+    let v6 = |text: &str| text.parse::<std::net::Ipv6Addr>().unwrap();
+    assert_eq!(embedded_ipv4(v6("::ffff:10.1.2.3")), v4("10.1.2.3"));
+    assert_eq!(embedded_ipv4(v6("::10.1.2.3")), v4("10.1.2.3"));
+    assert_eq!(embedded_ipv4(v6("64:ff9b::c0a8:101")), v4("192.168.1.1"));
+    assert_eq!(embedded_ipv4(v6("2002:c0a8:101:5::9")), v4("192.168.1.1"));
+    assert_eq!(embedded_ipv4(v6("64:ff9b:0:1::c0a8:101")), None);
+    assert_eq!(embedded_ipv4(v6("2001:db8::1")), None);
+    assert_eq!(embedded_ipv4(v6("fd00::1")), None);
 }
 
 #[test]

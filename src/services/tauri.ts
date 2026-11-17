@@ -1407,8 +1407,10 @@ export async function previewInlineImageDownload(
  * Fetch an `http`/`https` image an open Markdown file references, then answer
  * as [`previewInlineImage`] does. Nothing is fetched until this is called;
  * a fetched image is held in memory and served from the preview scheme. An
- * `automatic` load is refused with `local_address` for an address on this
- * computer or the local network.
+ * `automatic` load is refused with `local_address` for a local host and
+ * `resolves_to_local` for a name that resolves to a local address; any load
+ * is refused with `redirects_to_local` for a redirect to a local address at
+ * another host.
  */
 export async function previewRemoteImage(
   bufferId: string,

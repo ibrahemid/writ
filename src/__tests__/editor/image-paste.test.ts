@@ -268,6 +268,28 @@ describe("imagePaste", () => {
     expect(view.state.doc.toString()).toBe("![](assets/a.png)");
   });
 
+  it("takes a copied web image, a bitmap with its address as text, to the host", async () => {
+    const address = "https://example.com/photos/cat.png";
+    const shapes: DataTransfer[] = [
+      clipboard(["image/png", "text/plain"], address),
+      {
+        types: ["text/uri-list", "image/tiff"],
+        getData: (type: string) => (type === "text/uri-list" ? address : ""),
+      } as unknown as DataTransfer,
+    ];
+    for (const data of shapes) {
+      expect(clipboardMayHoldImages(data)).toBe(true);
+      const deps = makeDeps({ kind: "inserted", markdown: "![](assets/cat.png)", notices: [] });
+      const view = makeView("", 0, [imagePaste(deps)]);
+      const event = pasteEvent(data);
+      view.contentDOM.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      await settle();
+      expect(deps.pasteImages).toHaveBeenCalledTimes(1);
+      expect(view.state.doc.toString()).toBe("![](assets/cat.png)");
+    }
+  });
+
   it("leaves ordinary text to the editor's own paste", () => {
     const deps = makeDeps({ kind: "text" });
     const view = makeView("", 0, [imagePaste(deps)]);

@@ -619,6 +619,48 @@ describe("inlineImages", () => {
     view.destroy();
   });
 
+  it("says a name that resolves to a local address is on the network, and keeps its button", async () => {
+    const named = "https://cam.example.com/still.png";
+    const loaded: string[] = [];
+    const view = mount(() => Promise.resolve({ src: SRC }), undefined, `![](${named})\n`, {
+      loadRemote: (reference, load) => {
+        loaded.push(`${load} ${reference}`);
+        if (load === "asked") return Promise.resolve({ src: WEB_SRC });
+        return Promise.reject(
+          Object.assign(new Error("refused"), { reason: "resolves_to_local" }),
+        );
+      },
+      loadsRemoteImages: () => true,
+    });
+    await settle();
+    expect(view.state.field(inlineImageField).get(named)).toEqual({
+      status: "remote",
+      label: "still.png",
+      host: "cam.example.com",
+      onNetwork: true,
+    });
+    view.dispatch({ effects: loadRemoteImage.of(named) });
+    await settle();
+    expect(loaded).toEqual([`automatic ${named}`, `asked ${named}`]);
+    expect(view.state.field(inlineImageField).get(named)?.status).toBe("ready");
+    view.destroy();
+  });
+
+  it("records a redirect to a local address as a refusal with no button", async () => {
+    const view = mount(() => Promise.resolve({ src: SRC }), undefined, WEB_DOC, {
+      loadRemote: () =>
+        Promise.reject(Object.assign(new Error("refused"), { reason: "redirects_to_local" })),
+      loadsRemoteImages: () => true,
+    });
+    await settle();
+    expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+      status: "failed",
+      label: "two.png",
+      reason: "redirects_to_local",
+    });
+    view.destroy();
+  });
+
   it("records an unreachable web image so it can be tried again", async () => {
     const unreachable = Object.assign(new Error("refused"), { reason: "unreachable" });
     let answer: Promise<{ src: string }> = Promise.reject(unreachable);
@@ -786,6 +828,42 @@ describe("the image widget", () => {
     view.destroy();
   });
 
+  it("names the network for a host whose name resolves to a local address", () => {
+    const effects: unknown[] = [];
+    const view = viewWith(effects);
+    const widget = new InlineImageWidget("https://cam.example.com/a.png", {
+      status: "remote",
+      label: "a.png",
+      host: "cam.example.com",
+      onNetwork: true,
+    });
+    const frame = widget.toDOM(view);
+    expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(
+      "Image from cam.example.com, on your network",
+    );
+    const button = frame.querySelector("button")!;
+    expect(button.textContent).toBe("Load image");
+    button.click();
+    const sent = effects.flat() as { is: (type: unknown) => boolean; value: unknown }[];
+    expect(sent.some((e) => e.is(loadRemoteImage))).toBe(true);
+    view.destroy();
+  });
+
+  it("captions a redirect to a local address with no button", () => {
+    const view = viewWith([]);
+    const widget = new InlineImageWidget("https://example.com/a.png", {
+      status: "failed",
+      label: "a.png",
+      reason: "redirects_to_local",
+    });
+    const frame = widget.toDOM(view);
+    expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(
+      "a.png · redirects to an address on your network",
+    );
+    expect(frame.querySelector("button")).toBeNull();
+    view.destroy();
+  });
+
   it("captions a reference that is not a web address with no button", () => {
     const view = viewWith([]);
     const widget = new InlineImageWidget("https:a.png", {
@@ -804,7 +882,14 @@ describe("the image widget", () => {
   it("redraws when a web image's host changes", () => {
     const one = new InlineImageWidget("u", { status: "remote", label: "a.png", host: "a.example" });
     const two = new InlineImageWidget("u", { status: "remote", label: "a.png", host: "b.example" });
+    const near = new InlineImageWidget("u", {
+      status: "remote",
+      label: "a.png",
+      host: "a.example",
+      onNetwork: true,
+    });
     expect(one.eq(two)).toBe(false);
+    expect(one.eq(near)).toBe(false);
     expect(one.eq(one)).toBe(true);
   });
 

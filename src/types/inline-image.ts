@@ -7,12 +7,15 @@ export type InlineImageFailure =
   | "not_an_image"
   | "unreachable"
   | "not_remote"
-  | "local_address";
+  | "local_address"
+  | "resolves_to_local"
+  | "redirects_to_local";
 
 /**
- * Who started a web image load. An `automatic` one is refused for an address
- * on this computer or the local network, and the image keeps its Load image
- * button.
+ * Who started a web image load. An `automatic` one is refused for a local
+ * host or a name that resolves to a local address, and the image keeps its
+ * Load image button. Either is refused for a redirect to a local address at
+ * another host.
  */
 export type RemoteImageLoad = "asked" | "automatic";
 
@@ -25,6 +28,8 @@ const FAILURES: readonly string[] = [
   "unreachable",
   "not_remote",
   "local_address",
+  "resolves_to_local",
+  "redirects_to_local",
 ];
 
 /** Whether a host-supplied identifier is one of the refusals. */

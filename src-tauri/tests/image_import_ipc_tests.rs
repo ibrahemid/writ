@@ -361,6 +361,42 @@ fn a_clipboard_picture_with_every_name_taken_is_named_in_the_notice() {
     );
 }
 
+/// Noise with uneven alpha: no JPEG fallback, and a PNG over the cap.
+fn oversized_transparent_picture() -> ClipboardContents {
+    let side = 2200;
+    let mut seed: u32 = 0x9e37_79b9;
+    let rgba = (0..side * side * 4)
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed.to_le_bytes()[0]
+        })
+        .collect();
+    ClipboardContents::Image(ClipboardPicture::new(side, side, rgba).unwrap())
+}
+
+#[test]
+fn a_clipboard_picture_over_the_cap_is_refused_and_writes_nothing() {
+    let f = Fixture::new();
+    let state = f.state();
+    let stamps_before = state.watcher_ignore.lock().unwrap().len();
+    let notices = refused(f.paste(&state, oversized_transparent_picture()));
+    assert_eq!(
+        notices,
+        vec![format!(
+            "The copied picture is over the {} MB limit for images",
+            IMAGE_MAX_BYTES / (1024 * 1024)
+        )]
+    );
+    let entries: Vec<_> = std::fs::read_dir(&f.note_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(entries, vec![std::ffi::OsString::from("Trip plan.md")]);
+    assert_eq!(state.watcher_ignore.lock().unwrap().len(), stamps_before);
+}
+
 #[cfg(unix)]
 #[test]
 fn an_image_folder_linked_outside_the_file_folder_is_refused() {
