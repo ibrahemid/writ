@@ -32,6 +32,11 @@ targets = [
     "x86_64-unknown-linux-gnu",
 ]
 
+# Only a crate's top-level files are scanned. cargo-about keeps one file per
+# licence and breaks ties in directory order, so a nested copy (rfd ships a
+# second MIT text under src/) would make the output differ between hosts.
+max-depth = 1
+
 # Test and benchmark dependencies are not linked into any shipped artifact.
 ignore-dev-dependencies = true
 

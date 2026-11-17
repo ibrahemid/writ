@@ -26,7 +26,7 @@ function mount() {
   };
 }
 
-// jsdom answers `:focus-visible` false for every element, keyboard or not, so
+// jsdom matches `:focus-visible` exactly like `:focus`, keyboard or pointer, so
 // a keyboard focus has to be stated rather than performed.
 function focusByKeyboard(anchor: HTMLElement) {
   const real = Element.prototype.matches;

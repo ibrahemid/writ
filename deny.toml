@@ -14,6 +14,7 @@ unmaintained = "workspace"
 unsound = "all"
 ignore = [
     { id = "RUSTSEC-2024-0429", reason = "glib 0.18 via webkit2gtk (Linux GTK3); the fix needs glib >= 0.20, i.e. Tauri on GTK4; Writ never iterates a VariantStr" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained, no patched release; rmcp and schemars (via rmcp's server feature) depend on it unconditionally, so it stays linked whatever the workspace uses" },
 ]
 
 [licenses]

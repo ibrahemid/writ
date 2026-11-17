@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { indentUnit } from "@codemirror/language";
@@ -81,23 +81,31 @@ describe("clampTabSize", () => {
 });
 
 describe("readingWidthFor", () => {
+  const MEASURE = "640px";
+
+  beforeEach(() => document.documentElement.style.setProperty("--writ-prose-measure", MEASURE));
+  afterEach(() => document.documentElement.style.removeProperty("--writ-prose-measure"));
+
   function measureOf(enabled: boolean, code: boolean): string {
+    const parent = document.body.appendChild(document.createElement("div"));
     const view = new EditorView({
+      parent,
       state: EditorState.create({ doc: "x", extensions: [readingWidthFor(enabled, code)] }),
     });
     const width = getComputedStyle(view.contentDOM).maxWidth;
     view.destroy();
+    parent.remove();
     return width;
   }
 
   it("holds prose to the reading measure when the setting is on", () => {
     expect(readingWidthFor(true, false)).toBe(readingMeasure);
-    expect(measureOf(true, false)).toBe("var(--writ-prose-measure)");
+    expect(measureOf(true, false)).toBe(MEASURE);
   });
 
   it("leaves prose at the pane's width when the setting is off", () => {
     expect(readingWidthFor(false, false)).toEqual([]);
-    expect(measureOf(false, false)).not.toBe("var(--writ-prose-measure)");
+    expect(measureOf(false, false)).not.toBe(MEASURE);
   });
 
   it("leaves a source file at the pane's width either way", () => {
