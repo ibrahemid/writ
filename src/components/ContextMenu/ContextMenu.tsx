@@ -99,6 +99,10 @@ export function hideContextMenu() {
   setMenu(null);
 }
 
+export function isContextMenuOpen(): boolean {
+  return menu() !== null;
+}
+
 /**
  * Whether the open menu is the one `trigger` opened, so a trigger can say
  * `aria-expanded` from the menu's own state. Read in a component, it tracks:

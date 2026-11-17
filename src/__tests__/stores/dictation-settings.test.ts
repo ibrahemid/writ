@@ -146,9 +146,12 @@ describe("isLanguageUnsupported", () => {
 describe("isAutomaticUnsupported", () => {
   it("flags Automatic on the on-device engine when the system language has no model", () => {
     expect(isAutomaticUnsupported("on_device", capabilities({ system_language: "sw" }), "")).toBe(true);
-    expect(isAutomaticUnsupported("on_device", capabilities({ system_language: "" }), "")).toBe(true);
     expect(isAutomaticUnsupported("on_device", capabilities({ system_language: "AR" }), "")).toBe(false);
     expect(isAutomaticUnsupported("on_device", capabilities(), "")).toBe(false);
+  });
+
+  it("says nothing when the system language is not known", () => {
+    expect(isAutomaticUnsupported("on_device", capabilities({ system_language: "" }), "")).toBe(false);
   });
 
   it("takes Norwegian Bokmal as Norwegian, as the engine does", () => {

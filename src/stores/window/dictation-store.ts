@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onCleanup } from "solid-js";
 import type { EditorView } from "@codemirror/view";
+import { completionStatus } from "@codemirror/autocomplete";
 import {
   dictationCancel,
   dictationOpenMicSettings,
@@ -21,6 +22,8 @@ import { isImeComposing } from "../../lib/ime";
 import { isModalOpen } from "../../lib/modal-stack";
 import { logFailure } from "../../lib/log";
 import { showToast, type ToastAction } from "../global/notifications";
+import { findStore } from "../global/find-store";
+import { isContextMenuOpen } from "../../components/ContextMenu/ContextMenu";
 
 /** Where a session is: waiting on the start, getting the on-device model,
  * listening, or draining what was heard after Stop. */
@@ -60,6 +63,14 @@ export function settingForFailure(code: DictationErrorCode): string {
     default:
       return "dictation.provider";
   }
+}
+
+const OVERLAY_ROLES = '[role="dialog"], [role="alertdialog"], [role="menu"]';
+const TEXT_INPUT_TYPES: ReadonlySet<string> = new Set(["text", "search", "url", "email", "password", "number", "tel"]);
+
+function isTextField(target: Element): boolean {
+  if (target instanceof HTMLTextAreaElement) return true;
+  return target instanceof HTMLInputElement && TEXT_INPUT_TYPES.has(target.type);
 }
 
 /** One session, from the press that started it to its last event. */
@@ -162,6 +173,9 @@ export function createDictationStore(deps: DictationStoreDeps) {
         return;
       case "transcribing":
         setPending(event.pending);
+        return;
+      case "stopping":
+        setPhase("stopping");
         return;
       case "segment":
         if (insertDictationSegment(current.view, event.text) === "anchor-lost") {
@@ -295,13 +309,16 @@ export function createDictationStore(deps: DictationStoreDeps) {
     }
   });
 
-  // Escape cancels only from the editor or the page itself; in Find, the
-  // palette, a dialog or a field it belongs to them.
+  // Escape cancels from anywhere in the window except where another layer
+  // answers it: a dialog, the palette, Find, a menu, a text field, or the
+  // dictating editor's completion list.
   const isEscapeForDictation = (event: KeyboardEvent, view: EditorView): boolean => {
-    if (event.key !== "Escape" || isImeComposing(event) || isModalOpen()) return false;
+    if (event.key !== "Escape" || event.defaultPrevented || isImeComposing(event)) return false;
+    if (isModalOpen() || findStore.isOpen() || isContextMenuOpen()) return false;
+    if (completionStatus(view.state) === "active") return false;
     const target = event.target;
-    if (target === document || target === document.body || target === document.documentElement) return true;
-    return target instanceof Node && view.dom.contains(target);
+    if (!(target instanceof Element)) return true;
+    return !isTextField(target) && target.closest(OVERLAY_ROLES) === null;
   };
 
   createEffect(() => {
@@ -313,17 +330,11 @@ export function createDictationStore(deps: DictationStoreDeps) {
       event.stopPropagation();
       abandon(current);
     };
-    // Hiding or minimizing the window stops, as a second press would.
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") void stop();
-    };
     const onPageHide = () => abandon(current);
     document.addEventListener("keydown", onKeyDown, true);
-    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", onPageHide);
     onCleanup(() => {
       document.removeEventListener("keydown", onKeyDown, true);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", onPageHide);
     });
   });

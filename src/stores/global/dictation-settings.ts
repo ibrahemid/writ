@@ -99,7 +99,8 @@ export function isAutomaticUnsupported(
   if (engine !== "on_device" || capabilities === null || !capabilities.on_device) return false;
   if (configured !== "") return false;
   const system = languagePart(capabilities.system_language);
-  return system === "" || !capabilities.on_device_languages.some((locale) => speaks(system, languagePart(locale)));
+  if (system === "") return false;
+  return !capabilities.on_device_languages.some((locale) => speaks(system, languagePart(locale)));
 }
 
 export function isAiConnectionReady(state: AiEndpointState | null, model: string): boolean {

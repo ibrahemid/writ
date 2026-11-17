@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 import { EditorSelection, EditorState, Prec, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { autocompletion, completionStatus, startCompletion } from "@codemirror/autocomplete";
 import type { DictationEvent, DictationSession } from "../../types/dictation";
 
 const h = vi.hoisted(() => ({
@@ -35,6 +36,13 @@ import {
   type DictationStore,
 } from "../../stores/window/dictation-store";
 import { popModal, pushModal, resetModalStack } from "../../lib/modal-stack";
+import { findStore } from "../../stores/global/find-store";
+import {
+  hideContextMenu,
+  showAnchoredMenu,
+  showContextMenu,
+  type MenuItem,
+} from "../../components/ContextMenu/ContextMenu";
 
 type Send = (event: DictationEvent) => void;
 
@@ -364,6 +372,167 @@ describe("a session", () => {
     expect(store.isLive()).toBe(true);
   });
 
+  it("cancels on Escape from the toolbar, the sidebar, the tab strip or the other pane's editor", async () => {
+    const view = makeView("");
+    const other = makeView("other pane");
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    try {
+      for (const target of [button, other.contentDOM]) {
+        const { store } = use(view);
+        answeredStart(4);
+        await store.toggle();
+        expect(escape(target).defaultPrevented).toBe(true);
+        expect(h.cancel).toHaveBeenCalledWith(4);
+        expect(store.isLive()).toBe(false);
+        current?.dispose();
+        h.cancel.mockClear();
+      }
+    } finally {
+      button.remove();
+    }
+  });
+
+  it("leaves Escape to Find while it is open", async () => {
+    const view = makeView("");
+    const { store } = use(view);
+    answeredStart(4);
+    await store.toggle();
+    findStore.open();
+    try {
+      expect(escape(view.contentDOM).defaultPrevented).toBe(false);
+    } finally {
+      findStore.close();
+    }
+    expect(h.cancel).not.toHaveBeenCalled();
+    expect(store.isLive()).toBe(true);
+  });
+
+  it("leaves Escape to a menu or popover that has the focus", async () => {
+    const { store } = use(makeView(""));
+    answeredStart(4);
+    await store.toggle();
+    for (const role of ["menu", "dialog"]) {
+      const layer = document.createElement("div");
+      layer.setAttribute("role", role);
+      const item = document.createElement("button");
+      layer.appendChild(item);
+      document.body.appendChild(layer);
+      const event = escape(item);
+      layer.remove();
+      expect(event.defaultPrevented).toBe(false);
+    }
+    expect(h.cancel).not.toHaveBeenCalled();
+    expect(store.isLive()).toBe(true);
+  });
+
+  describe("with one of the app's menus open and the focus left outside it", () => {
+    const ITEMS: MenuItem[] = [{ label: "Copy", action: () => undefined }];
+    const controls: HTMLElement[] = [];
+
+    function control(): HTMLButtonElement {
+      const button = document.createElement("button");
+      document.body.appendChild(button);
+      controls.push(button);
+      return button;
+    }
+
+    afterEach(() => {
+      hideContextMenu();
+      for (const element of controls.splice(0)) element.remove();
+    });
+
+    it.each<[string, (view: EditorView) => HTMLElement]>([
+      [
+        "the editor's context menu",
+        (view) => {
+          showContextMenu(10, 10, ITEMS, view.scrollDOM.getBoundingClientRect());
+          return view.contentDOM;
+        },
+      ],
+      [
+        "the editor's spelling popover",
+        (view) => {
+          showAnchoredMenu(view.contentDOM.getBoundingClientRect(), ITEMS, undefined, view.scrollDOM.getBoundingClientRect());
+          return view.contentDOM;
+        },
+      ],
+      [
+        "a tab's context menu",
+        () => {
+          showContextMenu(10, 10, ITEMS);
+          return control();
+        },
+      ],
+      [
+        "the tab strip's overflow menu",
+        () => {
+          const overflow = control();
+          showAnchoredMenu(overflow.getBoundingClientRect(), ITEMS, overflow);
+          return overflow;
+        },
+      ],
+      [
+        "a sidebar row's context menu",
+        () => {
+          showContextMenu(10, 10, ITEMS);
+          return control();
+        },
+      ],
+      [
+        "the title bar's app menu",
+        () => {
+          const appMenu = control();
+          showAnchoredMenu(appMenu.getBoundingClientRect(), ITEMS, appMenu);
+          return appMenu;
+        },
+      ],
+      [
+        "a status bar chip's menu",
+        () => {
+          const chip = control();
+          showAnchoredMenu(chip.getBoundingClientRect(), ITEMS, chip);
+          return chip;
+        },
+      ],
+    ])("leaves Escape to %s, then cancels once it closes", async (_menu, open) => {
+      const view = makeView("");
+      const { store } = use(view);
+      answeredStart(4);
+      await store.toggle();
+      const target = open(view);
+      expect(escape(target).defaultPrevented).toBe(false);
+      expect(h.cancel).not.toHaveBeenCalled();
+      expect(store.isLive()).toBe(true);
+      hideContextMenu();
+      expect(escape(target).defaultPrevented).toBe(true);
+      expect(h.cancel).toHaveBeenCalledWith(4);
+    });
+  });
+
+  it("leaves Escape to the editor's completion list while it is open", async () => {
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: "wo",
+        selection: EditorSelection.cursor(2),
+        extensions: autocompletion({ override: [() => ({ from: 0, options: [{ label: "word" }] })] }),
+      }),
+      parent,
+    });
+    views.push(view);
+    const { store } = use(view);
+    answeredStart(4);
+    await store.toggle();
+    startCompletion(view);
+    await vi.waitFor(() => expect(completionStatus(view.state)).toBe("active"));
+    escape(view.contentDOM);
+    expect(h.cancel).not.toHaveBeenCalled();
+    expect(store.isLive()).toBe(true);
+    expect(completionStatus(view.state)).toBeNull();
+  });
+
   it("sends a cancel made before the start answered once it has", async () => {
     const { store } = use(makeView(""));
     const start = deferredStart(5);
@@ -464,19 +633,52 @@ describe("a session", () => {
     expect(store.isLive()).toBe(false);
   });
 
-  it("stops, and does not cancel, when the window is hidden", async () => {
+  it("keeps listening while the page is out of sight; Rust decides what stops it", async () => {
     const view = makeView("");
     const { store } = use(view);
     const send = answeredStart(3);
     await store.toggle();
     send({ kind: "recording" });
     setVisibility("hidden");
-    expect(h.stop).toHaveBeenCalledWith(3);
+    expect(h.stop).not.toHaveBeenCalled();
     expect(h.cancel).not.toHaveBeenCalled();
+    expect(store.phase()).toBe("recording");
+    send({ kind: "segment", seq: 0, text: "Heard" });
+    expect(text(view)).toBe("Heard");
+  });
+
+  it("shows stopping once Rust has closed the microphone, and inserts what was heard", async () => {
+    vi.useFakeTimers();
+    const view = makeView("");
+    const { store } = use(view);
+    const send = answeredStart(3);
+    await store.toggle();
+    send({ kind: "recording" });
+    vi.advanceTimersByTime(2000);
+    send({ kind: "stopping" });
     expect(store.phase()).toBe("stopping");
+    vi.advanceTimersByTime(5000);
+    expect(store.elapsedSeconds()).toBe(2);
+    send({ kind: "recording" });
+    expect(store.phase()).toBe("stopping");
+    await store.toggle();
+    expect(h.stop).not.toHaveBeenCalled();
     send({ kind: "segment", seq: 0, text: "Heard" });
     send({ kind: "done" });
     expect(text(view)).toBe("Heard");
+    expect(store.phase()).toBe("idle");
+  });
+
+  it("stays stopping when Rust confirms a stop pressed here", async () => {
+    const { store } = use(makeView(""));
+    const send = answeredStart(3);
+    await store.toggle();
+    send({ kind: "recording" });
+    await store.toggle();
+    send({ kind: "stopping" });
+    expect(store.phase()).toBe("stopping");
+    expect(h.stop).toHaveBeenCalledTimes(1);
+    expect(store.isLive()).toBe(true);
   });
 
   it("shows an error event and goes idle; no speech is a note, not an error", async () => {
