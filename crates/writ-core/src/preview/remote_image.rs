@@ -49,12 +49,22 @@ pub enum RemoteImageRefusal {
     /// image.
     LocalAddress,
     /// A load the person did not ask for names a host that resolves to a
-    /// local address ([`is_local_address`]). The placeholder says the host is
-    /// on the local network and keeps Load image.
-    ResolvesToLocal,
+    /// local address ([`local_address_scope`]). The placeholder says where the
+    /// address is and keeps Load image.
+    ResolvesToLocal(LocalScope),
     /// A redirect leads to a local address at a host other than the one the
     /// placeholder named. Refused for every load, a click included.
-    RedirectsToLocal,
+    RedirectsToLocal(LocalScope),
+}
+
+/// Where a local name or address leads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalScope {
+    /// This computer: a loopback or unspecified address, or `localhost`.
+    ThisComputer,
+    /// Another device on the local network: a private, shared, link-local or
+    /// unique-local address, or an mDNS or `.internal` name.
+    LocalNetwork,
 }
 
 /// Who started a remote image load.
@@ -77,8 +87,10 @@ impl RemoteImageRefusal {
             Self::TooLarge => "too_large",
             Self::NotAnImage => "not_an_image",
             Self::LocalAddress => "local_address",
-            Self::ResolvesToLocal => "resolves_to_local",
-            Self::RedirectsToLocal => "redirects_to_local",
+            Self::ResolvesToLocal(LocalScope::ThisComputer) => "resolves_to_this_computer",
+            Self::ResolvesToLocal(LocalScope::LocalNetwork) => "resolves_to_local_network",
+            Self::RedirectsToLocal(LocalScope::ThisComputer) => "redirects_to_this_computer",
+            Self::RedirectsToLocal(LocalScope::LocalNetwork) => "redirects_to_local_network",
         }
     }
 }
@@ -137,47 +149,82 @@ pub fn embedded_ipv4(v6: Ipv6Addr) -> Option<Ipv4Addr> {
     }
 }
 
+/// Where an address in a range reserved for this machine or a local network
+/// leads, or `None` for any other address.
+///
+/// This computer: loopback (127/8, `::1`) and unspecified (0/8, `::`),
+/// including their IPv4-mapped and IPv4-compatible forms. The local network:
+/// the private, shared (100.64/10) and link-local ranges of
+/// [`is_private_network_address`], IPv6 unique local and link-local, the
+/// local-use NAT64 prefix `64:ff9b:1::/48`, and a NAT64 or 6to4 address whose
+/// [`embedded_ipv4`] is local, which a gateway on the network translates. The
+/// test is by range: a device on the local network that holds a public
+/// address is not recognized.
+pub fn local_address_scope(addr: IpAddr) -> Option<LocalScope> {
+    let (v4, is_translated) = match addr {
+        IpAddr::V4(v4) => (v4, false),
+        IpAddr::V6(v6) if matches!(v6.segments(), [0x64, 0xff9b, 1, ..]) => {
+            return Some(LocalScope::LocalNetwork);
+        }
+        IpAddr::V6(v6) => match embedded_ipv4(v6) {
+            Some(v4) => (v4, v6.to_ipv4().is_none()),
+            None => return is_private_network_address(addr).then_some(LocalScope::LocalNetwork),
+        },
+    };
+    if v4.is_loopback() || v4.octets()[0] == 0 {
+        return Some(if is_translated {
+            LocalScope::LocalNetwork
+        } else {
+            LocalScope::ThisComputer
+        });
+    }
+    is_private_network_address(IpAddr::V4(v4)).then_some(LocalScope::LocalNetwork)
+}
+
 /// Whether an address is in a range reserved for this machine or a local
-/// network: loopback (127/8, `::1`), unspecified (0/8, `::`), the private,
-/// shared (100.64/10) and link-local ranges of [`is_private_network_address`],
-/// IPv6 unique local and link-local, the local-use NAT64 prefix
-/// `64:ff9b:1::/48`, and an IPv6 address whose [`embedded_ipv4`] is in one of
-/// the IPv4 ranges. The test is by range: a device on the local network that
-/// holds a public address is not recognized.
+/// network ([`local_address_scope`]).
 pub fn is_local_address(addr: IpAddr) -> bool {
-    let addr = match addr {
-        IpAddr::V6(v6) if matches!(v6.segments(), [0x64, 0xff9b, 1, ..]) => return true,
-        IpAddr::V6(v6) => embedded_ipv4(v6).map_or(addr, IpAddr::V4),
-        IpAddr::V4(_) => addr,
-    };
-    let is_this_machine = match addr {
-        IpAddr::V4(v4) => v4.is_loopback() || v4.octets()[0] == 0,
-        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
-    };
-    is_this_machine || is_private_network_address(addr)
+    local_address_scope(addr).is_some()
+}
+
+/// Where a host name leads by convention, in any case and with or without the
+/// trailing dot: `localhost` and names under `.localhost` to this computer,
+/// names under `.local` (mDNS) or `.internal` to the local network.
+pub fn local_host_name_scope(name: &str) -> Option<LocalScope> {
+    let name = name.strip_suffix('.').unwrap_or(name).to_ascii_lowercase();
+    if name == "localhost" || name.ends_with(".localhost") {
+        Some(LocalScope::ThisComputer)
+    } else if [".local", ".internal"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+    {
+        Some(LocalScope::LocalNetwork)
+    } else {
+        None
+    }
 }
 
 /// Whether a host name names this machine or the local network by
-/// convention: `localhost` and names under `.localhost`, `.local` (mDNS) or
-/// `.internal`, in any case and with or without the trailing dot.
+/// convention ([`local_host_name_scope`]).
 pub fn is_local_host_name(name: &str) -> bool {
-    let name = name.strip_suffix('.').unwrap_or(name).to_ascii_lowercase();
-    name == "localhost"
-        || [".localhost", ".local", ".internal"]
-            .iter()
-            .any(|suffix| name.ends_with(suffix))
+    local_host_name_scope(name).is_some()
+}
+
+/// Where a URL host that is a local name or a local address literal leads.
+pub fn local_host_scope(host: &Host<&str>) -> Option<LocalScope> {
+    match *host {
+        Host::Domain(name) => local_host_name_scope(name),
+        Host::Ipv4(v4) => local_address_scope(IpAddr::V4(v4)),
+        Host::Ipv6(v6) => local_address_scope(IpAddr::V6(v6)),
+    }
 }
 
 /// Whether a URL's host is a local name or a local address literal. A URL
 /// with no host counts as local. A public name still has to resolve to
 /// public addresses before an automatic load connects to it.
 pub fn is_local_host(url: &Url) -> bool {
-    match url.host() {
-        Some(Host::Domain(name)) => is_local_host_name(name),
-        Some(Host::Ipv4(v4)) => is_local_address(IpAddr::V4(v4)),
-        Some(Host::Ipv6(v6)) => is_local_address(IpAddr::V6(v6)),
-        None => true,
-    }
+    url.host()
+        .is_none_or(|host| local_host_scope(&host).is_some())
 }
 
 /// Turns away a body announced or grown past [`REMOTE_IMAGE_MAX_BYTES`].

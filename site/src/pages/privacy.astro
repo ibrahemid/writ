@@ -66,8 +66,10 @@ import Prose from '../layouts/Prose.astro';
     when its address, or any address its name resolves to, is in a loopback, private, link-local, unique-local,
     carrier-grade NAT or other local-use range. A device on your network that has a public address is not recognized as
     local. The request goes to that image's server, and to any http or https address it redirects to, with no cookies
-    and no referrer; a redirect to a local address at a host other than the one shown is not followed, even after a
-    click. Writ keeps the image in memory and does not write it to disk.
+    and no referrer. Writ does not follow a redirect to a local address at a host other than the one shown, even after
+    a click. When Writ connects directly, it checks every address the redirect's host name resolves to. When a system
+    proxy makes the connection, the proxy looks up that name, so Writ checks only the name and any address written in
+    the redirect. Writ keeps the image in memory and does not write it to disk.
   </p>
 
   <h2>The AI connection</h2>

@@ -22,9 +22,9 @@ use reqwest::redirect::{Attempt, Policy};
 use tracing::warn;
 use url::{Host, Url};
 use writ_core::preview::remote_image::{
-    check_remote_image_bytes, check_remote_image_size, is_followable_redirect, is_local_address,
-    is_local_host, is_local_host_name, HeldImage, RemoteImageLoad, RemoteImageRefusal,
-    REMOTE_IMAGE_MAX_REDIRECTS, REMOTE_IMAGE_TIMEOUT,
+    check_remote_image_bytes, check_remote_image_size, is_followable_redirect, is_local_host,
+    local_address_scope, local_host_name_scope, local_host_scope, HeldImage, LocalScope,
+    RemoteImageLoad, RemoteImageRefusal, REMOTE_IMAGE_MAX_REDIRECTS, REMOTE_IMAGE_TIMEOUT,
 };
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -36,17 +36,17 @@ enum LocalRefusal {
     #[error("an image load nobody asked for names a local host")]
     LocalHost,
     #[error("an image load nobody asked for names a host that resolves to a local address")]
-    ResolvesToLocal,
+    ResolvesToLocal(LocalScope),
     #[error("an image redirects to a local address at another host")]
-    RedirectsToLocal,
+    RedirectsToLocal(LocalScope),
 }
 
 impl From<LocalRefusal> for RemoteImageRefusal {
     fn from(refusal: LocalRefusal) -> Self {
         match refusal {
             LocalRefusal::LocalHost => Self::LocalAddress,
-            LocalRefusal::ResolvesToLocal => Self::ResolvesToLocal,
-            LocalRefusal::RedirectsToLocal => Self::RedirectsToLocal,
+            LocalRefusal::ResolvesToLocal(scope) => Self::ResolvesToLocal(scope),
+            LocalRefusal::RedirectsToLocal(scope) => Self::RedirectsToLocal(scope),
         }
     }
 }
@@ -102,14 +102,17 @@ fn redirect_step(origin: &Url, next: &Url, hops: usize, load: RemoteImageLoad) -
         RedirectStep::TooMany
     } else if !is_followable_redirect(next) {
         RedirectStep::Stop
-    } else if !is_local_host(next) {
-        RedirectStep::Follow
-    } else if !is_same_host(origin, next) {
-        RedirectStep::Refuse(LocalRefusal::RedirectsToLocal)
-    } else if load == RemoteImageLoad::Automatic {
-        RedirectStep::Refuse(LocalRefusal::LocalHost)
     } else {
-        RedirectStep::Follow
+        match next.host().as_ref().and_then(local_host_scope) {
+            None => RedirectStep::Follow,
+            Some(scope) if !is_same_host(origin, next) => {
+                RedirectStep::Refuse(LocalRefusal::RedirectsToLocal(scope))
+            }
+            Some(_) if load == RemoteImageLoad::Automatic => {
+                RedirectStep::Refuse(LocalRefusal::LocalHost)
+            }
+            Some(_) => RedirectStep::Follow,
+        }
     }
 }
 
@@ -155,24 +158,23 @@ impl NameCheck {
     }
 
     fn check_name(self, name: &str) -> Result<(), LocalRefusal> {
-        match self {
-            Self::Open => Ok(()),
-            _ if !is_local_host_name(name) => Ok(()),
-            Self::Unasked => Err(LocalRefusal::LocalHost),
-            Self::Redirected => Err(LocalRefusal::RedirectsToLocal),
+        match (self, local_host_name_scope(name)) {
+            (Self::Open, _) | (_, None) => Ok(()),
+            (Self::Unasked, Some(_)) => Err(LocalRefusal::LocalHost),
+            (Self::Redirected, Some(scope)) => Err(LocalRefusal::RedirectsToLocal(scope)),
         }
     }
 
     /// Hands the connector a name's addresses when none of them is refused.
+    /// A refusal names where the first local address leads.
     fn check_addresses(self, addresses: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, LocalRefusal> {
-        let has_local = addresses
+        let scope = addresses
             .iter()
-            .any(|address| is_local_address(address.ip()));
-        match self {
-            _ if !has_local => Ok(addresses),
-            Self::Open => Ok(addresses),
-            Self::Unasked => Err(LocalRefusal::ResolvesToLocal),
-            Self::Redirected => Err(LocalRefusal::RedirectsToLocal),
+            .find_map(|address| local_address_scope(address.ip()));
+        match (self, scope) {
+            (Self::Open, _) | (_, None) => Ok(addresses),
+            (Self::Unasked, Some(scope)) => Err(LocalRefusal::ResolvesToLocal(scope)),
+            (Self::Redirected, Some(scope)) => Err(LocalRefusal::RedirectsToLocal(scope)),
         }
     }
 }
@@ -525,10 +527,14 @@ mod tests {
     fn a_local_name_a_redirect_led_to_is_refused_on_a_click() {
         for load in [RemoteImageLoad::Asked, RemoteImageLoad::Automatic] {
             let redirected = resolver(load, &["localhost", "printer.local"]);
-            for name in ["localhost", "printer.local", "LOCALHOST."] {
+            for (name, scope) in [
+                ("localhost", LocalScope::ThisComputer),
+                ("LOCALHOST.", LocalScope::ThisComputer),
+                ("printer.local", LocalScope::LocalNetwork),
+            ] {
                 assert_eq!(
                     resolve_refusal(&redirected, name),
-                    Some(LocalRefusal::RedirectsToLocal),
+                    Some(LocalRefusal::RedirectsToLocal(scope)),
                     "{name} {load:?}"
                 );
             }
@@ -571,29 +577,31 @@ mod tests {
                 vec![public, public_v6]
             );
         }
-        for local in [
-            "127.0.0.1:0",
-            "10.0.0.1:0",
-            "172.16.0.1:0",
-            "192.168.0.1:0",
-            "100.64.0.1:0",
-            "169.254.169.254:0",
-            "0.0.0.0:0",
-            "[::1]:0",
-            "[::]:0",
-            "[fd00::1]:0",
-            "[fe80::1]:0",
-            "[::ffff:10.0.0.1]:0",
+        let this_computer = LocalScope::ThisComputer;
+        let network = LocalScope::LocalNetwork;
+        for (local, scope) in [
+            ("127.0.0.1:0", this_computer),
+            ("10.0.0.1:0", network),
+            ("172.16.0.1:0", network),
+            ("192.168.0.1:0", network),
+            ("100.64.0.1:0", network),
+            ("169.254.169.254:0", network),
+            ("0.0.0.0:0", this_computer),
+            ("[::1]:0", this_computer),
+            ("[::]:0", this_computer),
+            ("[fd00::1]:0", network),
+            ("[fe80::1]:0", network),
+            ("[::ffff:10.0.0.1]:0", network),
         ] {
             let local: SocketAddr = local.parse().unwrap();
             assert_eq!(
                 NameCheck::Unasked.check_addresses(vec![public, local]),
-                Err(LocalRefusal::ResolvesToLocal),
+                Err(LocalRefusal::ResolvesToLocal(scope)),
                 "{local}"
             );
             assert_eq!(
                 NameCheck::Redirected.check_addresses(vec![public, local]),
-                Err(LocalRefusal::RedirectsToLocal),
+                Err(LocalRefusal::RedirectsToLocal(scope)),
                 "{local}"
             );
             assert_eq!(
@@ -601,6 +609,20 @@ mod tests {
                 Ok(vec![public, local])
             );
         }
+    }
+
+    #[test]
+    fn a_refusal_names_where_the_first_local_address_leads() {
+        let loopback: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let private: SocketAddr = "10.0.0.1:0".parse().unwrap();
+        assert_eq!(
+            NameCheck::Unasked.check_addresses(vec![loopback, private]),
+            Err(LocalRefusal::ResolvesToLocal(LocalScope::ThisComputer))
+        );
+        assert_eq!(
+            NameCheck::Unasked.check_addresses(vec![private, loopback]),
+            Err(LocalRefusal::ResolvesToLocal(LocalScope::LocalNetwork))
+        );
     }
 
     #[test]
@@ -626,18 +648,20 @@ mod tests {
         )]);
         assert_eq!(
             send_automatic(&format!("{base}/a.png")),
-            Err(RemoteImageRefusal::RedirectsToLocal)
+            Err(RemoteImageRefusal::RedirectsToLocal(
+                LocalScope::LocalNetwork
+            ))
         );
         assert_eq!(server.join().unwrap().len(), 1);
     }
 
     #[test]
     fn a_click_refuses_a_redirect_to_a_local_address_at_another_host() {
-        for target in [
-            "http://localhost:9/b.png",
-            "http://192.168.1.1/b.png",
-            "http://[::1]:9/b.png",
-            "http://nas.local/b.png",
+        for (target, scope) in [
+            ("http://localhost:9/b.png", LocalScope::ThisComputer),
+            ("http://192.168.1.1/b.png", LocalScope::LocalNetwork),
+            ("http://[::1]:9/b.png", LocalScope::ThisComputer),
+            ("http://nas.local/b.png", LocalScope::LocalNetwork),
         ] {
             let (base, server) = serve(vec![reply(
                 "302 Found",
@@ -646,7 +670,7 @@ mod tests {
             )]);
             assert_eq!(
                 fetch(&format!("{base}/a.png")),
-                Err(RemoteImageRefusal::RedirectsToLocal),
+                Err(RemoteImageRefusal::RedirectsToLocal(scope)),
                 "{target}"
             );
             assert_eq!(server.join().unwrap().len(), 1, "{target}");
@@ -673,12 +697,18 @@ mod tests {
         let file = Url::parse("file:///etc/passwd").unwrap();
         let automatic = RemoteImageLoad::Automatic;
         let asked = RemoteImageLoad::Asked;
-        let redirects = RedirectStep::Refuse(LocalRefusal::RedirectsToLocal);
+        let loopback = Url::parse("http://127.0.0.1/b.png").unwrap();
+        let redirects =
+            RedirectStep::Refuse(LocalRefusal::RedirectsToLocal(LocalScope::LocalNetwork));
         for load in [asked, automatic] {
             assert_eq!(redirect_step(&public, &cdn, 1, load), RedirectStep::Follow);
             assert_eq!(redirect_step(&public, &nas, 1, load), redirects);
             assert_eq!(redirect_step(&public, &named, 1, load), redirects);
             assert_eq!(redirect_step(&nas, &other_nas, 1, load), redirects);
+            assert_eq!(
+                redirect_step(&public, &loopback, 1, load),
+                RedirectStep::Refuse(LocalRefusal::RedirectsToLocal(LocalScope::ThisComputer))
+            );
             assert_eq!(redirect_step(&public, &file, 1, load), RedirectStep::Stop);
             assert_eq!(
                 redirect_step(&public, &cdn, REMOTE_IMAGE_MAX_REDIRECTS + 1, load),

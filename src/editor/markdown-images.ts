@@ -10,6 +10,7 @@ import { syntaxTree } from "@codemirror/language";
 import {
   isInlineImageFailure,
   type InlineImageFailure,
+  type LocalScope,
   type RemoteImageLoad,
 } from "../types/inline-image";
 
@@ -32,14 +33,28 @@ export type InlineImageState =
   | { status: "pending" }
   | { status: "ready"; src: string; label: string }
   | { status: "downloading"; label: string }
-  | { status: "remote"; label: string; host: string; onNetwork?: true }
+  | { status: "remote"; label: string; host: string; scope?: LocalScope }
   | { status: "failed"; label: string; reason: ShownFailure };
 
 /**
- * A refusal the widget names. `local_address` and `resolves_to_local` keep
- * the Load image button; `resolves_to_local` sets `onNetwork`.
+ * A refusal that holds a load back for a click. The image keeps the Load
+ * image button, and a name's answer sets where the host leads.
  */
-type ShownFailure = Exclude<InlineImageFailure, "local_address" | "resolves_to_local">;
+type HeldBackFailure = "local_address" | "resolves_to_this_computer" | "resolves_to_local_network";
+
+/** A refusal the widget names. */
+type ShownFailure = Exclude<InlineImageFailure, HeldBackFailure>;
+
+const HELD_BACK_SCOPES: Record<HeldBackFailure, LocalScope | null> = {
+  local_address: null,
+  resolves_to_this_computer: "this_computer",
+  resolves_to_local_network: "local_network",
+};
+
+const SCOPE_LABELS: Record<LocalScope, string> = {
+  this_computer: "on this computer",
+  local_network: "on your network",
+};
 
 /**
  * How a reference becomes a URL the image is drawn from.
@@ -155,7 +170,8 @@ const FAILURE_LABELS: Record<ShownFailure, string> = {
   not_an_image: "not an image",
   unreachable: "could not be loaded",
   not_remote: "not a web address",
-  redirects_to_local: "redirects to an address on your network",
+  redirects_to_this_computer: "redirects to an address on this computer",
+  redirects_to_local_network: "redirects to an address on your network",
 };
 
 function sameState(a: InlineImageState, b: InlineImageState): boolean {
@@ -171,7 +187,7 @@ function sameState(a: InlineImageState, b: InlineImageState): boolean {
         b.status === "remote" &&
         a.host === b.host &&
         a.label === b.label &&
-        a.onNetwork === b.onNetwork
+        a.scope === b.scope
       );
     case "failed":
       return b.status === "failed" && a.reason === b.reason && a.label === b.label;
@@ -220,7 +236,7 @@ export class InlineImageWidget extends WidgetType {
     } else if (this.state.status === "downloading") {
       frame.appendChild(caption(`${this.state.label} · downloading`));
     } else if (this.state.status === "remote") {
-      const where = this.state.onNetwork ? ", on your network" : "";
+      const where = this.state.scope ? `, ${SCOPE_LABELS[this.state.scope]}` : "";
       frame.appendChild(caption(`Image from ${this.state.host}${where}`));
       frame.appendChild(actionButton(view, "Load image", loadRemoteImage.of(this.reference)));
     } else if (this.state.status === "failed") {
@@ -268,21 +284,22 @@ function failureOf(error: unknown): InlineImageFailure {
   return isInlineImageFailure(reason) ? reason : "not_found";
 }
 
+function isHeldBack(reason: InlineImageFailure): reason is HeldBackFailure {
+  return reason in HELD_BACK_SCOPES;
+}
+
 /**
  * The state a failed request leaves: a load held back from a local host keeps
- * its button, and says the host is on the network when only its name's
- * answer showed it.
+ * its button, and says where the host leads when only its name's answer
+ * showed it.
  */
 function failedState(reference: string, label: string, error: unknown): InlineImageState {
   const reason = failureOf(error);
-  if (reason !== "local_address" && reason !== "resolves_to_local") {
-    return { status: "failed", label, reason };
-  }
+  if (!isHeldBack(reason)) return { status: "failed", label, reason };
   const host = remoteImageHost(reference);
   if (host === null) return { status: "failed", label, reason: "unreachable" };
-  return reason === "resolves_to_local"
-    ? { status: "remote", label, host, onNetwork: true }
-    : { status: "remote", label, host };
+  const scope = HELD_BACK_SCOPES[reason];
+  return scope === null ? { status: "remote", label, host } : { status: "remote", label, host, scope };
 }
 
 /**

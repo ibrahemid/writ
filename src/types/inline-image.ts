@@ -8,8 +8,13 @@ export type InlineImageFailure =
   | "unreachable"
   | "not_remote"
   | "local_address"
-  | "resolves_to_local"
-  | "redirects_to_local";
+  | "resolves_to_this_computer"
+  | "resolves_to_local_network"
+  | "redirects_to_this_computer"
+  | "redirects_to_local_network";
+
+/** Where a local address leads, as the host classified it. */
+export type LocalScope = "this_computer" | "local_network";
 
 /**
  * Who started a web image load. An `automatic` one is refused for a local
@@ -28,8 +33,10 @@ const FAILURES: readonly string[] = [
   "unreachable",
   "not_remote",
   "local_address",
-  "resolves_to_local",
-  "redirects_to_local",
+  "resolves_to_this_computer",
+  "resolves_to_local_network",
+  "redirects_to_this_computer",
+  "redirects_to_local_network",
 ];
 
 /** Whether a host-supplied identifier is one of the refusals. */

@@ -2,8 +2,9 @@ use std::net::IpAddr;
 
 use writ_core::preview::remote_image::{
     check_remote_image_bytes, check_remote_image_size, embedded_ipv4, is_followable_redirect,
-    is_local_address, is_local_host, is_local_host_name, remote_image_host, remote_image_key,
-    remote_image_route, remote_image_url, split_remote_image_request, RemoteImageLoad,
+    is_local_address, is_local_host, is_local_host_name, local_address_scope,
+    local_host_name_scope, local_host_scope, remote_image_host, remote_image_key,
+    remote_image_route, remote_image_url, split_remote_image_request, LocalScope, RemoteImageLoad,
     RemoteImageRefusal, RemoteImageRequest, REMOTE_IMAGE_MAX_BYTES,
 };
 
@@ -115,13 +116,125 @@ fn refusals_map_to_the_editor_captions() {
     assert_eq!(RemoteImageRefusal::NotAnImage.as_str(), "not_an_image");
     assert_eq!(RemoteImageRefusal::LocalAddress.as_str(), "local_address");
     assert_eq!(
-        RemoteImageRefusal::ResolvesToLocal.as_str(),
-        "resolves_to_local"
+        RemoteImageRefusal::ResolvesToLocal(LocalScope::ThisComputer).as_str(),
+        "resolves_to_this_computer"
     );
     assert_eq!(
-        RemoteImageRefusal::RedirectsToLocal.as_str(),
-        "redirects_to_local"
+        RemoteImageRefusal::ResolvesToLocal(LocalScope::LocalNetwork).as_str(),
+        "resolves_to_local_network"
     );
+    assert_eq!(
+        RemoteImageRefusal::RedirectsToLocal(LocalScope::ThisComputer).as_str(),
+        "redirects_to_this_computer"
+    );
+    assert_eq!(
+        RemoteImageRefusal::RedirectsToLocal(LocalScope::LocalNetwork).as_str(),
+        "redirects_to_local_network"
+    );
+}
+
+#[test]
+fn loopback_and_unspecified_addresses_are_this_computer() {
+    for text in [
+        "127.0.0.1",
+        "127.255.255.254",
+        "0.0.0.0",
+        "0.1.2.3",
+        "::1",
+        "::",
+        "::ffff:127.0.0.1",
+        "::ffff:0.0.0.0",
+        "::7f00:1",
+    ] {
+        assert_eq!(
+            local_address_scope(addr(text)),
+            Some(LocalScope::ThisComputer),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn private_link_local_unique_local_and_shared_addresses_are_the_local_network() {
+    for text in [
+        "10.0.0.5",
+        "172.16.0.1",
+        "192.168.1.1",
+        "169.254.169.254",
+        "100.64.0.1",
+        "fd00::5",
+        "fc00::1",
+        "fe80::1",
+        "::ffff:192.168.1.1",
+        "64:ff9b:1::a00:1",
+        "64:ff9b::a00:1",
+        "2002:c0a8:101::1",
+        "64:ff9b::7f00:1",
+        "2002:7f00:1::1",
+    ] {
+        assert_eq!(
+            local_address_scope(addr(text)),
+            Some(LocalScope::LocalNetwork),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn public_addresses_have_no_local_scope() {
+    for text in [
+        "8.8.8.8",
+        "2606:4700::1111",
+        "64:ff9b::808:808",
+        "2002:808:808::1",
+    ] {
+        assert_eq!(local_address_scope(addr(text)), None, "{text}");
+    }
+}
+
+#[test]
+fn local_names_lead_to_this_computer_or_the_local_network() {
+    for name in ["localhost", "LOCALHOST.", "app.localhost"] {
+        assert_eq!(
+            local_host_name_scope(name),
+            Some(LocalScope::ThisComputer),
+            "{name}"
+        );
+    }
+    for name in ["nas.local", "Printer.LOCAL.", "db.internal"] {
+        assert_eq!(
+            local_host_name_scope(name),
+            Some(LocalScope::LocalNetwork),
+            "{name}"
+        );
+    }
+    assert_eq!(local_host_name_scope("example.com"), None);
+}
+
+#[test]
+fn a_url_host_leads_where_its_name_or_literal_does() {
+    let scope = |reference: &str| {
+        let url = remote_image_url(reference).unwrap();
+        local_host_scope(&url.host().unwrap())
+    };
+    assert_eq!(
+        scope("http://localhost:8080/a.png"),
+        Some(LocalScope::ThisComputer)
+    );
+    assert_eq!(scope("http://[::1]/a.png"), Some(LocalScope::ThisComputer));
+    assert_eq!(
+        scope("http://2130706433/a.png"),
+        Some(LocalScope::ThisComputer)
+    );
+    assert_eq!(
+        scope("http://nas.local/a.png"),
+        Some(LocalScope::LocalNetwork)
+    );
+    assert_eq!(
+        scope("http://[fd00::5]/a.png"),
+        Some(LocalScope::LocalNetwork)
+    );
+    assert_eq!(scope("https://example.com/a.png"), None);
 }
 
 fn addr(text: &str) -> IpAddr {
