@@ -94,7 +94,7 @@ jobs:
           - os: ubuntu-latest
             label: Linux
             cross_only: false
-          - os: macos-15
+          - os: macos-15-intel
             label: macOS
             cross_only: true
           - os: windows-latest
@@ -301,7 +301,7 @@ jobs:
           - os: ubuntu-latest
             label: Linux
             dns_addr: "127.0.0.1:5533"
-          - os: macos-15
+          - os: macos-15-intel
             label: macOS
             dns_addr: "127.0.0.1:5533"
           # NRPT names a server without a port, so the Windows sink takes 53.
@@ -372,7 +372,7 @@ jobs:
           sudo systemctl restart systemd-resolved
 
       - name: Route the probe domain to the DNS sink (macOS)
-        if: matrix.os == 'macos-15' && matrix.dns_addr != ''
+        if: matrix.os == 'macos-15-intel' && matrix.dns_addr != ''
         run: |
           sudo mkdir -p /etc/resolver
           printf 'nameserver 127.0.0.1\nport 5533\n' | sudo tee /etc/resolver/writ-probe.test
