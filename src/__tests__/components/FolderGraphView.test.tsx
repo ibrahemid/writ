@@ -742,6 +742,9 @@ describe("the title", () => {
 });
 
 describe("the legend", () => {
+  function labelOf(chip: HTMLButtonElement): string {
+    return chip.querySelector(".folder-graph-chip-label")?.textContent ?? "";
+  }
   function chips(view: { container: HTMLElement }): HTMLButtonElement[] {
     return [...view.container.querySelectorAll<HTMLButtonElement>(".folder-graph-chip")];
   }
@@ -749,10 +752,10 @@ describe("the legend", () => {
   it("names each top-level folder in the colour its files are drawn in", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
-    expect(chips(view).map((chip) => chip.textContent)).toEqual(["Archive", "Projects", "notes"]);
+    expect(chips(view).map((chip) => labelOf(chip))).toEqual(["Archive", "Projects", "notes"]);
     const swatch = (label: string) =>
       chips(view)
-        .find((chip) => chip.textContent === label)!
+        .find((chip) => labelOf(chip) === label)!
         .querySelector<HTMLElement>(".folder-graph-swatch")!.style.background;
     expect(swatch("notes")).toBe(TOKEN_VALUES["--writ-fg-muted"]);
     expect(swatch("Archive")).not.toBe(swatch("Projects"));
@@ -762,7 +765,7 @@ describe("the legend", () => {
     twoFolders();
     const view = render(() => <FolderGraphView />);
     const dim = Number(TOKEN_VALUES["--writ-icon-opacity"]);
-    const projects = chips(view).find((chip) => chip.textContent === "Projects")!;
+    const projects = chips(view).find((chip) => labelOf(chip) === "Projects")!;
 
     recorder.discs = [];
     fireEvent.click(projects);

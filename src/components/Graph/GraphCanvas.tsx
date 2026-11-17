@@ -15,8 +15,13 @@ import { fitToView, toScreen } from "../../lib/graph/view";
 import type { NeighbourhoodNode } from "../../lib/graph/neighbourhood";
 import "./GraphCanvas.css";
 
+/** A note to draw. A note handed in with its folder is settled with that
+ * folder as its group, which is what a settle that pulls groups together
+ * reads. */
+export type GraphNode = NeighbourhoodNode & { folder?: string };
+
 interface Props {
-  nodes: NeighbourhoodNode[];
+  nodes: GraphNode[];
   edges: LayoutEdge[];
   /** The open note, drawn filled while everything around it is drawn hollow. */
   focusPath: string;
@@ -38,6 +43,14 @@ interface Props {
   colors?: ReadonlyMap<string, string>;
   /** The notes drawn faint, which is what a search does to the rest. */
   dimmed?: ReadonlySet<string>;
+  /**
+   * The notes left off the drawing. They keep their place in the settle, so
+   * showing them again puts them back where they were; the fit, the pointer
+   * and the names skip them.
+   */
+  hidden?: ReadonlySet<string>;
+  /** A second line for the hovered note's name, such as its folder. */
+  detailOf?: (path: string) => string;
   /** How far in the drawing is taken, over the size it is fitted at. */
   zoom?: number;
   /** How far the drawing is moved from the middle, in pixels. */
@@ -68,8 +81,32 @@ const DEFAULT_SIZE = { width: 216, height: 160 };
 /** How far the drawing stays from the canvas edge, in CSS pixels. */
 const VIEW_PADDING = 14;
 
-/** How small the open note's name may be drawn, and when it is left off. */
-const LABEL_MIN_SIZE = 9;
+/** The size every name is drawn at is the canvas's own, held inside this range. */
+const LABEL_MIN_SIZE = 10;
+const LABEL_MAX_SIZE = 12;
+
+/** How tall a line of names is, over the size it is drawn at. */
+const LABEL_LINE = 1.3;
+
+/** How many of the most linked notes are named at the fitted size. The count
+ * grows with the area the drawing is taken in to. */
+const LABEL_BUDGET = 24;
+
+/** The longest name drawn whole; past it the name is cut and ends in "…". */
+const LABEL_MAX_CHARS = 28;
+const LABEL_MAX_CHARS_PRIMARY = 48;
+
+/** How far a name sits under its disc. */
+const LABEL_GAP = 3;
+
+/** The side of one cell of the grid that keeps two names from overlapping. */
+const LABEL_CELL = 6;
+
+/** What a glyph is taken to be wide, over the size, where text cannot be measured. */
+const GLYPH_WIDTH = 0.58;
+
+/** How many measured names are kept before the measures are taken again. */
+const WIDTHS_KEPT = 8192;
 
 /** The most of a settle that runs per frame, in steps and in milliseconds. */
 const STEPS_PER_FRAME = 8;
@@ -88,13 +125,32 @@ const FRAME_BUDGET_MS = 8;
 const SETTLE_BUDGET_MS = 12;
 const SETTLE_AT_ONCE = 400;
 
-/** The smallest disc, and how much each extra link adds, in CSS pixels. */
-const RADIUS_BASE = 3.5;
-const RADIUS_PER_LINK = 0.9;
-const RADIUS_MAX = 7;
+/**
+ * A disc grows with the square root of its links, from the smallest a linked
+ * note is drawn at to the largest any is, in CSS pixels. A note nothing links
+ * with is drawn smaller than either, and fainter.
+ */
+const RADIUS_MIN = 3;
+const RADIUS_PER_ROOT_LINK = 1.2;
+const RADIUS_MAX = 9;
+const RADIUS_UNLINKED = 2.25;
+const UNLINKED_ALPHA = 0.5;
 
-/** How faint a link is drawn against the notes it joins. */
+/** The open note is never drawn smaller than this. */
+const RADIUS_FOCUS = 6;
+
+/**
+ * How faint a link is drawn against the notes it joins. Past `EDGE_CROWD`
+ * links the alpha falls with the square root of the count, down to
+ * `EDGE_ALPHA_MIN`, so a large folder reads as clusters rather than a mesh.
+ */
 const EDGE_ALPHA = 0.4;
+const EDGE_ALPHA_MIN = 0.2;
+const EDGE_CROWD = 400;
+
+/** While a note is hovered or chosen: its links, and every other link. */
+const EDGE_LIT_WIDTH = 1.6;
+const EDGE_UNLIT_SHARE = 0.3;
 
 /** How far a pointer may travel before the release counts as a drag. */
 const DRAG_SLOP = 3;
@@ -108,11 +164,10 @@ const WHEEL_LINE = 16;
 /** How far outside a disc the ring of the chosen note is drawn. */
 const SELECTED_RING_GAP = 3;
 
-/** How far the hovered name sits from the pointer. */
+/** How far the hovered name sits from the pointer, and how near the top the
+ * pointer may be before the name moves under it. */
 const HOVER_OFFSET = 12;
-
-/** How far the open note's name sits under its disc. */
-const LABEL_OFFSET = 12;
+const HOVER_FLIP = 56;
 
 /** How much ground is laid back around the name where a link runs under it. */
 const LABEL_HALO = 3;
@@ -121,6 +176,7 @@ const LABEL_HALO = 3;
 const TOKENS = {
   ground: "--writ-bg-canvas",
   edge: "--writ-fg-muted",
+  muted: "--writ-fg-muted",
   label: "--writ-fg",
   focus: "--writ-accent",
   ring: "--writ-border",
@@ -156,8 +212,92 @@ function samePalette(a: Palette, b: Palette): boolean {
 }
 
 function radiusFor(degree: number): number {
-  const wanted = RADIUS_BASE + degree * RADIUS_PER_LINK;
+  if (degree <= 0) return RADIUS_UNLINKED;
+  const wanted = RADIUS_MIN + (Math.sqrt(degree) - 1) * RADIUS_PER_ROOT_LINK;
   return wanted > RADIUS_MAX ? RADIUS_MAX : wanted;
+}
+
+function edgeAlphaFor(count: number): number {
+  if (count <= EDGE_CROWD) return EDGE_ALPHA;
+  const wanted = EDGE_ALPHA * Math.sqrt(EDGE_CROWD / count);
+  return wanted < EDGE_ALPHA_MIN ? EDGE_ALPHA_MIN : wanted;
+}
+
+function clampLabelSize(size: number): number {
+  if (size < LABEL_MIN_SIZE) return LABEL_MIN_SIZE;
+  return size > LABEL_MAX_SIZE ? LABEL_MAX_SIZE : size;
+}
+
+function trimName(name: string, most: number): string {
+  return name.length > most ? `${name.slice(0, most - 1)}…` : name;
+}
+
+interface Box {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/**
+ * Which parts of the canvas a name already covers, in cells `LABEL_CELL`
+ * across. A name is placed only where every cell under it is free, which is
+ * a few dozen reads a name rather than a walk over every name placed before.
+ */
+class Occupancy {
+  private cells = new Uint8Array(0);
+  private columns = 0;
+  private rows = 0;
+
+  reset(width: number, height: number): void {
+    const columns = Math.max(1, Math.ceil(width / LABEL_CELL));
+    const rows = Math.max(1, Math.ceil(height / LABEL_CELL));
+    if (columns * rows !== this.cells.length) this.cells = new Uint8Array(columns * rows);
+    else this.cells.fill(0);
+    this.columns = columns;
+    this.rows = rows;
+  }
+
+  /** The cell span under a box, or `null` for a box wholly off the canvas. */
+  private span(box: Box): [number, number, number, number] | null {
+    const c0 = Math.max(0, Math.floor(box.left / LABEL_CELL));
+    const c1 = Math.min(this.columns - 1, Math.floor(box.right / LABEL_CELL));
+    const r0 = Math.max(0, Math.floor(box.top / LABEL_CELL));
+    const r1 = Math.min(this.rows - 1, Math.floor(box.bottom / LABEL_CELL));
+    return c0 > c1 || r0 > r1 ? null : [c0, c1, r0, r1];
+  }
+
+  isFree(box: Box): boolean {
+    const span = this.span(box);
+    if (!span) return false;
+    const [c0, c1, r0, r1] = span;
+    for (let row = r0; row <= r1; row += 1) {
+      for (let column = c0; column <= c1; column += 1) {
+        if (this.cells[row * this.columns + column] !== 0) return false;
+      }
+    }
+    return true;
+  }
+
+  take(box: Box): void {
+    const span = this.span(box);
+    if (!span) return;
+    const [c0, c1, r0, r1] = span;
+    for (let row = r0; row <= r1; row += 1) {
+      this.cells.fill(1, row * this.columns + c0, row * this.columns + c1 + 1);
+    }
+  }
+}
+
+/** How a placed name is drawn: plainly, as a neighbour of what is lit, or as
+ * the hovered, chosen or open note. */
+type LabelTier = "ranked" | "near" | "primary";
+
+interface PlacedLabel {
+  text: string;
+  x: number;
+  top: number;
+  tier: LabelTier;
 }
 
 function now(): number {
@@ -169,9 +309,9 @@ function now(): number {
  *
  * The open note is the one filled disc and the only thing wearing the accent;
  * its neighbours are hollow, and a link is a hairline quiet enough that a
- * dense note still reads as a shape rather than a mesh. Only the open note's
- * name is painted on: at this width the rest would collide, so the drawing
- * says where a note sits and hovering one says which it is. Every note it
+ * dense note still reads as a shape rather than a mesh. The open, hovered and
+ * chosen notes are always named, and the most linked of the rest are named
+ * wherever a name fits without covering another (`drawLabels`). Every note it
  * draws is listed as text above it either way, under "Links from this note" or
  * under "Links to this note".
  *
@@ -190,6 +330,9 @@ export default function GraphCanvas(props: Props) {
   let placed: PlacedNode[] = [];
   let live = true;
   let size = { ...DEFAULT_SIZE };
+  const occupancy = new Occupancy();
+  /** How wide a name is at a font, measured once. */
+  const widths = new Map<string, number>();
   /** Where a press started, and whether it has travelled far enough to drag. */
   let press: { x: number; y: number; dragging: boolean } | null = null;
 
@@ -218,6 +361,53 @@ export default function GraphCanvas(props: Props) {
   const focusNode = () => props.nodes.find((node) => node.path === props.focusPath) ?? null;
   const neighbourCount = () => Math.max(0, props.nodes.length - 1);
 
+  /** The notes by how many links they carry, most first, ties by path: the
+   * order the names beyond the lit ones are handed out in. */
+  const ranked = createMemo(() =>
+    [...props.nodes].sort(
+      (a, b) => b.degree - a.degree || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
+    ),
+  );
+
+  /** Every note's neighbours, both directions. */
+  const adjacency = createMemo(() => {
+    const near = new Map<string, string[]>();
+    const add = (from: string, to: string) => {
+      const list = near.get(from);
+      if (list) list.push(to);
+      else near.set(from, [to]);
+    };
+    for (const edge of props.edges) {
+      if (edge.from === edge.to) continue;
+      add(edge.from, edge.to);
+      add(edge.to, edge.from);
+    }
+    return near;
+  });
+
+  const names = createMemo(
+    () => new Map(props.nodes.map((node) => [node.path, node.name] as const)),
+  );
+
+  const hoveredNode = createMemo(() => {
+    const path = hovered();
+    return path === null ? null : (props.nodes.find((node) => node.path === path) ?? null);
+  });
+
+  /** The hovered note's second line, kept off the text so the name alone is
+   * what the line reads as. */
+  const hoveredDetail = () => {
+    const node = hoveredNode();
+    if (!node || !props.detailOf) return undefined;
+    return props.detailOf(node.path) || undefined;
+  };
+
+  /** A layout node per drawn note, with its folder as its group. */
+  const layoutNodes = () =>
+    props.nodes.map((node) =>
+      node.folder === undefined ? { path: node.path } : { path: node.path, group: node.folder },
+    );
+
   /** What the drawing is, for a reader who is never shown the drawing. */
   const description = () => {
     if (props.label) return props.label;
@@ -233,6 +423,7 @@ export default function GraphCanvas(props: Props) {
     return {
       ground: read(TOKENS.ground),
       edge: read(TOKENS.edge),
+      muted: read(TOKENS.muted),
       label: read(TOKENS.label),
       focus: read(TOKENS.focus),
       ring: read(TOKENS.ring),
@@ -244,6 +435,171 @@ export default function GraphCanvas(props: Props) {
     };
   }
 
+  /** How wide `text` is in the context's current font, measured once. */
+  function widthOf(ctx: CanvasRenderingContext2D, text: string, fontSize: number): number {
+    const key = `${ctx.font}\u0000${text}`;
+    const known = widths.get(key);
+    if (known !== undefined) return known;
+    const width =
+      typeof ctx.measureText === "function"
+        ? ctx.measureText(text).width
+        : text.length * fontSize * GLYPH_WIDTH;
+    if (widths.size > WIDTHS_KEPT) widths.clear();
+    widths.set(key, width);
+    return width;
+  }
+
+  /**
+   * The links, as one faint stroke, or with a note hovered or chosen as two:
+   * every link that touches it at full strength and a little wider, and the
+   * rest fainter than usual. Each link is drawn once either way.
+   */
+  function drawEdges(
+    ctx: CanvasRenderingContext2D,
+    paint: Palette,
+    by: ReadonlyMap<string, PlacedNode>,
+    lit: ReadonlySet<string>,
+  ): void {
+    const dim = props.dimmed;
+    const base = edgeAlphaFor(props.edges.length);
+    const touching: [PlacedNode, PlacedNode][] = [];
+    ctx.globalAlpha = lit.size > 0 ? base * EDGE_UNLIT_SHARE : base;
+    ctx.strokeStyle = paint.edge;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const edge of props.edges) {
+      const from = by.get(edge.from);
+      const to = by.get(edge.to);
+      if (!from || !to) continue;
+      // A link between two notes a search did not name says nothing about
+      // what was searched for, and at a folder's size those links are most of
+      // them: leaving them out is what turns the drawing back into a shape.
+      if (dim && dim.has(edge.from) && dim.has(edge.to)) continue;
+      if (lit.has(edge.from) || lit.has(edge.to)) {
+        touching.push([from, to]);
+        continue;
+      }
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+    }
+    ctx.stroke();
+    if (touching.length > 0) {
+      ctx.globalAlpha = 1;
+      ctx.lineWidth = EDGE_LIT_WIDTH;
+      ctx.beginPath();
+      for (const [from, to] of touching) {
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+      }
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 1;
+  }
+
+  /**
+   * The names on the drawing.
+   *
+   * The hovered, chosen and open notes are always named, in the strong face,
+   * and so are the neighbours of what is hovered or chosen. Then the most
+   * linked notes on screen, as many as the budget for this zoom allows, each
+   * placed only where no name already is, which the occupancy grid answers
+   * per name; a name that would overlap is skipped, not shrunk. Every
+   * name is drawn at the canvas's size held between ten and twelve pixels,
+   * whatever the fit, so none is drawn too small to read.
+   */
+  function drawLabels(
+    ctx: CanvasRenderingContext2D,
+    paint: Palette,
+    by: ReadonlyMap<string, PlacedNode>,
+    lit: ReadonlySet<string>,
+    primary: readonly (string | null)[],
+    zoom: number,
+  ): void {
+    const fontSize = clampLabelSize(paint.fontSize);
+    const line = fontSize * LABEL_LINE;
+    const regular = `${fontSize}px ${paint.face}`;
+    const strong = `600 ${fontSize}px ${paint.face}`;
+    const dim = props.dimmed;
+    const nameOf = names();
+    const labels: PlacedLabel[] = [];
+    const named = new Set<string>();
+    occupancy.reset(size.width, size.height);
+
+    const place = (path: string, tier: LabelTier, force: boolean): boolean => {
+      if (named.has(path)) return false;
+      const node = by.get(path);
+      const name = nameOf.get(path);
+      if (!node || !name) return false;
+      // A note taken off screen keeps its name off screen too, rather than
+      // pinned to an edge away from the disc it names.
+      if (node.x < 0 || node.x > size.width || node.y < 0 || node.y > size.height) return false;
+      const most = tier === "primary" ? LABEL_MAX_CHARS_PRIMARY : LABEL_MAX_CHARS;
+      const text = trimName(name, most);
+      const width = widthOf(ctx, text, fontSize);
+      let left = node.x - width / 2;
+      if (left + width > size.width - LABEL_HALO) left = size.width - LABEL_HALO - width;
+      if (left < LABEL_HALO) left = LABEL_HALO;
+      let top = node.y + node.radius + LABEL_GAP;
+      if (top + line > size.height) top = node.y - node.radius - LABEL_GAP - line;
+      const box = {
+        left: left - LABEL_HALO,
+        top,
+        right: left + width + LABEL_HALO,
+        bottom: top + line,
+      };
+      if (!force && !occupancy.isFree(box)) return false;
+      occupancy.take(box);
+      named.add(path);
+      labels.push({ text, x: left + width / 2, top, tier });
+      return true;
+    };
+
+    ctx.font = strong;
+    for (const path of primary) if (path) place(path, "primary", true);
+
+    ctx.font = regular;
+    const order = ranked();
+    if (lit.size > 0) {
+      const near = new Set<string>();
+      const around = adjacency();
+      for (const path of lit) for (const other of around.get(path) ?? []) near.add(other);
+      for (const node of order) if (near.has(node.path)) place(node.path, "near", false);
+    }
+
+    let budget = Math.round(LABEL_BUDGET * zoom * zoom);
+    for (const node of order) {
+      if (budget <= 0) break;
+      if (named.has(node.path) || (dim && dim.has(node.path))) continue;
+      if (place(node.path, "ranked", false)) budget -= 1;
+    }
+
+    if (labels.length === 0) return;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.lineJoin = "round";
+    ctx.lineWidth = LABEL_HALO;
+    ctx.strokeStyle = paint.ground;
+    // Drawn plainest first, so a name that is always drawn sits over any it
+    // was allowed to cover.
+    for (const tier of ["ranked", "near", "primary"] as const) {
+      let ready = false;
+      for (const label of labels) {
+        if (label.tier !== tier) continue;
+        if (!ready) {
+          ctx.font = tier === "primary" ? strong : regular;
+          ctx.fillStyle = tier === "ranked" ? paint.muted : paint.label;
+          ready = true;
+        }
+        // The name lands wherever the note settled, which is sometimes over
+        // a link. Laying the ground back down around the letters keeps it
+        // legible without a plate to draw or a second colour to pick.
+        ctx.strokeText(label.text, label.x, label.top);
+        ctx.fillText(label.text, label.x, label.top);
+      }
+    }
+  }
+
   function draw() {
     const element = canvas;
     const ctx = context;
@@ -251,6 +607,9 @@ export default function GraphCanvas(props: Props) {
 
     const paint = palette;
     const points = positions(state);
+    const hidden = props.hidden;
+    const shown =
+      hidden && hidden.size > 0 ? props.nodes.filter((node) => !hidden.has(node.path)) : props.nodes;
     // The settle works in world units and says nothing about how big the panel
     // is; what fits it into this canvas is the one scale and shift below, so
     // the drawing keeps its proportions at any note count and at any width.
@@ -259,7 +618,7 @@ export default function GraphCanvas(props: Props) {
     // settled and of nothing else. The open note is the one disc drawn at that
     // size, and opening one from the drawing would otherwise re-fit every
     // other note around it.
-    const world: PlacedNode[] = props.nodes.map((node) => ({
+    const world: PlacedNode[] = shown.map((node) => ({
       path: node.path,
       ...(points.get(node.path) ?? { x: 0, y: 0 }),
       radius: RADIUS_MAX,
@@ -279,11 +638,14 @@ export default function GraphCanvas(props: Props) {
       offsetX: (fitted.offsetX - size.width / 2) * zoom + size.width / 2 + pan.x,
       offsetY: (fitted.offsetY - size.height / 2) * zoom + size.height / 2 + pan.y,
     };
-    placed = world.map((node, at) => ({
-      ...node,
-      radius: node.path === props.focusPath ? RADIUS_MAX : radiusFor(props.nodes[at].degree),
-      ...toScreen(node, view),
-    }));
+    placed = world.map((node, at) => {
+      const own = radiusFor(shown[at].degree);
+      return {
+        ...node,
+        radius: node.path === props.focusPath && own < RADIUS_FOCUS ? RADIUS_FOCUS : own,
+        ...toScreen(node, view),
+      };
+    });
     const by = new Map(placed.map((node) => [node.path, node] as const));
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -294,31 +656,23 @@ export default function GraphCanvas(props: Props) {
     ctx.fillStyle = paint.ground;
     ctx.fillRect(0, 0, size.width, size.height);
 
-    const dim = props.dimmed;
-    ctx.globalAlpha = EDGE_ALPHA;
-    ctx.strokeStyle = paint.edge;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (const edge of props.edges) {
-      const from = by.get(edge.from);
-      const to = by.get(edge.to);
-      if (!from || !to) continue;
-      // A link between two notes a search did not name says nothing about
-      // what was searched for, and at a folder's size those links are most of
-      // them: leaving them out is what turns the drawing back into a shape.
-      if (dim && dim.has(edge.from) && dim.has(edge.to)) continue;
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
-    }
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-
     const under = hovered();
+    const chosenPath = props.selectedPath ?? null;
+    const lit = new Set<string>();
+    if (under !== null && by.has(under)) lit.add(under);
+    if (chosenPath !== null && by.has(chosenPath)) lit.add(chosenPath);
+    drawEdges(ctx, paint, by, lit);
+
+    const dim = props.dimmed;
     const color = props.colors;
-    for (const node of placed) {
+    for (let at = 0; at < placed.length; at += 1) {
+      const node = placed[at];
       const isFocus = node.path === props.focusPath;
       const faded = dim ? dim.has(node.path) : false;
-      ctx.globalAlpha = faded ? paint.dimmed : 1;
+      // A note nothing links with is a fact worth seeing and not one worth
+      // the eye: drawn small and faint, unless it is the one being looked at.
+      const quiet = !faded && !isFocus && !lit.has(node.path) && shown[at].degree === 0;
+      ctx.globalAlpha = faded ? paint.dimmed : quiet ? UNLINKED_ALPHA : 1;
       ctx.beginPath();
       ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
       if (color) {
@@ -348,7 +702,7 @@ export default function GraphCanvas(props: Props) {
     }
     ctx.globalAlpha = 1;
 
-    const chosen = props.selectedPath ? by.get(props.selectedPath) : undefined;
+    const chosen = chosenPath ? by.get(chosenPath) : undefined;
     if (chosen) {
       ctx.beginPath();
       ctx.arc(chosen.x, chosen.y, chosen.radius + SELECTED_RING_GAP, 0, Math.PI * 2);
@@ -357,30 +711,7 @@ export default function GraphCanvas(props: Props) {
       ctx.stroke();
     }
 
-    const focus = by.get(props.focusPath);
-    const name = focusNode()?.name;
-    // A crowded folder is drawn small, and a name drawn at the app's size over
-    // it would cover the notes it belongs to. It shrinks with the drawing down
-    // to the size letters stop being letters at, and is left off below that:
-    // the canvas is named and counted for a reader either way, and every note
-    // it draws is a row in Links or Links to this note.
-    const labelSize = paint.fontSize * (view.scale < 1 ? view.scale : 1);
-    if (focus && name && labelSize >= LABEL_MIN_SIZE) {
-      ctx.font = `${labelSize}px ${paint.face}`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "top";
-      ctx.fillStyle = paint.label;
-      const room = size.width - VIEW_PADDING * 2;
-      const baseline = Math.min(focus.y + LABEL_OFFSET, size.height - LABEL_OFFSET * 2);
-      // The name lands wherever the note settled, which is sometimes over a
-      // link. Laying the ground back down around the letters keeps it legible
-      // without a plate to draw or a second colour to pick.
-      ctx.lineWidth = LABEL_HALO;
-      ctx.lineJoin = "round";
-      ctx.strokeStyle = paint.ground;
-      ctx.strokeText(name, focus.x, baseline, room);
-      ctx.fillText(name, focus.x, baseline, room);
-    }
+    drawLabels(ctx, paint, by, lit, [under, chosenPath, props.focusPath], zoom);
   }
 
   function cancelFrame() {
@@ -451,7 +782,7 @@ export default function GraphCanvas(props: Props) {
     if (props.nodes.length === 0) return;
     const warm = props.keepsPlaces && state ? positions(state) : undefined;
     const seed = props.keepsPlaces ? OWN_SEED : seedFor(props.focusPath);
-    state = beginLayout(props.nodes, props.edges, options(), seed, warm);
+    state = beginLayout(layoutNodes(), props.edges, options(), seed, warm);
     if (settlesAtOnce()) {
       if (props.nodes.length <= SETTLE_AT_ONCE) {
         runToEnd();
@@ -541,10 +872,10 @@ export default function GraphCanvas(props: Props) {
     ),
   );
 
-  // Moving the drawing, taking it in and out, searching it, and in a drawing
-  // that keeps its places opening a note from it, all change what is painted
-  // and none of them change where a note settled, so they repaint rather than
-  // start the settle again.
+  // Moving the drawing, taking it in and out, searching it, leaving notes off
+  // it, and in a drawing that keeps its places opening a note from it, all
+  // change what is painted and none of them change where a note settled, so
+  // they repaint rather than start the settle again.
   createEffect(
     on(
       () =>
@@ -552,6 +883,7 @@ export default function GraphCanvas(props: Props) {
           props.zoom,
           props.pan,
           props.dimmed,
+          props.hidden,
           props.colors,
           props.focusPath,
           props.selectedPath,
@@ -646,13 +978,21 @@ export default function GraphCanvas(props: Props) {
       />
       <p
         class="graph-hovered"
-        classList={{ "is-left": pointer().x > size.width / 2 }}
+        classList={{
+          "is-left": pointer().x > size.width / 2,
+          "is-below": pointer().y < HOVER_FLIP,
+        }}
+        data-detail={hoveredDetail()}
         style={{
           left: `${pointer().x + (canvas?.offsetLeft ?? 0)}px`,
-          top: `${pointer().y + (canvas?.offsetTop ?? 0) + HOVER_OFFSET}px`,
+          top: `${
+            pointer().y +
+            (canvas?.offsetTop ?? 0) +
+            (pointer().y < HOVER_FLIP ? HOVER_OFFSET : -HOVER_OFFSET)
+          }px`,
         }}
       >
-        {props.nodes.find((node) => node.path === hovered())?.name ?? ""}
+        {hoveredNode()?.name ?? ""}
       </p>
     </div>
   );

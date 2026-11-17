@@ -1,6 +1,6 @@
 /* The whole folder over the note it was opened from. The ground is the note's
-   own, and the drawing runs edge to edge under the chrome: the search, the
-   count and the close sit on the drawing rather than in a bar over it, so the
+   own, and the drawing runs edge to edge under the chrome: the controls sit on
+   the drawing in one card in a corner rather than in a bar over it, so the
    room the notes get is the whole area. */
 
 .folder-graph {
@@ -23,40 +23,61 @@
   }
 }
 
+/* One card in the top-left corner holding everything that is read or
+   operated. It never reaches the middle of the layer: at most half the width
+   less a gutter, and its own scroll past the height. */
 .folder-graph-chrome {
   position: absolute;
   top: var(--writ-space-4);
   left: var(--writ-space-4);
   z-index: 1;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: var(--writ-space-2);
-  max-width: calc(100% - var(--writ-space-7));
-  /* The chrome is three small things in a corner of a drawing that is dragged
-     from anywhere: only the parts that are operated take the pointer. */
-  pointer-events: none;
+  gap: var(--writ-space-3);
+  width: min(296px, calc(50% - var(--writ-space-6)));
+  max-height: calc(100% - var(--writ-space-4) * 2);
+  padding: var(--writ-space-4);
+  overflow-y: auto;
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  box-shadow: var(--writ-shadow-popover);
+}
+
+.folder-graph-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-2) var(--writ-space-3);
 }
 
 .folder-graph-title {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   color: var(--writ-fg);
   font-size: var(--writ-ui-md);
   line-height: var(--writ-ui-md-lh);
   letter-spacing: var(--writ-ui-tracking);
   font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .folder-graph-search {
-  pointer-events: auto;
   display: flex;
   align-items: center;
-  gap: var(--writ-space-3-5);
-  width: min(260px, 100%);
-  height: 40px;
-  padding: 0 var(--writ-space-4);
+  gap: var(--writ-space-3);
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 var(--writ-space-3);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-r-control);
-  background: var(--writ-bg-raised);
+  background: var(--writ-bg-canvas);
   color: var(--writ-icon-color);
   opacity: var(--writ-icon-opacity);
   transition: border-color var(--writ-motion-fast);
@@ -85,6 +106,15 @@
   color: var(--writ-fg-faint);
 }
 
+/* The count, and beside it the control that leaves unlinked files off. */
+.folder-graph-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--writ-space-2) var(--writ-space-3);
+}
+
 .folder-graph-count {
   margin: 0;
   color: var(--writ-fg-muted);
@@ -93,12 +123,51 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* What the drawing is of. Two options in one control, the pressed one on the
-   raised ground the search field sits on. */
-.folder-graph-scope {
-  pointer-events: auto;
+.folder-graph-unlinked {
   display: inline-flex;
-  align-self: flex-start;
+  align-items: center;
+  gap: var(--writ-space-2);
+  padding: var(--writ-space-1) var(--writ-space-2);
+  margin-right: calc(var(--writ-space-2) * -1);
+  border: 0;
+  border-radius: var(--writ-r-control);
+  background: transparent;
+  color: var(--writ-fg-muted);
+  font-family: var(--writ-font-ui);
+  font-size: var(--writ-ui-sm);
+  line-height: var(--writ-ui-sm-lh);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.folder-graph-unlinked:hover {
+  background: var(--writ-bg-hover);
+  color: var(--writ-fg);
+}
+
+.folder-graph-unlinked-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--writ-border);
+  border-radius: var(--writ-r-indicator);
+  background: var(--writ-bg-canvas);
+}
+
+.folder-graph-unlinked[aria-pressed="true"] .folder-graph-unlinked-box {
+  border-color: var(--writ-accent);
+  background: var(--writ-accent);
+  color: var(--writ-accent-fg);
+}
+
+/* What the drawing is of. Two options in one control, the pressed one on the
+   raised ground the card sits on. */
+.folder-graph-scope {
+  display: inline-flex;
+  flex: none;
   padding: var(--writ-space-1);
   border: 1px solid var(--writ-border-soft);
   border-radius: var(--writ-r-control);
@@ -114,12 +183,14 @@
   font-family: var(--writ-font-ui);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .folder-graph-scope-option[aria-pressed="true"] {
   background: var(--writ-bg-raised);
   color: var(--writ-fg);
+  box-shadow: var(--writ-shadow-chip);
 }
 
 /* The chosen note's name, read out as it changes. Empty until a note is
@@ -127,23 +198,25 @@
 .folder-graph-chosen {
   margin: 0;
   min-height: var(--writ-ui-sm-lh);
+  overflow: hidden;
   color: var(--writ-fg);
   font-size: var(--writ-ui-sm);
   line-height: var(--writ-ui-sm-lh);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* One chip per top-level folder, in its colour. A long folder list wraps and
-   then scrolls inside the corner rather than covering the drawing. */
+/* One chip per top-level folder, in its colour, with how many files it holds.
+   A long folder list wraps and then scrolls inside the card. */
 .folder-graph-legend {
-  pointer-events: auto;
   display: flex;
   flex-wrap: wrap;
   gap: var(--writ-space-2);
-  max-width: 320px;
   max-height: 120px;
   margin: 0;
-  padding: 0;
+  padding: var(--writ-space-3) 0 0;
   overflow-y: auto;
+  border-top: 1px solid var(--writ-border-soft);
   list-style: none;
 }
 
@@ -153,8 +226,8 @@
   gap: var(--writ-space-2);
   padding: var(--writ-space-1) var(--writ-space-3);
   border: 1px solid var(--writ-border-soft);
-  border-radius: var(--writ-r-control);
-  background: var(--writ-bg-raised);
+  border-radius: var(--writ-r-pill);
+  background: var(--writ-bg-canvas);
   color: var(--writ-fg-muted);
   font-family: var(--writ-font-ui);
   font-size: var(--writ-ui-sm);
@@ -162,9 +235,23 @@
   cursor: pointer;
 }
 
+.folder-graph-chip-count {
+  color: var(--writ-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.folder-graph-chip:hover {
+  border-color: var(--writ-border);
+  color: var(--writ-fg);
+}
+
 .folder-graph-chip[aria-pressed="true"] {
   border-color: var(--writ-border);
   color: var(--writ-fg);
+}
+
+.folder-graph-chip[aria-pressed="true"] .folder-graph-chip-count {
+  color: var(--writ-fg-muted);
 }
 
 .folder-graph-swatch {
@@ -173,7 +260,7 @@
   border-radius: 50%;
 }
 
-/* Zoom out, zoom in, fit and close, in the corner opposite the search. */
+/* Zoom out, zoom in, fit and close, in the corner opposite the card. */
 .folder-graph-tools {
   position: absolute;
   top: var(--writ-space-4);
@@ -181,6 +268,33 @@
   z-index: 1;
   display: flex;
   gap: var(--writ-space-1);
+  padding: var(--writ-space-1);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  box-shadow: var(--writ-shadow-chip);
+}
+
+/* A folder whose files link to nothing yet: one line over the middle of the
+   drawing, which still draws every file under it. */
+.folder-graph-empty {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  box-sizing: border-box;
+  max-width: min(420px, calc(100% - var(--writ-space-7) * 2));
+  margin: 0;
+  padding: var(--writ-space-3) var(--writ-space-4);
+  border: 1px solid var(--writ-border-soft);
+  border-radius: var(--writ-r-card);
+  background: var(--writ-bg-raised);
+  color: var(--writ-fg-muted);
+  font-size: var(--writ-ui-md);
+  line-height: var(--writ-ui-md-lh);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 /* The drawing fills the layer. The canvas keeps its own ground, which is the
@@ -207,4 +321,3 @@
 .folder-graph-drawing .graph-canvas:active {
   cursor: grabbing;
 }
-

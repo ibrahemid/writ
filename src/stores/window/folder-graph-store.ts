@@ -27,7 +27,8 @@ export type GraphScope = "folder" | "file";
 /**
  * The whole-folder drawing: whether it is showing, what it is of, what is
  * typed into its search, which note is chosen, which folder the legend keeps
- * lit, and where the drawing has been taken.
+ * lit, whether files nothing links with are drawn, and where the drawing has
+ * been taken.
  *
  * Per-window state, and none of it persists. Where someone left the drawing
  * last week is not a setting, and reopening it on the folder as it is now is
@@ -41,6 +42,7 @@ export function createFolderGraphStore() {
   const [scope, setScopeState] = createSignal<GraphScope>("folder");
   const [selected, setSelected] = createSignal<string | null>(null);
   const [isolated, setIsolated] = createSignal<string | null>(null);
+  const [showUnlinked, setShowUnlinked] = createSignal(true);
 
   function clampZoom(next: number): number {
     if (next < MIN_ZOOM) return MIN_ZOOM;
@@ -56,6 +58,7 @@ export function createFolderGraphStore() {
     setScopeState("folder");
     setSelected(null);
     setIsolated(null);
+    setShowUnlinked(true);
     setIsOpen(true);
   }
 
@@ -94,6 +97,11 @@ export function createFolderGraphStore() {
    * or `null`, lights every folder. `""` is the files at the top level. */
   function isolate(folder: string | null) {
     setIsolated((current) => (current === folder ? null : folder));
+  }
+
+  /** Draws the files nothing links with, or leaves them out. */
+  function toggleUnlinked() {
+    setShowUnlinked((current) => !current);
   }
 
   /** Multiplies the zoom, held between the two bounds. */
@@ -148,6 +156,7 @@ export function createFolderGraphStore() {
         setQuery("");
         setSelected(null);
         setIsolated(null);
+        setShowUnlinked(true);
         resetView();
       },
       { defer: true },
@@ -162,6 +171,7 @@ export function createFolderGraphStore() {
     scope,
     selected,
     isolated,
+    showUnlinked,
     open,
     close,
     toggle,
@@ -169,6 +179,7 @@ export function createFolderGraphStore() {
     setScope,
     select,
     isolate,
+    toggleUnlinked,
     zoomBy,
     zoomIn,
     zoomOut,

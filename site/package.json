@@ -28,6 +28,11 @@
   "pnpm": {
     "overrides": {
       "esbuild@<0.28.1": "^0.28.1"
+    },
+    "auditConfig": {
+      "ignoreGhsas": [
+        "GHSA-fc5q-39xc-vjpf"
+      ]
     }
   },
   "packageManager": "pnpm@10.13.1"

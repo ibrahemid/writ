@@ -255,6 +255,42 @@ export function stepMatch(
   return matches[(at + step + matches.length) % matches.length].path;
 }
 
+/**
+ * How many notes each top-level folder holds among `nodes`, keyed the way
+ * the legend keys its chips (`""` for the files at the top level).
+ */
+export function folderCounts(nodes: readonly FolderGraphNode[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const node of nodes) counts.set(node.folder, (counts.get(node.folder) ?? 0) + 1);
+  return counts;
+}
+
+/**
+ * How many other notes each note links with across the whole folder, either
+ * direction, each pair once and self-links dropped. A note with no links is
+ * in the map at zero.
+ */
+export function linkCounts(
+  nodes: readonly FolderNodeRow[],
+  edges: readonly FolderEdgeRow[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const node of nodes) counts.set(node.path, 0);
+  const seen = new Set<string>();
+  for (const edge of edges) {
+    if (edge.from_path === edge.to_path) continue;
+    const from = counts.get(edge.from_path);
+    const to = counts.get(edge.to_path);
+    if (from === undefined || to === undefined) continue;
+    const key = pairKey(edge.from_path, edge.to_path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    counts.set(edge.from_path, from + 1);
+    counts.set(edge.to_path, to + 1);
+  }
+  return counts;
+}
+
 /** One chip of the legend: a top-level folder, or the files at the top. */
 export interface LegendEntry {
   /** The folder as the index names it, `""` for the files at the top level. */
