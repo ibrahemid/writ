@@ -66,7 +66,7 @@ pub fn page_load_ends_session(label: &str, event: PageLoadEvent) -> bool {
 
 /// The main window's state as far as it can be read: whether it is visible,
 /// whether it is minimized, and whether the application is hidden.
-type WindowState = (Option<bool>, Option<bool>, Option<bool>);
+pub type WindowState = (Option<bool>, Option<bool>, Option<bool>);
 
 /// Whether `state` leaves the main window off the screen; `None`, no main
 /// window, does.
@@ -78,7 +78,7 @@ fn leaves_screen(state: Option<WindowState>) -> bool {
 
 /// The main window's state, `None` when there is no main window. Whether the
 /// application is hidden is read only on the main thread.
-fn read_window_state<R: Runtime>(app: &AppHandle<R>) -> Option<WindowState> {
+pub fn read_window_state<R: Runtime>(app: &AppHandle<R>) -> Option<WindowState> {
     let window = app.get_webview_window(MAIN_WINDOW)?;
     Some((
         window.is_visible().ok(),
@@ -103,7 +103,7 @@ fn is_app_hidden() -> Option<bool> {
 
 /// The main window's state read on the main thread, without blocking the
 /// caller. `None` when the main thread did not answer.
-async fn read_on_main_thread<R: Runtime>(app: AppHandle<R>) -> Option<Option<WindowState>> {
+pub async fn read_on_main_thread<R: Runtime>(app: AppHandle<R>) -> Option<Option<WindowState>> {
     let (answer, answered) = tokio::sync::oneshot::channel();
     let reader = app.clone();
     app.run_on_main_thread(move || {
@@ -132,7 +132,7 @@ pub fn stop_when_gone<R: Runtime>(app: &AppHandle<R>) -> Option<u32> {
 /// Stops the live session when `sight` in window `label` leaves the main
 /// window off the screen. `read` gives the main window's state, `None` when
 /// there is no main window, and is called only when `sight` leaves it open.
-fn stop_after<R: Runtime>(
+pub fn stop_after<R: Runtime>(
     app: &AppHandle<R>,
     label: &str,
     sight: Sight,
@@ -158,8 +158,9 @@ fn stop_after<R: Runtime>(
 
 /// The watchdog of one session: stops it when a periodic read finds the main
 /// window off the screen. It ends when the session ends and is aborted when
-/// dropped, so it lives exactly as long as the session's task holds it.
-pub struct SightWatch(tauri::async_runtime::JoinHandle<()>);
+/// dropped, so it lives exactly as long as the session's task holds it. The
+/// handle resolves when the watchdog ends.
+pub struct SightWatch(pub tauri::async_runtime::JoinHandle<()>);
 
 impl SightWatch {
     /// Watches session `session_id`, reading the state on the main thread
@@ -173,7 +174,7 @@ impl SightWatch {
 
     /// Watches session `session_id`, calling `read` every `period`; a read
     /// that gives `None` is skipped.
-    fn with_reader<R, F, Read>(
+    pub fn with_reader<R, F, Read>(
         app: &AppHandle<R>,
         session_id: u32,
         period: Duration,
@@ -307,24 +308,9 @@ pub fn cancel_on_page_load<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::Arc;
-
-    use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
     use tauri::PhysicalSize;
 
     use super::*;
-
-    fn app_with_window(label: &str) -> tauri::App<MockRuntime> {
-        let app = mock_builder()
-            .manage(DictationState::default())
-            .build(mock_context(noop_assets()))
-            .expect("mock app");
-        tauri::WebviewWindowBuilder::new(&app, label, Default::default())
-            .build()
-            .expect("window");
-        app
-    }
 
     #[test]
     fn closing_counts_as_gone_and_focus_or_size_needs_a_check() {
@@ -359,23 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn the_main_window_state_is_read_from_the_window() {
-        let app = app_with_window(MAIN_WINDOW);
-        let read = [
-            read_window_state(app.handle()),
-            tauri::async_runtime::block_on(read_on_main_thread(app.handle().clone()))
-                .expect("the main thread answers"),
-        ];
-        for state in read {
-            let (visible, minimized, app_hidden) = state.expect("a main window");
-            assert_eq!((visible, minimized), (Some(true), Some(false)));
-            assert_ne!(app_hidden, Some(true));
-        }
-        let without_main = app_with_window("capture");
-        assert_eq!(read_window_state(without_main.handle()), None);
-    }
-
-    #[test]
     fn the_application_hidden_state_is_not_read_off_the_main_thread() {
         let read = std::thread::spawn(is_app_hidden).join().expect("thread");
         assert_eq!(read, None);
@@ -386,299 +355,5 @@ mod tests {
         assert!(page_load_ends_session("main", PageLoadEvent::Started));
         assert!(!page_load_ends_session("main", PageLoadEvent::Finished));
         assert!(!page_load_ends_session("capture", PageLoadEvent::Started));
-    }
-
-    #[test]
-    fn closing_the_main_window_stops_the_live_session() {
-        let app = app_with_window(MAIN_WINDOW);
-        let state = app.state::<DictationState>();
-        let reservation = state.reserve().expect("the slot is free");
-        let id = reservation.id();
-        let controls = reservation.controls();
-        reservation.keep();
-
-        assert_eq!(
-            stop_when_out_of_sight(app.handle(), "capture", &WindowEvent::Destroyed),
-            None
-        );
-        assert_eq!(
-            stop_when_out_of_sight(app.handle(), MAIN_WINDOW, &WindowEvent::Focused(false)),
-            None,
-            "a window still on screen keeps the session"
-        );
-        assert!(!controls.stop.is_cancelled());
-
-        assert_eq!(
-            stop_when_out_of_sight(app.handle(), MAIN_WINDOW, &WindowEvent::Destroyed),
-            Some(id)
-        );
-        assert!(controls.stop.is_cancelled());
-        assert!(!controls.cancel.is_cancelled(), "a stop, not a cancel");
-    }
-
-    /// A main window with a live session, and the controls that session
-    /// watches.
-    fn live_session(app: &tauri::App<MockRuntime>) -> (u32, super::super::session::Controls) {
-        let state = app.state::<DictationState>();
-        let reservation = state.reserve().expect("the slot is free");
-        let id = reservation.id();
-        let controls = reservation.controls();
-        reservation.keep();
-        (id, controls)
-    }
-
-    #[test]
-    fn a_hidden_or_minimized_main_window_stops_the_session_on_focus_or_resize() {
-        let resized = WindowEvent::Resized(PhysicalSize::new(800, 600));
-        for (event, state) in [
-            (
-                WindowEvent::Focused(false),
-                (Some(false), Some(false), None),
-            ),
-            (WindowEvent::Focused(false), (Some(true), Some(true), None)),
-            (
-                WindowEvent::Focused(false),
-                (Some(true), Some(false), Some(true)),
-            ),
-            (resized.clone(), (Some(true), Some(true), None)),
-            (resized.clone(), (Some(false), Some(false), None)),
-        ] {
-            let app = app_with_window(MAIN_WINDOW);
-            let (id, controls) = live_session(&app);
-            assert_eq!(
-                stop_after(app.handle(), MAIN_WINDOW, sight_after(&event), || Some(
-                    state
-                )),
-                Some(id),
-                "{event:?} with {state:?}"
-            );
-            assert!(controls.stop.is_cancelled());
-            assert!(!controls.cancel.is_cancelled(), "a stop, not a cancel");
-        }
-    }
-
-    #[test]
-    fn a_main_window_on_screen_or_another_window_keeps_the_session() {
-        let app = app_with_window(MAIN_WINDOW);
-        let (_, controls) = live_session(&app);
-        let on_screen = || Some((Some(true), Some(false), Some(false)));
-        for event in [
-            WindowEvent::Focused(false),
-            WindowEvent::Resized(PhysicalSize::new(800, 600)),
-        ] {
-            assert_eq!(
-                stop_after(app.handle(), MAIN_WINDOW, sight_after(&event), on_screen),
-                None
-            );
-        }
-        assert_eq!(
-            stop_after(
-                app.handle(),
-                MAIN_WINDOW,
-                sight_after(&WindowEvent::Focused(true)),
-                || Some((Some(true), Some(true), Some(true)))
-            ),
-            None,
-            "an event that changes nothing reads no state"
-        );
-        assert_eq!(
-            stop_after(app.handle(), "capture", Sight::Gone, || None),
-            None
-        );
-        assert!(!controls.stop.is_cancelled());
-    }
-
-    #[test]
-    fn a_minimized_main_window_or_a_hidden_application_stops_the_session() {
-        let app = app_with_window(MAIN_WINDOW);
-        assert_eq!(stop_when_gone(app.handle()), None, "nothing is live");
-        let (id, controls) = live_session(&app);
-        assert_eq!(stop_when_gone(app.handle()), Some(id));
-        assert!(controls.stop.is_cancelled());
-        assert!(!controls.cancel.is_cancelled());
-    }
-
-    const TICK: Duration = Duration::from_millis(5);
-
-    /// Waits up to five seconds for `done`.
-    async fn wait_for(what: &str, done: impl Fn() -> bool) {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !done() {
-                tokio::time::sleep(TICK).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("timed out waiting for {what}"));
-    }
-
-    /// A read that finds the main window on screen in an application hidden
-    /// once `hidden` is set, counting the reads in `reads`.
-    fn reader(
-        hidden: &Arc<AtomicBool>,
-        reads: &Arc<AtomicUsize>,
-    ) -> impl Fn() -> std::future::Ready<Option<Option<WindowState>>> + Send + 'static {
-        let (hidden, reads) = (Arc::clone(hidden), Arc::clone(reads));
-        move || {
-            reads.fetch_add(1, Ordering::SeqCst);
-            let app_hidden = hidden.load(Ordering::SeqCst);
-            std::future::ready(Some(Some((Some(true), Some(false), Some(app_hidden)))))
-        }
-    }
-
-    #[test]
-    fn the_watchdog_stops_its_session_once_the_window_leaves_the_screen() {
-        let app = app_with_window(MAIN_WINDOW);
-        let (id, controls) = live_session(&app);
-        let (hidden, reads) = (Arc::new(AtomicBool::new(false)), Arc::default());
-        let mut watch = SightWatch::with_reader(app.handle(), id, TICK, reader(&hidden, &reads));
-        tauri::async_runtime::block_on(async {
-            wait_for("three reads", || reads.load(Ordering::SeqCst) >= 3).await;
-            assert!(!controls.stop.is_cancelled(), "on screen keeps the session");
-            hidden.store(true, Ordering::SeqCst);
-            tokio::time::timeout(Duration::from_secs(5), &mut watch.0)
-                .await
-                .expect("the watchdog ends")
-                .expect("the watchdog ran to its end");
-        });
-        assert!(controls.stop.is_cancelled());
-        assert!(!controls.cancel.is_cancelled(), "a stop, not a cancel");
-    }
-
-    #[test]
-    fn the_watchdog_ends_when_its_session_ends_or_is_asked_to_end() {
-        let ends: [fn(&DictationState, u32); 3] = [
-            DictationState::release,
-            DictationState::stop,
-            DictationState::cancel,
-        ];
-        for end in ends {
-            let app = app_with_window(MAIN_WINDOW);
-            let (id, _) = live_session(&app);
-            let (hidden, reads) = (Arc::new(AtomicBool::new(false)), Arc::default());
-            let mut watch =
-                SightWatch::with_reader(app.handle(), id, TICK, reader(&hidden, &reads));
-            end(&app.state::<DictationState>(), id);
-            tauri::async_runtime::block_on(async {
-                tokio::time::timeout(Duration::from_secs(5), &mut watch.0)
-                    .await
-                    .expect("the watchdog ends")
-                    .expect("the watchdog ran to its end");
-            });
-            assert_eq!(
-                reads.load(Ordering::SeqCst),
-                0,
-                "an ended session is not read"
-            );
-        }
-    }
-
-    #[test]
-    fn dropping_the_watchdog_ends_it() {
-        let app = app_with_window(MAIN_WINDOW);
-        let (id, controls) = live_session(&app);
-        let (hidden, reads) = (Arc::new(AtomicBool::new(false)), Arc::default());
-        let watch = SightWatch::with_reader(app.handle(), id, TICK, reader(&hidden, &reads));
-        tauri::async_runtime::block_on(async {
-            wait_for("a read", || reads.load(Ordering::SeqCst) >= 1).await;
-            drop(watch);
-            tokio::time::sleep(TICK * 10).await;
-            let after_drop = reads.load(Ordering::SeqCst);
-            hidden.store(true, Ordering::SeqCst);
-            tokio::time::sleep(TICK * 10).await;
-            assert_eq!(reads.load(Ordering::SeqCst), after_drop);
-        });
-        assert!(!controls.stop.is_cancelled());
-    }
-
-    #[test]
-    fn the_watchdog_reads_on_its_period_and_ends_with_the_session() {
-        let app = app_with_window(MAIN_WINDOW);
-        let (id, controls) = live_session(&app);
-        let mut watch = SightWatch::start(app.handle(), id);
-        tauri::async_runtime::block_on(async {
-            tokio::time::sleep(WATCH_PERIOD + WATCH_PERIOD / 2).await;
-            assert!(
-                !controls.stop.is_cancelled(),
-                "the mock window is on screen"
-            );
-            app.state::<DictationState>().release(id);
-            tokio::time::timeout(WATCH_PERIOD * 3, &mut watch.0)
-                .await
-                .expect("the watchdog ends")
-                .expect("the watchdog ran to its end");
-        });
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn appkit_reporting_the_main_window_minimized_stops_the_session() {
-        use objc2::rc::Retained;
-        use objc2::runtime::NSObject;
-        use objc2_app_kit::NSWindowDidMiniaturizeNotification;
-        use objc2_foundation::NSNotificationCenter;
-
-        let app = app_with_window(MAIN_WINDOW);
-        let (_, controls) = live_session(&app);
-        let main = NSObject::new();
-        let other = NSObject::new();
-        let main_ptr = Retained::as_ptr(&main) as usize;
-        observe_minimize(app.handle(), move |_, window| window as usize == main_ptr);
-
-        let post = |window: &NSObject| {
-            // SAFETY: the name is AppKit's constant and any object may carry it.
-            unsafe {
-                NSNotificationCenter::defaultCenter()
-                    .postNotificationName_object(NSWindowDidMiniaturizeNotification, Some(window));
-            }
-        };
-        post(&other);
-        assert!(
-            !controls.stop.is_cancelled(),
-            "another window was minimized"
-        );
-        post(&main);
-        assert!(controls.stop.is_cancelled());
-        assert!(!controls.cancel.is_cancelled());
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn appkit_reporting_the_application_hidden_stops_the_session() {
-        use objc2::runtime::NSObject;
-        use objc2_app_kit::NSApplicationDidHideNotification;
-        use objc2_foundation::NSNotificationCenter;
-
-        let app = app_with_window(MAIN_WINDOW);
-        let (_, controls) = live_session(&app);
-        observe_app_hide(app.handle());
-        assert!(!controls.stop.is_cancelled());
-        // SAFETY: the name is AppKit's constant and any object may carry it.
-        unsafe {
-            NSNotificationCenter::defaultCenter().postNotificationName_object(
-                NSApplicationDidHideNotification,
-                Some(&NSObject::new()),
-            );
-        }
-        assert!(controls.stop.is_cancelled());
-        assert!(!controls.cancel.is_cancelled());
-    }
-
-    #[test]
-    fn a_page_load_in_the_main_window_cancels_a_start_in_progress() {
-        let app = app_with_window(MAIN_WINDOW);
-        let state = app.state::<DictationState>();
-        let reservation = state.reserve().expect("the slot is free");
-        let controls = reservation.controls();
-
-        assert_eq!(
-            cancel_on_page_load(app.handle(), "capture", PageLoadEvent::Started),
-            None
-        );
-        assert!(!controls.cancel.is_cancelled());
-        assert_eq!(
-            cancel_on_page_load(app.handle(), MAIN_WINDOW, PageLoadEvent::Started),
-            Some(reservation.id())
-        );
-        assert!(controls.cancel.is_cancelled());
     }
 }
