@@ -11,7 +11,8 @@ export type InlineImageFailure =
   | "resolves_to_this_computer"
   | "resolves_to_local_network"
   | "redirects_to_this_computer"
-  | "redirects_to_local_network";
+  | "redirects_to_local_network"
+  | "not_secure";
 
 /** Where a local address leads, as the host classified it. */
 export type LocalScope = "this_computer" | "local_network";
@@ -37,6 +38,7 @@ const FAILURES: readonly string[] = [
   "resolves_to_local_network",
   "redirects_to_this_computer",
   "redirects_to_local_network",
+  "not_secure",
 ];
 
 /** Whether a host-supplied identifier is one of the refusals. */

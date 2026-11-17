@@ -55,6 +55,10 @@ pub enum RemoteImageRefusal {
     /// A redirect leads to a local address at a host other than the one the
     /// placeholder named. Refused for every load, a click included.
     RedirectsToLocal(LocalScope),
+    /// A public host did not give the image over `https:`: the `https:`
+    /// request made for a reference written `http:` failed, or a redirect led
+    /// to `http:` on a public host, which is not followed.
+    NotSecure,
 }
 
 /// Where a local name or address leads.
@@ -91,6 +95,7 @@ impl RemoteImageRefusal {
             Self::ResolvesToLocal(LocalScope::LocalNetwork) => "resolves_to_local_network",
             Self::RedirectsToLocal(LocalScope::ThisComputer) => "redirects_to_this_computer",
             Self::RedirectsToLocal(LocalScope::LocalNetwork) => "redirects_to_local_network",
+            Self::NotSecure => "not_secure",
         }
     }
 }
@@ -225,6 +230,94 @@ pub fn local_host_scope(host: &Host<&str>) -> Option<LocalScope> {
 pub fn is_local_host(url: &Url) -> bool {
     url.host()
         .is_none_or(|host| local_host_scope(&host).is_some())
+}
+
+/// How a fetch requests a remote image URL. A public host is reached over
+/// `https:` only; plain `http:` reaches a local host ([`is_local_host`]) the
+/// person asked to load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteImageScheme {
+    /// Written `https:` and requested as written.
+    Secure,
+    /// Written `http:` to a public host and requested over `https:`.
+    Upgraded,
+    /// Written `http:` to a local host and requested as written, on a click.
+    LocalPlain,
+}
+
+impl RemoteImageScheme {
+    /// The refusal for a request that did not bring the image back. An
+    /// upgraded request says the image is not available over a secure
+    /// connection; nothing falls back to `http:`.
+    pub fn failure(self) -> RemoteImageRefusal {
+        match self {
+            Self::Upgraded => RemoteImageRefusal::NotSecure,
+            Self::Secure | Self::LocalPlain => RemoteImageRefusal::Unreachable,
+        }
+    }
+}
+
+/// The URL a fetch requests and the scheme it is requested over.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteImageTarget {
+    /// The URL sent to the host.
+    pub url: Url,
+    /// How [`remote_image_target`] decided the scheme.
+    pub scheme: RemoteImageScheme,
+}
+
+/// What a fetch requests for `url`. `https:` stays as written. `http:` to a
+/// public host is requested as `https:` with the same host, path and query,
+/// keeping the port only when it was written and is not 80. `http:` to a
+/// local host stays plain, and only a click reaches a local host.
+///
+/// # Errors
+///
+/// [`RemoteImageRefusal::NotRemote`] when `url` is not `http:` or `https:`
+/// with a host; [`RemoteImageRefusal::LocalAddress`] when `load` is
+/// [`RemoteImageLoad::Automatic`] and the host is local.
+pub fn remote_image_target(
+    url: &Url,
+    load: RemoteImageLoad,
+) -> Result<RemoteImageTarget, RemoteImageRefusal> {
+    let is_secure = match url.scheme() {
+        "https" => true,
+        "http" => false,
+        _ => return Err(RemoteImageRefusal::NotRemote),
+    };
+    if url.host_str().is_none_or(str::is_empty) {
+        return Err(RemoteImageRefusal::NotRemote);
+    }
+    let is_local = is_local_host(url);
+    if is_local && load == RemoteImageLoad::Automatic {
+        return Err(RemoteImageRefusal::LocalAddress);
+    }
+    let scheme = match (is_secure, is_local) {
+        (true, _) => RemoteImageScheme::Secure,
+        (false, true) => RemoteImageScheme::LocalPlain,
+        (false, false) => RemoteImageScheme::Upgraded,
+    };
+    let mut target = url.clone();
+    if scheme == RemoteImageScheme::Upgraded {
+        target
+            .set_scheme("https")
+            .map_err(|()| RemoteImageRefusal::NotRemote)?;
+    }
+    Ok(RemoteImageTarget {
+        url: target,
+        scheme,
+    })
+}
+
+/// Whether a redirect target may be requested over the scheme it names:
+/// `https:`, or `http:` to a local host. A redirect to `http:` on a public
+/// host is not followed, since a public host is reached over `https:` only.
+pub fn is_allowed_redirect_scheme(target: &Url) -> bool {
+    match target.scheme() {
+        "https" => true,
+        "http" => is_local_host(target),
+        _ => false,
+    }
 }
 
 /// Turns away a body announced or grown past [`REMOTE_IMAGE_MAX_BYTES`].

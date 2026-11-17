@@ -1418,7 +1418,8 @@ export async function previewInlineImageDownload(
  * `resolves_to_this_computer` or `resolves_to_local_network` for a name that
  * resolves to a local address; any load is refused with
  * `redirects_to_this_computer` or `redirects_to_local_network` for a redirect
- * to a local address at another host.
+ * to a local address at another host. A public host is asked over `https`
+ * only; `not_secure` means it did not give the image that way.
  */
 export async function previewRemoteImage(
   bufferId: string,
