@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
 use writ_storage::image_store::{make_folder_within, save_image, ImageSaveError, SavedImage};
+use writ_storage::paths::strip_verbatim_prefix;
 
 const PNG_A: &[u8] = b"\x89PNG\r\n\x1a\nAAAA";
 const PNG_B: &[u8] = b"\x89PNG\r\n\x1a\nBBBB";
@@ -138,62 +139,145 @@ fn a_write_that_fails_takes_back_its_mark() {
     assert_eq!(lost, vec![assets.join("shot.png")]);
 }
 
+/// The temp folder as `canonicalize` spells it (`\\?\C:\…` on Windows) and as
+/// the rest of the app spells it. The two are the same path elsewhere.
+fn both_spellings(dir: &TempDir) -> (PathBuf, PathBuf) {
+    let canonical = fs::canonicalize(dir.path()).unwrap();
+    let plain = strip_verbatim_prefix(canonical.clone());
+    (canonical, plain)
+}
+
+/// What Windows answers a process that may not make links.
+const ERROR_PRIVILEGE_NOT_HELD: i32 = 1314;
+
+/// Links `link` to the folder `original`, or answers `false` when the system
+/// does not let this process make links.
+fn link_folder(original: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(original, link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_dir(original, link);
+    match made {
+        Ok(()) => true,
+        Err(err) if cfg!(windows) && err.raw_os_error() == Some(ERROR_PRIVILEGE_NOT_HELD) => false,
+        Err(err) => panic!("cannot link {}: {err}", link.display()),
+    }
+}
+
 #[test]
 fn a_folder_inside_the_root_is_made_part_by_part() {
     let dir = TempDir::new().unwrap();
-    let root = fs::canonicalize(dir.path()).unwrap();
+    let (root, plain) = both_spellings(&dir);
     let made = make_folder_within(&root, &root.join("media").join("shots")).unwrap();
-    assert_eq!(made, root.join("media").join("shots"));
+    assert_eq!(made, plain.join("media").join("shots"));
+    assert!(plain.join("media").is_dir());
     assert!(made.is_dir());
-    assert_eq!(make_folder_within(&root, &root).unwrap(), root);
+    assert_eq!(make_folder_within(&root, &root).unwrap(), plain);
+}
+
+#[test]
+fn a_root_and_a_folder_in_either_spelling_give_the_folder_without_the_prefix() {
+    let dir = TempDir::new().unwrap();
+    let (canonical, plain) = both_spellings(&dir);
+    let expected = plain.join("media").join("shots");
+    for root in [&canonical, &plain] {
+        for base in [&canonical, &plain] {
+            let folder = base.join("media").join("shots");
+            assert_eq!(
+                make_folder_within(root, &folder).unwrap(),
+                expected,
+                "root {root:?}, folder {folder:?}"
+            );
+        }
+    }
+    assert!(expected.is_dir());
+}
+
+#[cfg(windows)]
+#[test]
+fn a_verbatim_root_on_windows_gives_the_folder_without_the_prefix() {
+    let dir = TempDir::new().unwrap();
+    let (canonical, plain) = both_spellings(&dir);
+    assert!(
+        canonical.to_string_lossy().starts_with(r"\\?\"),
+        "{canonical:?}"
+    );
+    assert!(!plain.to_string_lossy().starts_with(r"\\?\"), "{plain:?}");
+    let made = make_folder_within(&canonical, &canonical.join("media")).unwrap();
+    assert!(!made.to_string_lossy().starts_with(r"\\?\"), "{made:?}");
+    assert_eq!(made, plain.join("media"));
+    assert_eq!(
+        make_folder_within(&plain, &canonical.join("media")).unwrap(),
+        made
+    );
+    assert_eq!(
+        make_folder_within(&canonical, &plain.join("media")).unwrap(),
+        made
+    );
 }
 
 #[test]
 fn a_folder_not_under_the_root_is_refused() {
     let dir = TempDir::new().unwrap();
-    let root = fs::canonicalize(dir.path()).unwrap().join("note");
-    fs::create_dir_all(&root).unwrap();
-    let elsewhere = root.parent().unwrap().join("elsewhere");
-    assert!(matches!(
-        make_folder_within(&root, &elsewhere),
-        Err(ImageSaveError::OutsideRoot)
-    ));
-    assert!(!elsewhere.exists());
+    let (canonical, plain) = both_spellings(&dir);
+    fs::create_dir_all(plain.join("note")).unwrap();
+    for root in [canonical.join("note"), plain.join("note")] {
+        for base in [&canonical, &plain] {
+            let elsewhere = base.join("elsewhere");
+            let climbing = base.join("note").join("..").join("elsewhere");
+            for folder in [&elsewhere, &climbing] {
+                let refused = make_folder_within(&root, folder);
+                assert!(
+                    matches!(refused, Err(ImageSaveError::OutsideRoot)),
+                    "root {root:?}, folder {folder:?}: {refused:?}"
+                );
+            }
+            assert!(make_folder_within(&root, &base.join("note").join("media")).is_ok());
+        }
+    }
+    assert!(!plain.join("elsewhere").exists());
 }
 
-#[cfg(unix)]
 #[test]
 fn a_linked_folder_that_resolves_outside_the_root_is_refused() {
     let dir = TempDir::new().unwrap();
-    let base = fs::canonicalize(dir.path()).unwrap();
-    let root = base.join("note");
-    let outside = base.join("outside");
-    fs::create_dir_all(&root).unwrap();
+    let (canonical, plain) = both_spellings(&dir);
+    let outside = plain.join("outside");
+    fs::create_dir_all(plain.join("note")).unwrap();
     fs::create_dir_all(&outside).unwrap();
-    std::os::unix::fs::symlink(&outside, root.join("assets")).unwrap();
-    let nested = make_folder_within(&root, &root.join("assets").join("shots"));
-    assert!(
-        matches!(nested, Err(ImageSaveError::OutsideRoot)),
-        "{nested:?}"
-    );
+    if !link_folder(&outside, &plain.join("note").join("assets")) {
+        return;
+    }
+    for base in [&canonical, &plain] {
+        let root = base.join("note");
+        let nested = make_folder_within(&root, &root.join("assets").join("shots"));
+        assert!(
+            matches!(nested, Err(ImageSaveError::OutsideRoot)),
+            "{nested:?}"
+        );
+        assert!(matches!(
+            make_folder_within(&root, &root.join("assets")),
+            Err(ImageSaveError::OutsideRoot)
+        ));
+        assert!(make_folder_within(&root, &root.join("media")).is_ok());
+    }
     assert!(!outside.join("shots").exists());
-    assert!(matches!(
-        make_folder_within(&root, &root.join("assets")),
-        Err(ImageSaveError::OutsideRoot)
-    ));
 }
 
-#[cfg(unix)]
 #[test]
 fn a_linked_folder_that_stays_inside_the_root_is_used_where_it_resolves() {
     let dir = TempDir::new().unwrap();
-    let root = fs::canonicalize(dir.path()).unwrap();
-    fs::create_dir_all(root.join("media")).unwrap();
-    std::os::unix::fs::symlink(root.join("media"), root.join("assets")).unwrap();
-    assert_eq!(
-        make_folder_within(&root, &root.join("assets")).unwrap(),
-        root.join("media")
-    );
+    let (canonical, plain) = both_spellings(&dir);
+    fs::create_dir_all(plain.join("media")).unwrap();
+    if !link_folder(&plain.join("media"), &plain.join("assets")) {
+        return;
+    }
+    for root in [&canonical, &plain] {
+        assert_eq!(
+            make_folder_within(root, &root.join("assets")).unwrap(),
+            plain.join("media")
+        );
+    }
 }
 
 #[test]
