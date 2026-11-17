@@ -62,9 +62,9 @@ import Prose from '../layouts/Prose.astro';
   <p>
     A Markdown file in Inline mode shows an image from a web address as its host and a Load image button. Writ requests
     the image only when you click it, or for every one once <code>Load web images</code> is on in
-    <code>Settings &rarr; Editor</code>. With that setting on, an image still waits for your click when its host is
-    <code>localhost</code> or a name ending in <code>.localhost</code>, <code>.local</code> or <code>.internal</code>, or
-    when its address, or any address its name resolves to, is in a loopback, private, link-local, unique-local,
+    <code>Settings &rarr; Editor</code>. With that setting on, an image still waits for your click when its host is a
+    name reserved for this computer or a name ending in <code>.local</code> or <code>.internal</code>, or when its
+    address, or any address its name resolves to, is in a loopback, private, link-local, unique-local,
     carrier-grade NAT or other local-use range. A device on your network that has a public address is not recognized as
     local. The request goes to that image's server, and to any http or https address it redirects to, with no cookies
     and no referrer. Writ does not follow a redirect to a local address at a host other than the one shown, even after
