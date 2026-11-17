@@ -107,6 +107,12 @@ describe('getDocsPage', () => {
     });
   });
 
+  it('gives Dictation its own page, listed after Apps', () => {
+    expect(getDocsPage('dictation').path).toBe('/docs/dictation/');
+    const ids = DOCS_TOPICS.map((t) => t.id);
+    expect(ids.indexOf('dictation')).toBe(ids.indexOf('apps') + 1);
+  });
+
   it('refuses an id no topic has, and a topic a guide covers', () => {
     expect(() => getDocsPage('nope')).toThrow(DocsTopicError);
     expect(() => getDocsPage('obsidian')).toThrow(DocsTopicError);

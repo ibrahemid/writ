@@ -81,6 +81,7 @@ pub enum MenuAction {
     OpenFolder,
     SearchEverywhere,
     CopyAsPrompt,
+    ToggleDictation,
     /// One of the text transforms of the Edit menu's Transform submenu, by
     /// its command id (an entry of [`TRANSFORM_MENU_IDS`]).
     Transform(&'static str),
@@ -107,7 +108,7 @@ pub const TRANSFORM_MENU_IDS: [&str; 9] = [
 
 impl MenuAction {
     /// Every action the table routes to.
-    pub const ALL: [MenuAction; 51] = [
+    pub const ALL: [MenuAction; 52] = [
         MenuAction::ThirdPartyNotices,
         MenuAction::OpenSettings,
         MenuAction::CheckUpdates,
@@ -146,6 +147,7 @@ impl MenuAction {
         MenuAction::OpenFolder,
         MenuAction::SearchEverywhere,
         MenuAction::CopyAsPrompt,
+        MenuAction::ToggleDictation,
         MenuAction::Transform(TRANSFORM_MENU_IDS[0]),
         MenuAction::Transform(TRANSFORM_MENU_IDS[1]),
         MenuAction::Transform(TRANSFORM_MENU_IDS[2]),
@@ -203,6 +205,7 @@ impl MenuAction {
             MenuAction::OpenFolder => "workspace.openFolder",
             MenuAction::SearchEverywhere => "search.openEverywhere",
             MenuAction::CopyAsPrompt => "prompt.copyAsPrompt",
+            MenuAction::ToggleDictation => "dictation.toggle",
             MenuAction::Transform(id) => id,
             MenuAction::OpenHelp => "help.docs",
             MenuAction::OpenWhatsNew => "help.whatsNew",
@@ -314,6 +317,7 @@ pub fn menu_action_for_id(id: &str) -> Option<MenuAction> {
         "workspace.openFolder" => MenuAction::OpenFolder,
         "search.openEverywhere" => MenuAction::SearchEverywhere,
         "prompt.copyAsPrompt" => MenuAction::CopyAsPrompt,
+        "dictation.toggle" => MenuAction::ToggleDictation,
         "help.docs" => MenuAction::OpenHelp,
         "help.whatsNew" => MenuAction::OpenWhatsNew,
         "help.showSetup" => MenuAction::ShowSetupAgain,
@@ -659,12 +663,40 @@ mod tests {
         assert_eq!(
             apps,
             [
+                ("dictation.toggle", AppId::Dictation),
                 ("panel.toggle", AppId::Connections),
                 ("chat.toggle", AppId::Chat),
                 ("folderGraph.open", AppId::Graph),
                 ("activity.open", AppId::Programs),
             ]
         );
+    }
+
+    fn edit_ids(apps: &BTreeSet<AppId>) -> Vec<&'static str> {
+        commands_in(MenuSection::Edit, MenuPlatform::Mac, apps)
+            .map(|command| command.id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn the_edit_menu_carries_dictate_only_while_dictation_is_on() {
+        assert!(!edit_ids(&BTreeSet::new()).contains(&"dictation.toggle"));
+        let dictation: BTreeSet<AppId> = [AppId::Dictation].into();
+        assert_eq!(edit_ids(&dictation).last(), Some(&"dictation.toggle"));
+        let item = menu_commands()
+            .iter()
+            .find(|command| command.id == "dictation.toggle")
+            .expect("the item");
+        assert_eq!(item.label, "Dictate");
+        assert_eq!(
+            menu_action_for_id("dictation.toggle"),
+            Some(MenuAction::ToggleDictation)
+        );
+        assert_eq!(
+            accelerator_for_chord("CmdOrCtrl+Shift+.").as_deref(),
+            item.accelerator.as_deref()
+        );
+        assert!(accelerator_for_chord("CmdOrCtrl+Shift+.").is_some());
     }
 
     fn plan_with(overrides: &[(&str, &str)]) -> MenuPlan {

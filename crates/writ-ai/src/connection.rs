@@ -333,7 +333,7 @@ pub fn endpoint_state_from(cfg: &AiConfig, key_state: AiKeyState) -> AiEndpointS
 
 /// Everything a stream needs, resolved from config and validated. Building this
 /// performs every pre-flight check, so the async task only does I/O.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct PreparedRequest {
     endpoint: String,
     /// The wire the endpoint speaks, which decides the headers and how a
@@ -346,6 +346,35 @@ pub struct PreparedRequest {
     is_localhost: bool,
     /// The host is an address on a private network, reached without a proxy.
     is_private_network: bool,
+}
+
+impl std::fmt::Debug for PreparedRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedRequest")
+            .field("endpoint", &url_for_debug(&self.endpoint))
+            .field("provider", &self.provider)
+            .field("provider_id", &self.provider_id)
+            .field("has_key", &self.api_key.is_some())
+            .field("is_localhost", &self.is_localhost)
+            .field("is_private_network", &self.is_private_network)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `url` as a debug form shows it: the scheme, host and path, without the
+/// userinfo, query or fragment that can carry a credential.
+pub(crate) fn url_for_debug(url: &str) -> String {
+    match reqwest::Url::parse(url) {
+        Ok(mut parsed) => {
+            if parsed.set_username("").is_err() || parsed.set_password(None).is_err() {
+                return "<unprintable-url>".to_string();
+            }
+            parsed.set_query(None);
+            parsed.set_fragment(None);
+            parsed.to_string()
+        }
+        Err(_) => "<unprintable-url>".to_string(),
+    }
 }
 
 impl PreparedRequest {
@@ -374,9 +403,23 @@ pub fn prepare_request(
     if on_device::is_on_device(&cfg.provider) {
         return Err(PolishError::OnDeviceProvider);
     }
-
     let action = PolishAction::parse(action_id, custom_instruction)?;
-    let messages = polish::build_messages(&action, text)?;
+    prepare_action(cfg, &action, text, lookup_key)
+}
+
+/// [`prepare_request`] past its Rewrite switch: every check but that one, for
+/// an action already parsed.
+pub(crate) fn prepare_action(
+    cfg: &AiConfig,
+    action: &PolishAction,
+    text: &str,
+    lookup_key: impl FnOnce(&str) -> Option<String>,
+) -> Result<PreparedRequest, PolishError> {
+    if on_device::is_on_device(&cfg.provider) {
+        return Err(PolishError::OnDeviceProvider);
+    }
+
+    let messages = polish::build_messages(action, text)?;
 
     // The one authority: the guard below and `ai_consent_host` resolve the host
     // through the same call, so the string checked here is always the string
@@ -453,7 +496,16 @@ pub fn prepare_on_device(
         return Err(PolishError::Disabled);
     }
     let action = PolishAction::parse(action_id, custom_instruction)?;
-    let mut messages = polish::build_messages(&action, text)?.into_iter();
+    prepare_on_device_action(&action, text)
+}
+
+/// [`prepare_on_device`] past its Rewrite switch, for an action already
+/// parsed.
+pub(crate) fn prepare_on_device_action(
+    action: &PolishAction,
+    text: &str,
+) -> Result<OnDeviceRequest, PolishError> {
+    let mut messages = polish::build_messages(action, text)?.into_iter();
     let (Some(system), Some(user)) = (messages.next(), messages.next()) else {
         return Err(PolishError::EmptyText);
     };
@@ -1561,6 +1613,42 @@ mod tests {
             base_url: base_url.to_string(),
             ..base_cfg()
         }
+    }
+
+    #[test]
+    fn the_debug_form_leaves_out_the_key_the_text_and_url_credentials() {
+        let mut cfg = custom_cfg("https://user:pass-zz@api.example.com/v1?token=tok-zz#frag");
+        cfg.consented_hosts = vec!["api.example.com".to_string()];
+        let prepared = prepare_request(&cfg, "proofread", "private words", None, |_| {
+            Some("sk-zz-key".to_string())
+        })
+        .expect("a consented endpoint with a key prepares");
+        let printed = format!("{prepared:?}");
+        for (i, secret) in [
+            "sk-zz-key",
+            "pass-zz",
+            "user",
+            "tok-zz",
+            "frag",
+            "private words",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(
+                !printed.contains(secret),
+                "secret #{i} appears in the debug form"
+            );
+        }
+        assert!(
+            printed.contains("https://api.example.com/v1"),
+            "the debug form does not show the endpoint"
+        );
+        assert!(
+            printed.contains("has_key: true"),
+            "the debug form does not say a key is set"
+        );
+        assert_eq!(url_for_debug("not a url"), "<unprintable-url>");
     }
 
     #[test]

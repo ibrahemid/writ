@@ -32,6 +32,7 @@
   { "id": "transform.fix_punctuation_spacing", "label": "Fix Spacing Before Punctuation", "menu": "edit", "group": 2, "submenu": "Transform", "platforms": ["mac", "win", "linux"] },
   { "id": "transform.prepare_prompt", "label": "Prepare as Prompt", "menu": "edit", "group": 2, "submenu": "Transform", "platforms": ["mac", "win", "linux"] },
   { "id": "prompt.copyAsPrompt", "label": "Copy as Prompt", "menu": "edit", "group": 2, "platforms": ["mac", "win", "linux"] },
+  { "id": "dictation.toggle", "label": "Dictate", "accelerator": "CmdOrCtrl+Shift+.", "menu": "edit", "group": 3, "platforms": ["mac", "win", "linux"], "app": "dictation" },
 
   { "id": "sidebar.toggle", "label": "Toggle Sidebar", "accelerator": "CmdOrCtrl+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"] },
   { "id": "panel.toggle", "label": "Toggle Connections", "accelerator": "CmdOrCtrl+Shift+\\", "menu": "view", "group": 0, "platforms": ["mac", "win", "linux"], "app": "connections" },

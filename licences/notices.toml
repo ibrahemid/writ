@@ -40,6 +40,14 @@ sources = [
 ]
 
 [[notice]]
+crates = ["dasp_sample"]
+licence = "MIT"
+file = "dasp.txt"
+sources = [
+    "https://raw.githubusercontent.com/RustAudio/dasp/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-MIT",
+]
+
+[[notice]]
 crates = ["webview2-com", "webview2-com-macros", "webview2-com-sys"]
 licence = "MIT"
 file = "webview2-rs.txt"
@@ -55,7 +63,10 @@ crates = [
     "dispatch2",
     "objc2",
     "objc2-app-kit",
+    "objc2-audio-toolbox",
     "objc2-cloud-kit",
+    "objc2-core-audio",
+    "objc2-core-audio-types",
     "objc2-core-data",
     "objc2-core-foundation",
     "objc2-core-graphics",

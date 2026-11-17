@@ -19,6 +19,7 @@ vi.mock("../../stores/global/save-status", () => ({
 vi.mock("../../stores/global/config", () => ({
   configStore: {
     config: () => ({ editor: { status_bar_counts: false }, spelling: { enabled: true } }),
+    isAppOn: () => false,
   },
 }));
 vi.mock("../../stores/global/window-registry", () => ({

@@ -8,6 +8,7 @@ members = [
     "crates/writ-cli",
     "crates/writ-mcp",
     "crates/writ-ai",
+    "crates/writ-audio",
     "src-tauri",
 ]
 # The fuzz crate is its own workspace (needs nightly + libfuzzer); keep it

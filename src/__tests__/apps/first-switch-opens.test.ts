@@ -65,6 +65,11 @@ describe("Open", () => {
     expect(canOpenApp("rewrite")).toBe(false);
     expect(openAppSurface("rewrite")).toBe(false);
   });
+
+  it("has nothing to show for Dictation, which writes at the cursor", () => {
+    expect(canOpenApp("dictation")).toBe(false);
+    expect(openAppSurface("dictation")).toBe(false);
+  });
 });
 
 describe("the first switch-on from Settings", () => {

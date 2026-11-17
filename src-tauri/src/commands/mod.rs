@@ -8,6 +8,7 @@ pub mod cli;
 pub mod command_usage;
 pub mod config;
 pub mod default_app;
+pub mod dictation;
 pub mod file;
 pub mod first_run;
 pub mod history;

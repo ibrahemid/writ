@@ -30,6 +30,13 @@ import {
   type RemoteImageLoad,
 } from "../types/inline-image";
 import type { ClipboardPasteResult, DroppedImagesResult } from "../types/image-import";
+import type {
+  DictationCapabilities,
+  DictationEndpointState,
+  DictationEvent,
+  DictationLanguage,
+  DictationSession,
+} from "../types/dictation";
 import { logFailure } from "../lib/log";
 
 export async function listTransforms(): Promise<TransformDescriptor[]> {
@@ -2424,6 +2431,67 @@ export async function mcpServerTest(): Promise<McpServerTest> {
 
 export async function mcpOffCall(): Promise<McpOffCall | null> {
   return invoke("mcp_off_call");
+}
+
+// --- Dictation (ADR-058) ---
+
+export type {
+  DictationAction,
+  DictationCapabilities,
+  DictationEndpointState,
+  DictationErrorCode,
+  DictationEvent,
+  DictationFailure,
+  DictationLanguage,
+  DictationSession,
+} from "../types/dictation";
+
+export async function dictationCapabilities(): Promise<DictationCapabilities> {
+  return invoke("dictation_capabilities");
+}
+
+export async function dictationLanguages(): Promise<DictationLanguage[]> {
+  return invoke("dictation_languages");
+}
+
+export async function dictationEndpointState(): Promise<DictationEndpointState> {
+  return invoke("dictation_endpoint_state");
+}
+
+/** Records audio consent for the host the API engine reaches, in
+ * `dictation.consented_hosts`, and answers the new endpoint state. */
+export async function dictationConsentHost(): Promise<DictationEndpointState> {
+  return invoke("dictation_consent_host");
+}
+
+export async function dictationSetKey(key: string): Promise<AiKeyState> {
+  return invoke("dictation_set_key", { key });
+}
+
+export async function dictationClearKey(): Promise<AiKeyState> {
+  return invoke("dictation_clear_key");
+}
+
+/** Starts a session whose events arrive on a channel of its own. Rejects with
+ * a `DictationFailure` when the session cannot start. */
+export async function dictationStart(
+  onEvent: (event: DictationEvent) => void,
+): Promise<DictationSession> {
+  const channel = new Channel<DictationEvent>();
+  channel.onmessage = onEvent;
+  return invoke("dictation_start", { onEvent: channel });
+}
+
+export async function dictationStop(sessionId: number): Promise<void> {
+  return invoke("dictation_stop", { sessionId });
+}
+
+export async function dictationCancel(sessionId: number): Promise<void> {
+  return invoke("dictation_cancel", { sessionId });
+}
+
+export async function dictationOpenMicSettings(): Promise<void> {
+  return invoke("dictation_open_mic_settings");
 }
 
 // --- Clipboard ---

@@ -11,7 +11,12 @@ import { setKeybindingOverrides } from "../../commands/keybindings";
 import { formatKeybinding } from "../../lib/keybinding-format";
 import { EDITOR_COMMAND_KEYS } from "../../editor/editor-command-keys";
 import { appMenuItems } from "../../components/TitleBar/AppMenu";
-import { APP_REGISTRATIONS, registrationsIn, type Registration } from "./app-registrations";
+import {
+  APP_REGISTRATIONS,
+  DICTATION_REGISTRATIONS,
+  registrationsIn,
+  type Registration,
+} from "./app-registrations";
 import { TRANSFORM_SUBMENU } from "../../commands/transforms";
 
 // The shared list is the contract: the macOS menu bar is built from it in
@@ -27,7 +32,8 @@ import { TRANSFORM_SUBMENU } from "../../commands/transforms";
 const PROMPT_REGISTRATIONS = registrationsIn("src/commands/prompt.ts");
 
 function registrationFor(id: string): Registration {
-  const registration = APP_REGISTRATIONS.get(id) ?? PROMPT_REGISTRATIONS.get(id);
+  const registration =
+    APP_REGISTRATIONS.get(id) ?? PROMPT_REGISTRATIONS.get(id) ?? DICTATION_REGISTRATIONS.get(id);
   expect(registration, `${id} is in the menu with no registerCommand in App.tsx`).toBeDefined();
   return registration!;
 }
@@ -294,7 +300,10 @@ describe("the macOS menu bar's own chords", () => {
   it("are claimed by no command, editor chord or menu item", () => {
     const native = new Set(NATIVE_MENU_CHORDS.map((item) => item.chord));
     const claimed = [
-      ...[...APP_REGISTRATIONS.values()].flatMap((r) => [r.keybinding, ...r.aliases]),
+      ...[...APP_REGISTRATIONS.values(), ...DICTATION_REGISTRATIONS.values()].flatMap((r) => [
+        r.keybinding,
+        ...r.aliases,
+      ]),
       ...EDITOR_COMMAND_KEYS.flatMap((key) => [key.keybinding, ...(key.aliases ?? [])]),
       ...MENU_COMMANDS.map((entry) => entry.accelerator ?? ""),
     ].filter((chord) => native.has(chord));

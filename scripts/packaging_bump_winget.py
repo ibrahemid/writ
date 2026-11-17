@@ -23,7 +23,8 @@ SHORT_DESCRIPTION = "Light text editor for any text file, with full-text search 
 DESCRIPTION = (
     "Writ opens any text file and searches every file in its folder. A Markdown file renders "
     "inline as you type, with the markup shown on the line you are editing. Chat, rewriting, "
-    "connected programs, connections, the graph and tags are apps, each switched on in Settings. "
+    "dictation, connected programs, connections, the graph and tags are apps, each switched on in "
+    "Settings. "
     "Writ needs no account and sends no telemetry."
 )
 TAGS = ("text-editor", "editor", "markdown", "plain-text", "search", "tauri")

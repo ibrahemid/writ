@@ -2,6 +2,7 @@ pub mod app_menu;
 pub mod bus_subscribers;
 pub mod capture;
 pub mod commands;
+pub mod dictation;
 pub mod events;
 pub mod first_run;
 pub mod fts_scheduler;
@@ -536,9 +537,17 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("writ-preview", preview::handler::serve)
+        .on_page_load(|webview, payload| {
+            dictation::window::cancel_on_page_load(
+                webview.app_handle(),
+                webview.label(),
+                payload.event(),
+            );
+        })
         .manage(app_state)
         .manage(commands::ai::AiState::default())
         .manage(commands::ai_connect::ConnectState::default())
+        .manage(dictation::DictationState::default())
         .manage(commands::chat::ChatState::default())
         .manage(commands::materialise::MaterialiseState::default())
         .manage(links::LinkDrafts::default())
@@ -704,6 +713,16 @@ pub fn run() {
             commands::ai::ai_probe_local,
             commands::ai_connect::ai_openrouter_connect,
             commands::ai_connect::ai_openrouter_cancel,
+            commands::dictation::dictation_capabilities,
+            commands::dictation::dictation_languages,
+            commands::dictation::dictation_endpoint_state,
+            commands::dictation::dictation_consent_host,
+            commands::dictation::dictation_set_key,
+            commands::dictation::dictation_clear_key,
+            commands::dictation::dictation_start,
+            commands::dictation::dictation_stop,
+            commands::dictation::dictation_cancel,
+            commands::dictation::dictation_open_mic_settings,
             commands::chat::chat_state,
             commands::chat::chat_attached_sizes,
             commands::chat::chat_list,
@@ -843,6 +862,12 @@ pub fn run() {
             // through `terminate:`, which never raises an exit request.
             #[cfg(target_os = "macos")]
             quit_macos::install(&handle);
+
+            #[cfg(target_os = "macos")]
+            {
+                dictation::window::observe_minimize(&handle, dictation::window::is_main_ns_window);
+                dictation::window::observe_app_hide(&handle);
+            }
 
             if let Err(e) = hotkey::setup_global_hotkey(&handle) {
                 tracing::warn!(error = %e, "failed to register global hotkey");
@@ -1231,6 +1256,15 @@ pub fn run() {
                     }
                 }
             }
+        }
+
+        if let tauri::RunEvent::WindowEvent {
+            label,
+            event: window_event,
+            ..
+        } = &event
+        {
+            dictation::window::stop_when_out_of_sight(app_handle, label, window_event);
         }
 
         if let tauri::RunEvent::WindowEvent {

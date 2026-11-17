@@ -142,8 +142,15 @@ export interface SidebarConfig {
   hidden: SidebarSectionId[];
 }
 
-/** The six apps, in the order Settings lists them (ADR-042). */
-export type AppId = "chat" | "rewrite" | "programs" | "connections" | "graph" | "tags";
+/** The apps, in the order Settings lists them (ADR-042). */
+export type AppId =
+  | "chat"
+  | "rewrite"
+  | "programs"
+  | "connections"
+  | "graph"
+  | "tags"
+  | "dictation";
 
 /** Switches for the apps that have no section of their own. Chat, Rewrite
  * and Connected programs are read from `ai.chat`, `ai.rewrite` and `mcp`. */
@@ -158,6 +165,26 @@ export interface AppsConfig {
   offered?: AppId[];
   /** The apps a first switch-on in Settings has already opened. */
   opened?: AppId[];
+}
+
+/** Where speech becomes text: a transcription API, or the Mac's own model. */
+export type DictationEngine = "api" | "on_device";
+
+export type DictationProvider = "openai" | "groq" | "custom";
+
+/** `[dictation]` (ADR-058). An absent `engine` resolves in Rust to on-device
+ * where this machine supports it and the API elsewhere; the capabilities
+ * payload carries the result. `language` is empty for automatic.
+ * `consented_hosts` is written by Rust only. */
+export interface DictationConfig {
+  enabled: boolean;
+  engine?: DictationEngine;
+  provider: DictationProvider;
+  base_url: string;
+  model: string;
+  language: string;
+  clean_up: boolean;
+  consented_hosts: string[];
 }
 
 export interface WritConfig {
@@ -181,6 +208,7 @@ export interface WritConfig {
   mcp: McpConfig;
   spelling: SpellingConfig;
   apps: AppsConfig;
+  dictation: DictationConfig;
 }
 
 /** A value in config.toml the launch could not use (ADR-048). `key` is empty

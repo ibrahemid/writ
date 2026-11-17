@@ -373,6 +373,7 @@ fn panel_state_round_trips_through_toml() {
 fn live_with_rust_owned() -> WritConfig {
     let mut live = WritConfig::default();
     live.ai.consented_hosts = vec!["api.deepseek.com".to_string()];
+    live.dictation.consented_hosts = vec!["api.groq.com".to_string()];
     live.mcp.approved_clients = vec![ClientApproval {
         name: "Zed".to_string(),
         first_seen: chrono::Utc::now(),
@@ -400,6 +401,7 @@ fn a_stale_copy_carries_the_fields_only_rust_writes() {
     stale.carry_rust_owned(&live);
 
     assert_eq!(stale.ai.consented_hosts, ["api.deepseek.com"]);
+    assert_eq!(stale.dictation.consented_hosts, ["api.groq.com"]);
     assert_eq!(stale.mcp.approved_clients.len(), 1);
     assert_eq!(stale.spelling.ignored_words, ["writ"]);
     assert_eq!(stale.workspace.root.as_deref(), Some("/notes/work"));
@@ -419,6 +421,8 @@ fn the_carry_leaves_the_fields_a_settings_panel_owns() {
     live.first_run.hint_dismissed = false;
     live.ai.provider = "ollama".to_string();
     live.ai.model = "qwen3:4b".to_string();
+    live.dictation.enabled = false;
+    live.dictation.model = "whisper-1".to_string();
 
     let mut incoming = WritConfig::default();
     incoming.spelling.enabled = true;
@@ -428,6 +432,8 @@ fn the_carry_leaves_the_fields_a_settings_panel_owns() {
     incoming.first_run.hint_dismissed = true;
     incoming.ai.provider = "deepseek".to_string();
     incoming.ai.model = "deepseek-flash".to_string();
+    incoming.dictation.enabled = true;
+    incoming.dictation.model = "gpt-transcribe".to_string();
 
     incoming.carry_rust_owned(&live);
 
@@ -438,6 +444,8 @@ fn the_carry_leaves_the_fields_a_settings_panel_owns() {
     assert!(incoming.first_run.hint_dismissed);
     assert_eq!(incoming.ai.provider, "deepseek");
     assert_eq!(incoming.ai.model, "deepseek-flash");
+    assert!(incoming.dictation.enabled);
+    assert_eq!(incoming.dictation.model, "gpt-transcribe");
 }
 
 #[test]

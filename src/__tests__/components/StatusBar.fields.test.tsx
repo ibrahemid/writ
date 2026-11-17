@@ -16,6 +16,7 @@ vi.mock("../../stores/global/save-status", () => ({
 vi.mock("../../stores/global/config", () => ({
   configStore: {
     config: () => ({ editor: { status_bar_counts: counts() }, spelling: { enabled: spellingOn() } }),
+    isAppOn: () => false,
   },
 }));
 vi.mock("../../stores/global/spelling", () => ({ spellingStore: { count: () => flagged() } }));

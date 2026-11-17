@@ -21,6 +21,10 @@ Section 4 amended 2026-10-15: Settings is eight sections named for the job,
 Apps is a card and a page per app, and the terminal command, the file types
 and the watched folder move to Integrations.
 
+Sections 1 and 5 amended 2026-11-18: [ADR-058](./058-dictation.md) adds
+Dictation as a seventh app, and the Apps step lists every app, a last card
+alone on its row spanning both columns.
+
 ## Context
 
 ADR-041 section 5 names chat, rewrite, the MCP server, connections, the graph

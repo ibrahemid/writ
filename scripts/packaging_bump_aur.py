@@ -74,6 +74,7 @@ def srcinfo_text(version: str, sha_appimage: str, sha_license: str) -> str:
         "\tdepends = fuse2\n"
         "\tdepends = gtk3\n"
         "\tdepends = webkit2gtk-4.1\n"
+        "\tdepends = alsa-lib\n"
         "\toptdepends = appimagelauncher: desktop integration for AppImages\n"
         "\tprovides = writ\n"
         "\tconflicts = writ\n"

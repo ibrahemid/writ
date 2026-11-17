@@ -103,6 +103,7 @@ import {
   withoutAgentEdits,
   type AgentEdit,
 } from "../../editor/agent-edit-marks";
+import { withoutDictationAnchor } from "../../editor/dictation";
 import type { VersionWriter } from "../../lib/writer";
 import { autoTextDirection } from "../../editor/bidi";
 import { placeholderExtension } from "../../editor/placeholder";
@@ -956,7 +957,7 @@ export default function EditorInstance(props: Props) {
     if (mode.kind === "Binary" || closedTabs.has(viewBufferId) || !win.panes.holds(pane, viewBufferId)) return;
     ed.keepTabState(viewBufferId, {
       // Leaving the tab is moving on from what a program changed in it.
-      state: withoutAgentEdits(view.state),
+      state: withoutDictationAnchor(withoutAgentEdits(view.state)),
       scroll: view.scrollSnapshot(),
       mode,
       longest: ed.longestLine(),

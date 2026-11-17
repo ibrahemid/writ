@@ -72,6 +72,15 @@ describe("chordFromPosition", () => {
     ).toBe("CmdOrCtrl+Shift+/");
   });
 
+  it("reads the period key under Shift, on a Latin layout and a Cyrillic one", () => {
+    expect(
+      chordFromPosition({ key: ">", code: "Period", metaKey: true, shiftKey: true }, "mac"),
+    ).toBe("CmdOrCtrl+Shift+.");
+    expect(
+      chordFromPosition({ key: "Ю", code: "Period", ctrlKey: true, shiftKey: true }, "win"),
+    ).toBe("CmdOrCtrl+Shift+.");
+  });
+
   it("adds nothing for a Latin letter, so AZERTY and Dvorak keep the printed letter", () => {
     expect(chordFromPosition({ key: "a", code: "KeyQ", metaKey: true }, "mac")).toBeNull();
   });

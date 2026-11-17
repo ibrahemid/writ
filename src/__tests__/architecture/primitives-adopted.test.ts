@@ -44,6 +44,7 @@ const MIGRATED = [
   "src/components/SettingsModal/SettingsModal.tsx",
   "src/components/SettingsModal/controls.tsx",
   "src/components/SettingsModal/apps/AiConnectionRows.tsx",
+  "src/components/SettingsModal/apps/DictationRows.tsx",
   ...componentsIn(SETTINGS_SECTIONS_DIR),
   "src/components/ShortcutEditor/ShortcutEditor.tsx",
   ...EDITOR_BARS,

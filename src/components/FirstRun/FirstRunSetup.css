@@ -64,6 +64,10 @@
   list-style: none;
 }
 
+.first-run-app:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 600px) {
   .first-run-setup {
     padding: var(--writ-space-5);
