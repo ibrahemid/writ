@@ -165,7 +165,7 @@ describe("DictationRows", () => {
     h.setCapabilities(capabilities({ on_device: true, effective_engine: "on_device" }));
     await waitFor(() => expect(row(container, "dictation.engine")).not.toBeNull());
     const select = container.querySelector<HTMLSelectElement>("[data-setting='dictation_engine']")!;
-    expect(select.value).toBe("on_device");
+    expect(select.selectedOptions[0]?.textContent).toBe("On this Mac");
     expect(row(container, "dictation.provider")).toBeNull();
     expect(row(container, "dictation.model")).toBeNull();
   });
@@ -177,6 +177,28 @@ describe("DictationRows", () => {
     select.value = "api";
     fireEvent.change(select);
     await waitFor(() => expect(savedDictation().engine).toBe("api"));
+  });
+
+  it("writes the engine key when the engine already in effect is chosen", async () => {
+    h.setCapabilities(capabilities({ on_device: true, effective_engine: "on_device" }));
+    const { container } = renderRows();
+    const select = container.querySelector<HTMLSelectElement>("[data-setting='dictation_engine']")!;
+    const listed = [...select.options].filter((o) => !o.hidden).map((o) => o.textContent);
+    expect(listed).toEqual(["API", "On this Mac"]);
+    // A browser fires no change for the option already selected.
+    expect(select.value).not.toBe("on_device");
+    select.value = "on_device";
+    fireEvent.change(select);
+    await waitFor(() => expect(savedDictation().engine).toBe("on_device"));
+  });
+
+  it("selects the configured engine once the key is written", async () => {
+    await setDictation({ engine: "api" });
+    h.setCapabilities(capabilities({ on_device: true, effective_engine: "on_device" }));
+    const { container } = renderRows();
+    const select = container.querySelector<HTMLSelectElement>("[data-setting='dictation_engine']")!;
+    expect(select.value).toBe("api");
+    expect([...select.options].map((o) => o.value)).toEqual(["api", "on_device"]);
   });
 
   it("warns when on-device is chosen on a Mac without it", async () => {
@@ -322,6 +344,21 @@ describe("DictationRows", () => {
     expect(options.map((o) => o.textContent)).toEqual(["Automatic", "Arabic", "English"]);
     expect(row(container, "dictation.language")?.textContent).toContain(
       "On this Mac, Automatic uses the system language.",
+    );
+  });
+
+  it("flags Automatic on this Mac when the system language has no on-device model", () => {
+    h.setCapabilities(
+      capabilities({
+        on_device: true,
+        effective_engine: "on_device",
+        on_device_languages: ["en", "ar"],
+        system_language: "sw",
+      }),
+    );
+    const { container } = renderRows();
+    expect(row(container, "dictation.language")?.textContent).toContain(
+      "The system language is not available on this Mac. Choose a language or the API engine.",
     );
   });
 

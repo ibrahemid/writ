@@ -81,6 +81,27 @@ export function isLanguageUnsupported(
   );
 }
 
+/** Mirrors `writ_core::dictation::language::speaks`. */
+function speaks(localeLanguage: string, code: string): boolean {
+  return localeLanguage === code || (code === "no" && localeLanguage === "nb");
+}
+
+/**
+ * Whether Automatic on the on-device engine, which means the system language,
+ * names a language this Mac has no on-device model for. A Mac without the
+ * engine is the engine row's caution, not this one.
+ */
+export function isAutomaticUnsupported(
+  engine: DictationEngine,
+  capabilities: DictationCapabilities | null,
+  configured: string,
+): boolean {
+  if (engine !== "on_device" || capabilities === null || !capabilities.on_device) return false;
+  if (configured !== "") return false;
+  const system = languagePart(capabilities.system_language);
+  return system === "" || !capabilities.on_device_languages.some((locale) => speaks(system, languagePart(locale)));
+}
+
 export function isAiConnectionReady(state: AiEndpointState | null, model: string): boolean {
   if (state === null) return false;
   if (state.is_on_device) return true;

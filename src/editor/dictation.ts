@@ -1,5 +1,5 @@
 import { isolateHistory } from "@codemirror/commands";
-import { EditorSelection, StateEffect, StateField } from "@codemirror/state";
+import { EditorSelection, StateEffect, StateField, type EditorState } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { joinDictation } from "../lib/dictation-text";
 
@@ -139,4 +139,13 @@ export function insertDictationSegment(view: EditorView, text: string): "inserte
 export function endDictationAnchor(view: EditorView): void {
   if (!anchorOf(view)) return;
   view.dispatch({ effects: setAnchor.of(null) });
+}
+
+/**
+ * `state` with no anchor or partial text, for a tab's state kept while
+ * another tab shows: the session ends on the view after the swap, and would
+ * otherwise come back drawn when the tab does.
+ */
+export function withoutDictationAnchor(state: EditorState): EditorState {
+  return state.field(anchorField, false) ? state.update({ effects: setAnchor.of(null) }).state : state;
 }

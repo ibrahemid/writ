@@ -26,7 +26,7 @@ const sums: [string, string][] = [
         <tbody>
           <tr><th>macOS</th><td>Signed and notarized by Apple, so there is no warning to click through.</td></tr>
           <tr><th>Windows</th><td>The .msi is not code-signed yet, so SmartScreen shows a warning on first run: More info, then Run anyway. The checksum below is how to verify it instead.</td></tr>
-          <tr><th>Linux</th><td>The AppImage runs with the fuse3 package installed, which provides fusermount3. It does not need libfuse2.</td></tr>
+          <tr><th>Linux</th><td>The AppImage runs with the fuse3 package installed, which provides fusermount3. It does not need libfuse2. It also needs libasound2 to start: libasound2t64 on Ubuntu 24.04, alsa-lib on other distributions.</td></tr>
         </tbody>
       </table>
       <h2>Verify a download</h2>

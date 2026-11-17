@@ -8,6 +8,7 @@ import {
   dictationSettingsStore,
   effectiveEngine,
   isAiConnectionReady,
+  isAutomaticUnsupported,
   isLanguageUnsupported,
   languageChoices,
   modelForProvider,
@@ -82,6 +83,8 @@ export default function DictationRows() {
     languageChoices(store.languages(), engine(), store.capabilities(), cfg().language);
   const languageUnsupported = () =>
     isLanguageUnsupported(engine(), store.capabilities(), cfg().language);
+  const automaticUnsupported = () =>
+    isAutomaticUnsupported(engine(), store.capabilities(), cfg().language);
 
   const aiReady = () => isAiConnectionReady(aiEndpoint(), ai().model);
   const aiHost = () => {
@@ -150,12 +153,18 @@ export default function DictationRows() {
             id="setting-dictation-engine"
             class="settings-select"
             data-setting="dictation_engine"
-            value={engine()}
+            value={cfg().engine ?? ""}
             onChange={(e) => void patchDictation({ engine: e.currentTarget.value as DictationEngine })}
           >
+            {/* Unset follows this Mac; the listed option would fire no change when chosen. */}
+            <Show when={cfg().engine === undefined}>
+              <option value="" hidden selected>
+                {ENGINES.find((option) => option.id === engine())?.label}
+              </option>
+            </Show>
             <For each={ENGINES}>
               {(option) => (
-                <option value={option.id} selected={option.id === engine()}>
+                <option value={option.id} selected={option.id === cfg().engine}>
                   {option.label}
                 </option>
               )}
@@ -297,7 +306,9 @@ export default function DictationRows() {
         caution={
           languageUnsupported()
             ? "Not available on this Mac. Choose another language or the API engine."
-            : undefined
+            : automaticUnsupported()
+              ? "The system language is not available on this Mac. Choose a language or the API engine."
+              : undefined
         }
         detail={
           engine() === "on_device" && cfg().language === ""

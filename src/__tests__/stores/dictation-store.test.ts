@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createRoot, createSignal } from "solid-js";
-import { EditorSelection, EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState, Prec, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import type { DictationEvent, DictationSession } from "../../types/dictation";
 
@@ -28,10 +28,13 @@ import {
   FILE_IS_READ_ONLY,
   NO_FILE_TO_DICTATE_INTO,
   START_FAILED,
+  STOPPED_ON_FILE_RELOAD,
+  STOPPED_ON_READ_ONLY,
   STOPPED_ON_TAB_CHANGE,
   settingForFailure,
   type DictationStore,
 } from "../../stores/window/dictation-store";
+import { popModal, pushModal, resetModalStack } from "../../lib/modal-stack";
 
 type Send = (event: DictationEvent) => void;
 
@@ -39,6 +42,8 @@ interface Harness {
   store: DictationStore;
   view: EditorView | null;
   setBuffer: (id: string) => void;
+  /** The pane's active tab, which moves before the editor loads it. */
+  setActive: (id: string) => void;
   dispose: () => void;
 }
 
@@ -61,16 +66,37 @@ function makeView(doc: string, readOnly = false): EditorView {
 
 function harness(view: EditorView | null): Harness {
   const [buffer, setBuffer] = createSignal<string | null>("tab-1");
+  const [active, setActive] = createSignal<string | null>("tab-1");
   let store!: DictationStore;
   let dispose!: () => void;
   createRoot((d) => {
     dispose = d;
     store = createDictationStore({
       editor: { forPane: () => ({ getView: () => view, currentBufferId: buffer }) },
-      panes: { focused: () => "left" },
+      panes: { focused: () => "left", activeIn: active },
     });
   });
-  return { store, view, setBuffer: (id) => setBuffer(id), dispose };
+  return {
+    store,
+    view,
+    setBuffer: (id) => {
+      setActive(id);
+      setBuffer(id);
+    },
+    setActive: (id) => setActive(id),
+    dispose,
+  };
+}
+
+function escape(target: EventTarget, init: KeyboardEventInit = {}): KeyboardEvent {
+  const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true, ...init });
+  target.dispatchEvent(event);
+  return event;
+}
+
+function setVisibility(state: DocumentVisibilityState): void {
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+  document.dispatchEvent(new Event("visibilitychange"));
 }
 
 /** Answers the next start with `session` once `release` is called, and hands
@@ -122,6 +148,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
   h.start.mockReset();
+  resetModalStack();
+  Reflect.deleteProperty(document, "visibilityState");
 });
 
 function use(view: EditorView | null): Harness {
@@ -285,16 +313,108 @@ describe("a session", () => {
     expect(h.cancel).not.toHaveBeenCalled();
   });
 
+  it("cancels on Escape in the editor", async () => {
+    const view = makeView("");
+    const { store } = use(view);
+    answeredStart(4);
+    await store.toggle();
+    expect(escape(view.contentDOM).defaultPrevented).toBe(true);
+    expect(h.cancel).toHaveBeenCalledWith(4);
+    expect(store.isLive()).toBe(false);
+  });
+
+  it("leaves Escape in a field outside the editor to that field", async () => {
+    const { store } = use(makeView(""));
+    answeredStart(4);
+    await store.toggle();
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    const reached = vi.fn();
+    field.addEventListener("keydown", reached);
+    const event = escape(field);
+    field.remove();
+    expect(reached).toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(h.cancel).not.toHaveBeenCalled();
+    expect(store.isLive()).toBe(true);
+  });
+
+  it("leaves Escape to an open dialog", async () => {
+    const view = makeView("");
+    const { store } = use(view);
+    answeredStart(4);
+    await store.toggle();
+    pushModal();
+    const event = escape(view.contentDOM);
+    popModal();
+    expect(event.defaultPrevented).toBe(false);
+    expect(h.cancel).not.toHaveBeenCalled();
+    expect(store.isLive()).toBe(true);
+  });
+
+  it("leaves the Escape that ends an input method conversion alone", async () => {
+    const view = makeView("");
+    const { store } = use(view);
+    answeredStart(4);
+    await store.toggle();
+    const event = escape(view.contentDOM, { keyCode: 229 });
+    expect(event.isComposing).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+    expect(h.cancel).not.toHaveBeenCalled();
+    expect(store.isLive()).toBe(true);
+  });
+
   it("sends a cancel made before the start answered once it has", async () => {
     const { store } = use(makeView(""));
     const start = deferredStart(5);
     const started = store.toggle();
     store.cancel();
-    expect(store.phase()).toBe("idle");
+    expect(store.phase()).toBe("starting");
     expect(h.cancel).not.toHaveBeenCalled();
     start.release();
     await started;
     expect(h.cancel).toHaveBeenCalledWith(5);
+    expect(store.phase()).toBe("idle");
+  });
+
+  it("holds a cancelled start until it answers, so a second press starts nothing", async () => {
+    const view = makeView("");
+    const { store } = use(view);
+    const start = deferredStart(5);
+    const started = store.toggle();
+    escape(view.contentDOM);
+    expect(store.phase()).toBe("starting");
+    await store.toggle();
+    expect(h.start).toHaveBeenCalledTimes(1);
+    expect(h.stop).not.toHaveBeenCalled();
+    start.release();
+    await started;
+    expect(h.cancel).toHaveBeenCalledWith(5);
+    expect(store.phase()).toBe("idle");
+    answeredStart(6);
+    await store.toggle();
+    expect(h.start).toHaveBeenCalledTimes(2);
+  });
+
+  it("goes idle without a message when a cancelled start fails", async () => {
+    const { store } = use(makeView(""));
+    const start = deferredStart(5);
+    const started = store.toggle();
+    store.cancel();
+    start.reject({ code: "busy", message: "Busy.", action: null });
+    await started;
+    expect(store.phase()).toBe("idle");
+    expect(h.showToast).not.toHaveBeenCalled();
+  });
+
+  it("cancels a session whose stop failed, so Rust does not keep it", async () => {
+    const { store } = use(makeView(""));
+    answeredStart(3);
+    await store.toggle();
+    h.stop.mockRejectedValueOnce("channel closed");
+    await store.toggle();
+    expect(h.cancel).toHaveBeenCalledWith(3);
+    expect(store.isLive()).toBe(false);
   });
 
   it("ends when the pane shows another tab", async () => {
@@ -308,7 +428,18 @@ describe("a session", () => {
     expect(store.isLive()).toBe(false);
   });
 
-  it("ends when the editor state under it was replaced", async () => {
+  it("ends once the pane moves to another tab, before the editor has loaded it", async () => {
+    const view = makeView("");
+    const { store, setActive } = use(view);
+    answeredStart(6);
+    await store.toggle();
+    setActive("tab-2");
+    expect(h.cancel).toHaveBeenCalledWith(6);
+    expect(h.showToast).toHaveBeenCalledWith(STOPPED_ON_TAB_CHANGE, "info");
+    expect(store.isLive()).toBe(false);
+  });
+
+  it("ends when the editor state under it was replaced, and says the file was reloaded", async () => {
     const view = makeView("");
     const { store } = use(view);
     const send = answeredStart(8);
@@ -317,7 +448,35 @@ describe("a session", () => {
     send({ kind: "segment", seq: 0, text: "words" });
     expect(text(view)).toBe("other");
     expect(h.cancel).toHaveBeenCalledWith(8);
+    expect(h.showToast).toHaveBeenCalledWith(STOPPED_ON_FILE_RELOAD, "info");
     expect(store.isLive()).toBe(false);
+  });
+
+  it("says the file became read-only when that is why a segment could not land", async () => {
+    const view = makeView("");
+    const { store } = use(view);
+    const send = answeredStart(8);
+    await store.toggle();
+    view.dispatch({ effects: StateEffect.appendConfig.of(Prec.highest(EditorState.readOnly.of(true))) });
+    send({ kind: "segment", seq: 0, text: "words" });
+    expect(text(view)).toBe("");
+    expect(h.showToast).toHaveBeenCalledWith(STOPPED_ON_READ_ONLY, "info");
+    expect(store.isLive()).toBe(false);
+  });
+
+  it("stops, and does not cancel, when the window is hidden", async () => {
+    const view = makeView("");
+    const { store } = use(view);
+    const send = answeredStart(3);
+    await store.toggle();
+    send({ kind: "recording" });
+    setVisibility("hidden");
+    expect(h.stop).toHaveBeenCalledWith(3);
+    expect(h.cancel).not.toHaveBeenCalled();
+    expect(store.phase()).toBe("stopping");
+    send({ kind: "segment", seq: 0, text: "Heard" });
+    send({ kind: "done" });
+    expect(text(view)).toBe("Heard");
   });
 
   it("shows an error event and goes idle; no speech is a note, not an error", async () => {

@@ -26,6 +26,7 @@ import {
   DICTATION_PROVIDERS,
   effectiveEngine,
   isAiConnectionReady,
+  isAutomaticUnsupported,
   isLanguageUnsupported,
   languageChoices,
   modelForProvider,
@@ -139,6 +140,29 @@ describe("isLanguageUnsupported", () => {
     expect(isLanguageUnsupported("on_device", capabilities(), "")).toBe(false);
     expect(isLanguageUnsupported("api", capabilities(), "sw")).toBe(false);
     expect(isLanguageUnsupported("on_device", null, "sw")).toBe(false);
+  });
+});
+
+describe("isAutomaticUnsupported", () => {
+  it("flags Automatic on the on-device engine when the system language has no model", () => {
+    expect(isAutomaticUnsupported("on_device", capabilities({ system_language: "sw" }), "")).toBe(true);
+    expect(isAutomaticUnsupported("on_device", capabilities({ system_language: "" }), "")).toBe(true);
+    expect(isAutomaticUnsupported("on_device", capabilities({ system_language: "AR" }), "")).toBe(false);
+    expect(isAutomaticUnsupported("on_device", capabilities(), "")).toBe(false);
+  });
+
+  it("takes Norwegian Bokmal as Norwegian, as the engine does", () => {
+    const norwegian = capabilities({ on_device_languages: ["no"], system_language: "nb" });
+    expect(isAutomaticUnsupported("on_device", norwegian, "")).toBe(false);
+  });
+
+  it("leaves a named language, the API engine and a Mac without the engine alone", () => {
+    const swahili = capabilities({ system_language: "sw" });
+    expect(isAutomaticUnsupported("on_device", swahili, "en")).toBe(false);
+    expect(isAutomaticUnsupported("api", swahili, "")).toBe(false);
+    expect(isAutomaticUnsupported("on_device", null, "")).toBe(false);
+    const none = capabilities({ on_device: false, on_device_languages: [], system_language: "sw" });
+    expect(isAutomaticUnsupported("on_device", none, "")).toBe(false);
   });
 });
 

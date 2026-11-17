@@ -8,7 +8,7 @@ export function defineDictationCommands(dictation: Pick<DictationStore, "toggle"
     {
       id: "dictation.toggle",
       icon: "microphone",
-      label: "Toggle dictation",
+      label: "Dictate",
       description: "Insert speech as text at the cursor",
       keywords: ["dictate", "voice", "speech", "microphone", "transcribe"],
       keybinding: "CmdOrCtrl+Shift+.",

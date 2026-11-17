@@ -17,6 +17,8 @@ import {
 } from "../../editor/dictation";
 import type { PaneId } from "../../lib/pane-layout";
 import { IS_MAC } from "../../lib/platform";
+import { isImeComposing } from "../../lib/ime";
+import { isModalOpen } from "../../lib/modal-stack";
 import { logFailure } from "../../lib/log";
 import { showToast, type ToastAction } from "../global/notifications";
 
@@ -32,12 +34,14 @@ interface DictationPane {
 
 export interface DictationStoreDeps {
   editor: { forPane(pane: PaneId): DictationPane };
-  panes: { focused(): PaneId };
+  panes: { focused(): PaneId; activeIn(pane: PaneId): string | null };
 }
 
 export const NO_FILE_TO_DICTATE_INTO = "Open a file to dictate into.";
 export const FILE_IS_READ_ONLY = "This file is read-only.";
 export const STOPPED_ON_TAB_CHANGE = "Dictation stopped when the tab changed.";
+export const STOPPED_ON_READ_ONLY = "Dictation stopped because the file became read-only.";
+export const STOPPED_ON_FILE_RELOAD = "Dictation stopped when the file was reloaded.";
 export const START_FAILED = "Could not start dictation.";
 
 /** The Settings row a failure's "Open Dictation settings" lands on. */
@@ -60,9 +64,12 @@ export function settingForFailure(code: DictationErrorCode): string {
 
 /** One session, from the press that started it to its last event. */
 interface Run {
+  paneId: PaneId;
   pane: DictationPane;
   view: EditorView;
   bufferId: string | null;
+  /** The pane's active tab at the start; it moves before the editor loads another. */
+  activeTab: string | null;
   sessionId: number | null;
   /** Stop or cancel came before the start answered. */
   stopRequested: boolean;
@@ -118,8 +125,21 @@ export function createDictationStore(deps: DictationStoreDeps) {
     });
   }
 
+  function tabChanged(current: Run): boolean {
+    return (
+      current.pane.currentBufferId() !== current.bufferId ||
+      deps.panes.activeIn(current.paneId) !== current.activeTab
+    );
+  }
+
+  function anchorLostMessage(current: Run): string {
+    if (tabChanged(current)) return STOPPED_ON_TAB_CHANGE;
+    if (current.view.state.readOnly) return STOPPED_ON_READ_ONLY;
+    return STOPPED_ON_FILE_RELOAD;
+  }
+
   function onEvent(current: Run, event: DictationEvent): void {
-    if (run() !== current) return;
+    if (run() !== current || current.cancelled) return;
     switch (event.kind) {
       case "preparing":
         if (phase() !== "stopping") setPhase("preparing");
@@ -145,8 +165,9 @@ export function createDictationStore(deps: DictationStoreDeps) {
         return;
       case "segment":
         if (insertDictationSegment(current.view, event.text) === "anchor-lost") {
+          const message = anchorLostMessage(current);
           abandon(current);
-          showToast(STOPPED_ON_TAB_CHANGE, "info");
+          showToast(message, "info");
         }
         return;
       case "notice":
@@ -167,16 +188,26 @@ export function createDictationStore(deps: DictationStoreDeps) {
     dictationCancel(sessionId).catch(() => logFailure("dictation: cancel failed"));
   }
 
-  /** Discards what is not inserted yet; inserted segments stay. */
+  /**
+   * Discards what is not inserted yet; inserted segments stay. Before the
+   * start answers, the run stays in `starting` until it does, so another
+   * press cannot start a session while Rust still holds this one.
+   */
   function abandon(current: Run): void {
+    if (current.cancelled) return;
     current.cancelled = true;
-    if (current.sessionId !== null) sendCancel(current.sessionId);
+    if (current.sessionId === null) {
+      endDictationAnchor(current.view);
+      return;
+    }
+    sendCancel(current.sessionId);
     finish(current);
   }
 
   async function start(): Promise<void> {
     if (run() !== null) return;
-    const pane = deps.editor.forPane(deps.panes.focused());
+    const paneId = deps.panes.focused();
+    const pane = deps.editor.forPane(paneId);
     const view = pane.getView();
     if (!view) {
       showToast(NO_FILE_TO_DICTATE_INTO, "info");
@@ -187,9 +218,11 @@ export function createDictationStore(deps: DictationStoreDeps) {
       return;
     }
     const current: Run = {
+      paneId,
       pane,
       view,
       bufferId: pane.currentBufferId(),
+      activeTab: deps.panes.activeIn(paneId),
       sessionId: null,
       stopRequested: false,
       cancelled: false,
@@ -201,12 +234,13 @@ export function createDictationStore(deps: DictationStoreDeps) {
       current.sessionId = session.session_id;
       if (current.cancelled) {
         sendCancel(session.session_id);
+        finish(current);
       } else if (current.stopRequested) {
         await sendStop(current);
       }
     } catch (err) {
-      if (current.cancelled) return;
       finish(current);
+      if (current.cancelled) return;
       if (isDictationFailure(err)) {
         showFailure(err);
       } else {
@@ -217,11 +251,13 @@ export function createDictationStore(deps: DictationStoreDeps) {
   }
 
   async function sendStop(current: Run): Promise<void> {
-    if (current.sessionId === null) return;
+    const sessionId = current.sessionId;
+    if (sessionId === null) return;
     try {
-      await dictationStop(current.sessionId);
+      await dictationStop(sessionId);
     } catch {
       logFailure("dictation: stop failed");
+      sendCancel(sessionId);
       finish(current);
     }
   }
@@ -229,7 +265,7 @@ export function createDictationStore(deps: DictationStoreDeps) {
   /** Stops listening; what was heard is still transcribed and inserted. */
   async function stop(): Promise<void> {
     const current = run();
-    if (!current || phase() === "stopping") return;
+    if (!current || current.cancelled || phase() === "stopping") return;
     setPhase("stopping");
     current.stopRequested = true;
     await sendStop(current);
@@ -252,26 +288,42 @@ export function createDictationStore(deps: DictationStoreDeps) {
   // ends it rather than writing into a different file.
   createEffect(() => {
     const current = run();
-    if (!current) return;
-    if (current.pane.currentBufferId() !== current.bufferId) {
+    if (!current || current.cancelled) return;
+    if (tabChanged(current)) {
       abandon(current);
       showToast(STOPPED_ON_TAB_CHANGE, "info");
     }
   });
 
+  // Escape cancels only from the editor or the page itself; in Find, the
+  // palette, a dialog or a field it belongs to them.
+  const isEscapeForDictation = (event: KeyboardEvent, view: EditorView): boolean => {
+    if (event.key !== "Escape" || isImeComposing(event) || isModalOpen()) return false;
+    const target = event.target;
+    if (target === document || target === document.body || target === document.documentElement) return true;
+    return target instanceof Node && view.dom.contains(target);
+  };
+
   createEffect(() => {
-    if (!isLive()) return;
+    const current = run();
+    if (!current) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing) return;
+      if (current.cancelled || !isEscapeForDictation(event, current.view)) return;
       event.preventDefault();
       event.stopPropagation();
-      cancel();
+      abandon(current);
     };
-    const onPageHide = () => cancel();
+    // Hiding or minimizing the window stops, as a second press would.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") void stop();
+    };
+    const onPageHide = () => abandon(current);
     document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", onPageHide);
     onCleanup(() => {
       document.removeEventListener("keydown", onKeyDown, true);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", onPageHide);
     });
   });

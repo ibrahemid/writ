@@ -31,35 +31,55 @@ export default function DictationIndicator() {
     return phase === "stopping" && dictation().pending() > 0 ? "Transcribing" : null;
   };
 
+  /** The state a screen reader hears, without the download's running percent. */
+  const announcement = (): string => {
+    if (!shown()) return "";
+    switch (dictation().phase()) {
+      case "preparing":
+        return "Getting the speech model";
+      case "recording":
+        return "Listening";
+      case "stopping":
+        return dictation().pending() > 0 ? "Transcribing" : "";
+      default:
+        return "";
+    }
+  };
+
   return (
-    <Show when={shown()}>
-      <Tooltip label={label()} kbd={stopping() ? undefined : "dictation.toggle"}>
-        <button
-          type="button"
-          class="dictation-indicator"
-          classList={{ "is-recording": dictation().phase() === "recording" }}
-          aria-label={label()}
-          aria-disabled={stopping() ? "true" : undefined}
-          onClick={() => void dictation().stop()}
-        >
-          <Icon name="microphone" size={13} class="dictation-indicator-icon" />
-          <Show when={dictation().phase() === "recording"}>
-            <span
-              class="dictation-indicator-level"
-              style={{ "--dictation-level": String(dictation().level()) }}
-              aria-hidden="true"
-            >
-              <span class="dictation-indicator-level-fill" />
-            </span>
-          </Show>
-          <Show when={dictation().elapsedSeconds() !== null}>
-            <span class="dictation-indicator-time">
-              {formatElapsed(dictation().elapsedSeconds() ?? 0)}
-            </span>
-          </Show>
-          <Show when={note()}>{(text) => <span class="dictation-indicator-note">{text()}</span>}</Show>
-        </button>
-      </Tooltip>
-    </Show>
+    <>
+      <span class="dictation-indicator-status" role="status" aria-live="polite">
+        {announcement()}
+      </span>
+      <Show when={shown()}>
+        <Tooltip label={label()} kbd={stopping() ? undefined : "dictation.toggle"}>
+          <button
+            type="button"
+            class="dictation-indicator"
+            classList={{ "is-recording": dictation().phase() === "recording" }}
+            aria-label={label()}
+            aria-disabled={stopping() ? "true" : undefined}
+            onClick={() => void dictation().stop()}
+          >
+            <Icon name="microphone" size={13} class="dictation-indicator-icon" />
+            <Show when={dictation().phase() === "recording"}>
+              <span
+                class="dictation-indicator-level"
+                style={{ "--dictation-level": String(dictation().level()) }}
+                aria-hidden="true"
+              >
+                <span class="dictation-indicator-level-fill" />
+              </span>
+            </Show>
+            <Show when={dictation().elapsedSeconds() !== null}>
+              <span class="dictation-indicator-time">
+                {formatElapsed(dictation().elapsedSeconds() ?? 0)}
+              </span>
+            </Show>
+            <Show when={note()}>{(text) => <span class="dictation-indicator-note">{text()}</span>}</Show>
+          </button>
+        </Tooltip>
+      </Show>
+    </>
   );
 }
