@@ -1,5 +1,40 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { installFocusTrap } from "../../lib/focus-trap";
+
+const TEXT_ENTRY_TYPES = new Set(["text", "search", "email", "url", "tel", "password", "number"]);
+
+// jsdom answers `:focus-visible` as `:focus`. This models the browser rule for
+// script focus: a text field always shows the ring, any other element only when
+// focus arrives from an element that showed one.
+let ringed = new WeakSet<Element>();
+
+function isTextEntry(el: Element): boolean {
+  if (el instanceof HTMLTextAreaElement) return true;
+  return el instanceof HTMLInputElement && TEXT_ENTRY_TYPES.has(el.type);
+}
+
+function recordRing(e: FocusEvent): void {
+  const target = e.target;
+  if (!(target instanceof Element)) return;
+  const from = e.relatedTarget;
+  if (isTextEntry(target) || (from instanceof Element && ringed.has(from))) ringed.add(target);
+  else ringed.delete(target);
+}
+
+beforeEach(() => {
+  ringed = new WeakSet<Element>();
+  document.addEventListener("focusin", recordRing, true);
+  const real = Element.prototype.matches;
+  vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, selector: string) {
+    if (selector !== ":focus-visible") return real.call(this, selector);
+    return real.call(this, ":focus") && ringed.has(this);
+  });
+});
+
+afterEach(() => {
+  document.removeEventListener("focusin", recordRing, true);
+  vi.restoreAllMocks();
+});
 
 function btn(label: string): HTMLButtonElement {
   const b = document.createElement("button");

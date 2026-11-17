@@ -10,11 +10,15 @@ import {
 import { writThemeLight } from "../../components/Editor/cm-theme";
 
 // jsdom lays nothing out, so the stubs below give every line a 20px row, every
-// character 8px, and the line CodeMirror's own 6px left padding.
+// character 8px, and the line CodeMirror's own 6px left padding. With no canvas
+// to measure a space, a selected line break is 0.3em wide at the font size set
+// below.
 const ROW = 20;
 const CHAR = 8;
 const PAD = 6;
 const WIDTH = 400;
+const FONT_SIZE = 20;
+const SPACE = 6;
 
 function rect(left: number, top: number, right: number, bottom: number): DOMRect {
   return { left, top, right, bottom, x: left, y: top, width: right - left, height: bottom - top, toJSON: () => ({}) };
@@ -39,6 +43,7 @@ function textOffset(line: HTMLElement, node: Node, offset: number): number {
 let views: EditorView[] = [];
 
 beforeEach(() => {
+  document.documentElement.style.setProperty("--writ-editor-font-size", `${FONT_SIZE}px`);
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
     if (this.classList.contains("cm-line")) {
       const row = rowOf(this);
@@ -66,6 +71,7 @@ afterEach(() => {
   for (const view of views) view.destroy();
   views = [];
   vi.restoreAllMocks();
+  document.documentElement.style.removeProperty("--writ-editor-font-size");
 });
 
 function mount(doc: string, anchor: number, head: number, extra: Extension = []): EditorView {
@@ -96,8 +102,9 @@ describe("the selection layer", () => {
   it("paints each selected line from its first selected character to its last, never to the pane edge", () => {
     const view = mount("alpha\nbeta gamma\n\ndelta", 2, 20);
     expect(boxes(selectionMarkers(view))).toEqual([
-      { left: PAD + 2 * CHAR, right: PAD + 5 * CHAR, top: 0, bottom: ROW },
-      { left: PAD, right: PAD + 10 * CHAR, top: ROW, bottom: 2 * ROW },
+      { left: PAD + 2 * CHAR, right: PAD + 5 * CHAR + SPACE, top: 0, bottom: ROW },
+      { left: PAD, right: PAD + 10 * CHAR + SPACE, top: ROW, bottom: 2 * ROW },
+      { left: PAD, right: PAD + SPACE, top: 2 * ROW, bottom: 3 * ROW },
       { left: PAD, right: PAD + 2 * CHAR, top: 3 * ROW, bottom: 4 * ROW },
     ]);
   });
@@ -126,8 +133,8 @@ describe("the selection layer", () => {
     const padded = Decoration.line({ attributes: { style: "padding-top: 6px; padding-bottom: 6px" } });
     const view = mount("alpha\nbeta\ngamma", 0, 16, EditorView.decorations.of(Decoration.set(padded.range(6))));
     expect(boxes(selectionMarkers(view))).toEqual([
-      { left: PAD, right: PAD + 5 * CHAR, top: 0, bottom: ROW },
-      { left: PAD, right: PAD + 4 * CHAR, top: ROW, bottom: 2 * ROW },
+      { left: PAD, right: PAD + 5 * CHAR + SPACE, top: 0, bottom: ROW },
+      { left: PAD, right: PAD + 4 * CHAR + SPACE, top: ROW, bottom: 2 * ROW },
       { left: PAD, right: PAD + 5 * CHAR, top: 2 * ROW, bottom: 3 * ROW },
     ]);
   });
