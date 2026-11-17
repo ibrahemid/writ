@@ -16,6 +16,8 @@
 /** One note to place. */
 export interface LayoutNode {
   path: string;
+  /** Notes sharing a group are pulled towards each other when the options ask. */
+  group?: string;
 }
 
 /** A link between two notes, undirected as far as the layout is concerned. */
@@ -44,6 +46,12 @@ export interface LayoutOptions {
   damping: number;
   /** No two notes end up closer than this, centre to centre. */
   minSeparation: number;
+  /**
+   * How hard each note is pulled towards the middle of its group, every step.
+   * Absent or zero leaves groups out of the settle, and so does a set with
+   * fewer than two groups.
+   */
+  groupPull?: number;
 }
 
 export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
@@ -66,11 +74,16 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
  * hold every note at is what its density allows, not what a dozen notes get.
  * Measured on an M-series laptop: two thousand notes settle in about three
  * seconds this way, against twenty at the near note's own numbers.
+ *
+ * A note handed in with a group (its top-level folder) is also pulled towards
+ * that group's middle, so a folder reads as a cluster. Notes with no group
+ * settle exactly as they would without the pull.
  */
 export const FOLDER_LAYOUT_OPTIONS: LayoutOptions = {
   ...DEFAULT_LAYOUT_OPTIONS,
   steps: 120,
   minSeparation: 12,
+  groupPull: 0.016,
 };
 
 /**
@@ -90,6 +103,10 @@ export interface LayoutState {
   readonly vy: readonly number[];
   /** Index pairs, so the force loop never looks a path up by name. */
   readonly links: readonly [number, number][];
+  /** Each note's group as an index, -1 for a note in none. */
+  readonly groups: readonly number[];
+  /** How many distinct groups `groups` names. */
+  readonly groupCount: number;
   readonly stepsTaken: number;
   /** Whether the step count is spent. A settled state steps to itself. */
   readonly done: boolean;
@@ -217,6 +234,15 @@ export function beginLayout(
     links.push([from, to]);
   }
 
+  const groupIndex = new Map<string, number>();
+  const groups = nodes.map((node) => {
+    if (node.group === undefined) return -1;
+    const known = groupIndex.get(node.group);
+    if (known !== undefined) return known;
+    groupIndex.set(node.group, groupIndex.size);
+    return groupIndex.size - 1;
+  });
+
   return {
     options,
     paths,
@@ -225,6 +251,8 @@ export function beginLayout(
     vx: paths.map(() => 0),
     vy: paths.map(() => 0),
     links,
+    groups,
+    groupCount: groupIndex.size,
     stepsTaken: 0,
     done: paths.length === 0,
   };
@@ -386,6 +414,42 @@ function push(x: number[], y: number[], i: number, j: number, wanted: number): b
 }
 
 /**
+ * Pulls every grouped note towards the middle of its group, into `fx`/`fy`.
+ *
+ * The middle is the mean of the group's positions at the start of the step,
+ * so the pull is the same arithmetic on every engine. A set with one group,
+ * or a settle that asks for no pull, is left as the other forces have it.
+ */
+function pullGroups(
+  state: LayoutState,
+  x: readonly number[],
+  y: readonly number[],
+  fx: number[],
+  fy: number[],
+): void {
+  const pull = state.options.groupPull ?? 0;
+  if (!(pull > 0) || state.groupCount < 2) return;
+
+  const sumX = new Array<number>(state.groupCount).fill(0);
+  const sumY = new Array<number>(state.groupCount).fill(0);
+  const members = new Array<number>(state.groupCount).fill(0);
+  for (let i = 0; i < state.groups.length; i += 1) {
+    const group = state.groups[i];
+    if (group < 0) continue;
+    sumX[group] += x[i];
+    sumY[group] += y[i];
+    members[group] += 1;
+  }
+
+  for (let i = 0; i < state.groups.length; i += 1) {
+    const group = state.groups[i];
+    if (group < 0) continue;
+    fx[i] += (sumX[group] / members[group] - x[i]) * pull;
+    fy[i] += (sumY[group] / members[group] - y[i]) * pull;
+  }
+}
+
+/**
  * One step of the settle: repulsion between every pair, a spring along every
  * link, a pull towards the origin, then the separation constraint.
  *
@@ -467,6 +531,8 @@ export function step(state: LayoutState): LayoutState {
     fx[i] -= x[i] * options.centring;
     fy[i] -= y[i] * options.centring;
   }
+
+  pullGroups(state, x, y, fx, fy);
 
   for (let i = 0; i < count; i += 1) {
     vx[i] = (vx[i] + fx[i]) * options.damping;

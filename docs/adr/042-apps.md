@@ -12,6 +12,11 @@ list, and names MCP in its sentence.
 Section 3 amended 2026-10-15: every app's chord answers while the app is off,
 and each app row says where the app lives.
 
+Section 5 amended 2026-10-27: the Apps step is a grid of six cards, each with
+the app's icon, its sentence, where it lives and its switch; a first launch
+also offers Skip for now, which continues with every app off, and both steps
+carry a step count.
+
 Section 4 amended 2026-10-15: Settings is eight sections named for the job,
 Apps is a card and a page per app, and the terminal command, the file types
 and the watched folder move to Integrations.

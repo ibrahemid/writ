@@ -251,7 +251,7 @@ describe("the format the first launch asks about", () => {
     await continueToApps(container);
     await waitFor(() =>
       expect(described()?.replace(/\s+/g, " ")).toBe(
-        "Each app adds one thing to the window. They stay off until you switch them on, here or in Settings, Apps.",
+        "Writ opens and edits text files. These apps add more, and each stays off until you switch it on. Settings, Apps changes them later.",
       ),
     );
   });

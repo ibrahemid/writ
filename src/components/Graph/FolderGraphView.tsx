@@ -21,10 +21,13 @@ import { FOLDER_LAYOUT_OPTIONS } from "../../lib/graph/layout";
 import { folderColors } from "../../lib/graph/color";
 import {
   fileGraphOf,
+  folderCounts,
   folderGraphOf,
   folderLegend,
   graphMatches,
+  linkCounts,
   stepMatch,
+  type FolderGraphNode,
 } from "../../lib/graph/folder-graph";
 import { basename } from "../../lib/path";
 import "./FolderGraphView.css";
@@ -34,6 +37,17 @@ const ROOT_TOKEN = "--writ-fg-muted";
 
 /** The keys the drawing takes for itself rather than handing to the search. */
 const ZOOM_KEYS = new Set(["+", "=", "-"]);
+
+const NOTHING_HIDDEN: ReadonlySet<string> = new Set();
+
+function filesLine(count: number): string {
+  return count === 1 ? "1 file" : `${count} files`;
+}
+
+function linksLine(count: number): string {
+  if (count === 0) return "No links";
+  return count === 1 ? "1 link" : `${count} links`;
+}
 
 /**
  * The whole folder, drawn.
@@ -104,9 +118,38 @@ export default function FolderGraphView() {
       : folderGraphOf(rows.nodes, rows.edges);
   });
 
+  /** The notes nothing links with, which the folder's drawing can leave off. */
+  const unlinked = createMemo(() => {
+    const paths = new Set<string>();
+    if (win.folderGraph.scope() !== "folder") return paths;
+    for (const node of drawn().nodes) if (node.degree === 0) paths.add(node.path);
+    return paths;
+  });
+
+  const hidden = createMemo(() => (win.folderGraph.showUnlinked() ? NOTHING_HIDDEN : unlinked()));
+
+  /** The notes the drawing shows: every one drawn, less the ones left off. */
+  const visible = createMemo(() => {
+    const off = hidden();
+    return off.size === 0 ? drawn().nodes : drawn().nodes.filter((node) => !off.has(node.path));
+  });
+
+  const byPath = createMemo(() => {
+    const nodes = new Map<string, FolderGraphNode>();
+    for (const node of drawn().nodes) nodes.set(node.path, node);
+    return nodes;
+  });
+
+  /** How many files each file links with across the whole folder, whichever
+   * of the two drawings is up. */
+  const links = createMemo(() => {
+    const rows = graph();
+    return linkCounts(rows.nodes, rows.edges);
+  });
+
   /** What the search names among the notes still lit, by name. */
   const matches = createMemo(() =>
-    graphMatches(drawn().nodes, win.folderGraph.query(), win.folderGraph.isolated()),
+    graphMatches(visible(), win.folderGraph.query(), win.folderGraph.isolated()),
   );
 
   const colors = createMemo(() =>
@@ -116,12 +159,28 @@ export default function FolderGraphView() {
     ),
   );
 
-  const legend = createMemo(() =>
-    folderLegend(drawn().nodes, colors(), tokens().root, folderName() || "Top level"),
-  );
+  const rootLabel = () => folderName() || "Top level";
+
+  const legend = createMemo(() => folderLegend(visible(), colors(), tokens().root, rootLabel()));
+
+  const legendCounts = createMemo(() => folderCounts(visible()));
 
   const nameOf = (path: string | null) =>
-    path === null ? "" : (drawn().nodes.find((node) => node.path === path)?.name ?? "");
+    path === null ? "" : (byPath().get(path)?.name ?? "");
+
+  /** The hovered file's folder and how many files it links with. */
+  const detailOf = (path: string) => {
+    const node = byPath().get(path);
+    if (!node) return "";
+    return `${node.folder || rootLabel()} · ${linksLine(links().get(path) ?? node.degree)}`;
+  };
+
+  /** A folder of files none of which links to another. */
+  const hasNoLinks = () =>
+    win.folderGraph.scope() === "folder" &&
+    graphSettled() &&
+    drawn().nodes.length > 0 &&
+    drawn().edges.length === 0;
 
   /** What the drawing shows, in one line under the search. */
   const count = createMemo(() => {
@@ -135,13 +194,15 @@ export default function FolderGraphView() {
       return around === 1 ? "1 file one link away" : `${around} files one link away`;
     }
     if (shown === 0) return "No files yet";
+    const off = hidden().size;
+    const drawnNow = shown - off;
     if (win.folderGraph.query().trim().length > 0 || win.folderGraph.isolated() !== null) {
-      return `${matches().length} of ${shown} files match`;
+      return `${matches().length} of ${drawnNow} files match`;
     }
-    if (graphNow.capped) {
-      return `${shown} of ${graphNow.total} files, the largest linked group`;
-    }
-    return shown === 1 ? "1 file" : `${shown} files`;
+    const line = graphNow.capped
+      ? `${drawnNow} of ${graphNow.total} files, the largest linked group`
+      : filesLine(drawnNow);
+    return off === 0 ? line : `${line}, ${off} unlinked hidden`;
   });
 
   /** What the drawing is, for a reader who is never shown the drawing. */
@@ -152,8 +213,8 @@ export default function FolderGraphView() {
       const name = nameOf(focusPath());
       return around === 1 ? `${name} and 1 file it links with` : `${name} and ${around} files it links with`;
     }
-    if (shown === 1) return "1 file in this folder and the links between them";
-    return `${shown} files in this folder and the links between them`;
+    const drawnNow = shown - hidden().size;
+    return `${filesLine(drawnNow)} in this folder and the links between them`;
   };
 
   /** The note a click or the arrows chose, named, with how to open it. */
@@ -169,11 +230,19 @@ export default function FolderGraphView() {
       return paths;
     }
     const lit = new Set(matches().map((node) => node.path));
-    for (const node of drawn().nodes) {
+    for (const node of visible()) {
       if (!lit.has(node.path)) paths.add(node.path);
     }
     return paths;
   });
+
+  /** Shows or leaves off the files nothing links with. A chosen file that is
+   * left off is no longer chosen, so Enter cannot open what is not drawn. */
+  function toggleUnlinked() {
+    win.folderGraph.toggleUnlinked();
+    const chosen = win.folderGraph.selected();
+    if (chosen !== null && hidden().has(chosen)) win.folderGraph.select(null);
+  }
 
   /** What each note is drawn in: its folder's colour, or the muted one. */
   const nodeColors = createMemo(() => {
@@ -308,26 +377,28 @@ export default function FolderGraphView() {
       onKeyDown={onKeyDown}
     >
       <div class="folder-graph-chrome">
-        <h2 class="folder-graph-title" id={titleId}>
-          {folderName() ? `Graph · ${folderName()}` : "Graph"}
-        </h2>
-        <div class="folder-graph-scope" role="group" aria-label="Files drawn">
-          <button
-            type="button"
-            class="folder-graph-scope-option"
-            aria-pressed={win.folderGraph.scope() === "folder"}
-            onClick={() => win.folderGraph.setScope("folder")}
-          >
-            Folder
-          </button>
-          <button
-            type="button"
-            class="folder-graph-scope-option"
-            aria-pressed={win.folderGraph.scope() === "file"}
-            onClick={() => win.folderGraph.setScope("file")}
-          >
-            This file
-          </button>
+        <div class="folder-graph-head">
+          <h2 class="folder-graph-title" id={titleId}>
+            {folderName() ? `Graph · ${folderName()}` : "Graph"}
+          </h2>
+          <div class="folder-graph-scope" role="group" aria-label="Files drawn">
+            <button
+              type="button"
+              class="folder-graph-scope-option"
+              aria-pressed={win.folderGraph.scope() === "folder"}
+              onClick={() => win.folderGraph.setScope("folder")}
+            >
+              Folder
+            </button>
+            <button
+              type="button"
+              class="folder-graph-scope-option"
+              aria-pressed={win.folderGraph.scope() === "file"}
+              onClick={() => win.folderGraph.setScope("file")}
+            >
+              This file
+            </button>
+          </div>
         </div>
         <label class="folder-graph-search">
           <Icon name="magnifying-glass" size={14} />
@@ -343,7 +414,24 @@ export default function FolderGraphView() {
             onKeyDown={onFieldKeyDown}
           />
         </label>
-        <p class="folder-graph-count">{graphError() ?? count()}</p>
+        <div class="folder-graph-status">
+          <p class="folder-graph-count">{graphError() ?? count()}</p>
+          <Show when={unlinked().size > 0}>
+            <button
+              type="button"
+              class="folder-graph-unlinked"
+              aria-pressed={win.folderGraph.showUnlinked()}
+              onClick={toggleUnlinked}
+            >
+              <span class="folder-graph-unlinked-box" aria-hidden="true">
+                <Show when={win.folderGraph.showUnlinked()}>
+                  <Icon name="check" size={10} />
+                </Show>
+              </span>
+              Unlinked files
+            </button>
+          </Show>
+        </div>
         <p class="folder-graph-chosen" aria-live="polite">
           {chosenLine()}
         </p>
@@ -363,7 +451,10 @@ export default function FolderGraphView() {
                       style={{ background: entry.color }}
                       aria-hidden="true"
                     />
-                    {entry.label}
+                    <span class="folder-graph-chip-label">{entry.label}</span>
+                    <span class="folder-graph-chip-count">
+                      {legendCounts().get(entry.folder) ?? 0}
+                    </span>
                   </button>
                 </li>
               )}
@@ -415,6 +506,7 @@ export default function FolderGraphView() {
               onPanBy={(dx, dy) => win.folderGraph.panBy(dx, dy)}
               onZoomBy={(factor) => win.folderGraph.zoomBy(factor)}
               focusable
+              detailOf={detailOf}
               selectedPath={win.folderGraph.selected()}
               onSelect={(path) => win.folderGraph.select(path)}
               onOpen={(path) => void openAndClose(path)}
@@ -436,11 +528,19 @@ export default function FolderGraphView() {
             onZoomBy={(factor) => win.folderGraph.zoomBy(factor)}
             focusable
             keepsPlaces
+            hidden={hidden()}
+            detailOf={detailOf}
             selectedPath={win.folderGraph.selected()}
             onSelect={(path) => win.folderGraph.select(path)}
             onOpen={(path) => void openAndClose(path)}
           />
         </Show>
+      </Show>
+
+      <Show when={hasNoLinks()}>
+        <p class="folder-graph-empty">
+          Links appear here once a Markdown file links to another with [[name]].
+        </p>
       </Show>
     </div>
   );
