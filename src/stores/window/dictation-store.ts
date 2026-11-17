@@ -23,7 +23,7 @@ import { isModalOpen } from "../../lib/modal-stack";
 import { logFailure } from "../../lib/log";
 import { showToast, type ToastAction } from "../global/notifications";
 import { findStore } from "../global/find-store";
-import { isContextMenuOpen } from "../../components/ContextMenu/ContextMenu";
+import { isContextMenuOpen } from "../../lib/context-menu-open";
 
 /** Where a session is: waiting on the start, getting the on-device model,
  * listening, or draining what was heard after Stop. */
