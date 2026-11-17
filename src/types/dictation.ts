@@ -44,6 +44,7 @@ export type DictationEvent =
   | { kind: "level"; level: number }
   | { kind: "partial"; text: string }
   | { kind: "transcribing"; pending: number }
+  | { kind: "stopping" }
   | { kind: "segment"; seq: number; text: string }
   | { kind: "notice"; message: string }
   | { kind: "done" }
