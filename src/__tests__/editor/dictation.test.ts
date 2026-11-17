@@ -7,6 +7,7 @@ import {
   insertDictationSegment,
   showDictationPartial,
   startDictationAnchor,
+  withoutDictationAnchor,
 } from "../../editor/dictation";
 
 const views: EditorView[] = [];
@@ -138,6 +139,24 @@ describe("dictation at the cursor", () => {
     view.setState(EditorState.create({ doc: "another file" }));
     expect(insertDictationSegment(view, "words")).toBe("anchor-lost");
     expect(text(view)).toBe("another file");
+  });
+
+  it("keeps no partial text or anchor in a tab's state kept for later", () => {
+    const view = makeView("Tab A text", 10);
+    startDictationAnchor(view);
+    showDictationPartial(view, "half heard");
+    const kept = withoutDictationAnchor(view.state);
+    view.setState(EditorState.create({ doc: "Tab B" }));
+    endDictationAnchor(view);
+    view.setState(kept);
+    expect(view.dom.querySelector(".cm-dictation-partial")).toBeNull();
+    expect(insertDictationSegment(view, "late")).toBe("anchor-lost");
+    expect(text(view)).toBe("Tab A text");
+  });
+
+  it("hands back a state with no dictation in it unchanged", () => {
+    const view = makeView("plain", 5);
+    expect(withoutDictationAnchor(view.state)).toBe(view.state);
   });
 
   it("inserts nothing for a segment of whitespace", () => {

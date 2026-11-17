@@ -119,6 +119,35 @@ describe("DictationIndicator", () => {
     expect(container.querySelector(".dictation-indicator-note")).toBeNull();
   });
 
+  it("announces each state change through a live region that stays mounted", () => {
+    const { container } = render(() => <DictationIndicator />);
+    const live = container.querySelector<HTMLElement>(".dictation-indicator-status");
+    expect(live?.getAttribute("role")).toBe("status");
+    expect(live?.getAttribute("aria-live")).toBe("polite");
+    expect(live?.textContent).toBe("");
+    h.setPhase("preparing");
+    h.setProgress(0.4);
+    expect(live?.textContent).toBe("Getting the speech model");
+    h.setProgress(0.5);
+    expect(live?.textContent).toBe("Getting the speech model");
+    h.setPhase("recording");
+    expect(live?.textContent).toBe("Listening");
+    h.setPhase("stopping");
+    h.setPending(1);
+    expect(live?.textContent).toBe("Transcribing");
+    h.setPhase("idle");
+    h.setPending(0);
+    expect(container.querySelector(".dictation-indicator-status")).toBe(live);
+    expect(live?.textContent).toBe("");
+  });
+
+  it("announces nothing while Dictation is off", async () => {
+    h.setPhase("recording");
+    await configStore.setAppOn("dictation", false);
+    const { container } = render(() => <DictationIndicator />);
+    expect(container.querySelector(".dictation-indicator-status")?.textContent).toBe("");
+  });
+
   it("stops the session when pressed", () => {
     h.setPhase("recording");
     const { container } = render(() => <DictationIndicator />);

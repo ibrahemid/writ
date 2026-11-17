@@ -44,6 +44,39 @@ describe("joinDictation", () => {
     expect(joinDictation("a", " \n\t", "b")).toBe("");
   });
 
+  it("joins Chinese and Japanese without spaces", () => {
+    expect(joinDictation("我想说", "你好", "")).toBe("你好");
+    expect(joinDictation("今日は", "いい天気", "です")).toBe("いい天気");
+    expect(joinDictation("カタカナ", "テスト", "")).toBe("テスト");
+    expect(joinDictation("Writ", "很好", "")).toBe("很好");
+    expect(joinDictation("很好", "Writ", "")).toBe("Writ");
+    expect(joinDictation("", "Hello", "世界")).toBe("Hello");
+    expect(joinDictation("", "你好", "world")).toBe("你好");
+  });
+
+  it("adds no space before fullwidth punctuation", () => {
+    for (const mark of ["，", "。", "、", "！", "？", "：", "；", "）"]) {
+      expect(joinDictation("hello", `${mark}next`, "")).toBe(`${mark}next`);
+    }
+    expect(joinDictation("你好", "，世界", "")).toBe("，世界");
+  });
+
+  it("keeps spacing Korean and Thai as before", () => {
+    expect(joinDictation("안녕", "하세요", "")).toBe(" 하세요");
+    expect(joinDictation("สวัสดี", "ครับ", "")).toBe(" ครับ");
+  });
+
+  it("adds no space before an ellipsis, a percent sign or the Urdu full stop", () => {
+    expect(joinDictation("wait", "…", "")).toBe("…");
+    expect(joinDictation("50", "%", "")).toBe("%");
+    expect(joinDictation("یہ ٹھیک ہے", "۔", "")).toBe("۔");
+  });
+
+  it("puts a space after a percent sign and the Urdu full stop", () => {
+    expect(joinDictation("50%", "more", "")).toBe(" more");
+    expect(joinDictation("ہے۔", "اگلا", "")).toBe(" اگلا");
+  });
+
   it("reads the last character as a whole code point", () => {
     expect(joinDictation("x\u{1D400}", "next", "")).toBe(" next");
     expect(joinDictation("é", "next", "")).toBe(" next");

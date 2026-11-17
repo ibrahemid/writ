@@ -25,6 +25,13 @@ import type { ThemePolarity } from "../types/theme";
 import type { LinkVerdict } from "../types/link";
 import type { VersionWriter } from "../types/writer";
 import { isInlineImageFailure, type InlineImageFailure } from "../types/inline-image";
+import type {
+  DictationCapabilities,
+  DictationEndpointState,
+  DictationEvent,
+  DictationLanguage,
+  DictationSession,
+} from "../types/dictation";
 import { logFailure } from "../lib/log";
 
 export async function listTransforms(): Promise<TransformDescriptor[]> {
@@ -2381,13 +2388,6 @@ export async function mcpOffCall(): Promise<McpOffCall | null> {
 
 // --- Dictation (ADR-058) ---
 
-import type {
-  DictationCapabilities,
-  DictationEndpointState,
-  DictationEvent,
-  DictationLanguage,
-  DictationSession,
-} from "../types/dictation";
 export type {
   DictationAction,
   DictationCapabilities,

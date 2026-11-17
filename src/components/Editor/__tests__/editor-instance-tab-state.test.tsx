@@ -6,6 +6,11 @@ import { EditorSelection } from "@codemirror/state";
 import { undo, undoDepth } from "@codemirror/commands";
 import { foldCode, foldable, foldedRanges } from "@codemirror/language";
 import type { BufferDocument } from "../../../types/buffer";
+import {
+  insertDictationSegment,
+  showDictationPartial,
+  startDictationAnchor,
+} from "../../../editor/dictation";
 import WindowProvider, { useWindow } from "../../WindowProvider/WindowProvider";
 import type { WindowState } from "../../../stores/window/createWindowState";
 
@@ -182,6 +187,26 @@ describe("EditorInstance: tabs keep their place", () => {
     expect(folded()).toEqual([]);
     await switchTo(setBuf, markdownNote);
     expect(folded()).toEqual(before);
+  });
+
+  it("brings a tab back without the dictation text it showed when it was left", async () => {
+    bufferContent.set("A", "Tab A text\n");
+    bufferContent.set("B", "another file\n");
+    const { container, setBuf } = await mount(mockBuffer("A"));
+    let view = viewIn(container);
+    view.dispatch({ selection: EditorSelection.cursor(10) });
+    expect(startDictationAnchor(view)).toBe(true);
+    showDictationPartial(view, "half heard");
+    expect(container.querySelector(".cm-dictation-partial")).not.toBeNull();
+
+    await switchTo(setBuf, mockBuffer("B"));
+    await switchTo(setBuf, mockBuffer("A"));
+    view = viewIn(container);
+
+    expect(view.state.doc.toString()).toBe("Tab A text\n");
+    expect(view.state.selection.main.head).toBe(10);
+    expect(container.querySelector(".cm-dictation-partial")).toBeNull();
+    expect(insertDictationSegment(view, "late")).toBe("anchor-lost");
   });
 
   it("opens fresh when the file changed while the tab was behind another", async () => {

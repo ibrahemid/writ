@@ -52,6 +52,10 @@ import Prose from '../layouts/Prose.astro';
     release-assets.githubusercontent.com.
   </p>
   <p>
+    With Dictation on and its engine set to API, Writ also sends what you dictate to the transcription host you chose,
+    as the Dictation section below describes.
+  </p>
+  <p>
     Spell check runs against a dictionary bundled in the app. The preview pane runs under a fixed
     content-security-policy (<code>default-src 'none'</code>, <code>connect-src 'none'</code>), so rendered HTML makes
     no network calls while scripts are off for that file, as they are until you turn them on for it. A file whose
@@ -112,7 +116,8 @@ import Prose from '../layouts/Prose.astro';
   <h2>Dictation</h2>
   <p>
     Dictation is an app you switch on in <code>Settings &rarr; Apps</code>. Writ opens the microphone only while you
-    dictate, and the status bar shows it while it is open. Audio stays in memory: Writ never writes it to disk or to a log, and drops it once it is transcribed.
+    dictate, and the status bar shows it while it is open. Hiding or minimizing the window closes it, and so does a
+    minute without speech. Audio stays in memory: Writ never writes it to disk or to a log, and drops it once it is transcribed.
   </p>
   <p>
     With the On this Mac engine, on macOS 26 or later, Apple's speech model transcribes on the Mac and Writ sends no
@@ -127,8 +132,9 @@ import Prose from '../layouts/Prose.astro';
   <p>
     With <code>Clean up with the AI connection</code> on, the text of each phrase also goes to the AI connection's
     host, under that connection's consent and key, before it is inserted. Dictation's key is stored like the AI
-    connection's, in the system keychain under <code>com.writ.ai</code>; when Dictation uses the same provider and host
-    as the AI connection, it uses that connection's key. The decisions are in
+    connection's, in the system keychain under <code>com.writ.ai</code>, or in memory only where the keychain is
+    unavailable. While Chat or Rewrite is on and Dictation uses the same provider, scheme and host as the AI
+    connection, it uses that connection's key; otherwise it keeps its own. The decisions are in
     <a href="https://github.com/ibrahemid/writ/blob/main/docs/adr/058-dictation.md" rel="noopener" target="_blank">ADR-058</a>.
   </p>
 
