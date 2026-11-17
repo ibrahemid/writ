@@ -8,6 +8,7 @@ import ContextMenu, {
   hideContextMenu,
   isMenuOpenFor,
 } from "../../components/ContextMenu/ContextMenu";
+import { isContextMenuOpen } from "../../lib/context-menu-open";
 
 afterEach(() => {
   hideContextMenu();
@@ -417,6 +418,25 @@ describe("ContextMenu cursor open (right-click call site)", () => {
     vi.advanceTimersByTime(1);
     fireEvent.click(document.body);
     expect(container.querySelector(".context-menu")).toBeNull();
+  });
+});
+
+describe("ContextMenu open state for stores", () => {
+  it("is open from a cursor open until hideContextMenu", () => {
+    expect(isContextMenuOpen()).toBe(false);
+    showContextMenu(10, 20, [{ label: "Rename", action: () => {} }]);
+    expect(isContextMenuOpen()).toBe(true);
+    hideContextMenu();
+    expect(isContextMenuOpen()).toBe(false);
+  });
+
+  it("is open from an anchored open until the menu closes itself on Escape", () => {
+    const { getByText, container } = render(() => <Harness />);
+    fireEvent.click(getByText("open"));
+    expect(isContextMenuOpen()).toBe(true);
+    fireEvent.keyDown(container.querySelector(".context-menu")!, { key: "Escape" });
+    expect(container.querySelector(".context-menu")).toBeNull();
+    expect(isContextMenuOpen()).toBe(false);
   });
 });
 

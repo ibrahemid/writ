@@ -1,5 +1,6 @@
 import { createSignal, createEffect, Show, For, onCleanup } from "solid-js";
 import Icon, { type IconName } from "../Icon/Icon";
+import { setContextMenuOpen } from "../../lib/context-menu-open";
 import "./ContextMenu.css";
 import "../SaveMarker/SaveMarker.css";
 
@@ -60,7 +61,12 @@ interface ContextMenuState {
 }
 
 // Singleton state — Writ is single-window, single-instance per component
-const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
+const [menu, setMenuState] = createSignal<ContextMenuState | null>(null);
+
+function setMenu(next: ContextMenuState | null): void {
+  setMenuState(next);
+  setContextMenuOpen(next !== null);
+}
 
 /**
  * Opens the menu at the cursor. The element the user was on is captured here
@@ -97,10 +103,6 @@ export function showAnchoredMenu(
 
 export function hideContextMenu() {
   setMenu(null);
-}
-
-export function isContextMenuOpen(): boolean {
-  return menu() !== null;
 }
 
 /**
