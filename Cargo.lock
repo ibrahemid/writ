@@ -7480,6 +7480,7 @@ name = "writ-tauri"
 version = "1.0.1"
 dependencies = [
  "arboard",
+ "block2",
  "chrono",
  "core-foundation 0.10.1",
  "dirs 7.0.0",

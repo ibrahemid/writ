@@ -166,8 +166,7 @@ describe('llms.txt and llms-full.txt', () => {
       }
       const tags = outside.filter((line) => /<\/?[a-z][^>]*>/.test(line));
       expect(tags, `${name}: markup outside code blocks`).toEqual([]);
-      for (const leak of ['/Users/', '127.0.0.1']) expect(text.includes(leak), `${name}: ${leak}`).toBe(false);
-      expect(text, `${name}: localhost address`).not.toMatch(/\/\/localhost\b|\blocalhost:\d/);
+      for (const leak of ['/Users/', 'localhost', '127.0.0.1']) expect(text.includes(leak), `${name}: ${leak}`).toBe(false);
     }
   });
 });

@@ -18,6 +18,7 @@ use writ_ai::transcription::{
 };
 use writ_audio::{AudioFrame, CaptureError, Recorder};
 use writ_core::config::{AiConfig, WritConfig};
+use writ_core::dictation::key::own_account;
 use writ_core::dictation::language::{locale_language, on_device_languages};
 use writ_core::dictation::on_device::BRIDGE_LANGUAGE_UNSUPPORTED;
 use writ_core::dictation::platform::mic_settings_uri;
@@ -119,14 +120,13 @@ fn check_enabled(d: &DictationConfig) -> Result<(), DictationError> {
 }
 
 /// The account dictation's own key lives under. Refused while dictation reads
-/// the AI connection's key, which only the AI pages change.
+/// the AI connection's key, which only the AI pages change, and for a custom
+/// server whose base URL names no address to keep the key for.
 fn own_key_account(d: &DictationConfig, ai: &AiConfig) -> Result<String, DictationError> {
-    let account = key_account(d, ai);
-    if account.shared_with_ai {
-        Err(DictationError::KeyShared)
-    } else {
-        Ok(account.account)
+    if key_account(d, ai).shared_with_ai {
+        return Err(DictationError::KeyShared);
     }
+    own_account(d).ok_or(DictationError::EndpointNotAllowed)
 }
 
 /// The on-device locale a start runs in, or why there is none.
@@ -512,6 +512,27 @@ mod tests {
         assert_eq!(
             own_key_account(&d, &hidden).as_deref(),
             Ok("dictation.openai")
+        );
+    }
+
+    #[test]
+    fn a_custom_key_is_kept_for_its_address_only() {
+        let mut d = DictationConfig {
+            provider: DictationProvider::Custom,
+            base_url: "https://speech.example.com/v1".to_string(),
+            ..enabled()
+        };
+        let first = own_key_account(&d, &ai("openai")).expect("own account");
+        assert_eq!(first, "dictation.custom.https://speech.example.com");
+
+        d.base_url = "https://other.example.com/v1".to_string();
+        let second = own_key_account(&d, &ai("openai")).expect("own account");
+        assert_ne!(first, second, "a new server does not get the old key");
+
+        d.base_url = "not a url".to_string();
+        assert_eq!(
+            own_key_account(&d, &ai("openai")),
+            Err(DictationError::EndpointNotAllowed)
         );
     }
 

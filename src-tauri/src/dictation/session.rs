@@ -165,11 +165,32 @@ impl Emitter {
     }
 }
 
+impl Drop for Emitter {
+    /// A session task that panics drops its emitter while unwinding, before
+    /// it sent an ending; the window still gets one.
+    fn drop(&mut self) {
+        if !self.ended && std::thread::panicking() {
+            self.fail(DictationError::CaptureFailed(
+                "dictation hit an internal error".to_string(),
+            ));
+        }
+    }
+}
+
 /// Lets the capture go without waiting on it: dropping a recorder joins its
 /// thread, which waits until its last frames are read.
 fn release(capture: Option<Box<dyn Capture>>) {
     if let Some(capture) = capture {
         drop(tokio::task::spawn_blocking(move || drop(capture)));
+    }
+}
+
+/// Ends capture and, the first time, tells the window the session is now
+/// inserting what it heard.
+fn begin_stopping(stopping: &mut bool, capture: &mut Option<Box<dyn Capture>>, out: &mut Emitter) {
+    release(capture.take());
+    if !std::mem::replace(stopping, true) {
+        out.emit(DictationEvent::Stopping);
     }
 }
 
@@ -277,10 +298,10 @@ impl Inserted {
         }
     }
 
-    /// Ends a session that ran out of input. A session the quiet stop ended
-    /// has already said why, so nothing heard is not an error there.
-    fn end(&self, out: &mut Emitter, quiet_stopped: bool) {
-        if self.count == 0 && !quiet_stopped {
+    /// Ends a session that ran out of input; one that inserted nothing ends
+    /// as no speech, whatever stopped it.
+    fn end(&self, out: &mut Emitter) {
+        if self.count == 0 {
             out.fail(DictationError::NoSpeech);
         } else {
             out.emit(DictationEvent::Done);
@@ -417,7 +438,6 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
     let mut meter = LevelMeter::default();
     let mut silence = SilenceWatch::new(silence_check);
     let mut quiet = limits.quiet_watch();
-    let mut quiet_stopped = false;
     let mut recording = false;
     let mut stopping = false;
 
@@ -435,7 +455,7 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
             out.emit(DictationEvent::Transcribing { pending });
         }
         if frames.is_none() && in_flight.is_none() {
-            inserted.end(&mut out, quiet_stopped);
+            inserted.end(&mut out);
             return;
         }
 
@@ -447,8 +467,7 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
                 return;
             }
             () = controls.stop.cancelled(), if !stopping => {
-                stopping = true;
-                release(capture.take());
+                begin_stopping(&mut stopping, &mut capture, &mut out);
             }
             frame = recv(&mut frames) => match frame {
                 Some(frame) => {
@@ -466,9 +485,7 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
                             out.emit(DictationEvent::Level { level });
                         }
                         if quiet.push(&frame.samples) {
-                            stopping = true;
-                            quiet_stopped = true;
-                            release(capture.take());
+                            begin_stopping(&mut stopping, &mut capture, &mut out);
                             tracing::info!(session = session_id, "dictation: stopped after a minute without speech");
                             out.emit(DictationEvent::stopped_after_silence());
                         }
@@ -478,8 +495,7 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
                     }
                     let queued: usize = queue.iter().map(|segment| segment.samples.len()).sum();
                     if !stopping && limits.is_queue_full(queued) {
-                        stopping = true;
-                        release(capture.take());
+                        begin_stopping(&mut stopping, &mut capture, &mut out);
                         tracing::warn!(
                             session = session_id,
                             queued_ms = queued / samples_for_ms(1),
@@ -494,11 +510,12 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
                         .as_ref()
                         .filter(|_| !stopping)
                         .and_then(|capture| capture.failure());
-                    release(capture.take());
                     if let Some(error) = failure {
+                        release(capture.take());
                         out.fail(error.into());
                         return;
                     }
+                    begin_stopping(&mut stopping, &mut capture, &mut out);
                     queue.extend(segmenter.take().and_then(Segmenter::finish));
                 }
             },
@@ -592,7 +609,6 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
     let mut meter = LevelMeter::default();
     let mut silence = SilenceWatch::new(silence_check);
     let mut quiet = limits.quiet_watch();
-    let mut quiet_stopped = false;
     let mut stopping = false;
 
     loop {
@@ -609,7 +625,7 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
         }
         if finished && cleaning.is_none() {
             release(capture.take());
-            inserted.end(&mut out, quiet_stopped);
+            inserted.end(&mut out);
             return;
         }
 
@@ -622,8 +638,7 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
                 return;
             }
             () = controls.stop.cancelled(), if !stopping => {
-                stopping = true;
-                release(capture.take());
+                begin_stopping(&mut stopping, &mut capture, &mut out);
             }
             frame = recv(&mut frames) => match frame {
                 Some(frame) => {
@@ -640,9 +655,7 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
                                 out.emit(DictationEvent::Level { level });
                             }
                             if quiet.push(&frame.samples) {
-                                stopping = true;
-                                quiet_stopped = true;
-                                release(capture.take());
+                                begin_stopping(&mut stopping, &mut capture, &mut out);
                                 tracing::info!(session = session_id, "dictation: stopped after a minute without speech");
                                 out.emit(DictationEvent::stopped_after_silence());
                             }
@@ -657,12 +670,13 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
                         .as_ref()
                         .filter(|_| !stopping)
                         .and_then(|capture| capture.failure());
-                    release(capture.take());
                     if let Some(error) = failure {
+                        release(capture.take());
                         recognizer.stop();
                         out.fail(error.into());
                         return;
                     }
+                    begin_stopping(&mut stopping, &mut capture, &mut out);
                     if ready && !finishing {
                         finishing = true;
                         recognizer.finish();
@@ -966,6 +980,8 @@ mod tests {
         Fail(DictationError),
         /// Answers only after the cancel, which the session must ignore.
         Late,
+        /// Panics inside the session task.
+        Panic,
     }
 
     #[derive(Default)]
@@ -1009,6 +1025,7 @@ mod tests {
                         cancel.cancelled().await;
                         Ok(Some("late".to_string()))
                     }
+                    Reply::Panic => panic!("the transcriber broke"),
                 }
             })
         }
@@ -1122,6 +1139,7 @@ mod tests {
                 DictationEvent::Level { .. } => "level".to_string(),
                 DictationEvent::Partial { text } => format!("partial {text}"),
                 DictationEvent::Transcribing { pending } => format!("transcribing {pending}"),
+                DictationEvent::Stopping => "stopping".to_string(),
                 DictationEvent::Segment { seq, text } => format!("segment {seq} {text}"),
                 DictationEvent::Notice { message } => format!("notice {message}"),
                 DictationEvent::Done => "done".to_string(),
@@ -1182,6 +1200,7 @@ mod tests {
             [
                 "recording",
                 "level",
+                "stopping",
                 "segment 0 first",
                 "segment 1 second",
                 "done"
@@ -1250,9 +1269,9 @@ mod tests {
         );
         until(&mut events, |e| matches!(e, DictationEvent::Recording)).await;
         controls.stop.cancel();
-        let after = names(&rest(&mut events).await);
+        let after = words(&rest(&mut events).await);
 
-        assert_eq!(after.last().map(String::as_str), Some("error NoSpeech"));
+        assert_eq!(after, ["stopping", "error NoSpeech"]);
         assert!(transcriber.prompts().is_empty(), "nothing was sent");
     }
 
@@ -1268,10 +1287,7 @@ mod tests {
         controls.stop.cancel();
         let after = words(&rest(&mut events).await);
 
-        assert!(
-            after.ends_with(&["segment 0 cut short".to_string(), "done".to_string()]),
-            "{after:?}"
-        );
+        assert_eq!(after, ["stopping", "segment 0 cut short", "done"]);
     }
 
     #[tokio::test]
@@ -1291,6 +1307,7 @@ mod tests {
         assert_eq!(
             all,
             [
+                "stopping",
                 "notice Dictation stopped after a minute of silence.",
                 "segment 0 first",
                 "done"
@@ -1299,7 +1316,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_quiet_stop_with_nothing_heard_is_done_not_an_error() {
+    async fn a_quiet_stop_with_nothing_heard_is_no_speech() {
         let transcriber = FakeTranscriber::replying(vec![]);
         let mut session = api(
             frames_of(&[silence(1_400)]),
@@ -1315,8 +1332,9 @@ mod tests {
         assert_eq!(
             all,
             [
+                "stopping",
                 "notice Dictation stopped after a minute of silence.",
-                "done"
+                "error NoSpeech"
             ]
         );
         assert!(transcriber.prompts().is_empty(), "nothing was sent");
@@ -1340,6 +1358,7 @@ mod tests {
         assert_eq!(
             all,
             [
+                "stopping",
                 "notice Dictation stopped because the transcription service could not keep up.",
                 "segment 0 one",
                 "segment 1 two",
@@ -1365,7 +1384,7 @@ mod tests {
         );
         let all = words(&rest(&mut events).await);
 
-        assert_eq!(all, ["segment 0 first", "error Network"]);
+        assert_eq!(all, ["stopping", "segment 0 first", "error Network"]);
         assert!(!all.contains(&"done".to_string()));
     }
 
@@ -1388,6 +1407,7 @@ mod tests {
         assert_eq!(
             all,
             [
+                "stopping",
                 "segment 0 first",
                 "notice Inserted without clean-up: the model is busy",
                 "segment 1 second",
@@ -1411,7 +1431,7 @@ mod tests {
         );
         let all = words(&rest(&mut events).await);
 
-        assert_eq!(all, ["segment 0 FIRST", "done"]);
+        assert_eq!(all, ["stopping", "segment 0 FIRST", "done"]);
     }
 
     #[tokio::test]
@@ -1424,7 +1444,7 @@ mod tests {
         );
         let all = words(&rest(&mut events).await);
 
-        assert_eq!(all, ["segment 0 second", "done"]);
+        assert_eq!(all, ["stopping", "segment 0 second", "done"]);
     }
 
     #[tokio::test]
@@ -1471,7 +1491,7 @@ mod tests {
         let mut events = start_api(session, Controls::default());
         let all = words(&rest(&mut events).await);
 
-        assert_eq!(all, ["segment 0 first", "done"]);
+        assert_eq!(all, ["stopping", "segment 0 first", "done"]);
     }
 
     #[test]
@@ -1497,6 +1517,35 @@ mod tests {
             *seen.lock().expect("seen"),
             [DictationEvent::Recording, DictationEvent::Cancelled]
         );
+    }
+
+    #[tokio::test]
+    async fn a_session_task_that_panics_still_ends_the_session() {
+        let transcriber = FakeTranscriber::replying(vec![Reply::Panic]);
+        let (emitter, mut events) = events_channel();
+        let task = tokio::spawn(run_api(
+            api(one_phrase(), false, None, transcriber, None),
+            Controls::default(),
+            emitter,
+        ));
+        assert!(task.await.expect_err("the task panics").is_panic());
+        let all = names(&rest(&mut events).await);
+
+        assert_eq!(all.last().map(String::as_str), Some("error CaptureFailed"));
+        assert_eq!(
+            all.iter().filter(|name| name.starts_with("error")).count(),
+            1
+        );
+    }
+
+    #[test]
+    fn an_emitter_dropped_without_a_panic_sends_nothing_more() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        let mut out = Emitter::new(move |event| sink.lock().expect("seen").push(event));
+        out.emit(DictationEvent::Recording);
+        drop(out);
+        assert_eq!(*seen.lock().expect("seen"), [DictationEvent::Recording]);
     }
 
     /// A log sink the tests read back.
@@ -1702,7 +1751,7 @@ mod tests {
 
         run.controls.stop.cancel();
         let after = names(&rest(&mut run.events).await);
-        assert_eq!(after, ["segment 1 again", "done"]);
+        assert_eq!(after, ["stopping", "segment 1 again", "done"]);
         let log = run.log.lock().expect("log");
         assert!(log.finished && !log.stopped);
     }
@@ -1743,7 +1792,11 @@ mod tests {
 
         run.bridge.send(BridgeEvent::Ready).expect("send");
         let after = names(&rest(&mut run.events).await);
-        assert_eq!(after, ["error NoSpeech"], "no recording state after a stop");
+        assert_eq!(
+            after,
+            ["stopping", "error NoSpeech"],
+            "no recording state after a stop"
+        );
         let log = run.log.lock().expect("log");
         assert_eq!(log.fed, 200 * PER_MS);
         assert!(log.finished);
@@ -1815,6 +1868,7 @@ mod tests {
         assert_eq!(
             all,
             [
+                "stopping",
                 "segment 0 one",
                 "notice Inserted without clean-up: no connection",
                 "segment 1 two",
@@ -1849,6 +1903,7 @@ mod tests {
         assert_eq!(
             after,
             [
+                "stopping",
                 "notice Dictation stopped after a minute of silence.",
                 "segment 0 still heard",
                 "done"
@@ -1926,7 +1981,12 @@ mod tests {
 
         assert_eq!(
             all,
-            ["segment 0 hello there", "segment 1 general kenobi", "done"]
+            [
+                "stopping",
+                "segment 0 hello there",
+                "segment 1 general kenobi",
+                "done"
+            ]
         );
         let seen = seen.lock().expect("seen");
         assert_eq!(seen.len(), 2);

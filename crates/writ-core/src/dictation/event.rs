@@ -32,6 +32,9 @@ pub enum DictationEvent {
         /// How many.
         pending: u32,
     },
+    /// Capture has ended and the session is inserting what it heard. Sent
+    /// once, on every stop.
+    Stopping,
     /// Final text to insert now, in `seq` order.
     Segment {
         /// The segment's order in the session.

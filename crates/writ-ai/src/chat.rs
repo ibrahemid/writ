@@ -592,7 +592,7 @@ fn note_now(
 }
 
 /// Everything a stream needs, resolved from config and validated.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct PreparedChat {
     /// Where the request goes.
     pub endpoint: String,
@@ -617,6 +617,25 @@ pub struct PreparedChat {
     /// The connection this request was frozen against, carried on every frame
     /// it produces.
     pub identity: RequestIdentity,
+}
+
+impl std::fmt::Debug for PreparedChat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedChat")
+            .field(
+                "endpoint",
+                &crate::connection::url_for_debug(&self.endpoint),
+            )
+            .field("provider", &self.provider)
+            .field("has_key", &self.api_key.is_some())
+            .field("host", &self.host)
+            .field("host_port", &self.host_port)
+            .field("is_localhost", &self.is_localhost)
+            .field("is_private_network", &self.is_private_network)
+            .field("notes", &self.context.len())
+            .field("identity", &self.identity)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Validates config and inputs and resolves the request.
@@ -4140,6 +4159,27 @@ mod reject_stream_tests {
             frames[0].message,
             format!("Ollama is not running at 127.0.0.1:{port}.")
         );
+    }
+}
+
+#[cfg(test)]
+mod prepared_debug_tests {
+    use super::tests_support::*;
+    use super::*;
+
+    #[test]
+    fn the_debug_form_leaves_out_the_key_the_notes_and_url_credentials() {
+        let prepared = prepared_for(
+            "https://user:pass-zz@api.example.com/v1?token=tok-zz",
+            Provider::OpenAiCompatible,
+            Some("ZZ-chat-key"),
+        );
+        let printed = format!("{prepared:?}");
+        for secret in ["ZZ-chat-key", "pass-zz", "tok-zz", NOTE_TEXT, USER_TURN] {
+            assert!(!printed.contains(secret), "{secret} in {printed}");
+        }
+        assert!(printed.contains("has_key: true"), "{printed}");
+        assert!(printed.contains("notes: 1"), "{printed}");
     }
 }
 

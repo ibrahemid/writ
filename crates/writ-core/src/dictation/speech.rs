@@ -5,9 +5,10 @@
 //! slowly otherwise. A frame is speech when it is clearly above that floor
 //! and above an absolute minimum, so steady fan or room noise never counts.
 //! A frame of digital silence (all zeros, as a device delivers while it
-//! starts) is never speech and leaves the floor where it is.
+//! starts) or near it (zeros with a bit of dither) is never speech and leaves
+//! the floor where it is.
 
-use super::level::{is_digital_silence, rms_dbfs};
+use super::level::rms_dbfs;
 
 /// A frame is speech only above this level.
 const ABS_MIN_DBFS: f32 = -50.0;
@@ -18,6 +19,9 @@ const MARGIN_DB: f32 = 10.0;
 const FLOOR_START_CAP_DBFS: f32 = -40.0;
 /// How fast the floor rises toward louder frames.
 const FLOOR_RISE_DB_PER_S: f32 = 3.3;
+/// A frame below this level is digital silence, or zeros with dither of a
+/// bit or two; no microphone's own noise is this quiet.
+const NEAR_SILENCE_DBFS: f32 = -85.0;
 
 /// Classifies frames as speech against a noise floor it keeps.
 #[derive(Debug, Clone)]
@@ -39,7 +43,7 @@ impl SpeechDetector {
     /// The frame's level in dBFS and whether it is speech.
     pub fn classify(&mut self, samples: &[i16]) -> (f32, bool) {
         let db = rms_dbfs(samples);
-        if is_digital_silence(samples) {
+        if db < NEAR_SILENCE_DBFS {
             return (db, false);
         }
         let floor = self.floor_db.unwrap_or(db.min(FLOOR_START_CAP_DBFS));

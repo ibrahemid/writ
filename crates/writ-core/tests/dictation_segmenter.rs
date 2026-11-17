@@ -41,6 +41,17 @@ fn fan(ms: usize) -> Vec<i16> {
         .collect()
 }
 
+/// Zeros with dither of one bit: each sample -1, 0 or 1, about -92 dBFS RMS.
+fn dither(ms: usize) -> Vec<i16> {
+    let mut state: u32 = 0x9e37_79b9;
+    (0..ms * PER_MS)
+        .map(|_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            ((state >> 16) % 3) as i16 - 1
+        })
+        .collect()
+}
+
 fn feed(segmenter: &mut Segmenter, parts: &[Vec<i16>]) -> Vec<Segment> {
     parts.iter().flat_map(|p| segmenter.push(p)).collect()
 }
@@ -204,6 +215,30 @@ fn digital_silence_mid_stream_does_not_make_the_fan_speech() {
     assert!(feed(&mut s, &[fan(2_000), silence(90), fan(10_000)]).is_empty());
     assert!(!s.heard_speech());
     assert_eq!(s.finish(), None);
+}
+
+#[test]
+fn dithered_silence_before_fan_noise_does_not_make_the_fan_speech() {
+    let mut s = new();
+    assert!(feed(&mut s, &[dither(60), fan(10_000)]).is_empty());
+    assert!(!s.heard_speech());
+    assert_eq!(s.finish(), None);
+}
+
+#[test]
+fn dithered_silence_mid_stream_does_not_make_the_fan_speech() {
+    let mut s = new();
+    assert!(feed(&mut s, &[fan(2_000), dither(90), fan(10_000)]).is_empty());
+    assert!(!s.heard_speech());
+    assert_eq!(s.finish(), None);
+}
+
+#[test]
+fn speech_after_dithered_silence_is_found() {
+    let mut s = new();
+    let out = feed(&mut s, &[dither(990), speech(4_000), dither(2_000)]);
+    assert_eq!(out.len(), 1);
+    assert!(out[0].speech_ms >= 3_000);
 }
 
 #[test]

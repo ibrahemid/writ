@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use writ_core::ai::providers;
 use writ_core::config::{AiConfig, DictationConfig, DictationProvider};
 use writ_core::dictation::error::DictationErrorCode;
+use writ_core::dictation::key::own_account;
 use writ_core::dictation::on_device::language_name;
 use writ_core::dictation::platform::{Platform, MAC_MIC_SETTINGS_URI, WINDOWS_MIC_SETTINGS_URI};
 use writ_core::dictation::{
@@ -240,7 +241,7 @@ fn another_provider_or_host_has_its_own_key() {
     own(
         dictation(DictationProvider::Custom, "http://192.168.1.20:8000/v1"),
         ai("custom", "http://192.168.1.30:8000/v1"),
-        "dictation.custom",
+        "dictation.custom.http://192.168.1.20:8000",
     );
     own(
         dictation(DictationProvider::Custom, ""),
@@ -270,7 +271,10 @@ fn http_and_https_to_one_host_do_not_share_a_key() {
         &dictation(DictationProvider::Custom, "https://speech.example.com/v1"),
         &ai("custom", "http://speech.example.com/v1"),
     );
-    assert_eq!(account.account, "dictation.custom");
+    assert_eq!(
+        account.account,
+        "dictation.custom.https://speech.example.com"
+    );
     assert!(!account.shared_with_ai);
 
     let account = key_account(
@@ -279,6 +283,65 @@ fn http_and_https_to_one_host_do_not_share_a_key() {
     );
     assert_eq!(account.account, "custom");
     assert!(account.shared_with_ai);
+}
+
+#[test]
+fn a_custom_server_keeps_one_key_per_address() {
+    let account = |base_url: &str| {
+        key_account(
+            &dictation(DictationProvider::Custom, base_url),
+            &AiConfig::default(),
+        )
+        .account
+    };
+    assert_eq!(
+        account("https://speech.example.com/v1"),
+        "dictation.custom.https://speech.example.com"
+    );
+    assert_eq!(
+        account("https://speech.example.com:443/other"),
+        account("https://speech.example.com/v1"),
+        "the default port and the path name the same address"
+    );
+    assert_ne!(
+        account("https://speech.example.com:8443/v1"),
+        account("https://speech.example.com/v1")
+    );
+    assert_ne!(
+        account("http://speech.example.com/v1"),
+        account("https://speech.example.com/v1")
+    );
+    assert_ne!(
+        account("https://other.example.com/v1"),
+        account("https://speech.example.com/v1")
+    );
+}
+
+#[test]
+fn a_preset_keeps_one_key_whatever_its_base_url() {
+    let mut d = dictation(DictationProvider::Groq, "https://speech.example.com/v1");
+    assert_eq!(
+        key_account(&d, &AiConfig::default()).account,
+        "dictation.groq"
+    );
+    d.base_url = "http://192.168.1.20:8000/v1".to_string();
+    assert_eq!(
+        key_account(&d, &AiConfig::default()).account,
+        "dictation.groq"
+    );
+}
+
+#[test]
+fn a_custom_base_url_without_an_address_has_no_account_of_its_own() {
+    assert_eq!(
+        own_account(&dictation(DictationProvider::Custom, "not a url")),
+        None
+    );
+    assert_eq!(own_account(&dictation(DictationProvider::Custom, "")), None);
+    assert_eq!(
+        own_account(&dictation(DictationProvider::OpenAi, "")).as_deref(),
+        Some("dictation.openai")
+    );
 }
 
 fn every_error() -> Vec<DictationError> {
@@ -535,6 +598,10 @@ fn events_serialize_with_a_kind_tag() {
             serde_json::json!({"kind": "transcribing", "pending": 2}),
         ),
         (
+            DictationEvent::Stopping,
+            serde_json::json!({"kind": "stopping"}),
+        ),
+        (
             DictationEvent::Segment {
                 seq: 3,
                 text: "hello".to_string(),
@@ -563,6 +630,7 @@ fn events_serialize_with_a_kind_tag() {
     assert!(DictationEvent::Done.is_terminal());
     assert!(DictationEvent::Cancelled.is_terminal());
     assert!(!DictationEvent::Recording.is_terminal());
+    assert!(!DictationEvent::Stopping.is_terminal());
 }
 
 #[test]

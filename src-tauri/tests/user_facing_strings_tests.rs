@@ -175,7 +175,7 @@ const RUST_ALLOWLIST: &[AllowedString] = &[
     },
     AllowedString {
         file: "crates/writ-ai/src/chat.rs",
-        line: 968,
+        line: 987,
         word: "note",
         note: "debug_assert text, never rendered",
     },

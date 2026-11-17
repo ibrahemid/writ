@@ -36,8 +36,9 @@ const MAX_REPLY_BYTES: usize = 1024 * 1024;
 const MAX_REFUSAL_BYTES: usize = 8 * 1024;
 /// The longest server reason a refusal message carries, in characters.
 const MAX_DETAIL_CHARS: usize = 200;
-/// The longest one segment's transcription may take, its retry included.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
+/// The longest one attempt at a segment may take; the retry gets as long
+/// again. A 30-second segment on a slow uplink fits.
+const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// A transcription request resolved from config and checked: the endpoint is
 /// allowed, the model named, the host consented to and the key found.
@@ -54,7 +55,7 @@ pub struct PreparedTranscription {
     pub language: Option<String>,
     api_key: Option<String>,
     is_private_network: bool,
-    /// The longest one segment may take, its retry included.
+    /// The longest one attempt may take.
     deadline: Duration,
 }
 
@@ -237,7 +238,7 @@ pub fn prepare_transcription(
         language,
         api_key,
         is_private_network: target.is_private_network,
-        deadline: REQUEST_TIMEOUT,
+        deadline: ATTEMPT_TIMEOUT,
     })
 }
 
@@ -250,8 +251,9 @@ struct TranscriptionReply {
 ///
 /// `prompt` is the end of the text already transcribed, which keeps names and
 /// spelling steady across segments; it is sent only when it has text. A
-/// network failure, a 429 or a 5xx is retried once after a second. A segment
-/// that takes longer than its deadline, retry included, is a network failure.
+/// network failure, a 429 or a 5xx is retried once after a second. An
+/// attempt that takes longer than its deadline is a network failure, so it
+/// too gets the one retry, with a deadline of its own.
 /// `Ok(None)` when the transcript has no words, or when `cancel` fires: a stop
 /// ends the request wherever it is waiting and nothing is returned.
 pub async fn transcribe(
@@ -262,19 +264,7 @@ pub async fn transcribe(
     cancel: &CancellationToken,
 ) -> Result<Option<String>, DictationError> {
     let prompt = prompt.map(str::trim).filter(|text| !text.is_empty());
-    match tokio::time::timeout(p.deadline, attempt_twice(client, p, &wav, prompt, cancel)).await {
-        Ok(result) => result,
-        Err(_) => {
-            tracing::warn!(
-                bytes = wav.len(),
-                deadline_ms = u64::try_from(p.deadline.as_millis()).unwrap_or(u64::MAX),
-                "dictation: a transcription ran out of time"
-            );
-            Err(DictationError::Network {
-                host: p.host.clone(),
-            })
-        }
-    }
+    attempt_twice(client, p, &wav, prompt, cancel).await
 }
 
 /// One attempt, and a second after [`RETRY_DELAY`] when the first failed in a
@@ -317,7 +307,19 @@ async fn attempt(
     tokio::select! {
         biased;
         () = cancel.cancelled() => Ok(None),
-        result = send(client, p, wav, prompt) => result,
+        result = tokio::time::timeout(p.deadline, send(client, p, wav, prompt)) => match result {
+            Ok(result) => result,
+            Err(_) => {
+                tracing::warn!(
+                    bytes = wav.len(),
+                    deadline_ms = u64::try_from(p.deadline.as_millis()).unwrap_or(u64::MAX),
+                    "dictation: a transcription attempt ran out of time"
+                );
+                Err(DictationError::Network {
+                    host: p.host.clone(),
+                })
+            }
+        },
     }
 }
 
@@ -434,6 +436,12 @@ fn refusal_detail(body: &[u8], status: u16, api_key: Option<&str>) -> String {
         return format!("HTTP {status}.");
     };
     if let Some(key) = api_key.filter(|key| !key.is_empty()) {
+        if !reason.contains(key) {
+            let unmarked: String = reason.chars().filter(|c| !is_direction_mark(*c)).collect();
+            if unmarked.contains(key) {
+                reason = unmarked;
+            }
+        }
         reason = reason.replace(key, "<redacted-key>");
     }
     let line = sanitize_ai_error(&reason);
@@ -443,21 +451,32 @@ fn refusal_detail(body: &[u8], status: u16, api_key: Option<&str>) -> String {
     }
 }
 
-/// `text` with each control character turned into a space and every
-/// bidirectional mark, embedding, override and isolate removed, so a server's
-/// words cannot reorder or break the line they are shown in.
+/// `text` with each control character and line or paragraph separator turned
+/// into a space and every bidirectional embedding, override and isolate
+/// removed, so a server's words cannot reorder or break the line they are
+/// shown in. The plain direction marks (LRM, RLM, ALM) stay: they only place
+/// neutral characters in right-to-left text.
 fn plain_line(text: &str) -> String {
     text.chars()
         .filter(|c| !is_bidi_control(*c))
-        .map(|c| if c.is_control() { ' ' } else { c })
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect()
 }
 
+/// A bidirectional embedding, override or isolate.
 fn is_bidi_control(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
-    )
+    matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// A plain direction mark: LRM, RLM or ALM.
+fn is_direction_mark(c: char) -> bool {
+    matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}')
 }
 
 /// The clean-up pass for one transcript, ready for the AI connection.
@@ -532,7 +551,7 @@ mod tests {
             language: None,
             api_key: Some(KEY.to_string()),
             is_private_network: false,
-            deadline: REQUEST_TIMEOUT,
+            deadline: ATTEMPT_TIMEOUT,
         }
     }
 
@@ -646,6 +665,20 @@ mod tests {
     }
 
     #[test]
+    fn a_reason_keeps_its_direction_marks_and_loses_separators() {
+        assert_eq!(
+            plain_line("\u{200f}\u{0645}\u{0631}\u{062d}\u{0628}\u{0627} (1)\u{200e}\u{061c}"),
+            "\u{200f}\u{0645}\u{0631}\u{062d}\u{0628}\u{0627} (1)\u{200e}\u{061c}"
+        );
+        assert_eq!(plain_line("one\u{2028}two\u{2029}three"), "one two three");
+        let body = "{\"error\":{\"message\":\"Bad \\u200fvalue\\u200e (2)\"}}";
+        assert_eq!(
+            refusal_detail(body.as_bytes(), 400, None),
+            "Bad \u{200f}value\u{200e} (2)"
+        );
+    }
+
+    #[test]
     fn a_reason_loses_its_control_and_bidirectional_characters() {
         let body = "{\"error\":{\"message\":\"Bad\\u202e input\\u0007\\nfile\\u2066 ZZ-dict\\u200eation-key\"}}";
         assert_eq!(
@@ -701,6 +734,39 @@ mod tests {
             "{:?}",
             started.elapsed()
         );
+    }
+
+    /// A server that never answers its first request and answers the second.
+    fn stalls_once_mock() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            let mut stalled = Vec::new();
+            for (n, stream) in listener.incoming().enumerate().take(2) {
+                let Ok(mut stream) = stream else { return };
+                let mut buf = [0u8; 16 * 1024];
+                let _ = stream.read(&mut buf);
+                if n == 0 {
+                    stalled.push(stream);
+                    continue;
+                }
+                let body = r#"{"text":"second"}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+                let _ = stream.flush();
+            }
+        });
+        format!("http://127.0.0.1:{port}/v1")
+    }
+
+    #[test]
+    fn the_retry_gets_a_deadline_of_its_own() {
+        let mut p = keyed(&stalls_once_mock());
+        p.deadline = Duration::from_millis(400);
+        assert_eq!(run(&p), Ok(Some("second".to_string())));
     }
 
     #[test]

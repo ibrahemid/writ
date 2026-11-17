@@ -16,6 +16,7 @@ import plistlib
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -258,7 +259,35 @@ class DiskImageTests(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix="writ-dmg-test-")
         self.addCleanup(tmp.cleanup)
         self.root = pathlib.Path(tmp.name)
+        self.addCleanup(self.detach_images_under_root)
         self.env = {**os.environ, "TMPDIR": str(self.root)}
+
+    def attached_under_root(self) -> list[str]:
+        """The device of each disk image attached from a file under the test root."""
+        info = subprocess.run(["hdiutil", "info", "-plist"], capture_output=True, check=True).stdout
+        root = os.path.realpath(self.root) + os.sep
+        devices = []
+        for image in plistlib.loads(info).get("images", []):
+            if not os.path.realpath(image.get("image-path", "")).startswith(root):
+                continue
+            entries = [entity["dev-entry"] for entity in image.get("system-entities", []) if "dev-entry" in entity]
+            if entries:
+                devices.append(min(entries, key=len))
+        return devices
+
+    def detach_images_under_root(self) -> None:
+        """Detaches what the script or the test attached, however the test ended."""
+        # Under load hdiutil can unmount a volume and still fail to eject its disk.
+        for attempt in range(1, 6):
+            devices = self.attached_under_root()
+            if not devices:
+                return
+            for device in devices:
+                subprocess.run(["hdiutil", "detach", device, "-force", "-quiet"], check=False)
+            if not self.attached_under_root():
+                return
+            time.sleep(attempt)
+        self.assertEqual(self.attached_under_root(), [], "disk images from this test are still attached")
 
     def bundle(self, folder: str, marker: str) -> pathlib.Path:
         app = self.root / folder / "Writ.app"
@@ -332,6 +361,18 @@ class DiskImageTests(unittest.TestCase):
         )
         self.addCleanup(subprocess.run, ["hdiutil", "detach", str(mountpoint), "-force", "-quiet"], check=False)
         return mountpoint
+
+    def test_cleanup_detaches_an_image_left_attached(self) -> None:
+        image = self.built_image()
+        mountpoint = pathlib.Path(tempfile.mkdtemp(prefix="mnt-", dir=self.root))
+        subprocess.run(
+            ["hdiutil", "attach", str(image), "-readonly", "-nobrowse", "-noautoopen", "-mountpoint", str(mountpoint), "-quiet"],
+            check=True,
+        )
+        self.assertEqual(len(self.attached_under_root()), 1)
+        self.detach_images_under_root()
+        self.assertEqual(self.attached_under_root(), [])
+        self.assertFalse((mountpoint / "Writ.app").exists())
 
     def test_sign_app_signs_a_real_bundle_with_the_hardened_runtime(self) -> None:
         app = self.bundle("to-sign", "signed")

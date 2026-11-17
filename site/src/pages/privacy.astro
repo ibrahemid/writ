@@ -126,8 +126,8 @@ import Prose from '../layouts/Prose.astro';
   <h2>Dictation</h2>
   <p>
     Dictation is an app you switch on in <code>Settings &rarr; Apps</code>. Writ opens the microphone only while you
-    dictate, and the status bar shows it while it is open. Hiding or minimizing the window closes it, and so does a
-    minute without speech. Audio stays in memory: Writ never writes it to disk or to a log, and drops it once it is transcribed.
+    dictate, and the status bar shows it while it is open. Hiding, minimizing or closing the window turns it off, and
+    so does a minute without speech. Audio stays in memory: Writ never writes it to disk or to a log, and drops it once it is transcribed.
   </p>
   <p>
     With the On this Mac engine, on macOS 26 or later, Apple's speech model transcribes on the Mac and Writ sends no
@@ -143,8 +143,9 @@ import Prose from '../layouts/Prose.astro';
     With <code>Clean up with the AI connection</code> on, the text of each phrase also goes to the AI connection's
     host, under that connection's consent and key, before it is inserted. Dictation's key is stored like the AI
     connection's, in the system keychain under <code>com.writ.ai</code>, or in memory only where the keychain is
-    unavailable. While Chat or Rewrite is on and Dictation uses the same provider, scheme and host as the AI
-    connection, it uses that connection's key; otherwise it keeps its own. The decisions are in
+    unavailable. While Chat or Rewrite is on and Dictation uses the same provider and address (scheme, host and port)
+    as the AI connection, it uses that connection's key; otherwise it keeps its own, and a custom server's key is kept
+    for its address. The decisions are in
     <a href="https://github.com/ibrahemid/writ/blob/main/docs/adr/058-dictation.md" rel="noopener" target="_blank">ADR-058</a>.
   </p>
 
