@@ -9,6 +9,7 @@ import { createPreviewStore, type PreviewStore } from "./preview-store";
 import { createFolderGraphStore, type FolderGraphStore } from "./folder-graph-store";
 import { createDownloadStore, type DownloadStore } from "./download-store";
 import { createPaneStore, type PaneStore } from "./pane-store";
+import { createDictationStore, type DictationStore } from "./dictation-store";
 import { bufferRegistry, OpenRefusedError } from "../global/buffer-registry";
 
 export interface WindowState {
@@ -24,6 +25,7 @@ export interface WindowState {
   preview: PreviewStore;
   folderGraph: FolderGraphStore;
   downloads: DownloadStore;
+  dictation: DictationStore;
 }
 
 export interface CreateWindowStateOptions {
@@ -64,5 +66,6 @@ export function createWindowState(opts: CreateWindowStateOptions): WindowState {
     preview: createPreviewStore(),
     folderGraph: createFolderGraphStore(),
     downloads,
+    dictation: createDictationStore({ editor, panes }),
   };
 }

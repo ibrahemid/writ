@@ -105,5 +105,14 @@ export const DEMO_CONFIG: WritConfig = {
     "connections": false,
     "graph": false,
     "tags": false
+  },
+  "dictation": {
+    "enabled": false,
+    "provider": "openai",
+    "base_url": "",
+    "model": "gpt-transcribe",
+    "language": "",
+    "clean_up": false,
+    "consented_hosts": []
   }
 };

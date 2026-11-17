@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { MENU_COMMANDS } from "../../commands/menu-commands";
 import { EDITOR_COMMAND_KEYS } from "../../editor/editor-command-keys";
-import { APP_REGISTRATIONS, APP_TSX_COUNTS } from "./app-registrations";
+import { APP_REGISTRATIONS, APP_TSX_COUNTS, DICTATION_REGISTRATIONS } from "./app-registrations";
 
 // Three tables hand out chords, and until now each was only checked against
 // itself: `App.tsx`'s `registerCommand` calls, `EDITOR_COMMAND_KEYS`, and the
@@ -22,7 +22,7 @@ function claims(): Map<string, Set<string>> {
     byChord.set(chord, ids);
   };
 
-  for (const [id, registration] of APP_REGISTRATIONS) {
+  for (const [id, registration] of [...APP_REGISTRATIONS, ...DICTATION_REGISTRATIONS]) {
     claim(registration.keybinding, id);
     for (const alias of registration.aliases) claim(alias, id);
   }
@@ -51,6 +51,7 @@ describe("chords across the command registry, the editor table and the menu list
     expect(byChord.get("CmdOrCtrl+S"), "the registry").toContain("buffer.save");
     expect(byChord.get("CmdOrCtrl+Shift+K"), "the editor table").toContain("editor.deleteLine");
     expect(byChord.get("CmdOrCtrl+Shift+\\"), "the menu list").toContain("panel.toggle");
+    expect(byChord.get("CmdOrCtrl+Shift+."), "the dictation command").toContain("dictation.toggle");
   });
 
   it("reads every registration App.tsx writes, so a silent parse gap cannot pass", () => {

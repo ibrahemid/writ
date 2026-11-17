@@ -64,6 +64,7 @@ function appDetail(id: AppId): string {
   return APPS.find((app) => app.id === id)?.detail ?? "";
 }
 const PROGRAMS_PAGE: readonly AppId[] = ["programs"];
+const DICTATION_PAGE: readonly AppId[] = ["dictation"];
 
 export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "notes.folder", section: "general", title: "Folder", description: "New files are saved here. Move… puts them in a folder you pick.", keywords: ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"] },
@@ -94,6 +95,7 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "apps.connections", section: "apps", title: "Connections", description: appDetail("connections"), keywords: ["app", "connections", "links", "backlinks", "outline", "properties", "panel"] },
   { id: "apps.graph", section: "apps", title: "Graph", description: appDetail("graph"), keywords: ["app", "graph", "map", "links", "nearby"] },
   { id: "apps.tags", section: "apps", title: "Tags", description: appDetail("tags"), keywords: ["app", "tags", "hashtag", "filter", "sidebar"] },
+  { id: "dictation.enabled", section: "apps", title: "Dictation", description: appDetail("dictation"), keywords: ["app", "dictation", "dictate", "voice", "speech", "microphone", "mic", "transcribe", "enable"] },
   { id: "apps.offers", section: "apps", title: "Offer apps that are off", description: "Once per app, when an open file has links or tags or a program asks for your files.", keywords: ["apps", "offer", "suggest", "notice", "tips", "links", "tags"] },
   { id: "ai.provider", section: "apps", title: "Provider", description: "The service that runs the model.", keywords: ["ai", "provider", "ollama", "lm studio", "anthropic", "openai", "gemini", "openrouter", "groq", "deepseek", "mistral", "xai", "together", "fireworks", "custom"], requires: AI_PAGES, pages: AI_PAGES },
   { id: "ai.base_url", section: "apps", title: "Base URL", description: "Most servers expect /v1 at the end.", keywords: ["ai", "base url", "endpoint", "host", "server"], requires: AI_PAGES, pages: AI_PAGES },
@@ -107,6 +109,13 @@ export const SETTINGS_INDEX: SettingEntry[] = [
   { id: "mcp.tools", section: "apps", title: "What a program can do", description: "Reading, writing and seeing the open file are approved separately for each program.", keywords: ["mcp", "tools", "read", "write", "rename", "create", "delete", "permission", "open file", "selection"], requires: PROGRAMS_PAGE, pages: PROGRAMS_PAGE },
   { id: "mcp.clients", section: "apps", title: "Programs", description: "Each program you approved, and what it may do.", keywords: ["mcp", "programs", "approved", "allowed", "clients", "permission", "read", "write", "open file", "selection", "ask first", "review", "apply", "discard", "revoke", "forget"], requires: PROGRAMS_PAGE, pages: PROGRAMS_PAGE },
   { id: "mcp.activity", section: "apps", title: "Program activity", description: "Every call a program made, newest first.", keywords: ["activity", "log", "record", "calls", "what happened", "audit", "programs", "mcp"], requires: PROGRAMS_PAGE, pages: PROGRAMS_PAGE },
+  { id: "dictation.engine", section: "apps", title: "Engine", description: "On this Mac transcribes without sending audio anywhere.", keywords: ["dictation", "engine", "on device", "offline", "local", "private", "speech", "api"], requires: DICTATION_PAGE, pages: DICTATION_PAGE },
+  { id: "dictation.provider", section: "apps", title: "Provider", description: "The service that transcribes the audio.", keywords: ["dictation", "provider", "openai", "groq", "whisper", "transcribe", "speech", "custom"], requires: DICTATION_PAGE, pages: DICTATION_PAGE },
+  { id: "dictation.base_url", section: "apps", title: "Base URL", description: "Most servers expect /v1 at the end.", keywords: ["dictation", "base url", "endpoint", "host", "server", "whisper"], requires: DICTATION_PAGE, pages: DICTATION_PAGE },
+  { id: "dictation.api_key", section: "apps", title: "API key", description: "Kept in your system keychain when it is available.", keywords: ["dictation", "api key", "token", "secret", "credential"], requires: DICTATION_PAGE, pages: DICTATION_PAGE },
+  { id: "dictation.model", section: "apps", title: "Model", description: "The transcription model the provider runs.", keywords: ["dictation", "model", "id", "whisper", "transcribe"], requires: DICTATION_PAGE, pages: DICTATION_PAGE },
+  { id: "dictation.language", section: "apps", title: "Language", description: "Naming the language you speak makes transcription more accurate.", keywords: ["dictation", "language", "automatic", "speech", "voice", "locale"], requires: DICTATION_PAGE, pages: DICTATION_PAGE },
+  { id: "dictation.clean_up", section: "apps", title: "Clean up with the AI connection", description: "Fixes punctuation and misheard words before the text is inserted.", keywords: ["dictation", "clean up", "punctuation", "ai", "fix", "transcribe"], requires: DICTATION_PAGE, pages: DICTATION_PAGE },
   { id: "files.cli", section: "integrations", title: "Terminal command", description: "Opens files and folders in Writ from a terminal.", keywords: ["cli", "writ command", "terminal", "command line", "install"] },
   { id: "files.default_app", section: "integrations", title: "Open these file types with Writ", description: "A double-click on a file of a type you choose opens it in Writ.", keywords: ["default", "default app", "open with", "file association", "txt", "text", "log", "markdown", "md", "json", "yaml", "toml", "config", "data", "csv", "code", "rust", "typescript", "python"] },
   { id: "files.inbox_folder", section: "integrations", title: "Folder to watch for new files", description: "A file that appears in this folder opens in a new tab.", keywords: ["watch", "watched folder", "new files", "auto-open", "drop"] },

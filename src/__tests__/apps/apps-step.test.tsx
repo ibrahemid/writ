@@ -79,7 +79,7 @@ describe("the Apps step", () => {
     expect(getByRole("heading", { level: 1 }).textContent).toBe("Apps");
   });
 
-  it("lists the six apps with their sentence, every switch off, and asks nothing else", () => {
+  it("lists every app with its sentence, every switch off, and asks nothing else", () => {
     const { container, getByRole } = mount();
     const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-app]"));
     expect(rows.map((row) => row.dataset.app)).toEqual(APPS.map((app) => app.id));

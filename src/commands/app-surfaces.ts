@@ -9,8 +9,8 @@ import { OPENS_ON_FIRST_SWITCH } from "../lib/apps";
  * Shows what `app` adds in the active window: the chat pane, the connections
  * panel, the graph, the sidebar that lists the tags, or the Activity window.
  * Showing, never toggling, so Open on a surface already showing leaves it.
- * Returns `false` for Rewrite, which acts on a selection and has nothing of
- * its own to show.
+ * Returns `false` for Rewrite, which acts on a selection, and for Dictation,
+ * which writes at the cursor: neither has anything of its own to show.
  */
 export function openAppSurface(app: AppId): boolean {
   if (app === "programs") {
@@ -33,13 +33,14 @@ export function openAppSurface(app: AppId): boolean {
       win.sidebar.show();
       return true;
     case "rewrite":
+    case "dictation":
       return false;
   }
 }
 
 /** Whether `app` has a surface Open can show. */
 export function canOpenApp(app: AppId): boolean {
-  return app !== "rewrite";
+  return app !== "rewrite" && app !== "dictation";
 }
 
 // Singleton state — Writ is single-window. The apps switched on for the first

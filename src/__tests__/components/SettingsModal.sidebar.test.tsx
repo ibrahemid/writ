@@ -200,6 +200,7 @@ function baseConfig(): WritConfig {
     ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
     mcp: { enabled: false, approved_clients: [] },
     apps: { connections: false, graph: false, tags: false },
+    dictation: { enabled: false, provider: "openai", base_url: "", model: "gpt-transcribe", language: "", clean_up: false, consented_hosts: [] },
     spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
       default_layout_html: "split",
