@@ -2558,6 +2558,8 @@ dependencies = [
  "num-traits",
  "png 0.18.1",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -7477,6 +7479,7 @@ dependencies = [
 name = "writ-tauri"
 version = "1.0.1"
 dependencies = [
+ "arboard",
  "chrono",
  "core-foundation 0.10.1",
  "dirs 7.0.0",
@@ -7484,11 +7487,13 @@ dependencies = [
  "fsevent-sys",
  "getrandom 0.4.3",
  "hashbrown 0.17.1",
+ "image",
  "notify",
  "notify-debouncer-mini",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "png 0.18.1",
  "pulldown-cmark",
  "reqwest",
  "rfd",

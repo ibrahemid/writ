@@ -114,6 +114,28 @@ fn dropped_paths_to_open(
     startup::authorize_and_canonicalize(authorized, &raw_paths)
 }
 
+/// A drop position in the webview's CSS pixels. wry reports a Windows drop in
+/// physical pixels and a macOS or Linux drop in logical points already.
+fn drop_point(
+    x: f64,
+    y: f64,
+    scale_factor: f64,
+    reports_physical: bool,
+) -> Option<events::emitter::DropPoint> {
+    if !x.is_finite() || !y.is_finite() || x < 0.0 || y < 0.0 {
+        return None;
+    }
+    let scale = if reports_physical && scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    Some(events::emitter::DropPoint {
+        x: x / scale,
+        y: y / scale,
+    })
+}
+
 /// Walks the notes folder and brings the index in line with it, on a thread of
 /// its own.
 ///
@@ -638,6 +660,9 @@ pub fn run() {
             commands::preview::preview_get_layout,
             commands::preview::preview_inline_image,
             commands::preview::preview_inline_image_download,
+            commands::preview::preview_remote_image,
+            commands::images::paste_clipboard_images,
+            commands::images::import_dropped_images,
             commands::preview::preview_url_prefix,
             commands::preview::preview_get_scripts,
             commands::preview::preview_set_scripts,
@@ -1237,7 +1262,8 @@ pub fn run() {
         }
 
         if let tauri::RunEvent::WindowEvent {
-            event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }),
+            label,
+            event: tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, position }),
             ..
         } = &event
         {
@@ -1245,10 +1271,20 @@ pub fn run() {
             let canonical_paths = dropped_paths_to_open(&state.authorized_paths, paths);
             if !canonical_paths.is_empty() {
                 info!(count = canonical_paths.len(), "files dropped onto window");
+                let scale_factor = app_handle
+                    .get_webview_window(label)
+                    .and_then(|window| window.scale_factor().ok())
+                    .unwrap_or(1.0);
                 let _ = emit_event(
                     app_handle,
                     WritFrontendEvent::FilesDropped {
                         paths: canonical_paths,
+                        position: drop_point(
+                            position.x,
+                            position.y,
+                            scale_factor,
+                            cfg!(target_os = "windows"),
+                        ),
                     },
                 );
             }
@@ -1261,6 +1297,32 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_windows_drop_is_scaled_to_css_pixels() {
+        assert_eq!(
+            drop_point(300.0, 150.0, 1.5, true),
+            Some(events::emitter::DropPoint { x: 200.0, y: 100.0 })
+        );
+    }
+
+    #[test]
+    fn a_macos_or_linux_drop_is_already_in_css_pixels() {
+        assert_eq!(
+            drop_point(300.0, 150.0, 2.0, false),
+            Some(events::emitter::DropPoint { x: 300.0, y: 150.0 })
+        );
+    }
+
+    #[test]
+    fn a_position_the_platform_could_not_give_is_left_out() {
+        assert_eq!(drop_point(f64::NAN, 1.0, 1.0, false), None);
+        assert_eq!(drop_point(-1.0, 1.0, 1.0, false), None);
+        assert_eq!(
+            drop_point(10.0, 10.0, 0.0, true),
+            Some(events::emitter::DropPoint { x: 10.0, y: 10.0 })
+        );
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

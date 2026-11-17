@@ -313,16 +313,21 @@ pub fn is_private_network(host: &str) -> bool {
         .strip_prefix('[')
         .and_then(|rest| rest.strip_suffix(']'))
         .unwrap_or(host);
-    match bare.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(v4)) => is_private_v4(v4),
-        Ok(std::net::IpAddr::V6(v6)) => match v6.to_ipv4_mapped() {
+    bare.parse::<std::net::IpAddr>()
+        .is_ok_and(is_private_network_address)
+}
+
+/// [`is_private_network`] for a parsed address.
+pub fn is_private_network_address(addr: std::net::IpAddr) -> bool {
+    match addr {
+        std::net::IpAddr::V4(v4) => is_private_v4(v4),
+        std::net::IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
             Some(v4) => is_private_v4(v4),
             None => {
                 let first = v6.segments()[0];
                 first & 0xfe00 == 0xfc00 || first & 0xffc0 == 0xfe80
             }
         },
-        Err(_) => false,
     }
 }
 

@@ -65,6 +65,8 @@ pub mod errors;
 pub mod guarded;
 /// What the filesystem calls a file, independently of its path.
 pub mod identity;
+/// Saving an image pasted or dropped into a Markdown file.
+pub mod image_store;
 /// Watched-inbox file listing.
 pub mod inbox_store;
 /// The data-folder lock and the requests a second launch leaves.

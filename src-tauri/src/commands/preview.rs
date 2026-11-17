@@ -24,6 +24,10 @@ use writ_core::buffer::BufferStatus;
 use writ_core::hash::Sha256Digest;
 use writ_core::notes::materialise::{DownloadOutcome, DOWNLOAD_TIMEOUT};
 use writ_core::preview::protocol::SNIFF_BYTES;
+use writ_core::preview::remote_image::{
+    remote_image_key, remote_image_route, remote_image_url, HeldImage, RemoteImageLoad,
+    RemoteImageRefusal,
+};
 use writ_core::preview::{
     check_inline_image_head, check_inline_image_stat, inline_image_route, render_contained,
     resolve_inline_image, AssetReference, AssetScope, ContentTypeId, InlineImageRefusal,
@@ -38,6 +42,7 @@ use crate::commands::materialise::{materialise_with, read_and_verify_with};
 use crate::commands::offload::{run_blocking, ERR_COMMAND_STOPPED};
 use crate::poison::recover_poison;
 use crate::preview::handler::{RenderCache, RenderedDoc};
+use crate::preview::remote_fetch::fetch_remote_image;
 use crate::state::AppState;
 
 /// Serialized renderer descriptor surfaced to the frontend.
@@ -520,7 +525,7 @@ pub enum InlineImageResult {
     /// The image is not drawn, and why.
     Refused {
         /// One of `outside_root`, `not_found`, `not_downloaded`, `too_large`,
-        /// `not_an_image`.
+        /// `not_an_image`, `unreachable`.
         reason: String,
     },
 }
@@ -531,6 +536,42 @@ impl InlineImageResult {
             reason: refusal.as_str().to_string(),
         }
     }
+
+    fn refused_remote(refusal: RemoteImageRefusal) -> Self {
+        Self::Refused {
+            reason: refusal.as_str().to_string(),
+        }
+    }
+
+    fn held(route: &str, image: &HeldImage) -> Self {
+        Self::Ready {
+            url: format!("{}document/{route}", preview_url_prefix()),
+            mime: image.mime.to_string(),
+            byte_len: image.bytes.len() as u64,
+        }
+    }
+}
+
+/// What a request for a remote image found before any fetch.
+#[derive(Debug)]
+pub enum RemoteImageLookup {
+    /// Answered without the network: a refusal, or an image already held.
+    Answered(InlineImageResult),
+    /// The image has to be fetched.
+    Fetch(PendingRemoteImage),
+}
+
+/// A remote image to fetch, and where the editor will draw it from.
+#[derive(Debug, Clone)]
+pub struct PendingRemoteImage {
+    /// The address to fetch.
+    pub url: url::Url,
+    /// The key the image is held under.
+    pub key: String,
+    /// The tab that asked.
+    pub buffer_id: String,
+    /// The route the editor loads it from.
+    pub route: String,
 }
 
 /// Answer one image reference written in an open buffer with the URL the
@@ -627,6 +668,116 @@ pub fn preview_inline_image_download_inner(
         }
     }
     Ok(inline_image_answer(&scope, &found, is_dataless))
+}
+
+/// Fetch a remote image written in an open Markdown file and answer with the
+/// URL the editor draws it from (ADR-057).
+///
+/// Called only when the person asks for the image (`load` is `asked`) or has
+/// turned on loading remote images (`automatic`, which never reaches this
+/// machine or the local network). The bytes are held in memory for the
+/// session and served from the preview scheme under the tab's scope, so the
+/// webview never loads the remote address itself.
+#[tauri::command]
+pub async fn preview_remote_image<R: Runtime>(
+    app: AppHandle<R>,
+    buffer_id: String,
+    reference: String,
+    load: RemoteImageLoad,
+) -> Result<InlineImageResult, String> {
+    let lookup = run_blocking(app.clone(), ERR_COMMAND_STOPPED, move |state| {
+        preview_remote_image_lookup_inner(state, &buffer_id, &reference)
+    })
+    .await?;
+    let pending = match lookup {
+        RemoteImageLookup::Answered(answer) => return Ok(answer),
+        RemoteImageLookup::Fetch(pending) => pending,
+    };
+    let fetched = fetch_remote_image(&pending.url, load).await;
+    Ok(preview_remote_image_store_inner(
+        &app.state::<AppState>(),
+        &pending,
+        fetched,
+    ))
+}
+
+/// The first half of [`preview_remote_image`]: refuse what is not a web
+/// address or not an open tab's, answer from the images already held, or
+/// say what to fetch.
+pub fn preview_remote_image_lookup_inner(
+    state: &AppState,
+    buffer_id: &str,
+    reference: &str,
+) -> Result<RemoteImageLookup, String> {
+    let Some(url) = remote_image_url(reference) else {
+        return Ok(RemoteImageLookup::Answered(
+            InlineImageResult::refused_remote(RemoteImageRefusal::NotRemote),
+        ));
+    };
+    let Some(note_dir) = open_buffer_folder(state, buffer_id)? else {
+        return Ok(RemoteImageLookup::Answered(InlineImageResult::refused(
+            InlineImageRefusal::OutsideRoot,
+        )));
+    };
+    let scope = state
+        .preview_render_cache
+        .scope_for(buffer_id, state.notes_root(), note_dir);
+    let key = remote_image_key(&url);
+    let Some(route) = remote_image_route(buffer_id, &scope.token, &key) else {
+        return Ok(RemoteImageLookup::Answered(
+            InlineImageResult::refused_remote(RemoteImageRefusal::NotRemote),
+        ));
+    };
+    if let Some(image) = state
+        .preview_render_cache
+        .grant_remote_image(&key, buffer_id)
+    {
+        return Ok(RemoteImageLookup::Answered(InlineImageResult::held(
+            &route, &image,
+        )));
+    }
+    Ok(RemoteImageLookup::Fetch(PendingRemoteImage {
+        url,
+        key,
+        buffer_id: buffer_id.to_string(),
+        route,
+    }))
+}
+
+/// The second half of [`preview_remote_image`]: hold what the fetch brought
+/// back for the tab that asked, or answer why it is not drawn.
+pub fn preview_remote_image_store_inner(
+    state: &AppState,
+    pending: &PendingRemoteImage,
+    fetched: Result<HeldImage, RemoteImageRefusal>,
+) -> InlineImageResult {
+    match fetched {
+        Ok(image) => {
+            info!(
+                buffer_id = pending.buffer_id,
+                host = pending.url.host_str(),
+                bytes = image.bytes.len(),
+                "remote image loaded"
+            );
+            let answer = InlineImageResult::held(&pending.route, &image);
+            state
+                .preview_render_cache
+                .put_remote_image(&pending.key, &pending.buffer_id, image);
+            // After the put, so a close racing this fetch is released here or by the close.
+            let open = open_buffer_folder(state, &pending.buffer_id).unwrap_or_else(|error| {
+                warn!(buffer_id = pending.buffer_id, %error, "remote image tab lookup failed");
+                None
+            });
+            if open.is_none() {
+                state
+                    .preview_render_cache
+                    .release_remote_images(&pending.buffer_id);
+                return InlineImageResult::refused(InlineImageRefusal::OutsideRoot);
+            }
+            answer
+        }
+        Err(refusal) => InlineImageResult::refused_remote(refusal),
+    }
 }
 
 /// Read `path` through its provider and wait for the outcome. The cancel flag

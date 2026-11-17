@@ -1,6 +1,7 @@
 import { EditorSelection } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { readClipboardText, writeClipboardText } from "../services/tauri";
+import { pasteImagesOrText, type ImagePasteDeps } from "./image-paste";
 
 /**
  * Clipboard verbs for the editor's context menu.
@@ -50,8 +51,19 @@ export async function cutSelection(view: EditorView): Promise<void> {
   view.focus();
 }
 
-export async function pasteIntoSelection(view: EditorView): Promise<void> {
+/**
+ * Pastes the clipboard at the selection. In a Markdown tab, given `images`,
+ * the clipboard's images are saved beside the file and referenced instead.
+ */
+export async function pasteIntoSelection(
+  view: EditorView,
+  images?: ImagePasteDeps,
+): Promise<void> {
   if (view.state.readOnly) return;
+  if (images?.acceptsImages()) {
+    await pasteImagesOrText(view, images, null);
+    return;
+  }
   const text = await readClipboardText();
   // An image-only or empty clipboard inserts nothing rather than clearing the
   // selection, which would silently destroy text.

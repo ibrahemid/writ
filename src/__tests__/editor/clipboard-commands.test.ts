@@ -17,6 +17,8 @@ import {
   cutSelection,
   pasteIntoSelection,
 } from "../../editor/clipboard-commands";
+import type { ImagePasteDeps } from "../../editor/image-paste";
+import type { ClipboardPasteResult } from "../../types/image-import";
 
 function makeView(doc: string, selection?: { from: number; to: number }, readOnly = false) {
   const state = EditorState.create({
@@ -141,5 +143,43 @@ describe("paste", () => {
     await pasteIntoSelection(view);
     expect(view.state.doc.toString()).toBe("locked");
     expect(mocks.readClipboardText).not.toHaveBeenCalled();
+  });
+});
+
+describe("paste into a Markdown file", () => {
+  function imageDeps(acceptsImages: boolean, result: ClipboardPasteResult): ImagePasteDeps {
+    return {
+      bufferId: () => "buf-1",
+      acceptsImages: () => acceptsImages,
+      pasteImages: vi.fn(() => Promise.resolve(result)),
+      readText: vi.fn(() => Promise.resolve("typed")),
+      notify: vi.fn(),
+      logFailure: vi.fn(),
+    };
+  }
+
+  it("asks the host for images and inserts their references", async () => {
+    const deps = imageDeps(true, { kind: "inserted", markdown: "![](assets/a.png)", notices: [] });
+    const view = makeView("x", { from: 1, to: 1 });
+    await pasteIntoSelection(view, deps);
+    expect(deps.pasteImages).toHaveBeenCalledWith("buf-1");
+    expect(view.state.doc.toString()).toBe("x![](assets/a.png)");
+    expect(mocks.readClipboardText).not.toHaveBeenCalled();
+  });
+
+  it("pastes text through the same path when there are no images", async () => {
+    const deps = imageDeps(true, { kind: "text" });
+    const view = makeView("", { from: 0, to: 0 });
+    await pasteIntoSelection(view, deps);
+    expect(view.state.doc.toString()).toBe("typed");
+  });
+
+  it("pastes text as before in a tab that takes no images", async () => {
+    mocks.readClipboardText.mockResolvedValue("plain");
+    const deps = imageDeps(false, { kind: "text" });
+    const view = makeView("", { from: 0, to: 0 });
+    await pasteIntoSelection(view, deps);
+    expect(deps.pasteImages).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe("plain");
   });
 });

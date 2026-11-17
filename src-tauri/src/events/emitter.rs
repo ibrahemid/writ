@@ -14,6 +14,15 @@ pub enum CaptionHitPhase {
     Click,
 }
 
+/// Where a drop landed, in the CSS pixels the webview lays out in.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct DropPoint {
+    /// From the left edge of the webview.
+    pub x: f64,
+    /// From the top edge of the webview.
+    pub y: f64,
+}
+
 /// Where a note's download has got to.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,7 +52,12 @@ pub enum WritFrontendEvent {
     },
 
     #[serde(rename = "files:dropped")]
-    FilesDropped { paths: Vec<String> },
+    FilesDropped {
+        paths: Vec<String>,
+        /// Where the pointer was, when the platform reported it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        position: Option<DropPoint>,
+    },
 
     /// A `writ://new` link asked for a new tab, called `name` when it gave one
     /// (ADR-052). The tab reaches a file on its first keystroke.

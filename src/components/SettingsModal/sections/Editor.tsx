@@ -47,7 +47,13 @@ export default function EditorSection() {
   }
 
   function toggleEditor(
-    key: "word_wrap" | "reading_width" | "markdown_editing" | "status_bar" | "status_bar_counts",
+    key:
+      | "word_wrap"
+      | "reading_width"
+      | "markdown_editing"
+      | "status_bar"
+      | "status_bar_counts"
+      | "load_remote_images",
   ) {
     void patchConfig((prev) => ({ ...prev, editor: { ...prev.editor, [key]: !prev.editor[key] } }));
   }
@@ -138,6 +144,12 @@ export default function EditorSection() {
           <option value="source">Source</option>
         </select>
       </SettingsRow>
+      <SwitchRow
+        id="editor.load_remote_images"
+        setting="load_remote_images"
+        checked={cfg().load_remote_images ?? false}
+        onChange={() => toggleEditor("load_remote_images")}
+      />
       <SwitchRow
         id="editor.spelling"
         setting="spelling_enabled"

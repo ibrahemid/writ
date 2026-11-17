@@ -13,6 +13,8 @@
 //!   protocol glue that attaches the CSP header to every response and
 //!   disables a served document's resource hints and frame navigations
 //!   (ADR-043).
+//! - [`remote_fetch`] — the one GET behind a remote image the editor was
+//!   asked to show (ADR-057).
 //! - [`renderers`] — registration entry point for first-party content
 //!   renderers (HTML now; markdown / Mermaid / KaTeX next).
 
@@ -22,5 +24,6 @@ pub mod handler;
 #[cfg(test)]
 pub mod log_capture;
 pub mod protocol;
+pub mod remote_fetch;
 pub mod renderers;
 pub mod wikilinks;
