@@ -172,6 +172,7 @@ const FAILURE_LABELS: Record<ShownFailure, string> = {
   not_remote: "not a web address",
   redirects_to_this_computer: "redirects to an address on this computer",
   redirects_to_local_network: "redirects to an address on your network",
+  not_secure: "not available over a secure connection",
 };
 
 function sameState(a: InlineImageState, b: InlineImageState): boolean {
@@ -243,7 +244,7 @@ export class InlineImageWidget extends WidgetType {
       frame.appendChild(caption(`${this.state.label} · ${FAILURE_LABELS[this.state.reason]}`));
       if (this.state.reason === "not_downloaded") {
         frame.appendChild(actionButton(view, "Download", downloadInlineImage.of(this.reference)));
-      } else if (this.state.reason === "unreachable") {
+      } else if (this.state.reason === "unreachable" || this.state.reason === "not_secure") {
         frame.appendChild(actionButton(view, "Try again", loadRemoteImage.of(this.reference)));
       }
     }

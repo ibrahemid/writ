@@ -686,6 +686,27 @@ describe("inlineImages", () => {
     view.destroy();
   });
 
+  it("records a web image a host did not give over a secure connection so it can be tried again", async () => {
+    const insecure = Object.assign(new Error("refused"), { reason: "not_secure" });
+    let answer: Promise<{ src: string }> = Promise.reject(insecure);
+    answer.catch(() => {});
+    const view = mount(() => Promise.resolve({ src: SRC }), undefined, WEB_DOC, {
+      loadRemote: () => answer,
+      loadsRemoteImages: () => true,
+    });
+    await settle();
+    expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+      status: "failed",
+      label: "two.png",
+      reason: "not_secure",
+    });
+    answer = Promise.resolve({ src: WEB_SRC });
+    view.dispatch({ effects: loadRemoteImage.of(WEB) });
+    await settle();
+    expect(view.state.field(inlineImageField).get(WEB)?.status).toBe("ready");
+    view.destroy();
+  });
+
   it("records a reference the host says is not a web address as such", async () => {
     const view = mount(() => Promise.resolve({ src: SRC }), undefined, WEB_DOC, {
       loadRemote: () =>
@@ -813,23 +834,26 @@ describe("the image widget", () => {
   });
 
   it("offers to try an unreachable web image again", () => {
-    const effects: unknown[] = [];
-    const view = viewWith(effects);
-    const widget = new InlineImageWidget("https://example.com/a.png", {
-      status: "failed",
-      label: "a.png",
-      reason: "unreachable",
-    });
-    const frame = widget.toDOM(view);
-    expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(
-      "a.png · could not be loaded",
-    );
-    const button = frame.querySelector("button")!;
-    expect(button.textContent).toBe("Try again");
-    button.click();
-    const sent = effects.flat() as { is: (type: unknown) => boolean; value: unknown }[];
-    expect(sent.some((e) => e.is(loadRemoteImage))).toBe(true);
-    view.destroy();
+    for (const [reason, caption] of [
+      ["unreachable", "a.png · could not be loaded"],
+      ["not_secure", "a.png · not available over a secure connection"],
+    ] as const) {
+      const effects: unknown[] = [];
+      const view = viewWith(effects);
+      const widget = new InlineImageWidget("https://example.com/a.png", {
+        status: "failed",
+        label: "a.png",
+        reason,
+      });
+      const frame = widget.toDOM(view);
+      expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(caption);
+      const button = frame.querySelector("button")!;
+      expect(button.textContent).toBe("Try again");
+      button.click();
+      const sent = effects.flat() as { is: (type: unknown) => boolean; value: unknown }[];
+      expect(sent.some((e) => e.is(loadRemoteImage))).toBe(true);
+      view.destroy();
+    }
   });
 
   it("names where a host whose name resolves to a local address leads", () => {

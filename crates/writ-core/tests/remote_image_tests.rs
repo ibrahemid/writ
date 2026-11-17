@@ -1,11 +1,13 @@
 use std::net::IpAddr;
 
+use url::Url;
 use writ_core::preview::remote_image::{
-    check_remote_image_bytes, check_remote_image_size, embedded_ipv4, is_followable_redirect,
-    is_local_address, is_local_host, is_local_host_name, local_address_scope,
-    local_host_name_scope, local_host_scope, remote_image_host, remote_image_key,
-    remote_image_route, remote_image_url, split_remote_image_request, LocalScope, RemoteImageLoad,
-    RemoteImageRefusal, RemoteImageRequest, REMOTE_IMAGE_MAX_BYTES,
+    check_remote_image_bytes, check_remote_image_size, embedded_ipv4, is_allowed_redirect_scheme,
+    is_followable_redirect, is_local_address, is_local_host, is_local_host_name,
+    local_address_scope, local_host_name_scope, local_host_scope, remote_image_host,
+    remote_image_key, remote_image_route, remote_image_target, remote_image_url,
+    split_remote_image_request, LocalScope, RemoteImageLoad, RemoteImageRefusal,
+    RemoteImageRequest, RemoteImageScheme, RemoteImageTarget, REMOTE_IMAGE_MAX_BYTES,
 };
 
 #[test]
@@ -130,6 +132,145 @@ fn refusals_map_to_the_editor_captions() {
     assert_eq!(
         RemoteImageRefusal::RedirectsToLocal(LocalScope::LocalNetwork).as_str(),
         "redirects_to_local_network"
+    );
+    assert_eq!(RemoteImageRefusal::NotSecure.as_str(), "not_secure");
+}
+
+const LOADS: [RemoteImageLoad; 2] = [RemoteImageLoad::Asked, RemoteImageLoad::Automatic];
+
+fn web(text: &str) -> Url {
+    Url::parse(text).unwrap()
+}
+
+#[test]
+fn a_secure_reference_is_requested_as_written() {
+    let url = web("https://images.example.com:8443/a.png?size=2");
+    for load in LOADS {
+        assert_eq!(
+            remote_image_target(&url, load),
+            Ok(RemoteImageTarget {
+                url: url.clone(),
+                scheme: RemoteImageScheme::Secure,
+            }),
+            "{load:?}"
+        );
+    }
+}
+
+#[test]
+fn a_plain_reference_to_a_public_host_is_requested_over_https() {
+    for load in LOADS {
+        for (written, requested) in [
+            (
+                "http://images.example.com/a.png?size=2",
+                "https://images.example.com/a.png?size=2",
+            ),
+            (
+                "http://images.example.com:80/a.png",
+                "https://images.example.com/a.png",
+            ),
+            (
+                "http://images.example.com:8080/a.png",
+                "https://images.example.com:8080/a.png",
+            ),
+            ("http://93.184.216.34/a.png", "https://93.184.216.34/a.png"),
+            (
+                "http://[2606:4700::1111]/a.png",
+                "https://[2606:4700::1111]/a.png",
+            ),
+        ] {
+            let target = remote_image_target(&web(written), load).unwrap();
+            assert_eq!(target.url.as_str(), requested, "{written} {load:?}");
+            assert_eq!(target.scheme, RemoteImageScheme::Upgraded, "{written}");
+        }
+    }
+}
+
+#[test]
+fn a_plain_reference_to_a_local_host_stays_plain_on_a_click_only() {
+    for written in [
+        "http://localhost:8080/a.png",
+        "http://127.0.0.1/a.png",
+        "http://[::1]:9/a.png",
+        "http://192.168.1.10/a.png",
+        "http://nas.local/a.png",
+    ] {
+        let url = web(written);
+        assert_eq!(
+            remote_image_target(&url, RemoteImageLoad::Asked),
+            Ok(RemoteImageTarget {
+                url: url.clone(),
+                scheme: RemoteImageScheme::LocalPlain,
+            }),
+            "{written}"
+        );
+        assert_eq!(
+            remote_image_target(&url, RemoteImageLoad::Automatic),
+            Err(RemoteImageRefusal::LocalAddress),
+            "{written}"
+        );
+    }
+    let secure = web("https://nas.local/a.png");
+    assert_eq!(
+        remote_image_target(&secure, RemoteImageLoad::Asked).map(|target| target.scheme),
+        Ok(RemoteImageScheme::Secure)
+    );
+    assert_eq!(
+        remote_image_target(&secure, RemoteImageLoad::Automatic),
+        Err(RemoteImageRefusal::LocalAddress)
+    );
+}
+
+#[test]
+fn only_a_web_address_has_a_target() {
+    for written in [
+        "file:///etc/passwd",
+        "ftp://example.com/a.png",
+        "data:image/png;base64,AAAA",
+    ] {
+        for load in LOADS {
+            assert_eq!(
+                remote_image_target(&web(written), load),
+                Err(RemoteImageRefusal::NotRemote),
+                "{written} {load:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_redirect_keeps_http_only_on_a_local_host() {
+    for allowed in [
+        "https://cdn.example.net/b.png",
+        "https://nas.local/b.png",
+        "http://nas.local:8080/b.png",
+        "http://10.0.0.1/b.png",
+        "http://localhost:9/b.png",
+    ] {
+        assert!(is_allowed_redirect_scheme(&web(allowed)), "{allowed}");
+    }
+    for refused in [
+        "http://cdn.example.net/b.png",
+        "http://93.184.216.34/b.png",
+        "file:///etc/passwd",
+    ] {
+        assert!(!is_allowed_redirect_scheme(&web(refused)), "{refused}");
+    }
+}
+
+#[test]
+fn only_an_upgraded_request_fails_as_not_secure() {
+    assert_eq!(
+        RemoteImageScheme::Upgraded.failure(),
+        RemoteImageRefusal::NotSecure
+    );
+    assert_eq!(
+        RemoteImageScheme::Secure.failure(),
+        RemoteImageRefusal::Unreachable
+    );
+    assert_eq!(
+        RemoteImageScheme::LocalPlain.failure(),
+        RemoteImageRefusal::Unreachable
     );
 }
 

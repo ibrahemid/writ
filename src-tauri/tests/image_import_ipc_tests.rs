@@ -708,6 +708,7 @@ fn a_failed_fetch_is_answered_with_its_reason() {
         (RemoteImageRefusal::TooLarge, "too_large"),
         (RemoteImageRefusal::NotAnImage, "not_an_image"),
         (RemoteImageRefusal::LocalAddress, "local_address"),
+        (RemoteImageRefusal::NotSecure, "not_secure"),
     ] {
         let answer = preview_remote_image_store_inner(&state, &pending, Err(refusal));
         assert_eq!(reason(answer), expected);
