@@ -168,10 +168,11 @@ describe("EditorInstance: Tab size", () => {
 });
 
 describe("EditorInstance: Reading width", () => {
-  const MEASURE = "var(--writ-prose-measure)";
+  const MEASURE = "640px";
   const measureOf = (view: EditorView) => getComputedStyle(view.contentDOM).maxWidth;
 
   beforeEach(async () => {
+    document.documentElement.style.setProperty("--writ-prose-measure", MEASURE);
     bufferContent.clear();
     await setEditor({ word_wrap: true, tab_size: 2, reading_width: false });
   });
@@ -179,6 +180,7 @@ describe("EditorInstance: Reading width", () => {
   afterEach(async () => {
     cleanup();
     await setEditor({ reading_width: false });
+    document.documentElement.style.removeProperty("--writ-prose-measure");
   });
 
   it("holds prose to the reading measure while the setting is on, both ways", async () => {
