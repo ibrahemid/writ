@@ -9,10 +9,14 @@ const REMOTE_IMAGES_ADR = readFileSync(
   'utf8',
 );
 
+function captured(text: string, pattern: RegExp, source: string): string {
+  const value = text.match(pattern)?.[1];
+  if (value === undefined) throw new Error(`${source} has no match for ${pattern}`);
+  return value;
+}
+
 function attribute(name: string): string {
-  const match = PAGE.match(new RegExp(`\\b${name}="([^"]*)"`));
-  if (!match) throw new Error(`privacy.astro has no ${name} attribute`);
-  return match[1];
+  return captured(PAGE, new RegExp(`\\b${name}="([^"]*)"`), 'privacy.astro');
 }
 
 describe('privacy page', () => {
@@ -24,10 +28,8 @@ describe('privacy page', () => {
   });
 
   it('was reviewed no earlier than the decision that let the app fetch web images', () => {
-    const reviewed = attribute('lead').match(/Reviewed (\d{4}-\d{2}-\d{2})\./);
-    const accepted = REMOTE_IMAGES_ADR.match(/Accepted, (\d{4}-\d{2}-\d{2})\./);
-    expect(reviewed).not.toBeNull();
-    expect(accepted).not.toBeNull();
-    expect(reviewed![1] >= accepted![1]).toBe(true);
+    const reviewed = captured(attribute('lead'), /Reviewed (\d{4}-\d{2}-\d{2})\./, 'The privacy lead');
+    const accepted = captured(REMOTE_IMAGES_ADR, /Accepted, (\d{4}-\d{2}-\d{2})\./, 'ADR-057');
+    expect(reviewed >= accepted).toBe(true);
   });
 });
