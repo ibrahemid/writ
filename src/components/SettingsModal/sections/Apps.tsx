@@ -13,6 +13,7 @@ import {
   switchAppFromSettings,
 } from "../../../commands/app-surfaces";
 import AiConnectionRows from "../apps/AiConnectionRows";
+import DictationRows from "../apps/DictationRows";
 import ProgramsRows from "../apps/ProgramsRows";
 import { SectionLabel } from "../controls";
 import {
@@ -117,6 +118,9 @@ function AppPageRows(props: { app: AppId }) {
         <Match when={props.app === "programs"}>
           <ProgramsRows onOpenActivity={openProgramActivity} />
         </Match>
+        <Match when={props.app === "dictation"}>
+          <DictationRows />
+        </Match>
       </Switch>
     </Show>
   );
@@ -170,6 +174,9 @@ export default function AppsSection() {
             </Show>
             <Show when={configStore.isAppOn("programs")}>
               <ProgramsRows onOpenActivity={openProgramActivity} />
+            </Show>
+            <Show when={configStore.isAppOn("dictation")}>
+              <DictationRows />
             </Show>
           </>
         }

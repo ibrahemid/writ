@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { APPS, OFFERED_BY_FILE, OPENS_ON_FIRST_SWITCH, appEntry, fileShowsUseFor } from "../../lib/apps";
 import { ICON_NAMES } from "../../components/Icon/sprite.generated";
 import { MENU_COMMANDS } from "../../commands/menu-commands";
-import { APP_REGISTRATIONS } from "../commands/app-registrations";
+import { APP_REGISTRATIONS, DICTATION_REGISTRATIONS } from "../commands/app-registrations";
 import { entryPointName } from "../../components/Apps/AppEntryPoints";
 
 // The contract lib/apps.ts carries for every app: an icon, and where the app
@@ -28,11 +28,13 @@ describe("every app", () => {
     }
   });
 
-  it("names a chord App.tsx gives the command", () => {
+  it("names a chord the command is registered with", () => {
     for (const app of APPS) {
       for (const point of app.entryPoints) {
         if (point.kind !== "chord") continue;
-        expect(APP_REGISTRATIONS.get(point.command)?.keybinding, point.command).not.toBe("");
+        const registration =
+          APP_REGISTRATIONS.get(point.command) ?? DICTATION_REGISTRATIONS.get(point.command);
+        expect(registration?.keybinding, point.command).not.toBe("");
       }
     }
   });

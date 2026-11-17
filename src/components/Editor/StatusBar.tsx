@@ -13,6 +13,7 @@ import Tooltip from "../Tooltip/Tooltip";
 import { useWindow } from "../WindowProvider/WindowProvider";
 import PreviewLayoutToggle from "../Preview/PreviewLayoutToggle";
 import PreviewScriptsField from "../Preview/PreviewScriptsField";
+import DictationIndicator from "./DictationIndicator";
 import TokenEstimate from "./TokenEstimate";
 import WordCount from "./WordCount";
 import "./StatusBar.css";
@@ -124,6 +125,7 @@ export default function StatusBar() {
   return (
     <div class="statusbar">
       <div class="statusbar-left">
+        <DictationIndicator />
         <div class="statusbar-live" role="status" aria-live="polite">
           <Show when={updatedFromDisk()}>
             <span class="statusbar-label statusbar-updated">

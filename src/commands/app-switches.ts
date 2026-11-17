@@ -2,13 +2,17 @@ import { createEffect } from "solid-js";
 import { answerOffAppCommands, defineAppCommands, syncAppCommands } from "./app-commands";
 import { offerAppsInContext } from "./app-offers";
 import { rewriteCommands } from "./ai";
+import { defineDictationCommands } from "./dictation-commands";
 import { closeActivity } from "../components/Activity/ActivityPanel";
 import { openSettings } from "../components/SettingsModal/SettingsModal";
 import { appEntry } from "../lib/apps";
 import { configStore } from "../stores/global/config";
 import type { WindowState } from "../stores/window/createWindowState";
 
-type SwitchedWindow = Pick<WindowState, "chatPanel" | "folderGraph" | "sidebar" | "tabs">;
+type SwitchedWindow = Pick<
+  WindowState,
+  "chatPanel" | "dictation" | "folderGraph" | "sidebar" | "tabs"
+>;
 
 /**
  * What the window does when an app is switched on or off (ADR-042 section 3):
@@ -24,6 +28,8 @@ type SwitchedWindow = Pick<WindowState, "chatPanel" | "folderGraph" | "sidebar" 
 export function followAppSwitches(win: SwitchedWindow): void {
   answerOffAppCommands((app) => openSettings("apps", appEntry(app).settingId));
   defineAppCommands("rewrite", rewriteCommands());
+  defineDictationCommands(win.dictation);
+  win.dictation.attachSettingsOpener((settingId) => openSettings("apps", settingId));
   createEffect(() => syncAppCommands());
 
   createEffect(() => {
@@ -37,6 +43,9 @@ export function followAppSwitches(win: SwitchedWindow): void {
   });
   createEffect(() => {
     if (!configStore.isAppOn("tags")) win.sidebar.selectTag(null);
+  });
+  createEffect(() => {
+    if (!configStore.isAppOn("dictation")) win.dictation.cancel();
   });
 
   offerAppsInContext(win);

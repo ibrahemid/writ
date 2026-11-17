@@ -30,7 +30,7 @@ export interface AppEntry {
   offer?: string;
 }
 
-/** The six apps, in the order Settings and the setup screen list them
+/** The apps, in the order Settings and the setup screen list them
  * (`writ_core::config::AppId::ALL`). */
 export const APPS: readonly AppEntry[] = [
   {
@@ -98,6 +98,17 @@ export const APPS: readonly AppEntry[] = [
     icon: "hash",
     offer: "This file has tags. Tags lists them in the sidebar.",
     entryPoints: [{ kind: "place", text: "Sidebar, once a file has a tag" }],
+  },
+  {
+    id: "dictation",
+    label: "Dictation",
+    detail: "Turns speech into text at the cursor.",
+    settingId: "dictation.enabled",
+    icon: "microphone",
+    entryPoints: [
+      { kind: "menu", command: "dictation.toggle" },
+      { kind: "chord", command: "dictation.toggle" },
+    ],
   },
 ];
 

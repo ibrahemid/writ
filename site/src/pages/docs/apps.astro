@@ -31,6 +31,9 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   <h2 id="programs">Connected programs</h2>
   <p>An MCP server for a client such as Claude Code or Cursor. The first call from a program waits until you approve it, and reading and writing are approved separately. Program activity lists every call without the file's text. A program that starts the server with <code>WRIT_NOTES_DIR</code> set works in that folder instead of Writ's. The <a href={`${base}/guides/agent-output/`}>guide</a> walks through the setup.</p>
 
+  <h2 id="dictation">Dictation</h2>
+  <p><Chord of="CmdOrCtrl+Shift+." /> types what you say at the cursor, transcribed on the Mac on macOS 26 or by a service you choose. The <a href={`${base}/docs/dictation/`}>Dictation page</a> covers the engines, the language and microphone access.</p>
+
   <h2 id="ai-connection">The AI connection</h2>
   <p>Chat and Rewrite share one connection, shown under Apps while either is on: a provider, a key and a model. Ollama, LM Studio, llama.cpp and Jan run on your machine and need no key. Anthropic, OpenAI, Google Gemini, OpenRouter, Groq, DeepSeek, Mistral, xAI, Together and Fireworks take your own key, kept in the system keychain on macOS and Windows and in the Secret Service on Linux; OpenRouter can also connect from a button that opens your browser. Any other OpenAI-compatible endpoint works by URL. On macOS 26, on a Mac that can run it, Rewrite can also use Apple's on-device model, listed under Built into macOS, and Writ makes no network request for it. Before anything reaches a host off your machine, Writ asks once, naming the host.</p>
 </Prose>

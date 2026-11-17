@@ -186,7 +186,7 @@ function FormatStep() {
 }
 
 /**
- * The six apps, each off until switched on (ADR-042 section 5). A first
+ * The apps, each off until switched on (ADR-042 section 5). A first
  * launch reaches this after the format; Settings, Apps opens it again, and
  * there Continue writes the switches and opens nothing.
  */

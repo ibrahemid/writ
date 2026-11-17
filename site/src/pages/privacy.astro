@@ -1,7 +1,7 @@
 ---
 import Prose from '../layouts/Prose.astro';
 ---
-<Prose title="Privacy" description="Your files stay in a folder on your disk. No account, no telemetry. Chat, Rewrite and Connected programs are apps that are off until you switch them on. Writ contacts GitHub to check for updates and to download one you install." path="/privacy/" lead="Where your files live, and what leaves the machine. Reviewed 2026-10-17.">
+<Prose title="Privacy" description="Your files stay in a folder on your disk. No account, no telemetry. Chat, Rewrite, Connected programs and Dictation are apps that are off until you switch them on. Writ contacts GitHub to check for updates and to download one you install." path="/privacy/" lead="Where your files live, and what leaves the machine. Reviewed 2026-10-17.">
   <h2>Your files</h2>
   <p>
     Writ opens a text file up to 524&nbsp;MB anywhere on your disk and edits it where it is. It also keeps a folder of its own,
@@ -107,6 +107,29 @@ import Prose from '../layouts/Prose.astro';
     changed after the edit was proposed, Writ refuses to apply it. The proposed text stays in the conversation. If
     Apply finds a file in your folder changed since the edit was proposed, the proposed text is also saved beside it
     as a dated copy.
+  </p>
+
+  <h2>Dictation</h2>
+  <p>
+    Dictation is an app you switch on in <code>Settings &rarr; Apps</code>. Writ opens the microphone only while you
+    dictate, and the status bar shows it while it is open. Audio stays in memory: Writ never writes it to disk or to a log, and drops it once it is transcribed.
+  </p>
+  <p>
+    With the On this Mac engine, on macOS 26 or later, Apple's speech model transcribes on the Mac and Writ sends no
+    audio anywhere; the model itself downloads through macOS the first time. With the API engine, Writ sends what you
+    said at each pause to the provider you chose: OpenAI (api.openai.com), Groq (api.groq.com), or the server at the
+    address you typed. A request carries that audio, the model id, the language when you chose one, and up to the last
+    200 characters the session transcribed before it. Writ asks once, naming the host, before it sends a hosted
+    provider any audio, and records the answer for audio alone, so a host you allowed for Chat or Rewrite is asked
+    again. The AI connection's address rules apply: an address that is not <code>https</code> is refused unless it is
+    this machine or a private IP address.
+  </p>
+  <p>
+    With <code>Clean up with the AI connection</code> on, the text of each phrase also goes to the AI connection's
+    host, under that connection's consent and key, before it is inserted. Dictation's key is stored like the AI
+    connection's, in the system keychain under <code>com.writ.ai</code>; when Dictation uses the same provider and host
+    as the AI connection, it uses that connection's key. The decisions are in
+    <a href="https://github.com/ibrahemid/writ/blob/main/docs/adr/058-dictation.md" rel="noopener" target="_blank">ADR-058</a>.
   </p>
 
   <h2>Connected programs</h2>

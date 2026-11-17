@@ -5,6 +5,7 @@ import type {
   AiConfig,
   AppearanceConfig,
   ConfigDiagnostic,
+  DictationConfig,
   FileExtension,
   SidebarSectionId,
   WritConfig,
@@ -127,6 +128,15 @@ const DEFAULT_CONFIG: WritConfig = {
   mcp: { enabled: false, approved_clients: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
   apps: { connections: false, graph: false, tags: false, offers: true, offered: [], opened: [] },
+  dictation: {
+    enabled: false,
+    provider: "openai",
+    base_url: "",
+    model: "gpt-transcribe",
+    language: "",
+    clean_up: false,
+    consented_hosts: [],
+  },
 };
 
 const PERSIST_DEBOUNCE_MS = 750;
@@ -145,7 +155,15 @@ function knownExtension(value: unknown): FileExtension {
   return value === "md" || value === "txt" ? value : DEFAULT_CONFIG.files.default_extension;
 }
 
-const APP_IDS: readonly AppId[] = ["chat", "rewrite", "programs", "connections", "graph", "tags"];
+const APP_IDS: readonly AppId[] = [
+  "chat",
+  "rewrite",
+  "programs",
+  "connections",
+  "graph",
+  "tags",
+  "dictation",
+];
 
 /** The apps a list names, once each in the order written, leaving out a word
  * that names none (as Rust reads `[apps] offered` and `opened`). */
@@ -174,6 +192,8 @@ export function isAppOnIn(config: WritConfig, app: AppId): boolean {
       return config.apps.graph;
     case "tags":
       return config.apps.tags;
+    case "dictation":
+      return config.dictation.enabled;
   }
 }
 
@@ -190,6 +210,8 @@ export function withApp(config: WritConfig, app: AppId, on: boolean): WritConfig
     case "graph":
     case "tags":
       return { ...config, apps: { ...config.apps, [app]: on } };
+    case "dictation":
+      return { ...config, dictation: { ...config.dictation, enabled: on } };
   }
 }
 
@@ -261,6 +283,27 @@ function normalizeIncomingConfig(incoming: WritConfig): WritConfig {
       dialect: incoming.spelling?.dialect ?? "american",
       ignored_words: incoming.spelling?.ignored_words ?? [],
     },
+    dictation: normalizeDictation(incoming.dictation),
+  };
+}
+
+// An absent `engine` stays absent: Rust resolves it per machine.
+function normalizeDictation(incoming: Partial<DictationConfig> | undefined): DictationConfig {
+  const defaults = DEFAULT_CONFIG.dictation;
+  const engine = incoming?.engine;
+  const provider = incoming?.provider;
+  return {
+    enabled: incoming?.enabled ?? defaults.enabled,
+    ...(engine === "api" || engine === "on_device" ? { engine } : {}),
+    provider:
+      provider === "openai" || provider === "groq" || provider === "custom"
+        ? provider
+        : defaults.provider,
+    base_url: incoming?.base_url ?? defaults.base_url,
+    model: incoming?.model ?? defaults.model,
+    language: incoming?.language ?? defaults.language,
+    clean_up: incoming?.clean_up ?? defaults.clean_up,
+    consented_hosts: incoming?.consented_hosts ?? [],
   };
 }
 
@@ -519,6 +562,9 @@ function createConfigStore() {
       case "graph":
       case "tags":
         setState("apps", app, on);
+        return;
+      case "dictation":
+        setState("dictation", "enabled", on);
         return;
     }
   }

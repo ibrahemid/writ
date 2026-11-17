@@ -1,0 +1,63 @@
+.dictation-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--writ-space-2);
+  padding: 0 var(--writ-space-3);
+  border: 0;
+  border-radius: var(--writ-r-control);
+  background: transparent;
+  color: var(--writ-fg-muted);
+  font: inherit;
+  line-height: 1.4;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color var(--writ-motion), background var(--writ-motion);
+}
+
+.dictation-indicator:hover:not([aria-disabled="true"]) {
+  color: var(--writ-fg);
+  background: var(--writ-bg-hover);
+}
+
+.dictation-indicator[aria-disabled="true"] {
+  cursor: default;
+}
+
+.dictation-indicator .dictation-indicator-icon {
+  color: currentColor;
+  opacity: 1;
+}
+
+.dictation-indicator.is-recording .dictation-indicator-icon {
+  color: var(--writ-status-error);
+}
+
+.dictation-indicator-level {
+  position: relative;
+  width: 24px;
+  height: 3px;
+  border-radius: var(--writ-r-pill);
+  background: var(--writ-border-soft);
+  overflow: hidden;
+}
+
+.dictation-indicator-level-fill {
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dictation-indicator-level-fill {
+    opacity: 1;
+    transform-origin: left center;
+    transform: scaleX(var(--dictation-level, 0));
+    transition: transform var(--writ-motion-fast) var(--writ-ease-linear);
+  }
+}
+
+.dictation-indicator-time {
+  font-variant-numeric: tabular-nums;
+}

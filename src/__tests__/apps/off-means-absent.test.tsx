@@ -17,6 +17,8 @@ const h = vi.hoisted(() => ({
   closeActivity: vi.fn(),
   openSettings: vi.fn(),
   toggleChatPane: vi.fn(),
+  dictationToggle: vi.fn(),
+  dictationCancel: vi.fn(),
 }));
 
 vi.mock("../../services/tauri", () => ({ updateConfig: h.updateConfig }));
@@ -80,6 +82,7 @@ import { MENU_COMMANDS } from "../../commands/menu-commands";
 import { toggleChat } from "../../commands/chat";
 import { REWRITE_COMMAND_IDS } from "../../commands/rewrite-actions";
 import { handleKeyDown, rebuildKeyMap, setKeybindingOverrides } from "../../commands/keybindings";
+import { DICTATION_REGISTRATIONS } from "../commands/app-registrations";
 import type { AppId } from "../../types/config";
 import type { PaletteResult } from "../../components/Palette/types";
 import Sidebar from "../../components/Sidebar/Sidebar";
@@ -145,6 +148,11 @@ function stand(): void {
       folderGraph: { close: h.graphClose } as never,
       sidebar: { selectTag: h.selectTag } as never,
       tabs: { activeTabId: () => null } as never,
+      dictation: {
+        toggle: h.dictationToggle,
+        cancel: h.dictationCancel,
+        attachSettingsOpener: () => undefined,
+      } as never,
     });
   });
 }
@@ -153,11 +161,12 @@ function stand(): void {
 function press(chord: string): boolean {
   const parts = chord.split("+");
   const key = parts[parts.length - 1];
-  const shifted: Record<string, string> = { "\\": "|" };
+  const shifted: Record<string, string> = { "\\": "|", ".": ">" };
+  const codes: Record<string, string> = { "\\": "Backslash", ".": "Period" };
   const shift = parts.includes("Shift");
   const event = new KeyboardEvent("keydown", {
     key: shift ? (shifted[key] ?? key) : key.toLowerCase(),
-    code: key === "\\" ? "Backslash" : `Key${key.toUpperCase()}`,
+    code: codes[key] ?? `Key${key.toUpperCase()}`,
     ctrlKey: parts.includes("CmdOrCtrl"),
     shiftKey: shift,
     altKey: parts.includes("Alt"),
@@ -181,7 +190,15 @@ async function turn(app: AppId, on: boolean): Promise<void> {
 
 beforeEach(async () => {
   await configStore.save({ ...configStore.config() });
-  for (const app of ["chat", "rewrite", "programs", "connections", "graph", "tags"] as const) {
+  for (const app of [
+    "chat",
+    "rewrite",
+    "programs",
+    "connections",
+    "graph",
+    "tags",
+    "dictation",
+  ] as const) {
     await turn(app, false);
   }
   stand();
@@ -343,6 +360,44 @@ describe("Tags", () => {
     h.selectTag.mockClear();
     await turn("tags", false);
     expect(h.selectTag).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("Dictation", () => {
+  it("is out of the palette while off, and back once on", async () => {
+    expect(getCommand("dictation.toggle")?.app).toBe("dictation");
+    expect(paletteIds()).not.toContain("dictation.toggle");
+    await turn("dictation", true);
+    expect(paletteIds()).toContain("dictation.toggle");
+    await turn("dictation", false);
+    expect(paletteIds()).not.toContain("dictation.toggle");
+  });
+
+  it("has a macOS menu item that belongs to it, out of the other menu while off", async () => {
+    const label = DICTATION_REGISTRATIONS.get("dictation.toggle")!.label;
+    expect(MENU_COMMANDS.find((entry) => entry.id === "dictation.toggle")?.app).toBe("dictation");
+    expect(menuLabels()).not.toContain(label);
+    await turn("dictation", true);
+    expect(menuLabels()).toContain(label);
+  });
+
+  it("opens its switch in Settings, Apps from the chord while off, and starts once on", async () => {
+    const chord = DICTATION_REGISTRATIONS.get("dictation.toggle")!.keybinding;
+    expect(press(chord)).toBe(true);
+    expect(h.openSettings).toHaveBeenCalledWith("apps", rowOf("dictation"));
+    expect(h.dictationToggle).not.toHaveBeenCalled();
+    h.openSettings.mockClear();
+    await turn("dictation", true);
+    expect(press(chord)).toBe(true);
+    expect(h.dictationToggle).toHaveBeenCalledTimes(1);
+    expect(h.openSettings).not.toHaveBeenCalled();
+  });
+
+  it("ends a session when switched off", async () => {
+    await turn("dictation", true);
+    h.dictationCancel.mockClear();
+    await turn("dictation", false);
+    expect(h.dictationCancel).toHaveBeenCalled();
   });
 });
 

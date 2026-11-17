@@ -6,4 +6,5 @@ const page = getDocsPage('config');
 ---
 <Prose title={page.title} description={page.description} path={page.path}>
   <p>Every setting except the API key, the file types and the terminal command is also in <code>~/.writ/config.toml</code>, including which programs you approved. Logs are in <code>~/.writ/logs/</code>. Writ checks for an update shortly after launch, at most once a day, and Settings, About turns the check off.</p>
+  <p><code>[dictation]</code> holds <code>enabled</code>, <code>engine</code> (<code>"api"</code> or <code>"on_device"</code>; without it, On this Mac where the Mac supports it and API elsewhere), <code>provider</code> (<code>"openai"</code>, <code>"groq"</code> or <code>"custom"</code>), <code>base_url</code> for a custom server, <code>model</code>, <code>language</code> (an ISO 639-1 code such as <code>"en"</code>, or empty for Automatic) and <code>clean_up</code>. Writ writes <code>consented_hosts</code>, the hosts you allowed to receive audio.</p>
 </Prose>

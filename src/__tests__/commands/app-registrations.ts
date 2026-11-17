@@ -113,6 +113,10 @@ export function registrationsIn(path: string): Map<string, Registration> {
   return registrations(readFileSync(resolve(process.cwd(), path), "utf8"));
 }
 
+/** The Dictation command, which registers beside its store rather than in
+ * `App.tsx`. */
+export const DICTATION_REGISTRATIONS = registrationsIn("src/commands/dictation-commands.ts");
+
 /**
  * The same three things counted straight off the file text. A walker that
  * quietly stops reading, or a field pattern that stops matching, leaves a gap

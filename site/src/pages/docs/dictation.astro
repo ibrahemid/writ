@@ -1,0 +1,26 @@
+---
+import Prose from '../../layouts/Prose.astro';
+import Chord from '../../components/Chord.astro';
+import { getDocsPage } from '../../data/docs-topics';
+
+const page = getDocsPage('dictation');
+---
+<Prose title={page.title} description={page.description} path={page.path}>
+  <p>Dictation types what you say at the cursor. It is an app, off until you switch it on in Settings, Apps, Dictation. While it is on, <Chord of="CmdOrCtrl+Shift+." /> or Dictate in the Edit menu starts it, and the status bar shows the microphone's level and how long it has been on. The same shortcut, or a click on the microphone in the status bar, stops listening; what you said before that is still inserted.</p>
+
+  <h2 id="engines">Engines</h2>
+  <p>On macOS 26 or later, the On this Mac engine transcribes on the Mac and sends no audio anywhere. Its speech model downloads the first time, and the status bar shows how far along it is. On other systems, or with Engine set to API, Writ sends what you said at each pause to a transcription service: OpenAI with <code>gpt-transcribe</code>, Groq with <code>whisper-large-v3-turbo</code>, or any OpenAI-compatible server by its base URL, which most servers expect to end in <code>/v1</code>. Choosing a provider fills in its model, and a model you typed is kept. Groq bills each request as at least 10 seconds of audio.</p>
+
+  <h2 id="key">Key and consent</h2>
+  <p>The API key is kept in the system keychain on macOS and Windows and in the Secret Service on Linux. When Dictation uses the same provider and host as the AI connection Chat and Rewrite share, it uses that connection's key and Settings shows no second key field. Before the first audio goes to a host, Settings names the host and asks once. Allowing a host for Chat or Rewrite does not allow it for dictation.</p>
+
+  <h2 id="language">Language</h2>
+  <p>Language is Automatic until you choose one. On the API engine, Automatic lets the service detect the language of each phrase, so one session can move between languages. On this Mac, Automatic means the Mac's system language, and the list holds only the languages the Mac can transcribe. Naming the language you speak makes transcription more accurate.</p>
+
+  <h2 id="session">Stopping and undo</h2>
+  <p>Each phrase is inserted when you pause, where the cursor was when you started, and each is its own undo step. Escape stops at once: what is not inserted yet is discarded and what is inserted stays. Switching to another tab, switching Dictation off or closing the window stops it the same way. With Settings, Apps, Clean up with the AI connection on, each phrase goes through the AI connection to fix punctuation and misheard words before it is inserted.</p>
+
+  <h2 id="microphone">Microphone access</h2>
+  <p>macOS asks the first time Writ uses the microphone. If access was denied, turn Writ on in System Settings, Privacy &amp; Security, Microphone; the message Writ shows opens it. On Windows, desktop apps need microphone access on in Windows Settings, Privacy &amp; security, Microphone.</p>
+  <p>On Linux, Writ records from ALSA's default device through <code>libasound2</code>, which the deb and AUR packages depend on and the AppImage takes from the system. On PipeWire or PulseAudio, that device comes from the <code>pipewire-alsa</code> or <code>pulseaudio-alsa</code> package; without it, no microphone opens.</p>
+</Prose>

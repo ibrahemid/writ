@@ -52,13 +52,14 @@ src-tauri ─┬─▶ writ-core
            ├─▶ writ-storage ──▶ writ-core
            ├─▶ writ-plugin ───▶ writ-core
            ├─▶ writ-lint ─────▶ writ-core
+           ├─▶ writ-audio ────▶ writ-core
            └─▶ writ-render        (no workspace dependencies)
 
 writ-cli  ─┬─▶ writ-core        (no Tauri; ships beside the app binary as a
            └─▶ writ-storage      Tauri sidecar, not linked into it)
 ```
 
-`writ-storage`, `writ-plugin` and `writ-lint` are siblings on `writ-core`. None of
+`writ-storage`, `writ-plugin`, `writ-lint` and `writ-audio` are siblings on `writ-core`. None of
 them depends on another.
 
 ## Crate Responsibilities
@@ -158,6 +159,15 @@ readability rules are left out by design: Writ flags mistakes, not prose taste. 
 byte offsets and CodeMirror measures UTF-16 code units, so the crate converts every range before
 returning.
 
+### writ-audio
+Microphone capture for dictation ([ADR-058](./adr/058-dictation.md)). `Recorder` opens the
+default input device through `cpal` (CoreAudio, WASAPI, ALSA) and delivers `AudioFrame`s of
+16 kHz mono Int16, downmixed and resampled with `rubato`, the one format both dictation engines
+take. Depends on `writ-core` and has no Tauri dependency. Where a segment ends, which engine runs
+and what an error tells the person are `writ_core::dictation` policy; the session that drives
+capture, transcription and the per-session event `Channel` lives in `src-tauri`. Audio is held in
+memory only.
+
 ### writ-cli
 The `writ` command line binary. Two surfaces. The open path parses argv and stdin into an
 open target (a file list, a workspace directory, or piped text, which becomes a note in the
@@ -252,8 +262,9 @@ Each of these is recorded in [`docs/adr/`](./adr/).
 - **Files are the only copy of the text.** A file lives in the Writ folder or wherever it was opened from, and saves back to its own path. `writ.db` holds what Writ works out from the files: the search index, links, tags, properties and window state. Delete it and Writ rebuilds it from the files.
 - **Resident, not launched.** The app keeps running with its window hidden, so the global hotkey shows a window instead of starting a program. Open at login, a switch in Settings that sets a login item through `tauri-plugin-autostart`, starts it hidden with `--login`, so the hotkey works after a restart; `general.launch_at_login` records the last choice and turns the item on once at the end of a first launch. The hotkey needs Cmd, Ctrl or Alt unless its key is F13 to F24, a new chord is registered before the old one is released, and a chord another app holds or a Wayland session cannot deliver is shown as such in the titlebar and Settings. A second chord opens the quick capture note, a window of its own that adds one entry to Today's File (ADR-055).
 - **Keyboard first.** Every command, setting and file is reachable from the command palette.
+- **Dictation is a stream into one pane.** `dictation_start` returns a session and streams `DictationEvent`s over a Tauri `Channel`; `writ-audio` captures, `writ_core::dictation` cuts segments at pauses, and each segment is transcribed on the Mac or by an OpenAI-compatible endpoint, then inserted at an anchor in the pane that started the session, one undo step per segment. Audio stays in memory and has its own consent list (ADR-058).
 - **The preview trusts nothing.** Markdown, HTML, Mermaid and KaTeX render from runtimes bundled into the app, and the preview blocks all network access.
-- **The core does not know Tauri exists.** `writ-core`, `writ-storage`, `writ-render`, `writ-lint`, `writ-mcp` and `writ-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter, and the build enforces the boundary.
+- **The core does not know Tauri exists.** `writ-core`, `writ-storage`, `writ-render`, `writ-lint`, `writ-mcp`, `writ-audio` and `writ-plugin` are plain Rust crates with no Tauri dependency; the shell is a thin adapter, and the build enforces the boundary.
 - **One guarded write.** The editor, the `writ` command, a rename, a link rewrite, a connected program and a chat proposal all write a file through the same path, which refuses to overwrite a newer file and leaves a conflict copy beside it.
 - **Files from anywhere.** The CLI, the watched folder, default-app registration and the MCP server let another program make or read a file that Writ then opens, renders and searches.
 

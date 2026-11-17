@@ -81,6 +81,27 @@ const mocks = vi.hoisted(() => ({
   mcpConnectAdd: vi.fn(),
   mcpConnectOpen: vi.fn(),
   mcpServerTest: vi.fn(),
+  dictationCapabilities: vi.fn().mockResolvedValue({
+    on_device: true,
+    on_device_languages: ["en_US"],
+    system_language: "en_US",
+    mic_settings: true,
+    effective_engine: "api",
+  }),
+  dictationLanguages: vi.fn().mockResolvedValue([{ code: "en", name: "English" }]),
+  dictationEndpointState: vi.fn().mockResolvedValue({
+    host: "dictation.example.com",
+    is_hosted: true,
+    is_allowed: true,
+    is_consented: true,
+    needs_key: true,
+    key_shared_with_ai: false,
+    key: { is_set: false, memory_only: false },
+    key_page: null,
+  }),
+  dictationConsentHost: vi.fn(),
+  dictationSetKey: vi.fn(),
+  dictationClearKey: vi.fn(),
   onEvent: vi.fn().mockResolvedValue(() => {}),
   aiCheckConnection: vi.fn().mockResolvedValue({
     reachable: true,
@@ -230,6 +251,12 @@ vi.mock("../../services/tauri", () => ({
   mcpConnectAdd: mocks.mcpConnectAdd,
   mcpConnectOpen: mocks.mcpConnectOpen,
   mcpServerTest: mocks.mcpServerTest,
+  dictationCapabilities: mocks.dictationCapabilities,
+  dictationLanguages: mocks.dictationLanguages,
+  dictationEndpointState: mocks.dictationEndpointState,
+  dictationConsentHost: mocks.dictationConsentHost,
+  dictationSetKey: mocks.dictationSetKey,
+  dictationClearKey: mocks.dictationClearKey,
 }));
 
 vi.mock("../../services/events", () => ({
@@ -389,6 +416,7 @@ function baseConfig(): WritConfig {
   ai: { provider: "ollama", base_url: "", model: "", consented_hosts: [], rewrite: { enabled: false }, chat: { enabled: false, model: "", model_provider: "" } },
   mcp: { enabled: false, approved_clients: [] },
   apps: { connections: false, graph: false, tags: false },
+  dictation: { enabled: false, provider: "openai", base_url: "", model: "gpt-transcribe", language: "", clean_up: false, consented_hosts: [] },
   spelling: { enabled: false, dialect: "american", ignored_words: [] },
     preview: {
       default_layout_html: "split",
@@ -1827,7 +1855,9 @@ describe("SettingsModal", () => {
       // and the key row is hidden for a provider on this machine. `custom` is
       // the one provider that shows both, so the parity check can see them.
       // The AI and program rows are drawn while their apps are on (ADR-042),
-      // so every app that owns rows is switched on.
+      // so every app that owns rows is switched on. Dictation draws its engine
+      // row where this Mac transcribes, and its base URL and key rows for a
+      // custom server that needs a key.
       const base = baseConfig();
       mocks.config.mockReturnValue({
         ...base,
@@ -1838,6 +1868,7 @@ describe("SettingsModal", () => {
           chat: { ...base.ai.chat, enabled: true },
         },
         mcp: { ...base.mcp, enabled: true },
+        dictation: { ...base.dictation, enabled: true, provider: "custom", model: "" },
       });
       const { container } = render(() => <SettingsModal />);
       openSettings();
