@@ -2,6 +2,7 @@ import importlib.util
 import json
 import pathlib
 import tempfile
+import tomllib
 import unittest
 
 
@@ -60,6 +61,13 @@ class ResolveCrateTextTests(unittest.TestCase):
     def test_a_crate_with_no_file_and_no_record_is_refused(self) -> None:
         with self.assertRaises(MODULE.GenerationError):
             self.resolve(MODULE.normalize_text(TEMPLATE))
+
+
+class AboutConfigTests(unittest.TestCase):
+    def test_cargo_about_scans_only_the_top_level_of_each_crate(self) -> None:
+        with MODULE.ABOUT_CONFIG.open("rb") as handle:
+            config = tomllib.load(handle)
+        self.assertEqual(config.get("max-depth"), 1)
 
 
 
