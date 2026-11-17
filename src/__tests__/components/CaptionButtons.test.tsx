@@ -22,8 +22,8 @@ afterEach(() => {
   cleanup();
 });
 
-// jsdom answers `:focus-visible` false for every element, so a keyboard focus
-// is stated rather than performed.
+// jsdom matches `:focus-visible` exactly like `:focus`, keyboard or pointer, so
+// a keyboard focus is stated rather than performed.
 function focusByKeyboard(target: HTMLElement) {
   const real = Element.prototype.matches;
   vi.spyOn(Element.prototype, "matches").mockImplementation(function (this: Element, selector: string) {

@@ -36,7 +36,7 @@ thread_local! {
 /// - a write refused because another connection holds the write lock tried
 ///   again every millisecond, for up to five seconds.
 pub fn open_database(path: &Path) -> StorageResult<Connection> {
-    let conn = Connection::open(path)?;
+    let mut conn = Connection::open(path)?;
     conn.busy_handler(Some(retry_every_millisecond))?;
     conn.pragma_update(None, "journal_mode", "wal")?;
     conn.pragma_update(None, "synchronous", "normal")?;
