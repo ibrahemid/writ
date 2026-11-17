@@ -16,6 +16,7 @@ import {
 const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["notes.folder", "general", "Folder", ["files", "folder", "where are my files", "location", "path", "finder", "backup", "sync", "icloud", "dropbox"]],
   ["files.default_extension", "general", "Default format", ["format", "default", "extension", "txt", "text", "plain text", "md", "markdown", "new file"]],
+  ["files.image_folder", "general", "Image folder", ["image", "images", "picture", "paste", "drop", "screenshot", "assets", "attachments", "markdown"]],
   ["hotkey.toggle", "general", "Show and hide Writ", ["shortcut", "global", "hotkey", "summon", "show", "hide", "window", "chord", "keyboard", "toggle", "from any app", "taken"]],
   ["general.launch_at_login", "general", "Open at login", ["login", "startup", "start", "boot", "autostart", "launch", "restart", "hidden"]],
   ["editor.font_size", "editor", "Font size", ["font", "size", "text", "zoom"]],
@@ -24,6 +25,7 @@ const EXPECTED_ROWS: ReadonlyArray<[string, string, string, string[]]> = [
   ["editor.reading_width", "editor", "Reading width", ["reading", "width", "measure", "line length", "column", "narrow", "center"]],
   ["editor.markdown_editing", "editor", "Markdown shortcuts", ["markdown", "editing", "bold", "italic", "strikethrough", "link", "shortcuts", "checkbox", "list"]],
   ["preview.layout_md", "editor", "Markdown opens in", ["layout", "markdown", "md", "text", "preview", "inline", "source"]],
+  ["editor.load_remote_images", "editor", "Load web images", ["image", "images", "remote", "web", "url", "http", "https", "load", "privacy", "network", "markdown"]],
   ["editor.spelling", "editor", "Spell check", ["spell", "spelling", "check", "dictionary", "typos", "grammar"]],
   ["editor.spelling_dialect", "editor", "Dictionary", ["spelling", "english", "us", "uk", "american", "british", "canadian", "australian"]],
   ["editor.status_bar", "editor", "Status bar", ["status bar", "line", "column", "encoding", "word count"]],

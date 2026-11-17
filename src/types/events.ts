@@ -1,5 +1,6 @@
 import type { UpdatePhase } from "./update";
 import type { VersionWriter } from "./writer";
+import type { DropPoint } from "./image-import";
 import type {
   ChatDroppedProposal,
   ChatErrorFrame,
@@ -12,7 +13,7 @@ import type {
 
 export type WritEvent =
   | { kind: "pending:opens"; payload: { paths: string[]; lines?: Record<string, number> } }
-  | { kind: "files:dropped"; payload: { paths: string[] } }
+  | { kind: "files:dropped"; payload: { paths: string[]; position?: DropPoint } }
   | { kind: "link:new"; payload: { name: string | null } }
   | { kind: "context:asked"; payload: { token: string } }
   | { kind: "review:asked"; payload: HeldWrite }

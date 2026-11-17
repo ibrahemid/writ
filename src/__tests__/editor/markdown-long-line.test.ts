@@ -23,6 +23,8 @@ describe("Markdown Inline with one very long line", () => {
             {
               resolve: () => new Promise(() => {}),
               download: () => new Promise(() => {}),
+              loadRemote: () => new Promise(() => {}),
+              loadsRemoteImages: () => false,
             },
             {
               renderMath: () => new Promise(() => {}),

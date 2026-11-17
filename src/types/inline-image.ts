@@ -4,7 +4,8 @@ export type InlineImageFailure =
   | "not_found"
   | "not_downloaded"
   | "too_large"
-  | "not_an_image";
+  | "not_an_image"
+  | "unreachable";
 
 const FAILURES: readonly string[] = [
   "outside_root",
@@ -12,6 +13,7 @@ const FAILURES: readonly string[] = [
   "not_downloaded",
   "too_large",
   "not_an_image",
+  "unreachable",
 ];
 
 /** Whether a host-supplied identifier is one of the refusals. */

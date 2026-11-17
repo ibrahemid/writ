@@ -156,3 +156,18 @@ download (`preview_inline_image_download`, bounded by the note download
 timeout). One cap, `ASSET_MAX_BYTES` (16 MB), covers both surfaces. This
 reverses "No CSP change" for the app window: its `img-src` adds `writ-preview:`
 (`http://writ-preview.document` on Windows); the document policy is unchanged.
+
+## Amendment (2026-11-17): pasted and dropped images land under the note's folder
+
+Pasting or dropping an image into a Markdown file writes it where this route
+already serves from: `[files] image_folder` (default `assets`, empty for the
+note's own folder) is parsed by `ImageFolder::parse`, which rejects absolute
+paths and `.`/`..` parts, so the saved file is always inside the note's
+folder. A file already inside that tree is referenced in place. Every saved
+file passes the same sniff and `ASSET_MAX_BYTES` cap the route applies, so
+nothing is written that the editor will not draw. The host reads the clipboard
+(`paste_clipboard_images`) and the dropped paths (`import_dropped_images`)
+itself and answers with the Markdown to insert; no image bytes cross IPC.
+Writes go through `writ_storage::image_store::save_image`, which runs the
+caller's IgnoreSet stamp before an atomic write and reuses a same-named file
+whose bytes match.

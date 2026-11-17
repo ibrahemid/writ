@@ -44,7 +44,7 @@ import Prose from '../layouts/Prose.astro';
 
   <h2>What the app does on the network</h2>
   <p>
-    Until you switch on Chat or Rewrite, Writ itself contacts only GitHub, for updates: it fetches a release manifest
+    Until you switch on Chat or Rewrite or load a web image, Writ itself contacts only GitHub, for updates: it fetches a release manifest
     and compares versions on your machine. It does this on its own shortly after launch, at most once a day,
     and whenever you ask in <code>Settings &rarr; About</code>. Turn the automatic check off with
     <code>Check for updates automatically</code>. Installing an update downloads the release from GitHub and checks it
@@ -57,6 +57,12 @@ import Prose from '../layouts/Prose.astro';
     no network calls while scripts are off for that file, as they are until you turn them on for it. A file whose
     scripts you turn on runs its own code, which can reach the network. Writ sends no crash reports, usage data or
     telemetry.
+  </p>
+  <p>
+    A Markdown file in Inline mode shows an image from a web address as its host and a Load image button. Writ requests
+    the image only when you click it, or for every one once <code>Load web images</code> is on in
+    <code>Settings &rarr; Editor</code>. The request goes to that image's server, and to any http or https address it
+    redirects to, with no cookies and no referrer. Writ keeps the image in memory and does not write it to disk.
   </p>
 
   <h2>The AI connection</h2>

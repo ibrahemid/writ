@@ -19,6 +19,9 @@ export type FileExtension = "txt" | "md";
 
 export interface FilesConfig {
   default_extension: FileExtension;
+  /** Where a pasted or dropped image is saved, relative to the Markdown
+   * file's folder; empty saves it beside the file. */
+  image_folder?: string;
 }
 
 export interface InboxConfig {
@@ -163,7 +166,7 @@ export interface WritConfig {
   panel: PanelConfig;
   chat_panel: ChatPanelConfig;
   first_run: FirstRunConfig;
-  editor: { font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_editing: boolean; status_bar: boolean; status_bar_counts: boolean; reading_width: boolean };
+  editor: { font_size: number; word_wrap: boolean; tab_size: number; autosave_debounce_ms: number; markdown_editing: boolean; status_bar: boolean; status_bar_counts: boolean; reading_width: boolean; load_remote_images?: boolean };
   window: { width: number; height: number; x?: number | null; y?: number | null; maximized: boolean };
   keybindings: Record<string, string>;
   history: { max_entries: number };

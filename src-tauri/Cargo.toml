@@ -55,6 +55,9 @@ tokio-util = { version = "0.7", default-features = false }
 # tauri; this is the edge, not a new package.
 tokio = { version = "1", default-features = false, features = ["sync"] }
 tauri-plugin-clipboard-manager = "2"
+# The clipboard plugin's own backend, taken directly for the copied-file list it does not expose.
+arboard = { version = "3.6", features = ["wayland-data-control"] }
+png = "0.18"
 tauri-plugin-autostart = "2"
 # The OS entropy source, already in the tree under rustls/ring. Taken directly
 # for the PKCE verifier and state of the connect flow (ADR-040 section 6); no

@@ -234,7 +234,8 @@
   border-radius: var(--writ-r-media);
 }
 .cm-editor .cm-md-image[data-status="failed"],
-.cm-editor .cm-md-image[data-status="downloading"] {
+.cm-editor .cm-md-image[data-status="downloading"],
+.cm-editor .cm-md-image[data-status="remote"] {
   min-height: 0;
 }
 .cm-editor .cm-md-image-caption {

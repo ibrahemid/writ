@@ -34,6 +34,9 @@ use writ_core::preview::hints::neutralize_resource_hints;
 use writ_core::preview::protocol::{
     resolve_asset, sniff_image_mime, split_asset_request, AssetRequest, ASSET_MAX_BYTES,
 };
+use writ_core::preview::remote_image::{
+    split_remote_image_request, HeldImage, RemoteImageRequest, RemoteImageStore,
+};
 use writ_core::preview::AssetScope;
 use writ_core::serial::{KeyedQueue, Ticket};
 
@@ -81,10 +84,14 @@ pub struct RenderedDoc {
 /// note's images from the same route with no preview open (ADR-035): a scope
 /// is recorded by a render or by the editor's image command, and outlives the
 /// eviction of the document.
+///
+/// Remote images the editor fetched on request are held here too (ADR-057),
+/// served from the same scheme under the scope of each tab that asked.
 #[derive(Default)]
 pub struct RenderCache {
     docs: Mutex<HashMap<String, Arc<RenderedDoc>>>,
     scopes: Mutex<HashMap<String, AssetScope>>,
+    remote_images: Mutex<RemoteImageStore>,
     renders: KeyedQueue,
 }
 
@@ -150,6 +157,34 @@ impl RenderCache {
         let scope = AssetScope::for_render(scopes.get(buffer_id), buffer_id, notes_root, note_dir);
         scopes.insert(buffer_id.to_string(), scope.clone());
         scope
+    }
+
+    /// The remote image held under `key`, which `buffer_id` may read from now
+    /// on.
+    pub fn grant_remote_image(&self, key: &str, buffer_id: &str) -> Option<HeldImage> {
+        recover_poison(
+            self.remote_images.lock(),
+            "preview::render_cache::grant_remote_image",
+        )
+        .grant(key, buffer_id)
+    }
+
+    /// Holds a fetched remote image for `buffer_id`.
+    pub fn put_remote_image(&self, key: &str, buffer_id: &str, image: HeldImage) {
+        recover_poison(
+            self.remote_images.lock(),
+            "preview::render_cache::put_remote_image",
+        )
+        .insert(key, buffer_id, image);
+    }
+
+    /// The remote image held under `key` when `buffer_id` was granted it.
+    pub fn remote_image(&self, key: &str, buffer_id: &str) -> Option<HeldImage> {
+        recover_poison(
+            self.remote_images.lock(),
+            "preview::render_cache::remote_image",
+        )
+        .read(key, buffer_id)
     }
 
     /// Drop the cached document for `buffer_id` (on preview close). Its asset
@@ -255,6 +290,7 @@ pub fn resolve_with_assets(
         scripts_enabled,
         &document_lookup,
         &scope_lookup,
+        &|_: &str, _: &str| None,
         chrome_asset,
         is_dataless,
     )
@@ -267,6 +303,7 @@ fn resolve_with_scopes(
     scripts_enabled: bool,
     document_lookup: &dyn Fn(&str) -> Option<Arc<RenderedDoc>>,
     scope_lookup: &dyn Fn(&str) -> Option<AssetScope>,
+    remote_lookup: &dyn Fn(&str, &str) -> Option<HeldImage>,
     chrome_asset: impl Fn(&str) -> Option<(&'static [u8], &'static str)>,
     is_dataless: &dyn Fn(&Path) -> bool,
 ) -> ResolvedResponse {
@@ -274,6 +311,9 @@ fn resolve_with_scopes(
         if parsed.scope == PreviewScope::Document {
             if let Some(request) = split_asset_request(&parsed.path) {
                 return resolve_note_asset(request, scope_lookup, is_dataless);
+            }
+            if let Some(request) = split_remote_image_request(&parsed.path) {
+                return resolve_remote_image(request, scope_lookup, remote_lookup);
             }
         }
     }
@@ -353,6 +393,47 @@ fn resolve_note_asset(
     ResolvedResponse {
         status: 200,
         body: Cow::Owned(bytes),
+        headers,
+        disposition: Disposition::Allowed,
+    }
+}
+
+/// Serve a remote image the editor fetched on request (ADR-057).
+///
+/// Only bytes already held are served: this route never reaches the network,
+/// so a document naming it learns nothing it did not already show. The token
+/// is checked as the note-asset route checks it, and the image must have been
+/// granted to the tab the URL names.
+fn resolve_remote_image(
+    request: RemoteImageRequest<'_>,
+    scope_lookup: &dyn Fn(&str) -> Option<AssetScope>,
+    remote_lookup: &dyn Fn(&str, &str) -> Option<HeldImage>,
+) -> ResolvedResponse {
+    let Some(scope) = scope_lookup(request.buffer_id) else {
+        return ResolvedResponse::not_found();
+    };
+    if scope.buffer_id != request.buffer_id || scope.token != request.token {
+        warn!(
+            reason = RefusalReason::ScopeMismatch.as_str(),
+            buffer_id = request.buffer_id,
+            "remote image refused"
+        );
+        return ResolvedResponse::refused(RefusalReason::ScopeMismatch);
+    }
+    let Some(image) = remote_lookup(request.key, request.buffer_id) else {
+        return ResolvedResponse::not_found();
+    };
+    let mut headers = vec![
+        ("Content-Type", image.mime.to_string()),
+        ("X-Content-Type-Options", "nosniff".to_string()),
+        ("Cache-Control", "no-store".to_string()),
+    ];
+    if image.mime == SVG_MIME {
+        headers.push(("Content-Security-Policy", SVG_CSP.to_string()));
+    }
+    ResolvedResponse {
+        status: 200,
+        body: Cow::Owned(image.bytes.to_vec()),
         headers,
         disposition: Disposition::Allowed,
     }
@@ -642,6 +723,7 @@ pub fn resolve_cached(
         scripts_enabled,
         &|id| cache.get(id),
         &|id| cache.scope(id),
+        &|key, id| cache.remote_image(key, id),
         chrome_asset,
         is_dataless,
     )
@@ -659,7 +741,10 @@ fn document_scripts_enabled(url: &str, cache: &RenderCache) -> bool {
     if parsed.scope != PreviewScope::Document {
         return false;
     }
-    if parsed.path.starts_with("_assets/") || split_asset_request(&parsed.path).is_some() {
+    if parsed.path.starts_with("_assets/")
+        || split_asset_request(&parsed.path).is_some()
+        || split_remote_image_request(&parsed.path).is_some()
+    {
         return false;
     }
     let buffer_id = parsed.path.split('/').next().unwrap_or("");
@@ -1968,5 +2053,89 @@ mod asset_tests {
             .cache
             .scope_for("buf-9", f.notes.clone(), f.note_dir.join("moved"));
         assert_eq!(rendered.token, tokens[0]);
+    }
+
+    fn remote_url(buffer_id: &str, token: &str, key: &str) -> String {
+        format!("writ-preview://document/_remote-image/{buffer_id}/{token}/{key}")
+    }
+
+    fn held_png() -> HeldImage {
+        HeldImage {
+            mime: "image/png",
+            bytes: PNG.into(),
+        }
+    }
+
+    #[test]
+    fn a_held_remote_image_is_served_to_the_tab_that_asked() {
+        let f = Fixture::new();
+        let key = "a".repeat(64);
+        f.cache.put_remote_image(&key, "buf-1", held_png());
+        let r = resolve_cached(&remote_url("buf-1", TOKEN, &key), &f.cache, &never_dataless);
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body.as_ref(), PNG);
+        assert_eq!(header(&r, "Content-Type"), Some("image/png"));
+        assert_eq!(header(&r, "X-Content-Type-Options"), Some("nosniff"));
+        assert_eq!(header(&r, "Cache-Control"), Some("no-store"));
+    }
+
+    #[test]
+    fn a_remote_image_route_never_reaches_the_network_for_an_unheld_key() {
+        let f = Fixture::new();
+        let r = resolve_cached(
+            &remote_url("buf-1", TOKEN, &"b".repeat(64)),
+            &f.cache,
+            &never_dataless,
+        );
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn a_remote_image_is_not_served_under_a_wrong_token_or_another_tab() {
+        let f = Fixture::new();
+        let key = "c".repeat(64);
+        f.cache.put_remote_image(&key, "buf-1", held_png());
+        let wrong = resolve_cached(
+            &remote_url("buf-1", "forged", &key),
+            &f.cache,
+            &never_dataless,
+        );
+        assert_eq!(wrong.status, 403);
+        assert!(matches!(
+            wrong.disposition,
+            Disposition::Refused(RefusalReason::ScopeMismatch)
+        ));
+        let other = editor_scope(&f, "buf-2");
+        let r = resolve_cached(
+            &remote_url("buf-2", &other.token, &key),
+            &f.cache,
+            &never_dataless,
+        );
+        assert_eq!(r.status, 404);
+        assert!(f.cache.grant_remote_image(&key, "buf-2").is_some());
+        let r = resolve_cached(
+            &remote_url("buf-2", &other.token, &key),
+            &f.cache,
+            &never_dataless,
+        );
+        assert_eq!(r.status, 200);
+    }
+
+    #[test]
+    fn a_remote_svg_carries_the_sandbox_policy() {
+        let f = Fixture::new();
+        let key = "d".repeat(64);
+        f.cache.put_remote_image(
+            &key,
+            "buf-1",
+            HeldImage {
+                mime: SVG_MIME,
+                bytes: b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>"
+                    .as_slice()
+                    .into(),
+            },
+        );
+        let r = resolve_cached(&remote_url("buf-1", TOKEN, &key), &f.cache, &never_dataless);
+        assert_eq!(header(&r, "Content-Security-Policy"), Some(SVG_CSP));
     }
 }

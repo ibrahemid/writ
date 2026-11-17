@@ -28,6 +28,7 @@ export type InlineImageState =
   | { status: "pending" }
   | { status: "ready"; src: string; label: string }
   | { status: "downloading"; label: string }
+  | { status: "remote"; label: string; host: string }
   | { status: "failed"; label: string; reason: InlineImageFailure };
 
 /**
@@ -35,11 +36,15 @@ export type InlineImageState =
  *
  * Injected, so this module reaches no service and no store and the editor
  * layer stays testable without an IPC mock. `download` asks the sync provider
- * for an image it holds and answers once the bytes are here.
+ * for an image it holds and answers once the bytes are here. `loadRemote`
+ * fetches an `http`/`https` image, which happens only once the person asks or
+ * `loadsRemoteImages` answers true.
  */
 export interface InlineImageDeps {
   resolve(reference: string): Promise<{ src: string }>;
   download(reference: string): Promise<{ src: string }>;
+  loadRemote(reference: string): Promise<{ src: string }>;
+  loadsRemoteImages(): boolean;
 }
 
 /** Records what is known about one reference. */
@@ -50,6 +55,12 @@ export const setInlineImage = StateEffect.define<{
 
 /** Asks for the download of an image a sync provider holds. */
 export const downloadInlineImage = StateEffect.define<string>();
+
+/** Asks for one web image the person chose to load. */
+export const loadRemoteImage = StateEffect.define<string>();
+
+/** Loads every web image still waiting to be asked for. */
+export const loadAllRemoteImages = StateEffect.define<null>();
 
 /**
  * How long typing pauses before a reference it produced is asked for. Typing
@@ -79,6 +90,21 @@ export const inlineImageField = StateField.define<ReadonlyMap<string, InlineImag
     return next ?? value;
   },
 });
+
+/**
+ * The host a web image reference points at, port included, or null for a
+ * reference that is not an `http`/`https` URL.
+ */
+export function remoteImageHost(reference: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(reference.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  return url.host.length > 0 ? url.host : null;
+}
 
 /** The file name a reference ends in, which is what a caption names. */
 export function imageLabel(reference: string): string {
@@ -116,6 +142,7 @@ const FAILURE_LABELS: Record<InlineImageFailure, string> = {
   not_downloaded: "not downloaded",
   too_large: "too large",
   not_an_image: "not an image",
+  unreachable: "could not be loaded",
 };
 
 function sameState(a: InlineImageState, b: InlineImageState): boolean {
@@ -126,6 +153,8 @@ function sameState(a: InlineImageState, b: InlineImageState): boolean {
       return b.status === "ready" && a.src === b.src && a.label === b.label;
     case "downloading":
       return b.status === "downloading" && a.label === b.label;
+    case "remote":
+      return b.status === "remote" && a.host === b.host && a.label === b.label;
     case "failed":
       return b.status === "failed" && a.reason === b.reason && a.label === b.label;
   }
@@ -172,28 +201,40 @@ export class InlineImageWidget extends WidgetType {
       frame.appendChild(image);
     } else if (this.state.status === "downloading") {
       frame.appendChild(caption(`${this.state.label} · downloading`));
+    } else if (this.state.status === "remote") {
+      frame.appendChild(caption(`Image from ${this.state.host}`));
+      frame.appendChild(actionButton(view, "Load image", loadRemoteImage.of(this.reference)));
     } else if (this.state.status === "failed") {
       frame.appendChild(caption(`${this.state.label} · ${FAILURE_LABELS[this.state.reason]}`));
       if (this.state.reason === "not_downloaded") {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "writ-btn writ-btn-secondary cm-md-image-download";
-        button.textContent = "Download";
-        const reference = this.reference;
-        button.addEventListener("click", () => {
-          view.dispatch({ effects: downloadInlineImage.of(reference) });
-        });
-        frame.appendChild(button);
+        frame.appendChild(actionButton(view, "Download", downloadInlineImage.of(this.reference)));
+      } else if (this.state.reason === "unreachable") {
+        frame.appendChild(actionButton(view, "Try again", loadRemoteImage.of(this.reference)));
       }
     }
     return frame;
   }
 
-  // The Download button takes its own click; everywhere else the editor
+  // The widget's buttons take their own clicks; everywhere else the editor
   // handles the event, so a click on the image places the cursor.
   override ignoreEvent(event: Event): boolean {
     return event.target instanceof Element && event.target.closest("button") !== null;
   }
+}
+
+function actionButton(
+  view: EditorView,
+  text: string,
+  effect: StateEffect<string>,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "writ-btn writ-btn-secondary cm-md-image-download";
+  button.textContent = text;
+  button.addEventListener("click", () => {
+    view.dispatch({ effects: effect });
+  });
+  return button;
 }
 
 function caption(text: string): HTMLElement {
@@ -219,10 +260,16 @@ function failureOf(error: unknown): InlineImageFailure {
  * While the document is being typed in, new references wait for a pause of
  * [`TYPING_PAUSE_MS`]: the scan that follows asks only for the ones still in
  * the text.
+ *
+ * A web image is fetched only when the person asks or has turned on loading
+ * web images; until then it shows its host and a Load image button. One the
+ * person loaded is asked for again when the tab comes back, which the host
+ * answers from memory.
  */
 class InlineImageRequester implements PluginValue {
   private readonly asked = new Set<string>();
   private readonly downloading = new Set<string>();
+  private readonly loading = new Set<string>();
   private typingPause: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
 
@@ -237,6 +284,8 @@ class InlineImageRequester implements PluginValue {
     for (const transaction of update.transactions) {
       for (const effect of transaction.effects) {
         if (effect.is(downloadInlineImage)) this.download(effect.value);
+        if (effect.is(loadRemoteImage)) this.loadRemote(effect.value);
+        if (effect.is(loadAllRemoteImages)) this.loadAllRemote(update.state);
       }
     }
     if (update.docChanged) {
@@ -289,19 +338,60 @@ class InlineImageRequester implements PluginValue {
 
   private request(references: string[]) {
     if (this.destroyed) return;
+    const known = inlineImageStates(this.view.state);
+    const loadsAll = this.deps.loadsRemoteImages();
+    const asks = references.map((reference) => {
+      const host = remoteImageHost(reference);
+      const label = imageLabel(reference);
+      if (host === null) {
+        return { reference, label, held: null, ask: (r: string) => this.deps.resolve(r) };
+      }
+      if (loadsAll || known.get(reference)?.status === "ready") {
+        return { reference, label, held: null, ask: (r: string) => this.deps.loadRemote(r) };
+      }
+      const held: InlineImageState = { status: "remote", label, host };
+      return { reference, label, held, ask: null };
+    });
     this.view.dispatch({
-      effects: references.map((reference) =>
-        setInlineImage.of({ reference, state: { status: "pending" } }),
+      effects: asks.map(({ reference, held }) =>
+        setInlineImage.of({ reference, state: held ?? { status: "pending" } }),
       ),
     });
-    for (const reference of references) {
-      const label = imageLabel(reference);
-      this.deps.resolve(reference).then(
+    for (const { reference, label, ask } of asks) {
+      if (!ask) continue;
+      ask(reference).then(
         ({ src }) => this.settle(reference, { status: "ready", src, label }),
         (error: unknown) =>
           this.settle(reference, { status: "failed", label, reason: failureOf(error) }),
       );
     }
+  }
+
+  private loadAllRemote(state: EditorView["state"]) {
+    for (const [reference, known] of inlineImageStates(state)) {
+      if (known.status === "remote") this.loadRemote(reference);
+    }
+  }
+
+  private loadRemote(reference: string) {
+    if (this.loading.has(reference)) return;
+    this.loading.add(reference);
+    const label = imageLabel(reference);
+    const done = () => this.loading.delete(reference);
+    // Called from an update, where CodeMirror refuses a dispatch.
+    queueMicrotask(() => {
+      this.settle(reference, { status: "downloading", label });
+      this.deps.loadRemote(reference).then(
+        ({ src }) => {
+          done();
+          this.settle(reference, { status: "ready", src, label });
+        },
+        (error: unknown) => {
+          done();
+          this.settle(reference, { status: "failed", label, reason: failureOf(error) });
+        },
+      );
+    });
   }
 
   private download(reference: string) {

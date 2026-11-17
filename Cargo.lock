@@ -7087,6 +7087,7 @@ dependencies = [
 name = "writ-tauri"
 version = "1.0.1"
 dependencies = [
+ "arboard",
  "chrono",
  "core-foundation 0.10.1",
  "dirs 7.0.0",
@@ -7099,6 +7100,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "png 0.18.1",
  "pulldown-cmark",
  "reqwest",
  "rfd",

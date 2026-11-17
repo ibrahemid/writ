@@ -1,0 +1,298 @@
+//! An `http:` or `https:` image in a Markdown file (ADR-057): which
+//! references are remote, the host a placeholder names, what a fetch may
+//! take, and the route the fetched bytes are served from.
+//!
+//! Nothing here touches the network. The fetch runs in the app, never in a
+//! webview, and only after a click or the `editor.load_remote_images` switch.
+
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
+
+use url::Url;
+
+use crate::hash::sha256_hex;
+use crate::preview::protocol::{sniff_image_mime, ASSET_MAX_BYTES};
+
+/// First segment of the remote-image route under the `document` scope.
+pub const REMOTE_IMAGE_PREFIX: &str = "_remote-image";
+
+/// The largest remote image fetched, the same cap as a file on disk.
+pub const REMOTE_IMAGE_MAX_BYTES: u64 = ASSET_MAX_BYTES;
+
+/// How long one fetch, redirects included, may take.
+pub const REMOTE_IMAGE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How many redirects a fetch follows.
+pub const REMOTE_IMAGE_MAX_REDIRECTS: usize = 5;
+
+/// The most bytes of fetched images held at once. The least recently used
+/// image goes first when a new one would pass it.
+pub const REMOTE_IMAGE_STORE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Why a remote image is not drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteImageRefusal {
+    /// The reference is not an `http:` or `https:` URL with a host, or the
+    /// tab is not open.
+    NotRemote,
+    /// The host did not answer with the image: no connection, a timeout, or
+    /// a status other than success.
+    Unreachable,
+    /// The answer is over [`REMOTE_IMAGE_MAX_BYTES`].
+    TooLarge,
+    /// The answer's leading bytes are not an image the editor draws.
+    NotAnImage,
+}
+
+impl RemoteImageRefusal {
+    /// Stable identifier the editor maps to a caption.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotRemote => "outside_root",
+            Self::Unreachable => "unreachable",
+            Self::TooLarge => "too_large",
+            Self::NotAnImage => "not_an_image",
+        }
+    }
+}
+
+/// The URL a remote reference is fetched from: `http:` or `https:` with a
+/// host, any user name and password removed so a document cannot make the
+/// fetch send them, and the fragment dropped.
+pub fn remote_image_url(reference: &str) -> Option<Url> {
+    let trimmed = reference.trim();
+    let scheme_end = trimmed.find(':')?;
+    let scheme = &trimmed[..scheme_end];
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
+    let mut url = Url::parse(trimmed).ok()?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none_or(str::is_empty) {
+        return None;
+    }
+    url.set_username("").ok()?;
+    url.set_password(None).ok()?;
+    url.set_fragment(None);
+    Some(url)
+}
+
+/// The host a placeholder names, with the port when the URL gives one.
+pub fn remote_image_host(url: &Url) -> String {
+    let host = url.host_str().unwrap_or_default();
+    match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    }
+}
+
+/// The key a fetched image is held and served under: the SHA-256 of its URL.
+pub fn remote_image_key(url: &Url) -> String {
+    sha256_hex(url.as_str().as_bytes())
+}
+
+/// Whether a redirect target may be followed: `http:` or `https:` with a
+/// host, as the first URL had to be.
+pub fn is_followable_redirect(target: &Url) -> bool {
+    matches!(target.scheme(), "http" | "https") && target.host_str().is_some_and(|h| !h.is_empty())
+}
+
+/// Turns away a body announced or grown past [`REMOTE_IMAGE_MAX_BYTES`].
+///
+/// # Errors
+///
+/// [`RemoteImageRefusal::TooLarge`].
+pub fn check_remote_image_size(byte_len: u64) -> Result<(), RemoteImageRefusal> {
+    if byte_len > REMOTE_IMAGE_MAX_BYTES {
+        return Err(RemoteImageRefusal::TooLarge);
+    }
+    Ok(())
+}
+
+/// The MIME type of a fetched body, from its leading bytes. What the host
+/// says the type is plays no part.
+///
+/// # Errors
+///
+/// [`RemoteImageRefusal::NotAnImage`].
+pub fn check_remote_image_bytes(bytes: &[u8]) -> Result<&'static str, RemoteImageRefusal> {
+    sniff_image_mime(bytes).ok_or(RemoteImageRefusal::NotAnImage)
+}
+
+/// The route path a held image is served at for `buffer_id`'s scope, or
+/// `None` when the id or token would not survive as one URL segment.
+pub fn remote_image_route(buffer_id: &str, token: &str, key: &str) -> Option<String> {
+    if !is_url_segment(buffer_id) || !is_url_segment(token) || !is_key(key) {
+        return None;
+    }
+    Some(format!("{REMOTE_IMAGE_PREFIX}/{buffer_id}/{token}/{key}"))
+}
+
+/// The parts of a remote-image request, split out of a document-scope path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteImageRequest<'a> {
+    /// The tab whose editor asked for the image.
+    pub buffer_id: &'a str,
+    /// The token of that tab's asset scope.
+    pub token: &'a str,
+    /// The held image's key, [`remote_image_key`] of its URL.
+    pub key: &'a str,
+}
+
+/// Split a document-scope path into a remote-image request. `None` for any
+/// other path or a malformed one. Pure and total.
+pub fn split_remote_image_request(document_path: &str) -> Option<RemoteImageRequest<'_>> {
+    let rest = document_path
+        .strip_prefix(REMOTE_IMAGE_PREFIX)?
+        .strip_prefix('/')?;
+    let mut parts = rest.split('/');
+    let buffer_id = parts.next()?;
+    let token = parts.next()?;
+    let key = parts.next()?;
+    if parts.next().is_some()
+        || !is_url_segment(buffer_id)
+        || !is_url_segment(token)
+        || !is_key(key)
+    {
+        return None;
+    }
+    Some(RemoteImageRequest {
+        buffer_id,
+        token,
+        key,
+    })
+}
+
+fn is_url_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
+fn is_key(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
+/// A fetched image, typed by its leading bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeldImage {
+    /// MIME type [`check_remote_image_bytes`] decided.
+    pub mime: &'static str,
+    /// The body, shared so serving it copies nothing.
+    pub bytes: Arc<[u8]>,
+}
+
+#[derive(Debug)]
+struct HeldEntry {
+    image: HeldImage,
+    readers: HashSet<String>,
+    used: u64,
+}
+
+/// Fetched images held in memory for the session, each readable only by the
+/// tabs whose editor asked for it.
+///
+/// Nothing is written to disk, so a remote image leaves no trace once the
+/// app quits. Bounded by bytes; the least recently used image is dropped
+/// first.
+#[derive(Debug)]
+pub struct RemoteImageStore {
+    entries: HashMap<String, HeldEntry>,
+    held_bytes: usize,
+    capacity: usize,
+    clock: u64,
+}
+
+impl Default for RemoteImageStore {
+    fn default() -> Self {
+        Self::with_capacity(REMOTE_IMAGE_STORE_BYTES)
+    }
+}
+
+impl RemoteImageStore {
+    /// A store holding at most `capacity` bytes of images.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            held_bytes: 0,
+            capacity,
+            clock: 0,
+        }
+    }
+
+    /// The image held under `key`, which `buffer_id` may read from now on.
+    /// For the editor's request: a second tab showing the same URL is served
+    /// without a second fetch.
+    pub fn grant(&mut self, key: &str, buffer_id: &str) -> Option<HeldImage> {
+        let used = self.tick();
+        let entry = self.entries.get_mut(key)?;
+        entry.used = used;
+        entry.readers.insert(buffer_id.to_string());
+        Some(entry.image.clone())
+    }
+
+    /// The image held under `key` when `buffer_id` was granted it. For the
+    /// route, which never widens who may read an image.
+    pub fn read(&mut self, key: &str, buffer_id: &str) -> Option<HeldImage> {
+        let used = self.tick();
+        let entry = self.entries.get_mut(key)?;
+        if !entry.readers.contains(buffer_id) {
+            return None;
+        }
+        entry.used = used;
+        Some(entry.image.clone())
+    }
+
+    /// Holds `image` under `key` for `buffer_id`, dropping the least recently
+    /// used images until it fits. An image larger than the whole store is
+    /// not held.
+    pub fn insert(&mut self, key: &str, buffer_id: &str, image: HeldImage) {
+        let size = image.bytes.len();
+        if size > self.capacity {
+            return;
+        }
+        let used = self.tick();
+        let mut readers = HashSet::new();
+        if let Some(old) = self.entries.remove(key) {
+            self.held_bytes -= old.image.bytes.len();
+            readers = old.readers;
+        }
+        readers.insert(buffer_id.to_string());
+        while self.held_bytes + size > self.capacity {
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.used)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            if let Some(dropped) = self.entries.remove(&oldest) {
+                self.held_bytes -= dropped.image.bytes.len();
+            }
+        }
+        self.held_bytes += size;
+        self.entries.insert(
+            key.to_string(),
+            HeldEntry {
+                image,
+                readers,
+                used,
+            },
+        );
+    }
+
+    /// Bytes of images held now.
+    pub fn held_bytes(&self) -> usize {
+        self.held_bytes
+    }
+
+    fn tick(&mut self) -> u64 {
+        self.clock += 1;
+        self.clock
+    }
+}
