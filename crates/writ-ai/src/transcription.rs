@@ -24,7 +24,7 @@ use writ_core::polish::{self, PolishAction, PolishError};
 
 use crate::connection::{
     prepare_action, prepare_on_device_action, run_rewrite_stream, sanitize_ai_error,
-    stored_key_for, OnDeviceRequest, PreparedRequest, StreamEvent,
+    stored_key_for, url_for_debug, OnDeviceRequest, PreparedRequest, StreamEvent,
 };
 use crate::keys::AiKeyState;
 
@@ -36,6 +36,8 @@ const MAX_REPLY_BYTES: usize = 1024 * 1024;
 const MAX_REFUSAL_BYTES: usize = 8 * 1024;
 /// The longest server reason a refusal message carries, in characters.
 const MAX_DETAIL_CHARS: usize = 200;
+/// The longest one segment's transcription may take, its retry included.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// A transcription request resolved from config and checked: the endpoint is
 /// allowed, the model named, the host consented to and the key found.
@@ -52,17 +54,20 @@ pub struct PreparedTranscription {
     pub language: Option<String>,
     api_key: Option<String>,
     is_private_network: bool,
+    /// The longest one segment may take, its retry included.
+    deadline: Duration,
 }
 
 impl std::fmt::Debug for PreparedTranscription {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PreparedTranscription")
-            .field("endpoint", &self.endpoint)
+            .field("endpoint", &url_for_debug(&self.endpoint))
             .field("host", &self.host)
             .field("model", &self.model)
             .field("language", &self.language)
             .field("has_key", &self.api_key.is_some())
             .field("is_private_network", &self.is_private_network)
+            .field("deadline", &self.deadline)
             .finish()
     }
 }
@@ -161,12 +166,19 @@ pub fn endpoint_state(
     }
 }
 
-/// The `audio/transcriptions` URL under `base_url`.
+/// The `audio/transcriptions` URL under `base_url`. The route goes on the
+/// path, before any query the address carries.
 fn transcription_endpoint(base_url: &str) -> String {
-    format!(
-        "{}/audio/transcriptions",
-        base_url.trim().trim_end_matches('/')
-    )
+    let base = base_url.trim();
+    match reqwest::Url::parse(base) {
+        Ok(mut url) => {
+            let path = format!("{}/audio/transcriptions", url.path().trim_end_matches('/'));
+            url.set_path(&path);
+            url.set_fragment(None);
+            url.to_string()
+        }
+        Err(_) => format!("{}/audio/transcriptions", base.trim_end_matches('/')),
+    }
 }
 
 /// Checks `d` and resolves the request every segment of a session uses.
@@ -225,6 +237,7 @@ pub fn prepare_transcription(
         language,
         api_key,
         is_private_network: target.is_private_network,
+        deadline: REQUEST_TIMEOUT,
     })
 }
 
@@ -237,9 +250,10 @@ struct TranscriptionReply {
 ///
 /// `prompt` is the end of the text already transcribed, which keeps names and
 /// spelling steady across segments; it is sent only when it has text. A
-/// network failure, a 429 or a 5xx is retried once after a second. `Ok(None)`
-/// when the transcript has no words, or when `cancel` fires: a stop ends the
-/// request wherever it is waiting and nothing is returned.
+/// network failure, a 429 or a 5xx is retried once after a second. A segment
+/// that takes longer than its deadline, retry included, is a network failure.
+/// `Ok(None)` when the transcript has no words, or when `cancel` fires: a stop
+/// ends the request wherever it is waiting and nothing is returned.
 pub async fn transcribe(
     client: &reqwest::Client,
     p: &PreparedTranscription,
@@ -248,7 +262,31 @@ pub async fn transcribe(
     cancel: &CancellationToken,
 ) -> Result<Option<String>, DictationError> {
     let prompt = prompt.map(str::trim).filter(|text| !text.is_empty());
-    match attempt(client, p, &wav, prompt, cancel).await {
+    match tokio::time::timeout(p.deadline, attempt_twice(client, p, &wav, prompt, cancel)).await {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::warn!(
+                bytes = wav.len(),
+                deadline_ms = u64::try_from(p.deadline.as_millis()).unwrap_or(u64::MAX),
+                "dictation: a transcription ran out of time"
+            );
+            Err(DictationError::Network {
+                host: p.host.clone(),
+            })
+        }
+    }
+}
+
+/// One attempt, and a second after [`RETRY_DELAY`] when the first failed in a
+/// way that may pass.
+async fn attempt_twice(
+    client: &reqwest::Client,
+    p: &PreparedTranscription,
+    wav: &[u8],
+    prompt: Option<&str>,
+    cancel: &CancellationToken,
+) -> Result<Option<String>, DictationError> {
+    match attempt(client, p, wav, prompt, cancel).await {
         Err(error) if error.is_transient() => {
             tracing::info!(
                 code = ?error.code(),
@@ -260,7 +298,7 @@ pub async fn transcribe(
                 () = cancel.cancelled() => return Ok(None),
                 () = tokio::time::sleep(RETRY_DELAY) => {}
             }
-            attempt(client, p, &wav, prompt, cancel).await
+            attempt(client, p, wav, prompt, cancel).await
         }
         other => other,
     }
@@ -378,8 +416,9 @@ async fn read_capped(response: reqwest::Response, cap: usize) -> Result<Vec<u8>,
     Ok(body)
 }
 
-/// The reason a refusal gives, as one short line with any URL and the key
-/// taken out; the status when the body names no reason.
+/// The reason a refusal gives, as one short line with any URL, the key, and
+/// control and bidirectional characters taken out; the status when the body
+/// names no reason.
 fn refusal_detail(body: &[u8], status: u16, api_key: Option<&str>) -> String {
     let parsed: Option<serde_json::Value> = serde_json::from_slice(body).ok();
     let reason = parsed.as_ref().and_then(|value| {
@@ -389,7 +428,7 @@ fn refusal_detail(body: &[u8], status: u16, api_key: Option<&str>) -> String {
             .or_else(|| error.as_str())
             .or_else(|| value["message"].as_str())
             .or_else(|| value["detail"].as_str())
-            .map(str::to_string)
+            .map(plain_line)
     });
     let Some(mut reason) = reason.filter(|text| !text.trim().is_empty()) else {
         return format!("HTTP {status}.");
@@ -402,6 +441,23 @@ fn refusal_detail(body: &[u8], status: u16, api_key: Option<&str>) -> String {
         Some((cut, _)) => format!("{}...", line[..cut].trim_end()),
         None => line,
     }
+}
+
+/// `text` with each control character turned into a space and every
+/// bidirectional mark, embedding, override and isolate removed, so a server's
+/// words cannot reorder or break the line they are shown in.
+fn plain_line(text: &str) -> String {
+    text.chars()
+        .filter(|c| !is_bidi_control(*c))
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
+
+fn is_bidi_control(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+    )
 }
 
 /// The clean-up pass for one transcript, ready for the AI connection.
@@ -476,6 +532,7 @@ mod tests {
             language: None,
             api_key: Some(KEY.to_string()),
             is_private_network: false,
+            deadline: REQUEST_TIMEOUT,
         }
     }
 
@@ -555,6 +612,107 @@ mod tests {
         let printed = format!("{:?}", keyed("http://127.0.0.1:1/v1"));
         assert!(!printed.contains(KEY), "{printed}");
         assert!(printed.contains("has_key: true"), "{printed}");
+    }
+
+    #[test]
+    fn the_debug_form_leaves_out_url_credentials() {
+        let printed = format!(
+            "{:?}",
+            keyed("https://user:pass-zz@api.example.com/v1?token=tok-zz")
+        );
+        for secret in ["pass-zz", "user", "tok-zz"] {
+            assert!(!printed.contains(secret), "{secret} in {printed}");
+        }
+        assert!(
+            printed.contains("https://api.example.com/v1/audio/transcriptions"),
+            "{printed}"
+        );
+    }
+
+    #[test]
+    fn the_route_goes_before_the_query() {
+        assert_eq!(
+            transcription_endpoint("https://example.com/openai/v1?api-version=2025-01"),
+            "https://example.com/openai/v1/audio/transcriptions?api-version=2025-01"
+        );
+        assert_eq!(
+            transcription_endpoint(" https://api.openai.com/v1/ "),
+            "https://api.openai.com/v1/audio/transcriptions"
+        );
+        assert_eq!(
+            transcription_endpoint("http://127.0.0.1:8000"),
+            "http://127.0.0.1:8000/audio/transcriptions"
+        );
+    }
+
+    #[test]
+    fn a_reason_loses_its_control_and_bidirectional_characters() {
+        let body = "{\"error\":{\"message\":\"Bad\\u202e input\\u0007\\nfile\\u2066 ZZ-dict\\u200eation-key\"}}";
+        assert_eq!(
+            refusal_detail(body.as_bytes(), 400, Some(KEY)),
+            "Bad input file <redacted-key>"
+        );
+        assert_eq!(
+            refusal_detail(br#"{"message":"\u202e\u2069"}"#, 422, None),
+            "HTTP 422."
+        );
+    }
+
+    /// A server that answers 200 and then sends its body one byte every 50 ms.
+    fn trickling_mock() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 16 * 1024];
+                let _ = stream.read(&mut buf);
+                let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 4000\r\n\r\n";
+                if stream.write_all(head.as_bytes()).is_err() {
+                    return;
+                }
+                for _ in 0..4000 {
+                    if stream
+                        .write_all(b" ")
+                        .and_then(|()| stream.flush())
+                        .is_err()
+                    {
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            }
+        });
+        format!("http://127.0.0.1:{port}/v1")
+    }
+
+    #[test]
+    fn a_trickling_server_runs_out_of_time() {
+        let mut p = keyed(&trickling_mock());
+        p.deadline = Duration::from_millis(400);
+        let started = std::time::Instant::now();
+        assert_eq!(
+            run(&p),
+            Err(DictationError::Network {
+                host: "127.0.0.1".to_string()
+            })
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_success_status_without_json_is_a_server_reply() {
+        let (base, _) = recording_mock("HTTP/1.1 200 OK", "<html>ok</html>");
+        assert_eq!(
+            run(&keyed(&base)),
+            Err(DictationError::Server {
+                host: "127.0.0.1".to_string(),
+                status: 200
+            })
+        );
     }
 
     #[test]

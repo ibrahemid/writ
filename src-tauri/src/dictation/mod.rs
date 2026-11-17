@@ -1,11 +1,13 @@
 //! Dictation's mechanism: the on-device bridge ([`bridge`]), the session
-//! driver ([`session`]) and the one live session the app allows.
+//! driver ([`session`]), what the main window ends ([`window`]) and the one
+//! live session the app allows.
 //!
 //! What a session reports and when lives in `writ_core::dictation`; the IPC
 //! surface is `commands::dictation`.
 
 pub mod bridge;
 pub mod session;
+pub mod window;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
@@ -82,6 +84,22 @@ impl DictationState {
         }
     }
 
+    /// Asks whatever session holds the slot, a start still being set up
+    /// included, to stop. Returns its id.
+    pub fn stop_live(&self) -> Option<u32> {
+        let (id, controls) = self.live_controls()?;
+        controls.stop.cancel();
+        Some(id)
+    }
+
+    /// Cancels whatever session holds the slot, a start still being set up
+    /// included. Returns its id.
+    pub fn cancel_live(&self) -> Option<u32> {
+        let (id, controls) = self.live_controls()?;
+        controls.cancel.cancel();
+        Some(id)
+    }
+
     /// Whether a session holds the slot.
     pub fn is_busy(&self) -> bool {
         recover_poison(self.live.lock(), "dictation::is_busy").is_some()
@@ -92,6 +110,34 @@ impl DictationState {
         live.as_ref()
             .filter(|l| l.id == id)
             .map(|l| l.controls.clone())
+    }
+
+    fn live_controls(&self) -> Option<(u32, Controls)> {
+        let live = recover_poison(self.live.lock(), "dictation::live_controls");
+        live.as_ref().map(|l| (l.id, l.controls.clone()))
+    }
+}
+
+/// Runs `release` when dropped, so a session task that unwinds still frees
+/// its slot.
+pub struct ReleaseOnDrop<F: FnOnce()> {
+    release: Option<F>,
+}
+
+impl<F: FnOnce()> ReleaseOnDrop<F> {
+    /// A guard that runs `release` once, when it is dropped.
+    pub fn new(release: F) -> Self {
+        Self {
+            release: Some(release),
+        }
+    }
+}
+
+impl<F: FnOnce()> Drop for ReleaseOnDrop<F> {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            release();
+        }
     }
 }
 
@@ -188,5 +234,59 @@ mod tests {
         state.release(id);
         state.stop(id);
         state.cancel(id);
+    }
+
+    #[test]
+    fn stop_live_reaches_a_start_still_being_set_up() {
+        let state = DictationState::default();
+        assert_eq!(state.stop_live(), None);
+        let reservation = state.reserve().expect("the slot is free");
+        let controls = reservation.controls();
+
+        assert_eq!(state.stop_live(), Some(reservation.id()));
+        assert!(controls.stop.is_cancelled());
+        assert!(!controls.cancel.is_cancelled());
+    }
+
+    #[test]
+    fn cancel_live_reaches_the_running_session() {
+        let state = DictationState::default();
+        assert_eq!(state.cancel_live(), None);
+        let reservation = state.reserve().expect("the slot is free");
+        let id = reservation.id();
+        let controls = reservation.controls();
+        reservation.keep();
+
+        assert_eq!(state.cancel_live(), Some(id));
+        assert!(controls.cancel.is_cancelled());
+        state.release(id);
+        assert_eq!(state.cancel_live(), None);
+    }
+
+    #[test]
+    fn a_session_task_that_panics_frees_the_slot() {
+        let state = std::sync::Arc::new(DictationState::default());
+        let reservation = state.reserve().expect("the slot is free");
+        let id = reservation.id();
+        reservation.keep();
+
+        let task_state = std::sync::Arc::clone(&state);
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _slot = ReleaseOnDrop::new(move || task_state.release(id));
+            panic!("the session driver failed");
+        }));
+
+        assert!(unwound.is_err());
+        assert!(!state.is_busy());
+        assert!(state.reserve().is_ok());
+    }
+
+    #[test]
+    fn the_guard_releases_once_on_a_normal_end() {
+        let calls = std::sync::atomic::AtomicU32::new(0);
+        drop(ReleaseOnDrop::new(|| {
+            calls.fetch_add(1, Ordering::Relaxed);
+        }));
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
     }
 }

@@ -515,6 +515,13 @@ pub fn run() {
         )
         .plugin(tauri_plugin_updater::Builder::new().build())
         .register_asynchronous_uri_scheme_protocol("writ-preview", preview::handler::serve)
+        .on_page_load(|webview, payload| {
+            dictation::window::cancel_on_page_load(
+                webview.app_handle(),
+                webview.label(),
+                payload.event(),
+            );
+        })
         .manage(app_state)
         .manage(commands::ai::AiState::default())
         .manage(commands::ai_connect::ConnectState::default())
@@ -1218,6 +1225,15 @@ pub fn run() {
                     }
                 }
             }
+        }
+
+        if let tauri::RunEvent::WindowEvent {
+            label,
+            event: window_event,
+            ..
+        } = &event
+        {
+            dictation::window::stop_when_out_of_sight(app_handle, label, window_event);
         }
 
         if let tauri::RunEvent::WindowEvent {

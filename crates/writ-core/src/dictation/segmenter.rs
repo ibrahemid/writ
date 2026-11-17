@@ -1,29 +1,15 @@
 //! Cutting a stream of 16 kHz samples into segments at pauses.
 //!
-//! Each frame's RMS level is compared with a noise floor that follows the
-//! quietest recent frames: it drops at once to a quieter frame and rises
-//! slowly otherwise. A frame is speech when it is clearly above that floor
-//! and above an absolute minimum, so steady fan or room noise never counts.
-//!
-//! A segment opens on speech with the frames just before it, closes after a
-//! pause once it holds enough speech, and is cut at its quietest recent
-//! frame when it reaches the length limit. A segment with too little speech
-//! is dropped.
+//! Frames are told apart as speech or not by a [`SpeechDetector`]. A segment
+//! opens on speech with the frames just before it, closes after a pause once
+//! it holds enough speech, and is cut at its quietest recent frame when it
+//! reaches the length limit. A segment with too little speech is dropped.
 
 use std::collections::VecDeque;
 
-use super::level::rms_dbfs;
 use super::samples_for_ms;
+use super::speech::SpeechDetector;
 
-/// A frame is speech only above this level.
-const ABS_MIN_DBFS: f32 = -50.0;
-/// A frame is speech only this far above the noise floor.
-const MARGIN_DB: f32 = 10.0;
-/// The first frame sets the floor, at most this high, so a session that
-/// starts mid-word still finds the word.
-const FLOOR_START_CAP_DBFS: f32 = -40.0;
-/// How fast the floor rises toward louder frames.
-const FLOOR_RISE_DB_PER_S: f32 = 3.3;
 /// The hard cut looks for its quietest frame in this much recent audio.
 const CUT_WINDOW_MS: u32 = 5_000;
 /// The shortest frame the segmenter works with.
@@ -120,9 +106,8 @@ pub struct Segmenter {
     pre_roll_frames: usize,
     tail_frames: usize,
     cut_window_frames: usize,
-    floor_rise_db: f32,
+    detector: SpeechDetector,
     pending: Vec<i16>,
-    floor_db: Option<f32>,
     pre_roll: VecDeque<Frame>,
     open: Option<OpenSegment>,
     speech_frames_total: u32,
@@ -146,9 +131,8 @@ impl Segmenter {
             pre_roll_frames: frames_for(params.pre_roll_ms, frame_ms) as usize,
             tail_frames: frames_for(params.tail_ms, frame_ms) as usize,
             cut_window_frames: frames_for(CUT_WINDOW_MS, frame_ms).max(1) as usize,
-            floor_rise_db: FLOOR_RISE_DB_PER_S * frame_ms as f32 / 1000.0,
+            detector: SpeechDetector::new(frame_ms),
             pending: Vec::new(),
-            floor_db: None,
             pre_roll: VecDeque::new(),
             open: None,
             speech_frames_total: 0,
@@ -206,15 +190,7 @@ impl Segmenter {
     }
 
     fn classify(&mut self, samples: Vec<i16>) -> Frame {
-        let db = rms_dbfs(&samples);
-        let floor = self.floor_db.unwrap_or(db.min(FLOOR_START_CAP_DBFS));
-        let speech = db > ABS_MIN_DBFS.max(floor + MARGIN_DB);
-        let next_floor = if db < floor {
-            db
-        } else {
-            (floor + self.floor_rise_db).min(db)
-        };
-        self.floor_db = Some(next_floor);
+        let (db, speech) = self.detector.classify(&samples);
         if speech {
             self.speech_frames_total += 1;
         }

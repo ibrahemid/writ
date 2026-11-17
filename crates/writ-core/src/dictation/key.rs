@@ -15,19 +15,24 @@ pub struct KeyAccount {
 }
 
 /// The account for `d`'s key. Dictation shares the AI connection's key when
-/// both name the same provider and resolve to the same host; otherwise it has
-/// an account of its own per provider.
+/// Chat or Rewrite is on (so the connection's key field is in Settings) and
+/// both name the same provider at the same scheme, host and port; otherwise it
+/// has an account of its own per provider.
 pub fn key_account(d: &DictationConfig, ai: &AiConfig) -> KeyAccount {
+    let connection_shown = ai.chat.enabled || ai.rewrite.enabled;
     let same_provider = d.provider.id() == ai.provider;
-    let same_host = same_provider
+    let same_endpoint = connection_shown
+        && same_provider
         && match (
             polish::resolve_endpoint(&d.effective_base_url()),
             polish::resolve_endpoint(&ai.effective_base_url()),
         ) {
-            (Ok(ours), Ok(theirs)) => ours.host_port == theirs.host_port,
+            (Ok(ours), Ok(theirs)) => {
+                ours.host_port == theirs.host_port && ours.is_encrypted == theirs.is_encrypted
+            }
             _ => false,
         };
-    if same_host {
+    if same_endpoint {
         return KeyAccount {
             account: ai.provider.clone(),
             shared_with_ai: true,

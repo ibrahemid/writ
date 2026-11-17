@@ -46,9 +46,11 @@ elif name == "gh" and argv[:2] == ["release", "view"]:
     print("v0.5.1")
 elif name == "gh" and argv[:1] == ["api"]:
     print("{}")
+elif name == "codesign":
+    print(os.environ.get("FAKE_ENTITLEMENTS", "[Key] com.apple.security.device.audio-input"))
 """
 
-TOOLS = ("uname", "rustup", "cargo", "lipo", "npx", "node", "pnpm", "minisign", "security", "gh", "docker", "act")
+TOOLS = ("uname", "rustup", "cargo", "lipo", "npx", "node", "pnpm", "minisign", "security", "gh", "docker", "act", "codesign")
 REPO_SCRIPTS = (".github/scripts/archive_app.py", ".github/scripts/release_signing.py", "scripts/gen-third-party-notices.py")
 SHELL_SCRIPTS = ("scripts/macos-release.sh", "scripts/build-mac-pkg.sh")
 
@@ -180,6 +182,27 @@ class ReleasePreflightTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("No TAURI_SIGNING_PRIVATE_KEY_PASSWORD env and no Keychain entry", result.stderr)
         self.assertEqual([r["name"] for r in self.records() if r["name"] not in {"uname", "security"}], [])
+
+    def test_the_signed_app_is_checked_for_the_microphone_entitlement(self) -> None:
+        self.install_key_file()
+        self.keychain.write_text(UNLOCK_PHRASE_PLACEHOLDER)
+        result = self.run_preflight()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        records = self.records()
+        sign = next(
+            i for i, r in enumerate(records) if r["name"] == "macos-release.sh" and r["argv"][:1] == ["sign-app"]
+        )
+        check = next(i for i, r in enumerate(records) if r["name"] == "codesign")
+        self.assertLess(sign, check)
+        self.assertEqual(records[check]["argv"][:3], ["-d", "--entitlements", "-"])
+
+    def test_a_signed_app_without_the_microphone_entitlement_stops_the_run(self) -> None:
+        self.install_key_file()
+        self.keychain.write_text(UNLOCK_PHRASE_PLACEHOLDER)
+        result = self.run_preflight(FAKE_ENTITLEMENTS="[Key] com.apple.security.cs.allow-jit")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("the signed app lacks the microphone entitlement", result.stderr)
+        self.assertNotIn("build-mac-pkg.sh", [record["name"] for record in self.records()])
 
     def test_off_darwin_the_run_needs_no_key(self) -> None:
         result = self.run_preflight(FAKE_UNAME="Linux")

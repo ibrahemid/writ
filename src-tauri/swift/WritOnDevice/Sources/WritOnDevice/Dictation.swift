@@ -249,6 +249,14 @@ public func writDictationRelease(_ handle: UnsafeMutableRawPointer) {
     Unmanaged<WritDictationSession>.fromOpaque(handle).release()
 }
 
+/// A download's progress as a whole percent from 0 to 100, or -1 when its
+/// size or progress is unknown.
+@_cdecl("writ_dictation_download_percent")
+public func writDictationDownloadPercent(_ fraction: Double, _ total: Int64) -> Int32 {
+    guard total > 0, fraction.isFinite else { return -1 }
+    return Int32(min(max(fraction, 0), 1) * 100)
+}
+
 #if canImport(FoundationModels)
 @available(macOS 26.0, *)
 private final class AnalyzerInputFeed: WritDictationInput, @unchecked Sendable {
@@ -308,7 +316,33 @@ private final class AnalyzerInputFeed: WritDictationInput, @unchecked Sendable {
     }
 
     override func finish() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let converter {
+            flush(converter)
+        }
         continuation.finish()
+    }
+
+    /// Sends the samples a sample-rate converter still holds once the input
+    /// has ended.
+    private func flush(_ converter: AVAudioConverter) {
+        for _ in 0..<8 {
+            guard let tail = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 4096) else {
+                return
+            }
+            var error: NSError?
+            let status = converter.convert(to: tail, error: &error) { _, inputStatus in
+                inputStatus.pointee = .endOfStream
+                return nil
+            }
+            if status != .error, tail.frameLength > 0 {
+                continuation.yield(AnalyzerInput(buffer: tail))
+            }
+            if status != .haveData {
+                return
+            }
+        }
     }
 
     override func cancel() {
@@ -323,9 +357,8 @@ private final class AnalyzerInputFeed: WritDictationInput, @unchecked Sendable {
 private func reportProgress(_ progress: Progress, _ session: WritDictationSession) async {
     var last: Int32 = -2
     while !Task.isCancelled {
-        let percent: Int32 =
-            progress.totalUnitCount > 0
-            ? Int32(min(max(progress.fractionCompleted, 0), 1) * 100) : -1
+        let percent = writDictationDownloadPercent(
+            progress.fractionCompleted, progress.totalUnitCount)
         if percent != last {
             last = percent
             session.emit(dictationPreparing, percent)

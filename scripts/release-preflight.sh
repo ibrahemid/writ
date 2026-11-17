@@ -155,6 +155,11 @@ else
   mkdir -p "${OUT_DIR}/assets"
   bash scripts/macos-release.sh extract-app "${BUILT_DMG}" "${OUT_DIR}/Writ.app"
   bash scripts/macos-release.sh sign-app "${OUT_DIR}/Writ.app" -
+  ENTITLEMENTS="$(codesign -d --entitlements - "${OUT_DIR}/Writ.app" 2>/dev/null)"
+  case "${ENTITLEMENTS}" in
+    *com.apple.security.device.audio-input*) ;;
+    *) fail "the signed app lacks the microphone entitlement" ;;
+  esac
   WRIT_APP_PATH="${OUT_DIR}/Writ.app" WRIT_PKG_OUT_DIR="${OUT_DIR}/assets" bash scripts/build-mac-pkg.sh
   bash scripts/macos-release.sh repack-dmg "${BUILT_DMG}" "${OUT_DIR}/Writ.app" "${OUT_DIR}/assets/Writ_${VERSION}_universal.dmg"
   python3 .github/scripts/archive_app.py create "${OUT_DIR}/Writ.app" "${APP_ARCHIVE}"

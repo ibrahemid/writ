@@ -188,11 +188,13 @@ fn presets_read_the_provider_table() {
 }
 
 fn ai(provider: &str, base_url: &str) -> AiConfig {
-    AiConfig {
+    let mut config = AiConfig {
         provider: provider.to_string(),
         base_url: base_url.to_string(),
         ..AiConfig::default()
-    }
+    };
+    config.chat.enabled = true;
+    config
 }
 
 fn dictation(provider: DictationProvider, base_url: &str) -> DictationConfig {
@@ -245,6 +247,38 @@ fn another_provider_or_host_has_its_own_key() {
         ai("custom", ""),
         "dictation.custom",
     );
+}
+
+#[test]
+fn the_ai_key_is_shared_only_while_chat_or_rewrite_is_on() {
+    let mut a = ai("openai", "");
+    a.chat.enabled = false;
+    let d = dictation(DictationProvider::OpenAi, "");
+    let account = key_account(&d, &a);
+    assert_eq!(account.account, "dictation.openai");
+    assert!(!account.shared_with_ai);
+
+    a.rewrite.enabled = true;
+    let account = key_account(&d, &a);
+    assert_eq!(account.account, "openai");
+    assert!(account.shared_with_ai);
+}
+
+#[test]
+fn http_and_https_to_one_host_do_not_share_a_key() {
+    let account = key_account(
+        &dictation(DictationProvider::Custom, "https://speech.example.com/v1"),
+        &ai("custom", "http://speech.example.com/v1"),
+    );
+    assert_eq!(account.account, "dictation.custom");
+    assert!(!account.shared_with_ai);
+
+    let account = key_account(
+        &dictation(DictationProvider::Custom, "https://speech.example.com/v1"),
+        &ai("custom", "https://speech.example.com/v1"),
+    );
+    assert_eq!(account.account, "custom");
+    assert!(account.shared_with_ai);
 }
 
 fn every_error() -> Vec<DictationError> {
@@ -429,6 +463,23 @@ fn only_the_network_rate_limits_and_5xx_are_retried() {
     .is_transient());
     assert!(!DictationError::Unauthorized { host: host() }.is_transient());
     assert!(!DictationError::NoSpeech.is_transient());
+}
+
+#[test]
+fn a_success_status_without_a_transcript_reads_as_its_own_message() {
+    let server = |status| DictationError::Server {
+        host: "api.example.com".to_string(),
+        status,
+    };
+    assert_eq!(
+        server(200).message_on(Platform::Mac),
+        "api.example.com sent a reply Writ could not read."
+    );
+    assert_eq!(
+        server(502).message_on(Platform::Mac),
+        "api.example.com returned an error (502)."
+    );
+    assert!(!server(200).is_transient());
 }
 
 #[test]

@@ -24,7 +24,7 @@ use writ_audio::{AudioFrame, CaptureError, Recorder};
 use writ_core::config::AiConfig;
 use writ_core::dictation::{
     clean_transcript, encode_wav_16k_mono, error_from_bridge, is_digital_silence, prompt_tail,
-    samples_for_ms, DictationError, DictationEvent, Segment, Segmenter,
+    samples_for_ms, DictationError, DictationEvent, Segment, Segmenter, SessionLimits,
 };
 
 use super::bridge::{BridgeEvent, Recognition};
@@ -128,6 +128,26 @@ impl Emitter {
             send: Box::new(send),
             ended: false,
         }
+    }
+
+    /// An emitter that hands each event to `send` and logs the first send of
+    /// session `session_id` that fails, not every one after it.
+    pub fn logging_failures<E: std::fmt::Display>(
+        session_id: u32,
+        mut send: impl FnMut(DictationEvent) -> Result<(), E> + Send + 'static,
+    ) -> Self {
+        let mut failed = false;
+        Self::new(move |event| {
+            if let Err(error) = send(event) {
+                if !std::mem::replace(&mut failed, true) {
+                    tracing::warn!(
+                        session = session_id,
+                        error = %error,
+                        "dictation events stopped reaching the window"
+                    );
+                }
+            }
+        })
     }
 
     fn emit(&mut self, event: DictationEvent) {
@@ -257,9 +277,10 @@ impl Inserted {
         }
     }
 
-    /// Ends a session that ran out of input.
-    fn end(&self, out: &mut Emitter) {
-        if self.count == 0 {
+    /// Ends a session that ran out of input. A session the quiet stop ended
+    /// has already said why, so nothing heard is not an error there.
+    fn end(&self, out: &mut Emitter, quiet_stopped: bool) {
+        if self.count == 0 && !quiet_stopped {
             out.fail(DictationError::NoSpeech);
         } else {
             out.emit(DictationEvent::Done);
@@ -321,6 +342,8 @@ pub struct ApiSession {
     pub segmenter: Segmenter,
     /// Whether digital silence from the start ends the session.
     pub silence_check: bool,
+    /// When the session stops by itself.
+    pub limits: SessionLimits,
 }
 
 type Answer = Result<Option<Heard>, DictationError>;
@@ -364,6 +387,8 @@ impl Requests {
 /// Frames go to the segmenter; each closed segment is queued and sent once
 /// the one before it is answered, so segments arrive in order. A stop ends
 /// capture and drains the queue; a cancel drops it and the request in flight.
+/// A minute without speech, or a queue the service cannot keep up with, stops
+/// the session as a stop does, with a notice.
 pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) {
     let ApiSession {
         session_id,
@@ -373,6 +398,7 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
         clean_up,
         segmenter,
         silence_check,
+        limits,
     } = session;
     let requests = Requests {
         session_id,
@@ -390,6 +416,8 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
     let mut inserted = Inserted::default();
     let mut meter = LevelMeter::default();
     let mut silence = SilenceWatch::new(silence_check);
+    let mut quiet = limits.quiet_watch();
+    let mut quiet_stopped = false;
     let mut recording = false;
     let mut stopping = false;
 
@@ -407,7 +435,7 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
             out.emit(DictationEvent::Transcribing { pending });
         }
         if frames.is_none() && in_flight.is_none() {
-            inserted.end(&mut out);
+            inserted.end(&mut out, quiet_stopped);
             return;
         }
 
@@ -437,9 +465,27 @@ pub async fn run_api(session: ApiSession, controls: Controls, mut out: Emitter) 
                         if let Some(level) = meter.push(&frame) {
                             out.emit(DictationEvent::Level { level });
                         }
+                        if quiet.push(&frame.samples) {
+                            stopping = true;
+                            quiet_stopped = true;
+                            release(capture.take());
+                            tracing::info!(session = session_id, "dictation: stopped after a minute without speech");
+                            out.emit(DictationEvent::stopped_after_silence());
+                        }
                     }
                     if let Some(segmenter) = segmenter.as_mut() {
                         queue.extend(segmenter.push(&frame.samples));
+                    }
+                    let queued: usize = queue.iter().map(|segment| segment.samples.len()).sum();
+                    if !stopping && limits.is_queue_full(queued) {
+                        stopping = true;
+                        release(capture.take());
+                        tracing::warn!(
+                            session = session_id,
+                            queued_ms = queued / samples_for_ms(1),
+                            "dictation: the transcription service fell behind"
+                        );
+                        out.emit(DictationEvent::stopped_service_behind());
                     }
                 }
                 None => {
@@ -498,6 +544,8 @@ pub struct OnDeviceSession {
     pub locale: String,
     /// Whether digital silence from the start ends the session.
     pub silence_check: bool,
+    /// When the session stops by itself.
+    pub limits: SessionLimits,
 }
 
 /// Holds audio that arrives before the recognition is ready; the oldest goes
@@ -513,7 +561,9 @@ fn hold(early: &mut VecDeque<i16>, samples: &[i16]) {
 /// Capture runs from the start; audio taken while the model gets ready is
 /// held and fed once it is. Partials go out at most every 100 ms; finals go
 /// through the clean-up, in order, when it is on. A stop ends capture and
-/// finishes the recognition, whose remaining text still goes in.
+/// finishes the recognition, whose remaining text still goes in. A minute
+/// without speech once recording starts stops the session the same way, with
+/// a notice.
 pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out: Emitter) {
     let OnDeviceSession {
         session_id,
@@ -524,6 +574,7 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
         clean_up,
         locale,
         silence_check,
+        limits,
     } = session;
     let mut frames = Some(frames);
     let mut events = Some(events);
@@ -540,6 +591,8 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
     let mut inserted = Inserted::default();
     let mut meter = LevelMeter::default();
     let mut silence = SilenceWatch::new(silence_check);
+    let mut quiet = limits.quiet_watch();
+    let mut quiet_stopped = false;
     let mut stopping = false;
 
     loop {
@@ -556,7 +609,7 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
         }
         if finished && cleaning.is_none() {
             release(capture.take());
-            inserted.end(&mut out);
+            inserted.end(&mut out, quiet_stopped);
             return;
         }
 
@@ -585,6 +638,13 @@ pub async fn run_on_device(session: OnDeviceSession, controls: Controls, mut out
                         if !stopping {
                             if let Some(level) = meter.push(&frame) {
                                 out.emit(DictationEvent::Level { level });
+                            }
+                            if quiet.push(&frame.samples) {
+                                stopping = true;
+                                quiet_stopped = true;
+                                release(capture.take());
+                                tracing::info!(session = session_id, "dictation: stopped after a minute without speech");
+                                out.emit(DictationEvent::stopped_after_silence());
                             }
                         }
                     } else {
@@ -819,7 +879,9 @@ mod tests {
     use writ_ai::transcription::prepare_transcription;
     use writ_core::config::{DictationConfig, DictationEngine, DictationProvider};
     use writ_core::dictation::on_device::BRIDGE_ASSETS_FAILED;
-    use writ_core::dictation::{DictationErrorCode, SegmenterParams};
+    use writ_core::dictation::{
+        DictationErrorCode, SegmenterParams, QUEUE_LIMIT_MS, QUIET_STOP_MS,
+    };
 
     use super::*;
 
@@ -987,6 +1049,16 @@ mod tests {
             clean_up: clean_up.map(|c| Arc::new(c) as Arc<dyn CleanUp>),
             segmenter: quick_segmenter(),
             silence_check: false,
+            limits: SessionLimits::default(),
+        }
+    }
+
+    /// Limits that stop a session after `quiet_ms` without speech or once
+    /// `queue_ms` of audio waits.
+    fn short_limits(quiet_ms: u32, queue_ms: u32) -> SessionLimits {
+        SessionLimits {
+            quiet_stop_ms: quiet_ms,
+            queue_ms,
         }
     }
 
@@ -1203,6 +1275,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_minute_without_speech_stops_and_inserts_what_was_heard() {
+        let transcriber = FakeTranscriber::replying(vec![Reply::Text("first")]);
+        let mut session = api(
+            frames_of(&[tone(400), silence(1_400)]),
+            true,
+            None,
+            transcriber,
+            None,
+        );
+        session.limits = short_limits(1_000, QUEUE_LIMIT_MS);
+        let mut events = start_api(session, Controls::default());
+        let all = words(&rest(&mut events).await);
+
+        assert_eq!(
+            all,
+            [
+                "notice Dictation stopped after a minute of silence.",
+                "segment 0 first",
+                "done"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_quiet_stop_with_nothing_heard_is_done_not_an_error() {
+        let transcriber = FakeTranscriber::replying(vec![]);
+        let mut session = api(
+            frames_of(&[silence(1_400)]),
+            true,
+            None,
+            Arc::clone(&transcriber),
+            None,
+        );
+        session.limits = short_limits(1_000, QUEUE_LIMIT_MS);
+        let mut events = start_api(session, Controls::default());
+        let all = words(&rest(&mut events).await);
+
+        assert_eq!(
+            all,
+            [
+                "notice Dictation stopped after a minute of silence.",
+                "done"
+            ]
+        );
+        assert!(transcriber.prompts().is_empty(), "nothing was sent");
+    }
+
+    #[tokio::test]
+    async fn a_full_queue_stops_capture_and_still_inserts_every_segment() {
+        let transcriber = FakeTranscriber::replying(vec![
+            Reply::Text("one"),
+            Reply::Text("two"),
+            Reply::Text("three"),
+            Reply::Text("four"),
+            Reply::Text("five"),
+        ]);
+        let phrases: Vec<Vec<i16>> = (0..5).flat_map(|_| [tone(400), silence(400)]).collect();
+        let mut session = api(frames_of(&phrases), true, None, transcriber, None);
+        session.limits = short_limits(QUIET_STOP_MS, 1_000);
+        let mut events = start_api(session, Controls::default());
+        let all = words(&rest(&mut events).await);
+
+        assert_eq!(
+            all,
+            [
+                "notice Dictation stopped because the transcription service could not keep up.",
+                "segment 0 one",
+                "segment 1 two",
+                "segment 2 three",
+                "segment 3 four",
+                "segment 4 five",
+                "done"
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn a_network_failure_keeps_the_segment_before_it() {
         let transcriber = FakeTranscriber::replying(vec![
             Reply::Text("first"),
@@ -1350,6 +1499,56 @@ mod tests {
         );
     }
 
+    /// A log sink the tests read back.
+    #[derive(Clone, Default)]
+    struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for LogBuffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("log").extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_window_that_stops_listening_is_logged_once_per_session() {
+        let log = LogBuffer::default();
+        let sink = log.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || sink.clone())
+            .with_ansi(false)
+            .finish();
+        let attempts = Arc::new(Mutex::new(0u32));
+        let counted = Arc::clone(&attempts);
+        tracing::subscriber::with_default(subscriber, || {
+            let mut out = Emitter::logging_failures(9, move |_event| {
+                *counted.lock().expect("attempts") += 1;
+                Err("the page is gone")
+            });
+            for _ in 0..3 {
+                out.emit(DictationEvent::Recording);
+            }
+        });
+
+        assert_eq!(
+            *attempts.lock().expect("attempts"),
+            3,
+            "every event is tried"
+        );
+        let text = String::from_utf8(log.0.lock().expect("log").clone()).expect("utf-8");
+        assert_eq!(
+            text.matches("dictation events stopped reaching the window")
+                .count(),
+            1,
+            "{text}"
+        );
+        assert!(text.contains("session=9"), "{text}");
+    }
+
     /// What the session did to the recognition.
     #[derive(Debug, Default)]
     struct RecognizerLog {
@@ -1404,6 +1603,24 @@ mod tests {
         answers: bool,
     ) -> OnDeviceRun {
         let (frames, capture) = capture(frames, open, None);
+        start_on_device_with(
+            frames,
+            capture,
+            on_finish,
+            clean_up,
+            answers,
+            SessionLimits::default(),
+        )
+    }
+
+    fn start_on_device_with(
+        frames: mpsc::Receiver<AudioFrame>,
+        capture: Box<dyn Capture>,
+        on_finish: Vec<BridgeEvent>,
+        clean_up: Option<FakeCleanUp>,
+        answers: bool,
+        limits: SessionLimits,
+    ) -> OnDeviceRun {
         let (bridge, bridge_events) = mpsc::unbounded_channel();
         let log = Arc::new(Mutex::new(RecognizerLog::default()));
         let recognizer = FakeRecognizer {
@@ -1420,6 +1637,7 @@ mod tests {
             clean_up: clean_up.map(|c| Arc::new(c) as Arc<dyn CleanUp>),
             locale: "en-US".to_string(),
             silence_check: false,
+            limits,
         };
         let controls = Controls::default();
         let (emitter, events) = events_channel();
@@ -1605,6 +1823,41 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_minute_without_speech_finishes_the_on_device_recognition() {
+        let (sender, frames) = mpsc::channel(256);
+        let capture = Box::new(FakeCapture {
+            _frames: Some(sender.clone()),
+            failure: None,
+        });
+        let mut run = start_on_device_with(
+            frames,
+            capture,
+            vec![BridgeEvent::Final("still heard".into())],
+            None,
+            true,
+            short_limits(1_000, QUEUE_LIMIT_MS),
+        );
+        run.bridge.send(BridgeEvent::Ready).expect("send");
+        until(&mut run.events, |e| matches!(e, DictationEvent::Recording)).await;
+        for frame in frames_of(&[silence(1_400)]) {
+            sender.send(frame).await.expect("send");
+        }
+        drop(sender);
+        let after = words(&rest(&mut run.events).await);
+
+        assert_eq!(
+            after,
+            [
+                "notice Dictation stopped after a minute of silence.",
+                "segment 0 still heard",
+                "done"
+            ]
+        );
+        let log = run.log.lock().expect("log");
+        assert!(log.finished && !log.stopped);
+    }
+
     /// A transcription server on a local port that answers each request, in
     /// order, with the next of `bodies`, and keeps what it was sent.
     fn transcription_server(bodies: Vec<&'static str>) -> (String, Arc<Mutex<Vec<String>>>) {
@@ -1666,6 +1919,7 @@ mod tests {
             clean_up: None,
             segmenter: quick_segmenter(),
             silence_check: false,
+            limits: SessionLimits::default(),
         };
         let mut events = start_api(session, Controls::default());
         let all = words(&rest(&mut events).await);

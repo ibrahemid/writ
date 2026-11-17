@@ -23,7 +23,8 @@ use writ_core::dictation::on_device::BRIDGE_LANGUAGE_UNSUPPORTED;
 use writ_core::dictation::platform::mic_settings_uri;
 use writ_core::dictation::{
     error_from_bridge, key_account, on_device_locale, DictationConfig, DictationEngine,
-    DictationError, DictationEvent, DictationFailure, Segmenter, SegmenterParams, LANGUAGES,
+    DictationError, DictationEvent, DictationFailure, Segmenter, SegmenterParams, SessionLimits,
+    LANGUAGES,
 };
 use writ_core::polish;
 
@@ -34,7 +35,7 @@ use crate::dictation::bridge::{self, MicStatus};
 use crate::dictation::session::{
     self, AiCleanUp, ApiSession, ApiTranscriber, CleanUp, Emitter, OnDeviceSession,
 };
-use crate::dictation::DictationState;
+use crate::dictation::{DictationState, ReleaseOnDrop};
 use crate::events::{emit_event, WritFrontendEvent};
 use crate::poison::recover_poison;
 use crate::state::AppState;
@@ -349,6 +350,12 @@ fn clean_up_for(app: &AppHandle, d: &DictationConfig, ai: &AiConfig) -> Option<A
     Some(Arc::new(AiCleanUp::new(ai.clone(), key)))
 }
 
+/// Whether a start needs the on-device locales: only an engine left to the
+/// machine is chosen by them.
+fn needs_locales(d: &DictationConfig) -> bool {
+    d.engine != Some(DictationEngine::Api)
+}
+
 async fn start_session(
     app: AppHandle,
     on_event: Channel<DictationEvent>,
@@ -362,15 +369,16 @@ async fn start_session(
     let session_id = reservation.id();
     let controls = reservation.controls();
 
-    let locales = bridge::supported_locales().await;
+    let locales = if needs_locales(&d) {
+        bridge::supported_locales().await
+    } else {
+        Ok(Vec::new())
+    };
     let engine = d.effective_engine(!supported(&locales).is_empty());
     let silence_check = cfg!(target_os = "macos");
-    let out = Emitter::new(move |event| {
-        if let Err(error) = on_event.send(event) {
-            tracing::warn!(error = %error, "a dictation event did not reach the window");
-        }
-    });
+    let out = Emitter::logging_failures(session_id, move |event| on_event.send(event));
     let task_app = app.clone();
+    let release_slot = move || task_app.state::<DictationState>().release(session_id);
 
     let locale = match engine {
         DictationEngine::Api => {
@@ -395,10 +403,11 @@ async fn start_session(
                 clean_up,
                 segmenter: Segmenter::new(SegmenterParams::default()),
                 silence_check,
+                limits: SessionLimits::default(),
             };
             tauri::async_runtime::spawn(async move {
+                let _slot = ReleaseOnDrop::new(release_slot);
                 session::run_api(session, controls, out).await;
-                task_app.state::<DictationState>().release(session_id);
             });
             None
         }
@@ -417,10 +426,11 @@ async fn start_session(
                 clean_up,
                 locale: locale.clone(),
                 silence_check,
+                limits: SessionLimits::default(),
             };
             tauri::async_runtime::spawn(async move {
+                let _slot = ReleaseOnDrop::new(release_slot);
                 session::run_on_device(session, controls, out).await;
-                task_app.state::<DictationState>().release(session_id);
             });
             Some(locale)
         }
@@ -447,14 +457,27 @@ mod tests {
     }
 
     fn ai(provider: &str) -> AiConfig {
-        AiConfig {
+        let mut config = AiConfig {
             provider: provider.to_string(),
             ..AiConfig::default()
-        }
+        };
+        config.chat.enabled = true;
+        config
     }
 
     fn locales(ids: &[&str]) -> Result<Vec<String>, i32> {
         Ok(ids.iter().map(|id| id.to_string()).collect())
+    }
+
+    #[test]
+    fn only_a_start_that_may_run_on_device_asks_for_its_locales() {
+        let engine = |engine| DictationConfig {
+            engine,
+            ..enabled()
+        };
+        assert!(!needs_locales(&engine(Some(DictationEngine::Api))));
+        assert!(needs_locales(&engine(Some(DictationEngine::OnDevice))));
+        assert!(needs_locales(&engine(None)));
     }
 
     #[test]
@@ -482,6 +505,12 @@ mod tests {
         );
         assert_eq!(
             own_key_account(&d, &ai("groq")).as_deref(),
+            Ok("dictation.openai")
+        );
+        let mut hidden = ai("openai");
+        hidden.chat.enabled = false;
+        assert_eq!(
+            own_key_account(&d, &hidden).as_deref(),
             Ok("dictation.openai")
         );
     }

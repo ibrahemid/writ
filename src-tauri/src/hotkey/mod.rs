@@ -531,6 +531,9 @@ fn toggle_window(app: &AppHandle) {
             info!("window focused via hotkey");
         }
         ToggleAction::Hide => {
+            if let Some(session) = app.state::<crate::dictation::DictationState>().stop_live() {
+                info!(session, "dictation stopped: window hidden via hotkey");
+            }
             window.hide().ok();
             crate::note_window_dismissed(app);
             info!("window hidden via hotkey");

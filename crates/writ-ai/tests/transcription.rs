@@ -624,6 +624,23 @@ fn the_clean_up_needs_the_ai_hosts_consent_and_key() {
 }
 
 #[test]
+fn the_clean_up_debug_form_leaves_out_the_key_and_url_credentials() {
+    let mut cfg = ai(
+        "custom",
+        "https://user:pass-zz@api.example.com/v1?token=tok-zz",
+        false,
+    );
+    cfg.consented_hosts.push("api.example.com".to_string());
+    let request = prepare_clean_up(&cfg, "private words", |_| Some("sk-zz-key".to_string()))
+        .expect("a consented endpoint with a key prepares");
+    let printed = format!("{request:?}");
+    for secret in ["sk-zz-key", "pass-zz", "user", "tok-zz", "private words"] {
+        assert!(!printed.contains(secret), "{secret} in {printed}");
+    }
+    assert!(printed.contains("api.example.com"), "{printed}");
+}
+
+#[test]
 fn the_clean_up_on_the_on_device_model_carries_the_instruction() {
     let Ok(CleanUpRequest::OnDevice(request)) =
         prepare_clean_up(&ai("apple", "", false), "hello world", |_| None)

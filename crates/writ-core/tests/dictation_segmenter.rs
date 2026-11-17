@@ -72,7 +72,8 @@ fn silence_alone_gives_nothing() {
 #[test]
 fn a_pause_closes_four_seconds_of_speech_after_about_800_ms() {
     let mut s = new();
-    assert!(feed(&mut s, &[silence(990), speech(4_000)]).is_empty());
+    // Ends on a voiced frame: the last 60 ms of each 400 are a murmur.
+    assert!(feed(&mut s, &[silence(990), speech(3_940)]).is_empty());
     let mut closed_at = None;
     let mut segments = Vec::new();
     for ms in 1..=1_000 {
@@ -185,6 +186,22 @@ fn finish_keeps_a_trailing_partial_frame_of_speech() {
 fn steady_fan_noise_is_not_speech() {
     let mut s = new();
     assert!(feed(&mut s, &[fan(10_000)]).is_empty());
+    assert!(!s.heard_speech());
+    assert_eq!(s.finish(), None);
+}
+
+#[test]
+fn digital_silence_before_fan_noise_does_not_make_the_fan_speech() {
+    let mut s = new();
+    assert!(feed(&mut s, &[silence(60), fan(10_000)]).is_empty());
+    assert!(!s.heard_speech());
+    assert_eq!(s.finish(), None);
+}
+
+#[test]
+fn digital_silence_mid_stream_does_not_make_the_fan_speech() {
+    let mut s = new();
+    assert!(feed(&mut s, &[fan(2_000), silence(90), fan(10_000)]).is_empty());
     assert!(!s.heard_speech());
     assert_eq!(s.finish(), None);
 }

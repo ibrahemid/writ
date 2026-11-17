@@ -481,6 +481,22 @@ mod tests {
 
     #[cfg(writ_on_device_bridge)]
     #[test]
+    fn download_progress_reads_as_a_percent_or_unknown() {
+        extern "C" {
+            fn writ_dictation_download_percent(fraction: f64, total: i64) -> i32;
+        }
+        // SAFETY: takes two plain values and touches no state.
+        let percent = |fraction, total| unsafe { writ_dictation_download_percent(fraction, total) };
+        assert_eq!(percent(0.42, 100), 42);
+        assert_eq!(percent(1.7, 100), 100);
+        assert_eq!(percent(-0.2, 100), 0);
+        assert_eq!(percent(0.5, 0), -1);
+        assert_eq!(percent(f64::NAN, 100), -1);
+        assert_eq!(percent(f64::INFINITY, 100), -1);
+    }
+
+    #[cfg(writ_on_device_bridge)]
+    #[test]
     fn the_bridge_reads_the_running_system() {
         use writ_core::dictation::on_device::BRIDGE_UNSUPPORTED;
 

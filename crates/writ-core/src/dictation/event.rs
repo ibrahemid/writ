@@ -67,4 +67,21 @@ impl DictationEvent {
             message: format!("Inserted without clean-up: {reason}"),
         }
     }
+
+    /// The notice shown when a session stops because it heard no speech for
+    /// a minute.
+    pub fn stopped_after_silence() -> Self {
+        Self::Notice {
+            message: "Dictation stopped after a minute of silence.".to_string(),
+        }
+    }
+
+    /// The notice shown when capture stops because too much audio waits for
+    /// the transcription service.
+    pub fn stopped_service_behind() -> Self {
+        Self::Notice {
+            message: "Dictation stopped because the transcription service could not keep up."
+                .to_string(),
+        }
+    }
 }

@@ -334,6 +334,10 @@ artifacts. `scripts/macos-release.sh` holds the signing steps:
   the Developer ID **Application** identity (`APPLE_SIGNING_IDENTITY`, or the
   one in the imported certificate): nested executables first, then the bundle,
   each with `--options runtime --timestamp`. It is then notarized and stapled.
+- The bundle is signed with `src-tauri/entitlements.plist`, which grants the
+  microphone (`com.apple.security.device.audio-input`) Dictation records
+  from. `sign-macos`, and `scripts/release-preflight.sh` after its ad-hoc
+  signature, fail when the signed app lacks that entitlement.
 - The `.pkg` is built from that signed app by `scripts/build-mac-pkg.sh`.
   `pkgbuild` produces the component package carrying the pre-install (quit a
   running Writ) and post-install (relaunch) scripts; `productbuild` wraps it

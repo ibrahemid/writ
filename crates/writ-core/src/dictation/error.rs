@@ -56,7 +56,8 @@ pub enum DictationError {
         /// The endpoint host.
         host: String,
     },
-    /// `host` answered 5xx after the retry, or another unexpected status.
+    /// `host` answered 5xx after the retry, another unexpected status, or a
+    /// 2xx whose body is not a transcript.
     Server {
         /// The endpoint host.
         host: String,
@@ -227,6 +228,9 @@ impl DictationError {
             Self::ModelNotFound { host, model } => format!("{host} has no model named {model}."),
             Self::RateLimited { host } => {
                 format!("{host} is limiting requests. Try again in a minute.")
+            }
+            Self::Server { host, status } if (200..=299).contains(status) => {
+                format!("{host} sent a reply Writ could not read.")
             }
             Self::Server { host, status } => format!("{host} returned an error ({status})."),
             Self::Refused { host, detail } => format!("{host} rejected the request: {detail}"),

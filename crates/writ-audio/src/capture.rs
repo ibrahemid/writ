@@ -170,7 +170,7 @@ fn run_capture(
     frames: tokio::sync::mpsc::Sender<AudioFrame>,
     failure: Arc<Mutex<Option<CaptureError>>>,
 ) {
-    let opened = open_stream(stream_control, frames);
+    let opened = open_stream(stream_control, frames, &failure);
     let (stream, worker, dropped) = match opened {
         Ok(parts) => parts,
         Err(error) => {
@@ -188,7 +188,7 @@ fn run_capture(
 
     if let Ok(Control::Failed(error)) = control.recv() {
         tracing::warn!(error = %error, "audio capture: the stream failed");
-        *failure.lock().unwrap_or_else(PoisonError::into_inner) = Some(error);
+        record_failure(&failure, error);
     }
     drop(stream);
     let _ = worker.join();
@@ -206,6 +206,7 @@ type Opened = (cpal::Stream, JoinHandle<()>, Arc<AtomicU64>);
 fn open_stream(
     stream_control: Sender<Control>,
     frames: tokio::sync::mpsc::Sender<AudioFrame>,
+    failure: &Arc<Mutex<Option<CaptureError>>>,
 ) -> Result<Opened, CaptureError> {
     let host = cpal::default_host();
     let device = host
@@ -213,6 +214,7 @@ fn open_stream(
         .ok_or(CaptureError::NoInputDevice)?;
     let supported = device.default_input_config()?;
     let format = supported.sample_format();
+    check_sample_format(format)?;
     let config: StreamConfig = supported.config();
     let converter = Converter::new(config.sample_rate, 1)?;
     tracing::info!(
@@ -222,31 +224,68 @@ fn open_stream(
         "audio capture: opening the default input"
     );
 
+    let dropped = Arc::new(AtomicU64::new(0));
+    let sink = StreamSink {
+        dropped: Arc::clone(&dropped),
+        control: stream_control,
+        failure: Arc::clone(failure),
+    };
+    let (stream, worker) = spawn_worker_then(converter, frames, |chunks| match format {
+        SampleFormat::I8 => build::<i8>(&device, &config, chunks, sink),
+        SampleFormat::I16 => build::<i16>(&device, &config, chunks, sink),
+        SampleFormat::I24 => build::<cpal::I24>(&device, &config, chunks, sink),
+        SampleFormat::I32 => build::<i32>(&device, &config, chunks, sink),
+        SampleFormat::I64 => build::<i64>(&device, &config, chunks, sink),
+        SampleFormat::U8 => build::<u8>(&device, &config, chunks, sink),
+        SampleFormat::U16 => build::<u16>(&device, &config, chunks, sink),
+        SampleFormat::U24 => build::<cpal::U24>(&device, &config, chunks, sink),
+        SampleFormat::U32 => build::<u32>(&device, &config, chunks, sink),
+        SampleFormat::U64 => build::<u64>(&device, &config, chunks, sink),
+        SampleFormat::F32 => build::<f32>(&device, &config, chunks, sink),
+        SampleFormat::F64 => build::<f64>(&device, &config, chunks, sink),
+        other => Err(unsupported_format(other)),
+    })?;
+    Ok((stream, worker, dropped))
+}
+
+/// Fails for a sample format this crate cannot read, before any thread starts.
+fn check_sample_format(format: SampleFormat) -> Result<(), CaptureError> {
+    match format {
+        SampleFormat::I8
+        | SampleFormat::I16
+        | SampleFormat::I24
+        | SampleFormat::I32
+        | SampleFormat::I64
+        | SampleFormat::U8
+        | SampleFormat::U16
+        | SampleFormat::U24
+        | SampleFormat::U32
+        | SampleFormat::U64
+        | SampleFormat::F32
+        | SampleFormat::F64 => Ok(()),
+        other => Err(unsupported_format(other)),
+    }
+}
+
+fn unsupported_format(format: SampleFormat) -> CaptureError {
+    CaptureError::Unsupported(format!("the input uses the {format} sample format"))
+}
+
+/// Starts the converter thread, then hands `build` the only sender of its
+/// queue. Whatever `build` does not keep is dropped when it returns, so a
+/// failed build always ends the thread before it is joined.
+fn spawn_worker_then<S>(
+    converter: Converter,
+    frames: tokio::sync::mpsc::Sender<AudioFrame>,
+    build: impl FnOnce(SyncSender<Vec<f32>>) -> Result<S, CaptureError>,
+) -> Result<(S, JoinHandle<()>), CaptureError> {
     let (chunk_tx, chunk_rx) = mpsc::sync_channel::<Vec<f32>>(QUEUE_CHUNKS);
     let worker = std::thread::Builder::new()
         .name("writ-audio-convert".to_string())
         .spawn(move || convert_chunks(chunk_rx, converter, frames))
         .map_err(|e| CaptureError::Backend(e.to_string()))?;
-    let dropped = Arc::new(AtomicU64::new(0));
-
-    let built = match format {
-        SampleFormat::I8 => build::<i8>(&device, &config, chunk_tx, &dropped, stream_control),
-        SampleFormat::I16 => build::<i16>(&device, &config, chunk_tx, &dropped, stream_control),
-        SampleFormat::I24 => {
-            build::<cpal::I24>(&device, &config, chunk_tx, &dropped, stream_control)
-        }
-        SampleFormat::I32 => build::<i32>(&device, &config, chunk_tx, &dropped, stream_control),
-        SampleFormat::U8 => build::<u8>(&device, &config, chunk_tx, &dropped, stream_control),
-        SampleFormat::U16 => build::<u16>(&device, &config, chunk_tx, &dropped, stream_control),
-        SampleFormat::U32 => build::<u32>(&device, &config, chunk_tx, &dropped, stream_control),
-        SampleFormat::F32 => build::<f32>(&device, &config, chunk_tx, &dropped, stream_control),
-        SampleFormat::F64 => build::<f64>(&device, &config, chunk_tx, &dropped, stream_control),
-        other => Err(CaptureError::Unsupported(format!(
-            "the input uses the {other} sample format"
-        ))),
-    };
-    match built {
-        Ok(stream) => Ok((stream, worker, dropped)),
+    match build(chunk_tx) {
+        Ok(stream) => Ok((stream, worker)),
         Err(error) => {
             let _ = worker.join();
             Err(error)
@@ -254,12 +293,18 @@ fn open_stream(
     }
 }
 
+/// What the device callbacks report to.
+struct StreamSink {
+    dropped: Arc<AtomicU64>,
+    control: Sender<Control>,
+    failure: Arc<Mutex<Option<CaptureError>>>,
+}
+
 fn build<T>(
     device: &cpal::Device,
     config: &StreamConfig,
     chunks: SyncSender<Vec<f32>>,
-    dropped: &Arc<AtomicU64>,
-    stream_control: Sender<Control>,
+    sink: StreamSink,
 ) -> Result<cpal::Stream, CaptureError>
 where
     T: SizedSample,
@@ -267,7 +312,11 @@ where
 {
     let channels = usize::from(config.channels.max(1));
     let scale = 1.0 / channels as f32;
-    let dropped = Arc::clone(dropped);
+    let StreamSink {
+        dropped,
+        control,
+        failure,
+    } = sink;
     let on_data = move |data: &[T], _: &cpal::InputCallbackInfo| {
         let mono: Vec<f32> = data
             .chunks_exact(channels)
@@ -280,16 +329,37 @@ where
             }
         }
     };
-    let on_error = move |error: cpal::Error| {
-        if is_fatal_stream_error(error.kind()) {
-            let _ = stream_control.send(Control::Failed(CaptureError::from_stream(&error)));
-        } else {
-            tracing::debug!(kind = ?error.kind(), "audio capture: stream notice");
-        }
-    };
+    let on_error = move |error: cpal::Error| report_stream_error(&error, &failure, &control);
     device
         .build_input_stream::<T, _, _>(*config, on_data, on_error, None)
         .map_err(CaptureError::from)
+}
+
+/// Stores a fatal stream error before anything else, since a backend can
+/// drop the data callback (closing the frame channel) right after it.
+fn report_stream_error(
+    error: &cpal::Error,
+    failure: &Mutex<Option<CaptureError>>,
+    control: &Sender<Control>,
+) {
+    if !is_fatal_stream_error(error.kind()) {
+        tracing::debug!(kind = ?error.kind(), "audio capture: stream notice");
+        return;
+    }
+    let error = CaptureError::from_stream(error);
+    if record_failure(failure, error.clone()) {
+        let _ = control.send(Control::Failed(error));
+    }
+}
+
+/// Keeps the first failure; returns whether `error` was the first.
+fn record_failure(failure: &Mutex<Option<CaptureError>>, error: CaptureError) -> bool {
+    let mut held = failure.lock().unwrap_or_else(PoisonError::into_inner);
+    if held.is_some() {
+        return false;
+    }
+    *held = Some(error);
+    true
 }
 
 fn convert_chunks(
@@ -319,4 +389,127 @@ fn convert_chunks(
         ms = delivered * u64::from(FRAME_MS),
         "audio capture: recording ended"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use cpal::{Error, ErrorKind};
+
+    use super::*;
+
+    #[test]
+    fn a_format_this_crate_cannot_read_is_refused_before_any_thread_starts() {
+        for format in [
+            SampleFormat::DsdU8,
+            SampleFormat::DsdU16,
+            SampleFormat::DsdU32,
+        ] {
+            assert!(
+                matches!(
+                    check_sample_format(format),
+                    Err(CaptureError::Unsupported(_))
+                ),
+                "{format}"
+            );
+        }
+        for format in [
+            SampleFormat::I64,
+            SampleFormat::U24,
+            SampleFormat::U64,
+            SampleFormat::I16,
+            SampleFormat::F32,
+        ] {
+            assert_eq!(check_sample_format(format), Ok(()), "{format}");
+        }
+    }
+
+    #[test]
+    fn a_failed_build_ends_the_converter_thread() {
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (frames, _frame_rx) = tokio::sync::mpsc::channel(FRAME_QUEUE);
+            let converter = Converter::new(48_000, 1).expect("converter");
+            let result = spawn_worker_then(converter, frames, |_chunks| {
+                Err::<(), _>(unsupported_format(SampleFormat::DsdU8))
+            });
+            let _ = done_tx.send(result.map(|_| ()));
+        });
+        let result = done_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the failed build returns instead of waiting on the converter");
+        assert!(matches!(result, Err(CaptureError::Unsupported(_))));
+    }
+
+    #[test]
+    fn a_built_stream_feeds_the_converter() {
+        let (frames, mut frame_rx) = tokio::sync::mpsc::channel(FRAME_QUEUE);
+        let converter = Converter::new(48_000, 1).expect("converter");
+        let (chunks, worker) =
+            spawn_worker_then(converter, frames, Ok::<_, CaptureError>).expect("starts");
+        chunks.send(vec![0.25; 48_000]).expect("queued");
+        drop(chunks);
+        worker.join().expect("the converter ends");
+        let mut samples = 0;
+        while let Ok(frame) = frame_rx.try_recv() {
+            samples += frame.samples.len();
+        }
+        assert!((15_000..=16_500).contains(&samples), "{samples} samples");
+    }
+
+    #[test]
+    fn a_fatal_stream_error_is_stored_when_it_is_reported() {
+        let failure = Mutex::new(None);
+        let (control, control_rx) = mpsc::channel();
+        report_stream_error(
+            &Error::new(ErrorKind::DeviceNotAvailable),
+            &failure,
+            &control,
+        );
+        assert!(matches!(
+            *failure.lock().unwrap(),
+            Some(CaptureError::DeviceLost(_))
+        ));
+        assert!(matches!(
+            control_rx.try_recv(),
+            Ok(Control::Failed(CaptureError::DeviceLost(_)))
+        ));
+
+        report_stream_error(
+            &Error::with_message(ErrorKind::BackendError, "later"),
+            &failure,
+            &control,
+        );
+        assert!(matches!(
+            *failure.lock().unwrap(),
+            Some(CaptureError::DeviceLost(_))
+        ));
+        assert!(control_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_stream_notice_is_not_a_failure() {
+        let failure = Mutex::new(None);
+        let (control, control_rx) = mpsc::channel();
+        for kind in [ErrorKind::Xrun, ErrorKind::DeviceChanged] {
+            report_stream_error(&Error::new(kind), &failure, &control);
+        }
+        assert_eq!(*failure.lock().unwrap(), None);
+        assert!(control_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn the_first_failure_is_kept() {
+        let failure = Mutex::new(None);
+        assert!(record_failure(&failure, CaptureError::PermissionDenied));
+        assert!(!record_failure(
+            &failure,
+            CaptureError::Backend("later".to_string())
+        ));
+        assert_eq!(
+            *failure.lock().unwrap(),
+            Some(CaptureError::PermissionDenied)
+        );
+    }
 }
