@@ -161,6 +161,10 @@ fn holds_bytes(path: &Path, bytes: &[u8]) -> Result<bool, ImageSaveError> {
 /// returns where it resolves, refusing it when it or a link on the way to it
 /// resolves outside `root`.
 ///
+/// `root` and `folder` may each carry the `\\?\` prefix Windows
+/// canonicalisation adds or not; both are compared without it, and the folder
+/// comes back without it ([`strip_verbatim_prefix`]).
+///
 /// # Errors
 ///
 /// [`ImageSaveError::OutsideRoot`] when `folder` is not under `root` or a part
@@ -168,10 +172,12 @@ fn holds_bytes(path: &Path, bytes: &[u8]) -> Result<bool, ImageSaveError> {
 /// cannot be made or is not a folder, and [`ImageSaveError::Io`] for any
 /// other failure.
 pub fn make_folder_within(root: &Path, folder: &Path) -> Result<PathBuf, ImageSaveError> {
+    let root = strip_verbatim_prefix(root.to_path_buf());
+    let folder = strip_verbatim_prefix(folder.to_path_buf());
     let rest = folder
-        .strip_prefix(root)
+        .strip_prefix(&root)
         .map_err(|_| ImageSaveError::OutsideRoot)?;
-    let mut current = root.to_path_buf();
+    let mut current = root.clone();
     for part in rest.components() {
         let std::path::Component::Normal(part) = part else {
             return Err(ImageSaveError::OutsideRoot);
@@ -184,7 +190,7 @@ pub fn make_folder_within(root: &Path, folder: &Path) -> Result<PathBuf, ImageSa
             Err(err) => return Err(ImageSaveError::Io(err)),
         }
         let resolved = strip_verbatim_prefix(fs::canonicalize(&next)?);
-        if !resolved.starts_with(root) {
+        if !resolved.starts_with(&root) {
             return Err(ImageSaveError::OutsideRoot);
         }
         if !fs::metadata(&resolved)?.is_dir() {
