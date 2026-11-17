@@ -1624,18 +1624,30 @@ mod tests {
         })
         .expect("a consented endpoint with a key prepares");
         let printed = format!("{prepared:?}");
-        for secret in [
+        for (i, secret) in [
             "sk-zz-key",
             "pass-zz",
             "user",
             "tok-zz",
             "frag",
             "private words",
-        ] {
-            assert!(!printed.contains(secret), "{secret} in {printed}");
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(
+                !printed.contains(secret),
+                "secret #{i} appears in the debug form"
+            );
         }
-        assert!(printed.contains("https://api.example.com/v1"), "{printed}");
-        assert!(printed.contains("has_key: true"), "{printed}");
+        assert!(
+            printed.contains("https://api.example.com/v1"),
+            "the debug form does not show the endpoint"
+        );
+        assert!(
+            printed.contains("has_key: true"),
+            "the debug form does not say a key is set"
+        );
         assert_eq!(url_for_debug("not a url"), "<unprintable-url>");
     }
 

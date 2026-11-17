@@ -4175,11 +4175,23 @@ mod prepared_debug_tests {
             Some("ZZ-chat-key"),
         );
         let printed = format!("{prepared:?}");
-        for secret in ["ZZ-chat-key", "pass-zz", "tok-zz", NOTE_TEXT, USER_TURN] {
-            assert!(!printed.contains(secret), "{secret} in {printed}");
+        for (i, secret) in ["ZZ-chat-key", "pass-zz", "tok-zz", NOTE_TEXT, USER_TURN]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(
+                !printed.contains(secret),
+                "secret #{i} appears in the debug form"
+            );
         }
-        assert!(printed.contains("has_key: true"), "{printed}");
-        assert!(printed.contains("notes: 1"), "{printed}");
+        assert!(
+            printed.contains("has_key: true"),
+            "the debug form does not say a key is set"
+        );
+        assert!(
+            printed.contains("notes: 1"),
+            "the debug form does not count the notes"
+        );
     }
 }
 

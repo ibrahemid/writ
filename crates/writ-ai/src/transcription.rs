@@ -608,7 +608,7 @@ mod tests {
                 "authorization: bearer {}",
                 KEY.to_ascii_lowercase()
             )),
-            "{request}"
+            "the request has no bearer header with the key"
         );
     }
 
@@ -621,16 +621,25 @@ mod tests {
         let Err(DictationError::Refused { detail, .. }) = run(&keyed(&base)) else {
             panic!("expected a refusal");
         };
-        assert!(!detail.contains(KEY), "{detail}");
-        assert!(!detail.contains("example.com"), "{detail}");
-        assert!(detail.starts_with("Bad key"), "{detail}");
+        assert!(!detail.contains(KEY), "the refusal detail carries the key");
+        assert!(
+            !detail.contains("example.com"),
+            "the refusal detail carries the endpoint"
+        );
+        assert!(
+            detail.starts_with("Bad key"),
+            "the refusal detail lost the service's message"
+        );
     }
 
     #[test]
     fn the_debug_form_leaves_the_key_out() {
         let printed = format!("{:?}", keyed("http://127.0.0.1:1/v1"));
-        assert!(!printed.contains(KEY), "{printed}");
-        assert!(printed.contains("has_key: true"), "{printed}");
+        assert!(!printed.contains(KEY), "the key appears in the debug form");
+        assert!(
+            printed.contains("has_key: true"),
+            "the debug form does not say a key is set"
+        );
     }
 
     #[test]
@@ -639,12 +648,15 @@ mod tests {
             "{:?}",
             keyed("https://user:pass-zz@api.example.com/v1?token=tok-zz")
         );
-        for secret in ["pass-zz", "user", "tok-zz"] {
-            assert!(!printed.contains(secret), "{secret} in {printed}");
+        for (i, secret) in ["pass-zz", "user", "tok-zz"].into_iter().enumerate() {
+            assert!(
+                !printed.contains(secret),
+                "secret #{i} appears in the debug form"
+            );
         }
         assert!(
             printed.contains("https://api.example.com/v1/audio/transcriptions"),
-            "{printed}"
+            "the debug form does not show the endpoint"
         );
     }
 

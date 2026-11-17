@@ -522,13 +522,13 @@ mod tests {
             events
         });
         drop(handle);
-        assert_eq!(events.len(), 1, "{events:?}");
+        assert_eq!(events.len(), 1, "one event ends the recognition");
         assert!(
             matches!(
                 events[0],
                 BridgeEvent::Failed(BRIDGE_LANGUAGE_UNSUPPORTED | BRIDGE_UNSUPPORTED)
             ),
-            "{events:?}"
+            "the recognition did not fail as unsupported"
         );
     }
 
@@ -538,8 +538,8 @@ mod tests {
         let (handle, receiver) = start("zz-ZZ");
         drop(handle);
         let events = drain(receiver);
-        assert_eq!(events.len(), 1, "{events:?}");
-        assert!(events[0].is_ending(), "{events:?}");
+        assert_eq!(events.len(), 1, "one event ends the recognition");
+        assert!(events[0].is_ending(), "the one event does not end it");
     }
 
     /// The 16-bit mono samples of a WAV file's `data` chunk.
@@ -608,7 +608,7 @@ mod tests {
         let lower = text.to_lowercase();
         assert!(
             lower.contains("voice") || lower.contains("typing"),
-            "{text}"
+            "the transcript holds neither spoken word"
         );
     }
 }

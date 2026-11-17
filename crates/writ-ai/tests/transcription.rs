@@ -403,21 +403,24 @@ fn a_segment_goes_as_a_wav_file_with_the_model_and_json_reply() {
     let request = &requests[0];
     assert!(
         request.starts_with("POST /v1/audio/transcriptions "),
-        "{request}"
+        "the request is not a POST to the transcription path"
     );
     assert!(
         request.contains("name=\"file\"; filename=\"segment.wav\"\r\nContent-Type: audio/wav"),
-        "{request}"
+        "the request has no WAV file part"
     );
     assert_eq!(field(request, "file"), Some("RIFF-segment"));
     assert_eq!(field(request, "model"), Some("whisper-1"));
     assert_eq!(field(request, "response_format"), Some("json"));
     assert_eq!(field(request, "language"), None);
     assert_eq!(field(request, "prompt"), None);
-    assert!(!request.contains("languages"), "{request}");
+    assert!(
+        !request.contains("languages"),
+        "the request names a languages field"
+    );
     assert!(
         !request.to_ascii_lowercase().contains("authorization:"),
-        "{request}"
+        "the request carries an authorization header"
     );
 }
 
@@ -459,12 +462,15 @@ fn a_groq_reply_reads_the_same_as_an_openai_one() {
 
 #[test]
 fn a_transcript_without_words_is_nothing() {
-    for body in [r#"{"text":"   "}"#, r#"{"text":" ... "}"#] {
+    for (i, body) in [r#"{"text":"   "}"#, r#"{"text":" ... "}"#]
+        .into_iter()
+        .enumerate()
+    {
         let (base, _) = mock(vec![Reply::Respond("HTTP/1.1 200 OK", body)]);
         assert_eq!(
             run_transcribe(&local(&base), None, CancellationToken::new()),
             Ok(None),
-            "{body}"
+            "reply #{i}"
         );
     }
 }
@@ -496,8 +502,14 @@ fn statuses_map_to_their_errors() {
         panic!("expected a refusal");
     };
     assert_eq!(host, "127.0.0.1");
-    assert!(detail.starts_with("Invalid file format."), "{detail}");
-    assert!(!detail.contains("example.com"), "{detail}");
+    assert!(
+        detail.starts_with("Invalid file format."),
+        "the refusal detail lost the service's message"
+    );
+    assert!(
+        !detail.contains("example.com"),
+        "the refusal detail carries a link"
+    );
 }
 
 #[test]
@@ -634,10 +646,19 @@ fn the_clean_up_debug_form_leaves_out_the_key_and_url_credentials() {
     let request = prepare_clean_up(&cfg, "private words", |_| Some("sk-zz-key".to_string()))
         .expect("a consented endpoint with a key prepares");
     let printed = format!("{request:?}");
-    for secret in ["sk-zz-key", "pass-zz", "user", "tok-zz", "private words"] {
-        assert!(!printed.contains(secret), "{secret} in {printed}");
+    for (i, secret) in ["sk-zz-key", "pass-zz", "user", "tok-zz", "private words"]
+        .into_iter()
+        .enumerate()
+    {
+        assert!(
+            !printed.contains(secret),
+            "secret #{i} appears in the debug form"
+        );
     }
-    assert!(printed.contains("api.example.com"), "{printed}");
+    assert!(
+        printed.contains("api.example.com"),
+        "the debug form does not show the host"
+    );
 }
 
 #[test]

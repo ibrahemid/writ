@@ -1123,7 +1123,7 @@ mod tests {
                     return seen;
                 }
             }
-            panic!("the session ended first: {seen:?}");
+            panic!("the session ended first, after {} events", seen.len());
         })
         .await
         .expect("the event arrives")
@@ -1249,7 +1249,7 @@ mod tests {
         assert_eq!(after.last().map(String::as_str), Some("cancelled"));
         assert!(
             after.iter().all(|name| !name.starts_with("segment")),
-            "{after:?}"
+            "a segment arrived after the cancel"
         );
     }
 
@@ -1593,9 +1593,12 @@ mod tests {
             text.matches("dictation events stopped reaching the window")
                 .count(),
             1,
-            "{text}"
+            "the stalled-window line is not logged exactly once"
         );
-        assert!(text.contains("session=9"), "{text}");
+        assert!(
+            text.contains("session=9"),
+            "the log line does not name the session"
+        );
     }
 
     /// What the session did to the recognition.
@@ -1831,7 +1834,7 @@ mod tests {
             .expect("send");
         let all = rest(&mut run.events).await;
         let Some(DictationEvent::Error { failure }) = all.last() else {
-            panic!("{all:?}");
+            panic!("the session did not end with an error");
         };
         assert_eq!(failure.code, DictationErrorCode::AssetsFailed);
         assert!(failure.message.contains("English"), "{}", failure.message);
