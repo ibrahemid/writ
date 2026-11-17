@@ -37,6 +37,12 @@ import {
 } from "../../stores/window/dictation-store";
 import { popModal, pushModal, resetModalStack } from "../../lib/modal-stack";
 import { findStore } from "../../stores/global/find-store";
+import {
+  hideContextMenu,
+  showAnchoredMenu,
+  showContextMenu,
+  type MenuItem,
+} from "../../components/ContextMenu/ContextMenu";
 
 type Send = (event: DictationEvent) => void;
 
@@ -418,6 +424,90 @@ describe("a session", () => {
     }
     expect(h.cancel).not.toHaveBeenCalled();
     expect(store.isLive()).toBe(true);
+  });
+
+  describe("with one of the app's menus open and the focus left outside it", () => {
+    const ITEMS: MenuItem[] = [{ label: "Copy", action: () => undefined }];
+    const controls: HTMLElement[] = [];
+
+    function control(): HTMLButtonElement {
+      const button = document.createElement("button");
+      document.body.appendChild(button);
+      controls.push(button);
+      return button;
+    }
+
+    afterEach(() => {
+      hideContextMenu();
+      for (const element of controls.splice(0)) element.remove();
+    });
+
+    it.each<[string, (view: EditorView) => HTMLElement]>([
+      [
+        "the editor's context menu",
+        (view) => {
+          showContextMenu(10, 10, ITEMS, view.scrollDOM.getBoundingClientRect());
+          return view.contentDOM;
+        },
+      ],
+      [
+        "the editor's spelling popover",
+        (view) => {
+          showAnchoredMenu(view.contentDOM.getBoundingClientRect(), ITEMS, undefined, view.scrollDOM.getBoundingClientRect());
+          return view.contentDOM;
+        },
+      ],
+      [
+        "a tab's context menu",
+        () => {
+          showContextMenu(10, 10, ITEMS);
+          return control();
+        },
+      ],
+      [
+        "the tab strip's overflow menu",
+        () => {
+          const overflow = control();
+          showAnchoredMenu(overflow.getBoundingClientRect(), ITEMS, overflow);
+          return overflow;
+        },
+      ],
+      [
+        "a sidebar row's context menu",
+        () => {
+          showContextMenu(10, 10, ITEMS);
+          return control();
+        },
+      ],
+      [
+        "the title bar's app menu",
+        () => {
+          const appMenu = control();
+          showAnchoredMenu(appMenu.getBoundingClientRect(), ITEMS, appMenu);
+          return appMenu;
+        },
+      ],
+      [
+        "a status bar chip's menu",
+        () => {
+          const chip = control();
+          showAnchoredMenu(chip.getBoundingClientRect(), ITEMS, chip);
+          return chip;
+        },
+      ],
+    ])("leaves Escape to %s, then cancels once it closes", async (_menu, open) => {
+      const view = makeView("");
+      const { store } = use(view);
+      answeredStart(4);
+      await store.toggle();
+      const target = open(view);
+      expect(escape(target).defaultPrevented).toBe(false);
+      expect(h.cancel).not.toHaveBeenCalled();
+      expect(store.isLive()).toBe(true);
+      hideContextMenu();
+      expect(escape(target).defaultPrevented).toBe(true);
+      expect(h.cancel).toHaveBeenCalledWith(4);
+    });
   });
 
   it("leaves Escape to the editor's completion list while it is open", async () => {

@@ -23,6 +23,7 @@ import { isModalOpen } from "../../lib/modal-stack";
 import { logFailure } from "../../lib/log";
 import { showToast, type ToastAction } from "../global/notifications";
 import { findStore } from "../global/find-store";
+import { isContextMenuOpen } from "../../components/ContextMenu/ContextMenu";
 
 /** Where a session is: waiting on the start, getting the on-device model,
  * listening, or draining what was heard after Stop. */
@@ -313,7 +314,8 @@ export function createDictationStore(deps: DictationStoreDeps) {
   // dictating editor's completion list.
   const isEscapeForDictation = (event: KeyboardEvent, view: EditorView): boolean => {
     if (event.key !== "Escape" || event.defaultPrevented || isImeComposing(event)) return false;
-    if (isModalOpen() || findStore.isOpen() || completionStatus(view.state) === "active") return false;
+    if (isModalOpen() || findStore.isOpen() || isContextMenuOpen()) return false;
+    if (completionStatus(view.state) === "active") return false;
     const target = event.target;
     if (!(target instanceof Element)) return true;
     return !isTextField(target) && target.closest(OVERLAY_ROLES) === null;
