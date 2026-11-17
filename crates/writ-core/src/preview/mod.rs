@@ -28,6 +28,7 @@ pub mod hints;
 pub mod inline_image;
 pub mod protocol;
 pub mod registry;
+pub mod remote_image;
 pub mod scripts;
 pub mod types;
 

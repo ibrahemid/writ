@@ -96,11 +96,12 @@ describe("settings index", () => {
     }
   });
 
-  it("puts the folder, the format, the window's chord and open at login in General", () => {
+  it("puts the folder, the format, the image folder, the window's chord and open at login in General", () => {
     const general = SETTINGS_INDEX.filter((e) => e.section === "general").map((e) => e.id);
     expect(general).toEqual([
       "notes.folder",
       "files.default_extension",
+      "files.image_folder",
       "hotkey.toggle",
       "general.launch_at_login",
     ]);

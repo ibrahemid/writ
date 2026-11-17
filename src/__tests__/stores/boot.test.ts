@@ -9,7 +9,10 @@ import { createRoot } from "solid-js";
 const h = vi.hoisted(() => ({
   showToast: vi.fn(),
   subscribed: [] as string[],
+  takeDroppedImages: vi.fn(async (paths: string[]) => paths),
 }));
+
+vi.mock("../../stores/global/images", () => ({ takeDroppedImages: h.takeDroppedImages }));
 
 vi.mock("../../stores/global/notifications", () => ({ showToast: h.showToast }));
 
@@ -26,6 +29,7 @@ import {
   createBootPlan,
   openLinkDraft,
   openPendingPaths,
+  receiveDroppedFiles,
   type BootPlan,
 } from "../../stores/window/boot";
 import { windowRegistry } from "../../stores/global/window-registry";
@@ -217,6 +221,40 @@ describe("files handed to the window", () => {
       unregister();
     }
     expect(reveals).toEqual([["id:/n/b.md", 12]]);
+  });
+});
+
+describe("files dropped on the window", () => {
+  it("opens only the files a Markdown editor did not take as images", async () => {
+    const opened: string[] = [];
+    const win = {
+      windowId: 9104,
+      tabs: {
+        openPath: vi.fn(async (path: string) => {
+          opened.push(path);
+          return { kind: "opened", doc: { id: `id:${path}` }, existed: false, mode: "Normal" };
+        }),
+      },
+      editor: { requestReveal: vi.fn() },
+    } as unknown as WindowState;
+    h.takeDroppedImages.mockImplementationOnce(async (paths: string[]) =>
+      paths.filter((path) => !path.endsWith(".png")),
+    );
+    const unregister = windowRegistry.register(win);
+    windowRegistry.focus(9104);
+    try {
+      await receiveDroppedFiles(["/d/a.png", "/d/b.txt"], { x: 4, y: 8 });
+    } finally {
+      unregister();
+    }
+    expect(h.takeDroppedImages).toHaveBeenLastCalledWith(["/d/a.png", "/d/b.txt"], { x: 4, y: 8 });
+    expect(opened).toEqual(["/d/b.txt"]);
+  });
+
+  it("passes no point when the platform gave none", async () => {
+    h.takeDroppedImages.mockImplementationOnce(async () => []);
+    await receiveDroppedFiles(["/d/a.png"]);
+    expect(h.takeDroppedImages).toHaveBeenLastCalledWith(["/d/a.png"], null);
   });
 });
 

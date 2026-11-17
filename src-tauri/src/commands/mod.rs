@@ -11,6 +11,7 @@ pub mod default_app;
 pub mod file;
 pub mod first_run;
 pub mod history;
+pub mod images;
 pub mod inbox;
 pub mod link;
 pub mod login_item;

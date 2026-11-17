@@ -261,7 +261,12 @@ describe("the Inline layer together", () => {
         extensions: [
           language(),
           markdownInlineExtension(
-            { resolve: () => new Promise(() => {}), download: () => new Promise(() => {}) },
+            {
+              resolve: () => new Promise(() => {}),
+              download: () => new Promise(() => {}),
+              loadRemote: () => new Promise(() => {}),
+              loadsRemoteImages: () => false,
+            },
             {
               renderMath: async (tex) => `<span class="katex">${tex}</span>`,
               renderDiagram: async () => "<svg><g></g></svg>",

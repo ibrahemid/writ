@@ -17,6 +17,7 @@ import { configStore } from "../global/config";
 import { syncConfigFromDisk } from "../global/config-sync";
 import { probeDefaultAppSupport } from "../global/default-app-support";
 import { firstRunStore, watchSavesForRetitle } from "../global/first-run";
+import { takeDroppedImages } from "../global/images";
 import { captureHotkeyStore, hotkeyStore } from "../global/hotkey";
 import { inboxStore } from "../global/inbox";
 import { showToast } from "../global/notifications";
@@ -35,6 +36,7 @@ import { windowRegistry } from "../global/window-registry";
 import { workspaceStore } from "../global/workspace";
 import { openBootTab } from "./boot-tab";
 import type { WindowState } from "./createWindowState";
+import type { DropPoint } from "../../types/image-import";
 import { applyRecoveredNotes } from "./recovered-notes";
 
 /** A step of the boot, named for what it does. */
@@ -215,6 +217,16 @@ export async function openLinkDraft(name: string | null | undefined): Promise<vo
 }
 
 /**
+ * Takes the images in a drop on a Markdown editor into that file, then opens
+ * the rest of the dropped files as tabs.
+ */
+export async function receiveDroppedFiles(paths: string[], position?: DropPoint): Promise<void> {
+  const rest = await takeDroppedImages(paths, position ?? null);
+  if (Array.isArray(rest) && rest.length === 0) return;
+  await openPendingPaths(rest);
+}
+
+/**
  * Opens files the OS, a drop or the `writ` command handed to the window, one
  * line for every refusal, each at the line `lines` names for it.
  */
@@ -353,7 +365,7 @@ export function createBootPlan(win: WindowState, shell: BootShell): BootPlan {
         "pending:opens",
         () => onEvent("pending:opens", (p) => void openPendingPaths(p.paths, p.lines)),
       ],
-      ["files:dropped", () => onEvent("files:dropped", (p) => void openPendingPaths(p.paths))],
+      ["files:dropped", () => onEvent("files:dropped", (p) => void receiveDroppedFiles(p.paths, p.position))],
       ["link:new", () => onEvent("link:new", (p) => void openLinkDraft(p.name))],
       ["context:asked", () => onEvent("context:asked", (p) => void answerContextAsk(p.token))],
       ["review:asked", () => onEvent("review:asked", (p) => receiveHeldWrite(p))],

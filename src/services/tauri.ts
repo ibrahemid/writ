@@ -24,7 +24,12 @@ import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
 import type { LinkVerdict } from "../types/link";
 import type { VersionWriter } from "../types/writer";
-import { isInlineImageFailure, type InlineImageFailure } from "../types/inline-image";
+import {
+  isInlineImageFailure,
+  type InlineImageFailure,
+  type RemoteImageLoad,
+} from "../types/inline-image";
+import type { ClipboardPasteResult, DroppedImagesResult } from "../types/image-import";
 import { logFailure } from "../lib/log";
 
 export async function listTransforms(): Promise<TransformDescriptor[]> {
@@ -1396,6 +1401,48 @@ export async function previewInlineImageDownload(
   return inlineImageSource(
     await invoke<InlineImageResult>("preview_inline_image_download", { bufferId, reference }),
   );
+}
+
+/**
+ * Fetch an `http`/`https` image an open Markdown file references, then answer
+ * as [`previewInlineImage`] does. Nothing is fetched until this is called;
+ * a fetched image is held in memory and served from the preview scheme. An
+ * `automatic` load is refused with `local_address` for a local host and
+ * `resolves_to_this_computer` or `resolves_to_local_network` for a name that
+ * resolves to a local address; any load is refused with
+ * `redirects_to_this_computer` or `redirects_to_local_network` for a redirect
+ * to a local address at another host. A public host is asked over `https`
+ * only; `not_secure` means it did not give the image that way.
+ */
+export async function previewRemoteImage(
+  bufferId: string,
+  reference: string,
+  load: RemoteImageLoad,
+): Promise<{ src: string }> {
+  return inlineImageSource(
+    await invoke<InlineImageResult>("preview_remote_image", { bufferId, reference, load }),
+  );
+}
+
+/**
+ * Save the images on the system clipboard next to the Markdown file open in
+ * `bufferId` and answer with the references to insert. The clipboard is read
+ * by the host, so no image bytes cross into the webview.
+ */
+export async function pasteClipboardImages(bufferId: string): Promise<ClipboardPasteResult> {
+  return invoke<ClipboardPasteResult>("paste_clipboard_images", { bufferId });
+}
+
+/**
+ * Save the images among `paths`, dropped on the Markdown file open in
+ * `bufferId`, and answer with the references to insert and the paths that
+ * are not images, which open as tabs.
+ */
+export async function importDroppedImages(
+  bufferId: string,
+  paths: string[],
+): Promise<DroppedImagesResult> {
+  return invoke<DroppedImagesResult>("import_dropped_images", { bufferId, paths });
 }
 
 

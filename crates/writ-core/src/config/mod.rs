@@ -26,7 +26,7 @@ pub mod spelling;
 
 pub use ai::{AiChatConfig, AiConfig, AiConfigOnDisk, AiRewriteConfig};
 pub use apps::{AppId, AppsConfig};
-pub use files::{FileExtension, FilesConfig};
+pub use files::{FileExtension, FilesConfig, ImageFolder, ImageFolderError};
 pub use lenient::{ConfigDiagnostic, LenientConfig};
 pub use mcp::{ClientApproval, McpConfig};
 pub use notes::{NotesConfig, NotesRootEditError};
@@ -130,6 +130,10 @@ fn default_status_bar_counts() -> bool {
 }
 
 fn default_reading_width() -> bool {
+    false
+}
+
+fn default_load_remote_images() -> bool {
     false
 }
 
@@ -473,6 +477,11 @@ pub struct EditorConfig {
     /// instead of running the width of the pane. Code keeps the full width.
     #[serde(default = "default_reading_width")]
     pub reading_width: bool,
+    /// Whether an `http:` or `https:` image in a Markdown file is fetched as
+    /// soon as it is shown, instead of waiting for its Load image button
+    /// (ADR-057).
+    #[serde(default = "default_load_remote_images")]
+    pub load_remote_images: bool,
 }
 
 impl Default for EditorConfig {
@@ -486,6 +495,7 @@ impl Default for EditorConfig {
             status_bar: default_status_bar(),
             status_bar_counts: default_status_bar_counts(),
             reading_width: default_reading_width(),
+            load_remote_images: default_load_remote_images(),
         }
     }
 }
@@ -940,6 +950,21 @@ mod tests {
         assert!(config.editor.reading_width);
         let written: WritConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
         assert!(written.editor.reading_width);
+    }
+
+    #[test]
+    fn editor_remote_images_wait_for_a_click_when_the_file_does_not_name_it() {
+        let config: WritConfig = toml::from_str("[editor]\nfont_size = 15\n").unwrap();
+        assert!(!config.editor.load_remote_images);
+        assert!(!EditorConfig::default().load_remote_images);
+    }
+
+    #[test]
+    fn editor_load_remote_images_round_trips() {
+        let config: WritConfig = toml::from_str("[editor]\nload_remote_images = true\n").unwrap();
+        assert!(config.editor.load_remote_images);
+        let written: WritConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert!(written.editor.load_remote_images);
     }
 
     #[test]

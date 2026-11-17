@@ -20,6 +20,9 @@ import {
   imageReferenceAt,
   inlineImageField,
   inlineImages,
+  loadAllRemoteImages,
+  loadRemoteImage,
+  remoteImageHost,
   setInlineImage,
   type InlineImageDeps,
   type InlineImageState,
@@ -351,9 +354,13 @@ describe("inlineImages", () => {
     resolve: InlineImageDeps["resolve"],
     download: InlineImageDeps["download"] = () => new Promise(() => {}),
     source = doc,
+    remote: Pick<InlineImageDeps, "loadRemote" | "loadsRemoteImages"> = {
+      loadRemote: () => new Promise(() => {}),
+      loadsRemoteImages: () => false,
+    },
   ): EditorView {
     return new EditorView({
-      state: stateFor(source, [inlineImages({ resolve, download })]),
+      state: stateFor(source, [inlineImages({ resolve, download, ...remote })]),
       parent: document.body,
     });
   }
@@ -488,11 +495,240 @@ describe("inlineImages", () => {
     view.destroy();
   });
 
+  const WEB = "https://images.example.com:8443/shots/two.png";
+  const WEB_DOC = `![Web](${WEB})\n`;
+  const WEB_SRC = "writ-preview://document/_remote-image/key";
+
+  async function settle() {
+    for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+  }
+
+  it("holds a web image at its host until it is asked for, then loads it", async () => {
+    const resolved: string[] = [];
+    const loaded: string[] = [];
+    const view = mount(
+      (reference) => {
+        resolved.push(reference);
+        return Promise.resolve({ src: SRC });
+      },
+      undefined,
+      WEB_DOC,
+      {
+        loadRemote: (reference, load) => {
+          loaded.push(`${load} ${reference}`);
+          return Promise.resolve({ src: WEB_SRC });
+        },
+        loadsRemoteImages: () => false,
+      },
+    );
+    await settle();
+    expect(resolved).toEqual([]);
+    expect(loaded).toEqual([]);
+    expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+      status: "remote",
+      label: "two.png",
+      host: "images.example.com:8443",
+    });
+
+    view.dispatch({ effects: loadRemoteImage.of(WEB) });
+    view.dispatch({ effects: loadRemoteImage.of(WEB) });
+    await Promise.resolve();
+    expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+      status: "downloading",
+      label: "two.png",
+    });
+    await settle();
+    expect(loaded).toEqual([`asked ${WEB}`]);
+    expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+      status: "ready",
+      src: WEB_SRC,
+      label: "two.png",
+    });
+    view.destroy();
+  });
+
+  it("loads web images without asking when the setting is on", async () => {
+    const loaded: string[] = [];
+    const view = mount(() => Promise.resolve({ src: SRC }), undefined, WEB_DOC, {
+      loadRemote: (reference, load) => {
+        loaded.push(`${load} ${reference}`);
+        return Promise.resolve({ src: WEB_SRC });
+      },
+      loadsRemoteImages: () => true,
+    });
+    await settle();
+    expect(loaded).toEqual([`automatic ${WEB}`]);
+    expect(view.state.field(inlineImageField).get(WEB)?.status).toBe("ready");
+    view.destroy();
+  });
+
+  it("loads every waiting web image when told to load them all", async () => {
+    const second = "http://other.example/a.gif";
+    const loaded: string[] = [];
+    const view = mount(
+      () => Promise.resolve({ src: SRC }),
+      undefined,
+      `${WEB_DOC}\n![](${second})\n`,
+      {
+        loadRemote: (reference, load) => {
+          loaded.push(`${load} ${reference}`);
+          return Promise.resolve({ src: WEB_SRC });
+        },
+        loadsRemoteImages: () => false,
+      },
+    );
+    await settle();
+    expect(loaded).toEqual([]);
+    view.dispatch({ effects: loadAllRemoteImages.of(null) });
+    await settle();
+    expect(loaded.sort()).toEqual([`automatic ${second}`, `automatic ${WEB}`].sort());
+    view.destroy();
+  });
+
+  it("keeps the Load image button for a local address it would not load unasked", async () => {
+    const local = "http://192.168.1.20/cam.png";
+    const loaded: string[] = [];
+    const view = mount(() => Promise.resolve({ src: SRC }), undefined, `![](${local})\n`, {
+      loadRemote: (reference, load) => {
+        loaded.push(`${load} ${reference}`);
+        if (load === "asked") return Promise.resolve({ src: WEB_SRC });
+        return Promise.reject(Object.assign(new Error("refused"), { reason: "local_address" }));
+      },
+      loadsRemoteImages: () => true,
+    });
+    await settle();
+    expect(loaded).toEqual([`automatic ${local}`]);
+    expect(view.state.field(inlineImageField).get(local)).toEqual({
+      status: "remote",
+      label: "cam.png",
+      host: "192.168.1.20",
+    });
+
+    view.dispatch({ effects: loadAllRemoteImages.of(null) });
+    await settle();
+    expect(view.state.field(inlineImageField).get(local)?.status).toBe("remote");
+
+    view.dispatch({ effects: loadRemoteImage.of(local) });
+    await settle();
+    expect(loaded[loaded.length - 1]).toBe(`asked ${local}`);
+    expect(view.state.field(inlineImageField).get(local)).toEqual({
+      status: "ready",
+      src: WEB_SRC,
+      label: "cam.png",
+    });
+    view.destroy();
+  });
+
+  it("says where a name that resolves to a local address leads, and keeps its button", async () => {
+    for (const [reason, scope] of [
+      ["resolves_to_local_network", "local_network"],
+      ["resolves_to_this_computer", "this_computer"],
+    ] as const) {
+      const named = "https://cam.example.com/still.png";
+      const loaded: string[] = [];
+      const view = mount(() => Promise.resolve({ src: SRC }), undefined, `![](${named})\n`, {
+        loadRemote: (reference, load) => {
+          loaded.push(`${load} ${reference}`);
+          if (load === "asked") return Promise.resolve({ src: WEB_SRC });
+          return Promise.reject(Object.assign(new Error("refused"), { reason }));
+        },
+        loadsRemoteImages: () => true,
+      });
+      await settle();
+      expect(view.state.field(inlineImageField).get(named)).toEqual({
+        status: "remote",
+        label: "still.png",
+        host: "cam.example.com",
+        scope,
+      });
+      view.dispatch({ effects: loadRemoteImage.of(named) });
+      await settle();
+      expect(loaded).toEqual([`automatic ${named}`, `asked ${named}`]);
+      expect(view.state.field(inlineImageField).get(named)?.status).toBe("ready");
+      view.destroy();
+    }
+  });
+
+  it("records a redirect to a local address as a refusal with no button", async () => {
+    for (const reason of ["redirects_to_local_network", "redirects_to_this_computer"] as const) {
+      const view = mount(() => Promise.resolve({ src: SRC }), undefined, WEB_DOC, {
+        loadRemote: () => Promise.reject(Object.assign(new Error("refused"), { reason })),
+        loadsRemoteImages: () => true,
+      });
+      await settle();
+      expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+        status: "failed",
+        label: "two.png",
+        reason,
+      });
+      view.destroy();
+    }
+  });
+
+  it("records an unreachable web image so it can be tried again", async () => {
+    const unreachable = Object.assign(new Error("refused"), { reason: "unreachable" });
+    let answer: Promise<{ src: string }> = Promise.reject(unreachable);
+    answer.catch(() => {});
+    const view = mount(() => Promise.resolve({ src: SRC }), undefined, WEB_DOC, {
+      loadRemote: () => answer,
+      loadsRemoteImages: () => true,
+    });
+    await settle();
+    expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+      status: "failed",
+      label: "two.png",
+      reason: "unreachable",
+    });
+    answer = Promise.resolve({ src: WEB_SRC });
+    view.dispatch({ effects: loadRemoteImage.of(WEB) });
+    await settle();
+    expect(view.state.field(inlineImageField).get(WEB)?.status).toBe("ready");
+    view.destroy();
+  });
+
+  it("records a web image a host did not give over a secure connection so it can be tried again", async () => {
+    const insecure = Object.assign(new Error("refused"), { reason: "not_secure" });
+    let answer: Promise<{ src: string }> = Promise.reject(insecure);
+    answer.catch(() => {});
+    const view = mount(() => Promise.resolve({ src: SRC }), undefined, WEB_DOC, {
+      loadRemote: () => answer,
+      loadsRemoteImages: () => true,
+    });
+    await settle();
+    expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+      status: "failed",
+      label: "two.png",
+      reason: "not_secure",
+    });
+    answer = Promise.resolve({ src: WEB_SRC });
+    view.dispatch({ effects: loadRemoteImage.of(WEB) });
+    await settle();
+    expect(view.state.field(inlineImageField).get(WEB)?.status).toBe("ready");
+    view.destroy();
+  });
+
+  it("records a reference the host says is not a web address as such", async () => {
+    const view = mount(() => Promise.resolve({ src: SRC }), undefined, WEB_DOC, {
+      loadRemote: () =>
+        Promise.reject(Object.assign(new Error("refused"), { reason: "not_remote" })),
+      loadsRemoteImages: () => true,
+    });
+    await settle();
+    expect(view.state.field(inlineImageField).get(WEB)).toEqual({
+      status: "failed",
+      label: "two.png",
+      reason: "not_remote",
+    });
+    view.destroy();
+  });
+
   it("keeps the states of references it was not told about", () => {
     const state = stateFor(doc, [
       inlineImages({
         resolve: () => Promise.reject(new Error()),
         download: () => Promise.reject(new Error()),
+        loadRemote: () => Promise.reject(new Error()),
+        loadsRemoteImages: () => false,
       }),
     ]);
     const next = state.update({
@@ -573,6 +809,131 @@ describe("the image widget", () => {
     view.destroy();
   });
 
+  it("names the host of a web image and offers to load it", () => {
+    const effects: unknown[] = [];
+    const view = viewWith(effects);
+    const widget = new InlineImageWidget("https://example.com/a.png", {
+      status: "remote",
+      label: "a.png",
+      host: "example.com",
+    });
+    const frame = widget.toDOM(view);
+    expect(frame.dataset.status).toBe("remote");
+    expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(
+      "Image from example.com",
+    );
+    expect(frame.querySelector("img")).toBeNull();
+    const button = frame.querySelector("button")!;
+    expect(button.textContent).toBe("Load image");
+    button.click();
+    const sent = effects.flat() as { is: (type: unknown) => boolean; value: unknown }[];
+    expect(
+      sent.some((e) => e.is(loadRemoteImage) && e.value === "https://example.com/a.png"),
+    ).toBe(true);
+    view.destroy();
+  });
+
+  it("offers to try an unreachable web image again", () => {
+    for (const [reason, caption] of [
+      ["unreachable", "a.png · could not be loaded"],
+      ["not_secure", "a.png · not available over a secure connection"],
+    ] as const) {
+      const effects: unknown[] = [];
+      const view = viewWith(effects);
+      const widget = new InlineImageWidget("https://example.com/a.png", {
+        status: "failed",
+        label: "a.png",
+        reason,
+      });
+      const frame = widget.toDOM(view);
+      expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(caption);
+      const button = frame.querySelector("button")!;
+      expect(button.textContent).toBe("Try again");
+      button.click();
+      const sent = effects.flat() as { is: (type: unknown) => boolean; value: unknown }[];
+      expect(sent.some((e) => e.is(loadRemoteImage))).toBe(true);
+      view.destroy();
+    }
+  });
+
+  it("names where a host whose name resolves to a local address leads", () => {
+    for (const [scope, caption] of [
+      ["local_network", "Image from cam.example.com, on your network"],
+      ["this_computer", "Image from cam.example.com, on this computer"],
+    ] as const) {
+      const effects: unknown[] = [];
+      const view = viewWith(effects);
+      const widget = new InlineImageWidget("https://cam.example.com/a.png", {
+        status: "remote",
+        label: "a.png",
+        host: "cam.example.com",
+        scope,
+      });
+      const frame = widget.toDOM(view);
+      expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(caption);
+      const button = frame.querySelector("button")!;
+      expect(button.textContent).toBe("Load image");
+      button.click();
+      const sent = effects.flat() as { is: (type: unknown) => boolean; value: unknown }[];
+      expect(sent.some((e) => e.is(loadRemoteImage))).toBe(true);
+      view.destroy();
+    }
+  });
+
+  it("captions a redirect to a local address with no button", () => {
+    for (const [reason, caption] of [
+      ["redirects_to_local_network", "a.png · redirects to an address on your network"],
+      ["redirects_to_this_computer", "a.png · redirects to an address on this computer"],
+    ] as const) {
+      const view = viewWith([]);
+      const widget = new InlineImageWidget("https://example.com/a.png", {
+        status: "failed",
+        label: "a.png",
+        reason,
+      });
+      const frame = widget.toDOM(view);
+      expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(caption);
+      expect(frame.querySelector("button")).toBeNull();
+      view.destroy();
+    }
+  });
+
+  it("captions a reference that is not a web address with no button", () => {
+    const view = viewWith([]);
+    const widget = new InlineImageWidget("https:a.png", {
+      status: "failed",
+      label: "a.png",
+      reason: "not_remote",
+    });
+    const frame = widget.toDOM(view);
+    expect(frame.querySelector(".cm-md-image-caption")!.textContent).toBe(
+      "a.png · not a web address",
+    );
+    expect(frame.querySelector("button")).toBeNull();
+    view.destroy();
+  });
+
+  it("redraws when a web image's host changes", () => {
+    const one = new InlineImageWidget("u", { status: "remote", label: "a.png", host: "a.example" });
+    const two = new InlineImageWidget("u", { status: "remote", label: "a.png", host: "b.example" });
+    const near = new InlineImageWidget("u", {
+      status: "remote",
+      label: "a.png",
+      host: "a.example",
+      scope: "local_network",
+    });
+    const here = new InlineImageWidget("u", {
+      status: "remote",
+      label: "a.png",
+      host: "a.example",
+      scope: "this_computer",
+    });
+    expect(one.eq(two)).toBe(false);
+    expect(one.eq(near)).toBe(false);
+    expect(near.eq(here)).toBe(false);
+    expect(one.eq(one)).toBe(true);
+  });
+
   it("redraws when the reason a reference is refused changes", () => {
     const missing = new InlineImageWidget("a.png", {
       status: "failed",
@@ -586,6 +947,21 @@ describe("the image widget", () => {
     });
     expect(missing.eq(evicted)).toBe(false);
     expect(evicted.eq(evicted)).toBe(true);
+  });
+});
+
+describe("remoteImageHost", () => {
+  it("names the host and port of an http or https address", () => {
+    expect(remoteImageHost("https://example.com/a.png")).toBe("example.com");
+    expect(remoteImageHost(" http://example.com:8080/a.png ")).toBe("example.com:8080");
+  });
+
+  it("answers null for a file reference or any other scheme", () => {
+    expect(remoteImageHost("shots/one.png")).toBeNull();
+    expect(remoteImageHost("/abs/one.png")).toBeNull();
+    expect(remoteImageHost("file:///tmp/a.png")).toBeNull();
+    expect(remoteImageHost("data:image/png;base64,AAAA")).toBeNull();
+    expect(remoteImageHost("ftp://example.com/a.png")).toBeNull();
   });
 });
 

@@ -52,9 +52,15 @@ reqwest = { version = "0.13", default-features = false, features = [
 tokio-util = { version = "0.7", default-features = false }
 # The pickers await the dialog's answer on a oneshot rather than parking a
 # runtime worker on a blocking receive (ADR-047). Already in the tree under
-# tauri; this is the edge, not a new package.
-tokio = { version = "1", default-features = false, features = ["sync"] }
+# tauri; this is the edge, not a new package. `net` resolves names for the
+# automatic remote image client (ADR-057); hyper-util already enables it.
+tokio = { version = "1", default-features = false, features = ["sync", "net"] }
 tauri-plugin-clipboard-manager = "2"
+# The clipboard plugin's own backend, taken directly for the copied-file list it does not expose.
+arboard = { version = "3.6", features = ["wayland-data-control"] }
+png = "0.18"
+# Already in the tree under arboard; `jpeg` saves an opaque clipboard picture over the image cap (ADR-035).
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
 tauri-plugin-autostart = "2"
 # The OS entropy source, already in the tree under rustls/ring. Taken directly
 # for the PKCE verifier and state of the connect flow (ADR-040 section 6); no

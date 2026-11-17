@@ -34,7 +34,7 @@ const MOCK_CONFIG: WritConfig = {
   history: { max_entries: 1000 },
   theme: { preset: "warp-dark", overrides: {} },
   appearance: { polarity: "system", accent: "pine", prose_face: "system", interface_text_size: null },
-  files: { default_extension: "txt" },
+  files: { default_extension: "txt", image_folder: "assets" },
   workspace: { root: null },
   inbox: { path: null, focus: true },
   updater: { auto_check: true },

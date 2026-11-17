@@ -15,7 +15,8 @@ import { themeStore } from "../../stores/global/theme";
 import { isMarkdownBuffer } from "../../lib/content-type";
 import { markdownInlineExtension } from "../../editor/markdown-typography";
 import { sharedBlockRenderer } from "../../editor/block-renderer";
-import type { InlineImageDeps } from "../../editor/markdown-images";
+import { loadAllRemoteImages, type InlineImageDeps } from "../../editor/markdown-images";
+import { imagePaste, type ImagePasteDeps } from "../../editor/image-paste";
 import { markdownEditingExtension } from "../../editor/markdown-editing";
 import { writSelection } from "../../editor/selection-layer";
 import { MARKDOWN_FORMAT_KEYS } from "../../editor/editor-command-keys";
@@ -63,6 +64,10 @@ import {
 import type { BufferDocument, FileOpenMode } from "../../types/buffer";
 import type { ViewPosition } from "../../stores/window/editor-store";
 import { configStore } from "../../stores/global/config";
+import { clipboardStore } from "../../stores/global/clipboard";
+import { imagesStore } from "../../stores/global/images";
+import type { DropPoint } from "../../types/image-import";
+import type { RemoteImageLoad } from "../../types/inline-image";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { unreadTabs } from "../../stores/global/unread-tabs";
@@ -197,6 +202,7 @@ export default function EditorInstance(props: Props) {
   let view: EditorView | undefined;
   let disposeEditorCommands: (() => void) | undefined;
   let stopClosedListener: (() => void) | undefined;
+  let stopImageDrops: (() => void) | undefined;
   let currentBufferId: string | undefined;
   // The buffer the view holds; it trails currentBufferId during a switch.
   let viewBufferId: string | undefined;
@@ -343,7 +349,7 @@ export default function EditorInstance(props: Props) {
     clipboard: {
       copy: (view) => void copySelection(view),
       cut: (view) => void cutSelection(view),
-      paste: (view) => void pasteIntoSelection(view),
+      paste: (view) => void pasteIntoSelection(view, imagePasteDeps),
     },
     actions: {
       rewriteActions: REWRITE_ACTIONS,
@@ -422,7 +428,51 @@ export default function EditorInstance(props: Props) {
   const imageDeps: InlineImageDeps = {
     resolve: (reference: string) => linkStore.inlineImage(props.buffer.id, reference),
     download: (reference: string) => linkStore.downloadInlineImage(props.buffer.id, reference),
+    loadRemote: (reference: string, load: RemoteImageLoad) =>
+      imagesStore.loadRemoteImage(viewBufferId ?? props.buffer.id, reference, load),
+    loadsRemoteImages: () => configStore.config().editor.load_remote_images ?? false,
   };
+
+  // Images go into the tab the view holds, and only once it is the selected
+  // one: during a switch the view still holds the tab before it.
+  function viewTakesImages(): boolean {
+    return (
+      view !== undefined &&
+      viewBufferId === props.buffer.id &&
+      isMarkdown() &&
+      !view.state.readOnly
+    );
+  }
+
+  const imagePasteDeps: ImagePasteDeps = {
+    bufferId: () => viewBufferId ?? props.buffer.id,
+    acceptsImages: viewTakesImages,
+    pasteImages: (bufferId) => imagesStore.pasteClipboardImages(bufferId),
+    readText: () => clipboardStore.readText(),
+    notify: (notices) => imagesStore.showImageNotices(notices),
+    logFailure,
+  };
+
+  // A drop with no point, or one the editor cannot place, lands at the cursor.
+  function insertDroppedImages(markdown: string, point: DropPoint | null, bufferId: string): boolean {
+    if (!view || viewBufferId !== bufferId || view.state.readOnly) return false;
+    const pos = point ? view.posAtCoords(point, false) : view.state.selection.main.head;
+    view.dispatch({
+      changes: { from: pos, insert: markdown },
+      selection: { anchor: pos + markdown.length },
+      scrollIntoView: true,
+      userEvent: "input.drop",
+    });
+    view.focus();
+    return true;
+  }
+
+  function dropLandsOnEditor(point: DropPoint): boolean {
+    const rect = containerRef.getBoundingClientRect();
+    return (
+      point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom
+    );
+  }
 
   // The layout decides. A markdown buffer laid out inline is the only one
   // that carries the decorations; its source layout is the raw text, and a
@@ -592,6 +642,7 @@ export default function EditorInstance(props: Props) {
       isBinary ? [] : wikilinkCompletion(wikilinkCompleteDeps),
       contextMenuExtension,
       spellingMenuExtension,
+      imagePaste(imagePasteDeps),
       readOnlyCompartment.of(
         isBinary
           ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
@@ -1267,6 +1318,14 @@ export default function EditorInstance(props: Props) {
     // loaded while the main thread is idle rather than on the first .md open.
     warmGrammar("markdown");
 
+    stopImageDrops = imagesStore.registerImageDropTarget({
+      bufferId: () => viewBufferId ?? props.buffer.id,
+      acceptsImages: viewTakesImages,
+      contains: dropLandsOnEditor,
+      hasFocus: isFocused,
+      insert: insertDroppedImages,
+    });
+
     ed.setMounted(true);
     loadBuffer(props.buffer);
   });
@@ -1441,6 +1500,16 @@ export default function EditorInstance(props: Props) {
     { defer: true },
   ));
 
+  // Turning on web images loads the ones the open file is waiting on.
+  const loadsRemoteImages = createMemo(() => configStore.config().editor.load_remote_images ?? false);
+  createEffect(on(
+    loadsRemoteImages,
+    (loads) => {
+      if (loads) view?.dispatch({ effects: loadAllRemoteImages.of(null) });
+    },
+    { defer: true },
+  ));
+
   // Re-apply spell check when the master switch or what the checker reads
   // changes, and only then. The words are copied out so the comparison sees a
   // list the store changed in place. Buffer switches and file-mode changes are
@@ -1554,6 +1623,7 @@ export default function EditorInstance(props: Props) {
     ed.clearTabStates();
     ed.endRead();
     stopClosedListener?.();
+    stopImageDrops?.();
     if (ownedCommands) unregisterOwnedCommands();
     if (isFocused()) spellingStore.detach();
     // This runs before whatever unmounted the editor (the last tab closing, a

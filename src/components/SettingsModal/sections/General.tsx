@@ -10,6 +10,7 @@ import { joinAnd } from "../../../lib/join-and";
 import { logFailure } from "../../../lib/log";
 import { formatKeybinding } from "../../../lib/keybinding-format";
 import { detectPlatform, FILE_MANAGER_NAME, SHOW_IN_FILE_MANAGER } from "../../../lib/platform";
+import { DEFAULT_IMAGE_FOLDER, readImageFolder } from "../../../lib/image-folder";
 import type { FileExtension } from "../../../types/config";
 import Button from "../../Button/Button";
 import Kbd from "../../Kbd/Kbd";
@@ -232,6 +233,43 @@ function GlobalChordRow() {
   );
 }
 
+export const IMAGE_FOLDER_CAUTION = "Use a folder inside the file's folder, like assets.";
+export const IMAGE_FOLDER_NAME_CAUTION =
+  'Folder names can\'t hold < > : " | ? *, end in a dot or space, or be a device name like CON.';
+
+function ImageFolderRow() {
+  const saved = () => configStore.config().files.image_folder ?? DEFAULT_IMAGE_FOLDER;
+  const [caution, setCaution] = createSignal<string | undefined>();
+
+  function onChange(input: HTMLInputElement) {
+    const reading = readImageFolder(input.value);
+    if (!reading.ok) {
+      setCaution(reading.reason === "not_a_name" ? IMAGE_FOLDER_NAME_CAUTION : IMAGE_FOLDER_CAUTION);
+      return;
+    }
+    setCaution(undefined);
+    input.value = reading.folder;
+    if (reading.folder === saved()) return;
+    void patchConfig((prev) => ({ ...prev, files: { ...prev.files, image_folder: reading.folder } }));
+  }
+
+  return (
+    <SettingsRow id="files.image_folder" labelFor="setting-image-folder" caution={caution()}>
+      <input
+        id="setting-image-folder"
+        type="text"
+        class="settings-input"
+        data-setting="image_folder"
+        spellcheck={false}
+        autocomplete="off"
+        placeholder="Beside the file"
+        value={saved()}
+        onChange={(e) => onChange(e.currentTarget)}
+      />
+    </SettingsRow>
+  );
+}
+
 export default function GeneralSection() {
   onMount(() => void loginItemStore.load());
 
@@ -260,6 +298,7 @@ export default function GeneralSection() {
           <option value="md">Markdown (.md)</option>
         </select>
       </SettingsRow>
+      <ImageFolderRow />
       <GlobalChordRow />
       <SwitchRow
         id="general.launch_at_login"
