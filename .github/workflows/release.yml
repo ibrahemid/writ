@@ -202,6 +202,7 @@ jobs:
             libgtk-3-dev \
             libjavascriptcoregtk-4.1-dev \
             libsoup-3.0-dev \
+            libasound2-dev \
             squashfs-tools
 
       - name: Setup pnpm
@@ -548,6 +549,7 @@ jobs:
             .github/scripts/archive_app.py
             scripts/build-mac-pkg.sh
             scripts/macos-release.sh
+            src-tauri/entitlements.plist
             /Cargo.toml
 
       - name: Download the macOS build
@@ -629,6 +631,14 @@ jobs:
             exit 1
           fi
           bash scripts/macos-release.sh sign-app "$APP" "$IDENTITY" "$KEYCHAIN_PATH"
+          ENTITLEMENTS="$(codesign -d --entitlements - "$APP" 2>/dev/null)"
+          case "$ENTITLEMENTS" in
+            *com.apple.security.device.audio-input*) ;;
+            *)
+              echo "the signed app lacks the microphone entitlement" >&2
+              exit 1
+              ;;
+          esac
           {
             echo "APP_SIGNED=true"
             echo "APP_SIGNING_IDENTITY=$IDENTITY"

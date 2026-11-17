@@ -2,7 +2,8 @@
 //!
 //! Chat, Rewrite and Connected programs keep the switches they already had
 //! (`ai.chat.enabled`, `ai.rewrite.enabled`, `mcp.enabled`); this table holds
-//! the three that had none. [`super::WritConfig::is_app_on`] reads all six.
+//! the three that had none, and Dictation keeps its switch in its own section
+//! (`dictation.enabled`). [`super::WritConfig::is_app_on`] reads all seven.
 
 use serde::de::IntoDeserializer;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -23,17 +24,20 @@ pub enum AppId {
     Graph,
     /// The tags sidebar section and its filter (`apps.tags`).
     Tags,
+    /// Speech to text at the cursor (`dictation.enabled`).
+    Dictation,
 }
 
 impl AppId {
     /// Every app, in Settings order.
-    pub const ALL: [AppId; 6] = [
+    pub const ALL: [AppId; 7] = [
         AppId::Chat,
         AppId::Rewrite,
         AppId::Programs,
         AppId::Connections,
         AppId::Graph,
         AppId::Tags,
+        AppId::Dictation,
     ];
 }
 
@@ -196,6 +200,7 @@ mod tests {
         assert!(config.ai.chat.enabled);
         assert!(config.ai.rewrite.enabled);
         assert!(config.mcp.enabled);
+        assert!(config.dictation.enabled);
         assert_eq!(config.apps, AppsConfig::existing());
         for app in AppId::ALL {
             config.set_app(app, false);
@@ -266,7 +271,8 @@ mod tests {
                 "\"programs\"",
                 "\"connections\"",
                 "\"graph\"",
-                "\"tags\""
+                "\"tags\"",
+                "\"dictation\""
             ]
         );
     }

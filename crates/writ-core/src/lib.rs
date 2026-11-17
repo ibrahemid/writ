@@ -20,6 +20,8 @@
 //! - [`command`]: command registry types for palette-driven actions.
 //! - [`config`]: typed user configuration with serde defaults.
 //! - [`crash`]: what a panic report may say (ADR-045).
+//! - [`dictation`]: speech segmentation, languages, presets and the events
+//!   and errors of a dictation session.
 //! - [`errors`]: crate-wide [`errors::WritError`] / [`errors::WritResult`].
 //! - [`events`]: strongly-typed domain events and an in-process event bus.
 //! - [`file_ops`]: pure helpers for file validation and the open tiers.
@@ -75,6 +77,8 @@ pub mod config;
 pub mod crash;
 /// Default-app policy: UTI mapping and handler-status types.
 pub mod default_app;
+/// Dictation policy: segmentation, languages, presets, events and errors.
+pub mod dictation;
 /// Line diff for what a proposal would change.
 pub mod diff;
 /// Crate-wide error and result types.

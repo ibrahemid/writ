@@ -61,6 +61,15 @@ class RewritePkgbuildTests(unittest.TestCase):
             re.findall(r"\tsha256sums = (\S+)", text), [SHA, "SKIP", LICENSE_SHA]
         )
 
+    def test_the_srcinfo_depends_on_what_the_pkgbuild_does(self) -> None:
+        text = MODULE.srcinfo_text("9.9.9", SHA, LICENSE_SHA)
+        listed = re.search(r"^depends=\(([^)]*)\)", REPO_PKGBUILD.read_text(), re.MULTILINE)
+        assert listed is not None
+        pkgbuild_depends = [name.strip("'\"") for name in listed.group(1).split()]
+
+        self.assertEqual(re.findall(r"\tdepends = (\S+)", text), pkgbuild_depends)
+        self.assertIn("alsa-lib", pkgbuild_depends)
+
     def test_refuses_a_pkgbuild_without_a_description(self) -> None:
         text = "pkgver=1.0.0\npkgrel=2\nsha256sums=('x'\n 'SKIP')\n"
         with self.assertRaisesRegex(MODULE.PkgbuildFormatError, "pkgdesc"):

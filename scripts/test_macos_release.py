@@ -20,6 +20,7 @@ import unittest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "scripts" / "macos-release.sh"
+ENTITLEMENTS = REPO_ROOT / "src-tauri" / "entitlements.plist"
 IDENTITY = "Developer ID Application: Example (TEAMID1234)"
 ON_MAC = platform.system() == "Darwin" and shutil.which("hdiutil") is not None
 
@@ -117,7 +118,7 @@ class SignAppTests(StubbedToolsTest):
             signing,
             [
                 ["codesign", *flags, str(app / "Contents" / "MacOS" / "writ")],
-                ["codesign", *flags, str(app)],
+                ["codesign", *flags, "--entitlements", str(ENTITLEMENTS), str(app)],
             ],
         )
         self.assertIn(["xattr", "-cr", str(app)], self.calls())
@@ -128,6 +129,16 @@ class SignAppTests(StubbedToolsTest):
         self.run_script("sign-app", str(app), IDENTITY)
         signed = [call[-1] for call in self.calls() if call[0] == "codesign" and "--sign" in call]
         self.assertNotIn(str(app / "Contents" / "MacOS" / "writ-tauri"), signed)
+
+    def test_the_microphone_entitlement_goes_to_the_app_and_not_the_cli(self) -> None:
+        app = write_app(self.root)
+        result = self.run_script("sign-app", str(app), IDENTITY)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        signing = {call[-1]: call for call in self.calls() if call[0] == "codesign" and "--sign" in call}
+        self.assertIn("--entitlements", signing[str(app)])
+        self.assertNotIn("--entitlements", signing[str(app / "Contents" / "MacOS" / "writ")])
+        with ENTITLEMENTS.open("rb") as handle:
+            self.assertEqual(plistlib.load(handle), {"com.apple.security.device.audio-input": True})
 
     def test_frameworks_are_signed_before_the_bundle(self) -> None:
         app = write_app(self.root)

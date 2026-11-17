@@ -9,6 +9,8 @@
 pub mod ai;
 /// The apps list and the switches of the apps without a section (`[apps]`).
 pub mod apps;
+/// Speech to text at the cursor (`[dictation]`).
+pub mod dictation;
 /// The extension every file Writ mints carries (`[files]`).
 pub mod files;
 /// Keybinding conflict reporting types.
@@ -26,6 +28,7 @@ pub mod spelling;
 
 pub use ai::{AiChatConfig, AiConfig, AiConfigOnDisk, AiRewriteConfig};
 pub use apps::{AppId, AppsConfig};
+pub use dictation::{effective_engine, DictationConfig, DictationEngine, DictationProvider};
 pub use files::{FileExtension, FilesConfig};
 pub use lenient::{ConfigDiagnostic, LenientConfig};
 pub use mcp::{ClientApproval, McpConfig};
@@ -742,6 +745,9 @@ pub struct WritConfig {
     /// Spell-check configuration.
     #[serde(default)]
     pub spelling: SpellingConfig,
+    /// Speech to text at the cursor.
+    #[serde(default)]
+    pub dictation: DictationConfig,
     /// Switches for the apps that have no section of their own. A file
     /// without the table predates it and reads as all on (ADR-042 section 2).
     #[serde(default = "AppsConfig::existing")]
@@ -775,6 +781,7 @@ impl Default for WritConfig {
             ai: AiConfig::default(),
             mcp: McpConfig::default(),
             spelling: SpellingConfig::default(),
+            dictation: DictationConfig::default(),
             apps: AppsConfig::default(),
             general: GeneralConfig::default(),
         }
@@ -824,6 +831,7 @@ impl WritConfig {
             AppId::Connections => self.apps.connections,
             AppId::Graph => self.apps.graph,
             AppId::Tags => self.apps.tags,
+            AppId::Dictation => self.dictation.enabled,
         }
     }
 
@@ -836,6 +844,7 @@ impl WritConfig {
             AppId::Connections => self.apps.connections = on,
             AppId::Graph => self.apps.graph = on,
             AppId::Tags => self.apps.tags = on,
+            AppId::Dictation => self.dictation.enabled = on,
         }
     }
 
@@ -862,6 +871,7 @@ impl WritConfig {
     /// carrying their sections whole would make those controls dead.
     pub fn carry_rust_owned(&mut self, live: &WritConfig) {
         self.ai.consented_hosts = live.ai.consented_hosts.clone();
+        self.dictation.consented_hosts = live.dictation.consented_hosts.clone();
         self.mcp.approved_clients = live.mcp.approved_clients.clone();
         self.spelling.ignored_words = live.spelling.ignored_words.clone();
         self.workspace.root = live.workspace.root.clone();

@@ -12,6 +12,7 @@
 
 set -euo pipefail
 
+ENTITLEMENTS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/src-tauri/entitlements.plist"
 MOUNTS=()
 SCRATCH=()
 
@@ -122,6 +123,7 @@ sign_app() {
   local app="$1" identity="$2" keychain="${3:-}" main entry nested=() args
   [ -d "$app/Contents/MacOS" ] || fail "$app is not an app bundle"
   [ -n "$identity" ] || fail "no signing identity"
+  [ -f "$ENTITLEMENTS" ] || fail "the entitlements file $ENTITLEMENTS is missing"
   main="$(bundle_executable "$app")"
   [ -f "$app/Contents/MacOS/$main" ] || fail "$app names $main as its executable, and it is missing"
   args=(--force --sign "$identity" --options runtime --timestamp)
@@ -142,7 +144,7 @@ sign_app() {
   for entry in ${nested[@]+"${nested[@]}"}; do
     codesign "${args[@]}" "$entry"
   done
-  codesign "${args[@]}" "$app"
+  codesign "${args[@]}" --entitlements "$ENTITLEMENTS" "$app"
   codesign --verify --strict --deep --verbose=2 "$app"
   require_hardened "$app" "$identity"
   for entry in ${nested[@]+"${nested[@]}"}; do

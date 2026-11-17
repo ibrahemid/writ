@@ -32,9 +32,10 @@ fn embed_manifest_for_tests() {
     println!("cargo:rustc-link-arg-tests=/MANIFESTINPUT:{manifest}");
 }
 
-/// Compiles the Swift bridge to Apple's on-device model
+/// Compiles the Swift bridge to Apple's on-device model and speech analyzer
 /// (`swift/WritOnDevice`) into a static library and links it, for a macOS
-/// target, and sets `writ_on_device_bridge` so `src/on_device.rs` calls it.
+/// target, and sets `writ_on_device_bridge` so `src/on_device.rs` and
+/// `src/dictation/bridge.rs` call it.
 ///
 /// Where no Swift compiler answers, the app is built without the bridge and
 /// says so; `src/on_device.rs` then reports the model as unsupported, and the
@@ -45,8 +46,13 @@ fn build_on_device_bridge() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
-    let source = "swift/WritOnDevice/Sources/WritOnDevice/WritOnDevice.swift";
-    println!("cargo:rerun-if-changed={source}");
+    let sources = [
+        "swift/WritOnDevice/Sources/WritOnDevice/WritOnDevice.swift",
+        "swift/WritOnDevice/Sources/WritOnDevice/Dictation.swift",
+    ];
+    for source in sources {
+        println!("cargo:rerun-if-changed={source}");
+    }
     println!("cargo:rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET");
     println!("cargo:rerun-if-env-changed=DEVELOPER_DIR");
 
@@ -90,13 +96,13 @@ fn build_on_device_bridge() {
         .args(["-swift-version", "5", "-module-name", "WritOnDevice"])
         .arg("-module-cache-path")
         .arg(out.join("swift-module-cache"))
-        .arg(source)
+        .args(sources)
         .arg("-o")
         .arg(&library)
         .status();
     match compiled {
         Ok(status) if status.success() => {}
-        Ok(status) => panic!("swiftc exited with {status} compiling {source}"),
+        Ok(status) => panic!("swiftc exited with {status} compiling {sources:?}"),
         Err(error) => {
             println!(
                 "cargo:warning=swiftc could not be run ({error}); Apple's on-device model is left out"

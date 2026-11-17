@@ -1,0 +1,27 @@
+[package]
+name = "writ-audio"
+description = "Microphone capture for the Writ editor: the default input device as 16 kHz mono frames."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[dependencies]
+writ-core = { path = "../writ-core" }
+# Pinned: an upgrade of either is a deliberate change to the capture path.
+cpal = "=0.18.2"
+rubato = "=5.0.1"
+tokio = { version = "1", default-features = false, features = ["sync"] }
+tracing = "0.1"
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros", "time"] }

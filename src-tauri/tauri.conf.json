@@ -76,6 +76,7 @@
         "copyright": "Copyright (c) 2026 Writ Contributors",
         "macOS": {
             "minimumSystemVersion": "12.0",
+            "entitlements": "entitlements.plist",
             "dmg": {
                 "windowSize": {
                     "width": 660,
@@ -108,7 +109,8 @@
             "deb": {
                 "depends": [
                     "libwebkit2gtk-4.1-0",
-                    "libgtk-3-0"
+                    "libgtk-3-0",
+                    "libasound2t64 | libasound2"
                 ]
             },
             "appimage": {

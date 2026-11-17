@@ -147,6 +147,7 @@ jobs:
             libgtk-3-dev \
             libjavascriptcoregtk-4.1-dev \
             libsoup-3.0-dev \
+            libasound2-dev \
             dbus \
             gnome-keyring
 
@@ -327,6 +328,7 @@ jobs:
             libgtk-3-dev \
             libjavascriptcoregtk-4.1-dev \
             libsoup-3.0-dev \
+            libasound2-dev \
             xvfb
 
       - name: Cache Rust

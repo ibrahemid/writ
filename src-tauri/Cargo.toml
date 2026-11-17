@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 writ-ai = { path = "../crates/writ-ai" }
+writ-audio = { path = "../crates/writ-audio" }
 writ-core = { path = "../crates/writ-core" }
 writ-lint = { path = "../crates/writ-lint" }
 writ-render = { path = "../crates/writ-render" }
@@ -51,9 +52,10 @@ reqwest = { version = "0.13", default-features = false, features = [
 ] }
 tokio-util = { version = "0.7", default-features = false }
 # The pickers await the dialog's answer on a oneshot rather than parking a
-# runtime worker on a blocking receive (ADR-047). Already in the tree under
-# tauri; this is the edge, not a new package.
-tokio = { version = "1", default-features = false, features = ["sync"] }
+# runtime worker on a blocking receive (ADR-047); a dictation session waits on
+# its capture, its requests and a partial's timer in one select. Already in
+# the tree under tauri; this is the edge, not a new package.
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "time", "macros"] }
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-autostart = "2"
 # The OS entropy source, already in the tree under rustls/ring. Taken directly

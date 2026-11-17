@@ -2,6 +2,7 @@ pub mod app_menu;
 pub mod bus_subscribers;
 pub mod capture;
 pub mod commands;
+pub mod dictation;
 pub mod events;
 pub mod first_run;
 pub mod fts_scheduler;
@@ -517,6 +518,7 @@ pub fn run() {
         .manage(app_state)
         .manage(commands::ai::AiState::default())
         .manage(commands::ai_connect::ConnectState::default())
+        .manage(dictation::DictationState::default())
         .manage(commands::chat::ChatState::default())
         .manage(commands::materialise::MaterialiseState::default())
         .manage(links::LinkDrafts::default())
@@ -679,6 +681,16 @@ pub fn run() {
             commands::ai::ai_probe_local,
             commands::ai_connect::ai_openrouter_connect,
             commands::ai_connect::ai_openrouter_cancel,
+            commands::dictation::dictation_capabilities,
+            commands::dictation::dictation_languages,
+            commands::dictation::dictation_endpoint_state,
+            commands::dictation::dictation_consent_host,
+            commands::dictation::dictation_set_key,
+            commands::dictation::dictation_clear_key,
+            commands::dictation::dictation_start,
+            commands::dictation::dictation_stop,
+            commands::dictation::dictation_cancel,
+            commands::dictation::dictation_open_mic_settings,
             commands::chat::chat_state,
             commands::chat::chat_attached_sizes,
             commands::chat::chat_list,

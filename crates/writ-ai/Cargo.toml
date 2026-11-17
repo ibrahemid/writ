@@ -26,6 +26,7 @@ writ-storage = { path = "../writ-storage", features = ["bundled"] }
 reqwest = { version = "0.13", default-features = false, features = [
     "stream",
     "json",
+    "multipart",
     "rustls-no-provider",
     "system-proxy",
 ] }

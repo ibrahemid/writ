@@ -374,9 +374,23 @@ pub fn prepare_request(
     if on_device::is_on_device(&cfg.provider) {
         return Err(PolishError::OnDeviceProvider);
     }
-
     let action = PolishAction::parse(action_id, custom_instruction)?;
-    let messages = polish::build_messages(&action, text)?;
+    prepare_action(cfg, &action, text, lookup_key)
+}
+
+/// [`prepare_request`] past its Rewrite switch: every check but that one, for
+/// an action already parsed.
+pub(crate) fn prepare_action(
+    cfg: &AiConfig,
+    action: &PolishAction,
+    text: &str,
+    lookup_key: impl FnOnce(&str) -> Option<String>,
+) -> Result<PreparedRequest, PolishError> {
+    if on_device::is_on_device(&cfg.provider) {
+        return Err(PolishError::OnDeviceProvider);
+    }
+
+    let messages = polish::build_messages(action, text)?;
 
     // The one authority: the guard below and `ai_consent_host` resolve the host
     // through the same call, so the string checked here is always the string
@@ -453,7 +467,16 @@ pub fn prepare_on_device(
         return Err(PolishError::Disabled);
     }
     let action = PolishAction::parse(action_id, custom_instruction)?;
-    let mut messages = polish::build_messages(&action, text)?.into_iter();
+    prepare_on_device_action(&action, text)
+}
+
+/// [`prepare_on_device`] past its Rewrite switch, for an action already
+/// parsed.
+pub(crate) fn prepare_on_device_action(
+    action: &PolishAction,
+    text: &str,
+) -> Result<OnDeviceRequest, PolishError> {
+    let mut messages = polish::build_messages(action, text)?.into_iter();
     let (Some(system), Some(user)) = (messages.next(), messages.next()) else {
         return Err(PolishError::EmptyText);
     };
