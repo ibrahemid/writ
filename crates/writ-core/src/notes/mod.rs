@@ -64,7 +64,7 @@ pub const MAX_TITLE_GRAPHEMES: usize = 120;
 pub const MAX_TITLE_BYTES: usize = 200;
 
 /// Characters no filename may carry on any of the three platforms.
-const ILLEGAL_CHARS: &[char] = &['/', '\\', '<', '>', ':', '"', '|', '?', '*'];
+pub(crate) const ILLEGAL_CHARS: &[char] = &['/', '\\', '<', '>', ':', '"', '|', '?', '*'];
 
 /// Characters a `[[…]]` reads as syntax: `#` starts a heading, `^` a block,
 /// and `[` and `]` open and close the link (ADR-034 §2).
@@ -637,7 +637,7 @@ fn guard_reserved_name(value: &str) -> String {
     }
 }
 
-fn is_reserved_device_name(name: &str) -> bool {
+pub(crate) fn is_reserved_device_name(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     if matches!(
         upper.as_str(),

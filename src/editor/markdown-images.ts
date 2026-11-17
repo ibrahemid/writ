@@ -7,7 +7,11 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
-import { isInlineImageFailure, type InlineImageFailure } from "../types/inline-image";
+import {
+  isInlineImageFailure,
+  type InlineImageFailure,
+  type RemoteImageLoad,
+} from "../types/inline-image";
 
 export type { InlineImageFailure };
 
@@ -29,7 +33,10 @@ export type InlineImageState =
   | { status: "ready"; src: string; label: string }
   | { status: "downloading"; label: string }
   | { status: "remote"; label: string; host: string }
-  | { status: "failed"; label: string; reason: InlineImageFailure };
+  | { status: "failed"; label: string; reason: ShownFailure };
+
+/** A refusal the widget names. `local_address` keeps the Load image button. */
+type ShownFailure = Exclude<InlineImageFailure, "local_address">;
 
 /**
  * How a reference becomes a URL the image is drawn from.
@@ -37,13 +44,14 @@ export type InlineImageState =
  * Injected, so this module reaches no service and no store and the editor
  * layer stays testable without an IPC mock. `download` asks the sync provider
  * for an image it holds and answers once the bytes are here. `loadRemote`
- * fetches an `http`/`https` image, which happens only once the person asks or
- * `loadsRemoteImages` answers true.
+ * fetches an `http`/`https` image: `asked` when the person clicks, and
+ * `automatic` otherwise, which happens only for one they loaded before or
+ * once `loadsRemoteImages` answers true.
  */
 export interface InlineImageDeps {
   resolve(reference: string): Promise<{ src: string }>;
   download(reference: string): Promise<{ src: string }>;
-  loadRemote(reference: string): Promise<{ src: string }>;
+  loadRemote(reference: string, load: RemoteImageLoad): Promise<{ src: string }>;
   loadsRemoteImages(): boolean;
 }
 
@@ -136,13 +144,14 @@ export function imageReferenceAt(
   return null;
 }
 
-const FAILURE_LABELS: Record<InlineImageFailure, string> = {
+const FAILURE_LABELS: Record<ShownFailure, string> = {
   outside_root: "outside the folder",
   not_found: "missing",
   not_downloaded: "not downloaded",
   too_large: "too large",
   not_an_image: "not an image",
   unreachable: "could not be loaded",
+  not_remote: "not a web address",
 };
 
 function sameState(a: InlineImageState, b: InlineImageState): boolean {
@@ -249,6 +258,16 @@ function failureOf(error: unknown): InlineImageFailure {
   return isInlineImageFailure(reason) ? reason : "not_found";
 }
 
+/** The state a failed request leaves: a refused local address keeps its button. */
+function failedState(reference: string, label: string, error: unknown): InlineImageState {
+  const reason = failureOf(error);
+  if (reason !== "local_address") return { status: "failed", label, reason };
+  const host = remoteImageHost(reference);
+  return host === null
+    ? { status: "failed", label, reason: "unreachable" }
+    : { status: "remote", label, host };
+}
+
 /**
  * Asks for every reference the viewport shows, once each.
  *
@@ -264,7 +283,8 @@ function failureOf(error: unknown): InlineImageFailure {
  * A web image is fetched only when the person asks or has turned on loading
  * web images; until then it shows its host and a Load image button. One the
  * person loaded is asked for again when the tab comes back, which the host
- * answers from memory.
+ * answers from memory. Only a click loads as `asked`; every other load is
+ * `automatic`, which the host refuses for a local address.
  */
 class InlineImageRequester implements PluginValue {
   private readonly asked = new Set<string>();
@@ -284,7 +304,7 @@ class InlineImageRequester implements PluginValue {
     for (const transaction of update.transactions) {
       for (const effect of transaction.effects) {
         if (effect.is(downloadInlineImage)) this.download(effect.value);
-        if (effect.is(loadRemoteImage)) this.loadRemote(effect.value);
+        if (effect.is(loadRemoteImage)) this.loadRemote(effect.value, "asked");
         if (effect.is(loadAllRemoteImages)) this.loadAllRemote(update.state);
       }
     }
@@ -347,7 +367,12 @@ class InlineImageRequester implements PluginValue {
         return { reference, label, held: null, ask: (r: string) => this.deps.resolve(r) };
       }
       if (loadsAll || known.get(reference)?.status === "ready") {
-        return { reference, label, held: null, ask: (r: string) => this.deps.loadRemote(r) };
+        return {
+          reference,
+          label,
+          held: null,
+          ask: (r: string) => this.deps.loadRemote(r, "automatic"),
+        };
       }
       const held: InlineImageState = { status: "remote", label, host };
       return { reference, label, held, ask: null };
@@ -361,19 +386,18 @@ class InlineImageRequester implements PluginValue {
       if (!ask) continue;
       ask(reference).then(
         ({ src }) => this.settle(reference, { status: "ready", src, label }),
-        (error: unknown) =>
-          this.settle(reference, { status: "failed", label, reason: failureOf(error) }),
+        (error: unknown) => this.settle(reference, failedState(reference, label, error)),
       );
     }
   }
 
   private loadAllRemote(state: EditorView["state"]) {
     for (const [reference, known] of inlineImageStates(state)) {
-      if (known.status === "remote") this.loadRemote(reference);
+      if (known.status === "remote") this.loadRemote(reference, "automatic");
     }
   }
 
-  private loadRemote(reference: string) {
+  private loadRemote(reference: string, load: RemoteImageLoad) {
     if (this.loading.has(reference)) return;
     this.loading.add(reference);
     const label = imageLabel(reference);
@@ -381,14 +405,14 @@ class InlineImageRequester implements PluginValue {
     // Called from an update, where CodeMirror refuses a dispatch.
     queueMicrotask(() => {
       this.settle(reference, { status: "downloading", label });
-      this.deps.loadRemote(reference).then(
+      this.deps.loadRemote(reference, load).then(
         ({ src }) => {
           done();
           this.settle(reference, { status: "ready", src, label });
         },
         (error: unknown) => {
           done();
-          this.settle(reference, { status: "failed", label, reason: failureOf(error) });
+          this.settle(reference, failedState(reference, label, error));
         },
       );
     });
@@ -409,7 +433,7 @@ class InlineImageRequester implements PluginValue {
         },
         (error: unknown) => {
           done();
-          this.settle(reference, { status: "failed", label, reason: failureOf(error) });
+          this.settle(reference, failedState(reference, label, error));
         },
       );
     });

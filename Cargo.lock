@@ -2453,6 +2453,8 @@ dependencies = [
  "num-traits",
  "png 0.18.1",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -7204,6 +7206,7 @@ dependencies = [
  "fsevent-sys",
  "getrandom 0.4.3",
  "hashbrown 0.17.1",
+ "image",
  "notify",
  "notify-debouncer-mini",
  "objc2",

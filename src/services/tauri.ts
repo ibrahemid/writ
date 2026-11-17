@@ -24,7 +24,11 @@ import type { TransformDescriptor } from "../types/transforms";
 import type { ThemePolarity } from "../types/theme";
 import type { LinkVerdict } from "../types/link";
 import type { VersionWriter } from "../types/writer";
-import { isInlineImageFailure, type InlineImageFailure } from "../types/inline-image";
+import {
+  isInlineImageFailure,
+  type InlineImageFailure,
+  type RemoteImageLoad,
+} from "../types/inline-image";
 import type { ClipboardPasteResult, DroppedImagesResult } from "../types/image-import";
 import { logFailure } from "../lib/log";
 
@@ -1402,14 +1406,17 @@ export async function previewInlineImageDownload(
 /**
  * Fetch an `http`/`https` image an open Markdown file references, then answer
  * as [`previewInlineImage`] does. Nothing is fetched until this is called;
- * a fetched image is held in memory and served from the preview scheme.
+ * a fetched image is held in memory and served from the preview scheme. An
+ * `automatic` load is refused with `local_address` for an address on this
+ * computer or the local network.
  */
 export async function previewRemoteImage(
   bufferId: string,
   reference: string,
+  load: RemoteImageLoad,
 ): Promise<{ src: string }> {
   return inlineImageSource(
-    await invoke<InlineImageResult>("preview_remote_image", { bufferId, reference }),
+    await invoke<InlineImageResult>("preview_remote_image", { bufferId, reference, load }),
   );
 }
 

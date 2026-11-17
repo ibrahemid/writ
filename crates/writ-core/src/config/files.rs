@@ -39,8 +39,9 @@ impl FileExtension {
 ///
 /// Forward slashes separate its parts on every platform. Empty means the
 /// note's own folder. A value that leaves that folder, an absolute path or
-/// one with a `..` part, is refused, so the lenient read (ADR-048) names it
-/// and runs on the default.
+/// one with a `..` part, is refused, and so is a part no platform can name a
+/// folder, so the lenient read (ADR-048) names it and runs on the default.
+/// `src/lib/image-folder.ts` applies the same rules to the settings field.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(transparent)]
 pub struct ImageFolder(String);
@@ -54,21 +55,27 @@ impl ImageFolder {
     ///
     /// # Errors
     ///
-    /// [`ImageFolderError`] when the value is absolute or has a `.` or `..`
-    /// part, either of which would point outside the note's folder or at it
-    /// under another name.
+    /// [`ImageFolderError::Absolute`] for a path from the root or a drive,
+    /// [`ImageFolderError::LeavesTheFolder`] for a `.` or `..` part, and
+    /// [`ImageFolderError::NotAName`] for a part holding a control character
+    /// or one of `< > : " | ? *`, ending in a dot or a space, or spelling a
+    /// reserved device name such as `CON` or `COM1`.
     pub fn parse(value: &str) -> Result<Self, ImageFolderError> {
-        let raw = value.trim();
-        let unified = raw.replace('\\', "/");
-        let is_absolute = unified.starts_with('/')
-            || std::path::Path::new(raw).is_absolute()
-            || unified.as_bytes().get(1) == Some(&b':');
-        if is_absolute {
+        let unified = value.trim().replace('\\', "/");
+        let mut leading = unified.chars();
+        let is_drive = matches!(
+            (leading.next(), leading.next()),
+            (Some(letter), Some(':')) if letter.is_ascii_alphabetic()
+        );
+        if unified.starts_with('/') || is_drive {
             return Err(ImageFolderError::Absolute);
         }
         let parts: Vec<&str> = unified.split('/').filter(|part| !part.is_empty()).collect();
         if parts.iter().any(|part| *part == ".." || *part == ".") {
             return Err(ImageFolderError::LeavesTheFolder);
+        }
+        if !parts.iter().all(|part| is_folder_name(part)) {
+            return Err(ImageFolderError::NotAName);
         }
         Ok(Self(parts.join("/")))
     }
@@ -98,6 +105,15 @@ impl<'de> Deserialize<'de> for ImageFolder {
     }
 }
 
+fn is_folder_name(part: &str) -> bool {
+    let head = part.split('.').next().unwrap_or(part);
+    !part
+        .chars()
+        .any(|c| c.is_control() || crate::notes::ILLEGAL_CHARS.contains(&c))
+        && !part.ends_with(['.', ' '])
+        && !crate::notes::is_reserved_device_name(head)
+}
+
 /// Why a value is not an [`ImageFolder`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ImageFolderError {
@@ -107,6 +123,22 @@ pub enum ImageFolderError {
     /// The value has a `.` or `..` part.
     #[error("image_folder cannot have . or .. parts")]
     LeavesTheFolder,
+    /// A part is not a name every platform gives a folder.
+    #[error(
+        "image_folder parts cannot hold control characters or < > : \" | ? *, end in a dot or a space, or be a device name such as CON"
+    )]
+    NotAName,
+}
+
+impl ImageFolderError {
+    /// The refusal as `src/lib/image-folder.ts` names it.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Absolute => "absolute",
+            Self::LeavesTheFolder => "leaves_the_folder",
+            Self::NotAName => "not_a_name",
+        }
+    }
 }
 
 /// Files configuration.

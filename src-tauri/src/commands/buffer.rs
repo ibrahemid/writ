@@ -744,6 +744,20 @@ pub(crate) fn ignore_stamper(state: &AppState) -> impl Fn(&Path, &[u8]) + '_ {
     }
 }
 
+/// Takes back the mark [`ignore_stamper`] made for a write that did not land,
+/// so the watcher reports the file a different writer put under that name.
+pub(crate) fn ignore_unstamper(state: &AppState) -> impl Fn(&Path) + '_ {
+    move |path: &Path| {
+        let key =
+            writ_core::watcher::ignore::source_key(&crate::watcher::handler::ignore_key_path(path));
+        recover_poison(
+            state.watcher_ignore.lock(),
+            "commands::buffer::ignore_unstamper",
+        )
+        .remove(&key);
+    }
+}
+
 /// Gives a note with no file the file the invariant requires: a dated file in
 /// the configured format, in the notes folder, deduped by counter, writable
 /// by containment.
@@ -2141,6 +2155,7 @@ pub fn close_buffer_inner(state: &AppState, id: &str) -> Result<(), String> {
     state.forget_disk_state(id);
     state.forget_source_record(id);
     state.stop_following_note(id);
+    state.preview_render_cache.release_remote_images(id);
     Ok(())
 }
 
@@ -2186,6 +2201,7 @@ pub fn close_buffers_inner(state: &AppState, ids: &[String]) -> Result<(), Strin
         state.forget_disk_state(id);
         state.forget_source_record(id);
         state.stop_following_note(id);
+        state.preview_render_cache.release_remote_images(id);
     }
     Ok(())
 }
@@ -2219,6 +2235,7 @@ pub(crate) fn delete_buffer_in_turn(state: &AppState, turn: &Turn) -> Result<(),
     state.forget_disk_state(id);
     state.forget_source_record(id);
     state.stop_following_note(id);
+    state.preview_render_cache.release_remote_images(id);
     Ok(())
 }
 

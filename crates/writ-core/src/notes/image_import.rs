@@ -8,6 +8,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use chrono::NaiveDateTime;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::config::files::ImageFolder;
 use crate::preview::protocol::{sniff_image_mime, ASSET_MAX_BYTES};
@@ -19,12 +20,27 @@ pub const IMAGE_MAX_BYTES: u64 = ASSET_MAX_BYTES;
 /// [`IMAGE_MAX_BYTES`] as a message states it.
 pub const IMAGE_MAX_MB: u64 = IMAGE_MAX_BYTES / (1024 * 1024);
 
+/// The most numbered names a save tries, `name-2` up to `name-999`, before
+/// it gives up.
+pub const MAX_NUMBERED_NAMES: u32 = 999;
+
 /// The stem a file name falls back to when nothing in it is usable.
 const FALLBACK_STEM: &str = "image";
 
-/// The most characters a saved name's stem keeps, well under every
-/// filesystem's limit once a clash number and an extension are added.
+/// The most characters a saved name's stem keeps.
 const MAX_STEM_CHARS: usize = 96;
+
+/// The most bytes a saved name's stem keeps, so the longest name a save
+/// makes stays within the 255 a file name holds: the stem, a clipboard
+/// picture's `-YYYYMMDD-HHMMSS`, a clash's `-999` and `.webp`.
+const MAX_STEM_BYTES: usize = 255 - "-20261117-090507".len() - "-999".len() - ".webp".len();
+
+/// The extensions an image file is named with, which a copy trades for the
+/// one its bytes call for.
+const IMAGE_EXTENSIONS: &[&str] = &[
+    "apng", "avif", "bmp", "gif", "heic", "heif", "ico", "jfif", "jpe", "jpeg", "jpg", "png",
+    "svg", "tif", "tiff", "webp",
+];
 
 /// Why an image is not saved or referred to. The text is what the notice
 /// says.
@@ -59,6 +75,49 @@ pub enum ImageImportError {
         /// The folder, as the reference spells it, or `.` for the file's own.
         folder: String,
     },
+    /// Every numbered form of the name is taken by other bytes.
+    #[error("Could not find a free name for {name} in the folder {folder}")]
+    NoFreeName {
+        /// The name the image would have had.
+        name: String,
+        /// The folder, as the reference spells it, or `.` for the file's own.
+        folder: String,
+    },
+    /// The image folder, or a link on the way to it, resolves outside the
+    /// file's folder.
+    #[error("The folder {folder} leads outside the file's folder")]
+    FolderOutside {
+        /// The folder, as the reference spells it.
+        folder: String,
+    },
+    /// A clipboard picture over [`IMAGE_MAX_BYTES`] as PNG, and as JPEG when
+    /// it has no transparency.
+    #[error("The copied picture is over the {limit_mb} MB limit for images")]
+    PictureTooLarge {
+        /// The limit in megabytes.
+        limit_mb: u64,
+    },
+}
+
+/// Whether `text`, trimmed, is one `http` or `https` address and nothing
+/// else, as a browser puts beside a picture it copies.
+pub fn is_lone_web_address(text: &str) -> bool {
+    let trimmed = text.trim();
+    !trimmed.is_empty()
+        && !trimmed.contains(char::is_whitespace)
+        && url::Url::parse(trimmed).is_ok_and(|address| {
+            matches!(address.scheme(), "http" | "https") && address.host().is_some()
+        })
+}
+
+/// The notice for `count` copied files a paste passed over because they are
+/// not images, or `None` when it passed over none.
+pub fn not_images_notice(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("1 file is not an image and was not pasted".to_string()),
+        n => Some(format!("{n} files are not images and were not pasted")),
+    }
 }
 
 /// What becomes of one image file brought into a Markdown file.
@@ -170,7 +229,7 @@ fn is_link_safe(character: char) -> bool {
 /// becomes one `-`, and the extension is lower-cased.
 pub fn link_safe_file_name(name: &str) -> String {
     let (stem, extension) = split_extension(name);
-    let stem = safe_stem(stem);
+    let stem = safe_file_stem(stem);
     let extension: String = extension
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
@@ -183,16 +242,20 @@ pub fn link_safe_file_name(name: &str) -> String {
     }
 }
 
-/// The name a copied image is saved under: [`link_safe_file_name`] of its
-/// own name, with the extension its bytes call for when it has none.
+/// The name a copied image is saved under: its own name made safe for a
+/// link, with the extension its bytes call for in place of any image
+/// extension the name carried.
 pub fn copied_file_name(name: &str, mime: &str) -> String {
-    let safe = link_safe_file_name(name);
-    if split_extension(&safe).1.is_empty() {
-        if let Some(extension) = extension_for_mime(mime) {
-            return format!("{safe}.{extension}");
-        }
-    }
-    safe
+    let Some(extension) = extension_for_mime(mime) else {
+        return link_safe_file_name(name);
+    };
+    let (stem, own) = split_extension(name);
+    let stem = if IMAGE_EXTENSIONS.contains(&own.to_ascii_lowercase().as_str()) {
+        stem
+    } else {
+        name
+    };
+    format!("{}.{extension}", safe_file_stem(stem))
 }
 
 /// `name` with `-n` before its extension: the name a clash moves to.
@@ -210,10 +273,10 @@ pub fn numbered_file_name(name: &str, number: u32) -> String {
 }
 
 /// The name a clipboard picture is saved under:
-/// `<file stem>-<YYYYMMDD-HHMMSS>.png`.
-pub fn clipboard_image_name(note_stem: &str, taken_at: NaiveDateTime) -> String {
+/// `<file stem>-<YYYYMMDD-HHMMSS>.<extension>`.
+pub fn clipboard_image_name(note_stem: &str, taken_at: NaiveDateTime, extension: &str) -> String {
     format!(
-        "{}-{}.png",
+        "{}-{}.{extension}",
         safe_stem(note_stem),
         taken_at.format("%Y%m%d-%H%M%S")
     )
@@ -290,15 +353,25 @@ fn safe_stem(stem: &str) -> String {
             pending_dash = true;
         }
     }
-    let trimmed: String = safe
-        .trim_matches(|c| c == '.' || c == '-')
-        .chars()
-        .take(MAX_STEM_CHARS)
-        .collect();
-    let trimmed = trimmed.trim_end_matches(['.', '-']).to_string();
+    let mut capped = String::with_capacity(MAX_STEM_BYTES.min(safe.len()));
+    let mut chars = 0;
+    for cluster in safe.trim_matches(['.', '-']).graphemes(true) {
+        chars += cluster.chars().count();
+        if chars > MAX_STEM_CHARS || capped.len() + cluster.len() > MAX_STEM_BYTES {
+            break;
+        }
+        capped.push_str(cluster);
+    }
+    let trimmed = capped.trim_end_matches(['.', '-']);
     if trimmed.is_empty() {
         FALLBACK_STEM.to_string()
     } else {
-        trimmed
+        trimmed.to_string()
     }
+}
+
+/// [`safe_stem`] for a name that stands alone, with a device name such as
+/// `CON` moved off it.
+fn safe_file_stem(stem: &str) -> String {
+    super::guard_reserved_name(&safe_stem(stem))
 }

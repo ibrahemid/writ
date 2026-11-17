@@ -6,12 +6,14 @@
 //! webview, and only after a click or the `editor.load_remote_images` switch.
 
 use std::collections::{HashMap, HashSet};
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use url::Url;
+use url::{Host, Url};
 
 use crate::hash::sha256_hex;
+use crate::polish::is_private_network_address;
 use crate::preview::protocol::{sniff_image_mime, ASSET_MAX_BYTES};
 
 /// First segment of the remote-image route under the `document` scope.
@@ -33,8 +35,7 @@ pub const REMOTE_IMAGE_STORE_BYTES: usize = 64 * 1024 * 1024;
 /// Why a remote image is not drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteImageRefusal {
-    /// The reference is not an `http:` or `https:` URL with a host, or the
-    /// tab is not open.
+    /// The reference is not an `http:` or `https:` URL with a host.
     NotRemote,
     /// The host did not answer with the image: no connection, a timeout, or
     /// a status other than success.
@@ -43,16 +44,32 @@ pub enum RemoteImageRefusal {
     TooLarge,
     /// The answer's leading bytes are not an image the editor draws.
     NotAnImage,
+    /// A load the person did not ask for would reach this machine or the
+    /// local network ([`is_local_host`], [`is_local_address`]), so the
+    /// placeholder stays until they click Load image.
+    LocalAddress,
+}
+
+/// Who started a remote image load.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteImageLoad {
+    /// The person clicked Load image or Try again.
+    Asked,
+    /// `editor.load_remote_images` loaded it with no click, so it must not
+    /// reach this machine or the local network.
+    Automatic,
 }
 
 impl RemoteImageRefusal {
     /// Stable identifier the editor maps to a caption.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::NotRemote => "outside_root",
+            Self::NotRemote => "not_remote",
             Self::Unreachable => "unreachable",
             Self::TooLarge => "too_large",
             Self::NotAnImage => "not_an_image",
+            Self::LocalAddress => "local_address",
         }
     }
 }
@@ -95,6 +112,46 @@ pub fn remote_image_key(url: &Url) -> String {
 /// host, as the first URL had to be.
 pub fn is_followable_redirect(target: &Url) -> bool {
     matches!(target.scheme(), "http" | "https") && target.host_str().is_some_and(|h| !h.is_empty())
+}
+
+/// Whether an address is on this machine or the local network: loopback
+/// (127/8, `::1`), unspecified (0/8, `::`), the private, shared (100.64/10)
+/// and link-local ranges of [`is_private_network_address`], IPv6 unique local
+/// and link-local, and any of those IPv4 ranges written as IPv4-mapped or
+/// IPv4-compatible IPv6.
+pub fn is_local_address(addr: IpAddr) -> bool {
+    let addr = match addr {
+        IpAddr::V6(v6) => v6.to_ipv4().map_or(addr, IpAddr::V4),
+        IpAddr::V4(_) => addr,
+    };
+    let is_this_machine = match addr {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.octets()[0] == 0,
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified(),
+    };
+    is_this_machine || is_private_network_address(addr)
+}
+
+/// Whether a host name names this machine or the local network by
+/// convention: `localhost` and names under `.localhost`, `.local` (mDNS) or
+/// `.internal`, in any case and with or without the trailing dot.
+pub fn is_local_host_name(name: &str) -> bool {
+    let name = name.strip_suffix('.').unwrap_or(name).to_ascii_lowercase();
+    name == "localhost"
+        || [".localhost", ".local", ".internal"]
+            .iter()
+            .any(|suffix| name.ends_with(suffix))
+}
+
+/// Whether a URL's host is a local name or a local address literal. A URL
+/// with no host counts as local. A public name still has to resolve to
+/// public addresses before an automatic load connects to it.
+pub fn is_local_host(url: &Url) -> bool {
+    match url.host() {
+        Some(Host::Domain(name)) => is_local_host_name(name),
+        Some(Host::Ipv4(v4)) => is_local_address(IpAddr::V4(v4)),
+        Some(Host::Ipv6(v6)) => is_local_address(IpAddr::V6(v6)),
+        None => true,
+    }
 }
 
 /// Turns away a body announced or grown past [`REMOTE_IMAGE_MAX_BYTES`].
@@ -284,6 +341,21 @@ impl RemoteImageStore {
                 used,
             },
         );
+    }
+
+    /// Takes `buffer_id` off every image's readers, once its tab has closed,
+    /// and drops the images no open tab may read any more.
+    pub fn release_buffer(&mut self, buffer_id: &str) {
+        let mut freed = 0;
+        self.entries.retain(|_, entry| {
+            entry.readers.remove(buffer_id);
+            let keep = !entry.readers.is_empty();
+            if !keep {
+                freed += entry.image.bytes.len();
+            }
+            keep
+        });
+        self.held_bytes -= freed;
     }
 
     /// Bytes of images held now.

@@ -10,11 +10,10 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 use writ_core::notes::image_import::numbered_file_name;
+pub use writ_core::notes::image_import::MAX_NUMBERED_NAMES;
 
 use crate::atomic::{write_new, AtomicWriteError};
-
-/// The most numbered names tried before a save gives up.
-pub const MAX_NUMBERED_NAMES: u32 = 999;
+use crate::paths::strip_verbatim_prefix;
 
 /// An image on disk after a save.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +59,10 @@ pub enum ImageSaveError {
     /// Every name up to [`MAX_NUMBERED_NAMES`] is taken by other bytes.
     #[error("no free name for the image after {0} tries")]
     NoFreeName(u32),
+    /// The folder, or a link on the way to it, resolves outside the folder it
+    /// has to stay in.
+    #[error("the image folder resolves outside the file's folder")]
+    OutsideRoot,
     /// Anything else the filesystem reported.
     #[error("io error: {0}")]
     Io(#[from] io::Error),
@@ -71,7 +74,8 @@ pub enum ImageSaveError {
 /// A regular file under one of those names that already holds `bytes` is
 /// reused instead of written again. `before_write` runs with the path just
 /// before each write, so the caller can mark the write as its own for the
-/// file watcher.
+/// file watcher, and `write_lost` runs with it after a write that did not
+/// land, so the caller can take that mark back.
 ///
 /// # Errors
 ///
@@ -83,6 +87,7 @@ pub fn save_image(
     name: &str,
     bytes: &[u8],
     mut before_write: impl FnMut(&Path),
+    mut write_lost: impl FnMut(&Path),
 ) -> Result<SavedImage, ImageSaveError> {
     make_folder(folder)?;
     for number in 1..=MAX_NUMBERED_NAMES {
@@ -98,7 +103,11 @@ pub fn save_image(
             continue;
         }
         before_write(&path);
-        match write_new(&path, bytes) {
+        let written = write_new(&path, bytes);
+        if written.is_err() {
+            write_lost(&path);
+        }
+        match written {
             Ok(()) => {
                 return Ok(SavedImage::Written {
                     name: candidate,
@@ -146,6 +155,44 @@ fn holds_bytes(path: &Path, bytes: &[u8]) -> Result<bool, ImageSaveError> {
         return Ok(false);
     }
     Ok(fs::read(path)? == bytes)
+}
+
+/// Makes `folder` one part at a time under `root`, a resolved folder, and
+/// returns where it resolves, refusing it when it or a link on the way to it
+/// resolves outside `root`.
+///
+/// # Errors
+///
+/// [`ImageSaveError::OutsideRoot`] when `folder` is not under `root` or a part
+/// of it resolves outside, [`ImageSaveError::FolderNotWritable`] when a part
+/// cannot be made or is not a folder, and [`ImageSaveError::Io`] for any
+/// other failure.
+pub fn make_folder_within(root: &Path, folder: &Path) -> Result<PathBuf, ImageSaveError> {
+    let rest = folder
+        .strip_prefix(root)
+        .map_err(|_| ImageSaveError::OutsideRoot)?;
+    let mut current = root.to_path_buf();
+    for part in rest.components() {
+        let std::path::Component::Normal(part) = part else {
+            return Err(ImageSaveError::OutsideRoot);
+        };
+        let next = current.join(part);
+        match fs::create_dir(&next) {
+            Ok(()) => {}
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(err) if is_permission_error(&err) => return Err(ImageSaveError::FolderNotWritable),
+            Err(err) => return Err(ImageSaveError::Io(err)),
+        }
+        let resolved = strip_verbatim_prefix(fs::canonicalize(&next)?);
+        if !resolved.starts_with(root) {
+            return Err(ImageSaveError::OutsideRoot);
+        }
+        if !fs::metadata(&resolved)?.is_dir() {
+            return Err(ImageSaveError::FolderNotWritable);
+        }
+        current = resolved;
+    }
+    Ok(current)
 }
 
 fn make_folder(folder: &Path) -> Result<(), ImageSaveError> {

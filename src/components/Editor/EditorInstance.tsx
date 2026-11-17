@@ -67,6 +67,7 @@ import { configStore } from "../../stores/global/config";
 import { clipboardStore } from "../../stores/global/clipboard";
 import { imagesStore } from "../../stores/global/images";
 import type { DropPoint } from "../../types/image-import";
+import type { RemoteImageLoad } from "../../types/inline-image";
 import { editorZoom } from "../../stores/global/editor-zoom";
 import { bufferRegistry } from "../../stores/global/buffer-registry";
 import { unreadTabs } from "../../stores/global/unread-tabs";
@@ -427,7 +428,8 @@ export default function EditorInstance(props: Props) {
   const imageDeps: InlineImageDeps = {
     resolve: (reference: string) => linkStore.inlineImage(props.buffer.id, reference),
     download: (reference: string) => linkStore.downloadInlineImage(props.buffer.id, reference),
-    loadRemote: (reference: string) => imagesStore.loadRemoteImage(props.buffer.id, reference),
+    loadRemote: (reference: string, load: RemoteImageLoad) =>
+      imagesStore.loadRemoteImage(viewBufferId ?? props.buffer.id, reference, load),
     loadsRemoteImages: () => configStore.config().editor.load_remote_images ?? false,
   };
 

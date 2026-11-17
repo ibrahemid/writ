@@ -5,8 +5,9 @@ use writ_core::config::ImageFolder;
 use writ_core::notes::image_import::{
     check_image_head, check_image_size, clipboard_image_name, copied_file_name,
     encode_reference_part, extension_for_mime, image_destination, image_folder_label,
-    image_markdown, link_safe_file_name, numbered_file_name, place_image_file, reference_inside,
-    saved_image_reference, ImageImportError, ImagePlacement, IMAGE_MAX_BYTES, IMAGE_MAX_MB,
+    image_markdown, is_lone_web_address, link_safe_file_name, not_images_notice,
+    numbered_file_name, place_image_file, reference_inside, saved_image_reference,
+    ImageImportError, ImagePlacement, IMAGE_MAX_BYTES, IMAGE_MAX_MB, MAX_NUMBERED_NAMES,
 };
 
 const PNG_HEAD: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
@@ -107,9 +108,60 @@ fn a_long_name_is_cut_to_a_stem_every_filesystem_takes() {
 #[test]
 fn a_copy_without_an_extension_gets_the_one_its_bytes_call_for() {
     assert_eq!(copied_file_name("pasted", "image/jpeg"), "pasted.jpg");
-    assert_eq!(copied_file_name("a.gif", "image/png"), "a.gif");
     assert_eq!(extension_for_mime("image/svg+xml"), Some("svg"));
     assert_eq!(extension_for_mime("text/html"), None);
+}
+
+#[test]
+fn a_copy_is_saved_with_the_extension_its_bytes_call_for() {
+    assert_eq!(copied_file_name("a.gif", "image/png"), "a.png");
+    assert_eq!(copied_file_name("Photo.JPEG", "image/jpeg"), "Photo.jpg");
+    assert_eq!(
+        copied_file_name("drawing.svg", "image/webp"),
+        "drawing.webp"
+    );
+    assert_eq!(
+        copied_file_name("scan.2024.10.01", "image/png"),
+        "scan.2024.10.01.png"
+    );
+}
+
+#[test]
+fn every_saved_name_fits_a_file_name_with_its_clash_number() {
+    let at = NaiveDate::from_ymd_opt(2026, 11, 17)
+        .unwrap()
+        .and_hms_opt(9, 5, 7)
+        .unwrap();
+    for stem in ["😀".repeat(200), "画".repeat(300), "a".repeat(400)] {
+        for name in [
+            copied_file_name(&format!("{stem}.png"), "image/webp"),
+            clipboard_image_name(&stem, at, "webp"),
+        ] {
+            let last = numbered_file_name(&name, MAX_NUMBERED_NAMES);
+            assert!(last.len() <= 255, "{} bytes: {last}", last.len());
+            assert!(
+                last.ends_with(&format!("-{MAX_NUMBERED_NAMES}.webp")),
+                "{last}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_device_name_is_never_a_saved_name() {
+    let at = NaiveDate::from_ymd_opt(2026, 11, 17)
+        .unwrap()
+        .and_hms_opt(9, 5, 7)
+        .unwrap();
+    assert_eq!(copied_file_name("CON.png", "image/png"), "CON_.png");
+    assert_eq!(copied_file_name("nul.tar.gif", "image/gif"), "nul_.tar.gif");
+    assert_eq!(copied_file_name("com1", "image/png"), "com1_.png");
+    assert_eq!(link_safe_file_name("aux.png"), "aux_.png");
+    assert_eq!(copied_file_name("console.png", "image/png"), "console.png");
+    assert_eq!(
+        clipboard_image_name("prn", at, "png"),
+        "prn-20261117-090507.png"
+    );
 }
 
 #[test]
@@ -126,10 +178,13 @@ fn a_clipboard_picture_is_named_after_the_file_and_the_time() {
         .and_hms_opt(9, 5, 7)
         .unwrap();
     assert_eq!(
-        clipboard_image_name("Trip plan", at),
+        clipboard_image_name("Trip plan", at, "png"),
         "Trip-plan-20261117-090507.png"
     );
-    assert_eq!(clipboard_image_name("", at), "image-20261117-090507.png");
+    assert_eq!(
+        clipboard_image_name("", at, "jpg"),
+        "image-20261117-090507.jpg"
+    );
 }
 
 #[test]
@@ -161,4 +216,66 @@ fn only_bytes_the_editor_draws_are_taken() {
 fn the_folder_label_names_the_file_folder_as_a_dot() {
     assert_eq!(image_folder_label(&folder("")), ".");
     assert_eq!(image_folder_label(&folder("assets")), "assets");
+}
+
+#[test]
+fn a_lone_web_address_is_told_from_other_text() {
+    for text in [
+        "https://example.com/cat.png",
+        "  http://example.com/a?b=c#d\n",
+    ] {
+        assert!(is_lone_web_address(text), "{text:?}");
+    }
+    for text in [
+        "",
+        "see https://example.com/cat.png",
+        "https://a.example/x https://b.example/y",
+        "https://a.example/x\nhttps://b.example/y",
+        "file:///Users/me/cat.png",
+        "ftp://example.com/cat.png",
+        "example.com/cat.png",
+        "https://",
+        "data:image/png;base64,AAAA",
+    ] {
+        assert!(!is_lone_web_address(text), "{text:?}");
+    }
+}
+
+#[test]
+fn copied_files_passed_over_are_counted_in_one_notice() {
+    assert_eq!(not_images_notice(0), None);
+    assert_eq!(
+        not_images_notice(1).as_deref(),
+        Some("1 file is not an image and was not pasted")
+    );
+    assert_eq!(
+        not_images_notice(3).as_deref(),
+        Some("3 files are not images and were not pasted")
+    );
+}
+
+#[test]
+fn each_refusal_says_what_stopped_the_image() {
+    assert_eq!(
+        ImageImportError::PictureTooLarge {
+            limit_mb: IMAGE_MAX_MB
+        }
+        .to_string(),
+        "The copied picture is over the 16 MB limit for images"
+    );
+    assert_eq!(
+        ImageImportError::NoFreeName {
+            name: "shot.png".to_string(),
+            folder: "assets".to_string()
+        }
+        .to_string(),
+        "Could not find a free name for shot.png in the folder assets"
+    );
+    assert_eq!(
+        ImageImportError::FolderOutside {
+            folder: "assets".to_string()
+        }
+        .to_string(),
+        "The folder assets leads outside the file's folder"
+    );
 }

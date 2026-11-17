@@ -5,6 +5,7 @@ import type {
   DropPoint,
   DroppedImagesResult,
 } from "../../types/image-import";
+import type { RemoteImageLoad } from "../../types/inline-image";
 import { showToast } from "./notifications";
 
 /**
@@ -91,12 +92,43 @@ export async function pasteClipboardImages(bufferId: string): Promise<ClipboardP
   return tauri.pasteClipboardImages(bufferId);
 }
 
-/** Fetches a web image an open Markdown tab references, on request. */
+/** The most web image loads the person did not click that run at once. */
+export const AUTOMATIC_REMOTE_LOADS_AT_ONCE = 4;
+
+// Singleton state — Writ is single-window
+let automaticLoadsRunning = 0;
+const automaticLoadsWaiting: (() => void)[] = [];
+
+async function takeAutomaticLoadTurn(): Promise<void> {
+  if (automaticLoadsRunning < AUTOMATIC_REMOTE_LOADS_AT_ONCE) {
+    automaticLoadsRunning += 1;
+    return;
+  }
+  await new Promise<void>((resolve) => automaticLoadsWaiting.push(resolve));
+}
+
+function endAutomaticLoadTurn(): void {
+  const next = automaticLoadsWaiting.shift();
+  if (next) next();
+  else automaticLoadsRunning -= 1;
+}
+
+/**
+ * Fetches a web image an open Markdown tab references. A click starts at
+ * once; other loads wait while [`AUTOMATIC_REMOTE_LOADS_AT_ONCE`] are running.
+ */
 export async function loadRemoteImage(
   bufferId: string,
   reference: string,
+  load: RemoteImageLoad,
 ): Promise<{ src: string }> {
-  return tauri.previewRemoteImage(bufferId, reference);
+  if (load === "asked") return tauri.previewRemoteImage(bufferId, reference, load);
+  await takeAutomaticLoadTurn();
+  try {
+    return await tauri.previewRemoteImage(bufferId, reference, load);
+  } finally {
+    endAutomaticLoadTurn();
+  }
 }
 
 export const imagesStore = {

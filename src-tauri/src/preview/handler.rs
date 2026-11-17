@@ -187,6 +187,16 @@ impl RenderCache {
         .read(key, buffer_id)
     }
 
+    /// Withdraws every remote image `buffer_id` was granted, once its tab
+    /// has closed.
+    pub fn release_remote_images(&self, buffer_id: &str) {
+        recover_poison(
+            self.remote_images.lock(),
+            "preview::render_cache::release_remote_images",
+        )
+        .release_buffer(buffer_id);
+    }
+
     /// Drop the cached document for `buffer_id` (on preview close). Its asset
     /// scope stays for the editor.
     pub fn evict(&self, buffer_id: &str) {

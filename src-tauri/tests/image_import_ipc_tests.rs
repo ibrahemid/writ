@@ -27,9 +27,12 @@ use writ_storage::database::connection::open_database;
 use writ_storage::database::migrations::run_migrations;
 use writ_storage::layout_state::LayoutStateStore;
 use writ_storage::notes_index::NotesIndexStore;
+use writ_tauri_lib::commands::buffer::{
+    close_buffer_inner, close_buffers_inner, delete_buffer_inner,
+};
 use writ_tauri_lib::commands::images::{
-    import_dropped_images_inner, paste_clipboard_images_inner, ClipboardContents,
-    ClipboardPasteResult, ClipboardReader, ERR_TAB_NOT_OPEN,
+    encode_png, import_dropped_images_inner, paste_clipboard_images_inner, ClipboardContents,
+    ClipboardPasteResult, ClipboardPicture, ClipboardReader, ERR_TAB_NOT_OPEN,
 };
 use writ_tauri_lib::commands::preview::{
     preview_remote_image_lookup_inner, preview_remote_image_store_inner, InlineImageResult,
@@ -50,6 +53,12 @@ const COMMANDS: &[&str] = &[
 ];
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDRpixels";
+const PIXELS: [u8; 8] = [255, 0, 0, 255, 0, 255, 0, 128];
+
+/// A 2x1 picture as the clipboard holds one.
+fn picture() -> ClipboardContents {
+    ClipboardContents::Image(ClipboardPicture::new(2, 1, PIXELS.to_vec()).unwrap())
+}
 const OTHER_PNG: &[u8] = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDRother";
 
 fn make_state(dir: &TempDir) -> AppState {
@@ -282,7 +291,10 @@ fn several_files_give_one_reference_per_line_and_skip_what_is_not_an_image() {
         ]),
     ));
     assert_eq!(markdown, "![](assets/shot.png)\n![](assets/b.png)");
-    assert!(notices.is_empty(), "{notices:?}");
+    assert_eq!(
+        notices,
+        vec!["1 file is not an image and was not pasted".to_string()]
+    );
 }
 
 #[test]
@@ -317,12 +329,78 @@ fn the_same_image_pasted_twice_reuses_its_file_and_a_different_one_is_numbered()
 fn a_clipboard_picture_is_saved_as_png_named_after_the_note_and_the_time() {
     let f = Fixture::new();
     let state = f.state();
-    let (markdown, _) = inserted(f.paste(&state, ClipboardContents::Image(PNG.to_vec())));
+    let (markdown, _) = inserted(f.paste(&state, picture()));
     assert_eq!(markdown, "![](assets/Trip-plan-20261117-090507.png)");
     assert_eq!(
         std::fs::read(f.note_dir.join("assets/Trip-plan-20261117-090507.png")).unwrap(),
-        PNG
+        encode_png(2, 1, &PIXELS).unwrap()
     );
+}
+
+#[test]
+fn a_clipboard_picture_with_every_name_taken_is_named_in_the_notice() {
+    let f = Fixture::new();
+    let assets = f.note_dir.join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    for number in 1..=999 {
+        let name = if number == 1 {
+            "Trip-plan-20261117-090507.png".to_string()
+        } else {
+            format!("Trip-plan-20261117-090507-{number}.png")
+        };
+        std::fs::write(assets.join(name), OTHER_PNG).unwrap();
+    }
+    let state = f.state();
+    let notices = refused(f.paste(&state, picture()));
+    assert_eq!(
+        notices,
+        vec![
+            "Could not find a free name for Trip-plan-20261117-090507.png in the folder assets"
+                .to_string()
+        ]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_image_folder_linked_outside_the_file_folder_is_refused() {
+    let f = Fixture::new();
+    let elsewhere = f.dir.path().join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, f.note_dir.join("assets")).unwrap();
+    let state = f.state();
+    let notices = refused(f.paste(
+        &state,
+        ClipboardContents::Files(vec![f.outside.join("shot.png")]),
+    ));
+    assert_eq!(
+        notices,
+        vec!["The folder assets leads outside the file's folder".to_string()]
+    );
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_write_that_does_not_land_leaves_no_mark_for_the_watcher() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    let assets = f.note_dir.join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::set_permissions(&assets, std::fs::Permissions::from_mode(0o555)).unwrap();
+    // Root writes past the permission bits this test relies on.
+    if std::fs::write(assets.join("probe"), b"").is_ok() {
+        return;
+    }
+    let state = f.state();
+    let stamps_before = state.watcher_ignore.lock().unwrap().len();
+    let result = f.paste(&state, picture());
+    std::fs::set_permissions(&assets, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        refused(result),
+        vec!["Could not write to the folder assets".to_string()]
+    );
+    assert_eq!(state.watcher_ignore.lock().unwrap().len(), stamps_before);
 }
 
 #[test]
@@ -342,7 +420,7 @@ fn an_empty_image_folder_saves_beside_the_note() {
 fn a_tab_with_no_file_on_disk_is_told_to_save_first() {
     let f = Fixture::new();
     let state = state_with(&f.dir, "buf-1", None);
-    let notices = refused(f.paste(&state, ClipboardContents::Image(PNG.to_vec())));
+    let notices = refused(f.paste(&state, picture()));
     assert_eq!(
         notices,
         vec!["Save the file first, so the image has a folder to go in".to_string()]
@@ -385,13 +463,8 @@ fn a_folder_that_cannot_be_written_is_named() {
 fn a_tab_that_is_not_open_is_an_error() {
     let f = Fixture::new();
     let state = f.state();
-    let err = paste_clipboard_images_inner(
-        &state,
-        "buf-9",
-        &FixedClipboard(ClipboardContents::Image(PNG.to_vec())),
-        at(),
-    )
-    .unwrap_err();
+    let err = paste_clipboard_images_inner(&state, "buf-9", &FixedClipboard(picture()), at())
+        .unwrap_err();
     assert_eq!(err, ERR_TAB_NOT_OPEN);
 }
 
@@ -510,12 +583,79 @@ fn a_remote_reference_that_is_not_a_web_address_or_an_open_tabs_is_refused() {
     for reference in ["assets/a.png", "file:///etc/passwd", "javascript:alert(1)"] {
         let answer =
             answered(preview_remote_image_lookup_inner(&state, "buf-1", reference).unwrap());
-        assert_eq!(reason(answer), "outside_root", "{reference}");
+        assert_eq!(reason(answer), "not_remote", "{reference}");
     }
     let answer = answered(
         preview_remote_image_lookup_inner(&state, "buf-9", "https://example.com/a.png").unwrap(),
     );
     assert_eq!(reason(answer), "outside_root");
+}
+
+fn fetch_for(
+    state: &AppState,
+    buffer_id: &str,
+) -> writ_tauri_lib::commands::preview::PendingRemoteImage {
+    match preview_remote_image_lookup_inner(state, buffer_id, "https://example.com/a.png").unwrap()
+    {
+        RemoteImageLookup::Fetch(pending) => pending,
+        RemoteImageLookup::Answered(answer) => panic!("expected a fetch, got {answer:?}"),
+    }
+}
+
+fn png_image() -> HeldImage {
+    HeldImage {
+        mime: "image/png",
+        bytes: PNG.into(),
+    }
+}
+
+#[test]
+fn closing_a_tab_releases_the_remote_images_it_was_granted() {
+    for close in [
+        (|state: &AppState| close_buffer_inner(state, "buf-1"))
+            as fn(&AppState) -> Result<(), String>,
+        |state| close_buffers_inner(state, &["buf-1".to_string()]),
+        |state| delete_buffer_inner(state, "buf-1"),
+    ] {
+        let f = Fixture::new();
+        let state = f.state();
+        let pending = fetch_for(&state, "buf-1");
+        ready_url(preview_remote_image_store_inner(
+            &state,
+            &pending,
+            Ok(png_image()),
+        ));
+        assert!(state
+            .preview_render_cache
+            .remote_image(&pending.key, "buf-1")
+            .is_some());
+        close(&state).unwrap();
+        assert!(state
+            .preview_render_cache
+            .remote_image(&pending.key, "buf-1")
+            .is_none());
+        assert!(state
+            .preview_render_cache
+            .grant_remote_image(&pending.key, "buf-2")
+            .is_none());
+    }
+}
+
+#[test]
+fn a_fetch_that_finishes_after_its_tab_closed_is_not_held() {
+    let f = Fixture::new();
+    let state = f.state();
+    let pending = fetch_for(&state, "buf-1");
+    close_buffer_inner(&state, "buf-1").unwrap();
+    preview_remote_image_store_inner(&state, &pending, Ok(png_image()));
+    assert!(state
+        .preview_render_cache
+        .remote_image(&pending.key, "buf-1")
+        .is_none());
+    assert!(state
+        .preview_render_cache
+        .grant_remote_image(&pending.key, "buf-2")
+        .is_none());
 }
 
 #[test]
@@ -531,6 +671,7 @@ fn a_failed_fetch_is_answered_with_its_reason() {
         (RemoteImageRefusal::Unreachable, "unreachable"),
         (RemoteImageRefusal::TooLarge, "too_large"),
         (RemoteImageRefusal::NotAnImage, "not_an_image"),
+        (RemoteImageRefusal::LocalAddress, "local_address"),
     ] {
         let answer = preview_remote_image_store_inner(&state, &pending, Err(refusal));
         assert_eq!(reason(answer), expected);

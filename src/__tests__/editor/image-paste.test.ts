@@ -83,6 +83,12 @@ describe("clipboardMayHoldImages", () => {
     expect(clipboardMayHoldImages(clipboard(["text/plain"], "..."))).toBe(false);
   });
 
+  it("is false for text that only looks like a file name", () => {
+    for (const text of ["example.com", "3.14", "node.js", "README.md", "Version 1.2", "1.2\n3.4"]) {
+      expect(clipboardMayHoldImages(clipboard(["text/plain"], text))).toBe(false);
+    }
+  });
+
   it("is false for long text without looking at its lines", () => {
     const long = `${"a".repeat(5000)}.png`;
     expect(clipboardMayHoldImages(clipboard(["text/plain"], long))).toBe(false);
@@ -176,6 +182,50 @@ describe("pasteImagesOrText", () => {
     expect(deps.notices).toEqual([TAB_CHANGED_NOTICE]);
   });
 
+  it("pastes the text through the editor's own paste, a line per cursor", async () => {
+    const view = makeView("a\nb", 0, [EditorState.allowMultipleSelections.of(true)]);
+    view.dispatch({
+      selection: EditorSelection.create([EditorSelection.cursor(1), EditorSelection.cursor(3)]),
+    });
+    const deps = makeDeps({ kind: "text" });
+    await pasteImagesOrText(view, deps, { text: "a.png\nb.png", sawImage: false });
+    expect(view.state.doc.toString()).toBe("aa.png\nbb.png");
+  });
+
+  it("leaves focus where it went while the paste ran", async () => {
+    const view = makeView("");
+    const findField = document.createElement("input");
+    document.body.appendChild(findField);
+    const focus = vi.spyOn(view, "focus");
+    const deps = makeDeps(
+      { kind: "inserted", markdown: "![](assets/a.png)", notices: [] },
+      {
+        pasteImages: vi.fn(() => {
+          findField.focus();
+          return Promise.resolve<ClipboardPasteResult>({
+            kind: "inserted",
+            markdown: "![](assets/a.png)",
+            notices: [],
+          });
+        }),
+      },
+    );
+    await pasteImagesOrText(view, deps, { text: "", sawImage: true });
+    expect(view.state.doc.toString()).toBe("![](assets/a.png)");
+    expect(focus).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(findField);
+    findField.remove();
+  });
+
+  it("focuses the editor after the paste when nothing else has focus", async () => {
+    const view = makeView("");
+    (document.activeElement as HTMLElement | null)?.blur();
+    const focus = vi.spyOn(view, "focus");
+    const deps = makeDeps({ kind: "inserted", markdown: "![](assets/a.png)", notices: [] });
+    await pasteImagesOrText(view, deps, { text: "", sawImage: true });
+    expect(focus).toHaveBeenCalled();
+  });
+
   it("logs a host failure and says the image was not pasted", async () => {
     const view = makeView("");
     const deps = makeDeps(new Error("clipboard unavailable"));
@@ -224,6 +274,63 @@ describe("imagePaste", () => {
     const event = pasteEvent(clipboard(["text/plain"], "hello world"));
     view.contentDOM.dispatchEvent(event);
     expect(deps.pasteImages).not.toHaveBeenCalled();
+  });
+
+  it("leaves text that only looks like a file name to the editor's own paste", () => {
+    for (const text of ["example.com", "3.14"]) {
+      const deps = makeDeps({ kind: "text" });
+      const view = makeView("", 0, [imagePaste(deps)]);
+      view.contentDOM.dispatchEvent(pasteEvent(clipboard(["text/plain"], text)));
+      expect(deps.pasteImages).not.toHaveBeenCalled();
+      expect(view.state.doc.toString()).toBe(text);
+    }
+  });
+
+  it("puts a line at each cursor as the editor's own paste does", async () => {
+    const deps = makeDeps({ kind: "text" });
+    const view = makeView("a\nb", 0, [imagePaste(deps), EditorState.allowMultipleSelections.of(true)]);
+    view.dispatch({
+      selection: EditorSelection.create([EditorSelection.cursor(1), EditorSelection.cursor(3)]),
+    });
+    view.contentDOM.dispatchEvent(pasteEvent(clipboard(["text/plain"], "1.2\n3.4")));
+    await settle();
+    expect(deps.pasteImages).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe("a1.2\nb3.4");
+  });
+
+  it("pastes a whole-line copy above the cursor's line", async () => {
+    const deps = makeDeps({ kind: "text" });
+    const view = makeView("node.js\nabc", 0, [imagePaste(deps)]);
+    view.focus();
+    const copied = new Map<string, string>();
+    const copyEvent = new Event("copy", { bubbles: true, cancelable: true });
+    Object.defineProperty(copyEvent, "clipboardData", {
+      value: {
+        clearData: () => copied.clear(),
+        setData: (type: string, value: string) => copied.set(type, value),
+      },
+    });
+    view.contentDOM.dispatchEvent(copyEvent);
+    expect(copied.get("text/plain")).toBe("node.js");
+    view.dispatch({ selection: EditorSelection.single(10) });
+    view.contentDOM.dispatchEvent(pasteEvent(clipboard(["text/plain"], "node.js")));
+    await settle();
+    expect(deps.pasteImages).not.toHaveBeenCalled();
+    expect(view.state.doc.toString()).toBe("node.js\nnode.js\nabc");
+  });
+
+  it("hands text the host finds no image in back to the editor's own paste", async () => {
+    const deps = makeDeps({ kind: "text" });
+    const view = makeView("a\nb", 0, [imagePaste(deps), EditorState.allowMultipleSelections.of(true)]);
+    view.dispatch({
+      selection: EditorSelection.create([EditorSelection.cursor(1), EditorSelection.cursor(3)]),
+    });
+    const event = pasteEvent(clipboard(["text/plain"], "x.png\ny.png"));
+    view.contentDOM.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    await settle();
+    expect(deps.pasteImages).toHaveBeenCalledTimes(1);
+    expect(view.state.doc.toString()).toBe("ax.png\nby.png");
   });
 
   it("leaves every paste alone in a tab that takes no images", () => {

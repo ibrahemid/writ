@@ -170,4 +170,24 @@ nothing is written that the editor will not draw. The host reads the clipboard
 itself and answers with the Markdown to insert; no image bytes cross IPC.
 Writes go through `writ_storage::image_store::save_image`, which runs the
 caller's IgnoreSet stamp before an atomic write and reuses a same-named file
-whose bytes match.
+whose bytes match; a write that does not land takes its stamp back.
+
+`ImageFolder::parse` also refuses a part no platform can name a folder: a
+control character or one of `< > : " | ? *`, a trailing dot or space, or a
+device name such as `CON`. `src/lib/image-folder.ts` applies the same rules,
+checked against one shared fixture. The folder is made one part at a time
+(`make_folder_within`), and a part that resolves outside the note's folder,
+such as a link to elsewhere, refuses the save.
+
+A copied image is saved under the extension its sniffed type calls for, and
+every saved stem is capped in bytes so the longest name, with a clipboard
+timestamp, a `-999` clash number and `.webp`, stays within 255 bytes; a stem
+that spells a device name gains a trailing `_`.
+
+A clipboard picture is encoded as PNG. When the PNG is over the cap and every
+pixel is opaque, it is saved as JPEG at quality 90 instead; when the picture
+has transparency, or the JPEG is over the cap too, the paste is refused with
+a message naming the copied picture and the limit. A picture beside text that
+is one `http` or `https` address and nothing else pastes as the picture, since
+a browser's Copy Image puts both on the clipboard; any other text pastes as
+text.

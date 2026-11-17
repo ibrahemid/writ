@@ -26,14 +26,23 @@ export const TAB_CHANGED_NOTICE = "The tab changed before the paste finished";
 export const CLIPBOARD_CHANGED_NOTICE = "The clipboard changed before the image was pasted";
 export const PASTE_FAILED_NOTICE = "Could not paste the image";
 
-// A line copied file names arrive as when a file manager also puts the names
-// on the clipboard as text.
-const FILE_NAME_LINE = /^[^\\/:*?"<>|\t]*[^\s.]\.[A-Za-z0-9]{1,8}$/;
+// A line copied image file names arrive as when a file manager also puts the
+// names on the clipboard as text.
+const IMAGE_FILE_NAME_LINE =
+  /^[^\\/:*?"<>|\t]*[^\s.]\.(?:png|jpe?g|gif|webp|bmp|avif|svg|heic|tiff?)$/i;
 const FILE_NAME_LIMIT = 4096;
+
+// Pastes this module hands to CodeMirror's own paste, which its handler skips.
+const editorPastes = new WeakSet<Event>();
+
+/** The text a paste carries, read the way CodeMirror's own paste reads it. */
+function clipboardText(data: DataTransfer | null): string {
+  return data ? data.getData("text/plain") || data.getData("text/uri-list") : "";
+}
 
 /**
  * Whether a paste event's clipboard may hold images, which the host is then
- * asked about. Plain text that is not a list of file names stays with the
+ * asked about. Text that is not a list of image file names stays with the
  * editor's own paste.
  */
 export function clipboardMayHoldImages(data: DataTransfer | null): boolean {
@@ -41,11 +50,11 @@ export function clipboardMayHoldImages(data: DataTransfer | null): boolean {
   const types = Array.from(data.types ?? []);
   if (types.includes("Files")) return true;
   if (types.some((type) => type.startsWith("image/"))) return true;
-  const text = data.getData("text/plain");
+  const text = clipboardText(data);
   if (text.length === 0) return true;
   if (text.length > FILE_NAME_LIMIT) return false;
   const lines = text.split(/\r\n|\r|\n/).filter((line) => line.length > 0);
-  return lines.length > 0 && lines.every((line) => FILE_NAME_LINE.test(line.trim()));
+  return lines.length > 0 && lines.every((line) => IMAGE_FILE_NAME_LINE.test(line.trim()));
 }
 
 /** What the paste event saw on the clipboard, or null for a menu paste. */
@@ -60,6 +69,29 @@ function insertAtSelection(view: EditorView, text: string): void {
     scrollIntoView: true,
     userEvent: "input.paste",
   });
+}
+
+/**
+ * Pastes `text` through CodeMirror's own paste, so a line per cursor and a
+ * whole-line copy land as they would without this module.
+ */
+function pasteAsText(view: EditorView, text: string): void {
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  const data: Pick<DataTransfer, "types" | "getData"> = {
+    types: ["text/plain"],
+    getData: (format: string) => (format === "text/plain" ? text : ""),
+  };
+  Object.defineProperty(event, "clipboardData", { value: data });
+  editorPastes.add(event);
+  view.contentDOM.dispatchEvent(event);
+}
+
+/** Focuses the editor unless something else took focus while the paste ran. */
+function focusUnlessTaken(view: EditorView): void {
+  const active = view.dom.ownerDocument.activeElement;
+  if (!active || active === view.dom.ownerDocument.body || view.dom.contains(active)) {
+    view.focus();
+  }
 }
 
 /**
@@ -104,12 +136,12 @@ export async function pasteImagesOrText(
   if (result.kind === "inserted") {
     if (text) insertAtSelection(view, text);
     if (result.notices.length > 0) deps.notify(result.notices);
-    view.focus();
+    focusUnlessTaken(view);
     return;
   }
   if (text) {
-    insertAtSelection(view, text);
-    view.focus();
+    pasteAsText(view, text);
+    focusUnlessTaken(view);
     return;
   }
   if (snapshot?.sawImage) deps.notify([CLIPBOARD_CHANGED_NOTICE]);
@@ -122,13 +154,14 @@ export async function pasteImagesOrText(
 export function imagePaste(deps: ImagePasteDeps): Extension {
   return EditorView.domEventHandlers({
     paste(event, view) {
+      if (editorPastes.has(event)) return false;
       if (view.state.readOnly || !deps.acceptsImages()) return false;
       const data = event.clipboardData;
       if (!clipboardMayHoldImages(data)) return false;
       event.preventDefault();
       const types = Array.from(data?.types ?? []);
       const snapshot: ClipboardSnapshot = {
-        text: data?.getData("text/plain") ?? "",
+        text: clipboardText(data),
         sawImage: types.includes("Files") || types.some((type) => type.startsWith("image/")),
       };
       void pasteImagesOrText(view, deps, snapshot);

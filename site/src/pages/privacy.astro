@@ -1,7 +1,7 @@
 ---
 import Prose from '../layouts/Prose.astro';
 ---
-<Prose title="Privacy" description="Your files stay in a folder on your disk. No account, no telemetry. Chat, Rewrite and Connected programs are apps that are off until you switch them on. Writ contacts GitHub to check for updates and to download one you install." path="/privacy/" lead="Where your files live, and what leaves the machine. Reviewed 2026-10-17.">
+<Prose title="Privacy" description="Your files stay in a folder on your disk. No account, no telemetry. Chat, Rewrite and Connected programs are apps that are off until you switch them on. Writ contacts GitHub to check for updates and to download one you install, and the server of each web image it loads." path="/privacy/" lead="Where your files live, and what leaves the machine. Reviewed 2026-11-18.">
   <h2>Your files</h2>
   <p>
     Writ opens a text file up to 524&nbsp;MB anywhere on your disk and edits it where it is. It also keeps a folder of its own,
@@ -61,7 +61,8 @@ import Prose from '../layouts/Prose.astro';
   <p>
     A Markdown file in Inline mode shows an image from a web address as its host and a Load image button. Writ requests
     the image only when you click it, or for every one once <code>Load web images</code> is on in
-    <code>Settings &rarr; Editor</code>. The request goes to that image's server, and to any http or https address it
+    <code>Settings &rarr; Editor</code>. With that setting on, an image on this computer or your local network, by name
+    or address, still waits for your click. The request goes to that image's server, and to any http or https address it
     redirects to, with no cookies and no referrer. Writ keeps the image in memory and does not write it to disk.
   </p>
 

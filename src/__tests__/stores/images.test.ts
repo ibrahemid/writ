@@ -186,10 +186,64 @@ describe("host calls", () => {
 
   it("loads a web image for the tab it names", async () => {
     mocks.previewRemoteImage.mockResolvedValue({ src: "writ-preview://x" });
-    expect(await loadRemoteImage("buf-3", "https://e.com/a.png")).toEqual({
+    expect(await loadRemoteImage("buf-3", "https://e.com/a.png", "automatic")).toEqual({
       src: "writ-preview://x",
     });
-    expect(mocks.previewRemoteImage).toHaveBeenCalledWith("buf-3", "https://e.com/a.png");
+    expect(mocks.previewRemoteImage).toHaveBeenCalledWith(
+      "buf-3",
+      "https://e.com/a.png",
+      "automatic",
+    );
+  });
+
+  it("runs at most four unasked web image loads at once", async () => {
+    const answers: { resolve: (value: { src: string }) => void; reject: (e: Error) => void }[] =
+      [];
+    mocks.previewRemoteImage.mockImplementation(
+      () =>
+        new Promise((resolve, reject) => {
+          answers.push({ resolve, reject });
+        }),
+    );
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const loads = [1, 2, 3, 4, 5, 6].map((n) =>
+      loadRemoteImage("buf-1", `https://e.com/${n}.png`, "automatic"),
+    );
+    loads.forEach((load) => load.catch(() => {}));
+    await settle();
+    expect(mocks.previewRemoteImage).toHaveBeenCalledTimes(4);
+
+    const asked = loadRemoteImage("buf-1", "https://e.com/click.png", "asked");
+    await settle();
+    expect(mocks.previewRemoteImage).toHaveBeenCalledTimes(5);
+    expect(mocks.previewRemoteImage).toHaveBeenLastCalledWith(
+      "buf-1",
+      "https://e.com/click.png",
+      "asked",
+    );
+
+    answers[0].resolve({ src: "writ-preview://1" });
+    await settle();
+    expect(await loads[0]).toEqual({ src: "writ-preview://1" });
+    expect(mocks.previewRemoteImage).toHaveBeenCalledTimes(6);
+
+    answers[1].reject(new Error("refused"));
+    await settle();
+    await expect(loads[1]).rejects.toThrow("refused");
+    expect(mocks.previewRemoteImage).toHaveBeenCalledTimes(7);
+    expect(mocks.previewRemoteImage).toHaveBeenLastCalledWith(
+      "buf-1",
+      "https://e.com/6.png",
+      "automatic",
+    );
+
+    for (const answer of answers.slice(2)) answer.resolve({ src: "writ-preview://x" });
+    await Promise.all([asked, ...loads.slice(2)]);
+    mocks.previewRemoteImage.mockResolvedValue({ src: "writ-preview://y" });
+    await Promise.all(
+      [1, 2, 3, 4, 5].map((n) => loadRemoteImage("buf-1", `https://e.com/again-${n}.png`, "automatic")),
+    );
+    expect(mocks.previewRemoteImage).toHaveBeenCalledTimes(12);
   });
 
   it("shows nothing for no notices", () => {

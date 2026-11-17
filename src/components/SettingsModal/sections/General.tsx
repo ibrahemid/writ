@@ -234,6 +234,8 @@ function GlobalChordRow() {
 }
 
 export const IMAGE_FOLDER_CAUTION = "Use a folder inside the file's folder, like assets.";
+export const IMAGE_FOLDER_NAME_CAUTION =
+  'Folder names can\'t hold < > : " | ? *, end in a dot or space, or be a device name like CON.';
 
 function ImageFolderRow() {
   const saved = () => configStore.config().files.image_folder ?? DEFAULT_IMAGE_FOLDER;
@@ -242,7 +244,7 @@ function ImageFolderRow() {
   function onChange(input: HTMLInputElement) {
     const reading = readImageFolder(input.value);
     if (!reading.ok) {
-      setCaution(IMAGE_FOLDER_CAUTION);
+      setCaution(reading.reason === "not_a_name" ? IMAGE_FOLDER_NAME_CAUTION : IMAGE_FOLDER_CAUTION);
       return;
     }
     setCaution(undefined);

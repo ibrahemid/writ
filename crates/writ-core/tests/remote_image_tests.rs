@@ -1,7 +1,10 @@
+use std::net::IpAddr;
+
 use writ_core::preview::remote_image::{
-    check_remote_image_bytes, check_remote_image_size, is_followable_redirect, remote_image_host,
-    remote_image_key, remote_image_route, remote_image_url, split_remote_image_request,
-    RemoteImageRefusal, RemoteImageRequest, REMOTE_IMAGE_MAX_BYTES,
+    check_remote_image_bytes, check_remote_image_size, is_followable_redirect, is_local_address,
+    is_local_host, is_local_host_name, remote_image_host, remote_image_key, remote_image_route,
+    remote_image_url, split_remote_image_request, RemoteImageLoad, RemoteImageRefusal,
+    RemoteImageRequest, REMOTE_IMAGE_MAX_BYTES,
 };
 
 #[test]
@@ -106,9 +109,167 @@ fn a_malformed_route_splits_to_nothing() {
 
 #[test]
 fn refusals_map_to_the_editor_captions() {
+    assert_eq!(RemoteImageRefusal::NotRemote.as_str(), "not_remote");
     assert_eq!(RemoteImageRefusal::Unreachable.as_str(), "unreachable");
     assert_eq!(RemoteImageRefusal::TooLarge.as_str(), "too_large");
     assert_eq!(RemoteImageRefusal::NotAnImage.as_str(), "not_an_image");
+    assert_eq!(RemoteImageRefusal::LocalAddress.as_str(), "local_address");
+}
+
+fn addr(text: &str) -> IpAddr {
+    text.parse().unwrap()
+}
+
+fn assert_local(addresses: &[&str]) {
+    for text in addresses {
+        assert!(is_local_address(addr(text)), "{text} should be local");
+    }
+}
+
+fn assert_public(addresses: &[&str]) {
+    for text in addresses {
+        assert!(!is_local_address(addr(text)), "{text} should be public");
+    }
+}
+
+#[test]
+fn loopback_addresses_are_local() {
+    assert_local(&["127.0.0.1", "127.255.255.254", "::1", "::ffff:127.0.0.1"]);
+    assert_public(&["128.0.0.1", "126.255.255.255"]);
+}
+
+#[test]
+fn unspecified_addresses_are_local() {
+    assert_local(&["0.0.0.0", "0.1.2.3", "::", "::ffff:0.0.0.0"]);
+    assert_public(&["1.0.0.0"]);
+}
+
+#[test]
+fn private_ipv4_ranges_are_local_up_to_their_edges() {
+    assert_local(&[
+        "10.0.0.0",
+        "10.255.255.255",
+        "172.16.0.0",
+        "172.31.255.255",
+        "192.168.0.0",
+        "192.168.255.255",
+    ]);
+    assert_public(&[
+        "9.255.255.255",
+        "11.0.0.0",
+        "172.15.255.255",
+        "172.32.0.0",
+        "192.169.0.0",
+    ]);
+}
+
+#[test]
+fn the_shared_cgnat_range_is_local_up_to_its_edges() {
+    assert_local(&["100.64.0.0", "100.127.255.255"]);
+    assert_public(&["100.63.255.255", "100.128.0.0"]);
+}
+
+#[test]
+fn link_local_addresses_are_local() {
+    assert_local(&["169.254.0.1", "169.254.169.254", "fe80::1", "febf::ffff"]);
+    assert_public(&["169.253.255.255", "169.255.0.0", "fec0::1"]);
+}
+
+#[test]
+fn ipv6_unique_local_addresses_are_local() {
+    assert_local(&["fc00::1", "fd12:3456::1", "fdff:ffff::1"]);
+    assert_public(&["fbff::1", "fe00::1"]);
+}
+
+#[test]
+fn ipv4_mapped_ipv6_is_judged_by_its_ipv4_address() {
+    assert_local(&[
+        "::ffff:10.1.2.3",
+        "::ffff:192.168.0.9",
+        "::ffff:100.64.0.1",
+        "::ffff:169.254.1.1",
+        "::127.0.0.1",
+        "::10.0.0.1",
+    ]);
+    assert_public(&["::ffff:8.8.8.8"]);
+}
+
+#[test]
+fn public_addresses_are_not_local() {
+    assert_public(&[
+        "8.8.8.8",
+        "1.1.1.1",
+        "93.184.216.34",
+        "2606:4700::1111",
+        "2001:4860:4860::8888",
+    ]);
+}
+
+#[test]
+fn local_names_are_known_by_convention() {
+    for name in [
+        "localhost",
+        "LOCALHOST",
+        "localhost.",
+        "app.localhost",
+        "nas.local",
+        "Printer.LOCAL.",
+        "db.internal",
+        "metadata.google.internal",
+    ] {
+        assert!(is_local_host_name(name), "{name}");
+    }
+    for name in [
+        "example.com",
+        "localhost.example.com",
+        "local",
+        "internal",
+        "mylocal",
+        "notinternal",
+        "local.example.com",
+    ] {
+        assert!(!is_local_host_name(name), "{name}");
+    }
+}
+
+#[test]
+fn a_url_host_is_local_by_name_or_address_literal() {
+    for reference in [
+        "http://localhost:8080/a.png",
+        "http://127.0.0.1/a.png",
+        "http://10.0.0.5/a.png",
+        "http://[::1]/a.png",
+        "http://[fd00::5]/a.png",
+        "http://[::ffff:192.168.1.1]/a.png",
+        "http://0.0.0.0/a.png",
+        "http://nas.local/a.png",
+        "https://db.internal/a.png",
+        "http://2130706433/a.png",
+    ] {
+        let url = remote_image_url(reference).unwrap();
+        assert!(is_local_host(&url), "{reference}");
+    }
+    for reference in [
+        "https://example.com/a.png",
+        "https://8.8.8.8/a.png",
+        "https://[2606:4700::1111]/a.png",
+    ] {
+        let url = remote_image_url(reference).unwrap();
+        assert!(!is_local_host(&url), "{reference}");
+    }
+}
+
+#[test]
+fn a_load_names_who_started_it() {
+    assert_eq!(
+        serde_json::from_str::<RemoteImageLoad>("\"asked\"").unwrap(),
+        RemoteImageLoad::Asked
+    );
+    assert_eq!(
+        serde_json::from_str::<RemoteImageLoad>("\"automatic\"").unwrap(),
+        RemoteImageLoad::Automatic
+    );
+    assert!(serde_json::from_str::<RemoteImageLoad>("\"other\"").is_err());
 }
 
 fn held(bytes: &[u8]) -> writ_core::preview::remote_image::HeldImage {
@@ -161,4 +322,21 @@ fn holding_a_key_again_keeps_its_readers_and_counts_bytes_once() {
     store.insert("k", "buf-2", held(b"three"));
     assert_eq!(store.read("k", "buf-1"), Some(held(b"three")));
     assert_eq!(store.held_bytes(), 5);
+}
+
+#[test]
+fn a_closed_tab_loses_its_images_and_the_last_reader_frees_them() {
+    use writ_core::preview::remote_image::RemoteImageStore;
+    let mut store = RemoteImageStore::with_capacity(100);
+    store.insert("shared", "buf-1", held(b"one"));
+    store.grant("shared", "buf-2");
+    store.insert("own", "buf-1", held(b"three"));
+    store.release_buffer("buf-1");
+    assert_eq!(store.read("shared", "buf-1"), None);
+    assert_eq!(store.read("own", "buf-1"), None);
+    assert_eq!(store.read("shared", "buf-2"), Some(held(b"one")));
+    assert_eq!(store.held_bytes(), 3);
+    store.release_buffer("buf-2");
+    assert_eq!(store.grant("shared", "buf-3"), None);
+    assert_eq!(store.held_bytes(), 0);
 }
