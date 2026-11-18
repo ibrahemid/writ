@@ -59,7 +59,7 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 if [ "$head" = 1 ]; then
-  printf 'HTTP/2 302\\r\\nlocation: https://github.com/ibrahemid/writ/releases/tag/v%s\\r\\n\\r\\n' "$FAKE_VERSION"
+  printf 'HTTP/2 302\\r\\nlocation: https://github.com/ibrahemid/jotra/releases/tag/v%s\\r\\n\\r\\n' "$FAKE_VERSION"
   exit 0
 fi
 name="${url##*/}"

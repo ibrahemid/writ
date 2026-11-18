@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import build_latest_json  # noqa: E402
 
-RELEASE_ENV = {"VERSION": "0.3.0", "TAG": "v0.3.0", "REPO": "ibrahemid/writ"}
+RELEASE_ENV = {"VERSION": "0.3.0", "TAG": "v0.3.0", "REPO": "ibrahemid/jotra"}
 
 MAC_BUNDLE = "Jotra_universal.app.tar.gz"
 WINDOWS_MSI = "Jotra_0.3.0_x64_en-US.msi"
@@ -82,7 +82,7 @@ class BuildLatestJsonTest(unittest.TestCase):
         deb = manifest["platforms"]["linux-x86_64-deb"]
         self.assertEqual(
             deb["url"],
-            f"https://github.com/ibrahemid/writ/releases/download/v0.3.0/{LINUX_DEB}",
+            f"https://github.com/ibrahemid/jotra/releases/download/v0.3.0/{LINUX_DEB}",
         )
         self.assertEqual(deb["signature"], f"signature-for-{LINUX_DEB}")
         self.assertTrue(

@@ -10,7 +10,7 @@ import type { UpdatePhase } from "../../types/update";
 import { linkStore } from "./link";
 
 /** The site's changelog, with an anchor per version. */
-export const CHANGELOG_URL = "https://writ.ibrahemid.com/changelog/";
+export const CHANGELOG_URL = "https://jotra.ibrahemid.com/changelog/";
 
 // Singleton — app-global, not window-scoped (ADR-009 E3).
 // The Rust UpdatePhase is the source of truth; this store mirrors it from

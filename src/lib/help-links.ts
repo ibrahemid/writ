@@ -1,9 +1,9 @@
 import type { Platform } from "./platform";
 
 /** The site's documentation, which Help, Jotra Help opens. */
-export const DOCS_URL = "https://writ.ibrahemid.com/docs/";
+export const DOCS_URL = "https://jotra.ibrahemid.com/docs/";
 
-const NEW_ISSUE_URL = "https://github.com/ibrahemid/writ/issues/new";
+const NEW_ISSUE_URL = "https://github.com/ibrahemid/jotra/issues/new";
 
 // The bug form's Operating System options (.github/ISSUE_TEMPLATE/bug_report.yml).
 // Linux has two there, X11 and Wayland, which the platform alone cannot tell.

@@ -69,7 +69,7 @@ class ReleaseNotesRepoTest(unittest.TestCase):
         self.repo = FixtureRepo(pathlib.Path(tmp.name))
 
     def notes(self, tag: str) -> str:
-        return release_notes.release_notes(tag, "ibrahemid/writ", self.repo.root)
+        return release_notes.release_notes(tag, "ibrahemid/jotra", self.repo.root)
 
 
 class PreviousTagTests(ReleaseNotesRepoTest):
@@ -108,7 +108,7 @@ class PreviousTagTests(ReleaseNotesRepoTest):
         self.assertNotIn("first release", notes)
         self.assertTrue(
             notes.endswith(
-                "**Full Changelog**: https://github.com/ibrahemid/writ/compare/v0.4.0...v0.5.0\n"
+                "**Full Changelog**: https://github.com/ibrahemid/jotra/compare/v0.4.0...v0.5.0\n"
             )
         )
 
@@ -159,7 +159,7 @@ class RenderNotesTests(unittest.TestCase):
         ]
 
         notes = release_notes.render_notes(
-            lines, tag="v0.5.1", previous="v0.5.0", repository="ibrahemid/writ"
+            lines, tag="v0.5.1", previous="v0.5.0", repository="ibrahemid/jotra"
         )
 
         self.assertEqual(
@@ -180,12 +180,12 @@ class RenderNotesTests(unittest.TestCase):
             "- feat!: breaking change (ddddddd)\n"
             "\n"
             "\n"
-            "**Full Changelog**: https://github.com/ibrahemid/writ/compare/v0.5.0...v0.5.1\n",
+            "**Full Changelog**: https://github.com/ibrahemid/jotra/compare/v0.5.0...v0.5.1\n",
         )
 
     def test_empty_groups_say_none_and_no_previous_tag_drops_the_compare_link(self) -> None:
         notes = release_notes.render_notes(
-            [], tag="v0.1.0", previous=None, repository="ibrahemid/writ"
+            [], tag="v0.1.0", previous=None, repository="ibrahemid/jotra"
         )
 
         self.assertEqual(
@@ -225,14 +225,14 @@ class MainTests(ReleaseNotesRepoTest):
         self.repo.commit("feat: candidate", tag="v0.5.0-1")
         self.repo.commit("fix: stable", tag="v0.5.0")
 
-        code, stdout, stderr = self.run_main(TAG="v0.5.0", REPO="ibrahemid/writ")
+        code, stdout, stderr = self.run_main(TAG="v0.5.0", REPO="ibrahemid/jotra")
 
         self.assertEqual(code, 0)
         self.assertEqual(stdout, self.notes("v0.5.0"))
         self.assertIn("v0.4.0..v0.5.0", stderr)
 
     def test_fails_without_a_tag(self) -> None:
-        code, stdout, stderr = self.run_main(REPO="ibrahemid/writ")
+        code, stdout, stderr = self.run_main(REPO="ibrahemid/jotra")
 
         self.assertEqual(code, 1)
         self.assertEqual(stdout, "")
@@ -241,7 +241,7 @@ class MainTests(ReleaseNotesRepoTest):
     def test_fails_on_an_unknown_tag(self) -> None:
         self.repo.commit("feat: start", tag="v0.1.0")
 
-        code, stdout, stderr = self.run_main(TAG="v9.9.9", REPO="ibrahemid/writ")
+        code, stdout, stderr = self.run_main(TAG="v9.9.9", REPO="ibrahemid/jotra")
 
         self.assertEqual(code, 1)
         self.assertEqual(stdout, "")

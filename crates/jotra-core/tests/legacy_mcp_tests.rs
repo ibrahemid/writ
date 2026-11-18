@@ -118,7 +118,7 @@ fn the_bundle_manifest_keeps_the_extension_name_and_runs_the_legacy_command() {
             "version": "0.7.0",
             "description": "Reads the files in your Jotra folder, and writes them if you allow it in Jotra.",
             "author": { "name": "Jotra" },
-            "homepage": "https://writ.ibrahemid.com",
+            "homepage": "https://jotra.ibrahemid.com",
             "server": {
                 "type": "node",
                 "entry_point": "server/index.js",

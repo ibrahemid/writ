@@ -17,7 +17,7 @@ const jotraTourBp = /--jotra-site-bp-lg:\s*([^;]+);/.exec(tokensCss)?.[1]?.trim(
 if (!jotraTourBp) throw new MissingTokenError('--jotra-site-bp-lg');
 
 const NOUNS = ['text', 'note', 'scratchpad', 'Markdown editor', 'journal', 'to-do list'];
-const repo = 'https://github.com/ibrahemid/writ';
+const repo = 'https://github.com/ibrahemid/jotra';
 const detail = [`v${release.version}`, 'macOS 12+', 'Windows 10+', 'Linux']
   .filter(Boolean)
   .join(' · ');

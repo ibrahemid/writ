@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-REPO="ibrahemid/writ"
+REPO="ibrahemid/jotra"
 BIN_DIR="${HOME}/.local/bin"
 LIB_DIR="${HOME}/.local/share/jotra"
 LEGACY_LIB_DIR="${HOME}/.local/share/writ"

@@ -11,7 +11,7 @@
 #   scripts/triage-dependabot.sh all              # rebase, then automerge-safe, then status
 set -euo pipefail
 
-REPO="${REPO:-ibrahemid/writ}"
+REPO="${REPO:-ibrahemid/jotra}"
 
 list_prs() {
   gh pr list -R "$REPO" --author "app/dependabot" --state open \

@@ -316,7 +316,7 @@ pub fn bundle_manifest(server: &str, version: &str) -> String {
         "version": version,
         "description": "Reads the files in your Jotra folder, and writes them if you allow it in Jotra.",
         "author": { "name": "Jotra" },
-        "homepage": "https://writ.ibrahemid.com",
+        "homepage": "https://jotra.ibrahemid.com",
         "server": {
             "type": "node",
             "entry_point": BUNDLE_LAUNCHER_PATH,

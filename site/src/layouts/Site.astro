@@ -19,7 +19,7 @@ interface Props {
 
 const { title, description, path, unlisted = false } = Astro.props;
 
-const SITE_URL = 'https://writ.ibrahemid.com';
+const SITE_URL = 'https://jotra.ibrahemid.com';
 
 // The analytics tag ships only when the build is handed a script URL. A tag
 // pointed at a host that is down is a network error in every visitor's console
@@ -42,7 +42,7 @@ const ld = {
   isAccessibleForFree: true,
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
   downloadUrl: SITE_URL + base + '/download/',
-  license: 'https://github.com/ibrahemid/writ/blob/main/LICENSE',
+  license: 'https://github.com/ibrahemid/jotra/blob/main/LICENSE',
   url: SITE_URL + base + '/',
 };
 // The faces are declared here rather than in a stylesheet so each preload
@@ -88,7 +88,7 @@ const fontFace = fontFaces
     <script is:inline type="application/ld+json" set:html={JSON.stringify(ld)} />
 
     {analyticsSrc && (
-      <script is:inline defer src={analyticsSrc} data-website-id={ANALYTICS_SITE_ID} data-domains="writ.ibrahemid.com" data-do-not-track="true"></script>
+      <script is:inline defer src={analyticsSrc} data-website-id={ANALYTICS_SITE_ID} data-domains="jotra.ibrahemid.com" data-do-not-track="true"></script>
     )}
   </head>
   <body>

@@ -475,7 +475,7 @@ class DispatchedTagTests(unittest.TestCase):
         self.commit(work, "never merged")
         self.git("-C", str(work), "tag", "v0.6.0-1")
         self.unmerged = self.git("-C", str(work), "rev-parse", "HEAD").stdout.strip()
-        self.git("clone", "--quiet", "--bare", str(work), str(self.root / "server" / "ibrahemid" / "writ.git"))
+        self.git("clone", "--quiet", "--bare", str(work), str(self.root / "server" / "ibrahemid" / "jotra.git"))
 
     def git(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["git", *args], env=self.env, capture_output=True, text=True, check=True)
@@ -499,7 +499,7 @@ class DispatchedTagTests(unittest.TestCase):
             "REF_NAME": "main" if dispatched else tag,
             "DEFAULT_BRANCH": "main",
             "GITHUB_SERVER_URL": f"file://{self.root / 'server'}",
-            "GITHUB_REPOSITORY": "ibrahemid/writ",
+            "GITHUB_REPOSITORY": "ibrahemid/jotra",
             "GITHUB_OUTPUT": str(output),
             "RUNNER_TEMP": str(runner_temp),
         }

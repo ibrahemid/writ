@@ -33,7 +33,7 @@ import release_signing  # noqa: E402
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 VERSION = "0.6.0"
 TAG = "v0.6.0"
-REPO = "ibrahemid/writ"
+REPO = "ibrahemid/jotra"
 MINISIGN = os.environ.get("MINISIGN") or shutil.which("minisign")
 TAURI_CLI = REPO_ROOT / "node_modules" / ".bin" / "tauri"
 

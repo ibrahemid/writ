@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://writ.ibrahemid.com/sitemap-index.xml
+Sitemap: https://jotra.ibrahemid.com/sitemap-index.xml

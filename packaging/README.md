@@ -8,7 +8,7 @@ This directory documents Jotra's package-manager release channels and holds thei
 |---|---|
 | macOS | `brew install --cask ibrahemid/writ/jotra` |
 | Windows | `winget install -e --id ibrahemid.Writ` |
-| Any Linux | `curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh \| sh` |
+| Any Linux | `curl -fsSL https://github.com/ibrahemid/jotra/raw/main/install.sh \| sh` |
 | Arch Linux | `yay -S writ-bin` (or any AUR helper) |
 
 ## Layout
@@ -60,7 +60,7 @@ The post-release workflow expects these artifact names on GitHub Releases. They 
 
 Every asset carries a build provenance attestation, and each SBOM is attested
 against the installers it describes (`gh attestation verify <file> --repo
-ibrahemid/writ`).
+ibrahemid/jotra`).
 
 Tauri v2 signs the platform installer directly instead of wrapping it, so the
 Windows and Linux updater payloads are the `.msi` and `.AppImage` themselves,

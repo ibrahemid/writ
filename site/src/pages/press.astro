@@ -3,7 +3,7 @@ import Prose from '../layouts/Prose.astro';
 import release from '../data/release.json';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const repo = 'https://github.com/ibrahemid/writ';
+const repo = 'https://github.com/ibrahemid/jotra';
 ---
 <Prose title="Press kit" description="Name, one-line description, icon files, screenshots and facts about Jotra for articles and listings." path="/press/">
   <h2>The facts</h2>
@@ -15,7 +15,7 @@ const repo = 'https://github.com/ibrahemid/writ';
     <tr><td>Platforms</td><td>macOS 12+, Windows 10+, Linux (x86_64).</td></tr>
     <tr><td>Price and license</td><td>Free. Open source under MIT.</td></tr>
     <tr><td>Current version</td><td>{release.version}, released {release.publishedAt.slice(0, 10)}.</td></tr>
-    <tr><td>Public since</td><td>July 2026. Source, decision records and release history at <a href={repo}>github.com/ibrahemid/writ</a>.</td></tr>
+    <tr><td>Public since</td><td>July 2026. Source, decision records and release history at <a href={repo}>github.com/ibrahemid/jotra</a>.</td></tr>
     <tr><td>Made by</td><td>Ibrahem (ibrahemid on GitHub), one person.</td></tr>
     <tr><td>Built with</td><td>Rust and Tauri 2 for the shell; SolidJS and CodeMirror 6 for the editor; SQLite for the index.</td></tr>
     <tr><td>Privacy</td><td>No account, no telemetry. The first send to any AI host off this computer and the first call from any program wait for the user's approval.</td></tr>

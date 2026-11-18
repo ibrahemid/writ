@@ -50,7 +50,7 @@ msiinfo export Jotra_<version>_x64_en-US.msi Property
 The URL points at the GitHub Releases download for the x64 MSI:
 
 ```
-https://github.com/ibrahemid/writ/releases/download/v<version>/Jotra_<version>_x64_en-US.msi
+https://github.com/ibrahemid/jotra/releases/download/v<version>/Jotra_<version>_x64_en-US.msi
 ```
 
 Jotra does not ship an ARM64 MSI. When an ARM64 artifact is added, append a second entry to the `Installers` list with `Architecture: arm64`.

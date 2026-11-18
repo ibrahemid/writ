@@ -59,7 +59,7 @@ describe('download groups in the built pages', () => {
         expect(primaries, `${page} ${expected.os}`).toHaveLength(1);
         expect(decode(primaries[0]?.[1] ?? '')).toBe(`Download for ${expected.name}`);
         const href = /\bhref="([^"]+)"/.exec(primaries[0]?.[0] ?? '')?.[1] ?? '';
-        expect(href.startsWith('https://github.com/ibrahemid/writ/releases/'), `${expected.os} ${href}`).toBe(true);
+        expect(href.startsWith('https://github.com/ibrahemid/jotra/releases/'), `${expected.os} ${href}`).toBe(true);
         expect(expected.file.test(href) || href.includes('/releases/tag/'), `${expected.os} ${href}`).toBe(true);
       }
     }

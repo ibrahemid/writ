@@ -2,11 +2,11 @@ cask "jotra" do
   version "1.0.1"
   sha256 "f075695d24debddcfb61c9a3c253674e623f5c6ca80b27a4baf72e5794f8899a"
 
-  url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Jotra_#{version}_universal.pkg"
+  url "https://github.com/ibrahemid/jotra/releases/download/v#{version}/Jotra_#{version}_universal.pkg"
 
   name "Jotra"
   desc "Light text editor for any text file, with full-text search and inline Markdown"
-  homepage "https://github.com/ibrahemid/writ"
+  homepage "https://github.com/ibrahemid/jotra"
 
   livecheck do
     url :url

@@ -8,7 +8,7 @@ Do not report security vulnerabilities through public GitHub issues, pull reques
 
 Use **GitHub Security Advisories** to report vulnerabilities privately:
 
-1. Go to the [Jotra repository](https://github.com/ibrahemid/writ) on GitHub.
+1. Go to the [Jotra repository](https://github.com/ibrahemid/jotra) on GitHub.
 2. Click the **Security** tab.
 3. Click **Report a vulnerability**.
 4. Fill in the advisory form with as much detail as possible.

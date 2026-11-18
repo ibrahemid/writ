@@ -8,7 +8,7 @@ Jotra is a text editor for macOS, Windows and Linux that opens any text file and
 
 Jotra was called Writ through version 1.0.1.
 
-[**Download**](https://github.com/ibrahemid/writ/releases/latest) · [**Website**](https://writ.ibrahemid.com)
+[**Download**](https://github.com/ibrahemid/jotra/releases/latest) · [**Website**](https://jotra.ibrahemid.com)
 
 </div>
 
@@ -23,10 +23,10 @@ Jotra was called Writ through version 1.0.1.
 brew trust ibrahemid/writ                                            # macOS 12 or later
 brew install --cask ibrahemid/writ/jotra
 winget install -e --id ibrahemid.Writ                                # Windows
-curl -fsSL https://github.com/ibrahemid/writ/raw/main/install.sh | sh # Linux
+curl -fsSL https://github.com/ibrahemid/jotra/raw/main/install.sh | sh # Linux
 ```
 
-Or download a `.pkg` or `.dmg`, `.msi`, `.AppImage` or `.deb` from [Releases](https://github.com/ibrahemid/writ/releases/latest).
+Or download a `.pkg` or `.dmg`, `.msi`, `.AppImage` or `.deb` from [Releases](https://github.com/ibrahemid/jotra/releases/latest).
 
 ## The `jotra` command
 
@@ -50,14 +50,14 @@ Every verb and its exit codes are in [docs/cli-verbs.md](docs/cli-verbs.md).
 claude mcp add --scope user jotra -- "/Applications/Jotra.app/Contents/MacOS/jotra" mcp
 ```
 
-The walk-through is in [Connect a program to your folder with MCP](https://writ.ibrahemid.com/guides/agent-output/), and Claude Code's hooks are in [docs/integrations/claude-code.md](docs/integrations/claude-code.md).
+The walk-through is in [Connect a program to your folder with MCP](https://jotra.ibrahemid.com/guides/agent-output/), and Claude Code's hooks are in [docs/integrations/claude-code.md](docs/integrations/claude-code.md).
 
 ## Build from source
 
 Prerequisites: [rustup](https://rustup.rs), which installs the Rust version `rust-toolchain.toml` pins, Node.js `^22.22.2 || ^24.15.0 || >=26`, pnpm 9+, and the [Tauri v2 prerequisites](https://tauri.app/start/prerequisites/) for your OS.
 
 ```bash
-git clone https://github.com/ibrahemid/writ.git jotra
+git clone https://github.com/ibrahemid/jotra.git jotra
 cd jotra
 pnpm install
 cargo build -p jotra-cli

@@ -13,7 +13,7 @@ import {
   type LlmsSite,
 } from '../lib/llms-text';
 
-const ORIGIN = 'https://writ.ibrahemid.com';
+const ORIGIN = 'https://jotra.ibrahemid.com';
 const PAGE = `${ORIGIN}/docs/`;
 
 const page = (body: string, head = '<title>How Jotra works | Jotra</title><meta name="description" content="Files &amp; folders.">'): string =>
@@ -142,7 +142,7 @@ describe('pageMeta', () => {
 describe('isStub', () => {
   it('knows the /vs/obsidian/ refresh from a page', () => {
     const stub =
-      '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Jotra and Obsidian on one folder | Jotra</title><meta name="robots" content="noindex"><link rel="canonical" href="https://writ.ibrahemid.com/guides/obsidian/"><meta http-equiv="refresh" content="0; url=/guides/obsidian/"></head><body><a href="/guides/obsidian/">Jotra and Obsidian on one folder</a></body></html>';
+      '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Jotra and Obsidian on one folder | Jotra</title><meta name="robots" content="noindex"><link rel="canonical" href="https://jotra.ibrahemid.com/guides/obsidian/"><meta http-equiv="refresh" content="0; url=/guides/obsidian/"></head><body><a href="/guides/obsidian/">Jotra and Obsidian on one folder</a></body></html>';
     expect(isStub(stub)).toBe(true);
     expect(isStub(page('<p>x</p>'))).toBe(false);
   });
@@ -151,7 +151,7 @@ describe('isStub', () => {
 describe('linkedPaths and orderSection', () => {
   it('reads the matching links of main#content in page order, once each, on this site only', () => {
     const html = page(
-      '<ul><li id="files"><a href="/docs/files/" data-topic>Files</a></li><li id="obsidian"><a href="/guides/obsidian-vault-files/" data-topic>Obsidian</a></li><li><a href="/docs/files/" data-topic>Again</a></li><li><a href="https://github.com/ibrahemid/writ" data-topic>Code</a></li><li><a href="/docs/cli/">Not a topic</a></li></ul>',
+      '<ul><li id="files"><a href="/docs/files/" data-topic>Files</a></li><li id="obsidian"><a href="/guides/obsidian-vault-files/" data-topic>Obsidian</a></li><li><a href="/docs/files/" data-topic>Again</a></li><li><a href="https://github.com/ibrahemid/jotra" data-topic>Code</a></li><li><a href="/docs/cli/">Not a topic</a></li></ul>',
     );
     expect(linkedPaths(html, PAGE, 'a[data-topic]')).toEqual(['/docs/files/', '/guides/obsidian-vault-files/']);
   });
@@ -177,7 +177,7 @@ describe('renderLlmsTxt and renderLlmsFull', () => {
   const site: LlmsSite = {
     name: 'Jotra',
     summary: 'A text app.',
-    repository: 'https://github.com/ibrahemid/writ',
+    repository: 'https://github.com/ibrahemid/jotra',
     docs: [link('/docs/', 'How Jotra works')],
     guides: [link('/guides/', 'Guides')],
     reference: [link('/privacy/', 'Privacy'), link('/download/', 'Download')],
@@ -191,7 +191,7 @@ describe('renderLlmsTxt and renderLlmsFull', () => {
         '',
         '> A text app.',
         '',
-        'Source, issues and releases: https://github.com/ibrahemid/writ',
+        'Source, issues and releases: https://github.com/ibrahemid/jotra',
         '',
         '## Docs',
         '',
@@ -216,7 +216,7 @@ describe('renderLlmsTxt and renderLlmsFull', () => {
 
   it('carries the body of every required page and none of the optional ones', () => {
     const full = renderLlmsFull(site);
-    expect(full.startsWith('# Jotra\n\n> A text app.\n\n## How Jotra works\n\nSource: https://writ.ibrahemid.com/docs/\n\nBody of How Jotra works.\n')).toBe(true);
+    expect(full.startsWith('# Jotra\n\n> A text app.\n\n## How Jotra works\n\nSource: https://jotra.ibrahemid.com/docs/\n\nBody of How Jotra works.\n')).toBe(true);
     for (const title of ['Guides', 'Privacy', 'Download']) expect(full).toContain(`## ${title}\n\nSource: `);
     expect(full).not.toContain('Changelog');
   });

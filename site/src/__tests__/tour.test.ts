@@ -54,7 +54,7 @@ describe('shouldPostScene', () => {
 describe('isFrameMessage', () => {
   const frame = {} as MessageEventSource;
   const other = {} as MessageEventSource;
-  const origin = 'https://writ.ibrahemid.com';
+  const origin = 'https://jotra.ibrahemid.com';
 
   it('accepts a message from the frame on the page origin', () => {
     expect(isFrameMessage({ source: frame, origin }, frame, origin)).toBe(true);

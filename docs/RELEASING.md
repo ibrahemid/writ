@@ -433,8 +433,8 @@ the SBOM attestation for the same file.
 
 ```bash
 for asset in Jotra_<version>_universal.pkg Jotra_<version>_x64_en-US.msi Jotra_<version>_amd64.AppImage; do
-  gh attestation verify "$asset" --repo ibrahemid/writ
-  gh attestation verify "$asset" --repo ibrahemid/writ --predicate-type https://cyclonedx.org/bom
+  gh attestation verify "$asset" --repo ibrahemid/jotra
+  gh attestation verify "$asset" --repo ibrahemid/jotra --predicate-type https://cyclonedx.org/bom
 done
 ```
 
@@ -442,7 +442,7 @@ Verify `latest.json` parses and points at real asset URLs:
 
 ```bash
 VERSION="$(jq -r .version site/package.json)"
-curl -fsSL "https://github.com/ibrahemid/writ/releases/download/v${VERSION}/latest.json" | jq .
+curl -fsSL "https://github.com/ibrahemid/jotra/releases/download/v${VERSION}/latest.json" | jq .
 ```
 
 ### 2.6 Publish the release
@@ -453,7 +453,7 @@ uncheck `Set as a pre-release` for stable releases, and click **Publish**.
 Publishing causes GitHub to serve the assets at:
 
 ```
-https://github.com/ibrahemid/writ/releases/latest/download/latest.json
+https://github.com/ibrahemid/jotra/releases/latest/download/latest.json
 ```
 
 This URL is what installed clients poll for updates (configured in
@@ -483,7 +483,7 @@ check:
 - The Linux one-liner resolves the new tag:
 
   ```bash
-  curl -s https://api.github.com/repos/ibrahemid/writ/releases/latest | jq -r .tag_name
+  curl -s https://api.github.com/repos/ibrahemid/jotra/releases/latest | jq -r .tag_name
   ```
 
   This must print the tag you just published. `install.sh` reads that endpoint

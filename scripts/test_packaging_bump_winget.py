@@ -23,14 +23,14 @@ Moniker: scratchpad
 Tags:
   - scratchpad
   - editor
-ReleaseNotesUrl: https://github.com/ibrahemid/writ/releases/tag/v0.3.5
+ReleaseNotesUrl: https://github.com/ibrahemid/jotra/releases/tag/v0.3.5
 ManifestType: defaultLocale
 """
 
 
 class RewriteLocaleTests(unittest.TestCase):
     def test_replaces_every_public_description_field(self) -> None:
-        release_notes_url = "https://github.com/ibrahemid/writ/releases/tag/v1.0.0"
+        release_notes_url = "https://github.com/ibrahemid/jotra/releases/tag/v1.0.0"
 
         result = MODULE.rewrite_locale(STALE_LOCALE, release_notes_url)
 
@@ -77,7 +77,7 @@ ReleaseDate: 2026-09-26
 Installers:
   - Architecture: x64
     InstallerType: wix
-    InstallerUrl: https://github.com/ibrahemid/writ/releases/download/v0.5.0/Jotra_0.5.0_x64_en-US.msi
+    InstallerUrl: https://github.com/ibrahemid/jotra/releases/download/v0.5.0/Jotra_0.5.0_x64_en-US.msi
     InstallerSha256: 56006b86adda661cc6fccf806fb7d31087c4cc1b48c730621279a6edb8e41079
     InstallerSwitches:
       Silent: /quiet
@@ -97,7 +97,7 @@ Description: |-
 Moniker: old
 Tags:
   - editor
-ReleaseNotesUrl: https://github.com/ibrahemid/writ/releases/tag/v0.5.0
+ReleaseNotesUrl: https://github.com/ibrahemid/jotra/releases/tag/v0.5.0
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
 """
@@ -242,7 +242,7 @@ class BumpFromReleasedMsiTests(unittest.TestCase):
         self.assertNotIn(OLD_PRODUCT_CODE, installer)
         self.assertIn("PackageVersion: 0.5.1\n", installer)
         self.assertIn(
-            "InstallerUrl: https://github.com/ibrahemid/writ/releases/download/v0.5.1/Jotra_0.5.1_x64_en-US.msi\n",
+            "InstallerUrl: https://github.com/ibrahemid/jotra/releases/download/v0.5.1/Jotra_0.5.1_x64_en-US.msi\n",
             installer,
         )
         self.assertIn(f"InstallerSha256: {'a' * 64}\n", installer)
@@ -255,7 +255,7 @@ class BumpFromReleasedMsiTests(unittest.TestCase):
         locale = (self.target() / "ibrahemid.Writ.locale.en-US.yaml").read_text()
         self.assertIn("PackageName: Jotra\n", locale)
         self.assertIn("Moniker: jotra\n", locale)
-        self.assertIn("ReleaseNotesUrl: https://github.com/ibrahemid/writ/releases/tag/v0.5.1\n", locale)
+        self.assertIn("ReleaseNotesUrl: https://github.com/ibrahemid/jotra/releases/tag/v0.5.1\n", locale)
 
     def test_refuses_an_msi_without_an_upgrade_code(self) -> None:
         self.table.write_text(PROPERTY_TABLE.replace(f"UpgradeCode\t{UPGRADE_CODE}\r\n", ""), newline="")

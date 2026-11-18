@@ -8,7 +8,7 @@ body:
       value: |
         Reproducible bugs and feature requests have their own templates.
 
-        Check the [README](https://github.com/ibrahemid/writ#readme), [CONTRIBUTING.md](https://github.com/ibrahemid/writ/blob/main/CONTRIBUTING.md) and [docs/ARCHITECTURE.md](https://github.com/ibrahemid/writ/blob/main/docs/ARCHITECTURE.md) first.
+        Check the [README](https://github.com/ibrahemid/jotra#readme), [CONTRIBUTING.md](https://github.com/ibrahemid/jotra/blob/main/CONTRIBUTING.md) and [docs/ARCHITECTURE.md](https://github.com/ibrahemid/jotra/blob/main/docs/ARCHITECTURE.md) first.
   - type: checkboxes
     id: confirm
     attributes:

@@ -9,7 +9,7 @@ import { DOCS_TOPICS, getDocsTopicHref } from '../src/data/docs-topics';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DIST = join(ROOT, 'dist');
-const ORIGIN = 'https://writ.ibrahemid.com';
+const ORIGIN = 'https://jotra.ibrahemid.com';
 const INDEX = join(DIST, 'docs', 'index.html');
 
 // The anchors of the one-page /docs/ that shipped builds and old links carry.

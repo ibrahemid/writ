@@ -26,12 +26,12 @@ RELEASE_JSON = {
     "hasChecksums": True,
     "platforms": {
         "macos": {
-            "dmg": "https://github.com/ibrahemid/writ/releases/download/v0.3.4/Jotra_0.3.4_universal.dmg",
+            "dmg": "https://github.com/ibrahemid/jotra/releases/download/v0.3.4/Jotra_0.3.4_universal.dmg",
             "sha256_dmg": "abc123",
             "size_dmg": 12345,
         },
         "windows": {
-            "msi": "https://github.com/ibrahemid/writ/releases/download/v0.3.4/Jotra_0.3.4_x64_en-US.msi",
+            "msi": "https://github.com/ibrahemid/jotra/releases/download/v0.3.4/Jotra_0.3.4_x64_en-US.msi",
             "sha256_msi": "def456",
             "size_msi": 6789,
         },
@@ -77,11 +77,11 @@ class BumpReleaseJsonTest(unittest.TestCase):
 
         self.assertEqual(
             bumped["platforms"]["macos"]["dmg"],
-            "https://github.com/ibrahemid/writ/releases/download/v0.5.0/Jotra_0.5.0_universal.dmg",
+            "https://github.com/ibrahemid/jotra/releases/download/v0.5.0/Jotra_0.5.0_universal.dmg",
         )
         self.assertEqual(
             bumped["platforms"]["windows"]["msi"],
-            "https://github.com/ibrahemid/writ/releases/download/v0.5.0/Jotra_0.5.0_x64_en-US.msi",
+            "https://github.com/ibrahemid/jotra/releases/download/v0.5.0/Jotra_0.5.0_x64_en-US.msi",
         )
 
     def test_the_date_is_left_to_the_site_deploy(self) -> None:

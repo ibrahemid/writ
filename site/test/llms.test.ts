@@ -8,7 +8,7 @@ import { LLMS_DROP_SELECTORS } from '../src/lib/llms-text';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DIST = join(ROOT, 'dist');
-const SITE_ORIGIN = 'https://writ.ibrahemid.com';
+const SITE_ORIGIN = 'https://jotra.ibrahemid.com';
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const LIST_LINE = new RegExp(`^- \\[[^\\]]+\\]\\(${escapeRegExp(SITE_ORIGIN)}/[^)\\s]*\\)(: .+)?$`);
 const REFERENCE = ['/privacy/', '/download/'];

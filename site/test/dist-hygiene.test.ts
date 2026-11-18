@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DIST = join(ROOT, 'dist');
 const SRC = join(ROOT, 'src');
-const SITE_ORIGIN = 'https://writ.ibrahemid.com';
+const SITE_ORIGIN = 'https://jotra.ibrahemid.com';
 
 function walk(dir: string, match: (p: string) => boolean): string[] {
   const out: string[] = [];

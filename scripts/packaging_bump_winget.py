@@ -103,7 +103,7 @@ def rewrite_locale(text: str, release_notes_url: str) -> str:
         flags=re.MULTILINE,
     )
     text, notes_count = re.subn(
-        r"^ReleaseNotesUrl: https://github\.com/ibrahemid/writ/releases/tag/v.*$",
+        r"^ReleaseNotesUrl: https://github\.com/ibrahemid/jotra/releases/tag/v.*$",
         f"ReleaseNotesUrl: {release_notes_url}",
         text,
         count=1,
@@ -173,7 +173,7 @@ def rewrite_installer(
     upgrade_code: str,
 ) -> str:
     text = re.sub(
-        r"InstallerUrl: https://github\.com/ibrahemid/writ/releases/download/v[^\s]+",
+        r"InstallerUrl: https://github\.com/ibrahemid/jotra/releases/download/v[^\s]+",
         f"InstallerUrl: {installer_url}",
         text,
     )
@@ -237,10 +237,10 @@ def main() -> None:
         print(f"Copied {source_dir} -> {target_dir}")
 
     installer_url = (
-        f"https://github.com/ibrahemid/writ/releases/download/v{version}/"
+        f"https://github.com/ibrahemid/jotra/releases/download/v{version}/"
         f"Jotra_{version}_x64_en-US.msi"
     )
-    release_notes_url = f"https://github.com/ibrahemid/writ/releases/tag/v{version}"
+    release_notes_url = f"https://github.com/ibrahemid/jotra/releases/tag/v{version}"
 
     for path in sorted(target_dir.glob("*.yaml")):
         text = path.read_text()

@@ -27,7 +27,7 @@ class CaskUrlTests(unittest.TestCase):
         stanza = url_stanza(CASK_PATH.read_text())
 
         self.assertIn(
-            'url "https://github.com/ibrahemid/writ/releases/download/v#{version}/Jotra_#{version}_universal.pkg"',
+            'url "https://github.com/ibrahemid/jotra/releases/download/v#{version}/Jotra_#{version}_universal.pkg"',
             stanza,
         )
 

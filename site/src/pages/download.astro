@@ -3,7 +3,7 @@ import Site from '../layouts/Site.astro';
 import DownloadRows from '../components/DownloadRows.astro';
 import release from '../data/release.json';
 
-const repo = 'https://github.com/ibrahemid/writ';
+const repo = 'https://github.com/ibrahemid/jotra';
 const sumsUrl = `${repo}/releases/download/${release.tag}/SHA256SUMS.txt`;
 const p = release.platforms;
 const sums: [string, string][] = [

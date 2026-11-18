@@ -56,7 +56,7 @@ class RewritePkgbuildTests(unittest.TestCase):
         self.assertIn("\tconflicts = jotra\n", text)
         self.assertIn(
             "\tsource = jotra-9.9.9.AppImage.minisign::"
-            "https://github.com/ibrahemid/writ/releases/download/v9.9.9/Jotra_9.9.9_amd64.AppImage.sig\n",
+            "https://github.com/ibrahemid/jotra/releases/download/v9.9.9/Jotra_9.9.9_amd64.AppImage.sig\n",
             text,
         )
         self.assertEqual(

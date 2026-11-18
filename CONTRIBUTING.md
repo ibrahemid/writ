@@ -15,7 +15,7 @@ Thank you for your interest in contributing. This document covers everything you
 ## Building from Source
 
 ```bash
-git clone https://github.com/ibrahemid/writ.git jotra
+git clone https://github.com/ibrahemid/jotra.git jotra
 cd jotra
 pnpm install
 cargo tauri dev          # development (hot-reload)

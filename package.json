@@ -7,10 +7,10 @@
     "packageManager": "pnpm@10.13.1",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/ibrahemid/writ.git"
+        "url": "git+https://github.com/ibrahemid/jotra.git"
     },
-    "homepage": "https://github.com/ibrahemid/writ",
-    "bugs": "https://github.com/ibrahemid/writ/issues",
+    "homepage": "https://github.com/ibrahemid/jotra",
+    "bugs": "https://github.com/ibrahemid/jotra/issues",
     "type": "module",
     "engines": {
         "node": "^22.22.2 || ^24.15.0 || >=26",

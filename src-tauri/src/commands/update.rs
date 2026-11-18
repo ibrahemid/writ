@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn redacts_https_endpoint_but_keeps_status() {
         let out = sanitize_update_error(
-            "failed to fetch https://github.com/ibrahemid/writ/releases/latest/download/latest.json: status 404",
+            "failed to fetch https://github.com/ibrahemid/jotra/releases/latest/download/latest.json: status 404",
         );
         assert!(!out.contains("github.com"), "url leaked: {out}");
         assert!(!out.contains("https://"), "scheme leaked: {out}");
