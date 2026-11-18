@@ -11,9 +11,10 @@ import { LEGACY_CSS_PREFIX, LEGACY_THEME_MIRROR_KEY } from "../../lib/legacy-nam
 const INDEX_HTML = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
 
 function bootScript(): string {
-  const match = INDEX_HTML.match(/<script>([\s\S]*?)<\/script>/);
-  if (!match) throw new Error("index.html has no inline boot script");
-  return match[1];
+  const parsed = new DOMParser().parseFromString(INDEX_HTML, "text/html");
+  const inline = Array.from(parsed.scripts).find((script) => !script.hasAttribute("src"));
+  if (!inline?.textContent) throw new Error("index.html has no inline boot script");
+  return inline.textContent;
 }
 
 function runBootScript(): void {

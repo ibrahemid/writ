@@ -71,13 +71,9 @@ describe("share image page", () => {
   const html = buildOgImageHtml(inputs);
 
   it("holds the mark and the name only", () => {
-    const text = html
-      .replace(/<style>[\s\S]*<\/style>/, "")
-      .replace(/<svg[\s\S]*<\/svg>/, "")
-      .replace(/<[^>]+>/g, "")
-      .trim();
-    expect(text).toBe(OG_NAME);
-    expect(html).toContain(inputs.iconSvg);
+    const open = "<body>";
+    const body = html.slice(html.indexOf(open) + open.length, html.indexOf("</body>"));
+    expect(body).toBe(`<div class="mark">${inputs.iconSvg}<span>${OG_NAME}</span></div>`);
   });
 
   it("sets the name in the display font on the canvas colour", () => {
