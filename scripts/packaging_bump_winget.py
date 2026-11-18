@@ -24,6 +24,7 @@ PACKAGE_IDENTIFIER = "ibrahemid.Writ"
 PACKAGE_NAME = "Jotra"
 MONIKER = "jotra"
 LEGACY_TAG = PACKAGE_IDENTIFIER.rpartition(".")[2].lower()
+REPOSITORY_NAMES = f"(?:jotra|{LEGACY_TAG})"
 SHORT_DESCRIPTION = "Light text editor for any text file, with full-text search and inline Markdown"
 DESCRIPTION = (
     "Jotra opens any text file and searches every file in its folder. A Markdown file renders "
@@ -103,7 +104,7 @@ def rewrite_locale(text: str, release_notes_url: str) -> str:
         flags=re.MULTILINE,
     )
     text, notes_count = re.subn(
-        r"^ReleaseNotesUrl: https://github\.com/ibrahemid/jotra/releases/tag/v.*$",
+        rf"^ReleaseNotesUrl: https://github\.com/ibrahemid/{REPOSITORY_NAMES}/releases/tag/v.*$",
         f"ReleaseNotesUrl: {release_notes_url}",
         text,
         count=1,
@@ -173,7 +174,7 @@ def rewrite_installer(
     upgrade_code: str,
 ) -> str:
     text = re.sub(
-        r"InstallerUrl: https://github\.com/ibrahemid/jotra/releases/download/v[^\s]+",
+        rf"InstallerUrl: https://github\.com/ibrahemid/{REPOSITORY_NAMES}/releases/download/v[^\s]+",
         f"InstallerUrl: {installer_url}",
         text,
     )
